@@ -2,7 +2,10 @@ package app
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1017,5 +1020,64 @@ func TestAuditAfterReload(t *testing.T) {
 	}
 	if v, err := q.Audit.Verify(); err != nil || !v.Intact() {
 		t.Fatalf("%+v %v", v, err)
+	}
+}
+
+// A connection to one server keeps the keychain key, and the trust, it
+// had before Redis topologies: its saved password is still found.
+func TestSecretKeyUnchangedForOneServer(t *testing.T) {
+	cfg := db.Config{ID: "p.r", Engine: db.Redis, Host: "cache", Port: 6379, User: "u", Database: "2"}
+	where := fmt.Sprintf("%s|%s|%d|%s|%s|%v|%s|%d|%s", cfg.Engine, cfg.Host, cfg.Port, cfg.User, cfg.Database, false, "", 0, "")
+	sum := sha256.Sum256([]byte(where))
+	if got, want := secretKey(&cfg, "password"), "conn/p.r/"+hex.EncodeToString(sum[:6])+"/password"; got != want {
+		t.Fatalf("key %s, want %s", got, want)
+	}
+	// A node added, as by a pull, is a new destination: a new key, and
+	// the trust asked again.
+	cluster := cfg
+	cluster.Redis = db.RedisConfig{Mode: db.RedisCluster, Nodes: "evil:6379"}
+	if secretKey(&cluster, "password") == secretKey(&cfg, "password") || sharedFingerprint(&cluster, "/p") == sharedFingerprint(&cfg, "/p") {
+		t.Fatal("a cluster's nodes do not change where the password is kept, or the trust")
+	}
+}
+
+// The form keeps what the chosen topology uses, and the sentinels'
+// password goes to the keychain, never to dgopher.json.
+func TestConnFormSentinel(t *testing.T) {
+	a := newTestApp(t)
+	a.openConnForm(nil)
+	tt := ui.NewTester(a.view, 1000, 1000)
+	f := a.connForm
+	a.syncEngineChoice(f, slices.Index(db.Engines(), db.Redis))
+	f.engineIdx = slices.Index(db.Engines(), db.Redis)
+	f.redisMode = slices.Index(redisModes, db.RedisSentinel)
+	tt.Frame()
+	if !tt.HasText("A sentinel") || !tt.HasText("Master name") || !tt.HasText("Sentinel password") {
+		t.Fatalf("sentinel form: %q", tt.Texts())
+	}
+	f.cfg.Name, f.cfg.Host, f.cfg.Redis.Nodes, f.cfg.Redis.Master = "cache", "10.0.0.1", " 10.0.0.2:26379 ", "mymaster"
+	f.cfg.Redis.SentinelPassword = "sentinel-secret"
+	if got := f.config(); got.Port != 0 || got.Redis.Nodes != "10.0.0.2:26379" {
+		t.Fatalf("config %+v", got)
+	}
+	a.saveConnForm(f, false)
+	if len(a.conns) != 1 || a.conns[0].Config.Redis.SentinelPassword != "" {
+		t.Fatalf("saved %+v", a.conns)
+	}
+	data, _ := os.ReadFile(filepath.Join(a.projects[0].Dir, project.File))
+	if strings.Contains(string(data), "sentinel-secret") || !strings.Contains(string(data), `"master": "mymaster"`) {
+		t.Fatalf("dgopher.json: %s", data)
+	}
+	cfg := a.conns[0].Config
+	a.loadSecrets(&cfg)
+	if cfg.Redis.SentinelPassword != "sentinel-secret" {
+		t.Fatal("the sentinels' password is not in the keychain")
+	}
+
+	// Back to one server: what only a topology used goes.
+	a.openConnForm(a.conns[0])
+	a.connForm.redisMode = 0
+	if got := a.connForm.config(); got.Redis != (db.RedisConfig{}) {
+		t.Fatalf("one server keeps %+v", got.Redis)
 	}
 }

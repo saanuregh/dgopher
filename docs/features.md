@@ -57,7 +57,14 @@
 ## Connections and navigator
 
 - **Connections:** PostgreSQL (with its other databases), MySQL, ClickHouse
-  (native protocol, or HTTP on 8123 and 8443), SQLite and DuckDB files, and Redis.
+  (native protocol, or HTTP on 8123 and 8443), SQLite and DuckDB files, and Redis:
+  one server, a cluster, or the master Sentinel names.
+  - A Redis cluster starts from any of its nodes; the key browser scans
+    every master, and the console reaches a key on whichever node holds
+    it. Through Sentinel, the connection follows the master to its
+    replacement after a failover, and logs in to the sentinels with
+    credentials of their own. Through an SSH tunnel, every node is reached
+    through the SSH server.
   - TLS: off, prefer, require, or verify with a custom CA. Prefer first
     checks for TLS with a handshake that sends no password; local
     connections skip TLS.
@@ -205,8 +212,8 @@
   tooltip, and a colour-blind-safe palette.
 - **Server activity:** sessions and running queries of PostgreSQL, MySQL
   and ClickHouse, with cancel (and, on PostgreSQL and MySQL, terminate),
-  and Redis's headline metrics and clients, which can be disconnected. It
-  refreshes every 2 seconds.
+  and Redis's headline metrics and clients, which can be disconnected (of
+  one node, in a cluster). It refreshes every 2 seconds.
 - **ER diagrams** of a schema: tables with their columns and keys, and
   foreign-key connectors, laid out so referenced tables sit to the left.
   Drag tables to arrange them: one dropped on another moves to the

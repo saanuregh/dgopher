@@ -2,12 +2,15 @@ package db
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -24,9 +27,15 @@ type KV struct {
 	// readOnly holds the names of the server's read-only commands, from
 	// COMMAND; nil when the server does not list them.
 	readOnly map[string]bool
+
+	// masters are the clients of a cluster's masters, by address, as the
+	// last scan from the start found them.
+	mu      sync.Mutex
+	masters []rueidis.Client
 }
 
-// OpenRedis connects to a Redis server and checks the connection.
+// OpenRedis connects to a Redis server, a cluster, or the master Sentinel
+// names, and checks the connection.
 func OpenRedis(ctx context.Context, cfg Config, knownHosts []string) (*KV, error) {
 	if cfg.Engine != Redis {
 		return nil, fmt.Errorf("%s is not Redis", cfg.Engine.Label())
@@ -34,26 +43,81 @@ func OpenRedis(ctx context.Context, cfg Config, knownHosts []string) (*KV, error
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	ep, tunnel, err := openTunnel(ctx, &cfg, knownHosts)
-	if err != nil {
-		return nil, redact(err, cfg)
-	}
-	tc, err := tlsConfig(&cfg, ep.serverName)
+	addrs, err := cfg.RedisAddrs()
 	if err != nil {
 		return nil, err
 	}
-	dbIndex := 0
-	if cfg.Database != "" {
-		dbIndex, _ = strconv.Atoi(cfg.Database)
+	// Every connection, to the first server as to a node a cluster
+	// redirects to, goes the same way: through the SSH server when there is
+	// one, which reaches the addresses the nodes announce.
+	var tunnel *sshtunnel.Tunnel
+	dialTCP := func(ctx context.Context, addr string) (net.Conn, error) {
+		d := net.Dialer{Timeout: 15 * time.Second}
+		return d.DialContext(ctx, "tcp", addr)
 	}
-	if cfg.TLS == TLSPrefer && !speaksTLS(ctx, ep, tc) {
-		tc = nil
+	if cfg.SSH.Enabled {
+		if tunnel, err = sshtunnel.Connect(ctx, sshConfig(&cfg), knownHosts); err != nil {
+			return nil, redact(err, cfg)
+		}
+		dialTCP = tunnel.Dial
 	}
 	fail := func(err error) (*KV, error) {
 		if tunnel != nil {
 			tunnel.Close()
 		}
 		return nil, redact(err, cfg)
+	}
+	tc, err := tlsConfig(&cfg, cfg.Host)
+	if err != nil {
+		return fail(err)
+	}
+	if cfg.TLS == TLSPrefer && !speaksTLSVia(ctx, dialTCP, addrs[0], cfg.Host, tc) {
+		tc = nil
+	}
+	dbIndex := 0
+	if cfg.Database != "" {
+		dbIndex, _ = strconv.Atoi(cfg.Database)
+	}
+	opt := rueidis.ClientOption{
+		InitAddress: addrs,
+		Username:    cfg.User,
+		Password:    cfg.Password,
+		SelectDB:    dbIndex,
+		TLSConfig:   tc,
+		DialCtxFn: func(ctx context.Context, addr string, _ *net.Dialer, tc *tls.Config) (net.Conn, error) {
+			raw, err := dialTCP(ctx, addr)
+			if err != nil || tc == nil {
+				return raw, err
+			}
+			// Each node is checked against its own name.
+			nc := tc.Clone()
+			if host, _, err := net.SplitHostPort(addr); err == nil {
+				nc.ServerName = host
+			}
+			conn := tls.Client(raw, nc)
+			if err := conn.HandshakeContext(ctx); err != nil {
+				raw.Close()
+				return nil, err
+			}
+			return conn, nil
+		},
+		ConnWriteTimeout:  30 * time.Second,
+		BlockingPoolSize:  4,
+		ClientName:        "dgopher",
+		AlwaysRESP2:       true, // replies as redis-cli shows them
+		DisableCache:      true, // a browser shows live values
+		ForceSingleClient: cfg.Redis.Mode == RedisStandalone,
+	}
+	if cfg.Redis.Mode == RedisSentinel {
+		opt.Sentinel = rueidis.SentinelOption{
+			MasterSet: cfg.Redis.Master,
+			Username:  cfg.Redis.SentinelUser,
+			Password:  cfg.Redis.SentinelPassword,
+			TLSConfig: tc,
+			// A missed failover event would keep the client on the old
+			// master: asking again now and then catches it.
+			TopologyRefreshInterval: 5 * time.Second,
+		}
 	}
 	pctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
@@ -65,22 +129,13 @@ func OpenRedis(ctx context.Context, cfg Config, knownHosts []string) (*KV, error
 	// NewClient dials and handshakes without a context; it runs aside so
 	// that the caller's context, or the 20 s limit, still ends the wait.
 	go func() {
-		client, err := rueidis.NewClient(rueidis.ClientOption{
-			InitAddress:       []string{net.JoinHostPort(ep.host, strconv.Itoa(ep.port))},
-			Username:          cfg.User,
-			Password:          cfg.Password,
-			SelectDB:          dbIndex,
-			TLSConfig:         tc,
-			Dialer:            net.Dialer{Timeout: 15 * time.Second},
-			ConnWriteTimeout:  30 * time.Second,
-			BlockingPoolSize:  4,
-			ClientName:        "dgopher",
-			AlwaysRESP2:       true, // replies as redis-cli shows them
-			DisableCache:      true, // a browser shows live values
-			ForceSingleClient: true,
-		})
-		if err != nil && client != nil {
-			client.Close() // rueidis returns a client even when the dial fails
+		client, err := rueidis.NewClient(opt)
+		if err != nil {
+			// rueidis returns a client even when the dial fails, which needs
+			// closing, or a nil one of its own type, which Close would crash on.
+			if client != nil && !reflect.ValueOf(client).IsNil() {
+				client.Close()
+			}
 			client = nil
 		}
 		ch <- dialed{client, err}
@@ -99,6 +154,10 @@ func OpenRedis(ctx context.Context, cfg Config, knownHosts []string) (*KV, error
 			}
 		}()
 		return fail(pctx.Err())
+	}
+	if cfg.Redis.Mode == RedisCluster && client.Mode() != rueidis.ClientModeCluster {
+		client.Close()
+		return fail(fmt.Errorf("%s is not a node of a cluster: choose a single server", addrs[0]))
 	}
 	if err = client.Do(pctx, client.B().Ping().Build()).Error(); err != nil {
 		client.Close()
@@ -288,22 +347,98 @@ type KeyInfo struct {
 	Memory int64         // bytes, -1 when the server does not say
 }
 
-// Scan returns a batch of keys matching a glob pattern. A next cursor of
-// 0 means the scan is complete. Type, when not empty, limits the keys to
-// one type (Redis 6+).
-func (k *KV) Scan(ctx context.Context, cursor uint64, match, typ string, count int64) ([]string, uint64, error) {
+// ScanPos is where a scan of the keys is: on which of the masters, and
+// at which cursor there. Its zero value starts a scan.
+type ScanPos struct {
+	Master int
+	Cursor uint64
+}
+
+// Scan returns a batch of keys matching a glob pattern, the position to
+// go on from, and whether every key was seen. Type, when not empty,
+// limits the keys to one type (Redis 6+). A cluster's keys are on its
+// masters, which a scan visits in turn.
+func (k *KV) Scan(ctx context.Context, pos ScanPos, match, typ string, count int64) ([]string, ScanPos, bool, error) {
 	if match == "" {
 		match = "*"
 	}
-	cmd := k.Client.B().Scan().Cursor(cursor).Match(match).Count(count)
-	var e rueidis.ScanEntry
-	var err error
-	if typ != "" {
-		e, err = k.Client.Do(ctx, cmd.Type(typ).Build()).AsScanEntry()
-	} else {
-		e, err = k.Client.Do(ctx, cmd.Build()).AsScanEntry()
+	masters, err := k.mastersFor(ctx, pos == ScanPos{})
+	if err != nil {
+		return nil, pos, false, err
 	}
-	return e.Elements, e.Cursor, err
+	if pos.Master >= len(masters) {
+		return nil, pos, true, nil // the cluster lost a master since
+	}
+	c := masters[pos.Master]
+	cmd := c.B().Scan().Cursor(pos.Cursor).Match(match).Count(count)
+	var e rueidis.ScanEntry
+	if typ != "" {
+		e, err = c.Do(ctx, cmd.Type(typ).Build()).AsScanEntry()
+	} else {
+		e, err = c.Do(ctx, cmd.Build()).AsScanEntry()
+	}
+	if err != nil {
+		return nil, pos, false, err
+	}
+	next := ScanPos{Master: pos.Master, Cursor: e.Cursor}
+	if e.Cursor == 0 {
+		next = ScanPos{Master: pos.Master + 1}
+	}
+	return e.Elements, next, next.Master == len(masters), nil
+}
+
+// DBSize counts the keys of the database: of every master of a cluster.
+func (k *KV) DBSize(ctx context.Context) (int64, error) {
+	masters, err := k.mastersFor(ctx, false)
+	if err != nil {
+		return 0, err
+	}
+	var n int64
+	for _, c := range masters {
+		size, err := c.Do(ctx, c.B().Dbsize().Build()).AsInt64()
+		if err != nil {
+			return 0, err
+		}
+		n += size
+	}
+	return n, nil
+}
+
+// mastersFor returns the clients of the servers holding the keys: the one
+// client, or a cluster's masters, in the order of their addresses, read
+// again when fresh is set.
+func (k *KV) mastersFor(ctx context.Context, fresh bool) ([]rueidis.Client, error) {
+	if k.Client.Mode() != rueidis.ClientModeCluster {
+		return []rueidis.Client{k.Client}, nil
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	if k.masters != nil && !fresh {
+		return k.masters, nil
+	}
+	nodes := k.Client.Nodes()
+	addrs := make([]string, 0, len(nodes))
+	for addr := range nodes {
+		addrs = append(addrs, addr)
+	}
+	sort.Strings(addrs)
+	var masters []rueidis.Client
+	for _, addr := range addrs {
+		role, err := nodes[addr].Do(ctx, nodes[addr].B().Role().Build()).ToArray()
+		if err != nil {
+			return nil, fmt.Errorf("asking %s its role: %w", addr, err)
+		}
+		if len(role) > 0 {
+			if r, _ := role[0].ToString(); r == "master" {
+				masters = append(masters, nodes[addr])
+			}
+		}
+	}
+	if len(masters) == 0 {
+		return nil, errors.New("the cluster has no master")
+	}
+	k.masters = masters
+	return masters, nil
 }
 
 // Info returns what is known of a key.

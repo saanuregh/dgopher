@@ -8,6 +8,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
+	"strconv"
 	"strings"
 )
 
@@ -175,6 +177,61 @@ type Config struct {
 	// Color overrides the environment's color, as a hex string.
 	Color string    `json:"color,omitempty"`
 	SSH   SSHConfig `json:"ssh"`
+	// Redis says how a Redis connection reaches its data, when not on the
+	// one server of Host and Port.
+	Redis RedisConfig `json:"redis,omitzero"`
+}
+
+// RedisMode is how a Redis connection reaches its data.
+type RedisMode string
+
+const (
+	// RedisStandalone talks to the one server of Host and Port.
+	RedisStandalone RedisMode = ""
+	// RedisCluster talks to every node of a cluster, which Host and Port
+	// and Nodes lead to.
+	RedisCluster RedisMode = "cluster"
+	// RedisSentinel talks to the master the sentinels of Host and Port and
+	// Nodes name, and to the next one after a failover.
+	RedisSentinel RedisMode = "sentinel"
+)
+
+// RedisConfig is how a Redis connection reaches a cluster, or a master
+// through Sentinel.
+type RedisConfig struct {
+	Mode RedisMode `json:"mode,omitempty"`
+	// Nodes are more addresses, host:port separated by commas, of the
+	// cluster's nodes or of the sentinels, beside Host and Port: any one
+	// answering is enough. A string, for a Config to compare with ==.
+	Nodes string `json:"nodes,omitempty"`
+	// Master is the name of the master the sentinels watch.
+	Master string `json:"master,omitempty"`
+	// SentinelUser and SentinelPassword log in to the sentinels, which
+	// keep credentials of their own: the database's password never goes
+	// to them.
+	SentinelUser     string `json:"sentinelUser,omitempty"`
+	SentinelPassword string `json:"-"`
+}
+
+// RedisAddrs are the addresses a Redis connection starts from: Host and
+// Port, then Nodes.
+func (c *Config) RedisAddrs() ([]string, error) {
+	addrs := []string{net.JoinHostPort(c.Host, strconv.Itoa(c.port()))}
+	for n := range strings.SplitSeq(c.Redis.Nodes, ",") {
+		n = strings.TrimSpace(n)
+		if n == "" {
+			continue
+		}
+		host, port, err := net.SplitHostPort(n)
+		if err != nil {
+			return nil, fmt.Errorf("the node %q is not host:port", n)
+		}
+		if p, err := strconv.Atoi(port); err != nil || p < 1 || p > 65535 || host == "" {
+			return nil, fmt.Errorf("the node %q is not host:port", n)
+		}
+		addrs = append(addrs, n)
+	}
+	return addrs, nil
 }
 
 // NewID returns a random connection ID.
@@ -224,6 +281,22 @@ func (c *Config) Validate() error {
 		var n int
 		if _, err := fmt.Sscanf(c.Database, "%d", &n); err != nil || n < 0 {
 			errs = append(errs, "the Redis database must be a number such as 0")
+		} else if n != 0 && c.Redis.Mode == RedisCluster {
+			errs = append(errs, "a Redis cluster has only database 0")
+		}
+	}
+	if c.Engine == Redis {
+		switch c.Redis.Mode {
+		case RedisStandalone, RedisCluster:
+		case RedisSentinel:
+			if strings.TrimSpace(c.Redis.Master) == "" {
+				errs = append(errs, "the name of the master the sentinels watch is required")
+			}
+		default:
+			errs = append(errs, fmt.Sprintf("unknown Redis mode %q", c.Redis.Mode))
+		}
+		if _, err := c.RedisAddrs(); err != nil {
+			errs = append(errs, err.Error())
 		}
 	}
 	if c.SSH.Enabled && !c.Engine.IsFile() {
@@ -256,11 +329,17 @@ func (c *Config) Validate() error {
 }
 
 func (c *Config) port() int {
-	if c.Port > 0 {
+	switch {
+	case c.Port > 0:
 		return c.Port
+	case c.Engine == Redis && c.Redis.Mode == RedisSentinel:
+		return SentinelPort
 	}
 	return c.Engine.DefaultPort()
 }
+
+// SentinelPort is the port Redis Sentinel listens on unless told another.
+const SentinelPort = 26379
 
 func (c *Config) env() Environment {
 	if c.Env == "" {

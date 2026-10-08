@@ -32,7 +32,7 @@ type Tab struct {
 	typeFilter string
 	keys       []string
 	keySet     map[string]bool
-	cursor     uint64
+	cursor     db.ScanPos
 	scanning   bool
 	scanDone   bool
 	scanErr    string
@@ -107,7 +107,7 @@ func (r *Tab) CloseReason() string { return "" }
 func (r *Tab) Close() {}
 
 func (r *Tab) rescan() {
-	r.keys, r.keySet, r.cursor, r.scanDone, r.scanErr = nil, map[string]bool{}, 0, false, ""
+	r.keys, r.keySet, r.cursor, r.scanDone, r.scanErr = nil, map[string]bool{}, db.ScanPos{}, false, ""
 	r.children, r.treeKey = nil, -1
 	r.scan()
 }
@@ -129,16 +129,17 @@ func (r *Tab) scan() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		var found []string
+		var done bool
 		var err error
 		for {
 			var batch []string
-			batch, cursor, err = kv.Scan(ctx, cursor, pattern, typ, 500)
+			batch, cursor, done, err = kv.Scan(ctx, cursor, pattern, typ, 500)
 			found = append(found, batch...)
-			if err != nil || cursor == 0 || len(found) >= 1000 {
+			if err != nil || done || len(found) >= 1000 {
 				break
 			}
 		}
-		size, _ := kv.Client.Do(ctx, kv.Client.B().Dbsize().Build()).AsInt64()
+		size, _ := kv.DBSize(ctx)
 		return func() {
 			r.scanning = false
 			r.dbsize = size
@@ -153,7 +154,7 @@ func (r *Tab) scan() {
 				}
 			}
 			r.cursor = cursor
-			r.scanDone = cursor == 0
+			r.scanDone = done
 		}
 	})
 }

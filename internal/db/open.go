@@ -69,7 +69,18 @@ func openTunnel(ctx context.Context, cfg *Config, knownHosts []string) (endpoint
 	if !cfg.SSH.Enabled {
 		return ep, nil, nil
 	}
-	t, err := sshtunnel.Open(ctx, sshtunnel.Config{
+	t, err := sshtunnel.Open(ctx, sshConfig(cfg), cfg.Host, cfg.port(), knownHosts)
+	if err != nil {
+		return ep, nil, err
+	}
+	ep.host, ep.port = "127.0.0.1", t.LocalPort()
+	return ep, t, nil
+}
+
+// sshConfig is the SSH server a configuration reaches its database
+// through.
+func sshConfig(cfg *Config) sshtunnel.Config {
+	return sshtunnel.Config{
 		Host:          cfg.SSH.Host,
 		Port:          cfg.SSH.Port,
 		User:          cfg.SSH.User,
@@ -77,12 +88,7 @@ func openTunnel(ctx context.Context, cfg *Config, knownHosts []string) (endpoint
 		KeyPath:       cfg.SSH.KeyPath,
 		KeyPassphrase: cfg.SSH.KeyPassphrase,
 		UseAgent:      cfg.SSH.UseAgent,
-	}, cfg.Host, cfg.port(), knownHosts)
-	if err != nil {
-		return ep, nil, err
 	}
-	ep.host, ep.port = "127.0.0.1", t.LocalPort()
-	return ep, t, nil
 }
 
 // tlsConfig returns the TLS settings of a mode, nil for none.
@@ -454,13 +460,20 @@ func openDuckDB(cfg Config) (*sql.DB, error) {
 // "prefer" asks before choosing: the probe sends no credentials, so a
 // server without TLS never gets a password meant for an encrypted link.
 func speaksTLS(ctx context.Context, ep endpoint, tc *tls.Config) bool {
-	if ip := net.ParseIP(ep.serverName); ep.serverName == "localhost" || ip != nil && ip.IsLoopback() {
+	var d net.Dialer
+	dial := func(ctx context.Context, addr string) (net.Conn, error) { return d.DialContext(ctx, "tcp", addr) }
+	return speaksTLSVia(ctx, dial, net.JoinHostPort(ep.host, strconv.Itoa(ep.port)), ep.serverName, tc)
+}
+
+// speaksTLSVia is speaksTLS for a server reached by dial at addr, whose
+// name is serverName.
+func speaksTLSVia(ctx context.Context, dial func(context.Context, string) (net.Conn, error), addr, serverName string, tc *tls.Config) bool {
+	if ip := net.ParseIP(serverName); serverName == "localhost" || ip != nil && ip.IsLoopback() {
 		return false // traffic that never leaves the computer
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	var d net.Dialer
-	raw, err := d.DialContext(ctx, "tcp", net.JoinHostPort(ep.host, strconv.Itoa(ep.port)))
+	raw, err := dial(ctx, addr)
 	if err != nil {
 		return true // unreachable: let the real connection report it
 	}
@@ -476,7 +489,7 @@ func redact(err error, cfg Config) error {
 		return nil
 	}
 	msg := err.Error()
-	for _, secret := range []string{cfg.Password, cfg.SSH.Password, cfg.SSH.KeyPassphrase, url.QueryEscape(cfg.Password), url.PathEscape(cfg.Password)} {
+	for _, secret := range []string{cfg.Password, cfg.SSH.Password, cfg.SSH.KeyPassphrase, cfg.Redis.SentinelPassword, url.QueryEscape(cfg.Password), url.PathEscape(cfg.Password)} {
 		if len(secret) >= 3 {
 			msg = strings.ReplaceAll(msg, secret, "•••")
 		}

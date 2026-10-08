@@ -52,6 +52,10 @@ docker run -d --name dbgopher-pg -p 127.0.0.1:15432:5432 -e POSTGRES_PASSWORD=db
 docker run -d --name dbgopher-mysql -p 127.0.0.1:13306:3306 -e MYSQL_ROOT_PASSWORD=dbgopher -e MYSQL_DATABASE=shop mysql:8.4
 docker run -d --name dbgopher-ch -p 127.0.0.1:19000:9000 -p 127.0.0.1:18123:8123 -e CLICKHOUSE_USER=default -e CLICKHOUSE_PASSWORD=dbgopher clickhouse/clickhouse-server:26.3
 docker run -d --name dbgopher-redis -p 127.0.0.1:16379:6379 redis:7
+# A cluster of three masters, and a master watched by a sentinel. They use the
+# host's network, so that the addresses the nodes announce are reachable.
+docker run -d --name dbgopher-redis-cluster --network host redis:7 sh -c 'for p in 17000 17001 17002; do redis-server --port $p --bind 127.0.0.1 --cluster-enabled yes --cluster-config-file nodes-$p.conf --requirepass dbgopher --masterauth dbgopher --daemonize yes; done; sleep 1; redis-cli -a dbgopher --no-auth-warning --cluster create 127.0.0.1:17000 127.0.0.1:17001 127.0.0.1:17002 --cluster-yes; exec tail -f /dev/null'
+docker run -d --name dbgopher-redis-sentinel --network host redis:7 sh -c 'redis-server --port 16380 --bind 127.0.0.1 --requirepass dbgopher --daemonize yes; printf "port 26379\nbind 127.0.0.1\nrequirepass sentinelpw\nsentinel monitor mymaster 127.0.0.1 16380 1\nsentinel auth-pass mymaster dbgopher\n" > /tmp/sentinel.conf; exec redis-sentinel /tmp/sentinel.conf'
 ```
 
 Set `DGOPHER_CONFIG_DIR` to keep a development run's settings apart from
@@ -66,7 +70,7 @@ your own.
 | `internal/export` | CSV, TSV, JSON, JSON Lines, SQL, Markdown and Excel writers, and Parquet and DuckDB files through DuckDB. Text formats stay in Go, the writers of clipboard copies too, so that a copy and a file of the same rows agree. |
 | `internal/store` | private JSON files, keychain secrets, query history |
 | `internal/secretcmd` | runs a password command without a shell |
-| `internal/sshtunnel` | SSH port forwarding with host key checks |
+| `internal/sshtunnel` | SSH port forwarding, and dialing through SSH, with host key checks; `sshtest` is an SSH server for tests |
 | `internal/audit` | the hash-chained audit log: append, read, verify |
 | `internal/settings` | the user's settings and how values are shown |
 | `internal/safety` | the safety policy: which statements are blocked or need a confirmation |

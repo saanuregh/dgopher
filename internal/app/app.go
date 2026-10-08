@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -181,13 +182,25 @@ func (a *App) connByID(id string) *connection.Conn {
 // where they go: a password typed for one host is never sent to another,
 // as when a shared project file changes the host of a connection.
 func secretKey(cfg *db.Config, what string) string {
-	where := fmt.Sprintf("%s|%s|%d|%s|%s|%v|%s|%d|%s", cfg.Engine, cfg.Host, cfg.Port, cfg.User, cfg.Database,
-		cfg.SSH.Enabled, cfg.SSH.Host, cfg.SSH.Port, cfg.SSH.User)
+	// A cluster's nodes and the sentinels are where a password goes too.
+	// They join only when set, for the keys of the passwords kept before
+	// they existed to stay as they were.
+	where := fmt.Sprintf("%s|%s|%d|%s|%s|%v|%s|%d|%s%s", cfg.Engine, cfg.Host, cfg.Port, cfg.User, cfg.Database,
+		cfg.SSH.Enabled, cfg.SSH.Host, cfg.SSH.Port, cfg.SSH.User, redisWhere(cfg))
 	if strings.HasPrefix(what, "ssh-") {
 		where = fmt.Sprintf("ssh|%s|%d|%s|%s", cfg.SSH.Host, cfg.SSH.Port, cfg.SSH.User, cfg.SSH.KeyPath)
 	}
 	sum := sha256.Sum256([]byte(where))
 	return "conn/" + cfg.ID + "/" + hex.EncodeToString(sum[:6]) + "/" + what
+}
+
+// redisWhere is where a Redis connection's passwords go besides its host,
+// "" for one server.
+func redisWhere(cfg *db.Config) string {
+	if cfg.Redis == (db.RedisConfig{}) {
+		return ""
+	}
+	return fmt.Sprintf("|redis|%s|%s|%s|%s", cfg.Redis.Mode, cfg.Redis.Nodes, cfg.Redis.Master, cfg.Redis.SentinelUser)
 }
 
 // projectEnvPrefix is what the environment variables named by a project
@@ -215,6 +228,9 @@ func (a *App) loadSecrets(cfg *db.Config) {
 	if cfg.Password == "" {
 		cfg.Password, _ = sec.Get(secretKey(cfg, "password"))
 	}
+	if cfg.Redis.Mode == db.RedisSentinel && cfg.Redis.SentinelPassword == "" {
+		cfg.Redis.SentinelPassword, _ = sec.Get(secretKey(cfg, "sentinel-password"))
+	}
 	if cfg.SSH.Enabled {
 		if cfg.SSH.Password == "" {
 			cfg.SSH.Password, _ = sec.Get(secretKey(cfg, "ssh-password"))
@@ -236,12 +252,17 @@ func (a *App) saveSecrets(cfg *db.Config, savePassword bool) error {
 		}
 		return sec.Set(secretKey(cfg, what), v)
 	}
-	return errors.Join(set("password", cfg.Password), set("ssh-password", cfg.SSH.Password), set("ssh-passphrase", cfg.SSH.KeyPassphrase))
+	return errors.Join(set("password", cfg.Password), set("ssh-password", cfg.SSH.Password), set("ssh-passphrase", cfg.SSH.KeyPassphrase),
+		set("sentinel-password", cfg.Redis.SentinelPassword))
 }
+
+// secretNames are what a connection keeps in the keychain, as secretKey
+// names them.
+var secretNames = []string{"password", "ssh-password", "ssh-passphrase", "sentinel-password"}
 
 func (a *App) deleteSecrets(cfg *db.Config) {
 	sec := a.st.Secrets()
-	for _, what := range []string{"password", "ssh-password", "ssh-passphrase"} {
+	for _, what := range secretNames {
 		sec.Delete(secretKey(cfg, what))
 	}
 }
@@ -659,9 +680,9 @@ func (a *App) requestQuit(quit func()) bool {
 // password, how safely, and how it gets one: a change to any, as in a
 // pull of the project, asks again.
 func sharedFingerprint(cfg *db.Config, projectDir string) string {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%s|%d|%s|%s|%s|%q|%v|%s|%d|%s|%q|%s|%q|%q", projectDir, cfg.ID, cfg.Engine, cfg.Host, cfg.Port,
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%s|%d|%s|%s|%s|%q|%v|%s|%d|%s|%q|%s|%q|%q%s", projectDir, cfg.ID, cfg.Engine, cfg.Host, cfg.Port,
 		cfg.User, cfg.Database, cfg.TLS, cfg.CAFile, cfg.SSH.Enabled, cfg.SSH.Host, cfg.SSH.Port, cfg.SSH.User, cfg.SSH.KeyPath,
-		cfg.PasswordEnv, cfg.PasswordCommand, cfg.SSH.PasswordCommand)))
+		cfg.PasswordEnv, cfg.PasswordCommand, cfg.SSH.PasswordCommand, redisWhere(cfg))))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -686,6 +707,19 @@ func sharedDestination(cfg *db.Config, projectName string) string {
 	}
 	if cfg.Engine.IsFile() {
 		where = cfg.Engine.Label() + " file " + cfg.Database
+	}
+	switch cfg.Redis.Mode {
+	case db.RedisCluster:
+		where += " and the nodes of its cluster"
+		if cfg.Redis.Nodes != "" {
+			where += ", " + cfg.Redis.Nodes + " among them"
+		}
+	case db.RedisSentinel:
+		where = "the Redis master " + cfg.Redis.Master + " that the sentinels at " + cfg.Host + ":" + strconv.Itoa(cfg.Port)
+		if cfg.Redis.Nodes != "" {
+			where += ", " + cfg.Redis.Nodes
+		}
+		where += " name"
 	}
 	if cfg.SSH.Enabled {
 		where += ", through SSH " + cfg.SSH.User + "@" + cfg.SSH.Host

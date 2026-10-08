@@ -298,6 +298,9 @@ func (t *activityTab) redisMetrics(c *ui.Context) {
 		{"Hit rate", hitRate(t.info["keyspace_hits"], t.info["keyspace_misses"])},
 		{"Role", t.info["role"]},
 	}
+	if t.conn.Config.Redis.Mode == db.RedisCluster {
+		ui.Text(c, "These are the figures, and the clients, of one node of the cluster.").FontSize(12).TextColor(pal.Muted).Padding(12, 12, 0, 12)
+	}
 	ui.Row(c).Padding(12).Gap(10).Wrap().Children(func() {
 		for _, tl := range tiles {
 			ui.Column(c).Width(150).Padding(10, 12).Gap(4).Radius(8).Border(1, th.Border).Children(func() {

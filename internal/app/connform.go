@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -37,6 +38,7 @@ type connForm struct {
 	tls       string
 	commit    string
 	page      int // the page shown: pageGeneral, pageOptions or pageNetwork
+	redisMode int // an index of redisModes
 
 	project    *project.Project // where a new connection goes
 	projectSel string           // its label in the project choice
@@ -56,6 +58,11 @@ type connForm struct {
 }
 
 var commitLabels = []string{"Default (manual on production)", "Auto-commit", "Manual commit"}
+
+// redisModes are the ways a Redis connection reaches its data, as the
+// form offers them, with their labels.
+var redisModes = []db.RedisMode{db.RedisStandalone, db.RedisCluster, db.RedisSentinel}
+var redisModeLabels = []string{"Single server", "Cluster", "Sentinel"}
 var tlsLabels = map[db.TLSMode]string{
 	db.TLSDisable:    "Off",
 	db.TLSPrefer:     "Prefer (unverified)",
@@ -88,6 +95,7 @@ func (a *App) openConnForm(cn *connection.Conn) {
 		loaded := cn.Config
 		a.loadSecrets(&loaded)
 		f.cfg.SSH.Password, f.cfg.SSH.KeyPassphrase = loaded.SSH.Password, loaded.SSH.KeyPassphrase
+		f.cfg.Redis.SentinelPassword = loaded.Redis.SentinelPassword
 		if sourceOf(&f.cfg) == sourceKeychain {
 			f.cfg.Password = loaded.Password
 		}
@@ -109,6 +117,7 @@ func (a *App) openConnForm(cn *connection.Conn) {
 		f.idleMin = float64(f.cfg.IdleTxTimeout) / 60
 	}
 	f.source = passwordSources[sourceOf(&f.cfg)]
+	f.redisMode = max(0, slices.Index(redisModes, f.cfg.Redis.Mode))
 	f.sshSource = sshSources[0]
 	if f.cfg.SSH.PasswordCommand != "" {
 		f.sshSource = sshSources[1]
@@ -211,6 +220,18 @@ func (f *connForm) config() db.Config {
 	if cfg.Engine.IsFile() {
 		cfg.Host, cfg.Port, cfg.User, cfg.SSH.Enabled, cfg.TLS = "", 0, "", false, db.TLSDisable
 		cfg.Password, cfg.PasswordEnv, cfg.PasswordCommand, cfg.AskPassword = "", "", "", false
+	}
+	// Only what the chosen topology uses is kept.
+	cfg.Redis.Mode = redisModes[f.redisMode]
+	cfg.Redis.Nodes, cfg.Redis.Master = strings.TrimSpace(cfg.Redis.Nodes), strings.TrimSpace(cfg.Redis.Master)
+	switch {
+	case cfg.Engine != db.Redis:
+		cfg.Redis = db.RedisConfig{}
+	case cfg.Redis.Mode == db.RedisStandalone:
+		cfg.Redis = db.RedisConfig{}
+	case cfg.Redis.Mode == db.RedisCluster:
+		cfg.Redis.Master, cfg.Redis.SentinelUser, cfg.Redis.SentinelPassword = "", "", ""
+		cfg.Database = ""
 	}
 	return cfg
 }
@@ -367,12 +388,36 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 			})
 		}).Error(f.fileError(engine))
 	} else {
-		ui.Field(c, "Host", func() {
+		mode := db.RedisStandalone
+		if engine == db.Redis {
+			ui.Field(c, "Topology", func() {
+				ui.Segmented(c, &f.redisMode, redisModeLabels...).Label("Topology")
+			})
+			mode = redisModes[f.redisMode]
+		}
+		hostLabel, port, more := "Host", engine.DefaultPort(), ""
+		switch mode {
+		case db.RedisCluster:
+			hostLabel, more = "A node", "More nodes"
+		case db.RedisSentinel:
+			hostLabel, port, more = "A sentinel", db.SentinelPort, "More sentinels"
+		}
+		ui.Field(c, hostLabel, func() {
 			ui.Row(c).Gap(6).Grow(1).Children(func() {
-				ui.TextInput(c, &f.cfg.Host).Placeholder("localhost").Grow(1)
-				ui.TextInput(c, &f.port).Placeholder(strconv.Itoa(engine.DefaultPort())).Width(80).Label("Port")
+				ui.TextInput(c, &f.cfg.Host).Placeholder("localhost").Grow(1).Label(hostLabel)
+				ui.TextInput(c, &f.port).Placeholder(strconv.Itoa(port)).Width(80).Label("Port")
 			})
 		})
+		if more != "" {
+			ui.Field(c, more, func() {
+				ui.TextInput(c, &f.cfg.Redis.Nodes).Placeholder("10.0.0.2:" + strconv.Itoa(port) + ", 10.0.0.3:" + strconv.Itoa(port)).Font(widgets.MonoFont).FontSize(12.5)
+			}).Description("Any one that answers is enough; more keep the connection working when one is down.")
+		}
+		if mode == db.RedisSentinel {
+			ui.Field(c, "Master name", func() {
+				ui.TextInput(c, &f.cfg.Redis.Master).Placeholder("mymaster")
+			}).Description("The master the sentinels watch: the connection follows it to its replacement after a failover.")
+		}
 		ui.Field(c, "User", func() {
 			ui.TextInput(c, &f.cfg.User).Placeholder(engine.DefaultUser())
 		})
@@ -388,9 +433,14 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 		case db.Postgres:
 			placeholder = "postgres"
 		}
-		ui.Field(c, label, func() {
-			ui.TextInput(c, &f.cfg.Database).Placeholder(placeholder)
-		})
+		if mode != db.RedisCluster { // a cluster has database 0 only
+			ui.Field(c, label, func() {
+				ui.TextInput(c, &f.cfg.Database).Placeholder(placeholder)
+			})
+		}
+		if mode == db.RedisSentinel {
+			a.sentinelFields(c, f)
+		}
 	}
 	ui.Field(c, "Environment", func() {
 		ui.Column(c).Gap(6).Children(func() {
@@ -750,6 +800,9 @@ func (a *App) checkConnForm(f *connForm, cfg *db.Config) error {
 	if sourceOf(cfg) == sourceCommand && cfg.PasswordCommand == "" {
 		return errors.New("type the command that prints the password")
 	}
+	if cfg.Redis.SentinelPassword != "" && !a.st.Secrets().Available() {
+		return errors.New("no system keychain is available to keep the sentinels' password")
+	}
 	return nil
 }
 
@@ -801,14 +854,14 @@ func (a *App) finishConnForm(f *connForm, cfg db.Config, connect bool) {
 	// Secrets are kept for the host they were given for: those of the
 	// old destination go, once the new ones are safe.
 	if f.editing != nil {
-		for _, what := range []string{"password", "ssh-password", "ssh-passphrase"} {
+		for _, what := range secretNames {
 			if secretKey(&f.loaded, what) != secretKey(&cfg, what) {
 				a.st.Secrets().Delete(secretKey(&f.loaded, what))
 			}
 		}
 	}
 	password := cfg.Password
-	cfg.Password, cfg.SSH.Password, cfg.SSH.KeyPassphrase = "", "", ""
+	cfg.Password, cfg.SSH.Password, cfg.SSH.KeyPassphrase, cfg.Redis.SentinelPassword = "", "", "", ""
 	if cn == nil {
 		cn = &connection.Conn{Project: f.project}
 		cn.Reset()
@@ -998,6 +1051,25 @@ func (a *App) passwordField(c *ui.Context, f *connForm) {
 			ui.Text(c, note).FontSize(12).TextColor(widgets.PaletteOf(c).Muted)
 		})
 	}
+}
+
+// sentinelFields show how the connection logs in to the sentinels, which
+// keep credentials of their own, and where their password would be kept.
+func (a *App) sentinelFields(c *ui.Context, f *connForm) {
+	ui.Field(c, "Sentinel user", func() {
+		ui.TextInput(c, &f.cfg.Redis.SentinelUser).Placeholder("none")
+	})
+	note := "Not needed when the sentinels ask for no password."
+	switch {
+	case f.cfg.Redis.SentinelPassword == "":
+	case !a.st.Secrets().Available():
+		note = "No system keychain is available on this computer to keep it."
+	default:
+		note = keychainNote(secretKey(a.formID(f, &f.cfg), "sentinel-password"))
+	}
+	ui.Field(c, "Sentinel password", func() {
+		ui.TextInput(c, &f.cfg.Redis.SentinelPassword).Password().Placeholder("If the sentinels ask for one")
+	}).Description(note)
 }
 
 // sshSecretFields shows the SSH password and passphrase, or the command

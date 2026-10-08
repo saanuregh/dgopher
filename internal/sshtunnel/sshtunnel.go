@@ -74,6 +74,28 @@ type Tunnel struct {
 // are skipped), then listens on 127.0.0.1:0 and forwards each accepted connection to
 // remoteHost:remotePort through SSH.
 func Open(ctx context.Context, cfg Config, remoteHost string, remotePort int, knownHostsFiles []string) (*Tunnel, error) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, fmt.Errorf("sshtunnel: listen: %w", err)
+	}
+	t, err := connect(ctx, cfg, knownHostsFiles, listener, net.JoinHostPort(remoteHost, strconv.Itoa(remotePort)))
+	if err != nil {
+		listener.Close()
+		return nil, err
+	}
+	go t.acceptLoop()
+	return t, nil
+}
+
+// Connect connects to the SSH server, verifying its host key as Open does, without forwarding
+// a port: Dial reaches each address through it, as for the nodes of a cluster.
+func Connect(ctx context.Context, cfg Config, knownHostsFiles []string) (*Tunnel, error) {
+	return connect(ctx, cfg, knownHostsFiles, nil, "")
+}
+
+// connect connects to the SSH server. The tunnel takes listener, nil for none, before anything
+// can stop it.
+func connect(ctx context.Context, cfg Config, knownHostsFiles []string, listener net.Listener, remote string) (*Tunnel, error) {
 	if cfg.Host == "" {
 		return nil, errors.New("sshtunnel: host is required")
 	}
@@ -142,23 +164,15 @@ func Open(ctx context.Context, cfg Config, remoteHost string, remotePort int, kn
 	conn.SetDeadline(time.Time{})
 	client := ssh.NewClient(clientConn, chans, reqs)
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		client.Close()
-		closeAgent()
-		return nil, fmt.Errorf("sshtunnel: listen: %w", err)
-	}
-
 	t := &Tunnel{
 		client:    client,
 		listener:  listener,
 		agentConn: agentConn,
-		remote:    net.JoinHostPort(remoteHost, strconv.Itoa(remotePort)),
+		remote:    remote,
 		keepalive: keepaliveInterval,
 		done:      make(chan struct{}),
 		conns:     make(map[net.Conn]struct{}),
 	}
-	go t.acceptLoop()
 	go t.keepaliveLoop()
 	go func() {
 		err := client.Wait()
@@ -168,6 +182,30 @@ func Open(ctx context.Context, cfg Config, remoteHost string, remotePort int, kn
 		t.stop(fmt.Errorf("sshtunnel: ssh connection closed: %w", err))
 	}()
 	return t, nil
+}
+
+// Dial connects to addr as the SSH server would; the connection closes with the tunnel.
+func (t *Tunnel) Dial(ctx context.Context, addr string) (net.Conn, error) {
+	c, err := t.client.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("sshtunnel: dial %s through the SSH server: %w", addr, err)
+	}
+	if !t.track(c) {
+		c.Close()
+		return nil, errors.New("sshtunnel: the tunnel is closed")
+	}
+	return &trackedConn{Conn: c, t: t}, nil
+}
+
+// trackedConn is a connection of Dial, which the tunnel forgets as it closes.
+type trackedConn struct {
+	net.Conn
+	t *Tunnel
+}
+
+func (c *trackedConn) Close() error {
+	c.t.untrack(c.Conn)
+	return nil
 }
 
 func (t *Tunnel) LocalAddr() string { return t.listener.Addr().String() }
@@ -196,7 +234,9 @@ func (t *Tunnel) Err() error {
 func (t *Tunnel) stop(err error) {
 	t.stopOnce.Do(func() {
 		t.err = err
-		t.listener.Close()
+		if t.listener != nil {
+			t.listener.Close()
+		}
 		t.client.Close()
 		if t.agentConn != nil {
 			t.agentConn.Close()

@@ -358,6 +358,12 @@ func connSummary(cfg *db.Config) string {
 	if cfg.Database != "" {
 		s += "/" + cfg.Database
 	}
+	switch cfg.Redis.Mode {
+	case db.RedisCluster:
+		s += " (cluster)"
+	case db.RedisSentinel:
+		s += " (sentinel master " + cfg.Redis.Master + ")"
+	}
 	if cfg.SSH.Enabled {
 		s += " via " + cfg.SSH.Host
 	}

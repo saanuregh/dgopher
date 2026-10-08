@@ -55,6 +55,15 @@ func connectionSummary(cfg *db.Config) string {
 		}
 		parts = append(parts, "tls "+tls)
 	}
+	switch cfg.Redis.Mode {
+	case db.RedisCluster:
+		parts = append(parts, "cluster")
+	case db.RedisSentinel:
+		parts = append(parts, "sentinel master "+cfg.Redis.Master)
+	}
+	if cfg.Redis.Nodes != "" {
+		parts = append(parts, "nodes "+cfg.Redis.Nodes)
+	}
 	if cfg.SSH.Enabled {
 		parts = append(parts, "ssh "+cfg.SSH.User+"@"+cfg.SSH.Host)
 	}

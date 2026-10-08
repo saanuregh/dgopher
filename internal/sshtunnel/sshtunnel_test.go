@@ -18,137 +18,23 @@ import (
 	"testing"
 	"time"
 
+	"dgopher/internal/sshtunnel/sshtest"
+
 	"golang.org/x/crypto/ssh"
 )
 
 const testPassword = "secret"
 
-type testServer struct {
-	addr     string
-	host     string
-	port     int
-	hostKey  ssh.Signer
-	listener net.Listener
+func newSigner(t *testing.T) (ssh.Signer, ed25519.PrivateKey) { return sshtest.NewSigner(t) }
 
-	mu    sync.Mutex
-	conns []net.Conn
-}
-
-func newSigner(t *testing.T) (ssh.Signer, ed25519.PrivateKey) {
-	t.Helper()
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	signer, err := ssh.NewSignerFromKey(priv)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return signer, priv
-}
-
-func startServer(t *testing.T, clientKey ssh.PublicKey) *testServer {
-	return startServerWith(t, clientKey)
+func startServer(t *testing.T, clientKey ssh.PublicKey) *sshtest.Server {
+	return sshtest.Start(t, testPassword, clientKey)
 }
 
 // startServerWith starts a server with more host keys than its ed25519
 // one.
-func startServerWith(t *testing.T, clientKey ssh.PublicKey, extraHostKeys ...ssh.Signer) *testServer {
-	t.Helper()
-	hostKey, _ := newSigner(t)
-	config := &ssh.ServerConfig{
-		PasswordCallback: func(_ ssh.ConnMetadata, pw []byte) (*ssh.Permissions, error) {
-			if string(pw) == testPassword {
-				return nil, nil
-			}
-			return nil, errors.New("bad password")
-		},
-		PublicKeyCallback: func(_ ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
-			if clientKey != nil && bytes.Equal(key.Marshal(), clientKey.Marshal()) {
-				return nil, nil
-			}
-			return nil, errors.New("unknown key")
-		},
-	}
-	config.AddHostKey(hostKey)
-	for _, k := range extraHostKeys {
-		config.AddHostKey(k)
-	}
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := &testServer{addr: l.Addr().String(), hostKey: hostKey, listener: l}
-	host, port, _ := net.SplitHostPort(s.addr)
-	s.host = host
-	s.port, _ = strconv.Atoi(port)
-	go func() {
-		for {
-			c, err := l.Accept()
-			if err != nil {
-				return
-			}
-			s.mu.Lock()
-			s.conns = append(s.conns, c)
-			s.mu.Unlock()
-			go s.serve(c, config)
-		}
-	}()
-	t.Cleanup(s.stop)
-	return s
-}
-
-func (s *testServer) stop() {
-	s.listener.Close()
-	s.mu.Lock()
-	for _, c := range s.conns {
-		c.Close()
-	}
-	s.mu.Unlock()
-}
-
-func (s *testServer) serve(c net.Conn, config *ssh.ServerConfig) {
-	_, chans, reqs, err := ssh.NewServerConn(c, config)
-	if err != nil {
-		c.Close()
-		return
-	}
-	go ssh.DiscardRequests(reqs)
-	for newChan := range chans {
-		if newChan.ChannelType() != "direct-tcpip" {
-			newChan.Reject(ssh.UnknownChannelType, "unsupported")
-			continue
-		}
-		var target struct {
-			Host     string
-			Port     uint32
-			OrigHost string
-			OrigPort uint32
-		}
-		if err := ssh.Unmarshal(newChan.ExtraData(), &target); err != nil {
-			newChan.Reject(ssh.ConnectionFailed, "bad payload")
-			continue
-		}
-		go func() {
-			remote, err := net.Dial("tcp", net.JoinHostPort(target.Host, strconv.Itoa(int(target.Port))))
-			if err != nil {
-				newChan.Reject(ssh.ConnectionFailed, err.Error())
-				return
-			}
-			ch, chReqs, err := newChan.Accept()
-			if err != nil {
-				remote.Close()
-				return
-			}
-			go ssh.DiscardRequests(chReqs)
-			go func() {
-				io.Copy(ch, remote)
-				ch.CloseWrite()
-			}()
-			io.Copy(remote, ch)
-			remote.(*net.TCPConn).CloseWrite()
-		}()
-	}
+func startServerWith(t *testing.T, clientKey ssh.PublicKey, extraHostKeys ...ssh.Signer) *sshtest.Server {
+	return sshtest.Start(t, testPassword, clientKey, extraHostKeys...)
 }
 
 func startEcho(t *testing.T) (string, int) {
@@ -173,14 +59,14 @@ func startEcho(t *testing.T) (string, int) {
 	return "127.0.0.1", l.Addr().(*net.TCPAddr).Port
 }
 
-func (s *testServer) config() Config {
-	return Config{Host: s.host, Port: s.port, User: "tester", Password: testPassword}
+func config(s *sshtest.Server) Config {
+	return Config{Host: s.Host, Port: s.Port, User: "tester", Password: testPassword}
 }
 
-func trustedFile(t *testing.T, s *testServer) string {
+func trustedFile(t *testing.T, s *sshtest.Server) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "nested", "known_hosts")
-	if err := Trust(path, s.addr, s.hostKey.PublicKey()); err != nil {
+	if err := Trust(path, s.Addr, s.HostKey.PublicKey()); err != nil {
 		t.Fatal(err)
 	}
 	return path
@@ -213,12 +99,12 @@ func TestUnknownHostThenTrust(t *testing.T) {
 	path := filepath.Join(dir, "sub", "known_hosts")
 	missing := filepath.Join(dir, "missing")
 
-	_, err := Open(context.Background(), s.config(), echoHost, echoPort, []string{missing, path})
+	_, err := Open(context.Background(), config(s), echoHost, echoPort, []string{missing, path})
 	var hostKeyErr *HostKeyError
 	if !errors.As(err, &hostKeyErr) {
 		t.Fatalf("want HostKeyError, got %v", err)
 	}
-	if hostKeyErr.Mismatch || hostKeyErr.Host != s.addr || hostKeyErr.Fingerprint != ssh.FingerprintSHA256(s.hostKey.PublicKey()) {
+	if hostKeyErr.Mismatch || hostKeyErr.Host != s.Addr || hostKeyErr.Fingerprint != ssh.FingerprintSHA256(s.HostKey.PublicKey()) {
 		t.Fatalf("unexpected error contents: %+v", hostKeyErr)
 	}
 
@@ -233,7 +119,7 @@ func TestUnknownHostThenTrust(t *testing.T) {
 		t.Fatalf("dir mode %v", dirInfo.Mode().Perm())
 	}
 
-	tunnel, err := Open(context.Background(), s.config(), echoHost, echoPort, []string{missing, path})
+	tunnel, err := Open(context.Background(), config(s), echoHost, echoPort, []string{missing, path})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,10 +150,10 @@ func TestMismatchedHostKey(t *testing.T) {
 	s := startServer(t, nil)
 	other, _ := newSigner(t)
 	path := filepath.Join(t.TempDir(), "known_hosts")
-	if err := Trust(path, s.addr, other.PublicKey()); err != nil {
+	if err := Trust(path, s.Addr, other.PublicKey()); err != nil {
 		t.Fatal(err)
 	}
-	_, err := Open(context.Background(), s.config(), "127.0.0.1", 1, []string{path})
+	_, err := Open(context.Background(), config(s), "127.0.0.1", 1, []string{path})
 	var hostKeyErr *HostKeyError
 	if !errors.As(err, &hostKeyErr) || !hostKeyErr.Mismatch {
 		t.Fatalf("want mismatch HostKeyError, got %v", err)
@@ -276,7 +162,7 @@ func TestMismatchedHostKey(t *testing.T) {
 
 func TestWrongPassword(t *testing.T) {
 	s := startServer(t, nil)
-	cfg := s.config()
+	cfg := config(s)
 	cfg.Password = "wrong"
 	_, err := Open(context.Background(), cfg, "127.0.0.1", 1, []string{trustedFile(t, s)})
 	var hostKeyErr *HostKeyError
@@ -312,7 +198,7 @@ func TestKeyFileAuth(t *testing.T) {
 		if err := os.WriteFile(keyPath, pem.EncodeToMemory(block), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		cfg := Config{Host: s.host, Port: s.port, User: "tester", KeyPath: keyPath, KeyPassphrase: passphrase}
+		cfg := Config{Host: s.Host, Port: s.Port, User: "tester", KeyPath: keyPath, KeyPassphrase: passphrase}
 		tunnel, err := Open(context.Background(), cfg, echoHost, echoPort, []string{trustedFile(t, s)})
 		if err != nil {
 			t.Fatalf("passphrase %q: %v", passphrase, err)
@@ -327,7 +213,7 @@ func TestKeyFileAuth(t *testing.T) {
 func TestCloseIdempotent(t *testing.T) {
 	s := startServer(t, nil)
 	echoHost, echoPort := startEcho(t)
-	tunnel, err := Open(context.Background(), s.config(), echoHost, echoPort, []string{trustedFile(t, s)})
+	tunnel, err := Open(context.Background(), config(s), echoHost, echoPort, []string{trustedFile(t, s)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +255,7 @@ func TestServerGoneClosesTunnel(t *testing.T) {
 	t.Cleanup(func() { keepaliveInterval = old })
 
 	s := startServer(t, nil)
-	tunnel, err := Open(context.Background(), s.config(), "127.0.0.1", 1, []string{trustedFile(t, s)})
+	tunnel, err := Open(context.Background(), config(s), "127.0.0.1", 1, []string{trustedFile(t, s)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +266,7 @@ func TestServerGoneClosesTunnel(t *testing.T) {
 		t.Fatalf("tunnel stopped early: %v", tunnel.Err())
 	default:
 	}
-	s.stop()
+	s.Stop()
 	select {
 	case <-tunnel.Done():
 	case <-time.After(5 * time.Second):
@@ -429,13 +315,44 @@ func TestKnownKeyTypeIsAskedFor(t *testing.T) {
 	}
 	s := startServerWith(t, nil, rsaSigner)
 	known := filepath.Join(t.TempDir(), "known_hosts")
-	if err := Trust(known, s.addr, s.hostKey.PublicKey()); err != nil {
+	if err := Trust(known, s.Addr, s.HostKey.PublicKey()); err != nil {
 		t.Fatal(err)
 	}
 	echoHost, echoPort := startEcho(t)
-	tun, err := Open(context.Background(), s.config(), echoHost, echoPort, []string{known})
+	tun, err := Open(context.Background(), config(s), echoHost, echoPort, []string{known})
 	if err != nil {
 		t.Fatalf("a known host refused: %v", err)
 	}
 	tun.Close()
+}
+
+// Connect forwards no port: Dial reaches each address through the
+// server, and its connections close with the tunnel.
+func TestConnectDials(t *testing.T) {
+	s := startServer(t, nil)
+	echoHost, echoPort := startEcho(t)
+	tunnel, err := Connect(context.Background(), config(s), []string{trustedFile(t, s)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := tunnel.Dial(context.Background(), net.JoinHostPort(echoHost, strconv.Itoa(echoPort)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := []byte("through ssh")
+	if _, err := conn.Write(msg); err != nil {
+		t.Fatal(err)
+	}
+	got := make([]byte, len(msg))
+	if _, err := io.ReadFull(conn, got); err != nil || !bytes.Equal(got, msg) {
+		t.Fatalf("read %q: %v", got, err)
+	}
+	tunnel.Close()
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if _, err := conn.Read(make([]byte, 1)); err == nil {
+		t.Fatal("a dialed connection stays open after Close")
+	}
+	if _, err := tunnel.Dial(context.Background(), net.JoinHostPort(echoHost, strconv.Itoa(echoPort))); err == nil {
+		t.Fatal("dialed after Close")
+	}
 }

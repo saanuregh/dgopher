@@ -6,9 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"dgopher/internal/sshtunnel"
+	"dgopher/internal/sshtunnel/sshtest"
 )
 
 // The integration tests run against the servers of `docker ps --filter
@@ -383,14 +387,14 @@ func TestIntegrationRedis(t *testing.T) {
 	}
 
 	var keys []string
-	var cursor uint64
+	var pos ScanPos
 	for {
-		batch, next, err := k.Scan(ctx, cursor, "*", "", 100)
+		batch, next, done, err := k.Scan(ctx, pos, "*", "", 100)
 		if err != nil {
 			t.Fatal(err)
 		}
 		keys = append(keys, batch...)
-		if cursor = next; cursor == 0 {
+		if pos = next; done {
 			break
 		}
 	}
@@ -456,7 +460,7 @@ func TestIntegrationRedisBlockingConsole(t *testing.T) {
 	}()
 	time.Sleep(200 * time.Millisecond)
 	start := time.Now()
-	if _, _, err := k.Scan(ctx, 0, "*", "", 100); err != nil {
+	if _, _, _, err := k.Scan(ctx, ScanPos{}, "*", "", 100); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := k.Info(ctx, "k"); err != nil {
@@ -740,5 +744,130 @@ func TestIntegrationTerminatedTransactionIsLost(t *testing.T) {
 		if s.Tx() != TxNone {
 			t.Fatalf("Tx() = %v after the transaction was lost", s.Tx())
 		}
+	}
+}
+
+// redisCluster is the test cluster of three masters, on the ports of the
+// dbgopher-redis-cluster container (docs/development.md).
+func redisCluster() Config {
+	return Config{Name: "cluster", Engine: Redis, Host: "127.0.0.1", Port: 17000, Password: "dbgopher",
+		Redis: RedisConfig{Mode: RedisCluster, Nodes: "127.0.0.1:17001"}}
+}
+
+// scanAll reads every key a pattern matches.
+func scanAll(t *testing.T, k *KV, match string) []string {
+	t.Helper()
+	var keys []string
+	var pos ScanPos
+	for {
+		batch, next, done, err := k.Scan(context.Background(), pos, match, "", 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		keys = append(keys, batch...)
+		if pos = next; done {
+			return keys
+		}
+	}
+}
+
+// A cluster's keys are spread over its masters: the browser scans them
+// all, and the console reaches a key wherever it is.
+func TestIntegrationRedisCluster(t *testing.T) {
+	integration(t)
+	ctx := context.Background()
+	testCluster(t, ctx, redisCluster(), nil)
+
+	standalone := Config{Name: "r", Engine: Redis, Host: "127.0.0.1", Port: 16379, Redis: RedisConfig{Mode: RedisCluster}}
+	if _, err := OpenRedis(ctx, standalone, nil); err == nil || !strings.Contains(err.Error(), "not a node of a cluster") {
+		t.Fatalf("a single server opened as a cluster: %v", err)
+	}
+	other := redisCluster()
+	other.Database = "1"
+	if _, err := OpenRedis(ctx, other, nil); err == nil || !strings.Contains(err.Error(), "only database 0") {
+		t.Fatalf("a cluster's database 1: %v", err)
+	}
+}
+
+// Through an SSH server, every node of a cluster is reached, the nodes it
+// redirects to included.
+func TestIntegrationRedisClusterThroughSSH(t *testing.T) {
+	integration(t)
+	s := sshtest.Start(t, "secret", nil)
+	known := filepath.Join(t.TempDir(), "known_hosts")
+	if err := sshtunnel.Trust(known, s.Addr, s.HostKey.PublicKey()); err != nil {
+		t.Fatal(err)
+	}
+	cfg := redisCluster()
+	cfg.Redis.Nodes = "" // one address: the others come from the cluster
+	cfg.SSH = SSHConfig{Enabled: true, Host: s.Host, Port: s.Port, User: "tester", Password: "secret"}
+	testCluster(t, context.Background(), cfg, []string{known})
+}
+
+func testCluster(t *testing.T, ctx context.Context, cfg Config, known []string) {
+	t.Helper()
+	k, err := OpenRedis(ctx, cfg, known)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer k.Close()
+	const n = 300
+	for i := range n {
+		if _, err := k.Do(ctx, []string{"SET", fmt.Sprintf("dgopher-it:%d", i), strconv.Itoa(i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer func() {
+		for i := range n {
+			k.Do(ctx, []string{"DEL", fmt.Sprintf("dgopher-it:%d", i)})
+		}
+	}()
+	if keys := scanAll(t, k, "dgopher-it:*"); len(keys) != n {
+		t.Fatalf("scanned %d keys of %d", len(keys), n)
+	}
+	if size, err := k.DBSize(ctx); err != nil || size < n {
+		t.Fatalf("size %d: %v", size, err)
+	}
+	for _, i := range []int{0, 1, 2, 299} {
+		v, err := k.Do(ctx, []string{"GET", fmt.Sprintf("dgopher-it:%d", i)})
+		if err != nil || v != strconv.Itoa(i) {
+			t.Fatalf("GET %d: %v %v", i, v, err)
+		}
+	}
+	if info, err := k.Info(ctx, "dgopher-it:7"); err != nil || info.Type != "string" {
+		t.Fatalf("info %+v: %v", info, err)
+	}
+}
+
+// Through Sentinel the connection reaches the master it names, logging in
+// to the sentinels with their own password, which no error shows.
+func TestIntegrationRedisSentinel(t *testing.T) {
+	integration(t)
+	ctx := context.Background()
+	cfg := Config{Name: "sentinel", Engine: Redis, Host: "127.0.0.1", Port: 26379, Password: "dbgopher",
+		Redis: RedisConfig{Mode: RedisSentinel, Master: "mymaster", SentinelPassword: "sentinelpw"}}
+	k, err := OpenRedis(ctx, cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer k.Close()
+	if _, err := k.Do(ctx, []string{"SET", "dgopher-it", "via sentinel"}); err != nil {
+		t.Fatal(err)
+	}
+	defer k.Do(ctx, []string{"DEL", "dgopher-it"})
+	info, err := k.Do(ctx, []string{"INFO", "server"})
+	if err != nil || !strings.Contains(fmt.Sprint(info), "tcp_port:16380") {
+		t.Fatalf("not on the master: %v", err)
+	}
+
+	wrong := cfg
+	wrong.Redis.SentinelPassword = "wrong-sentinel-secret"
+	if _, err := OpenRedis(ctx, wrong, nil); err == nil || strings.Contains(err.Error(), "wrong-sentinel-secret") {
+		t.Fatalf("a wrong sentinel password: %v", err)
+	}
+	unnamed := cfg
+	unnamed.Redis.Master = ""
+	if _, err := OpenRedis(ctx, unnamed, nil); err == nil || !strings.Contains(err.Error(), "name of the master") {
+		t.Fatalf("no master name: %v", err)
 	}
 }

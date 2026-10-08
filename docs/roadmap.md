@@ -3,7 +3,6 @@
 ## Roadmap
 
 - **Next:**
-  - Connect to Redis Cluster and Redis Sentinel.
   - Use the built-in DuckDB for more work where it is faster than the
     current code.
   - Make the interface more consistent and easier to learn, quick to
