@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -745,7 +746,9 @@ func TestConnFormSteppersDoNotOverlap(t *testing.T) {
 	a.openConnForm(nil)
 	tt := ui.NewTester(a.view, 1000, 1400)
 	tt.Frame()
-	tt.Scroll(500, 900, 0, 2000)
+	if err := tt.Click("Options"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Frame()
 	plus, ok := tt.Find("Increase")
 	unit, ok2 := tt.Find("minutes")
@@ -827,6 +830,10 @@ func TestConnFormAutoConnect(t *testing.T) {
 	}
 	f.cfg.Name, f.cfg.Engine, f.cfg.Database = "lite", db.SQLite, file
 	tt.Frame()
+	if err := tt.Click("Options"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
 	if err := tt.Click("Connect as DGopher starts, and when its editors are shown"); err != nil {
 		t.Fatal(err)
 	}
@@ -835,6 +842,71 @@ func TestConnFormAutoConnect(t *testing.T) {
 	tt.Frame()
 	if len(a.conns) != 1 || !a.conns[0].Config.AutoConnect {
 		t.Fatalf("saved %+v", a.conns)
+	}
+}
+
+// The form puts what most connections need first: a file has no Network
+// page, and a page holding a choice other than the default says so.
+func TestConnFormPages(t *testing.T) {
+	a := newTestApp(t)
+	a.openConnForm(nil)
+	tt := ui.NewTester(a.view, 1000, 900)
+	tt.Frame()
+	testutil.Snapshot(t, tt, "connection-form-general")
+	f := a.connForm
+	if !tt.HasText("Network") || !tt.HasText("Host") {
+		t.Fatalf("server form: %q", tt.Texts())
+	}
+	f.cfg.SSH.Enabled = true
+	tt.Frame()
+	if _, ok := tt.Find("Network •"); !ok {
+		t.Fatalf("the SSH tunnel is not marked: %q", tt.Texts())
+	}
+	a.syncEngineChoice(f, slices.Index(db.Engines(), db.DuckDB))
+	f.engineIdx = slices.Index(db.Engines(), db.DuckDB)
+	tt.Frame()
+	if tt.HasText("Network") || !tt.HasText("File") {
+		t.Fatalf("file form: %q", tt.Texts())
+	}
+}
+
+// A color is chosen from the swatches, and the environment's swatch
+// takes it back.
+func TestConnFormColor(t *testing.T) {
+	a := newTestApp(t)
+	a.openConnForm(nil)
+	tt := ui.NewTester(a.view, 1000, 900)
+	tt.Frame()
+	if err := tt.Click("Violet"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if got := a.connForm.config().Color; got != "#7c3aed" {
+		t.Fatalf("color %q", got)
+	}
+	if err := tt.Click("The environment's (Development)"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if got := a.connForm.config().Color; got != "" {
+		t.Fatalf("color %q after choosing the environment's", got)
+	}
+}
+
+// A color mistyped in a shared project file is drawn as the environment's
+// rather than stopping the app.
+func TestMalformedColor(t *testing.T) {
+	cfg := db.Config{Env: db.Production, Color: "red"}
+	if got, want := widgets.EnvColor(&cfg), widgets.EnvironmentColor(db.Production); got != want {
+		t.Fatalf("color %v, want the environment's %v", got, want)
+	}
+	a := newTestApp(t)
+	a.openConnForm(nil)
+	f := a.connForm
+	f.cfg.Name, f.cfg.Color = "pg", "red"
+	a.saveConnForm(f, false)
+	if !strings.Contains(f.err, "#rrggbb") || len(a.conns) != 0 {
+		t.Fatalf("saved a malformed color: %q, %d connections", f.err, len(a.conns))
 	}
 }
 

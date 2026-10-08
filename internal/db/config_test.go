@@ -32,3 +32,11 @@ func TestValidatePasswordSources(t *testing.T) {
 		}
 	}
 }
+
+func TestValidColor(t *testing.T) {
+	for s, want := range map[string]bool{"#16a34a": true, "#ABCDEF": true, "": false, "16a34a": false, "#16a34": false, "#16a34g": false, "red": false} {
+		if got := ValidColor(s); got != want {
+			t.Errorf("ValidColor(%q) = %v", s, got)
+		}
+	}
+}

@@ -281,3 +281,13 @@ func NormalizeEnvironment(e Environment) Environment {
 	}
 	return Production
 }
+
+// ValidColor reports whether s is a color as a connection keeps it:
+// #rrggbb, in either case.
+func ValidColor(s string) bool {
+	if len(s) != 7 || s[0] != '#' {
+		return false
+	}
+	_, err := hex.DecodeString(s[1:])
+	return err == nil
+}

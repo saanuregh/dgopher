@@ -3,6 +3,8 @@
 package widgets
 
 import (
+	"fmt"
+
 	"dgopher/internal/db"
 	"dgopher/internal/sqltext"
 
@@ -90,10 +92,17 @@ func PaletteOf(c *ui.Context) *Palette {
 
 // EnvColor is the color of a connection: its own, or its environment's.
 func EnvColor(cfg *db.Config) ui.Color {
-	if cfg.Color != "" {
+	// A color from a shared project file may be malformed, which ui.Hex
+	// would panic on.
+	if db.ValidColor(cfg.Color) {
 		return ui.Hex(cfg.Color)
 	}
 	return EnvironmentColor(cfg.Env)
+}
+
+// HexColor writes an opaque color as a connection keeps it: #rrggbb.
+func HexColor(c ui.Color) string {
+	return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B)
 }
 
 func EnvironmentColor(e db.Environment) ui.Color {

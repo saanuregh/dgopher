@@ -401,6 +401,36 @@ func openSQLite(cfg Config) (*sql.DB, error) {
 	return sql.Open("sqlite", dsn)
 }
 
+// CreateFile makes an empty database of a file engine at path. A file
+// already there is left as it is: it may hold someone's data.
+func CreateFile(ctx context.Context, e Engine, path string) error {
+	path = ExpandPath(path)
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	switch e {
+	case SQLite:
+		// An empty file is an empty SQLite database.
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			return err
+		}
+		return f.Close()
+	case DuckDB:
+		// An empty file is not a DuckDB database: DuckDB writes its
+		// header as it opens a path that does not exist.
+		if strings.Contains(path, "?") {
+			return fmt.Errorf("%s: DuckDB cannot open a path that contains '?'", path)
+		}
+		sqldb, err := sql.Open("duckdb", path)
+		if err != nil {
+			return err
+		}
+		return errors.Join(sqldb.PingContext(ctx), sqldb.Close())
+	}
+	return fmt.Errorf("%s keeps no database in a file", e.Label())
+}
+
 func openDuckDB(cfg Config) (*sql.DB, error) {
 	path := ExpandPath(cfg.Database)
 	if path != ":memory:" && !cfg.ReadOnly {

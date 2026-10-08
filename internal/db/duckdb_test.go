@@ -1,8 +1,10 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 )
@@ -125,5 +127,37 @@ func TestCursorSaysWhenTruncated(t *testing.T) {
 			t.Fatalf("%d rows: read %d, truncated %v", n, len(rows), c.Truncated())
 		}
 		c.Close()
+	}
+}
+
+// A new file of each engine opens as a database, and a file already there
+// is kept as it is.
+func TestCreateFile(t *testing.T) {
+	ctx := context.Background()
+	for _, e := range []Engine{SQLite, DuckDB} {
+		path := t.TempDir() + "/new." + string(e)
+		if err := CreateFile(ctx, e, path); err != nil {
+			t.Fatalf("%s: %v", e, err)
+		}
+		d, err := Open(ctx, Config{Name: "new", Engine: e, Database: path}, nil)
+		if err != nil {
+			t.Fatalf("%s: %v", e, err)
+		}
+		s, err := d.Session(ctx)
+		if err == nil {
+			_, err = s.Exec(ctx, "CREATE TABLE t (id INTEGER)")
+			s.Close()
+		}
+		d.Close()
+		if err != nil {
+			t.Fatalf("%s: %v", e, err)
+		}
+		before, _ := os.ReadFile(path)
+		if err := CreateFile(ctx, e, path); err != nil {
+			t.Fatalf("%s again: %v", e, err)
+		}
+		if after, _ := os.ReadFile(path); !bytes.Equal(before, after) {
+			t.Errorf("%s: creating it again changed the file", e)
+		}
 	}
 }

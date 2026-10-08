@@ -12,15 +12,11 @@
     `-- connection:` line, never on another one.
   - Use the built-in DuckDB for more work where it is faster than the
     current code.
-  - Create a new, empty DuckDB file from the connection form, as can be
-    done for SQLite.
   - Make exports safe, with a row limit that can be configured. Today an
     export either runs a read-only query again or writes only the rows
     already fetched.
   - Write every export format through DuckDB. Parquet and DuckDB files
     already are.
-  - Reorganise the new connection form so the common fields come first
-    and the rest are easy to find.
   - Make the interface more consistent and easier to learn, quick to
     work in, and beautiful.
   - Lay out ER diagrams so that tables never overlap.
@@ -49,8 +45,6 @@ Next or Later are not repeated.
     add them as connections.
   - [DEFERRED] Import saved connections from other database clients.
   - [DEFERRED] Group connections in sub-folders or by tags.
-  - Choose a connection's colour in the connection form. Today it can
-    only be set by editing `dgopher.json`.
   - On very large databases, choose for each schema how much of the
     catalog to read: names only, names and columns, or everything. Today
     each object is read when it is first opened.

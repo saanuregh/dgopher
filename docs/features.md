@@ -54,6 +54,15 @@
     checked against `known_hosts`, and a new host must be trusted explicitly
     after you compare its fingerprint. A changed host key is refused as a
     possible attack.
+  - The connection form puts what most connections need on its General
+    page: where the database is, who connects, the environment, a colour
+    and read-only. Options (commit mode, timeouts, auto-connect) and
+    Network (TLS, SSH) have pages of their own, marked when they hold a
+    choice other than the default.
+  - A connection's colour replaces its environment's in its tabs, the band
+    above them and the status bar, which still names the environment.
+  - New… makes an empty SQLite or DuckDB file; a file already there is
+    opened as it is, never replaced.
   - Test Connection reports the server version and how long connecting took.
   - Each connection has an environment, and can be read-only, with its own
     commit mode and idle-transaction limit: see [Safety model](safety.md).

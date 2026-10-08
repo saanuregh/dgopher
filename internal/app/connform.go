@@ -36,7 +36,7 @@ type connForm struct {
 	env       int
 	tls       string
 	commit    string
-	sshOpen   bool
+	page      int // the page shown: pageGeneral, pageOptions or pageNetwork
 
 	project    *project.Project // where a new connection goes
 	projectSel string           // its label in the project choice
@@ -142,7 +142,6 @@ func (a *App) openConnForm(cn *connection.Conn) {
 	case db.CommitManual:
 		f.commit = commitLabels[2]
 	}
-	f.sshOpen = f.cfg.SSH.Enabled
 	if cn != nil {
 		f.loaded = f.config()
 	}
@@ -227,7 +226,6 @@ func baseName(p string) string {
 func (a *App) connFormView(c *ui.Context) {
 	f := a.connForm
 	t := c.Theme()
-	pal := widgets.PaletteOf(c)
 	engine := engineByLabel(f.engine)
 	ui.DialogBase(c, &f.open, func(backdrop, panel ui.Element) {
 		backdrop.Background(ui.RGBA(0, 0, 0, 0.45))
@@ -241,164 +239,28 @@ func (a *App) connFormView(c *ui.Context) {
 		ui.Row(c).Padding(16, 20, 8, 20).Children(func() {
 			ui.Text(c, title).FontSize(16).Bold()
 		})
+		pages := f.pages(engine)
+		if f.page >= len(pages) {
+			f.page = pageGeneral
+		}
+		labels := make([]string, len(pages))
+		for i, pg := range pages {
+			labels[i] = f.pageLabel(pg)
+		}
+		ui.Row(c).Padding(0, 20).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
+			ui.Tabs(c, &f.page, labels...).Label("Settings")
+		})
 		ui.Scroll(c).Grow(1).Shrink(1).Children(func() {
 			ui.Form(c, func() {
-				ui.Field(c, "From URL", func() {
-					in := ui.TextInput(c, &f.url).Font(widgets.MonoFont).FontSize(12.5).
-						Placeholder("Paste postgres://user:password@host:5432/db, mysql://…, redis://…, or a file path")
-					if f.urlFocus && in.Focus().Focused() {
-						f.urlFocus = false
-					}
-					if in.Submitted() || in.Changed() && strings.Contains(f.url, "://") {
-						a.fillFromURL(f)
-					}
-				}).Error(f.urlErr)
-				ui.Field(c, "Engine", func() {
-					if ui.Segmented(c, &f.engineIdx, engineLabels()...).Label("Engine").Changed() {
-						a.syncEngineChoice(f, f.engineIdx)
-					}
-				})
-				ui.Field(c, "Project", func() {
-					if f.editing != nil {
-						ui.Text(c, a.projectLabel(f.project)).Tooltip(f.project.Dir)
-						return
-					}
-					if ui.Select(c, &f.projectSel, a.projectLabels()).Label("Project").Changed() {
-						f.project = a.projectByLabel(f.projectSel)
-					}
-				}).Description("Saved in its " + project.File + ", without passwords, to commit with the project.")
-				ui.Field(c, "Name", func() {
-					name := ui.TextInput(c, &f.cfg.Name).Placeholder("e.g. Billing (production)")
-					if !f.urlFocus {
-						name.AutoFocus()
-					}
-				})
-				if engine.IsFile() {
-					ui.Field(c, "File", func() {
-						ui.Row(c).Gap(6).Grow(1).Children(func() {
-							ui.TextInput(c, &f.cfg.Database).Placeholder("/path/to/database").Grow(1)
-							if ui.Button(c, "Choose…").Clicked() {
-								a.chooseFile(engine)
-							}
-							if engine == db.SQLite && ui.Button(c, "New…").Clicked() {
-								a.newSQLiteFile()
-							}
-						})
-					}).Error(f.fileError(engine))
-				} else {
-					ui.Field(c, "Host", func() {
-						ui.Row(c).Gap(6).Grow(1).Children(func() {
-							ui.TextInput(c, &f.cfg.Host).Placeholder("localhost").Grow(1)
-							ui.TextInput(c, &f.port).Placeholder(strconv.Itoa(engine.DefaultPort())).Width(80).Label("Port")
-						})
-					})
-					ui.Field(c, "User", func() {
-						ui.TextInput(c, &f.cfg.User).Placeholder(engine.DefaultUser())
-					})
-					ui.Field(c, "Password from", func() {
-						ui.Select(c, &f.source, passwordSources).Label("Password from")
-					})
-					a.passwordField(c, f)
-					label := "Database"
-					placeholder := ""
-					switch engine {
-					case db.Redis:
-						label, placeholder = "Database index", "0"
-					case db.Postgres:
-						placeholder = "postgres"
-					}
-					ui.Field(c, label, func() {
-						ui.TextInput(c, &f.cfg.Database).Placeholder(placeholder)
-					})
-					ui.Field(c, "TLS", func() {
-						opts := []string{tlsLabels[db.TLSDisable], tlsLabels[db.TLSPrefer], tlsLabels[db.TLSRequire], tlsLabels[db.TLSVerifyFull]}
-						ui.Select(c, &f.tls, opts)
-					})
-					if f.tls == tlsLabels[db.TLSVerifyFull] {
-						ui.Field(c, "CA certificate", func() {
-							ui.TextInput(c, &f.cfg.CAFile).Placeholder("System certificates")
-						})
-					}
+				switch f.page {
+				case pageGeneral:
+					a.generalPage(c, f, engine)
+				case pageNetwork:
+					a.networkPage(c, f)
+				case pageOptions:
+					optionsPage(c, f, engine)
 				}
-				ui.Field(c, "Environment", func() {
-					ui.Column(c).Gap(6).Children(func() {
-						seg := ui.SegmentedBase(c, &f.env, 3)
-						seg.Track.Gap(4).Children(func() {
-							for i, e := range db.Environments() {
-								s := seg.Segment(i).Padding(5, 12).Radius(6).Border(1, t.Border)
-								col := widgets.EnvironmentColor(e)
-								if i == f.env {
-									s.Background(col).Border(1, col)
-								}
-								s.Children(func() {
-									txt := ui.Text(c, e.Label())
-									if i == f.env {
-										txt.TextColor(ui.RGB(255, 255, 255)).Bold()
-									}
-								})
-							}
-						})
-						ui.Text(c, envHelp(db.Environments()[f.env])).FontSize(12).TextColor(pal.Muted)
-					})
-				})
-				ui.Field(c, "Safety", func() {
-					ui.Checkbox(c, &f.cfg.ReadOnly, "Read-only: refuse every write (the server enforces it too)")
-				})
-				ui.Field(c, "Auto-connect", func() {
-					ui.Checkbox(c, &f.cfg.AutoConnect, "Connect as DGopher starts, and when its editors are shown")
-				}).Description("Off, the connection opens when you open it, or run a statement in one of its editors.")
-				if engine != db.ClickHouse && engine != db.Redis {
-					ui.Field(c, "Commit", func() {
-						ui.Select(c, &f.commit, commitLabels).Label("Commit mode")
-					})
-					ui.Field(c, "Idle transactions", func() {
-						ui.Row(c).Gap(8).Children(func() {
-							if !f.idleNever {
-								ui.NumberInput(c, &f.idleMin, 0, 1440, 5).Label("Minutes")
-								ui.Text(c, "minutes").TextColor(pal.Muted)
-							}
-							ui.Checkbox(c, &f.idleNever, "Never roll back")
-						})
-					}).Description(fmt.Sprintf("A transaction left idle this long is rolled back, after a warning you can cancel. 0 takes the environment's default: %d minutes on %s.",
-						int(connection.DefaultIdleTx(db.Environments()[f.env]).Minutes()), db.Environments()[f.env].Label()))
-				}
-				if engine != db.Redis {
-					ui.Field(c, "Statement timeout", func() {
-						ui.Row(c).Gap(8).Children(func() {
-							ui.NumberInput(c, &f.timeout, 0, 86400, 30).Label("Seconds")
-							ui.Text(c, "seconds, 0 for none").TextColor(pal.Muted)
-						})
-					})
-				}
-				if !engine.IsFile() {
-					ui.Field(c, "SSH tunnel", func() {
-						ui.Checkbox(c, &f.cfg.SSH.Enabled, "Connect through an SSH server")
-					})
-					if f.cfg.SSH.Enabled {
-						ui.Field(c, "SSH host", func() {
-							ui.Row(c).Gap(6).Grow(1).Children(func() {
-								ui.TextInput(c, &f.cfg.SSH.Host).Placeholder("bastion.example.com").Grow(1)
-								ui.TextInput(c, &f.sshPort).Placeholder("22").Width(70).Label("SSH port")
-							})
-						})
-						ui.Field(c, "SSH user", func() {
-							ui.TextInput(c, &f.cfg.SSH.User).Placeholder("ubuntu")
-						})
-						ui.Field(c, "", func() {
-							ui.Checkbox(c, &f.cfg.SSH.UseAgent, "Use the SSH agent")
-						})
-						ui.Field(c, "Private key", func() {
-							ui.Row(c).Gap(6).Grow(1).Children(func() {
-								ui.TextInput(c, &f.cfg.SSH.KeyPath).Placeholder("~/.ssh/id_ed25519").Grow(1)
-								if ui.Button(c, "Choose…").Clicked() {
-									a.chooseKey()
-								}
-							})
-						})
-						a.sshSecretFields(c, f)
-					}
-				}
-			}).Padding(4, 20, 12, 20)
+			}).Padding(12, 20, 12, 20)
 		})
 		ui.Row(c).Padding(12, 20).Gap(8).BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
 			if ui.Button(c, "Test Connection").Disabled(f.testing).Clicked() {
@@ -428,6 +290,251 @@ func (a *App) connFormView(c *ui.Context) {
 			ui.Text(c, f.err).TextColor(t.Danger).Padding(0, 20, 12, 20)
 		}
 	})
+}
+
+// The pages of the connection form, in order: what most connections need
+// comes first, and the rest on pages named for what they hold. The
+// network is last, so that a file, which has none, keeps the others'
+// places.
+const (
+	pageGeneral = iota
+	pageOptions
+	pageNetwork
+)
+
+// pages are the form's pages for an engine.
+func (f *connForm) pages(e db.Engine) []int {
+	if e.IsFile() {
+		return []int{pageGeneral, pageOptions}
+	}
+	return []int{pageGeneral, pageOptions, pageNetwork}
+}
+
+// pageLabel names a page, marked when it holds a choice other than the
+// default, so that it is not missed while another page shows.
+func (f *connForm) pageLabel(page int) string {
+	switch page {
+	case pageNetwork:
+		if f.cfg.SSH.Enabled {
+			return "Network •"
+		}
+		return "Network"
+	case pageOptions:
+		if f.cfg.AutoConnect || f.commit != commitLabels[0] || f.idleNever || f.idleMin > 0 || f.timeout > 0 {
+			return "Options •"
+		}
+		return "Options"
+	}
+	return "General"
+}
+
+// generalPage holds what a connection needs: where the database is, who
+// connects, and how carefully.
+func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
+	t := c.Theme()
+	pal := widgets.PaletteOf(c)
+	ui.Field(c, "From URL", func() {
+		in := ui.TextInput(c, &f.url).Font(widgets.MonoFont).FontSize(12.5).
+			Placeholder("Paste postgres://user:password@host:5432/db, mysql://…, redis://…, or a file path")
+		if f.urlFocus && in.Focus().Focused() {
+			f.urlFocus = false
+		}
+		if in.Submitted() || in.Changed() && strings.Contains(f.url, "://") {
+			a.fillFromURL(f)
+		}
+	}).Error(f.urlErr)
+	ui.Field(c, "Engine", func() {
+		if ui.Segmented(c, &f.engineIdx, engineLabels()...).Label("Engine").Changed() {
+			a.syncEngineChoice(f, f.engineIdx)
+		}
+	})
+	ui.Field(c, "Name", func() {
+		name := ui.TextInput(c, &f.cfg.Name).Placeholder("e.g. Billing (production)")
+		if !f.urlFocus {
+			name.AutoFocus()
+		}
+	})
+	if engine.IsFile() {
+		ui.Field(c, "File", func() {
+			ui.Row(c).Gap(6).Grow(1).Children(func() {
+				ui.TextInput(c, &f.cfg.Database).Placeholder("/path/to/database").Grow(1)
+				if ui.Button(c, "Choose…").Clicked() {
+					a.chooseFile(engine)
+				}
+				if ui.Button(c, "New…").Tooltip("Create an empty " + engine.Label() + " database").Clicked() {
+					a.newDatabaseFile(engine)
+				}
+			})
+		}).Error(f.fileError(engine))
+	} else {
+		ui.Field(c, "Host", func() {
+			ui.Row(c).Gap(6).Grow(1).Children(func() {
+				ui.TextInput(c, &f.cfg.Host).Placeholder("localhost").Grow(1)
+				ui.TextInput(c, &f.port).Placeholder(strconv.Itoa(engine.DefaultPort())).Width(80).Label("Port")
+			})
+		})
+		ui.Field(c, "User", func() {
+			ui.TextInput(c, &f.cfg.User).Placeholder(engine.DefaultUser())
+		})
+		ui.Field(c, "Password from", func() {
+			ui.Select(c, &f.source, passwordSources).Label("Password from")
+		})
+		a.passwordField(c, f)
+		label := "Database"
+		placeholder := ""
+		switch engine {
+		case db.Redis:
+			label, placeholder = "Database index", "0"
+		case db.Postgres:
+			placeholder = "postgres"
+		}
+		ui.Field(c, label, func() {
+			ui.TextInput(c, &f.cfg.Database).Placeholder(placeholder)
+		})
+	}
+	ui.Field(c, "Environment", func() {
+		ui.Column(c).Gap(6).Children(func() {
+			seg := ui.SegmentedBase(c, &f.env, 3)
+			seg.Track.Gap(4).Children(func() {
+				for i, e := range db.Environments() {
+					s := seg.Segment(i).Padding(5, 12).Radius(6).Border(1, t.Border)
+					col := widgets.EnvironmentColor(e)
+					if i == f.env {
+						s.Background(col).Border(1, col)
+					}
+					s.Children(func() {
+						txt := ui.Text(c, e.Label())
+						if i == f.env {
+							txt.TextColor(ui.RGB(255, 255, 255)).Bold()
+						}
+					})
+				}
+			})
+			ui.Text(c, envHelp(db.Environments()[f.env])).FontSize(12).TextColor(pal.Muted)
+		})
+	})
+	colorField(c, f)
+	ui.Field(c, "Safety", func() {
+		ui.Checkbox(c, &f.cfg.ReadOnly, "Read-only: refuse every write (the server enforces it too)")
+	})
+	ui.Field(c, "Project", func() {
+		if f.editing != nil {
+			ui.Text(c, a.projectLabel(f.project)).Tooltip(f.project.Dir)
+			return
+		}
+		if ui.Select(c, &f.projectSel, a.projectLabels()).Label("Project").Changed() {
+			f.project = a.projectByLabel(f.projectSel)
+		}
+	}).Description("Saved in its " + project.File + ", without passwords, to commit with the project.")
+}
+
+// connectionColors are the colors offered for a connection, apart from
+// its environment's. None is an environment's: a development connection
+// in production's red would cry wolf, and production in green would hide.
+var connectionColors = []struct{ name, hex string }{
+	{"Blue", "#2563eb"}, {"Violet", "#7c3aed"}, {"Pink", "#db2777"}, {"Orange", "#ea580c"},
+	{"Yellow", "#ca8a04"}, {"Lime", "#65a30d"}, {"Teal", "#0d9488"}, {"Cyan", "#0891b2"}, {"Slate", "#64748b"},
+}
+
+// colorField chooses the connection's color: its environment's, one of
+// connectionColors, or any other.
+func colorField(c *ui.Context, f *connForm) {
+	t := c.Theme()
+	env := db.Environments()[f.env]
+	swatch := func(value string, col ui.Color, name string) {
+		on := f.cfg.Color == value
+		r := ui.RadioBase(c, &f.cfg.Color, value).Size(22, 22).Radius(11).Center().Background(col).Label(name).Tooltip(name)
+		if on {
+			r.Border(2, t.Text)
+		}
+	}
+	ui.Field(c, "Color", func() {
+		ui.Row(c).Gap(8).Children(func() {
+			ui.RadioGroup(c, func() {
+				swatch("", widgets.EnvironmentColor(env), "The environment's ("+env.Label()+")")
+				for _, cc := range connectionColors {
+					swatch(cc.hex, ui.Hex(cc.hex), cc.name)
+				}
+			}).Row().Gap(6).Label("Color")
+			custom := widgets.EnvColor(&db.Config{Color: f.cfg.Color, Env: env})
+			if ui.ColorWell(c, &custom).Label("Other color").Tooltip("Other color").Changed() {
+				f.cfg.Color = widgets.HexColor(custom)
+			}
+		})
+	}).Description("Marks the connection's tabs, the band above them and the status bar. The status bar names the environment whatever the color.")
+}
+
+// networkPage holds how the app reaches a server: TLS and an SSH tunnel.
+func (a *App) networkPage(c *ui.Context, f *connForm) {
+	ui.Field(c, "TLS", func() {
+		opts := []string{tlsLabels[db.TLSDisable], tlsLabels[db.TLSPrefer], tlsLabels[db.TLSRequire], tlsLabels[db.TLSVerifyFull]}
+		ui.Select(c, &f.tls, opts).Label("TLS")
+	})
+	if f.tls == tlsLabels[db.TLSVerifyFull] {
+		ui.Field(c, "CA certificate", func() {
+			ui.TextInput(c, &f.cfg.CAFile).Placeholder("System certificates")
+		})
+	}
+	ui.Field(c, "SSH tunnel", func() {
+		ui.Checkbox(c, &f.cfg.SSH.Enabled, "Connect through an SSH server")
+	})
+	if !f.cfg.SSH.Enabled {
+		return
+	}
+	ui.Field(c, "SSH host", func() {
+		ui.Row(c).Gap(6).Grow(1).Children(func() {
+			ui.TextInput(c, &f.cfg.SSH.Host).Placeholder("bastion.example.com").Grow(1)
+			ui.TextInput(c, &f.sshPort).Placeholder("22").Width(70).Label("SSH port")
+		})
+	})
+	ui.Field(c, "SSH user", func() {
+		ui.TextInput(c, &f.cfg.SSH.User).Placeholder("ubuntu")
+	})
+	ui.Field(c, "", func() {
+		ui.Checkbox(c, &f.cfg.SSH.UseAgent, "Use the SSH agent")
+	})
+	ui.Field(c, "Private key", func() {
+		ui.Row(c).Gap(6).Grow(1).Children(func() {
+			ui.TextInput(c, &f.cfg.SSH.KeyPath).Placeholder("~/.ssh/id_ed25519").Grow(1)
+			if ui.Button(c, "Choose…").Clicked() {
+				a.chooseKey()
+			}
+		})
+	})
+	a.sshSecretFields(c, f)
+}
+
+// optionsPage holds how the app behaves with the connection: when it
+// connects, commits, and gives up on idle transactions and slow
+// statements.
+func optionsPage(c *ui.Context, f *connForm, engine db.Engine) {
+	pal := widgets.PaletteOf(c)
+	ui.Field(c, "Auto-connect", func() {
+		ui.Checkbox(c, &f.cfg.AutoConnect, "Connect as DGopher starts, and when its editors are shown")
+	}).Description("Off, the connection opens when you open it, or run a statement in one of its editors.")
+	if engine != db.ClickHouse && engine != db.Redis {
+		ui.Field(c, "Commit", func() {
+			ui.Select(c, &f.commit, commitLabels).Label("Commit mode")
+		})
+		ui.Field(c, "Idle transactions", func() {
+			ui.Row(c).Gap(8).Children(func() {
+				if !f.idleNever {
+					ui.NumberInput(c, &f.idleMin, 0, 1440, 5).Label("Minutes")
+					ui.Text(c, "minutes").TextColor(pal.Muted)
+				}
+				ui.Checkbox(c, &f.idleNever, "Never roll back")
+			})
+		}).Description(fmt.Sprintf("A transaction left idle this long is rolled back, after a warning you can cancel. 0 takes the environment's default: %d minutes on %s.",
+			int(connection.DefaultIdleTx(db.Environments()[f.env]).Minutes()), db.Environments()[f.env].Label()))
+	}
+	if engine != db.Redis {
+		ui.Field(c, "Statement timeout", func() {
+			ui.Row(c).Gap(8).Children(func() {
+				ui.NumberInput(c, &f.timeout, 0, 86400, 30).Label("Seconds")
+				ui.Text(c, "seconds, 0 for none").TextColor(pal.Muted)
+			})
+		})
+	}
 }
 
 func (f *connForm) fileError(e db.Engine) string {
@@ -500,18 +607,24 @@ func (a *App) chooseFile(e db.Engine) {
 	}()
 }
 
-func (a *App) newSQLiteFile() {
+// newDatabaseFile asks where to make an empty database of a file engine,
+// makes it there, and puts it in the form. A file chosen that exists is
+// opened as it is.
+func (a *App) newDatabaseFile(e db.Engine) {
+	name := "database.sqlite"
+	if e == db.DuckDB {
+		name = "database.duckdb"
+	}
 	go func() {
-		path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{Title: "New SQLite Database", DefaultPath: "database.sqlite"})
+		path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{Title: "New " + e.Label() + " Database", DefaultPath: name})
 		if err != nil || path == "" {
 			return
 		}
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			// An empty file is an empty SQLite database.
-			if err := os.WriteFile(path, nil, 0o600); err != nil {
-				a.Post(func() { a.ShowError("Could not create the database", err.Error()) })
-				return
-			}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := db.CreateFile(ctx, e, path); err != nil {
+			a.Post(func() { a.ShowError("Could not create the database", err.Error()) })
+			return
 		}
 		a.Post(func() {
 			if a.connForm != nil {
@@ -617,6 +730,11 @@ func (a *App) checkConnForm(f *connForm, cfg *db.Config) error {
 	}
 	if why := envAllowed(cfg); why != "" {
 		return errors.New(why)
+	}
+	// Only the form refuses a malformed color: one from a shared file is
+	// drawn as the environment's, and does not stop a connect.
+	if cfg.Color != "" && !db.ValidColor(cfg.Color) {
+		return fmt.Errorf("the color %q is not #rrggbb: choose one", cfg.Color)
 	}
 	if sourceOf(cfg) == sourceEnv && cfg.PasswordEnv == "" {
 		return errors.New("name the environment variable holding the password")
