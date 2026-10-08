@@ -168,6 +168,49 @@ func TestFindInEditor(t *testing.T) {
 	testutil.Snapshot(t, tt, "find")
 }
 
+func TestReplaceInEditor(t *testing.T) {
+	a := newFakeQueryHost(t)
+	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1000, 700)
+	q := New(a, cn, "", "q", "select a FROM t;\nselect b FROM u;\nselect c")
+	a.AddTab(q)
+	tt.Frame()
+	tt.Key(ui.Cmd|ui.Alt, ui.KeyF)
+	tt.Frame()
+	tt.Type("select")
+	tt.Frame()
+	if !q.find.Replacing || len(q.find.Matches) != 3 {
+		t.Fatalf("replacing %v, matches %v", q.find.Replacing, q.find.Matches)
+	}
+	q.find.Replacement = "SELECT DISTINCT"
+	tt.Frame()
+	// A replacement holding the query is not found again: the next match
+	// is the second statement's.
+	if err := tt.Click("Replace"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	tt.Frame()
+	if q.Editor.Text != "SELECT DISTINCT a FROM t;\nselect b FROM u;\nselect c" || q.find.Current != 1 || q.Editor.SelStart != 26 {
+		t.Fatalf("after Replace: %q, current %d, selection at %d", q.Editor.Text, q.find.Current, q.Editor.SelStart)
+	}
+	testutil.Snapshot(t, tt, "replace")
+	before := q.Editor.Text
+	if err := tt.Click("Replace All"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	// Finding ignores case, so the statement replaced already matches too.
+	if q.Editor.Text != "SELECT DISTINCT DISTINCT a FROM t;\nSELECT DISTINCT b FROM u;\nSELECT DISTINCT c" || a.Toasts[len(a.Toasts)-1] != "Replaced 3 matches" {
+		t.Fatalf("after Replace All: %q, toasts %v", q.Editor.Text, a.Toasts)
+	}
+	a.ToastRun()
+	tt.Frame()
+	if q.Editor.Text != before {
+		t.Fatalf("undo left %q", q.Editor.Text)
+	}
+}
+
 func TestExplain(t *testing.T) {
 	testutil.Integration(t)
 	file := t.TempDir() + "/e.sqlite"

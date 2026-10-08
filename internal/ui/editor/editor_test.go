@@ -43,3 +43,14 @@ func TestFindAllAfterChangingCase(t *testing.T) {
 		t.Errorf("matches %v, want [3]", got)
 	}
 }
+
+func TestReplaceAt(t *testing.T) {
+	text := "SELECT é FROM t; select 1"
+	got := ReplaceAt(text, FindAll(text, "select"), 6, "SELECT DISTINCT")
+	if want := "SELECT DISTINCT é FROM t; SELECT DISTINCT 1"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+	if got := ReplaceAt(text, nil, 6, "x"); got != text {
+		t.Errorf("no matches changed the text: %q", got)
+	}
+}

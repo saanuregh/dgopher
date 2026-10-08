@@ -244,15 +244,17 @@ func LineOf(text string, at int) int {
 	return line
 }
 
-// Find is the find bar of a SQL editor.
+// Find is the find bar of a SQL editor, and its replace row.
 type Find struct {
-	Open     bool
-	Query    string
-	Current  int
-	Matches  []int // rune offsets of the matches, for the query and text below
-	ForQuery string
-	ForText  string
-	Shown    int // the match last selected, -1 for none
+	Open        bool
+	Query       string
+	Replacing   bool // the replace row shows under the find bar
+	Replacement string
+	Current     int
+	Matches     []int // rune offsets of the matches, for the query and text below
+	ForQuery    string
+	ForText     string
+	Shown       int // the match last selected, -1 for none
 }
 
 // FindAll returns the rune offsets where the query appears, ignoring case.
@@ -271,4 +273,20 @@ func FindAll(text, query string) []int {
 		out = append(out, utf8.RuneCountInString(lt[:at]))
 		from = at + len(lq)
 	}
+}
+
+// ReplaceAt replaces the runes [at, at+n) of the text, for each of the
+// rune offsets matches, in order and apart, with s.
+func ReplaceAt(text string, matches []int, n int, s string) string {
+	r := []rune(text)
+	var b strings.Builder
+	b.Grow(len(text))
+	from := 0
+	for _, at := range matches {
+		b.WriteString(string(r[from:at]))
+		b.WriteString(s)
+		from = at + n
+	}
+	b.WriteString(string(r[from:]))
+	return b.String()
 }

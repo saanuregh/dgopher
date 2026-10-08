@@ -13,7 +13,7 @@ func KeyLabel(k string) string {
 	if runtime.GOOS == "darwin" {
 		return k
 	}
-	r := strings.NewReplacer("⌘", "Ctrl+", "⇧", "Shift+", "↵", "Enter")
+	r := strings.NewReplacer("⌘", "Ctrl+", "⌥", "Alt+", "⇧", "Shift+", "↵", "Enter")
 	return r.Replace(k)
 }
 

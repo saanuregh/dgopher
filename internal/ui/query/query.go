@@ -1511,6 +1511,13 @@ func (q *Tab) editorMenu(m *ui.Menu) {
 	m.Separator()
 	m.EditItems()
 	m.Separator()
+	if m.Item("Find…").Shortcut(ui.Cmd, ui.KeyF).Chosen() {
+		q.find.Open, q.find.Replacing, q.find.Shown = true, false, -1
+	}
+	if m.Item("Replace…").Shortcut(ui.Cmd|ui.Alt, ui.KeyF).Chosen() {
+		q.find.Open, q.find.Replacing, q.find.Shown = true, true, -1
+	}
+	m.Separator()
 	m.Submenu("Format", func(m *ui.Menu) {
 		if m.Item("Format SQL").Shortcut(ui.Cmd|ui.Shift, ui.KeyF).Chosen() {
 			q.format()

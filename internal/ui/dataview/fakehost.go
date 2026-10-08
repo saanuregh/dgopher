@@ -33,11 +33,13 @@ type FakeHost struct {
 	focus    string
 
 	// What the app would have shown or kept.
-	Confirm   *widgets.ConfirmRequest
-	Pending   *PendingRequest
-	Discard   func()
-	Errors    []string
-	Toasts    []string
+	Confirm *widgets.ConfirmRequest
+	Pending *PendingRequest
+	Discard func()
+	Errors  []string
+	Toasts  []string
+	// ToastRun is what the button of the last toast does, nil without one.
+	ToastRun  func()
 	Clipboard string
 	Queries   []string // texts of the query tabs asked for
 	Events    []audit.Event
@@ -142,7 +144,13 @@ func (h *FakeHost) SaveSettings() {}
 
 func (h *FakeHost) ShowError(title, message string) { h.Errors = append(h.Errors, title+": "+message) }
 
-func (h *FakeHost) Toast(text, action string, _ func()) { h.Toasts = append(h.Toasts, text) }
+func (h *FakeHost) Toast(text, action string, run func()) {
+	h.Toasts = append(h.Toasts, text)
+	h.ToastRun = nil
+	if action != "" {
+		h.ToastRun = run
+	}
+}
 
 func (h *FakeHost) WriteClipboard(text string) { h.Clipboard = text }
 

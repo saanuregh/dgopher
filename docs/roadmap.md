@@ -3,7 +3,6 @@
 ## Roadmap
 
 - **Next:**
-  - Replace text in the editor. Find already works.
   - Connect to Redis Cluster and Redis Sentinel.
   - Export results as an Excel file.
   - When a query file's `-- connection:` line names a connection that

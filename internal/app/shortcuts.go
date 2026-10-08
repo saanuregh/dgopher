@@ -41,6 +41,7 @@ var shortcutGroups = []struct {
 		{"⌘⇧F", "Format the SQL"},
 		{"Ctrl+Space", "Complete: tables, columns, keywords"},
 		{"⌘F", "Find in the editor (↵ next, ⇧↵ previous)"},
+		{"⌘⌥F", "Replace in the editor (↵ in its field replaces the match)"},
 		{"⌘J", "Between the editor and its results"},
 		{"⌘S", "Save the file now (it also saves as you type)"},
 		{"Esc", "Cancel the running statement"},

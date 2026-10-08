@@ -87,7 +87,8 @@
     toggle comments, copy the statement, save a snippet, export from the
     query.
   - Explain (⌘E), format (⌘⇧F, the selection only when there is one,
-    keeping the blank lines between statements), and find (⌘F).
+    keeping the blank lines between statements), find (⌘F) and replace
+    (⌘⌥F): one match at a time, or all at once, which a toast can undo.
   - An optional statement timeout per connection.
   - Each editor has its own session, so `SET`, temporary tables and
     transactions persist between statements.
