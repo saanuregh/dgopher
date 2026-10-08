@@ -1221,8 +1221,37 @@ func (v *Viewer) exportSource() ExportSource {
 	if !v.source.Wrap {
 		name = v.source.Table.Name
 	}
-	return ExportSource{Conn: v.source.Conn, Database: v.source.Database, Name: name, SQL: sql, Args: v.source.Args,
+	src := ExportSource{Conn: v.source.Conn, Database: v.source.Database, Name: name, SQL: sql, Args: v.source.Args,
 		Cols: v.src.Cols, RowsRead: func() [][]any { return v.src.Rows }, Read: len(v.src.Rows)}
+	if v.source.CountOnSession {
+		src.OnSession = v.lendSession
+	}
+	return src
+}
+
+// lendSession lends the session to an export, on the terms Count takes
+// it: once no result reads rows there and nothing else runs on it. The
+// export holds it, as a count does, until it calls done.
+func (v *Viewer) lendSession() (sess *db.Session, done func(), why string) {
+	if why = v.source.CursorOpen(); why == "" {
+		why = v.sessionBusy()
+	}
+	if sess = v.source.Session(); why != "" || sess == nil {
+		return nil, nil, why
+	}
+	v.sessionReads++
+	return sess, func() {
+		tx := sess.Tx()
+		v.a.Post(func() {
+			v.sessionReads--
+			if v.sessionReads == 0 {
+				v.readCancel = nil
+			}
+			if !v.released {
+				v.source.TxChanged(tx)
+			}
+		})
+	}, ""
 }
 
 // cellMenu offers to follow a foreign key from its cell, and to filter

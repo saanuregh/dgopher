@@ -33,3 +33,16 @@ func TestValueFormats(t *testing.T) {
 		t.Errorf("hex: %q", got)
 	}
 }
+
+func TestExportLimit(t *testing.T) {
+	for p, want := range map[ExportPrefs]int{
+		{}:                               DefaultExportRowLimit,
+		{RowLimit: 500}:                  500,
+		{Unlimited: true}:                0,
+		{RowLimit: 500, Unlimited: true}: 0,
+	} {
+		if got := p.Limit(); got != want {
+			t.Errorf("%+v: %d, want %d", p, got, want)
+		}
+	}
+}

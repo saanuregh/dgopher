@@ -52,6 +52,28 @@ type ExportPrefs struct {
 	Folder     string `json:"folder,omitempty"`
 	Pattern    string `json:"pattern,omitempty"`
 	OpenFolder bool   `json:"openFolder,omitempty"`
+	// RowLimit is the most rows an export reads by running its statement
+	// again, 0 for DefaultExportRowLimit; Unlimited reads every row.
+	RowLimit  int  `json:"rowLimit,omitempty"`
+	Unlimited bool `json:"unlimited,omitempty"`
+}
+
+// DefaultExportRowLimit is the most rows an export reads by running its
+// statement again, until the user chooses another limit: enough for any
+// spreadsheet, and short of a table that would take the server's
+// evening.
+const DefaultExportRowLimit = 1_000_000
+
+// Limit is the most rows an export reads by running its statement
+// again, 0 for no limit.
+func (p ExportPrefs) Limit() int {
+	switch {
+	case p.Unlimited:
+		return 0
+	case p.RowLimit > 0:
+		return p.RowLimit
+	}
+	return DefaultExportRowLimit
 }
 
 // CopyOptions say how Advanced Copy writes the chosen rows.

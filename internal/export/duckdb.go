@@ -27,7 +27,10 @@ type Column struct{ Name, DatabaseType string }
 
 // NewFileWriter writes format f to path. On a failed Close the partial file is removed.
 func NewFileWriter(path string, f Format, cols []Column, opt Options) (RowWriter, error) {
-	if NeedsFile(f) {
+	switch f {
+	case XLSX:
+		return newXLSXWriter(path, cols, opt)
+	case Parquet, DuckDBFile:
 		return newDuckWriter(path, f, cols, opt)
 	}
 	// Exported rows may be private: the file is the user's alone.

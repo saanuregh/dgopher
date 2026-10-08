@@ -119,9 +119,11 @@ type Tab struct {
 	resultIdx int // len(results) for the messages
 	messages  []message
 
-	// named is the connection the file's header names, as headerOf last
+	// named is the connection the file's header names, as namedConnection last
 	// read it from namedText.
 	named, namedText string
+	// exports counts the exports reading on the session.
+	exports int
 }
 
 func New(a Host, cn *connection.Conn, database, name, text string) *Tab {
@@ -152,6 +154,8 @@ func (q *Tab) CloseReason() string {
 		return "A transaction is open on this editor's session. Closing the editor rolls it back, losing its changes."
 	case q.Running:
 		return "A statement is still running. Closing the editor cancels it."
+	case q.exports > 0:
+		return "An export is reading on this editor's session. Closing the editor stops it."
 	}
 	return ""
 }
@@ -238,8 +242,11 @@ func (q *Tab) replaced(mode RunMode) []*result {
 // sessionBusy says why the session cannot take a statement of a result
 // now: the editor runs one, or another result reads or applies.
 func (q *Tab) sessionBusy(self *result) string {
-	if q.Running {
+	switch {
+	case q.Running:
 		return "A statement is running in the editor."
+	case q.exports > 0:
+		return "An export is reading on the editor's session."
 	}
 	for _, r := range q.results {
 		if r != self && r.view != nil && r.view.Busy() {
@@ -403,9 +410,14 @@ func (q *Tab) Run(mode RunMode) {
 }
 
 // refuseWhileResultsWork says so and reports true while a result writes
-// its changes, whose transaction a statement would land in, or counts on
-// the session, which cancelled would abort the editor's transaction.
+// its changes, whose transaction a statement would land in, or reads on
+// the session, as a count or an export, which cancelled would abort the
+// editor's transaction.
 func (q *Tab) refuseWhileResultsWork() bool {
+	if q.exports > 0 {
+		q.a.ShowError("Not run", "An export is reading on the editor's session: run once it ends.")
+		return true
+	}
 	for _, r := range q.results {
 		switch {
 		case r.view == nil:
@@ -413,7 +425,7 @@ func (q *Tab) refuseWhileResultsWork() bool {
 			q.a.ShowError("Not run", "The changes of a result are being applied: run once they are.")
 			return true
 		case r.view.Counting():
-			q.a.ShowError("Not run", "A count is running on the editor's connection: run once it ends.")
+			q.a.ShowError("Not run", "A count or an export is reading on the editor's session: run once it ends.")
 			return true
 		}
 	}
@@ -1610,6 +1622,30 @@ func (q *Tab) editorMenu(m *ui.Menu) {
 	}
 }
 
+// lendSession lends the editor's session to an export of its statement,
+// for it to see the editor's schema, temporary tables and transaction:
+// once nothing runs there and no result reads rows from it. Without a
+// session yet, the export opens its own, which knows as much.
+func (q *Tab) lendSession() (sess *db.Session, done func(), why string) {
+	if why = q.cursorOpen(); why == "" {
+		why = q.sessionBusy(nil)
+	}
+	if sess = q.sess; why != "" || sess == nil {
+		return nil, nil, why
+	}
+	q.exports++
+	return sess, func() {
+		tx := sess.Tx()
+		q.a.Post(func() {
+			q.exports--
+			if !q.closed {
+				q.Tx = tx
+				q.txs.Set(tx, q.a.Now())
+			}
+		})
+	}, ""
+}
+
 // exportFromQuery exports the rows of the statement at the caret, or the
 // one selected, without showing them first; its parameters are asked as
 // a run asks them.
@@ -1629,7 +1665,7 @@ func (q *Tab) exportFromQuery() {
 			q.a.ShowError("Could not bind the parameters", err.Error())
 			return
 		}
-		dataview.OpenExport(q.a, dataview.ExportSource{Conn: q.Conn, Database: q.Database, Name: "query", SQL: sql, Args: args})
+		dataview.OpenExport(q.a, dataview.ExportSource{Conn: q.Conn, Database: q.Database, Name: "query", SQL: sql, Args: args, OnSession: q.lendSession})
 	}
 	keys := params.Keys(stmts, q.Editor.Dialect)
 	if len(keys) == 0 {

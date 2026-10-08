@@ -64,3 +64,41 @@ func TestExportFromQueryBindsParameters(t *testing.T) {
 		t.Fatalf("export event %q, %q, %d rows", ev.Statement, ev.Detail, ev.Rows)
 	}
 }
+
+// An editor's export runs again on its session, where it sees what the
+// rows shown saw, as a temporary table; meanwhile the editor runs
+// nothing there.
+func TestExportFromQueryOnTheEditorsSession(t *testing.T) {
+	a := newFakeQueryHost(t)
+	file := filepath.Join(t.TempDir(), "x.sqlite")
+	os.WriteFile(file, nil, 0o600)
+	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
+	folder := t.TempDir()
+	a.Settings().Export.Folder = folder
+	tt := ui.NewTester(a.view, 1100, 760)
+	q := newEditor(t, a, tt, cn, "-- connection: lite\n\nCREATE TEMP TABLE mine AS SELECT 1 AS one UNION ALL SELECT 2;\n\nSELECT * FROM mine")
+	testutil.SetCaret(tt, &q.Editor, 30)
+	q.Run(RunStatement)
+	testutil.WaitFor(t, tt, "the temporary table", func() bool { return !q.Running && len(q.messages) > 0 })
+	testutil.SetCaret(tt, &q.Editor, len([]rune(q.Editor.Text)))
+	q.exportFromQuery()
+	tt.Frame()
+	if err := tt.Click("Export"); err != nil {
+		t.Fatal(err)
+	}
+	if q.exports != 1 {
+		t.Fatalf("the export does not hold the session: %d", q.exports)
+	}
+	q.Run(RunStatement)
+	if !strings.Contains(a.Errors[len(a.Errors)-1], "An export is reading") {
+		t.Fatalf("ran during the export: %q", a.Errors)
+	}
+	var files []string
+	testutil.WaitFor(t, tt, "the export", func() bool {
+		files, _ = filepath.Glob(filepath.Join(folder, "*.csv"))
+		return len(files) == 1 && q.exports == 0
+	})
+	if data, _ := os.ReadFile(files[0]); string(data) != "one\n1\n2\n" {
+		t.Fatalf("exported %q", data)
+	}
+}

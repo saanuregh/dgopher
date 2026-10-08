@@ -9,9 +9,9 @@ import (
 
 func (q *Tab) OpenTx() bool { return q.Tx != db.TxNone }
 
-// Busy reports a statement running, or a result reading or applying on
-// the session.
-func (q *Tab) Busy() bool { return q.Running || q.resultsBusy() }
+// Busy reports a statement running, or a result or an export reading or
+// applying on the session.
+func (q *Tab) Busy() bool { return q.Running || q.exports > 0 || q.resultsBusy() }
 
 func (q *Tab) Times() *connection.TxTimes { return &q.txs }
 

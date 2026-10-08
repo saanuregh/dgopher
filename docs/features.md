@@ -150,12 +150,21 @@
   - Generate SQL for the chosen rows (SELECT, INSERT, UPDATE, DELETE, with
     their values), or for the table (with an upsert and joins, and `:name`
     parameters for the values).
-  - Export to CSV, TSV, JSON, JSON Lines, SQL, Markdown, Parquet or a DuckDB
-    database: every row, by running the query again on a session of its
-    own (only a read runs again), or the rows read; to a file named from a
-    pattern (`${table}`, `${connection}`, `${timestamp}`, `${date}`), or to
-    the clipboard (not Parquet or DuckDB). CSV can start with a byte order
-    mark, for Excel.
+  - Export to CSV, TSV, JSON, JSON Lines, SQL, Markdown, an Excel
+    workbook, Parquet or a DuckDB database: the rows read, or the query run
+    again (only a read runs again), up to a row limit that is kept from
+    one export to the next (a million rows at first). A query result's
+    export runs on the editor's session, so it sees the editor's schema,
+    temporary tables and transaction, as the rows shown did; a table's runs
+    on a session of its own. Reaching the limit is said, never silent.
+    Files are named from a pattern (`${table}`, `${connection}`,
+    `${timestamp}`, `${date}`); text formats can go to the clipboard
+    instead. CSV can start with a byte order mark, for Excel.
+  - The Excel workbook keeps numbers, dates and booleans as such, with
+    a bold header that stays in view. A number past the 15 digits Excel
+    keeps, such as a large ID, stays text, so that it is never rounded;
+    rows, columns or text past Excel's limits stop the export rather than
+    write a file Excel would repair.
   - Inline editing: change cells, add, duplicate and delete rows, set NULL
     or DEFAULT, revert, undo and redo (⌘Z), with DBeaver's keys.
   - A query's result is editable when its statement reads one table (no

@@ -26,7 +26,7 @@ func render(t *testing.T, f Format, cols []string, rows [][]any, opt Options) st
 }
 
 func TestFormatMetadata(t *testing.T) {
-	want := []struct{ ext, label string }{{"csv", "CSV"}, {"tsv", "TSV"}, {"json", "JSON"}, {"jsonl", "JSON Lines"}, {"sql", "SQL INSERT"}, {"md", "Markdown"}, {"parquet", "Parquet"}, {"duckdb", "DuckDB database"}}
+	want := []struct{ ext, label string }{{"csv", "CSV"}, {"tsv", "TSV"}, {"json", "JSON"}, {"jsonl", "JSON Lines"}, {"sql", "SQL INSERT"}, {"md", "Markdown"}, {"xlsx", "Excel workbook"}, {"parquet", "Parquet"}, {"duckdb", "DuckDB database"}}
 	fs := Formats()
 	if len(fs) != len(want) {
 		t.Fatalf("Formats() = %v", fs)

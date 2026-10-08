@@ -497,7 +497,7 @@ func TestRunRefusedWhileCounting(t *testing.T) {
 		t.Fatal(err)
 	}
 	runWith(t, tt, q, "SELECT 42", RunStatement)
-	if len(a.Errors) == 0 || !strings.Contains(a.Errors[len(a.Errors)-1], "A count is running") {
+	if len(a.Errors) == 0 || !strings.Contains(a.Errors[len(a.Errors)-1], "A count or an export is reading") {
 		t.Fatalf("errors %q", a.Errors)
 	}
 	testutil.WaitFor(t, tt, "the count", func() bool { return !q.Busy() })

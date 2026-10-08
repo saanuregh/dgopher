@@ -1,5 +1,5 @@
 // Package export writes query results as CSV, TSV, JSON, JSON Lines, SQL INSERT statements, Markdown,
-// Parquet, or a DuckDB database file.
+// an Excel workbook, Parquet, or a DuckDB database file.
 package export
 
 import (
@@ -27,16 +27,20 @@ const (
 	JSONLines Format = "jsonl"
 	SQL       Format = "sql"
 	Markdown  Format = "md"
-	// Parquet and DuckDBFile are written through DuckDB and need a file path; see NeedsFile.
+	// XLSX, Parquet and DuckDBFile need a file path; see NeedsFile. Parquet
+	// and DuckDBFile are written through DuckDB.
+	XLSX       Format = "xlsx"
 	Parquet    Format = "parquet"
 	DuckDBFile Format = "duckdb"
 )
 
 func Formats() []Format {
-	return []Format{CSV, TSV, JSON, JSONLines, SQL, Markdown, Parquet, DuckDBFile}
+	return []Format{CSV, TSV, JSON, JSONLines, SQL, Markdown, XLSX, Parquet, DuckDBFile}
 }
 
-func NeedsFile(f Format) bool { return f == Parquet || f == DuckDBFile }
+// NeedsFile reports whether a format is written only to a file, never as
+// text to the clipboard.
+func NeedsFile(f Format) bool { return f == XLSX || f == Parquet || f == DuckDBFile }
 
 func (f Format) Extension() string { return string(f) }
 
@@ -54,6 +58,8 @@ func (f Format) Label() string {
 		return "SQL INSERT"
 	case Markdown:
 		return "Markdown"
+	case XLSX:
+		return "Excel workbook"
 	case Parquet:
 		return "Parquet"
 	case DuckDBFile:

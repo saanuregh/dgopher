@@ -46,7 +46,7 @@ func TestSQLRowsPerInsert(t *testing.T) {
 }
 
 func TestNewWriterRefusesFileFormats(t *testing.T) {
-	for _, f := range []Format{Parquet, DuckDBFile} {
+	for _, f := range []Format{XLSX, Parquet, DuckDBFile} {
 		if !NeedsFile(f) {
 			t.Errorf("%s: NeedsFile false", f)
 		}

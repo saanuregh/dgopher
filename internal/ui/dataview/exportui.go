@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -36,6 +37,13 @@ type ExportSource struct {
 	// RowsRead are the rows read so far, nil when there are none.
 	RowsRead func() [][]any
 	Read     int
+	// OnSession, when set, lends the session the rows came from, for the
+	// statement to run again where it sees that session's schema,
+	// temporary tables and transaction, as the rows shown did. It returns
+	// the session and what to call once done with it; or a nil session to
+	// run on one of the export's own, as before any statement made one;
+	// or why it cannot lend it now.
+	OnSession func() (sess *db.Session, done func(), why string)
 }
 
 // exportState is the export dialog.
@@ -45,6 +53,9 @@ type exportState struct {
 	// rerun is why the statement cannot run again, "" when it can.
 	rerun string
 	all   bool // every row, running the statement again; else the rows read
+	// limited stops a statement run again after limit rows.
+	limited bool
+	limit   float64
 
 	format    string
 	delim     int
@@ -72,7 +83,10 @@ const defaultExportPattern = "${table}_${timestamp}"
 func OpenExport(a Host, src ExportSource) {
 	p := a.Settings().Export
 	x := &exportState{open: true, src: src, format: p.Format, folder: p.Folder, pattern: p.Pattern, openFolder: p.OpenFolder,
-		header: true, table: src.Name, perInsert: 1, delim: delimiterIndex(',')}
+		header: true, table: src.Name, perInsert: 1, delim: delimiterIndex(','), limited: p.Limit() > 0, limit: settings.DefaultExportRowLimit}
+	if p.Limit() > 0 {
+		x.limit = float64(p.Limit())
+	}
 	if x.format == "" {
 		x.format = string(export.CSV)
 	}
@@ -182,12 +196,20 @@ func ExportView(a Host, c *ui.Context) {
 				case export.SQL:
 					ui.Field(c, "Table", func() { ui.TextInput(c, &x.table).Font(widgets.MonoFont) })
 					ui.Field(c, "Rows per INSERT", func() { ui.NumberInput(c, &x.perInsert, 1, 1000, 10) })
+				case export.XLSX:
+					ui.Field(c, "Sheet", func() { ui.TextInput(c, &x.table) })
+					ui.Field(c, "", func() { ui.Checkbox(c, &x.header, "Column names first") })
+					ui.Field(c, "NULL as", func() { ui.TextInput(c, &x.nullText).Placeholder("an empty cell").Font(widgets.MonoFont) })
 				case export.Parquet, export.DuckDBFile:
 					ui.Field(c, "Table", func() { ui.TextInput(c, &x.table).Font(widgets.MonoFont) }).Description("Written through DuckDB, with the columns' types.")
 				}
 				ui.Field(c, "Rows", func() {
 					ui.Column(c).Gap(4).Children(func() {
-						ui.Radio(c, &x.all, true, "Every row: the statement runs again on a session of its own").Disabled(x.rerun != "")
+						where := "on a session of its own"
+						if x.src.OnSession != nil {
+							where = "on the editor's session, which sees what the rows shown saw"
+						}
+						ui.Radio(c, &x.all, true, "Run the statement again, "+where).Disabled(x.rerun != "")
 						if x.src.RowsRead != nil {
 							ui.Radio(c, &x.all, false, fmt.Sprintf("The %d rows read", x.src.Read))
 						}
@@ -196,6 +218,19 @@ func ExportView(a Host, c *ui.Context) {
 						}
 					})
 				})
+				if x.all {
+					note := "Reading stops there, and the export says so."
+					if f == export.XLSX {
+						note += fmt.Sprintf(" An Excel sheet holds at most %d rows below its header.", export.ExcelMaxRows)
+					}
+					ui.Field(c, "Limit", func() {
+						ui.Row(c).Gap(8).Children(func() {
+							ui.Checkbox(c, &x.limited, "At most")
+							ui.NumberInput(c, &x.limit, 1, 1e9, 10000).Label("Most rows").Disabled(!x.limited)
+							ui.Text(c, "rows").TextColor(pal.Muted)
+						})
+					}).Description(note)
+				}
 				ui.Field(c, "Output", func() {
 					ui.Checkbox(c, &x.clipboard, "Copy to the clipboard instead of a file").Disabled(export.NeedsFile(f))
 				})
@@ -250,10 +285,30 @@ func ExportView(a Host, c *ui.Context) {
 	}
 }
 
+// exportPage is how many rows an export reads at a time.
+const exportPage = 5000
+
 // runExport writes the rows, off the main thread, and audits it.
 func runExport(a Host, x *exportState) {
-	a.Settings().Export = settings.ExportPrefs{Format: x.format, Folder: x.folder, Pattern: x.pattern, OpenFolder: x.openFolder}
+	prefs := settings.ExportPrefs{Format: x.format, Folder: x.folder, Pattern: x.pattern, OpenFolder: x.openFolder, Unlimited: !x.limited}
+	if x.limited {
+		prefs.RowLimit = int(x.limit)
+	}
+	a.Settings().Export = prefs
 	a.SaveSettings()
+	cfg, src, all := x.src.Conn.Config, x.src, x.all
+	var sess *db.Session
+	release := func() {}
+	if all && src.OnSession != nil {
+		s, done, why := src.OnSession()
+		if why != "" {
+			x.err = "Not exported: " + why
+			return
+		}
+		if s != nil {
+			sess, release = s, done
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	x.running, x.cancel, x.err = true, cancel, ""
 	x.written.Store(0)
@@ -262,7 +317,10 @@ func runExport(a Host, x *exportState) {
 	if !toClip {
 		path = x.path()
 	}
-	cfg, src, all := x.src.Conn.Config, x.src, x.all
+	limit := 0
+	if all && x.limited {
+		limit = int(x.limit)
+	}
 	pool := x.src.Conn.DB
 	var read [][]any
 	if !all {
@@ -270,9 +328,11 @@ func runExport(a Host, x *exportState) {
 	}
 	a.Background(func() func() {
 		defer cancel()
+		defer release()
 		var clip strings.Builder
+		limited := false // the limit stopped the reading, with rows left
 		err := func() error {
-			cols, next, done, cut, err := exportRows(ctx, pool, src, all, read)
+			cols, next, done, cut, err := exportRows(ctx, pool, sess, src, all, read)
 			if err != nil {
 				return err
 			}
@@ -295,7 +355,15 @@ func runExport(a Host, x *exportState) {
 				return err
 			}
 			for {
-				rows, err := next()
+				n := exportPage
+				if limit > 0 {
+					// One row past the limit says whether rows remain.
+					n = min(n, limit-int(x.written.Load())+1)
+				}
+				rows, err := next(n)
+				if limit > 0 && int(x.written.Load())+len(rows) > limit {
+					rows, limited = rows[:limit-int(x.written.Load())], true
+				}
 				if err == nil {
 					for _, r := range rows {
 						if err = w.Write(r); err != nil {
@@ -314,6 +382,9 @@ func runExport(a Host, x *exportState) {
 					return err
 				}
 				x.written.Add(int64(len(rows)))
+				if limited {
+					return w.Close()
+				}
 				if len(rows) == 0 && cut() {
 					w.Close()
 					if path != "" {
@@ -331,8 +402,16 @@ func runExport(a Host, x *exportState) {
 		if toClip {
 			ev.Detail = f.Label() + " to the clipboard"
 		}
-		if !all {
+		switch {
+		case !all:
 			ev.Detail += ", the rows read"
+		case sess != nil:
+			ev.Detail += ", run again on the editor's session"
+		}
+		stopped := ""
+		if limited {
+			stopped = fmt.Sprintf(": the limit of %d rows stopped it, with rows left", limit)
+			ev.Detail += ", stopped at its limit of " + strconv.Itoa(limit) + " rows"
 		}
 		if err != nil {
 			ev.Error = err.Error()
@@ -347,10 +426,10 @@ func runExport(a Host, x *exportState) {
 			x.open = false
 			if toClip {
 				a.WriteClipboard(clip.String())
-				a.Toast(fmt.Sprintf("Copied %d rows as %s", n, f.Label()), "", nil)
+				a.Toast(fmt.Sprintf("Copied %d rows as %s%s", n, f.Label(), stopped), "", nil)
 				return
 			}
-			a.Toast(fmt.Sprintf("Exported %d rows", n), "Show in Folder", func() { mygo.Shell.ShowItemInFolder(path) })
+			a.Toast(fmt.Sprintf("Exported %d rows%s", n, stopped), "Show in Folder", func() { mygo.Shell.ShowItemInFolder(path) })
 			if x.openFolder {
 				mygo.Shell.ShowItemInFolder(path)
 			}
@@ -358,13 +437,13 @@ func runExport(a Host, x *exportState) {
 	})
 }
 
-// exportRows gives an export its rows page by page, from a statement run
-// again on a session of its own, or from the rows read; an empty page
-// ends them.
-func exportRows(ctx context.Context, pool *db.DB, src ExportSource, all bool, read [][]any) ([]db.ColumnInfo, func() ([][]any, error), func(), func() bool, error) {
+// exportRows gives an export its rows, at most n at a time, from the
+// statement run again, on a lent session or one of its own, or from the
+// rows read; an empty page ends them.
+func exportRows(ctx context.Context, pool *db.DB, lent *db.Session, src ExportSource, all bool, read [][]any) ([]db.ColumnInfo, func(n int) ([][]any, error), func(), func() bool, error) {
 	if !all {
 		sent := false
-		return src.Cols, func() ([][]any, error) {
+		return src.Cols, func(int) ([][]any, error) {
 			if sent {
 				return nil, nil
 			}
@@ -372,18 +451,30 @@ func exportRows(ctx context.Context, pool *db.DB, src ExportSource, all bool, re
 			return read, nil
 		}, func() {}, func() bool { return false }, nil
 	}
-	sess, err := connection.OpenSession(ctx, pool, src.Database)
-	if err != nil {
-		return nil, nil, nil, nil, err
+	sess := lent
+	if sess == nil {
+		var err error
+		if sess, err = connection.OpenSession(ctx, pool, src.Database); err != nil {
+			return nil, nil, nil, nil, err
+		}
+	} else {
+		// A lent session's statement is never cancelled: that would abort
+		// its transaction, or on MySQL end its connection. Closing the
+		// rows stops it, once they are read to their end.
+		ctx = context.Background()
 	}
 	c, err := sess.Query(ctx, src.SQL, src.Args...)
 	if err != nil {
-		sess.Close()
+		if lent == nil {
+			sess.Close()
+		}
 		return nil, nil, nil, nil, err
 	}
-	return c.Columns, func() ([][]any, error) { return c.Fetch(5000) }, func() {
+	return c.Columns, c.Fetch, func() {
 		c.Close()
-		sess.Close()
+		if lent == nil {
+			sess.Close()
+		}
 	}, c.Truncated, nil
 }
 

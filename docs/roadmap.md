@@ -4,14 +4,8 @@
 
 - **Next:**
   - Connect to Redis Cluster and Redis Sentinel.
-  - Export results as an Excel file.
   - Use the built-in DuckDB for more work where it is faster than the
     current code.
-  - Make exports safe, with a row limit that can be configured. Today an
-    export either runs a read-only query again or writes only the rows
-    already fetched.
-  - Write every export format through DuckDB. Parquet and DuckDB files
-    already are.
   - Make the interface more consistent and easier to learn, quick to
     work in, and beautiful.
   - Lay out ER diagrams so that tables never overlap.
@@ -155,4 +149,5 @@ Next or Later are not repeated.
 - **ClickHouse:** rows are not editable from the grid, because ClickHouse
   changes rows with asynchronous mutations. Use SQL.
 - **Large results:** results keep at most 200,000 rows (`db.MaxRows`).
-  Export has no limit: it runs the query again and writes page by page.
+  Export runs the query again and writes page by page, up to the limit
+  it is given.

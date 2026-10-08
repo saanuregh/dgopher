@@ -1,7 +1,9 @@
 package dataview
 
 import (
+	"archive/zip"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -129,4 +131,61 @@ func TestExportParquet(t *testing.T) {
 	if !audited {
 		t.Fatalf("no audit of the export: %+v", a.Events)
 	}
+}
+
+// A statement run again stops at the export's limit, and the export says
+// that rows were left; at a limit the rows do not reach, it says nothing.
+func TestExportStopsAtItsLimit(t *testing.T) {
+	a, tt, src := exportHost(t)
+	for _, c := range []struct {
+		limit   int
+		lines   int
+		stopped bool
+	}{{100, 101, true}, {5000, 1201, false}} {
+		OpenExport(a, src)
+		x := a.dialogs.export
+		x.format, x.all, x.folder, x.limited, x.limit = string(export.CSV), true, t.TempDir(), true, float64(c.limit)
+		tt.Frame()
+		path := x.path()
+		runExport(a, x)
+		testutil.WaitFor(t, tt, "the export", func() bool { return !x.running })
+		if x.err != "" {
+			t.Fatal(x.err)
+		}
+		data, _ := os.ReadFile(path)
+		toast := a.Toasts[len(a.Toasts)-1]
+		if lines := strings.Count(string(data), "\n"); lines != c.lines || strings.Contains(toast, "limit") != c.stopped {
+			t.Fatalf("limit %d: %d lines, toast %q", c.limit, lines, toast)
+		}
+		if a.Settings().Export.Limit() != c.limit {
+			t.Fatalf("the limit %d is not kept: %+v", c.limit, a.Settings().Export)
+		}
+	}
+	last := a.Events[len(a.Events)-1]
+	if strings.Contains(last.Detail, "limit") {
+		t.Fatalf("an export within its limit is audited as stopped: %q", last.Detail)
+	}
+}
+
+func TestExportExcel(t *testing.T) {
+	a, tt, src := exportHost(t)
+	path := runExportTo(t, a, tt, src, export.XLSX, true)
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+	for _, f := range zr.File {
+		if f.Name != "xl/worksheets/sheet1.xml" {
+			continue
+		}
+		rc, _ := f.Open()
+		data, _ := io.ReadAll(rc)
+		rc.Close()
+		if rows := strings.Count(string(data), "<row "); rows != 1201 {
+			t.Fatalf("%d rows, want a header and 1,200", rows)
+		}
+		return
+	}
+	t.Fatal("no sheet in the workbook")
 }
