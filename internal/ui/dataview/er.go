@@ -39,6 +39,9 @@ type ERTab struct {
 	err     string
 	scroll  ui.ScrollState
 	more    int // tables left out of a large schema
+	// dragged is the table being dragged by its name, which settles where
+	// it hides no other once dropped.
+	dragged *erTable
 }
 
 const (
@@ -49,6 +52,8 @@ const (
 	erMaxTables = 120
 	erGapX      = 90
 	erGapY      = 36
+	// erClear is the least room between two tables a drop leaves.
+	erClear = 16
 )
 
 // erKey names a table across schemas.
@@ -126,13 +131,61 @@ func (e *ERTab) load() {
 	})
 }
 
+// height is the height of a table's box as drawn: its header, its rows
+// with their padding, and its border.
 func (t *erTable) height() float32 {
 	n := min(len(t.cols), erMaxCols)
-	h := float32(erHeaderH + n*erRowH + 8)
+	h := float32(erHeaderH + n*erRowH + 8 + 2)
 	if len(t.cols) > erMaxCols {
 		h += erRowH
 	}
 	return h
+}
+
+// inTheWay is a table that a table placed at x, y would come within
+// erClear of, nil when there is none.
+func (e *ERTab) inTheWay(t *erTable, x, y float32) *erTable {
+	for _, o := range e.tables {
+		if o != t && x < o.x+erBoxW+erClear && o.x < x+erBoxW+erClear && y < o.y+o.height()+erClear && o.y < y+t.height()+erClear {
+			return o
+		}
+	}
+	return nil
+}
+
+// settle moves a table dropped over others to the free place nearest
+// where it was dropped, so that no table hides another. A free place
+// nearest the drop lies against the edges of other tables, along each
+// axis, so those edges are where it is looked for; down the same column,
+// below every table, there is always one.
+func (e *ERTab) settle(t *erTable) {
+	if e.inTheWay(t, t.x, t.y) == nil {
+		return
+	}
+	xs, ys := []float32{t.x}, []float32{t.y}
+	for _, o := range e.tables {
+		if o != t {
+			xs = append(xs, o.x-erBoxW-erClear, o.x+erBoxW+erClear)
+			ys = append(ys, o.y-t.height()-erClear, o.y+o.height()+erClear)
+		}
+	}
+	bestX, bestY, best := t.x, t.y, float32(math.Inf(1))
+	for _, x := range xs {
+		for _, y := range ys {
+			d := (x-t.x)*(x-t.x) + (y-t.y)*(y-t.y)
+			if x >= 0 && y >= 0 && d < best && e.inTheWay(t, x, y) == nil {
+				bestX, bestY, best = x, y, d
+			}
+		}
+	}
+	if math.IsInf(float64(best), 1) {
+		// Below whatever is in the way: each step goes lower, and below the
+		// lowest table nothing is.
+		for o := e.inTheWay(t, t.x, bestY); o != nil; o = e.inTheWay(t, t.x, bestY) {
+			bestY = o.y + o.height() + erClear
+		}
+	}
+	t.x, t.y = bestX, bestY
 }
 
 // layout places the tables in columns by their references: a table
@@ -296,7 +349,7 @@ func (e *ERTab) drawLinks(p *ui.Painter, r ui.Rect, c *ui.Context) {
 func (e *ERTab) box(c *ui.Context, a Host, t *erTable) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	box := ui.Column(c.Key("er-"+t.schema+"."+t.obj.Name)).Absolute().Left(t.x).Top(t.y).Width(erBoxW).
+	box := ui.Column(c.Key("er-"+t.schema+"."+t.obj.Name)).Absolute().Left(t.x).Top(t.y).Width(erBoxW).Label("Table "+t.obj.Name).
 		Radius(8).Background(th.Background).Border(1, th.Border).Clip().
 		Shadow(0, 2, 8, 0, ui.RGBA(0, 0, 0, 0.08))
 	box.Children(func() {
@@ -316,6 +369,11 @@ func (e *ERTab) box(c *ui.Context, a Host, t *erTable) {
 		})
 		if dx, dy, ok := header.Dragged(); ok {
 			t.x, t.y = max(0, t.x+dx), max(0, t.y+dy)
+			e.dragged = t
+		} else if e.dragged == t && !header.Pressed() {
+			// Dropped: a frame of the drag may not report the press.
+			e.dragged = nil
+			e.settle(t)
 		}
 		if header.DoubleClicked() && !focused {
 			a.OpenTable(e.conn, e.database, t.obj, PageData)

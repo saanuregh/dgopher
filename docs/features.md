@@ -204,7 +204,9 @@
   refreshes every 2 seconds.
 - **ER diagrams** of a schema: tables with their columns and keys, and
   foreign-key connectors, laid out so referenced tables sit to the left.
-  Drag tables to arrange them, and double-click one to open its data.
+  Drag tables to arrange them: one dropped on another moves to the
+  nearest free place, so that no table hides another. Double-click one
+  to open its data.
 
 ## Import, snippets and history
 
