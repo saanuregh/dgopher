@@ -6,7 +6,6 @@
   - Replace text in the editor. Find already works.
   - Connect to Redis Cluster and Redis Sentinel.
   - Export results as an Excel file.
-  - Keep the app open when the last tab is closed. Today the app quits.
   - When a query file's `-- connection:` line names a connection that
     does not exist, offer to open the file so the line can be fixed,
     and complete connection ids while typing it.
@@ -31,6 +30,7 @@
   - [DEFERRED] Signed installers, and updates installed by the app through MyGo's
     updater.
   - [DEFERRED] Notebook interface.
+  - Keyboard first.
 
 ## Backlog
 

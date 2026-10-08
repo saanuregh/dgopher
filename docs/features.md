@@ -18,6 +18,9 @@
   - ⌘T opens an editor, ⌘N a connection, ⌘W closes a tab, Ctrl+Tab moves
     between tabs, and ⌘B shows or hides the sidebar.
   - ⌘/ lists every shortcut.
+- **Window:** closing the last tab leaves the start page. On macOS,
+  closing the window keeps DGopher running with its tabs and connections,
+  and its Dock icon shows the window again.
 - **Settings:** theme (System, Light or Dark), editor font size, rows per
   page, where statements end, and what a script does on an error.
 

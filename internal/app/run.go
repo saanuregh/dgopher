@@ -41,7 +41,6 @@ func Run(args []string) error {
 	}
 	applyTheme(a.settings.Theme)
 	mygo.App.SetMenu(buildMenu(a))
-	mygo.App.OnWindowAllClosed(func() { mygo.App.Quit() })
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
 			Title:     "DGopher",
@@ -54,12 +53,36 @@ func Run(args []string) error {
 		})
 		a.win = win
 		// Quitting asks first about what it would lose, as an open
-		// transaction: the close waits for the answer.
+		// transaction: the quit waits for the answer, shown in the window.
 		// Listeners run on the main thread, as the app's frames do.
+		mygo.App.OnBeforeQuit(func(e *mygo.QuitEvent) {
+			if !a.requestQuit(mygo.App.Quit) {
+				e.PreventDefault()
+				win.Show()
+				win.Focus()
+				win.Invalidate()
+				return
+			}
+			a.quitting = true
+		})
 		win.OnClose(func(e *mygo.CloseEvent) {
-			if !a.requestQuit(func() { win.Close() }) {
+			switch {
+			case a.quitting:
+			case runtime.GOOS == "darwin":
+				// A Mac app outlives its window: hiding it keeps the tabs,
+				// connections and transactions, and the Dock icon shows it
+				// again.
+				e.PreventDefault()
+				win.Hide()
+			case !a.requestQuit(win.Close):
 				e.PreventDefault()
 				win.Invalidate()
+			}
+		})
+		mygo.App.OnActivate(func(hasVisibleWindows bool) {
+			if !hasVisibleWindows {
+				win.Show()
+				win.Focus()
 			}
 		})
 		mygo.App.OnSecondInstance(func(args []string, wd string) {
@@ -153,6 +176,16 @@ func buildMenu(a *App) *mygo.Menu {
 			{Role: mygo.RoleToggleFullScreen},
 			{Role: mygo.RoleToggleDevTools},
 		}},
-		{Role: mygo.RoleWindowMenu},
+		windowMenu(),
 	})
+}
+
+// windowMenu is the Window menu. Elsewhere than on macOS the default one
+// has Close Window on CmdOrCtrl+W, the key of Close Tab: two items on one
+// key leave the toolkit to choose, and closing the window quits.
+func windowMenu() *mygo.MenuItem {
+	if runtime.GOOS == "darwin" {
+		return &mygo.MenuItem{Role: mygo.RoleWindowMenu}
+	}
+	return &mygo.MenuItem{Label: "Window", Submenu: []*mygo.MenuItem{{Role: mygo.RoleMinimize}}}
 }
