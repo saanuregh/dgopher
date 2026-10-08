@@ -1090,3 +1090,54 @@ func TestPendingChangesOfTwoResults(t *testing.T) {
 	}
 	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running && !tt.HasText("Result 2") && resultRows(tt, q, 2) })
 }
+
+func TestNotifyWanted(t *testing.T) {
+	for _, c := range []struct {
+		took    time.Duration
+		after   int
+		focused bool
+		want    bool
+	}{
+		{12 * time.Second, 10, false, true},
+		{12 * time.Second, 10, true, false}, // the window shows it already
+		{8 * time.Second, 10, false, false},
+		{time.Hour, 0, false, false}, // never
+	} {
+		if got := notifyWanted(c.took, c.after, c.focused); got != c.want {
+			t.Errorf("%+v: %v", c, got)
+		}
+	}
+}
+
+// Work that took long tells of its end while the window is in the
+// background, and a click on the notification brings its tab forward;
+// 0 seconds, which the defaults would otherwise replace, stays never.
+func TestNotifyLongWork(t *testing.T) {
+	a := newTestApp(t)
+	var shown []string
+	var click func()
+	focused := false
+	a.windowFocused = func() bool { return focused }
+	a.notify = func(title, body string, onClick func()) { shown, click = append(shown, title+": "+body), onClick }
+	tt := ui.NewTester(a.view, 1000, 700)
+	a.Notify(time.Now().Add(-time.Minute), "Query finished", "q on lite", func() { a.active = 7 })
+	focused = true
+	a.Notify(time.Now().Add(-time.Minute), "Query finished", "seen", nil)
+	focused = false
+	a.Notify(time.Now(), "Query finished", "quick", nil)
+	if len(shown) != 1 || shown[0] != "Query finished: q on lite" {
+		t.Fatalf("notified %q", shown)
+	}
+	click()
+	tt.Frame()
+	if a.active != 7 {
+		t.Fatal("the click did not show what ended")
+	}
+
+	a.settings.NotifyAfter = 0
+	a.SaveSettings()
+	b := newApp(a.st)
+	if b.settings.NotifyAfter != 0 {
+		t.Fatalf("never became %d seconds", b.settings.NotifyAfter)
+	}
+}

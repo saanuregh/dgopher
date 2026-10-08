@@ -22,7 +22,12 @@
   closing the window keeps DGopher running with its tabs and connections,
   and its Dock icon shows the window again.
 - **Settings:** theme (System, Light or Dark), editor font size, rows per
-  page, where statements end, and what a script does on an error.
+  page, where statements end, what a script does on an error, and when
+  to notify.
+- **Notifications:** a statement, script, export or import that took 10
+  seconds or more (a setting; 0 for never) tells the system as it ends,
+  if DGopher is in the background then: what ran, on which connection,
+  and its first error, never its SQL. A click brings its tab forward.
 
 ## Projects
 

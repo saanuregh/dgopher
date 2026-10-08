@@ -15,6 +15,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/export"
+	"dgopher/internal/redact"
 	"dgopher/internal/safety"
 	"dgopher/internal/settings"
 	"dgopher/internal/sqltext"
@@ -312,6 +313,7 @@ func runExport(a Host, x *exportState) {
 	ctx, cancel := context.WithCancel(context.Background())
 	x.running, x.cancel, x.err = true, cancel, ""
 	x.written.Store(0)
+	started := time.Now()
 	f, opt, toClip := export.Format(x.format), x.options(), x.clipboard
 	path := ""
 	if !toClip {
@@ -421,8 +423,10 @@ func runExport(a Host, x *exportState) {
 			x.running = false
 			if err != nil {
 				x.err = "The export stopped: " + err.Error()
+				a.Notify(started, "Export failed", src.Name+" · "+redact.Secrets(widgets.FirstLine(err.Error())), nil)
 				return
 			}
+			a.Notify(started, "Export finished", fmt.Sprintf("%d rows of %s%s", n, src.Name, stopped), nil)
 			x.open = false
 			if toClip {
 				a.WriteClipboard(clip.String())

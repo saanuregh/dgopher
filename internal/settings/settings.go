@@ -27,6 +27,10 @@ type Settings struct {
 	GridFont float32 `json:"gridFont,omitempty"`
 	// ViewFormat is how the grids show values.
 	ViewFormat ViewFormat `json:"viewFormat,omitzero"`
+	// NotifyAfter is how many seconds work takes for its end to be told
+	// by a system notification while the app is in the background; 0 for
+	// never. Kept even at 0, which the default would otherwise replace.
+	NotifyAfter int `json:"notifyAfterSeconds"`
 	// Export keeps the export dialog's choices.
 	Export ExportPrefs `json:"export,omitzero"`
 	// AdvancedCopy is the last choice of the Advanced Copy dialog.
@@ -42,7 +46,7 @@ type Settings struct {
 
 // Default returns the settings of a first run.
 func Default() Settings {
-	return Settings{Theme: "system", EditorFont: 13, SidebarWidth: 260, ResultsHeight: 320, PageSize: 500}
+	return Settings{Theme: "system", EditorFont: 13, SidebarWidth: 260, ResultsHeight: 320, PageSize: 500, NotifyAfter: 10}
 }
 
 // ExportPrefs are the export choices the app keeps from one export to

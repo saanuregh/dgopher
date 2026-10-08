@@ -39,7 +39,10 @@ type FakeHost struct {
 	Errors  []string
 	Toasts  []string
 	// ToastRun is what the button of the last toast does, nil without one.
-	ToastRun  func()
+	ToastRun func()
+	// Notified are the notifications asked for, as "title: body", however
+	// long the work took.
+	Notified  []string
 	Clipboard string
 	Queries   []string // texts of the query tabs asked for
 	Events    []audit.Event
@@ -150,6 +153,10 @@ func (h *FakeHost) Toast(text, action string, run func()) {
 	if action != "" {
 		h.ToastRun = run
 	}
+}
+
+func (h *FakeHost) Notify(started time.Time, title, body string, show func()) {
+	h.Notified = append(h.Notified, title+": "+body)
 }
 
 func (h *FakeHost) WriteClipboard(text string) { h.Clipboard = text }

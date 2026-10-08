@@ -9,7 +9,6 @@
   - Make the interface more consistent and easier to learn, quick to
     work in, and beautiful.
   - Tighten safety and security so that no common slip can damage data.
-  - Use `mygo`'s system notification for useful purposes like long running task.
   - [DEFERRED] Signed installers, and updates installed by the app through MyGo's
     updater.
   - [DEFERRED] Notebook interface.

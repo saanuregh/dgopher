@@ -758,8 +758,32 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 				}
 			}
 			refreshAfterDDL(q.Conn, stmts)
+			q.notifyRun(len(stmts), q.results[firstNew:])
 		})
 	}()
+}
+
+// notifyRun tells of the end of a run by a system notification, when it
+// took long and the window is in the background: what ran, where, and
+// the first error, without the SQL, which may hold what the screen of
+// another app should not.
+func (q *Tab) notifyRun(stmts int, results []*result) {
+	what := "Query"
+	if stmts > 1 {
+		what = "Script"
+	}
+	title := what + " finished"
+	body := q.Name + " on " + q.Conn.Config.Name + " · " + widgets.FormatDuration(time.Since(q.StartedAt))
+	for _, r := range results {
+		if r.err != "" {
+			title = what + " failed"
+			body += "\n" + redact.Secrets(widgets.FirstLine(r.err))
+			break
+		}
+	}
+	q.a.Notify(q.StartedAt, title, body, func() {
+		q.a.ActivateTab(func(t widgets.Tab) bool { return t == q })
+	})
 }
 
 func verbLabel(v string) string {

@@ -34,7 +34,12 @@ import (
 // App is the state of the main window.
 type App struct {
 	win interface{ Invalidate() }
-	st  *store.Store
+	// windowFocused reports whether the window has the keyboard focus;
+	// notify shows a system notification, whose click runs onClick off
+	// the main thread. Both are the window's, nil without one.
+	windowFocused func() bool
+	notify        func(title, body string, onClick func())
+	st            *store.Store
 
 	settings settings.Settings
 	conns    []*connection.Conn

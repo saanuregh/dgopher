@@ -22,6 +22,27 @@ func (a *App) Toast(text, action string, run func()) {
 	a.toast = &pendingToast{text: text, action: action, run: run}
 }
 
+func (a *App) Notify(started time.Time, title, body string, show func()) {
+	focused := a.windowFocused == nil || a.windowFocused()
+	if a.notify == nil || !notifyWanted(time.Since(started), a.settings.NotifyAfter, focused) {
+		return
+	}
+	a.notify(title, body, func() {
+		a.Post(func() {
+			if show != nil {
+				show()
+			}
+		})
+	})
+}
+
+// notifyWanted reports whether the end of work that took took is told by
+// a system notification: when it took notifyAfter seconds or more, and
+// the user is not looking at the window, where it shows already.
+func notifyWanted(took time.Duration, notifyAfter int, focused bool) bool {
+	return notifyAfter > 0 && !focused && took >= time.Duration(notifyAfter)*time.Second
+}
+
 func (a *App) AskDiscard(title, reason string, onDiscard func()) {
 	a.closing = &closeRequest{open: true, title: title, reason: reason, onClose: onDiscard}
 }

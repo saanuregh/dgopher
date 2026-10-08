@@ -20,6 +20,11 @@ type Host interface {
 	ShowError(title, message string)
 	// Toast shows text, with a button doing run when action is set.
 	Toast(text, action string, run func())
+	// Notify tells of the end of work begun at started by a system
+	// notification, when it took long and the window is in the
+	// background; clicking it brings the window forward and runs show,
+	// when set.
+	Notify(started time.Time, title, body string, show func())
 	WriteClipboard(text string)
 	ReadClipboard() string
 	// Now is the time the current frame started.

@@ -38,6 +38,7 @@ func (a *App) settingsView(c *ui.Context) {
 	theme := themeIndex(a.settings.Theme)
 	font := float64(a.settings.EditorFont)
 	page := float64(a.settings.PageSize)
+	notifyAfter := float64(a.settings.NotifyAfter)
 	ui.Modal(c, &open, func() {
 		ui.Column(c).Width(520).Gap(14).Children(func() {
 			ui.Text(c, "Settings").FontSize(16).Bold()
@@ -78,6 +79,15 @@ func (a *App) settingsView(c *ui.Context) {
 						a.SaveSettings()
 					}
 				})
+				ui.Field(c, "Notifications", func() {
+					ui.Row(c).Gap(8).Children(func() {
+						if ui.NumberInput(c, &notifyAfter, 0, 3600, 5).Label("Seconds").Changed() {
+							a.settings.NotifyAfter = int(notifyAfter)
+							a.SaveSettings()
+						}
+						ui.Text(c, "seconds, 0 for never").TextColor(pal.Muted)
+					})
+				}).Description("A statement, script, export or import that takes this long tells the system when it ends, if DGopher is in the background then.")
 				ui.Field(c, "Data", func() {
 					ui.Column(c).Gap(6).Children(func() {
 						ui.Text(c, a.st.Dir()).Font(widgets.MonoFont).FontSize(12).Selectable()

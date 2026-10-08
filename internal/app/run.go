@@ -1,7 +1,9 @@
 package app
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -52,6 +54,25 @@ func Run(args []string) error {
 			Content:   ui.View(a.view),
 		})
 		a.win = win
+		a.windowFocused = win.IsFocused
+		if mygo.NotificationsSupported() {
+			a.notify = func(title, body string, onClick func()) {
+				n := mygo.NewNotification(mygo.NotificationOptions{Title: title, Body: body})
+				n.OnClick(func() {
+					win.Show()
+					win.Focus()
+					onClick()
+				})
+				// On macOS the first one waits for the user to allow them.
+				go func() {
+					if err := n.Show(); err != nil && !errors.Is(err, mygo.ErrNotificationsDenied) {
+						log.Println("notification:", err)
+					}
+				}()
+			}
+		}
+		// What the window shows needs no notification left behind.
+		mygo.App.OnDidBecomeActive(mygo.ClearNotifications)
 		// Quitting asks first about what it would lose, as an open
 		// transaction: the quit waits for the answer, shown in the window.
 		// Listeners run on the main thread, as the app's frames do.

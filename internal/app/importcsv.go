@@ -14,6 +14,7 @@ import (
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/redact"
 	"dgopher/internal/safety"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
@@ -164,6 +165,7 @@ func (a *App) runImport(x *importState) {
 	emptyNull := x.emptyNull
 	path := x.path
 	pool, cfg, database := cn.DB, cn.Config, x.database
+	started := time.Now()
 	go func() {
 		defer cancel()
 		n, err := importRows(ctx, pool, database, target, cols, idx, path, comma, emptyNull, func(done int64) {
@@ -182,10 +184,12 @@ func (a *App) runImport(x *importState) {
 				if cn.Config.Engine == db.ClickHouse {
 					x.err = err.Error() + "\n\nClickHouse has no transactions: the rows before this one were imported."
 				}
+				a.Notify(started, "Import failed", x.obj.Name+" · "+redact.Secrets(widgets.FirstLine(err.Error())), nil)
 				return
 			}
 			x.open = false
 			a.toast = &pendingToast{text: fmt.Sprintf("Imported %d rows into %s", n, x.obj.Name)}
+			a.Notify(started, "Import finished", fmt.Sprintf("%d rows into %s", n, x.obj.Name), nil)
 			for _, t := range a.tabs {
 				if tt, ok := t.(*dataview.TableTab); ok && tt.Conn == cn && tt.Object.Name == x.obj.Name && tt.Object.Schema == x.obj.Schema {
 					tt.RequestReload()

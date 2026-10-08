@@ -304,3 +304,18 @@ func TestCompleteHeaderConnection(t *testing.T) {
 		t.Fatalf("after accepting: %q", q.Editor.Text)
 	}
 }
+
+// The end of a run asks for a notification: what ran and where, and the
+// first error of a failed script, never its SQL.
+func TestRunNotifies(t *testing.T) {
+	a := newFakeQueryHost(t)
+	cn := a.AddConn(db.Config{ID: "lite", Name: "Lite", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1000, 700)
+	q := newEditor(t, a, tt, cn, "SELECT 'secret' AS s;\nSELECT * FROM missing;")
+	q.Run(RunScript)
+	testutil.WaitFor(t, tt, "the script", func() bool { return !q.Running && len(a.Notified) == 1 })
+	n := a.Notified[0]
+	if !strings.HasPrefix(n, "Script failed: query on Lite") || !strings.Contains(n, "no such table") || strings.Contains(n, "secret") {
+		t.Fatalf("notified %q", n)
+	}
+}
