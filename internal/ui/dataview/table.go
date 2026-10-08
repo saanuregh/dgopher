@@ -1,0 +1,365 @@
+package dataview
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	"dgopher/internal/audit"
+	"dgopher/internal/connection"
+	"dgopher/internal/db"
+	"dgopher/internal/ui/editor"
+	"dgopher/internal/ui/widgets"
+
+	"github.com/egoist/mygo/ui"
+)
+
+const (
+	PageData = iota
+	PageStructure
+	PageDDL
+	pageDiagram
+)
+
+// TableTab shows a table's rows, structure and definition.
+type TableTab struct {
+	a        Host
+	Conn     *connection.Conn
+	Database string
+	Object   db.Object
+	Page     int
+
+	sess *db.Session
+	// view is the Data page.
+	view *Viewer
+	// ending is set while a COMMIT or ROLLBACK is on its way.
+	ending bool
+	// diagram is the Diagram page, read when first shown.
+	diagram *ERTab
+	tx      db.TxState
+	txs     connection.TxTimes
+	closed  bool
+
+	columns []db.Column
+	indexes []db.Index
+	fks     []db.ForeignKey
+	ddl     string
+	metaErr string
+	metaGen int
+}
+
+func NewTableTab(a Host, cn *connection.Conn, database string, obj db.Object, page int) *TableTab {
+	t := &TableTab{a: a, Conn: cn, Database: database, Object: obj, Page: page}
+	t.view = NewViewer(a, ViewerSource{
+		Conn:         cn,
+		Database:     database,
+		Statement:    "SELECT * FROM " + db.QualifiedName(cn.DB.Dialect, obj.Schema, obj.Name),
+		Reads:        true,
+		Table:        &t.Object,
+		Session:      func() *db.Session { return t.sess },
+		AdoptSession: t.adoptSession,
+		TxChanged: func(tx db.TxState) {
+			t.tx = tx
+			t.txs.Set(tx, t.a.Now())
+		},
+		HistoryKey: t.historyKey(),
+		Bars:       t.txBar,
+		ShowDDL:    func() { t.Page = PageDDL },
+	})
+	// The rows wait for the columns, to be ordered by the primary key.
+	t.loadMeta(t.view.reload)
+	return t
+}
+
+func (t *TableTab) Title() string { return t.Object.Name }
+
+func (t *TableTab) Connection() *connection.Conn { return t.Conn }
+
+func (t *TableTab) CloseReason() string {
+	switch {
+	case t.view.grid.edits.count() > 0:
+		return fmt.Sprintf("%d changes to %s have not been applied. Closing discards them.", t.view.grid.edits.count(), t.Object.Name)
+	case t.tx != db.TxNone:
+		return "A transaction is open on this table's session. Closing rolls it back."
+	}
+	return ""
+}
+
+// Close ends the tab's work: fields are read on the main thread, what may
+// block runs on another goroutine.
+func (t *TableTab) Close() {
+	t.closed = true
+	var cursors []*db.Cursor
+	if t.view.cursor != nil {
+		cursors = append(cursors, t.view.cursor)
+	}
+	cancel, sess := t.view.cancel, t.sess
+	if t.view.applyCancel != nil {
+		t.view.applyCancel()
+	}
+	if t.tx != db.TxNone {
+		t.a.Record(&t.Conn.Config, audit.Event{Kind: audit.KindStatement, Database: t.Database, Statement: "ROLLBACK", Detail: "the tab closed with its transaction open"})
+	}
+	go func() {
+		connection.CloseThenCancel(cursors, cancel)
+		if sess != nil {
+			sess.Close()
+		}
+	}()
+}
+
+// adoptSession keeps a session a goroutine started for the tab.
+func (t *TableTab) adoptSession(s *db.Session) {
+	t.a.Post(func() {
+		if t.closed || t.sess != nil {
+			if t.sess != s {
+				go s.Close()
+			}
+			return
+		}
+		t.sess = s
+	})
+}
+
+func (t *TableTab) loadMeta(then func()) {
+	cn, database, obj := t.Conn, t.Database, t.Object
+	t.metaGen++
+	gen := t.metaGen
+	poolOf := cn.PoolFor(database) // read on the main thread
+	t.a.Background(func() func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		d, err := poolOf(ctx)
+		var cols []db.Column
+		var ixs []db.Index
+		var fks []db.ForeignKey
+		var ddl string
+		if err == nil {
+			cols, err = d.Dialect.Columns(ctx, d.SQL, obj.Schema, obj.Name)
+		}
+		if err == nil {
+			ixs, _ = d.Dialect.Indexes(ctx, d.SQL, obj.Schema, obj.Name)
+			fks, _ = d.Dialect.ForeignKeys(ctx, d.SQL, obj.Schema, obj.Name)
+			var derr error
+			ddl, derr = d.Dialect.DDL(ctx, d.SQL, obj.Schema, obj)
+			if derr != nil {
+				ddl = "-- " + derr.Error()
+			}
+		}
+		return func() {
+			if gen != t.metaGen {
+				return
+			}
+			if err != nil {
+				t.metaErr = err.Error()
+			} else {
+				t.columns, t.indexes, t.fks, t.ddl = cols, ixs, fks, ddl
+				cn.Columns[connection.ObjectKey{Database: database, Schema: obj.Schema, Name: obj.Name}] = cols
+				t.view.SetColumns(cols, fks)
+			}
+			if then != nil {
+				then()
+			}
+		}
+	})
+}
+
+func (t *TableTab) endTx(commit bool) {
+	sess, cfg, database := t.sess, t.Conn.Config, t.Database
+	if sess == nil || t.ending {
+		return
+	}
+	t.ending = true
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		var err error
+		start := time.Now()
+		stmt := "COMMIT"
+		if commit {
+			err = sess.Commit(ctx)
+		} else {
+			stmt = "ROLLBACK"
+			err = sess.Rollback(ctx)
+		}
+		t.a.RecordRun(cfg, audit.KindStatement, database, stmt, -1, time.Since(start), err)
+		tx := sess.Tx()
+		t.a.Post(func() {
+			t.tx, t.ending = tx, false
+			t.txs.Set(tx, t.a.Now())
+			if f := t.txs.Then; f != nil {
+				t.txs.Then = nil
+				f(err)
+				if err != nil {
+					t.RequestReload()
+					return
+				}
+			} else if err != nil {
+				t.a.ShowError("Could not end the transaction", err.Error())
+			}
+			t.RequestReload()
+		})
+	}()
+}
+
+// RequestReload reads the Data page's rows again, once the user agrees to
+// drop the pending changes, if any.
+func (t *TableTab) RequestReload() { t.view.RequestReload() }
+
+// historyKey names the table among the project's recent filters.
+func (t *TableTab) historyKey() string { return tableHistoryKey(t.Conn, t.Object) }
+
+// tableHistoryKey names a table among its project's recent filters, row
+// colors and virtual keys, for its table tab and the query results read
+// from it alike.
+func tableHistoryKey(cn *connection.Conn, obj db.Object) string {
+	return strings.TrimPrefix(cn.Config.ID, cn.Project.Prefix) + "/" + obj.Schema + "." + obj.Name
+}
+
+// txBar offers to end the transaction the session holds open.
+func (t *TableTab) txBar(c *ui.Context) {
+	th := c.Theme()
+	if t.tx != db.TxNone {
+		ui.Row(c).Padding(6, 12).Gap(10).Background(th.Warning.Alpha(0.16)).Children(func() {
+			ui.Icon(c, widgets.IconAlert).TextColor(th.Warning).FontSize(14)
+			ui.Text(c, "Changes applied in an open transaction (manual commit).").Grow(1)
+			if ui.PrimaryButton(c, "Commit").Disabled(t.view.applying).Clicked() {
+				t.endTx(true)
+			}
+			if ui.Button(c, "Roll Back").Disabled(t.view.applying).Clicked() {
+				t.endTx(false)
+			}
+		})
+	}
+}
+
+func (t *TableTab) View(c *ui.Context) {
+	a := t.a
+	th := c.Theme()
+	pal := widgets.PaletteOf(c)
+	ui.Column(c).Grow(1).Children(func() {
+		ui.Row(c).Padding(6, 10).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+			ic := widgets.IconTable
+			if t.Object.Kind != db.KindTable {
+				ic = widgets.IconView
+			}
+			ui.Icon(c, ic).TextColor(pal.Muted).FontSize(14)
+			ui.Text(c, t.Object.Schema+"."+t.Object.Name).Bold().SingleLine().Shrink(1)
+			if t.Object.Engine != "" {
+				ui.Badge(c, t.Object.Engine)
+			}
+			ui.Spacer(c)
+			ui.Segmented(c, &t.Page, "Data", "Structure", "DDL", "Diagram").Label("Table page")
+		})
+		switch t.Page {
+		case PageData:
+			t.view.View(c)
+		case PageStructure:
+			t.structureView(c, a)
+		case PageDDL:
+			t.ddlView(c, a)
+		case pageDiagram:
+			if t.diagram == nil {
+				t.diagram = newTableDiagram(a, t.Conn, t.Database, t.Object)
+			}
+			t.diagram.View(c)
+		}
+	})
+}
+
+func (t *TableTab) structureView(c *ui.Context, a Host) {
+	th := c.Theme()
+	pal := widgets.PaletteOf(c)
+	if t.metaErr != "" {
+		ui.Text(c, t.metaErr).TextColor(th.Danger).Padding(12)
+		return
+	}
+	ui.Scroll(c).Grow(1).Children(func() {
+		ui.Column(c).Padding(12, 16).Gap(16).Children(func() {
+			section := func(title string, n int) {
+				ui.Row(c).Gap(8).Children(func() {
+					ui.Text(c, title).Bold()
+					ui.Badge(c, fmt.Sprint(n))
+				})
+			}
+			section("Columns", len(t.columns))
+			cols := []ui.TableColumn{{Title: "", ID: "k", Width: 28, Fixed: true}, {Title: "Name", Width: 200}, {Title: "Type", Width: 200}, {Title: "Null", Width: 90}, {Title: "Default", Width: 220}, {Title: "Comment"}}
+			ui.Table(c, nil, cols, len(t.columns), func(r, col int) {
+				cl := t.columns[r]
+				switch col {
+				case 0:
+					if cl.PrimaryKey {
+						ui.Icon(c, widgets.IconKey).TextColor(ui.Hex("#d97706")).FontSize(12)
+					}
+				case 1:
+					ui.Text(c, cl.Name).Bold().SingleLine()
+				case 2:
+					ui.Text(c, cl.Type).Font(widgets.MonoFont).FontSize(12).SingleLine()
+				case 3:
+					if cl.Nullable {
+						ui.Text(c, "yes").TextColor(pal.Muted)
+					} else {
+						ui.Text(c, "NOT NULL").FontSize(11).SingleLine()
+					}
+				case 4:
+					if cl.HasDefault {
+						ui.Text(c, cl.Default).Font(widgets.MonoFont).FontSize(12).SingleLine()
+					}
+				case 5:
+					ui.Text(c, cl.Comment).TextColor(pal.Muted).SingleLine()
+				}
+			}).Height(float32(min(len(t.columns), 16)*34 + 40)).Label("Columns")
+			section("Indexes", len(t.indexes))
+			for _, ix := range t.indexes {
+				ui.Row(c).Gap(8).Children(func() {
+					switch {
+					case ix.Primary:
+						ui.Badge(c, "PRIMARY")
+					case ix.Unique:
+						ui.Badge(c, "UNIQUE")
+					}
+					ui.Text(c, ix.Name).Bold()
+					ui.Text(c, strings.Join(ix.Columns, ", ")).TextColor(pal.Muted)
+				})
+				if ix.Definition != "" {
+					ui.Text(c, ix.Definition).Font(widgets.MonoFont).FontSize(11.5).TextColor(pal.Muted).Selectable()
+				}
+			}
+			if len(t.fks) > 0 || t.Conn.Config.Engine != db.ClickHouse {
+				section("Foreign keys", len(t.fks))
+			}
+			for _, fk := range t.fks {
+				ui.Row(c).Gap(8).Children(func() {
+					ui.Text(c, strings.Join(fk.Columns, ", ")).Bold()
+					ui.Text(c, "→")
+					if ui.Link(c, fk.RefSchema+"."+fk.RefTable, "").Clicked() {
+						t.view.openRef(fk)
+					}
+					ui.Text(c, "("+strings.Join(fk.RefColumns, ", ")+")").TextColor(pal.Muted)
+				})
+			}
+		})
+	})
+}
+
+func (t *TableTab) ddlView(c *ui.Context, a Host) {
+	th := c.Theme()
+	pal := widgets.PaletteOf(c)
+	ui.Row(c).Padding(6, 10).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		if widgets.ToolButton(c, widgets.IconCopy, "Copy", "Copy the definition").Clicked() {
+			a.WriteClipboard(t.ddl)
+		}
+		if widgets.ToolButton(c, widgets.IconCode, "Open in Editor", "Open the definition in a SQL editor").Clicked() {
+			a.NewQueryTab(t.Conn, t.Database, t.ddl)
+		}
+	})
+	if t.ddl == "" && t.metaErr == "" {
+		ui.Row(c).Grow(1).Center().Children(func() { ui.Spinner(c) })
+		return
+	}
+	ui.Scroll(c).Grow(1).Background(pal.EditorBg).Children(func() {
+		ui.Text(c, t.ddl).Font(widgets.MonoFont).FontSize(a.Settings().EditorFont).FixedLineHeight(a.Settings().EditorFont*editor.LineHeight).
+			Padding(12, 16).Selectable()
+	})
+}

@@ -1,0 +1,9 @@
+{
+  "name": "DGopher",
+  "identifier": "dev.dgopher.app",
+  "version": "0.1.0",
+  "copyright": "© 2026 DGopher contributors",
+  "out": "build",
+  "resources": ["LICENSE"],
+  "macos": { "minimumSystemVersion": "13.0" }
+}
