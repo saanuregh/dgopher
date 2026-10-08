@@ -19,6 +19,8 @@ type fakeQueryHost struct {
 	*dataview.FakeHost
 	dialogs Dialogs
 	saves   int
+	// switched are the connections editors were asked to switch to.
+	switched []string
 	// afterRun, when set, runs after each statement recorded, on the
 	// goroutine that ran it.
 	afterRun func(kind string)
@@ -42,6 +44,8 @@ func (h *fakeQueryHost) AskSnippet(*Tab) {}
 func (h *fakeQueryHost) SaveSQLFile(*Tab, bool) { h.saves++ }
 
 func (h *fakeQueryHost) ScanQueries(*project.Project, bool) {}
+
+func (h *fakeQueryHost) SwitchConnection(q *Tab, id string) { h.switched = append(h.switched, id) }
 
 // view draws the window, and the query tab's dialogs over it.
 func (h *fakeQueryHost) view(c *ui.Context) {

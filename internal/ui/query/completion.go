@@ -8,6 +8,7 @@ import (
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/project"
 	"dgopher/internal/sqltext"
 	"dgopher/internal/ui/widgets"
 
@@ -31,8 +32,11 @@ type completion struct {
 	lastText string
 	// retry asks again once the schema being read arrives.
 	retry bool
-	list  ui.ListState
-	row   int
+	// header is set while the popup completes the connection a header
+	// line names, whose IDs hold more than an identifier's characters.
+	header bool
+	list   ui.ListState
+	row    int
 }
 
 func isIdentRune(r rune) bool {
@@ -141,6 +145,8 @@ func kindGlyph(kind string) string {
 		return "c"
 	case "schema":
 		return "S"
+	case "connection":
+		return "C"
 	}
 	return "k"
 }
@@ -171,6 +177,13 @@ func (q *Tab) suggest(a Host, force bool) {
 	if caret > len(runes) {
 		caret = len(runes)
 	}
+	if start, typed, ok := project.HeaderAt(e.Text, caret); ok {
+		ac.start, ac.header, ac.retry = start, true, false
+		ac.items, ac.index = filterSuggestions(q.connectionSuggestions(a), typed), 0
+		ac.open = len(ac.items) > 0
+		return
+	}
+	ac.header = false
 	if !force {
 		if caret == 0 || !(isIdentRune(runes[caret-1]) || runes[caret-1] == '.') {
 			ac.open = false
@@ -185,8 +198,14 @@ func (q *Tab) suggest(a Host, force bool) {
 		ac.open = false
 		return
 	}
-	items := q.candidates(a, cc)
-	prefix := strings.ToLower(cc.Prefix)
+	out := filterSuggestions(q.candidates(a, cc), cc.Prefix)
+	ac.items, ac.index, ac.open = out, 0, len(out) > 0
+}
+
+// filterSuggestions keeps the items whose label starts with what is
+// typed, then those holding it, at most 60.
+func filterSuggestions(items []suggestion, typed string) []suggestion {
+	prefix := strings.ToLower(typed)
 	var starts, contains []suggestion
 	for _, it := range items {
 		l := strings.ToLower(it.label)
@@ -202,10 +221,25 @@ func (q *Tab) suggest(a Host, force bool) {
 		out = out[:60]
 	}
 	// Nothing to add to a word typed in full.
-	if len(out) == 1 && strings.EqualFold(out[0].label, cc.Prefix) {
+	if len(out) == 1 && strings.EqualFold(out[0].label, typed) {
 		out = nil
 	}
-	ac.items, ac.index, ac.open = out, 0, len(out) > 0
+	return out
+}
+
+// connectionSuggestions are the connections of the editor's project a
+// query file may name.
+func (q *Tab) connectionSuggestions(a Host) []suggestion {
+	p := q.Conn.Project
+	var out []suggestion
+	for _, cfg := range a.ProjectConfigs(p) {
+		if !cfg.Engine.IsSQL() {
+			continue
+		}
+		id := strings.TrimPrefix(cfg.ID, p.Prefix)
+		out = append(out, suggestion{text: id, label: id, detail: cfg.Name + " · " + cfg.Engine.Label() + " · " + cfg.Env.Label(), kind: "connection"})
+	}
+	return out
 }
 
 // candidates lists what fits where the caret is.
@@ -311,7 +345,7 @@ func (q *Tab) caretInWord() bool {
 		return false
 	}
 	for _, r := range runes[q.ac.start:e.SelEnd] {
-		if !isIdentRune(r) && r != '.' {
+		if q.ac.header && unicode.IsSpace(r) || !q.ac.header && !isIdentRune(r) && r != '.' {
 			return false
 		}
 	}

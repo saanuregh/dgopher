@@ -17,6 +17,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"dgopher/internal/audit"
 	"dgopher/internal/db"
@@ -262,13 +264,21 @@ func writeProjectFile(path string, data []byte) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-var connHeader = regexp.MustCompile(`^\s*--\s*connection:\s*(\S+)`)
+// headerLines is how many lines at the top of a query file may name its
+// connection.
+const headerLines = 5
+
+var (
+	connHeader = regexp.MustCompile(`^\s*--\s*connection:\s*(\S+)`)
+	// connHeaderTyped is a header line up to a caret in its connection.
+	connHeaderTyped = regexp.MustCompile(`^\s*--\s*connection:\s*(\S*)$`)
+)
 
 // HeaderConnection returns the connection a query file names in one of
 // its first lines, "" when it names none.
 func HeaderConnection(text string) string {
-	for i, line := range strings.SplitN(text, "\n", 6) {
-		if i == 5 {
+	for i, line := range strings.SplitN(text, "\n", headerLines+1) {
+		if i == headerLines {
 			break
 		}
 		if m := connHeader.FindStringSubmatch(line); m != nil {
@@ -276,6 +286,26 @@ func HeaderConnection(text string) string {
 		}
 	}
 	return ""
+}
+
+// HeaderAt reports whether caret, a rune offset into text, is at the end
+// of the connection a header line names, as while typing it, and where
+// that name starts and what of it is typed.
+func HeaderAt(text string, caret int) (start int, typed string, ok bool) {
+	runes := []rune(text)
+	caret = max(0, min(caret, len(runes)))
+	line := caret
+	for line > 0 && runes[line-1] != '\n' {
+		line--
+	}
+	if strings.Count(string(runes[:line]), "\n") >= headerLines || caret < len(runes) && !unicode.IsSpace(runes[caret]) {
+		return 0, "", false
+	}
+	m := connHeaderTyped.FindStringSubmatch(string(runes[line:caret]))
+	if m == nil {
+		return 0, "", false
+	}
+	return caret - utf8.RuneCountInString(m[1]), m[1], true
 }
 
 // Snippet is a piece of SQL saved under a name in a project's

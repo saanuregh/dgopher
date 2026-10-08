@@ -235,3 +235,72 @@ func TestExplain(t *testing.T) {
 		})
 	}
 }
+
+// A file runs only on the connection its header names: on another, the
+// editor refuses to run, says why, and offers to switch.
+func TestFileRunsOnlyOnItsConnection(t *testing.T) {
+	a := newFakeQueryHost(t)
+	cn := a.AddConn(db.Config{ID: "alpha", Name: "Alpha", Engine: db.SQLite, Database: ":memory:"})
+	a.AddConn(db.Config{ID: "beta", Name: "Beta", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1000, 700)
+	q := newEditor(t, a, tt, cn, "-- connection: beta\n\nSELECT 1 AS one;")
+	tt.Frame()
+	testutil.Snapshot(t, tt, "header-another-connection")
+	testutil.SetCaret(tt, &q.Editor, 25)
+	q.Run(RunStatement)
+	tt.Frame()
+	if len(q.results) != 0 || len(a.Errors) != 1 || !strings.Contains(a.Errors[0], "names the connection beta") {
+		t.Fatalf("ran on another connection: results %d, errors %q", len(q.results), a.Errors)
+	}
+	q.exportFromQuery()
+	if len(a.Errors) != 2 {
+		t.Fatalf("exported from another connection: %q", a.Errors)
+	}
+	if err := tt.Click("Switch to beta"); err != nil {
+		t.Fatal(err)
+	}
+	if len(a.switched) != 1 || a.switched[0] != "beta" {
+		t.Fatalf("switched %v", a.switched)
+	}
+
+	q.Editor.Text = "-- connection: gamma\n\nSELECT 1 AS one;"
+	tt.Frame()
+	if !tt.HasText("which is not a SQL connection of") || tt.HasText("Switch to gamma") {
+		t.Fatalf("a missing connection: %q", tt.Texts())
+	}
+
+	q.Editor.Text = "-- connection: alpha\n\nSELECT 1 AS one;"
+	tt.Frame()
+	if tt.HasText("This file names") {
+		t.Fatal("the bar shows for the editor's own connection")
+	}
+	testutil.SetCaret(tt, &q.Editor, 25)
+	q.Run(RunStatement)
+	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running && len(q.results) == 1 })
+}
+
+// Typing a header line completes the connections of the project.
+func TestCompleteHeaderConnection(t *testing.T) {
+	a := newFakeQueryHost(t)
+	cn := a.AddConn(db.Config{ID: "alpha", Name: "Alpha", Engine: db.SQLite, Database: ":memory:"})
+	a.AddConn(db.Config{ID: "billing-prod", Name: "Billing", Engine: db.SQLite, Database: ":memory:", Env: db.Production})
+	a.AddConn(db.Config{ID: "cache", Name: "Cache", Engine: db.Redis, Host: "localhost"})
+	tt := ui.NewTester(a.view, 1000, 700)
+	q := newEditor(t, a, tt, cn, "-- connection: \n\nSELECT 1;")
+	testutil.SetCaret(tt, &q.Editor, 15)
+	tt.Type("b")
+	tt.Frame()
+	if !q.ac.open || len(q.ac.items) != 1 || q.ac.items[0].label != "billing-prod" {
+		t.Fatalf("suggestions %+v", q.ac.items)
+	}
+	tt.Type("il")
+	tt.Frame()
+	if !q.ac.open || !q.Editor.HasFocus {
+		t.Fatalf("typing the name: popup %v, focus %v", q.ac.open, q.Editor.HasFocus)
+	}
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if !strings.HasPrefix(q.Editor.Text, "-- connection: billing-prod\n") {
+		t.Fatalf("after accepting: %q", q.Editor.Text)
+	}
+}

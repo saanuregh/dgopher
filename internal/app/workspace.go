@@ -98,14 +98,20 @@ func (a *App) restoreWorkspace(p *project.Project) {
 	}
 	p.Workspace, _ = json.Marshal(w)
 	for i, e := range w.Editors {
-		cn := a.connByID(p.Prefix + e.Connection)
-		if cn == nil || !cn.Config.Engine.IsSQL() {
-			continue
-		}
 		path := p.ResolvePath(e.Path)
 		data, err := os.ReadFile(path)
 		if err != nil && e.Unsaved == "" {
 			continue // deleted, or moved, since: nothing was only in the editor
+		}
+		// The file says where it runs, as after a pull that changed its
+		// header; the editor's last connection serves a file naming none,
+		// or one the project lacks, which then runs nothing.
+		cn := a.connByID(p.Prefix + project.HeaderConnection(string(data)))
+		if cn == nil || !cn.Config.Engine.IsSQL() {
+			cn = a.connByID(p.Prefix + e.Connection)
+		}
+		if cn == nil || !cn.Config.Engine.IsSQL() {
+			continue
 		}
 		q := query.New(a, cn, e.Database, filepath.Base(path), string(data))
 		q.Path, q.Saved = path, string(data)

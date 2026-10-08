@@ -288,20 +288,73 @@ func (a *App) openQueryFile(p *project.Project, rel string) {
 	if cn != nil && cn.Project != p {
 		cn = nil
 	}
-	if id := project.HeaderConnection(text); id != "" {
-		named := a.connByID(p.Prefix + id)
-		if named == nil {
-			// Never fall back to whatever is chosen: it may be production.
-			a.ShowError("No connection "+id, rel+" names the connection "+id+", which "+project.File+" of "+p.Name+" does not have.")
+	id := project.HeaderConnection(text)
+	if named := a.connByID(p.Prefix + id); id != "" && named != nil && named.Config.Engine.IsSQL() {
+		a.Connect(named, func() { a.openFileTab(named, "", path, text) })
+		return
+	}
+	if cn != nil && !cn.Config.Engine.IsSQL() {
+		cn = nil
+	}
+	if id != "" {
+		// The file names a connection the project lacks. Its editor runs
+		// nothing until the line names one of the project's, so it opens on
+		// any of them, unconnected, for the line to be fixed.
+		if cn == nil {
+			cn = a.firstSQLConn(p)
+		}
+		if cn == nil {
+			a.ShowError("No connection "+id, rel+" names the connection "+id+", which "+project.File+" of "+p.Name+" does not have. Add a connection to "+p.Name+" to open it.")
 			return
 		}
-		cn = named
+		a.openFileTab(cn, "", path, text)
+		return
 	}
-	if cn == nil || !cn.Config.Engine.IsSQL() {
+	if cn == nil {
+		// Never a guess, such as the project's first connection: it may be
+		// production.
 		a.ShowError("Which connection?", "Add a line such as\n\n-- connection: "+a.firstProjectSlug(p)+"\n\nat the top of "+rel+", or choose a connection of "+p.Name+" in the sidebar first.")
 		return
 	}
 	a.Connect(cn, func() { a.openFileTab(cn, "", path, text) })
+}
+
+// firstSQLConn is the first connection of a project an editor can use,
+// nil for none.
+func (a *App) firstSQLConn(p *project.Project) *connection.Conn {
+	for _, cn := range a.projectConns(p) {
+		if cn.Config.Engine.IsSQL() {
+			return cn
+		}
+	}
+	return nil
+}
+
+// SwitchConnection reopens an editor's file on another connection of its
+// project, in the editor's place, once the user agrees to what closing
+// the editor loses. Running connects it.
+func (a *App) SwitchConnection(q *query.Tab, id string) {
+	cn := a.connByID(q.Conn.Project.Prefix + id)
+	if cn == nil || !cn.Config.Engine.IsSQL() {
+		return
+	}
+	a.endTab(q, "Switch "+q.Title()+" to "+cn.Config.Name+"?", func(at int) {
+		// Closing saved the editor's text, unless the user chose to lose
+		// it to the file on disk: the file is what reopens.
+		text := q.Editor.Text
+		if q.Path != "" {
+			data, err := os.ReadFile(q.Path)
+			if err != nil {
+				a.ShowError("Could not open "+q.Name, err.Error())
+				return
+			}
+			text = string(data)
+		}
+		nq := query.New(a, cn, "", q.Name, text)
+		nq.Path, nq.Saved = q.Path, text
+		a.tabs = slices.Insert(a.tabs, at, widgets.Tab(nq))
+		a.active = at
+	})
 }
 
 // openFileTab opens an editor on a file whose text was just read or

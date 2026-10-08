@@ -37,9 +37,15 @@
     changed on disk, as by a `git pull`, is never overwritten: reload the
     project from its menu.
   - Every SQL editor is a file in `queries/`, saved as you type. A
-    `-- connection: <id>` line binds a file to a connection. A file
-    changed on disk while open is never overwritten; the editor offers to
-    use the file or keep yours. An editor closed untouched removes its file.
+    `-- connection: <id>` line binds a file to a connection, whose IDs
+    complete as you type the line. A file changed on disk while open is
+    never overwritten; the editor offers to use the file or keep yours. An
+    editor closed untouched removes its file.
+  - A file runs only on the connection its line names. An editor whose
+    file names another connection runs nothing, and offers to switch to
+    it; a file naming a connection the project lacks opens, unconnected,
+    for its line to be fixed. A restored editor follows its file's line,
+    as after a pull that changed it.
   - SQLite and DuckDB files inside the project are stored by relative path,
     so they open in every clone.
 

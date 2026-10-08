@@ -509,19 +509,28 @@ func (a *App) closeTab(i int) {
 	if i < 0 || i >= len(a.tabs) {
 		return
 	}
-	if reason := a.tabs[i].CloseReason(); reason != "" {
-		t := a.tabs[i]
-		a.closing = &closeRequest{open: true, title: "Close " + t.Title() + "?", reason: reason, onClose: func() {
-			if j := slices.Index(a.tabs, t); j >= 0 {
-				a.closeTabNow(j)
-			}
-		}}
-		if h, ok := t.(txHolder); ok && h.OpenTx() {
-			a.closing.txs = []txHolder{h}
+	t := a.tabs[i]
+	a.endTab(t, "Close "+t.Title()+"?", func(int) {})
+}
+
+// endTab closes a tab once the user agrees to what closing it loses, at
+// once when it loses nothing, then runs then with the place it had.
+func (a *App) endTab(t widgets.Tab, title string, then func(at int)) {
+	end := func() {
+		if i := slices.Index(a.tabs, t); i >= 0 {
+			a.closeTabNow(i)
+			then(i)
 		}
+	}
+	reason := t.CloseReason()
+	if reason == "" {
+		end()
 		return
 	}
-	a.closeTabNow(i)
+	a.closing = &closeRequest{open: true, title: title, reason: reason, onClose: end}
+	if h, ok := t.(txHolder); ok && h.OpenTx() {
+		a.closing.txs = []txHolder{h}
+	}
 }
 
 func (a *App) closeTabNow(i int) {

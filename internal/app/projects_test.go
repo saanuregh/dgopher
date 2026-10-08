@@ -792,6 +792,30 @@ func TestRestoredEditorWaitsToConnect(t *testing.T) {
 	testutil.WaitFor(t, tt, "the run", func() bool { return resultRows(tt, q, 1) })
 }
 
+// A restored editor opens on the connection its file names, as after a
+// pull that changed the header, not on the one it last had.
+func TestRestoredEditorFollowsItsHeader(t *testing.T) {
+	st, _ := store.Open(t.TempDir(), store.MemorySecrets())
+	a := newApp(st)
+	if _, err := a.addProject(newProjectDir(t, "p")); err != nil {
+		t.Fatal(err)
+	}
+	alpha := addConn(a, db.Config{ID: "alpha", Name: "alpha", Engine: db.SQLite, Database: ":memory:"})
+	addConn(a, db.Config{ID: "beta", Name: "beta", Engine: db.SQLite, Database: ":memory:"})
+	a.saveProject(a.projects[0])
+	tt := ui.NewTester(a.view, 1000, 700)
+	a.NewQueryTab(alpha, "", "SELECT 1;")
+	testutil.WaitFor(t, tt, "the editor", func() bool { _, ok := a.ActiveTab().(*query.Tab); return ok })
+	q := a.ActiveTab().(*query.Tab)
+	a.saveWorkspace(true)
+	os.WriteFile(q.Path, []byte("-- connection: beta\n\nSELECT 1;"), 0o644)
+
+	b := newApp(st)
+	if len(b.tabs) != 1 || b.tabs[0].Connection().Config.ID != b.projects[0].Prefix+"beta" {
+		t.Fatalf("restored %v", b.tabs)
+	}
+}
+
 // On, a connection opens as DGopher starts, with nothing shown.
 func TestAutoConnectAtStart(t *testing.T) {
 	st, _ := store.Open(t.TempDir(), store.MemorySecrets())

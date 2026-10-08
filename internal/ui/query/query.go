@@ -20,6 +20,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/params"
+	"dgopher/internal/project"
 	"dgopher/internal/redact"
 	"dgopher/internal/safety"
 	"dgopher/internal/settings"
@@ -117,6 +118,10 @@ type Tab struct {
 	results   []*result
 	resultIdx int // len(results) for the messages
 	messages  []message
+
+	// named is the connection the file's header names, as headerOf last
+	// read it from namedText.
+	named, namedText string
 }
 
 func New(a Host, cn *connection.Conn, database, name, text string) *Tab {
@@ -346,10 +351,47 @@ func explainPrefix(e db.Engine) string {
 	return "EXPLAIN "
 }
 
+// namedConnection is the connection the file's header names, "" for
+// none.
+func (q *Tab) namedConnection() string {
+	if q.Editor.Text != q.namedText {
+		q.named, q.namedText = project.HeaderConnection(q.Editor.Text), q.Editor.Text
+	}
+	return q.named
+}
+
+// namesAnother returns the connection the file's header names when it
+// is not the editor's, "" when it is or it names none, and whether the
+// project has that connection.
+func (q *Tab) namesAnother() (id string, exists bool) {
+	id = q.namedConnection()
+	p := q.Conn.Project
+	if id == "" || p.Prefix+id == q.Conn.Config.ID {
+		return "", false
+	}
+	exists = slices.ContainsFunc(q.a.ProjectConfigs(p), func(cfg db.Config) bool {
+		return cfg.ID == p.Prefix+id && cfg.Engine.IsSQL()
+	})
+	return id, exists
+}
+
+// refuseAnotherConnection says so and reports true when the file names
+// another connection than the editor's: a file runs only on the one it
+// names, as the next person to open it would run it.
+func (q *Tab) refuseAnotherConnection() bool {
+	id, _ := q.namesAnother()
+	if id == "" {
+		return false
+	}
+	q.a.ShowError("Not run", fmt.Sprintf("%s names the connection %s on its first lines, and this editor is on %s. A file runs only on the connection it names: switch the editor to %s, or change the line.",
+		q.Name, id, strings.TrimPrefix(q.Conn.Config.ID, q.Conn.Project.Prefix), id))
+	return true
+}
+
 // Run runs statements of the editor, through the safety policy, once
 // the results it replaces have no changes pending.
 func (q *Tab) Run(mode RunMode) {
-	if q.Running || q.refuseWhileResultsWork() {
+	if q.Running || q.refuseWhileResultsWork() || q.refuseAnotherConnection() {
 		return
 	}
 	if q.Conn.Status != connection.StatusConnected {
@@ -900,15 +942,22 @@ func (q *Tab) View(c *ui.Context) {
 				ui.Badge(c, "Auto-commit")
 			}
 		}).Label("Editor").Padding(4, 8).BorderWidth(0, 0, 1, 0).BorderColor(t.Border)
-		if q.Tx != db.TxNone {
-			q.txBar(c)
-		}
-		if q.DiskConflict != "" {
-			q.conflictBar(c)
-		}
-		if q.Conn.Status == connection.StatusFailed || q.Conn.Status == connection.StatusIdle {
-			q.connectBar(c)
-		}
+		// The bars come and go, as one while a header is typed: in a
+		// column always there, the editor keeps its place, and the focus.
+		ui.Column(c).Children(func() {
+			if q.Tx != db.TxNone {
+				q.txBar(c)
+			}
+			if q.DiskConflict != "" {
+				q.conflictBar(c)
+			}
+			if id, exists := q.namesAnother(); id != "" {
+				q.headerBar(c, id, exists)
+			}
+			if q.Conn.Status == connection.StatusFailed || q.Conn.Status == connection.StatusIdle {
+				q.connectBar(c)
+			}
+		})
 		ui.SplitVertical(c, &q.editorH, func() {
 			ui.Column(c).Fill().Children(func() {
 				q.findView(c, a.Settings().EditorFont)
@@ -1275,6 +1324,25 @@ func (q *Tab) conflictBar(c *ui.Context) {
 	})
 }
 
+// headerBar says that the file names another connection than the
+// editor's, so it runs nothing, and offers the way out.
+func (q *Tab) headerBar(c *ui.Context, id string, exists bool) {
+	t := c.Theme()
+	col := t.Warning
+	msg := fmt.Sprintf("This file names the connection %s, not this editor's %s: it runs nothing here.", id, q.Conn.Config.Name)
+	if !exists {
+		col = t.Danger
+		msg = fmt.Sprintf("This file names the connection %s, which is not a SQL connection of %s: fix its first lines to run it.", id, q.Conn.Project.Name)
+	}
+	ui.Row(c).Padding(6, 12).Gap(10).Background(col.Alpha(0.16)).Children(func() {
+		ui.Icon(c, widgets.IconAlert).TextColor(col).FontSize(14)
+		ui.Text(c, msg).Grow(1).Shrink(1)
+		if exists && ui.Button(c, "Switch to "+id).Disabled(q.Busy()).Clicked() {
+			q.a.SwitchConnection(q, id)
+		}
+	})
+}
+
 // errorOffset is where in the editor an error points: from the
 // statement's start, by the character position the database gave, else
 // by its line and column, else by the line and the text it quoted.
@@ -1546,6 +1614,9 @@ func (q *Tab) editorMenu(m *ui.Menu) {
 // one selected, without showing them first; its parameters are asked as
 // a run asks them.
 func (q *Tab) exportFromQuery() {
+	if q.refuseAnotherConnection() {
+		return
+	}
 	stmts, _ := q.statements(RunStatement)
 	if len(stmts) != 1 {
 		q.a.ShowError("Which statement?", "Put the caret in one statement, or select only one, to export its rows.")

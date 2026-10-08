@@ -17,4 +17,8 @@ type Host interface {
 	// ScanQueries lists the project's query files again: now, or when
 	// they last changed a while ago.
 	ScanQueries(p *project.Project, now bool)
+	// SwitchConnection reopens an editor's file on the connection of its
+	// project with that ID, once the user agrees to what closing the
+	// editor loses.
+	SwitchConnection(q *Tab, id string)
 }

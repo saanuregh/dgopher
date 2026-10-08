@@ -5,11 +5,6 @@
 - **Next:**
   - Connect to Redis Cluster and Redis Sentinel.
   - Export results as an Excel file.
-  - When a query file's `-- connection:` line names a connection that
-    does not exist, offer to open the file so the line can be fixed,
-    and complete connection ids while typing it.
-  - Always run a query file on the connection named in its
-    `-- connection:` line, never on another one.
   - Use the built-in DuckDB for more work where it is faster than the
     current code.
   - Make exports safe, with a row limit that can be configured. Today an

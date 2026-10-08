@@ -834,15 +834,58 @@ func TestActivityKeepsTheChosenSession(t *testing.T) {
 	}
 }
 
+// A file naming a connection the project lacks opens for its line to be
+// fixed, on another connection that it never connects nor runs on.
 func TestQueryFileHeaderMustNameAConnection(t *testing.T) {
 	a := newTestApp(t)
 	p := a.projects[0]
-	addConn(a, db.Config{ID: "prod", Name: "prod", Engine: db.SQLite, Database: ":memory:", Env: db.Production})
+	prod := addConn(a, db.Config{ID: "prod", Name: "prod", Engine: db.SQLite, Database: ":memory:", Env: db.Production})
 	a.nav.row = -1
-	os.WriteFile(p.Dir+"/queries/q.sql", []byte("-- connection: staging\nDELETE FROM t;"), 0o644)
+	os.MkdirAll(p.Queries, 0o755)
+	os.WriteFile(p.Queries+"/q.sql", []byte("-- connection: staging\nDELETE FROM t;"), 0o644)
 	a.openQueryFile(p, "q.sql")
-	if len(a.tabs) != 0 || a.alert == nil {
-		t.Fatalf("a file for an unknown connection opened: tabs %d", len(a.tabs))
+	tt := ui.NewTester(a.view, 1000, 700)
+	tt.Frame()
+	q, ok := a.ActiveTab().(*query.Tab)
+	if !ok || prod.Status != connection.StatusIdle || !tt.HasText("which is not a SQL connection of") {
+		t.Fatalf("the file: tab %v, status %v, %q", ok, prod.Status, tt.Texts())
+	}
+	testutil.SetCaret(tt, &q.Editor, 30)
+	q.Run(query.RunStatement)
+	tt.Frame()
+	if a.alert == nil || prod.Status != connection.StatusIdle {
+		t.Fatalf("ran on a connection the file does not name: status %v", prod.Status)
+	}
+}
+
+// Switching reopens the file on the connection it names, in the editor's
+// place.
+func TestSwitchConnection(t *testing.T) {
+	a := newTestApp(t)
+	alpha := addConn(a, db.Config{ID: "alpha", Name: "alpha", Engine: db.SQLite, Database: ":memory:"})
+	beta := addConn(a, db.Config{ID: "beta", Name: "beta", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1000, 700)
+	a.NewQueryTab(alpha, "", "SELECT 1;")
+	testutil.WaitFor(t, tt, "the editor", func() bool { _, ok := a.ActiveTab().(*query.Tab); return ok })
+	a.NewQueryTab(alpha, "", "SELECT 2;")
+	testutil.WaitFor(t, tt, "the second editor", func() bool { return len(a.tabs) == 2 })
+	q := a.tabs[0].(*query.Tab)
+	a.active = 0
+	q.Editor.Text = strings.Replace(q.Editor.Text, "connection: alpha", "connection: beta", 1)
+	tt.Frame()
+	if err := tt.Click("Switch to beta"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	nq, ok := a.tabs[0].(*query.Tab)
+	if !ok || nq == q || nq.Conn != beta || nq.Path != q.Path || a.active != 0 || len(a.tabs) != 2 {
+		t.Fatalf("after switching: %v %v", ok, a.tabs)
+	}
+	if data, _ := os.ReadFile(q.Path); string(data) != nq.Editor.Text || !strings.HasPrefix(nq.Editor.Text, "-- connection: beta") {
+		t.Fatalf("the file holds %q, the editor %q", data, nq.Editor.Text)
+	}
+	if tt.HasText("This file names") {
+		t.Fatal("the bar stays after switching")
 	}
 }
 

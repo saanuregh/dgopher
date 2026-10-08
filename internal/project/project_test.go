@@ -47,3 +47,37 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		t.Errorf("saving over a changed file: %v", err)
 	}
 }
+
+func TestHeaderConnection(t *testing.T) {
+	for text, want := range map[string]string{
+		"-- connection: billing-prod\n\nSELECT 1": "billing-prod",
+		"\n\n  --connection:local\n":              "local",
+		"SELECT 1\n\n\n\n\n-- connection: late":   "",
+		"-- connection:\nSELECT 1":                "",
+	} {
+		if got := HeaderConnection(text); got != want {
+			t.Errorf("HeaderConnection(%q) = %q, want %q", text, got, want)
+		}
+	}
+}
+
+// HeaderAt finds the connection being typed in a header line, and only
+// there.
+func TestHeaderAt(t *testing.T) {
+	text := "-- connection: bil\nSELECT 'é' -- connection: x"
+	if start, typed, ok := HeaderAt(text, 18); !ok || start != 15 || typed != "bil" {
+		t.Errorf("in the header: %d %q %v", start, typed, ok)
+	}
+	if _, typed, ok := HeaderAt("-- connection: ", 15); !ok || typed != "" {
+		t.Errorf("after the colon: %q %v", typed, ok)
+	}
+	if _, _, ok := HeaderAt(text, 16); ok {
+		t.Error("the caret inside the name completes it")
+	}
+	if _, _, ok := HeaderAt(text, len([]rune(text))); ok {
+		t.Error("a comment after a statement is a header")
+	}
+	if _, _, ok := HeaderAt("\n\n\n\n\n-- connection: b", 22); ok {
+		t.Error("a header below the fifth line")
+	}
+}
