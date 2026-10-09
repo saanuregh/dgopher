@@ -201,6 +201,9 @@
     Files are named from a pattern (`${table}`, `${connection}`,
     `${timestamp}`, `${date}`); text formats can go to the clipboard
     instead. CSV can start with a byte order mark, for Excel.
+  - Export Tables, on a schema, writes the tables and views chosen, each
+    to a file of its own named by the pattern, with the same formats and a
+    limit for each.
   - The Excel workbook keeps numbers, dates and booleans as such, with
     a bold header that stays in view. A number past the 15 digits Excel
     keeps, such as a large ID, stays text, so that it is never rounded;

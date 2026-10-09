@@ -716,6 +716,9 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		if n.kind != nodeDatabase && m.Item("Import File as New Table…").Disabled(cn.Config.ReadOnly).Chosen() {
 			a.openImport(cn, n.database, n.schema, nil)
 		}
+		if n.kind != nodeDatabase && m.Item("Export Tables…").Chosen() {
+			a.openExportTables(cn, n.database, n.schema)
+		}
 		if n.kind != nodeDatabase && m.Item("Generate SQL Script…").Chosen() {
 			a.openGenerate(cn, n.database, n.schema, generateScript)
 		}
@@ -744,6 +747,39 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			}
 		}
 	}
+}
+
+// openExportTables opens the export of a schema's tables and views,
+// the tables chosen.
+func (a *App) openExportTables(cn *connection.Conn, database, schema string) {
+	poolOf := cn.PoolFor(database)
+	a.Background(func() func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		d, err := poolOf(ctx)
+		var objs []db.Object
+		if err == nil {
+			objs, err = d.Dialect.Objects(ctx, d.SQL, schema)
+		}
+		return func() {
+			if err != nil {
+				a.ShowError("Could not list the tables of "+schema, err.Error())
+				return
+			}
+			if len(objs) == 0 {
+				a.ShowError("Nothing to export", schema+" has no tables or views.")
+				return
+			}
+			srcs := make([]dataview.ExportSource, len(objs))
+			chosen := make([]bool, len(objs))
+			for i, o := range objs {
+				srcs[i] = dataview.ExportSource{Conn: cn, Database: database, Name: o.Name,
+					SQL: "SELECT * FROM " + db.QualifiedName(d.Dialect, o.Schema, o.Name)}
+				chosen[i] = o.Kind == db.KindTable
+			}
+			dataview.OpenExportTables(a, "Export tables of "+schema, srcs, chosen)
+		}
+	})
 }
 
 // askRenameInDatabase asks for a new name of a table, view or column

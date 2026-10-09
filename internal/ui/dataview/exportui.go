@@ -73,10 +73,34 @@ type exportState struct {
 	pattern    string
 	openFolder bool
 
+	// tables, when set, are the tables of a schema to choose from, each
+	// exported to a file of its own; src is the first.
+	tables []exportTable
+	title  string
+	filter string
+
 	running bool
 	written atomic.Int64
+	current atomic.Int64 // the index of the source being exported
 	cancel  context.CancelFunc
 	err     string
+}
+
+// exportTable is a table the user may choose to export.
+type exportTable struct {
+	src    ExportSource
+	chosen bool
+}
+
+// chosen is the sources of the tables chosen.
+func (x *exportState) chosen() []ExportSource {
+	var out []ExportSource
+	for _, t := range x.tables {
+		if t.chosen {
+			out = append(out, t.src)
+		}
+	}
+	return out
 }
 
 const defaultExportPattern = "${table}_${timestamp}"
@@ -101,7 +125,23 @@ func OpenExport(a Host, src ExportSource) {
 	}
 	x.rerun = rerunReason(src)
 	x.all = x.rerun == ""
+	x.title = "Export " + src.Name
 	a.Dialogs().export = x
+}
+
+// OpenExportTables opens the export of tables, each a source reading all
+// its rows, to choose from: those chosen is true for are chosen first.
+func OpenExportTables(a Host, title string, srcs []ExportSource, chosen []bool) {
+	if len(srcs) == 0 {
+		return
+	}
+	OpenExport(a, srcs[0])
+	x := a.Dialogs().export
+	x.title = title
+	x.tables = make([]exportTable, len(srcs))
+	for i, src := range srcs {
+		x.tables[i] = exportTable{src: src, chosen: chosen[i]}
+	}
 }
 
 // rerunReason says why an export cannot run its statement again for
@@ -149,9 +189,10 @@ func (x *exportState) options() export.Options {
 	return opt
 }
 
-func (x *exportState) path() string {
+// pathOf is the file a source named name is exported to.
+func (x *exportState) pathOf(name string) string {
 	f := export.Format(x.format)
-	return filepath.Join(db.ExpandPath(x.folder), expandPattern(x.pattern, x.src.Name, x.src.Conn.Config.Name, time.Now())+"."+f.Extension())
+	return filepath.Join(db.ExpandPath(x.folder), expandPattern(x.pattern, name, x.src.Conn.Config.Name, time.Now())+"."+f.Extension())
 }
 
 func ExportView(a Host, c *ui.Context) {
@@ -168,12 +209,24 @@ func ExportView(a Host, c *ui.Context) {
 		}
 	}
 	f := export.Format(x.format)
-	if export.NeedsFile(f) {
+	many := x.tables != nil
+	if export.NeedsFile(f) || many {
 		x.clipboard = false
+	}
+	chosen := []ExportSource{x.src}
+	if many {
+		chosen = x.chosen()
+	}
+	example := x.src // the source the file name shows for
+	if len(chosen) > 0 {
+		example = chosen[0]
 	}
 	ui.Modal(c, &x.open, func() {
 		ui.Column(c).Width(620).Gap(12).Children(func() {
-			ui.Text(c, "Export "+x.src.Name).FontSize(15).Bold()
+			ui.Text(c, x.title).FontSize(15).Bold().SingleLine()
+			if many {
+				exportTablesView(c, x, len(chosen))
+			}
 			ui.Form(c, func() {
 				ui.Field(c, "Format", func() {
 					if ui.Select(c, &label, labels).Label("Format").Changed() {
@@ -195,32 +248,29 @@ func ExportView(a Host, c *ui.Context) {
 					ui.Field(c, "NULL as", func() { ui.TextInput(c, &x.nullText).Placeholder("empty").Font(widgets.MonoFont) })
 					ui.Field(c, "", func() { ui.Checkbox(c, &x.bom, "Byte order mark, for Excel") })
 				case export.SQL:
-					ui.Field(c, "Table", func() { ui.TextInput(c, &x.table).Font(widgets.MonoFont) })
+					if !many {
+						ui.Field(c, "Table", func() { ui.TextInput(c, &x.table).Font(widgets.MonoFont) })
+					}
 					ui.Field(c, "Rows per INSERT", func() { ui.NumberInput(c, &x.perInsert, 1, 1000, 10) })
 				case export.XLSX:
-					ui.Field(c, "Sheet", func() { ui.TextInput(c, &x.table) })
+					if !many {
+						ui.Field(c, "Sheet", func() { ui.TextInput(c, &x.table) })
+					}
 					ui.Field(c, "", func() { ui.Checkbox(c, &x.header, "Column names first") })
 					ui.Field(c, "NULL as", func() { ui.TextInput(c, &x.nullText).Placeholder("an empty cell").Font(widgets.MonoFont) })
 				case export.Parquet, export.DuckDBFile:
-					ui.Field(c, "Table", func() { ui.TextInput(c, &x.table).Font(widgets.MonoFont) }).Description("Written through DuckDB, with the columns' types.")
+					if !many {
+						ui.Field(c, "Table", func() { ui.TextInput(c, &x.table).Font(widgets.MonoFont) }).Description("Written through DuckDB, with the columns' types.")
+					}
 				}
-				ui.Field(c, "Rows", func() {
-					ui.Column(c).Gap(4).Children(func() {
-						where := "on a session of its own"
-						if x.src.OnSession != nil {
-							where = "on the editor's session, which sees what the rows shown saw"
-						}
-						ui.Radio(c, &x.all, true, "Run the statement again, "+where).Disabled(x.rerun != "")
-						if x.src.RowsRead != nil {
-							ui.Radio(c, &x.all, false, fmt.Sprintf("The %d rows read", x.src.Read))
-						}
-						if x.rerun != "" {
-							ui.Text(c, x.rerun).FontSize(12).TextColor(pal.Muted)
-						}
-					})
-				})
+				if !many {
+					exportRowsField(c, x)
+				}
 				if x.all {
 					note := "Reading stops there, and the export says so."
+					if many {
+						note = "Reading each table stops there, and the export says so."
+					}
 					if f == export.XLSX {
 						note += fmt.Sprintf(" An Excel sheet holds at most %d rows below its header.", export.ExcelMaxRows)
 					}
@@ -232,9 +282,11 @@ func ExportView(a Host, c *ui.Context) {
 						})
 					}).Description(note)
 				}
-				ui.Field(c, "Output", func() {
-					ui.Checkbox(c, &x.clipboard, "Copy to the clipboard instead of a file").Disabled(export.NeedsFile(f))
-				})
+				if !many {
+					ui.Field(c, "Output", func() {
+						ui.Checkbox(c, &x.clipboard, "Copy to the clipboard instead of a file").Disabled(export.NeedsFile(f))
+					})
+				}
 				if !x.clipboard {
 					ui.Field(c, "Folder", func() {
 						ui.Row(c).Gap(6).Children(func() {
@@ -251,7 +303,7 @@ func ExportView(a Host, c *ui.Context) {
 					})
 					ui.Field(c, "File name", func() {
 						ui.TextInput(c, &x.pattern).Font(widgets.MonoFont).FontSize(12.5)
-					}).Description(x.path() + "   (${table}, ${connection}, ${timestamp}, ${date})")
+					}).Description(x.pathOf(example.Name) + "   (${table}, ${connection}, ${timestamp}, ${date})")
 					ui.Field(c, "", func() { ui.Checkbox(c, &x.openFolder, "Show the file when done") })
 				}
 			})
@@ -261,7 +313,11 @@ func ExportView(a Host, c *ui.Context) {
 			ui.Row(c).Gap(8).Children(func() {
 				if x.running {
 					ui.Spinner(c).Size(14, 14)
-					ui.Text(c, fmt.Sprintf("%d rows written…", x.written.Load())).FontSize(12).TextColor(pal.Muted)
+					progress := fmt.Sprintf("%d rows written…", x.written.Load())
+					if many {
+						progress = fmt.Sprintf("Table %d of %d · ", x.current.Load()+1, len(chosen)) + progress
+					}
+					ui.Text(c, progress).FontSize(12).TextColor(pal.Muted)
 					c.After(200 * time.Millisecond)
 				}
 				ui.Spacer(c)
@@ -272,7 +328,7 @@ func ExportView(a Host, c *ui.Context) {
 						x.open = false
 					}
 				}
-				if ui.PrimaryButton(c, "Export").Disabled(x.running || !x.all && x.src.RowsRead == nil).Clicked() {
+				if ui.PrimaryButton(c, "Export").Disabled(x.running || len(chosen) == 0 || !x.all && x.src.RowsRead == nil).Clicked() {
 					runExport(a, x)
 				}
 			})
@@ -286,10 +342,67 @@ func ExportView(a Host, c *ui.Context) {
 	}
 }
 
+// exportTablesView chooses the tables to export.
+func exportTablesView(c *ui.Context, x *exportState, chosen int) {
+	th := c.Theme()
+	pal := widgets.PaletteOf(c)
+	filter := strings.ToLower(strings.TrimSpace(x.filter))
+	var shown []int
+	for i, t := range x.tables {
+		if filter == "" || strings.Contains(strings.ToLower(t.src.Name), filter) {
+			shown = append(shown, i)
+		}
+	}
+	ui.Row(c).Gap(8).Children(func() {
+		widgets.SearchBox(c, &x.filter, "Filter tables", 0).Grow(1)
+		if ui.Button(c, "All").Disabled(x.running).Clicked() {
+			for _, i := range shown {
+				x.tables[i].chosen = true
+			}
+		}
+		if ui.Button(c, "None").Disabled(x.running).Clicked() {
+			for _, i := range shown {
+				x.tables[i].chosen = false
+			}
+		}
+	})
+	ui.Scroll(c).Height(180).Border(1, th.Border).Radius(6).Children(func() {
+		ui.Column(c).Padding(4).Children(func() {
+			for _, i := range shown {
+				t := &x.tables[i]
+				ui.Checkbox(c.Key(fmt.Sprint("table-", i)), &t.chosen, t.src.Name).Disabled(x.running).Padding(3, 6)
+			}
+		})
+	})
+	ui.Text(c, fmt.Sprintf("%d of %d chosen, each to a file of its own", chosen, len(x.tables))).FontSize(12).TextColor(pal.Muted)
+}
+
+// exportRowsField chooses between running the statement again and the
+// rows read.
+func exportRowsField(c *ui.Context, x *exportState) {
+	pal := widgets.PaletteOf(c)
+	ui.Field(c, "Rows", func() {
+		ui.Column(c).Gap(4).Children(func() {
+			where := "on a session of its own"
+			if x.src.OnSession != nil {
+				where = "on the editor's session, which sees what the rows shown saw"
+			}
+			ui.Radio(c, &x.all, true, "Run the statement again, "+where).Disabled(x.rerun != "")
+			if x.src.RowsRead != nil {
+				ui.Radio(c, &x.all, false, fmt.Sprintf("The %d rows read", x.src.Read))
+			}
+			if x.rerun != "" {
+				ui.Text(c, x.rerun).FontSize(12).TextColor(pal.Muted)
+			}
+		})
+	})
+}
+
 // exportPage is how many rows an export reads at a time.
 const exportPage = 5000
 
-// runExport writes the rows, off the main thread, and audits it.
+// runExport writes the rows, off the main thread, and audits it: of the
+// source, or of each table chosen, one file each.
 func runExport(a Host, x *exportState) {
 	prefs := settings.ExportPrefs{Format: x.format, Folder: x.folder, Pattern: x.pattern, OpenFolder: x.openFolder, Unlimited: !x.limited}
 	if x.limited {
@@ -297,11 +410,27 @@ func runExport(a Host, x *exportState) {
 	}
 	a.Settings().Export = prefs
 	a.SaveSettings()
-	cfg, src, all := x.src.Conn.Config, x.src, x.all
+	srcs := []ExportSource{x.src}
+	if x.tables != nil {
+		srcs = x.chosen()
+	}
+	f, toClip := export.Format(x.format), x.clipboard
+	paths := make([]string, len(srcs))
+	for i, src := range srcs {
+		if toClip {
+			continue
+		}
+		paths[i] = x.pathOf(src.Name)
+		if _, err := os.Stat(paths[i]); err == nil {
+			x.err = paths[i] + " exists already: change the file name"
+			return
+		}
+	}
+	cfg, all := x.src.Conn.Config, x.all
 	var sess *db.Session
 	release := func() {}
-	if all && src.OnSession != nil {
-		s, done, why := src.OnSession()
+	if all && x.src.OnSession != nil {
+		s, done, why := x.src.OnSession()
 		if why != "" {
 			x.err = "Not exported: " + why
 			return
@@ -313,132 +442,163 @@ func runExport(a Host, x *exportState) {
 	ctx, cancel := context.WithCancel(context.Background())
 	x.running, x.cancel, x.err = true, cancel, ""
 	x.written.Store(0)
+	x.current.Store(0)
 	started := time.Now()
-	f, opt, toClip := export.Format(x.format), x.options(), x.clipboard
-	path := ""
-	if !toClip {
-		path = x.path()
-	}
 	limit := 0
 	if all && x.limited {
 		limit = int(x.limit)
 	}
-	pool := x.src.Conn.DB
+	pool, opt := x.src.Conn.DB, x.options()
 	var read [][]any
 	if !all {
-		read = src.RowsRead()
+		read = x.src.RowsRead()
 	}
 	a.Background(func() func() {
 		defer cancel()
 		defer release()
 		var clip strings.Builder
-		limited := false // the limit stopped the reading, with rows left
-		err := func() error {
-			cols, next, done, cut, err := exportRows(ctx, pool, sess, src, all, read)
-			if err != nil {
-				return err
+		var stopped []string // the sources the limit stopped, with rows left
+		var err error
+		for i, src := range srcs {
+			x.current.Store(int64(i))
+			o := opt
+			if x.tables != nil {
+				o.Table = src.Name
 			}
-			defer done()
-			ecols := make([]export.Column, len(cols))
-			names := make([]string, len(cols))
-			for i, c := range cols {
-				ecols[i], names[i] = export.Column{Name: c.Name, DatabaseType: c.Type}, c.Name
-			}
-			var w export.RowWriter
+			var n int64
+			var limited bool
+			n, limited, err = exportOne(ctx, pool, sess, src, all, read, f, o, paths[i], &clip, limit, &x.written)
+			ev := audit.Event{Kind: audit.KindExport, Statement: src.SQL, Rows: n, Detail: f.Label() + " to " + paths[i]}
 			if toClip {
-				w, err = export.NewWriter(&clip, f, names, opt)
-			} else {
-				if _, statErr := os.Stat(path); statErr == nil {
-					return fmt.Errorf("%s exists already: change the file name", path)
-				}
-				w, err = export.NewFileWriter(path, f, ecols, opt)
+				ev.Detail = f.Label() + " to the clipboard"
+			}
+			switch {
+			case !all:
+				ev.Detail += ", the rows read"
+			case sess != nil:
+				ev.Detail += ", run again on the editor's session"
+			}
+			if limited {
+				stopped = append(stopped, src.Name)
+				ev.Detail += ", stopped at its limit of " + strconv.Itoa(limit) + " rows"
 			}
 			if err != nil {
-				return err
-			}
-			for {
-				n := exportPage
-				if limit > 0 {
-					// One row past the limit says whether rows remain.
-					n = min(n, limit-int(x.written.Load())+1)
-				}
-				rows, err := next(n)
-				if limit > 0 && int(x.written.Load())+len(rows) > limit {
-					rows, limited = rows[:limit-int(x.written.Load())], true
-				}
-				if err == nil {
-					for _, r := range rows {
-						if err = w.Write(r); err != nil {
-							break
-						}
-					}
-				}
-				if err == nil {
-					err = ctx.Err()
-				}
-				if err != nil {
-					w.Close()
-					if path != "" {
-						os.Remove(path)
-					}
-					return err
-				}
-				x.written.Add(int64(len(rows)))
-				if limited {
-					return w.Close()
-				}
-				if len(rows) == 0 && cut() {
-					w.Close()
-					if path != "" {
-						os.Remove(path)
-					}
-					return fmt.Errorf("this database keeps one connection, whose rows are read ahead up to %d: run the query with LIMIT and OFFSET in parts, or, on DuckDB, COPY (…) TO 'file'", db.MaxRows)
-				}
-				if len(rows) == 0 {
-					return w.Close()
+				ev.Error = err.Error()
+				if len(srcs) > 1 {
+					err = fmt.Errorf("%s: %w", src.Name, err)
 				}
 			}
-		}()
+			a.Record(&cfg, ev)
+			if err != nil {
+				break
+			}
+		}
 		n := x.written.Load()
-		ev := audit.Event{Kind: audit.KindExport, Statement: src.SQL, Rows: n, Detail: f.Label() + " to " + path}
-		if toClip {
-			ev.Detail = f.Label() + " to the clipboard"
-		}
-		switch {
-		case !all:
-			ev.Detail += ", the rows read"
-		case sess != nil:
-			ev.Detail += ", run again on the editor's session"
-		}
-		stopped := ""
-		if limited {
-			stopped = fmt.Sprintf(": the limit of %d rows stopped it, with rows left", limit)
-			ev.Detail += ", stopped at its limit of " + strconv.Itoa(limit) + " rows"
-		}
-		if err != nil {
-			ev.Error = err.Error()
-		}
-		a.Record(&cfg, ev)
 		return func() {
 			x.running = false
+			name := x.src.Name
+			if len(srcs) > 1 {
+				name = fmt.Sprintf("%d tables", len(srcs))
+			}
 			if err != nil {
 				x.err = "The export stopped: " + err.Error()
-				a.Notify(started, "Export failed", src.Name+" · "+redact.Secrets(widgets.FirstLine(err.Error())), nil)
+				a.Notify(started, "Export failed", name+" · "+redact.Secrets(widgets.FirstLine(err.Error())), nil)
 				return
 			}
-			a.Notify(started, "Export finished", fmt.Sprintf("%d rows of %s%s", n, src.Name, stopped), nil)
+			note := ""
+			switch {
+			case len(stopped) == 1 && len(srcs) == 1:
+				note = fmt.Sprintf(": the limit of %d rows stopped it, with rows left", limit)
+			case len(stopped) > 0:
+				note = fmt.Sprintf(": the limit of %d rows stopped %s, with rows left", limit, strings.Join(stopped, ", "))
+			}
+			a.Notify(started, "Export finished", fmt.Sprintf("%d rows of %s%s", n, name, note), nil)
 			x.open = false
 			if toClip {
 				a.WriteClipboard(clip.String())
-				a.Toast(fmt.Sprintf("Copied %d rows as %s%s", n, f.Label(), stopped), "", nil)
+				a.Toast(fmt.Sprintf("Copied %d rows as %s%s", n, f.Label(), note), "", nil)
 				return
 			}
-			a.Toast(fmt.Sprintf("Exported %d rows%s", n, stopped), "Show in Folder", func() { mygo.Shell.ShowItemInFolder(path) })
+			what := fmt.Sprintf("Exported %d rows%s", n, note)
+			if len(srcs) > 1 {
+				what = fmt.Sprintf("Exported %d rows of %d tables%s", n, len(srcs), note)
+			}
+			last := paths[len(paths)-1]
+			a.Toast(what, "Show in Folder", func() { mygo.Shell.ShowItemInFolder(last) })
 			if x.openFolder {
-				mygo.Shell.ShowItemInFolder(path)
+				mygo.Shell.ShowItemInFolder(last)
 			}
 		}
 	})
+}
+
+// exportOne writes the rows of a source to a file at path, or to clip
+// when path is "", counting them in written as it goes. It stops after
+// limit rows when limit is set, and says whether rows were left. A file
+// it fails to finish is removed.
+func exportOne(ctx context.Context, pool *db.DB, sess *db.Session, src ExportSource, all bool, read [][]any, f export.Format, opt export.Options,
+	path string, clip *strings.Builder, limit int, written *atomic.Int64) (n int64, limited bool, err error) {
+	cols, next, done, cut, err := exportRows(ctx, pool, sess, src, all, read)
+	if err != nil {
+		return 0, false, err
+	}
+	defer done()
+	ecols := make([]export.Column, len(cols))
+	names := make([]string, len(cols))
+	for i, c := range cols {
+		ecols[i], names[i] = export.Column{Name: c.Name, DatabaseType: c.Type}, c.Name
+	}
+	var w export.RowWriter
+	if path == "" {
+		w, err = export.NewWriter(clip, f, names, opt)
+	} else {
+		w, err = export.NewFileWriter(path, f, ecols, opt)
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	fail := func(err error) (int64, bool, error) {
+		w.Close()
+		if path != "" {
+			os.Remove(path)
+		}
+		return n, false, err
+	}
+	for {
+		page := exportPage
+		if limit > 0 {
+			// One row past the limit says whether rows remain.
+			page = min(page, limit-int(n)+1)
+		}
+		rows, err := next(page)
+		if limit > 0 && int(n)+len(rows) > limit {
+			rows, limited = rows[:limit-int(n)], true
+		}
+		if err == nil {
+			for _, r := range rows {
+				if err = w.Write(r); err != nil {
+					break
+				}
+			}
+		}
+		if err == nil {
+			err = ctx.Err()
+		}
+		if err != nil {
+			return fail(err)
+		}
+		n += int64(len(rows))
+		written.Add(int64(len(rows)))
+		if limited {
+			return n, true, w.Close()
+		}
+		if len(rows) == 0 && cut() {
+			return fail(fmt.Errorf("this database keeps one connection, whose rows are read ahead up to %d: run the query with LIMIT and OFFSET in parts, or, on DuckDB, COPY (…) TO 'file'", db.MaxRows))
+		}
+		if len(rows) == 0 {
+			return n, false, w.Close()
+		}
+	}
 }
 
 // exportRows gives an export its rows, at most n at a time, from the

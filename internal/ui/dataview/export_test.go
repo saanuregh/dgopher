@@ -80,7 +80,7 @@ func runExportTo(t *testing.T, a *FakeHost, tt *ui.Tester, src ExportSource, for
 	x := a.dialogs.export
 	x.format, x.all, x.folder = string(format), all, t.TempDir()
 	tt.Frame()
-	path := x.path()
+	path := x.pathOf(src.Name)
 	runExport(a, x)
 	testutil.WaitFor(t, tt, "the export", func() bool { return !x.running && (a.dialogs.export == nil || x.err != "") })
 	if x.err != "" {
@@ -146,7 +146,7 @@ func TestExportStopsAtItsLimit(t *testing.T) {
 		x := a.dialogs.export
 		x.format, x.all, x.folder, x.limited, x.limit = string(export.CSV), true, t.TempDir(), true, float64(c.limit)
 		tt.Frame()
-		path := x.path()
+		path := x.pathOf(src.Name)
 		runExport(a, x)
 		testutil.WaitFor(t, tt, "the export", func() bool { return !x.running })
 		if x.err != "" {
@@ -188,4 +188,47 @@ func TestExportExcel(t *testing.T) {
 		return
 	}
 	t.Fatal("no sheet in the workbook")
+}
+
+// Tables chosen export each to a file of its own, its INSERTs into its
+// own name; the limit stops each; one left out is not written.
+func TestExportTables(t *testing.T) {
+	a, tt, src := exportHost(t)
+	for _, q := range []string{"CREATE TABLE m (x TEXT)", "INSERT INTO m VALUES ('a'), ('b')", "CREATE TABLE skipped (y)"} {
+		if _, err := src.Conn.DB.SQL.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var srcs []ExportSource
+	for _, name := range []string{"n", "m", "skipped"} {
+		srcs = append(srcs, ExportSource{Conn: src.Conn, Name: name, SQL: "SELECT * FROM " + name})
+	}
+	OpenExportTables(a, "Export tables of main", srcs, []bool{true, true, false})
+	x := a.dialogs.export
+	dir := t.TempDir()
+	x.format, x.folder, x.pattern, x.limited, x.limit = string(export.SQL), dir, "${table}", true, 100
+	tt.Frame()
+	testutil.Snapshot(t, tt, "export-tables")
+	if !tt.HasText("2 of 3 chosen, each to a file of its own") {
+		t.Fatalf("texts %q", tt.Texts())
+	}
+	runExport(a, x)
+	testutil.WaitFor(t, tt, "the export", func() bool { return !x.running })
+	if x.err != "" {
+		t.Fatal(x.err)
+	}
+	n, _ := os.ReadFile(filepath.Join(dir, "n.sql"))
+	m, _ := os.ReadFile(filepath.Join(dir, "m.sql"))
+	if strings.Count(string(n), "INSERT INTO n (") != 100 || strings.Count(string(m), "INSERT INTO m (") != 2 {
+		t.Fatalf("n.sql:\n%.300s\nm.sql:\n%s", n, m)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "skipped.sql")); err == nil {
+		t.Fatal("a table left out was exported")
+	}
+	if toast := a.Toasts[len(a.Toasts)-1]; toast != "Exported 102 rows of 2 tables: the limit of 100 rows stopped n, with rows left" {
+		t.Fatalf("toast %q", toast)
+	}
+	if len(a.Events) < 2 || !strings.Contains(a.Events[len(a.Events)-2].Detail, "n.sql") || !strings.Contains(a.Events[len(a.Events)-1].Detail, "m.sql") {
+		t.Fatalf("audit %+v", a.Events)
+	}
 }
