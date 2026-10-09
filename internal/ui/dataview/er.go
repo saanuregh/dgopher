@@ -323,7 +323,7 @@ func (e *ERTab) extent() (w, h float32) {
 // canvas draws the tables where they stand, and their links.
 func (e *ERTab) canvas(c *ui.Context, a Host) {
 	w, h := e.extent()
-	canvas := ui.Box(c).Size(w, h)
+	canvas := ui.Box(c).Size(w, h).Label("ER diagram of " + e.schema)
 	canvas.Draw(func(p *ui.Painter, r ui.Rect) {
 		e.drawLinks(p, r, c)
 		e.drawLinking(p, r, c)

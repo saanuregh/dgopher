@@ -30,6 +30,13 @@
     and Control elsewhere, so they carry between machines (a Ctrl key
     recorded on Linux is kept as Cmd, which is one key there); the menu
     bar shows them.
+- **Screen readers and the keyboard alone:** every control has a name a
+  screen reader reads (a test fails on one without), charts and the ER
+  diagram say what they show, and the end of a run is read out with its
+  result. Everything is reached by keys: Tab between controls, the
+  navigator, tabs and grids by their keys, context menus by the menu key
+  or Shift+F10, and the ER diagram's changes through the navigator's
+  menus and the table form.
 - **Window:** closing the last tab leaves the start page. On macOS,
   closing the window keeps DGopher running with its tabs and connections,
   and its Dock icon shows the window again.

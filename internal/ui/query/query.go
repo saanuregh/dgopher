@@ -133,6 +133,9 @@ type Tab struct {
 	results   []*result
 	resultIdx int // len(results) for the messages
 	messages  []message
+	// wasRunning is whether a run went on in the last frame, by which its
+	// end is announced.
+	wasRunning bool
 
 	// named is the connection the file's header names, as namedConnection last
 	// read it from namedText.
@@ -960,6 +963,11 @@ func (q *Tab) View(c *ui.Context) {
 	a := q.a
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
+	// A screen reader hears a run end, as a sighted user sees its result.
+	if q.wasRunning && !q.Running && len(q.messages) > 0 {
+		c.Announce(q.messages[len(q.messages)-1].text)
+	}
+	q.wasRunning = q.Running
 	// Shortcuts of the editor: by default, those of DataGrip and DBeaver.
 	if q.pressed(c, keymap.Run) {
 		q.Run(RunStatement)

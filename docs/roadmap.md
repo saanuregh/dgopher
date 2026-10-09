@@ -40,8 +40,7 @@ Next or Later are not repeated.
   - [DEFERRED] An MCP server that lets coding agents use a connection, asking
     before each kind of access.
 - **Interface:**
-  - Translations, and support for screen readers and keyboard-only
-    use.
+  - Translations.
   - A guided tour for new users.
 
 ## Known limitations

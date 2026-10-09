@@ -341,7 +341,7 @@ func ChartPlot(c *ui.Context, s *Chart, src *Source) {
 			}
 			names, kind, continuous, timeAxis = []string{"rows of " + names[0]}, chartBar, false, false
 		}
-		plot := ui.Box(c).Grow(1).Margin(8, 12, 12, 8)
+		plot := ui.Box(c).Grow(1).Margin(8, 12, 12, 8).Role(ui.RoleImage).Label(chartDescription(chartKinds[s.kind], names, s.x, len(pts)))
 		px, py, over := plot.PointerPosition()
 		plot.Draw(func(p *ui.Painter, r ui.Rect) {
 			drawXY(c, p, r, kind, names, pts, continuous, timeAxis, px, py, over)
@@ -683,6 +683,16 @@ func histogramBins(pts []chartPoint) []chartPoint {
 
 // pieView draws the shares of one series, the largest seven slices and
 // the rest as "Other".
+// chartDescription says what a chart shows, for a screen reader, which
+// cannot see it: its kind, its series, along what, of how many points.
+func chartDescription(kind string, names []string, x string, points int) string {
+	s := fmt.Sprintf("%s chart of %s", kind, strings.Join(names, ", "))
+	if x != "" {
+		s += " by " + x
+	}
+	return fmt.Sprintf("%s, %d point%s", s, points, widgets.Plural(points))
+}
+
 func pieView(c *ui.Context, s *Chart, src *Source, col int, pts []chartPoint) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
@@ -711,7 +721,12 @@ func pieView(c *ui.Context, s *Chart, src *Source, col int, pts []chartPoint) {
 		slices = append(slices[:7], slice{"Other", other})
 	}
 	ui.Row(c).Grow(1).Padding(16).Gap(24).Children(func() {
-		ui.Box(c).Grow(1).AspectRatio(1).MaxWidth(420).Draw(func(p *ui.Painter, r ui.Rect) {
+		var parts []string
+		for _, sl := range slices {
+			parts = append(parts, fmt.Sprintf("%s %.0f%%", sl.label, 100*sl.v/total))
+		}
+		desc := "Pie chart of " + src.Cols[col].Name + ": " + strings.Join(parts, ", ")
+		ui.Box(c).Grow(1).AspectRatio(1).MaxWidth(420).Role(ui.RoleImage).Label(desc).Draw(func(p *ui.Painter, r ui.Rect) {
 			size := min(r.W, r.H)
 			cx, cy := r.X+r.W/2, r.Y+r.H/2
 			radius := size / 2

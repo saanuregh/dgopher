@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -393,6 +394,10 @@ func TestVimInEditor(t *testing.T) {
 	testutil.WaitFor(t, tt, "the run", func() bool { return len(q.messages) > 0 && !q.Running })
 	if !strings.Contains(q.messages[len(q.messages)-1].text, "no such table") {
 		t.Fatalf("ran as %+v", q.messages)
+	}
+	tt.Frame()
+	if said := tt.Announcements(); !slices.ContainsFunc(said, func(s string) bool { return strings.Contains(s, "no such table") }) {
+		t.Fatalf("the run's end not announced: %q", said)
 	}
 	a.Settings().Vim = false
 	tt.Frame()

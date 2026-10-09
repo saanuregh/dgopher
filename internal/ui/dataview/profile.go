@@ -345,7 +345,7 @@ func (g *Grid) profileRow(c *ui.Context, src *Source, i int, p columnProfile) {
 // drawHistogram draws bars of counts, as high as the most.
 func drawHistogram(c *ui.Context, bins []int64, col ui.Color) {
 	most := slices.Max(bins)
-	ui.Box(c).FillWidth().Height(28).Draw(func(p *ui.Painter, r ui.Rect) {
+	ui.Box(c).FillWidth().Height(28).Role(ui.RoleImage).Label(fmt.Sprintf("Distribution of the values, in %d bins", len(bins))).Draw(func(p *ui.Painter, r ui.Rect) {
 		w := r.W / float32(len(bins))
 		for i, n := range bins {
 			if n == 0 || most == 0 {
