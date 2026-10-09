@@ -71,6 +71,7 @@ your own.
 | `internal/db` | connections, sessions, cursors, the dialect of each engine, generated edits, and the Redis client |
 | `internal/sqltext` | the SQL lexer: highlighting, splitting statements, classification for the safety policy, completion context, the formatter ([How SQL is read](sql.md)) |
 | `internal/export` | CSV, TSV, JSON, JSON Lines, SQL, Markdown and Excel writers, and Parquet and DuckDB files through DuckDB. Text formats stay in Go, the writers of clipboard copies too, so that a copy and a file of the same rows agree. |
+| `internal/datamodel` | data models: a schema's tables kept in a project's file, written as DDL for any engine, compared, and the migration between two |
 | `internal/schemadoc` | the script creating a schema's objects, in an order that runs, and its documentation as HTML or Markdown |
 | `internal/fileimport` | reads files to import: CSV, JSON and Parquet through DuckDB, Excel and XML loaded into it |
 | `internal/decode` | turns values stored compressed or serialized into text: gzip, zlib, zstd, LZ4, Snappy, Brotli, MessagePack, pickle, PHP, Java, Protobuf |
@@ -92,6 +93,7 @@ your own.
 | `internal/ui/dataview` | the result grid and its panels, table tabs, export, charts and the ER diagram |
 | `internal/ui/query` | SQL editor tabs: running statements, scripts, plans and parameters |
 | `internal/ui/dashboard` | dashboard tabs: panels of reads as charts, rows or values, their parameters and refresh, kept in a project's file |
+| `internal/ui/modelview` | data model tabs: a model's tables, its DDL, and its comparison with a database or another model |
 | `internal/ui/redis` | Redis tabs: the key tree, values and their editing, and the command console |
 | `internal/app` | the window: navigator, tabs, menus, palette, dialogs and the quit flow |
 | `internal/testutil` | shared test helpers: screenshots, waiting, the integration servers |

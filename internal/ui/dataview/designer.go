@@ -23,19 +23,28 @@ const (
 )
 
 // designer is the table form: it changes a design of a table, a new
-// one's or one read, and applies it once the user has reviewed its SQL.
+// one's or one read, and applies it once the user has reviewed its SQL;
+// or, for a data model, saves it to the model.
 type designer struct {
 	a        Host
-	conn     *connection.Conn
+	conn     *connection.Conn // nil for a model's table
 	database string
+	engine   db.Engine
+	// tables are the tables a foreign key may point at, and columns a
+	// table's columns.
+	tables  func() []string
+	columns func(table string) []string
+	// save keeps the design in a model, nil when it is applied to a
+	// database.
+	save func(db.TableDesign) error
 	// was is the design read, nil for a new table; first is what the
 	// form started from.
 	was   *db.TableDesign
 	first db.TableDesign
 	now   db.TableDesign
 
-	section                     int
-	columns, indexes, fks, chks rowKeys
+	section                  int
+	cols, indexes, fks, chks rowKeys
 	// actions are the labels the action selects of new foreign keys show,
 	// by row key: a select writes its choice where it was given.
 	actions  map[int]*[2]string
@@ -70,10 +79,56 @@ func (k *rowKeys) remove(i int) { k.keys = slices.Delete(k.keys, i, i+1) }
 func (k *rowKeys) key(prefix string, i int) string { return fmt.Sprint(prefix, k.keys[i]) }
 
 func newDesigner(a Host, cn *connection.Conn, database string, was *db.TableDesign, start db.TableDesign, applied func(db.TableDesign)) *designer {
-	return &designer{a: a, conn: cn, database: database, was: was, first: cloneDesign(start), now: cloneDesign(start), applied: applied,
-		actions: map[int]*[2]string{},
-		columns: newRowKeys(len(start.Columns)), indexes: newRowKeys(len(start.Indexes)),
-		fks: newRowKeys(len(start.ForeignKeys)), chks: newRowKeys(len(start.Checks))}
+	d := &designer{a: a, conn: cn, database: database, engine: cn.Config.Engine, was: was, first: cloneDesign(start), applied: applied}
+	d.tables = func() []string {
+		var out []string
+		for _, o := range cn.Objects[connection.SchemaKey{Database: database, Schema: d.now.Schema}] {
+			if o.Kind == db.KindTable {
+				out = append(out, o.Name)
+			}
+		}
+		return out
+	}
+	d.columns = func(table string) []string {
+		var out []string
+		for _, col := range cn.Columns[connection.ObjectKey{Database: database, Schema: d.now.Schema, Name: table}] {
+			out = append(out, col.Name)
+		}
+		return out
+	}
+	d.discard()
+	return d
+}
+
+// TableForm is the table form for a table of a data model.
+type TableForm struct{ d *designer }
+
+// NewModelTableForm opens the table form on a table of a data model of
+// an engine: tables and columns are what its keys may point at, and save
+// keeps the design in the model. An index the engine wrote, which the
+// model keeps as written, is kept or dropped, not changed.
+func NewModelTableForm(a Host, e db.Engine, t db.TableDesign, tables func() []string, columns func(table string) []string, save func(db.TableDesign) error) *TableForm {
+	t = cloneDesign(t)
+	for i := range t.Indexes {
+		t.Indexes[i].Read = t.Indexes[i].Definition != ""
+	}
+	d := &designer{a: a, engine: e, tables: tables, columns: columns, save: save, first: t}
+	d.discard()
+	return &TableForm{d}
+}
+
+// Changed reports whether the form holds what the model does not.
+func (f *TableForm) Changed() bool { return f.d.changed() }
+
+func (f *TableForm) View(c *ui.Context) { f.d.View(c) }
+
+// discard puts the form back as it started.
+func (d *designer) discard() {
+	start := d.first
+	d.now = cloneDesign(start)
+	d.actions = map[int]*[2]string{}
+	d.cols, d.indexes = newRowKeys(len(start.Columns)), newRowKeys(len(start.Indexes))
+	d.fks, d.chks = newRowKeys(len(start.ForeignKeys)), newRowKeys(len(start.Checks))
 }
 
 // cloneDesign copies a design, so that changing one leaves the other.
@@ -97,7 +152,7 @@ func (d *designer) changed() bool { return !reflect.DeepEqual(d.first, d.now) }
 
 // change is the statements making the design.
 func (d *designer) change() (db.SchemaChange, error) {
-	dialect := d.conn.DB.Dialect
+	dialect := db.DialectOf(d.engine)
 	if d.was == nil {
 		return db.NewTableChange(dialect, d.now)
 	}
@@ -110,7 +165,7 @@ func (d *designer) fixed() string {
 	if d.was == nil {
 		return ""
 	}
-	switch d.conn.Config.Engine {
+	switch d.engine {
 	case db.DuckDB:
 		return "DuckDB cannot change the keys or checks of a table it made."
 	case db.ClickHouse:
@@ -122,6 +177,14 @@ func (d *designer) fixed() string {
 func (d *designer) apply() {
 	ch, err := d.change()
 	if err != nil || len(ch.Steps) == 0 {
+		return
+	}
+	if d.save != nil {
+		if err := d.save(d.now); err != nil {
+			d.a.ShowError("Could not save the model", err.Error())
+			return
+		}
+		d.first = cloneDesign(d.now)
 		return
 	}
 	verb, title := "change", "Change table "+d.now.Name+"?"
@@ -144,7 +207,7 @@ func (d *designer) apply() {
 func (d *designer) View(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	e := d.conn.Config.Engine
+	e := d.engine
 	ui.Column(c).Grow(1).Children(func() {
 		ui.Row(c).Padding(10, 16).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			name := ui.TextInput(c, &d.now.Name).Placeholder("table name").Label("Table name").Font(widgets.MonoFont).Width(240)
@@ -184,7 +247,7 @@ func (d *designer) View(c *ui.Context) {
 			case err != nil && d.changed():
 				ui.Icon(c, widgets.IconAlert).TextColor(th.Danger).FontSize(13)
 				ui.Text(c, capitalize(err.Error())+".").TextColor(th.Danger).FontSize(12.5).Shrink(1)
-			case len(ch.Steps) > 0:
+			case len(ch.Steps) > 0 && d.save == nil:
 				ui.Text(c, fmt.Sprintf("%d statement%s to run", len(ch.Statements()), widgets.Plural(len(ch.Statements())))).
 					FontSize(12.5).TextColor(pal.Muted)
 			}
@@ -195,8 +258,14 @@ func (d *designer) View(c *ui.Context) {
 				}
 				return
 			}
-			if d.was != nil && ui.Button(c, "Discard Changes").Disabled(!d.changed()).Clicked() {
-				*d = *newDesigner(d.a, d.conn, d.database, d.was, d.first, d.applied)
+			if (d.was != nil || d.save != nil) && ui.Button(c, "Discard Changes").Disabled(!d.changed()).Clicked() {
+				d.discard()
+			}
+			if d.save != nil {
+				if ui.PrimaryButton(c, "Save to Model").Disabled(err != nil || !d.changed()).Clicked() {
+					d.apply()
+				}
+				return
 			}
 			if ui.PrimaryButton(c, "Review SQL…").Disabled(err != nil || len(ch.Steps) == 0).Tooltip("See the statements, then apply them").Clicked() {
 				d.apply()
@@ -214,7 +283,7 @@ func capitalize(s string) string {
 
 func (d *designer) columnsView(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
-	e := d.conn.Config.Engine
+	e := d.engine
 	keyFixed := d.fixed() != ""
 	autoAllowed := e == db.Postgres || e == db.MySQL || e == db.SQLite
 	header := func(text string, width float32) {
@@ -245,7 +314,7 @@ func (d *designer) columnsView(c *ui.Context) {
 	remove := -1
 	for i := range d.now.Columns {
 		col := &d.now.Columns[i]
-		ui.Row(c.Key(d.columns.key("column-", i))).Gap(8).PaddingX(4).AlignItems(ui.Center).Children(func() {
+		ui.Row(c.Key(d.cols.key("column-", i))).Gap(8).PaddingX(4).AlignItems(ui.Center).Children(func() {
 			name := ui.TextInput(c, &col.Name).Font(widgets.MonoFont).Width(170).Label("Column name")
 			if col.Was != "" && col.Was != col.Name {
 				name.Tooltip("Renamed from " + col.Was)
@@ -278,7 +347,7 @@ func (d *designer) columnsView(c *ui.Context) {
 	}
 	if remove >= 0 {
 		d.now.Columns = slices.Delete(d.now.Columns, remove, remove+1)
-		d.columns.remove(remove)
+		d.cols.remove(remove)
 	}
 	ui.Row(c).Gap(8).PaddingY(4).Children(func() {
 		if widgets.ToolButton(c, widgets.IconPlus, "Add Column", "Add a column at the end").Clicked() {
@@ -287,7 +356,7 @@ func (d *designer) columnsView(c *ui.Context) {
 				typ = types[0]
 			}
 			d.now.Columns = append(d.now.Columns, db.ColumnDesign{Name: fmt.Sprint("column", len(d.now.Columns)+1), Type: typ, Nullable: true})
-			d.columns.add()
+			d.cols.add()
 		}
 	})
 	if d.was != nil {
@@ -299,7 +368,7 @@ func (d *designer) columnsView(c *ui.Context) {
 		}
 		droppedRow(c, "Columns dropped", len(dropped), func(i int) string { return dropped[i].Name }, func(i int) {
 			d.now.Columns = append(d.now.Columns, dropped[i])
-			d.columns.add()
+			d.cols.add()
 		})
 	}
 }
@@ -331,7 +400,7 @@ func (d *designer) columnNames() []string {
 
 func (d *designer) indexesView(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
-	if d.conn.Config.Engine == db.ClickHouse {
+	if d.engine == db.ClickHouse {
 		return
 	}
 	remove := -1
@@ -424,12 +493,7 @@ func (d *designer) keysView(c *ui.Context) {
 	if fixed != "" {
 		ui.Text(c, fixed).FontSize(12).TextColor(pal.Muted)
 	}
-	var tables []string
-	for _, o := range d.conn.Objects[connection.SchemaKey{Database: d.database, Schema: d.now.Schema}] {
-		if o.Kind == db.KindTable {
-			tables = append(tables, o.Name)
-		}
-	}
+	tables := d.tables()
 	remove := -1
 	for i := range d.now.ForeignKeys {
 		fk := &d.now.ForeignKeys[i]
@@ -442,11 +506,7 @@ func (d *designer) keysView(c *ui.Context) {
 				ui.TokenField(c, &fk.Columns, d.columnNames()).Width(180).Label("Columns")
 				ui.Text(c, "→").TextColor(pal.Muted)
 				ui.Autocomplete(c, &fk.RefTable, tables).Placeholder("table").Font(widgets.MonoFont).Width(160).Label("Table it points at")
-				var refCols []string
-				for _, col := range d.conn.Columns[connection.ObjectKey{Database: d.database, Schema: d.now.Schema, Name: fk.RefTable}] {
-					refCols = append(refCols, col.Name)
-				}
-				ui.TokenField(c, &fk.RefColumns, refCols).Width(160).Label("Columns it points at")
+				ui.TokenField(c, &fk.RefColumns, d.columns(fk.RefTable)).Width(160).Label("Columns it points at")
 				labels := d.actions[d.fks.keys[i]]
 				if labels == nil {
 					labels = &[2]string{actionLabel(fk.OnDelete), actionLabel(fk.OnUpdate)}
@@ -551,7 +611,7 @@ type TableDesignTab struct {
 func OpenNewTable(a Host, cn *connection.Conn, database, schema string) {
 	a.Connect(cn, func() {
 		t := &TableDesignTab{a: a, Conn: cn, Database: database, Schema: schema}
-		start := db.TableDesign{Schema: schema, Columns: []db.ColumnDesign{firstColumn(cn.Config.Engine)}}
+		start := db.TableDesign{Schema: schema, Columns: []db.ColumnDesign{FirstColumn(cn.Config.Engine)}}
 		t.design = newDesigner(a, cn, database, nil, start, func(made db.TableDesign) {
 			obj := db.Object{Schema: made.Schema, Name: made.Name, Kind: db.KindTable, Rows: -1, Bytes: -1, Comment: made.Comment}
 			a.ReplaceTab(t, NewTableTab(a, cn, database, obj, PageStructure))
@@ -560,9 +620,9 @@ func OpenNewTable(a Host, cn *connection.Conn, database, schema string) {
 	})
 }
 
-// firstColumn is the key column a new table starts with: one numbering
+// FirstColumn is the key column a new table starts with: one numbering
 // its rows where the engine does.
-func firstColumn(e db.Engine) db.ColumnDesign {
+func FirstColumn(e db.Engine) db.ColumnDesign {
 	c := db.ColumnDesign{Name: "id", PrimaryKey: true}
 	switch e {
 	case db.Postgres, db.MySQL:

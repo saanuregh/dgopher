@@ -76,3 +76,12 @@ func OneLine(s string, n int) string {
 	}
 	return s
 }
+
+// TextStart is a text's first n bytes, then an ellipsis: a text area lays
+// a larger text out slowly.
+func TextStart(text string, n int) string {
+	if len(text) <= n {
+		return text
+	}
+	return strings.ToValidUTF8(text[:n], "") + "\n…"
+}

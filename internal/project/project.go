@@ -246,6 +246,46 @@ func encodeProject(pc Config) ([]byte, error) {
 	return append(data, '\n'), nil
 }
 
+// ErrChanged is a save refused: the file changed since it was read, as by
+// a pull of a teammate's version, which the save would undo.
+var ErrChanged = errors.New("the file changed on disk since it was read: reload it to see what changed")
+
+// SaveShared writes a file a project shares with its team, as a
+// dashboard, whole or not at all, when it still holds was, as read; a new
+// one, when there is none.
+func SaveShared(path string, was, data []byte) error {
+	switch disk, err := os.ReadFile(path); {
+	case err == nil && (was == nil || !bytes.Equal(disk, was)):
+		return ErrChanged
+	case err != nil && !errors.Is(err, os.ErrNotExist):
+		return err
+	case err != nil && was != nil:
+		return ErrChanged // deleted since
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".shared-*.json")
+	if err != nil {
+		return err
+	}
+	if err = tmp.Chmod(0o644); err == nil {
+		if _, err = tmp.Write(data); err == nil {
+			err = tmp.Sync()
+		}
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), path)
+	}
+	if err != nil {
+		os.Remove(tmp.Name())
+	}
+	return err
+}
+
 // writeProjectFile replaces the file at once.
 func writeProjectFile(path string, data []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".dgopher-*.json")

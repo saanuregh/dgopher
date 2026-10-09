@@ -4,7 +4,6 @@
 package dashboard
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -106,10 +105,6 @@ func LoadFile(path string) (*Dashboard, []byte, error) {
 	return &d, data, nil
 }
 
-// ErrChanged is a save refused: the file changed since it was read, as by
-// a pull of a teammate's version, which the save would undo.
-var ErrChanged = errors.New("the dashboard's file changed on disk since it was read: reload it to see what changed")
-
 // check refuses a dashboard its file holds wrong, as edited by hand.
 func (d *Dashboard) check() error {
 	if strings.TrimSpace(d.Name) == "" {
@@ -141,35 +136,7 @@ func (d *Dashboard) Save(path string, was []byte) ([]byte, error) {
 		return nil, err
 	}
 	data = append(data, '\n')
-	switch disk, err := os.ReadFile(path); {
-	case err == nil && (was == nil || !bytes.Equal(disk, was)):
-		return nil, ErrChanged
-	case err != nil && !errors.Is(err, os.ErrNotExist):
-		return nil, err
-	case err != nil && was != nil:
-		return nil, ErrChanged // deleted since
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".dashboard-*.json")
-	if err != nil {
-		return nil, err
-	}
-	// Shared with the team, as the project's file is.
-	if err = tmp.Chmod(0o644); err == nil {
-		if _, err = tmp.Write(data); err == nil {
-			err = tmp.Sync()
-		}
-	}
-	if cerr := tmp.Close(); err == nil {
-		err = cerr
-	}
-	if err == nil {
-		err = os.Rename(tmp.Name(), path)
-	}
-	if err != nil {
-		os.Remove(tmp.Name())
+	if err := project.SaveShared(path, was, data); err != nil {
 		return nil, err
 	}
 	return data, nil

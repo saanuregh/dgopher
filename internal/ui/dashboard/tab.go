@@ -386,7 +386,7 @@ func (t *Tab) View(c *ui.Context) {
 		if t.err != "" {
 			ui.Row(c).Padding(6, 12).Gap(8).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, t.err).TextColor(th.Danger).Selectable().Grow(1).Shrink(1)
-				if strings.Contains(t.err, ErrChanged.Error()) && ui.Button(c, "Reload").Clicked() {
+				if strings.Contains(t.err, project.ErrChanged.Error()) && ui.Button(c, "Reload").Clicked() {
 					t.Reload()
 				}
 			})

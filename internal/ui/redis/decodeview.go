@@ -67,7 +67,7 @@ func (d *decodeView) decode(value string, run func(work func() func())) {
 		if err != nil {
 			text = decode.Text([]byte(value))
 		}
-		display := shownStart(text)
+		display := widgets.TextStart(text, stringStart)
 		return func() {
 			if at != d.runs {
 				return
@@ -78,15 +78,6 @@ func (d *decodeView) decode(value string, run func(work func() func())) {
 			}
 		}
 	})
-}
-
-// shownStart is a text's start that a text area shows, a larger one being
-// slow to lay out: its first stringStart bytes, then an ellipsis.
-func shownStart(text string) string {
-	if len(text) <= stringStart {
-		return text
-	}
-	return strings.ToValidUTF8(text[:stringStart], "") + "\n…"
 }
 
 // view draws the choice of how the value shows and, unless it is as

@@ -449,6 +449,32 @@
   and the diagram reads the schema again with its tables where they
   stood. Save it as a PNG, drawn as the app draws it at twice its size,
   or as SVG.
+- **Data models:** a schema's Save as Data Model… keeps its tables, with
+  their columns, keys, indexes and checks, in a file of the project's
+  `models/` folder, for its team; the project's menu and the palette
+  open it. A model's tab shows each table and its DDL.
+  - Design a model in the table form, as a database's table is designed,
+    without a database: New Table, Edit Table and Drop Table save to the
+    model's file. New Data Model…, in the project's Data Models, starts
+    one of an engine from nothing.
+  - Update reads the tables again from the schema the model was built
+    from.
+  - Generate DDL writes the statements making the model's tables on any
+    SQL engine, in a schema chosen: each table after those its keys
+    point at, a key closing a cycle added after both. On another engine
+    the columns take its types, their sizes kept (`varchar(40)` stays
+    `VARCHAR(40)`), and what the engine cannot have, as another engine's
+    checks, is left out and said at the top of the script. The script
+    opens in an editor of the project's, or copies.
+  - Compare sets the model beside a schema of a connection of its
+    engine, or another of its models: the tables missing, differing, or
+    not in the model, and of each the columns, key, indexes, foreign keys
+    and checks that differ. The migration makes the schema like the
+    model: tables made, then changed as the table form changes them
+    (SQLite's made again, their rows kept), and what the model lacks
+    dropped only when asked, since a column renamed reads as one dropped
+    and one added. Apply runs it after a review, through the safety
+    policy; Open as Script puts it in an editor.
 
 ## Import, snippets and history
 

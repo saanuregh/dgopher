@@ -38,35 +38,48 @@ func (a *App) openDashboard(p *project.Project, path string) {
 	a.AddTab(d)
 }
 
-// dashboardList is a project's dashboards as last read, with when their
-// folder last changed.
-type dashboardList struct {
+// namedFiles are the files of a project's folder as last read, by the
+// names they hold, with when the folder last changed.
+type namedFiles struct {
 	changed      time.Time
 	names, paths []string
 }
 
-// dashboardNames are a project's dashboards, by their names as their
-// files hold them, with their paths; read again once their folder
-// changes, as a file comes or goes.
-func (a *App) dashboardNames(p *project.Project) (names, paths []string) {
-	info, err := os.Stat(filepath.Join(p.Dir, dashboard.Folder))
+// fileNames are the files of a folder, as dashboards, by the names they
+// hold, with their paths; read again once the folder changes, as a file
+// comes or goes. A file that does not read is left out.
+func (a *App) fileNames(dir string, list func() ([]string, error), name func(path string) (string, error)) (names, paths []string) {
+	info, err := os.Stat(dir)
 	if err != nil {
 		return nil, nil
 	}
-	if l, ok := a.dashboardLists[p.Dir]; ok && l.changed.Equal(info.ModTime()) {
+	if l, ok := a.fileLists[dir]; ok && l.changed.Equal(info.ModTime()) {
 		return l.names, l.paths
 	}
-	files, _ := dashboard.List(p)
+	files, _ := list()
 	for _, f := range files {
-		if d, err := dashboard.Load(f); err == nil {
-			names, paths = append(names, d.Name), append(paths, f)
+		if n, err := name(f); err == nil {
+			names, paths = append(names, n), append(paths, f)
 		}
 	}
-	if a.dashboardLists == nil {
-		a.dashboardLists = map[string]dashboardList{}
+	if a.fileLists == nil {
+		a.fileLists = map[string]namedFiles{}
 	}
-	a.dashboardLists[p.Dir] = dashboardList{changed: info.ModTime(), names: names, paths: paths}
+	a.fileLists[dir] = namedFiles{changed: info.ModTime(), names: names, paths: paths}
 	return names, paths
+}
+
+// dashboardNames are a project's dashboards, by their names, with their
+// paths.
+func (a *App) dashboardNames(p *project.Project) (names, paths []string) {
+	return a.fileNames(filepath.Join(p.Dir, dashboard.Folder), func() ([]string, error) { return dashboard.List(p) },
+		func(path string) (string, error) {
+			d, err := dashboard.Load(path)
+			if err != nil {
+				return "", err
+			}
+			return d.Name, nil
+		})
 }
 
 // newDashboardChoice is the choice of a dashboard not made yet.

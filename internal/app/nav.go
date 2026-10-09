@@ -733,6 +733,9 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		if n.kind != nodeDatabase && m.Item("Generate Documentation…").Chosen() {
 			a.openGenerate(cn, n.database, n.schema, generateDocs)
 		}
+		if n.kind != nodeDatabase && m.Item("Save as Data Model…").Chosen() {
+			a.openSaveModel(cn, n.database, n.schema)
+		}
 		if n.kind == nodeDatabase && m.Item("Run SQL File…").Chosen() {
 			a.openSQLFileRun(cn, n.database)
 		}
@@ -934,6 +937,7 @@ func (a *App) projectMenu(m *ui.Menu, n navNode) {
 			}
 		}
 		a.dashboardsMenu(m, p)
+		a.modelsMenu(m, p)
 		if conns := a.projectConns(p); len(conns) > 0 && m.Item("New Query").Chosen() {
 			cn := a.activeConn()
 			if cn == nil || cn.Project != p || !cn.Config.Engine.IsSQL() {

@@ -9,6 +9,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/params"
+	"dgopher/internal/project"
 	"dgopher/internal/testutil"
 	"dgopher/internal/ui/dataview"
 
@@ -107,7 +108,7 @@ func TestDashboardPanels(t *testing.T) {
 	os.WriteFile(path, []byte(`{"name": "Sales", "panels": []}`+"\n"), 0o644)
 	tab.d.Panels[0].Width = 3
 	tab.save()
-	if !strings.Contains(tab.err, ErrChanged.Error()) {
+	if !strings.Contains(tab.err, project.ErrChanged.Error()) {
 		t.Fatalf("a save over a changed file: %q", tab.err)
 	}
 	tab.Reload()

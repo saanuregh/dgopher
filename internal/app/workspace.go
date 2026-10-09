@@ -14,6 +14,7 @@ import (
 	"dgopher/internal/project"
 	"dgopher/internal/store"
 	"dgopher/internal/ui/dashboard"
+	"dgopher/internal/ui/modelview"
 	"dgopher/internal/ui/query"
 
 	"github.com/egoist/mygo"
@@ -40,6 +41,8 @@ type savedWorkspace struct {
 	// Dashboards are the files of the dashboards open, relative to the
 	// project.
 	Dashboards []string `json:"dashboards,omitempty"`
+	// Models are the files of the data models open, as Dashboards.
+	Models []string `json:"models,omitempty"`
 }
 
 const workspaceFile = "workspace.json"
@@ -62,6 +65,7 @@ func (a *App) workspaceOf(p *project.Project) savedWorkspace {
 		w.Editors = append(w.Editors, e)
 	}
 	w.Dashboards = a.dashboardPaths(p)
+	w.Models = a.modelPaths(p)
 	return w
 }
 
@@ -136,6 +140,11 @@ func (a *App) restoreWorkspace(p *project.Project) {
 		// A dashboard deleted, or broken, since is left closed.
 		if d, err := dashboard.Open(a, p, p.ResolvePath(path)); err == nil {
 			a.tabs = append(a.tabs, d)
+		}
+	}
+	for _, path := range w.Models {
+		if m, err := modelview.Open(a, p, p.ResolvePath(path)); err == nil {
+			a.tabs = append(a.tabs, m)
 		}
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/ui/dashboard"
 	"dgopher/internal/ui/dataview"
+	"dgopher/internal/ui/modelview"
 	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/redis"
 	"dgopher/internal/ui/widgets"
@@ -108,6 +109,12 @@ func (a *App) view(c *ui.Context) {
 	}
 	if a.addingPanel != nil {
 		a.addToDashboardView(c)
+	}
+	if a.savingModel != nil {
+		a.saveModelView(c)
+	}
+	if a.newModel != nil {
+		a.newModelView(c)
 	}
 	query.DialogsView(a, c)
 	dataview.DialogsView(a, c)
@@ -289,6 +296,8 @@ func (a *App) tabBar(c *ui.Context) {
 							ic = widgets.IconUsers
 						case *dashboard.Tab:
 							ic = widgets.IconLayers
+						case *modelview.Tab:
+							ic = widgets.IconSchema
 						}
 						ui.Icon(c, ic).FontSize(12).TextColor(pal.Muted)
 						txt := ui.Text(c, tb.Title()).SingleLine().Shrink(1).FontSize(12.5)

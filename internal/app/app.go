@@ -79,9 +79,11 @@ type App struct {
 	rowCompare     *rowCompareDialog
 	filling        *fillDialog
 	addingPanel    *addToDashboard
-	// dashboardLists are the projects' dashboards, by folder: a menu
-	// asks for them each frame it shows.
-	dashboardLists map[string]dashboardList
+	savingModel    *saveModelForm
+	newModel       *newModelForm
+	// fileLists are the projects' dashboards and models, by folder: a
+	// menu asks for them each frame it shows.
+	fileLists map[string]namedFiles
 	// side is the tab shown beside the active one, nil for none; it shows
 	// left of it when sideLeft is set, and the left pane is splitW wide.
 	side        widgets.Tab

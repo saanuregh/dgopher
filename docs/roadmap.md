@@ -31,8 +31,6 @@ Next or Later are not repeated.
   - More than one window.
 - **Data grid:**
 - **Schema:**
-  - Data models: build a model from a database, generate DDL from a
-    model, and compare two models.
 - **Import, export and backup:**
 - **Compare and migrate:**
 - **Test data and automation:**
@@ -57,7 +55,9 @@ Next or Later are not repeated.
   client. On macOS, `KRB5CCNAME` must name a `FILE:` cache: the
   system's default cache is not a file.
 - **DuckDB:** a read-only and a read-write connection to the same file
-  cannot be open at once: the driver keeps one database per file.
+  cannot be open at once: the driver keeps one database per file. A
+  column of a table with an index or a key cannot be dropped or retyped,
+  from the table form or a model's migration: DuckDB refuses it.
 - **ClickHouse:** rows are not editable from the grid, because ClickHouse
   changes rows with asynchronous mutations. Use SQL.
 - **Large results:** results keep at most 200,000 rows (`db.MaxRows`).

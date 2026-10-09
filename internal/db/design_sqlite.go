@@ -171,7 +171,8 @@ func sqliteAlterChange(d Dialect, was, now TableDesign) (SchemaChange, error) {
 	}
 	rebuild := len(diff.changedColumns) > 0 || diff.primaryKeyChanged ||
 		len(diff.droppedKeys)+len(diff.addedKeys)+len(diff.droppedChecks)+len(diff.addedChecks) > 0
-	for _, ix := range diff.droppedIndexes {
+	// A unique constraint is the table's own: SQLite writes it there.
+	for _, ix := range slices.Concat(diff.droppedIndexes, diff.addedIndexes) {
 		rebuild = rebuild || ix.Constraint
 	}
 	for _, c := range diff.addedColumns {
@@ -220,7 +221,9 @@ func sqliteAlterChange(d Dialect, was, now TableDesign) (SchemaChange, error) {
 		}
 	}
 	for _, ix := range diff.addedIndexes {
-		steps = append(steps, Step{SQL: createIndexSQL(d, was, ix)})
+		if !ix.Constraint {
+			steps = append(steps, Step{SQL: createIndexSQL(d, was, ix)})
+		}
 	}
 	if now.Name != was.Name {
 		steps = append(steps, Step{SQL: "ALTER TABLE " + table + " RENAME TO " + d.Quote(now.Name)})
@@ -235,10 +238,10 @@ func sqliteRebuild(d Dialect, was, now TableDesign) (*Rebuild, error) {
 	next := now
 	next.Name = temp
 	next.Schema = was.Schema
-	// The unique constraints kept are written in the new table.
+	// The unique constraints are written in the new table.
 	var unique []string
 	for _, ix := range now.Indexes {
-		if ix.Read && ix.Constraint {
+		if ix.Constraint {
 			unique = append(unique, "UNIQUE ("+quoteNames(d, ix.Columns)+")")
 		}
 	}

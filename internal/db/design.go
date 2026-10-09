@@ -7,73 +7,83 @@ import (
 	"strings"
 )
 
-// TableDesign is a table as the table form shows and changes it.
+// TableDesign is a table as the table form shows and changes it, and as
+// a data model's file keeps it: what is read only to change a table, as
+// a column's name before, is left out of the file.
 type TableDesign struct {
-	Schema, Name string
-	Comment      string
-	Columns      []ColumnDesign
+	Schema  string         `json:"schema,omitempty"`
+	Name    string         `json:"name"`
+	Comment string         `json:"comment,omitempty"`
+	Columns []ColumnDesign `json:"columns"`
 	// PrimaryKeyName names the primary key constraint, where the engine
 	// names it; the columns in it are marked PrimaryKey.
-	PrimaryKeyName string
-	Indexes        []IndexDesign
-	ForeignKeys    []ForeignKeyDesign
-	Checks         []CheckDesign
+	PrimaryKeyName string             `json:"primaryKeyName,omitempty"`
+	Indexes        []IndexDesign      `json:"indexes,omitempty"`
+	ForeignKeys    []ForeignKeyDesign `json:"foreignKeys,omitempty"`
+	Checks         []CheckDesign      `json:"checks,omitempty"`
 
 	// sqliteUnkept names what of a SQLite table the form cannot write
 	// again, "" for nothing: making the table again would lose it.
 	sqliteUnkept string
 }
 
+// Unkept names what of a table its design cannot write again, as a
+// SQLite column's collation, "" for nothing.
+func (t TableDesign) Unkept() string { return t.sqliteUnkept }
+
 // ColumnDesign is a column of a table design. Was is the name it had
 // when read, "" for a new column: a column renamed keeps it.
 type ColumnDesign struct {
-	Was        string
-	Name, Type string
-	Nullable   bool
+	Was      string `json:"-"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Nullable bool   `json:"nullable,omitempty"`
 	// Default is a SQL expression, "" for none.
-	Default       string
-	PrimaryKey    bool
-	AutoIncrement bool
-	Comment       string
+	Default       string `json:"default,omitempty"`
+	PrimaryKey    bool   `json:"primaryKey,omitempty"`
+	AutoIncrement bool   `json:"autoIncrement,omitempty"`
+	Comment       string `json:"comment,omitempty"`
 	// Extra is what MySQL keeps of the column besides, as its collation
 	// and ON UPDATE, written again whenever the column is.
-	Extra string
+	Extra string `json:"extra,omitempty"`
 	// Generated columns are computed: their type and nullability change
 	// in SQL.
-	Generated bool
+	Generated bool `json:"generated,omitempty"`
 }
 
 // IndexDesign is an index, or a unique constraint, of a table design.
 // One Read from the database is kept as it is, or dropped.
 type IndexDesign struct {
-	Read    bool
-	Name    string
-	Columns []string
-	Unique  bool
+	Read    bool     `json:"-"`
+	Name    string   `json:"name"`
+	Columns []string `json:"columns"`
+	Unique  bool     `json:"unique,omitempty"`
 	// Constraint is set for a unique constraint, dropped as one.
-	Constraint bool
+	Constraint bool `json:"constraint,omitempty"`
 	// Definition is how the engine writes an index read.
-	Definition string
+	Definition string `json:"definition,omitempty"`
 }
 
 // ForeignKeyDesign is a foreign key of a table design: kept or dropped
 // when Read, else new.
 type ForeignKeyDesign struct {
-	Read                bool
-	Name                string
-	Columns             []string
-	RefSchema, RefTable string
-	RefColumns          []string
-	OnDelete, OnUpdate  string // a referential action, "" for the default
-	Definition          string // how the engine writes a key read
+	Read       bool     `json:"-"`
+	Name       string   `json:"name,omitempty"`
+	Columns    []string `json:"columns"`
+	RefSchema  string   `json:"refSchema,omitempty"`
+	RefTable   string   `json:"refTable"`
+	RefColumns []string `json:"refColumns"`
+	OnDelete   string   `json:"onDelete,omitempty"` // a referential action, "" for the default
+	OnUpdate   string   `json:"onUpdate,omitempty"`
+	Definition string   `json:"-"` // how the engine writes a key read
 }
 
 // CheckDesign is a check constraint of a table design: kept or dropped
 // when Read, else new. SQLite's and DuckDB's may have no name.
 type CheckDesign struct {
-	Read       bool
-	Name       string
-	Expression string
+	Read       bool   `json:"-"`
+	Name       string `json:"name,omitempty"`
+	Expression string `json:"expression"`
 }
 
 // CommonTypes are types of an engine's columns the table form offers;

@@ -129,6 +129,10 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 		for i, name := range names {
 			cmds = append(cmds, paletteItem{title: name, detail: p.Name, group: "Dashboard", icon: widgets.IconLayers, run: func() { a.openDashboard(p, paths[i]) }})
 		}
+		names, paths = a.modelNames(p)
+		for i, name := range names {
+			cmds = append(cmds, paletteItem{title: name, detail: p.Name, group: "Data Model", icon: widgets.IconSchema, run: func() { a.openModel(p, paths[i]) }})
+		}
 	}
 	if tablesFirst {
 		return append(append(append(tables, conns...), snippets...), cmds...)

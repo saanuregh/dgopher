@@ -131,3 +131,22 @@ func TestNewTable(t *testing.T) {
 		t.Fatalf("the unique index: %v", err)
 	}
 }
+
+// The table form on a model's table saves to the model, not a database;
+// an index the engine wrote is kept as written, not changed.
+func TestModelTableForm(t *testing.T) {
+	h := NewFakeHost(t)
+	var saved []db.TableDesign
+	start := db.TableDesign{Schema: "public", Name: "orders", Columns: []db.ColumnDesign{{Name: "id", Type: "bigint", PrimaryKey: true}},
+		Indexes: []db.IndexDesign{{Name: "orders_lower", Columns: []string{"lower(code)"}, Definition: "CREATE INDEX orders_lower ON public.orders USING btree (lower(code))"}}}
+	f := NewModelTableForm(h, db.Postgres, start, func() []string { return []string{"orders"} }, func(string) []string { return []string{"id"} },
+		func(d db.TableDesign) error { saved = append(saved, d); return nil })
+	if !f.d.now.Indexes[0].Read || f.Changed() {
+		t.Fatalf("the form starts %+v", f.d.now)
+	}
+	f.d.now.Columns = append(f.d.now.Columns, db.ColumnDesign{Name: "code", Type: "text", Nullable: true})
+	f.d.apply()
+	if len(saved) != 1 || len(saved[0].Columns) != 2 || saved[0].Indexes[0].Definition == "" || f.Changed() {
+		t.Fatalf("saved %+v", saved)
+	}
+}

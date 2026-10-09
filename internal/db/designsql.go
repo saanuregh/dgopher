@@ -14,9 +14,23 @@ func NewTableChange(d Dialect, t TableDesign) (SchemaChange, error) {
 		return SchemaChange{}, err
 	}
 	e := d.Engine()
-	ch := SchemaChange{Steps: []Step{{SQL: createTableSQL(d, t, nil)}}, Atomic: e.TransactionalDDL()}
+	// A unique constraint, as a data model keeps one read, is written in
+	// the table; SQLite's are named by SQLite.
+	var unique []string
 	for _, ix := range t.Indexes {
-		ch.Steps = append(ch.Steps, Step{SQL: createIndexSQL(d, t, ix)})
+		if ix.Constraint {
+			s := "UNIQUE (" + quoteNames(d, ix.Columns) + ")"
+			if e != SQLite && ix.Name != "" {
+				s = "CONSTRAINT " + d.Quote(ix.Name) + " " + s
+			}
+			unique = append(unique, s)
+		}
+	}
+	ch := SchemaChange{Steps: []Step{{SQL: createTableSQL(d, t, unique)}}, Atomic: e.TransactionalDDL()}
+	for _, ix := range t.Indexes {
+		if !ix.Constraint {
+			ch.Steps = append(ch.Steps, Step{SQL: createIndexSQL(d, t, ix)})
+		}
 	}
 	if commentsApart(e) {
 		if t.Comment != "" {
@@ -154,7 +168,11 @@ func AlterTableChange(d Dialect, was, now TableDesign) (SchemaChange, error) {
 		steps = append(steps, alter("ADD PRIMARY KEY ("+quoteNames(d, pk)+")"))
 	}
 	for _, ix := range diff.addedIndexes {
-		steps = append(steps, Step{SQL: createIndexSQL(d, was, ix)})
+		if ix.Constraint && (e == Postgres || e == MySQL) {
+			steps = append(steps, alter("ADD CONSTRAINT "+d.Quote(ix.Name)+" UNIQUE ("+quoteNames(d, ix.Columns)+")"))
+		} else {
+			steps = append(steps, Step{SQL: createIndexSQL(d, was, ix)})
+		}
 	}
 	for _, fk := range diff.addedKeys {
 		steps = append(steps, alter("ADD "+foreignKeySQL(d, fk)))
@@ -412,7 +430,19 @@ func checkSQL(d Dialect, ch CheckDesign) string {
 	return s + "CHECK (" + ch.Expression + ")"
 }
 
+// AddForeignKeySQL writes the statement adding a foreign key to a table
+// made.
+func AddForeignKeySQL(d Dialect, t TableDesign, fk ForeignKeyDesign) string {
+	return "ALTER TABLE " + QualifiedName(d, t.Schema, t.Name) + " ADD " + foreignKeySQL(d, fk)
+}
+
+// createIndexSQL writes the statement making an index: as its definition,
+// when that is a statement, as a data model keeps an index read with its
+// order, method and WHERE; else from its columns.
 func createIndexSQL(d Dialect, t TableDesign, ix IndexDesign) string {
+	if def := strings.TrimSpace(ix.Definition); len(def) > 7 && strings.EqualFold(def[:7], "CREATE ") {
+		return def
+	}
 	s := "CREATE INDEX "
 	if ix.Unique {
 		s = "CREATE UNIQUE INDEX "

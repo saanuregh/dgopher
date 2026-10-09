@@ -294,7 +294,7 @@ func (r *Tab) loadKey() {
 			r.vector, r.series.readFor = vectorState{}, ""
 			r.fields, r.itemsPos, r.itemsDone = nil, pos, done
 			r.addItems(fields)
-			r.editValue, r.editDirty = shownStart(value), false
+			r.editValue, r.editDirty = widgets.TextStart(value, stringStart), false
 			r.ttlIn = ""
 			if info.TTL > 0 {
 				r.ttlIn = strconv.Itoa(int(info.TTL.Seconds()))
@@ -883,7 +883,7 @@ func (r *Tab) itemDetail(c *ui.Context) {
 	// Made once for each item: comparing the strings shared is cheap.
 	if r.itemName != f.Name || r.itemValue != f.Value {
 		r.itemName, r.itemValue = f.Name, f.Value
-		r.itemView, r.itemRaw = newDecodeView(f.Value), shownStart(decode.Text([]byte(f.Value)))
+		r.itemView, r.itemRaw = newDecodeView(f.Value), widgets.TextStart(decode.Text([]byte(f.Value)), stringStart)
 	}
 	th := c.Theme()
 	ui.Column(c).Height(200).Padding(8, 14).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
