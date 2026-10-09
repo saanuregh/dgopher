@@ -182,7 +182,7 @@ func (q *Tab) CloseReason() string {
 	case q.Path != "" && q.DiskConflict != "" && q.Editor.Text != q.Saved:
 		return q.Name + " " + q.DiskConflict + ". Closing the editor leaves the file as it is on disk, losing the editor's text."
 	case q.pendingCount() > 0:
-		return fmt.Sprintf("%d changes to %s in the results have not been applied. Closing discards them.", q.pendingCount(), q.pendingTable())
+		return fmt.Sprintf("%s to %s in the results not applied. Closing discards them.", widgets.Count(q.pendingCount(), "change"), q.pendingTable())
 	case q.Tx != db.TxNone:
 		return "A transaction is open on this editor's session. Closing the editor rolls it back, losing its changes."
 	case q.uncommitted > 0:

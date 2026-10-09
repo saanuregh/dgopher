@@ -7,6 +7,7 @@ import (
 
 	"dgopher/internal/db"
 	"dgopher/internal/project"
+	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -48,7 +49,7 @@ func (g *Grid) SelectionStats(src *Source) string {
 		nullNote = fmt.Sprintf(" · %d NULL", nulls)
 	}
 	if count <= 0 {
-		return fmt.Sprintf("%d rows%s", len(rows), nullNote)
+		return widgets.Count(len(rows), "row") + nullNote
 	}
 	avg := new(big.Float).Quo(sum, big.NewFloat(float64(count)))
 	num := func(f *big.Float) string {

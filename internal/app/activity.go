@@ -350,7 +350,7 @@ func (t *activityTab) View(c *ui.Context) {
 				ui.Text(c, "Server activity").Bold()
 			}
 			if !page.metrics {
-				ui.Text(c, fmt.Sprintf("%d rows", len(t.src.Rows))).FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, widgets.Count(len(t.src.Rows), "row")).FontSize(12).TextColor(pal.Muted)
 			}
 			if t.loading {
 				ui.Spinner(c).Size(12, 12)

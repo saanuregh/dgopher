@@ -161,7 +161,7 @@ func (a *App) runCopy(x *copyDialog, to *connection.Conn, tables []string) {
 		for _, table := range tables {
 			var n int64
 			n, err = a.copyTable(ctx, from, fromPool, fromSchema, to, toPool, toDB, toSchema, table, mode, func(done int64) {
-				status(table, fmt.Sprintf("%d rows…", done))
+				status(table, widgets.Count(done, "row")+"…")
 			})
 			ev := audit.Event{Kind: audit.KindImport, Database: toDB, Rows: n, Statement: "INSERT INTO " + table,
 				Detail: fmt.Sprintf("copied from %s, %s.%s", from.Config.Name, fromSchema, table)}
@@ -169,7 +169,7 @@ func (a *App) runCopy(x *copyDialog, to *connection.Conn, tables []string) {
 				ev.Error = err.Error()
 				status(table, "failed")
 			} else {
-				status(table, fmt.Sprintf("%d rows copied", n))
+				status(table, widgets.Count(n, "row")+" copied")
 			}
 			a.Record(&to.Config, ev)
 			if err != nil {

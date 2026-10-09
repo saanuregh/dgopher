@@ -1177,12 +1177,12 @@ func (v *Viewer) View(c *ui.Context) {
 	}
 	ui.Row(c).Padding(4, 10).Gap(10).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 		n := len(v.src.Rows)
-		status := fmt.Sprintf("%d rows", n)
+		status := widgets.Count(n, "row")
 		switch {
 		case v.truncated && n < db.MaxRows:
-			status = fmt.Sprintf("%d rows: the next statement closed this result; run it alone to read every row", n)
+			status += ": the next statement closed this result; run it alone to read every row"
 		case v.truncated:
-			status = fmt.Sprintf("%d rows (limit reached: add a LIMIT or export)", n)
+			status += " (limit reached: add a LIMIT or export)"
 		case !v.done:
 			status += " loaded"
 		}

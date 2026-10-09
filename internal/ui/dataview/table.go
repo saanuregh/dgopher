@@ -86,7 +86,7 @@ func (t *TableTab) CloseReason() string {
 	case t.design != nil && t.design.changed():
 		return "The changes to " + t.Object.Name + "'s structure have not been applied. Closing discards them."
 	case t.view.grid.edits.count() > 0:
-		return fmt.Sprintf("%d changes to %s have not been applied. Closing discards them.", t.view.grid.edits.count(), t.Object.Name)
+		return fmt.Sprintf("%s to %s not applied. Closing discards them.", widgets.Count(t.view.grid.edits.count(), "change"), t.Object.Name)
 	case t.tx != db.TxNone:
 		return "A transaction is open on this table's session. Closing rolls it back."
 	}

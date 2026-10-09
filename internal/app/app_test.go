@@ -1144,7 +1144,7 @@ func resultCount(tt *ui.Tester, q *query.Tab) (int, bool) {
 	}
 	for _, s := range tt.Texts() {
 		var n int
-		if _, err := fmt.Sscanf(s, "%d rows", &n); err == nil && (s == fmt.Sprintf("%d rows", n) || s == fmt.Sprintf("%d rows loaded", n)) {
+		if _, err := fmt.Sscanf(s, "%d row", &n); err == nil && (s == widgets.Count(n, "row") || s == widgets.Count(n, "row")+" loaded") {
 			return n, true
 		}
 	}

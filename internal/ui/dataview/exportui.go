@@ -313,7 +313,7 @@ func ExportView(a Host, c *ui.Context) {
 			ui.Row(c).Gap(8).Children(func() {
 				if x.running {
 					ui.Spinner(c).Size(14, 14)
-					progress := fmt.Sprintf("%d rows written…", x.written.Load())
+					progress := widgets.Count(x.written.Load(), "row") + " written…"
 					if many {
 						progress = fmt.Sprintf("Table %d of %d · ", x.current.Load()+1, len(chosen)) + progress
 					}
@@ -512,16 +512,16 @@ func runExport(a Host, x *exportState) {
 			case len(stopped) > 0:
 				note = fmt.Sprintf(": the limit of %d rows stopped %s, with rows left", limit, strings.Join(stopped, ", "))
 			}
-			a.Notify(started, "Export finished", fmt.Sprintf("%d rows of %s%s", n, name, note), nil)
+			a.Notify(started, "Export finished", fmt.Sprintf("%s of %s%s", widgets.Count(n, "row"), name, note), nil)
 			x.open = false
 			if toClip {
 				a.WriteClipboard(clip.String())
-				a.Toast(fmt.Sprintf("Copied %d rows as %s%s", n, f.Label(), note), "", nil)
+				a.Toast(fmt.Sprintf("Copied %s as %s%s", widgets.Count(n, "row"), f.Label(), note), "", nil)
 				return
 			}
 			what := fmt.Sprintf("Exported %d rows%s", n, note)
 			if len(srcs) > 1 {
-				what = fmt.Sprintf("Exported %d rows of %d tables%s", n, len(srcs), note)
+				what = fmt.Sprintf("Exported %s of %d tables%s", widgets.Count(n, "row"), len(srcs), note)
 			}
 			last := paths[len(paths)-1]
 			a.Toast(what, "Show in Folder", func() { mygo.Shell.ShowItemInFolder(last) })

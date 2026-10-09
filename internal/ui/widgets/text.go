@@ -52,6 +52,12 @@ func HumanBytes(n int64) string {
 	return fmt.Sprintf("%d B", n)
 }
 
+// Count is a number of things, the noun in the plural unless one: "1
+// row", "3 rows".
+func Count[N ~int | ~int64](n N, noun string) string {
+	return fmt.Sprintf("%d %s%s", n, noun, Plural(int(n)))
+}
+
 func Plural(n int) string {
 	if n == 1 {
 		return ""
