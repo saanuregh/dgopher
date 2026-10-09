@@ -48,4 +48,6 @@ type Dialogs struct {
 	distinct     *distinctForm
 	keyForm      *keyForm
 	refPicker    *refPicker
+	// pinned are the rows kept to compare another result with.
+	pinned *rowSnapshot
 }

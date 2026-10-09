@@ -1087,6 +1087,7 @@ func (v *Viewer) View(c *ui.Context) {
 		if widgets.IconButton(c, widgets.IconDownload, "Export…").Clicked() {
 			OpenExport(a, v.exportSource())
 		}
+		widgets.IconButton(c, widgets.IconCompare, "Compare with other rows").Menu(v.compareMenu)
 	}).Label("Data").Padding(4, 8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border)
 	if v.builder != nil && v.source.Reads && len(v.src.Cols) > 0 {
 		v.builderView(c)

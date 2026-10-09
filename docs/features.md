@@ -233,6 +233,11 @@
     cannot be edited. Its edits apply on the editor's session, so with
     manual commit they join its open transaction, and ⌘S reviews them,
     then saves the file.
+  - Compare two results: pin a result's rows, then compare another with
+    them, from the grid's compare button. The comparison matches rows by
+    the table's key, a column of both or their position, and shows the
+    rows that differ, A's above B's with the changed cells marked, and
+    those only in one.
   - Edit Value… (⇧↵) edits a cell in the form its type suits, beside its
     text: a tree of a JSON value, the list of an enum's values (read from
     PostgreSQL's catalog, or spelled by the type elsewhere), a calendar

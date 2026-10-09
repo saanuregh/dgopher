@@ -51,7 +51,6 @@ Next or Later are not repeated.
     table of rows.
   - Read a plan and suggest how to make the query faster.
 - **Data grid:**
-  - Compare two results side by side and highlight the differences.
 - **Schema:**
   - Save an ER diagram as PNG or SVG, and change the schema by editing
     the diagram.
