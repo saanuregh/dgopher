@@ -152,3 +152,31 @@ func TestNavigatorObjectKeys(t *testing.T) {
 		return ok && strings.Contains(q.Editor.Text, `DROP TABLE "main"."orders";`)
 	})
 }
+
+// On a table, ⌘L focuses the WHERE; pressed there, the quick filter.
+func TestFilterKeyTwice(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1280, 800)
+	a.openSample()
+	testutil.WaitFor(t, tt, "sample editor", func() bool { return len(a.tabs) == 1 })
+	cn := a.tabs[0].(*query.Tab).Conn
+	testutil.WaitFor(t, tt, "objects", func() bool { return cn.Objects[connection.SchemaKey{Database: "", Schema: "main"}] != nil })
+	for _, o := range cn.Objects[connection.SchemaKey{Database: "", Schema: "main"}] {
+		if o.Name == "orders" {
+			a.OpenTable(cn, "", o, dataview.PageData)
+		}
+	}
+	testutil.WaitFor(t, tt, "rows", func() bool { return testutil.HasTextContaining(tt, " rows") })
+	tt.Key(ui.Cmd, ui.KeyL)
+	tt.Frame()
+	tt.Frame()
+	if !tt.Focused("Filter") {
+		t.Fatal("⌘L did not focus the WHERE")
+	}
+	tt.Key(ui.Cmd, ui.KeyL)
+	tt.Frame()
+	tt.Frame()
+	if !tt.Focused("Filter rows") || a.focusWant != "" {
+		t.Fatalf("⌘L again did not focus the quick filter: focus wanted %q", a.focusWant)
+	}
+}

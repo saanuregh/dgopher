@@ -1020,6 +1020,8 @@ func (v *Viewer) View(c *ui.Context) {
 		if widgets.ToolButton(c, widgets.IconRefresh, "Refresh", widgets.KeyLabel(refreshTip)).Clicked() {
 			v.RequestReload()
 		}
+		// ⌘L focuses the WHERE, then, pressed there, the quick filter.
+		whereFocused := false
 		ui.Row(c).Gap(6).Grow(1).Children(func() {
 			ui.Icon(c, widgets.IconFilter).TextColor(pal.Muted).FontSize(13)
 			cb := ui.ComboboxBase(c, &v.whereIn)
@@ -1058,7 +1060,8 @@ func (v *Viewer) View(c *ui.Context) {
 					v.whereIn, v.count = typed, -1
 				})
 			}
-			if want := a.FocusWant(); *want == "filter" && keys && in.Focus().Focused() {
+			whereFocused = in.Focused()
+			if want := a.FocusWant(); *want == "filter" && keys && !whereFocused && in.Focus().Focused() {
 				*want = ""
 			}
 			if widgets.IconButton(c, widgets.IconListFilter, "Build a filter from conditions").Disabled(len(v.src.Cols) == 0).Clicked() {
@@ -1070,7 +1073,7 @@ func (v *Viewer) View(c *ui.Context) {
 			}
 		})
 		quick := widgets.SearchBox(c, &v.grid.Filter, "Filter rows", 170)
-		if want := a.FocusWant(); *want == "filter" && keys && !v.source.Reads && quick.Focus().Focused() {
+		if want := a.FocusWant(); *want == "filter" && keys && (!v.source.Reads || whereFocused) && quick.Focus().Focused() {
 			*want = ""
 		}
 		if readOnly == "" {

@@ -27,7 +27,8 @@
   - ⌘1…⌘9 switch tabs (in the results grid, ⌘2 sorts by the chosen
     column instead), the keys going on in the tab chosen: an editor's
     text, a table's rows, the Redis keys. ⌘0 focuses the navigator; ⌘L
-    focuses the current view's filter; ⌘J moves between the editor and
+    focuses the current view's filter (a table's WHERE, then its quick
+    filter); ⌘J moves between the editor and
     its results; F5 runs or refreshes, a dashboard too.
   - On a table in the navigator, ⌘C copies its name, F2 renames it, F4
     shows its structure, and Delete opens a DROP of it in a new editor
