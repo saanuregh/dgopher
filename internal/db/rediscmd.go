@@ -46,14 +46,7 @@ func (k *KV) CommandDocs(ctx context.Context) (map[string]CommandDoc, error) {
 // addDoc adds a command's help, and its subcommands'.
 func addDoc(docs map[string]CommandDoc, name string, msg rueidis.RedisMessage) {
 	fields := asMap(msg)
-	text := func(key string) string {
-		m, ok := fields[key]
-		if !ok {
-			return ""
-		}
-		s, _ := m.ToString()
-		return s
-	}
+	text := func(key string) string { return fieldString(fields, key) }
 	d := CommandDoc{Name: strings.ToUpper(strings.ReplaceAll(name, "|", " ")), Summary: text("summary"), Since: text("since"), Group: text("group")}
 	if args, ok := fields["arguments"]; ok {
 		list, _ := args.ToArray()
@@ -72,14 +65,7 @@ func argsSyntax(args []rueidis.RedisMessage, sep string) string {
 	parts := make([]string, 0, len(args))
 	for _, a := range args {
 		fields := asMap(a)
-		text := func(key string) string {
-			m, ok := fields[key]
-			if !ok {
-				return ""
-			}
-			s, _ := m.ToString()
-			return s
-		}
+		text := func(key string) string { return fieldString(fields, key) }
 		var flags []string
 		if f, ok := fields["flags"]; ok {
 			flags, _ = f.AsStrSlice()
@@ -139,6 +125,30 @@ func asMap(m rueidis.RedisMessage) map[string]rueidis.RedisMessage {
 		}
 	}
 	return out
+}
+
+// fieldString is a reply's field as text, "" when it has none.
+func fieldString(fields map[string]rueidis.RedisMessage, name string) string {
+	m, ok := fields[name]
+	if !ok {
+		return ""
+	}
+	s, _ := m.ToString()
+	return s
+}
+
+// fieldInt is a reply's field as a number, otherwise when it has none, or
+// it is not one, as a lag the server cannot tell.
+func fieldInt(fields map[string]rueidis.RedisMessage, name string, otherwise int64) int64 {
+	m, ok := fields[name]
+	if !ok {
+		return otherwise
+	}
+	n, err := m.AsInt64()
+	if err != nil {
+		return otherwise
+	}
+	return n
 }
 
 // DocFor finds the help of the command a line of the console starts with:

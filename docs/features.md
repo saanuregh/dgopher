@@ -339,6 +339,15 @@
     As a command is typed, the commands it may be show, and Tab completes
     its name; once named, its syntax and summary show, as the server's
     `COMMAND DOCS` gives them (Redis 7 and later).
+  - Below the keys, beside the console: a live feed of the commands the
+    server runs (MONITOR, on a connection of its own, confirmed on
+    production as it slows a busy server; of the connection's database
+    or every one, filtered as typed); the slow log, slowest first, with
+    a reset of every master's; and an analysis of the keys' memory (asked
+    first on production): up to a million keys' type, size and TTL read
+    as SCAN finds them, summed into the largest keys, the namespaces
+    before the key separator, the types, and when keys expire. Monitored
+    commands show as the console's do, their secrets hidden.
   - Run a file of commands, one a line, `#` starting a comment: each one
     through the safety policy first, then, when any writes, once
     confirmed; they run in the console one after the other, audited,

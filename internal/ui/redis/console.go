@@ -119,26 +119,26 @@ func (r *Tab) helpView(c *ui.Context) {
 	}
 }
 
-func (r *Tab) consoleView(c *ui.Context, a Host) {
+// consoleActions are the console's, in the panels' header.
+func (r *Tab) consoleActions(c *ui.Context) {
+	pal := widgets.PaletteOf(c)
+	if f := r.file; f != nil {
+		ui.Spinner(c).Size(12, 12)
+		ui.Text(c, fmt.Sprintf("%s: %d of %d", filepath.Base(f.path), f.done, f.total)).FontSize(12).TextColor(pal.Muted)
+		if ui.Link(c, "Stop", "").FontSize(12).Clicked() {
+			f.cancel()
+		}
+	}
+	if ui.Link(c, "Clear", "").FontSize(12).Clicked() {
+		r.consoleLog = nil
+	}
+}
+
+func (r *Tab) consoleView(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	r.loadDocs()
-	ui.Column(c).Fill().Background(pal.EditorBg).Children(func() {
-		ui.Row(c).Padding(4, 10).Gap(6).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Icon(c, widgets.IconTerminal).FontSize(13).TextColor(pal.Muted)
-			ui.Text(c, "Console").FontSize(12).Bold()
-			ui.Spacer(c)
-			if f := r.file; f != nil {
-				ui.Spinner(c).Size(12, 12)
-				ui.Text(c, fmt.Sprintf("%s: %d of %d", filepath.Base(f.path), f.done, f.total)).FontSize(12).TextColor(pal.Muted)
-				if ui.Link(c, "Stop", "").FontSize(12).Clicked() {
-					f.cancel()
-				}
-			}
-			if ui.Link(c, "Clear", "").FontSize(12).Clicked() {
-				r.consoleLog = nil
-			}
-		})
+	ui.Column(c).Grow(1).Children(func() {
 		ui.List(c, &r.consoleList, len(r.consoleLog), func(i int) {
 			l := r.consoleLog[i]
 			txt := ui.Text(c, l.text).Font(widgets.MonoFont).FontSize(12).Padding(1, 12).Selectable()

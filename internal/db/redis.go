@@ -36,6 +36,10 @@ type KV struct {
 	// docs are the commands' help, read once by CommandDocs.
 	docsMu sync.Mutex
 	docs   map[string]CommandDoc
+
+	// dial reaches a node as the client does, through the tunnel or the
+	// proxy and TLS, for a connection the client cannot hold, as MONITOR.
+	dial func(ctx context.Context, addr string) (net.Conn, error)
 }
 
 // OpenRedis connects to a Redis server, a cluster, or the master Sentinel
@@ -93,21 +97,7 @@ func OpenRedis(ctx context.Context, cfg Config, knownHosts []string) (*KV, error
 		SelectDB:    dbIndex,
 		TLSConfig:   tc,
 		DialCtxFn: func(ctx context.Context, addr string, _ *net.Dialer, tc *tls.Config) (net.Conn, error) {
-			raw, err := dialTCP(ctx, addr)
-			if err != nil || tc == nil {
-				return raw, err
-			}
-			// Each node is checked against its own name.
-			nc := tc.Clone()
-			if host, _, err := net.SplitHostPort(addr); err == nil {
-				nc.ServerName = host
-			}
-			conn := tls.Client(raw, nc)
-			if err := conn.HandshakeContext(ctx); err != nil {
-				raw.Close()
-				return nil, err
-			}
-			return conn, nil
+			return dialNode(ctx, dialTCP, addr, tc)
 		},
 		ConnWriteTimeout:  30 * time.Second,
 		BlockingPoolSize:  4,
@@ -171,7 +161,8 @@ func OpenRedis(ctx context.Context, cfg Config, knownHosts []string) (*KV, error
 		client.Close()
 		return fail(err)
 	}
-	k := &KV{Config: cfg, Client: client, tunnel: tunnel}
+	k := &KV{Config: cfg, Client: client, tunnel: tunnel,
+		dial: func(ctx context.Context, addr string) (net.Conn, error) { return dialNode(ctx, dialTCP, addr, tc) }}
 	// Each COMMAND entry is [name, arity, flags, ...].
 	if cmds, err := client.Do(pctx, client.B().Command().Build()).ToArray(); err == nil {
 		k.readOnly = map[string]bool{}
@@ -190,6 +181,25 @@ func OpenRedis(ctx context.Context, cfg Config, knownHosts []string) (*KV, error
 		}
 	}
 	return k, nil
+}
+
+// dialNode reaches a node by dialTCP, then TLS when tc is set, checking
+// the node's certificate against its own name.
+func dialNode(ctx context.Context, dialTCP func(context.Context, string) (net.Conn, error), addr string, tc *tls.Config) (net.Conn, error) {
+	raw, err := dialTCP(ctx, addr)
+	if err != nil || tc == nil {
+		return raw, err
+	}
+	nc := tc.Clone()
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		nc.ServerName = host
+	}
+	conn := tls.Client(raw, nc)
+	if err := conn.HandshakeContext(ctx); err != nil {
+		raw.Close()
+		return nil, err
+	}
+	return conn, nil
 }
 
 // Close closes the connection and its tunnel.

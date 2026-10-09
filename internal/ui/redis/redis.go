@@ -81,6 +81,11 @@ type Tab struct {
 	docsAsked   time.Time                // when the help was asked for; zero before, and after it failed a while
 	caretToEnd  bool                     // the console's caret goes to the end of its line next frame
 	file        *fileRun
+
+	panel   int // the panel below the keys: console, monitor, slow log or memory
+	monitor monitorState
+	slow    slowLogState
+	memory  memoryState
 }
 
 type newKeyForm struct {
@@ -124,6 +129,11 @@ func (r *Tab) CloseReason() string {
 func (r *Tab) Close() {
 	if r.file != nil {
 		r.file.cancel()
+	}
+	for _, cancel := range []context.CancelFunc{r.monitor.cancel, r.memory.cancel} {
+		if cancel != nil {
+			cancel()
+		}
 	}
 }
 
@@ -415,15 +425,13 @@ func (r *Tab) write(args []string, then func()) {
 
 func (r *Tab) View(c *ui.Context) {
 	a := r.a
-	th := c.Theme()
 	ui.Column(c).Grow(1).Children(func() {
 		ui.SplitVertical(c, &r.consoleH, func() {
 			ui.Split(c, &r.split, func() { r.keysView(c, a) }, func() { r.keyView(c, a) }).Fill()
 		}, func() {
-			r.consoleView(c, a)
+			r.panelView(c)
 		}).Grow(1)
 	})
-	_ = th
 }
 
 func (r *Tab) keysView(c *ui.Context, a Host) {

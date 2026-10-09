@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -161,6 +162,32 @@ func TestRedisBrowser(t *testing.T) {
 	if last := r.consoleLog[len(r.consoleLog)-1]; !last.err || !strings.Contains(last.text, "WRONGTYPE") {
 		t.Fatalf("the failure is not shown last: %+v", last)
 	}
+
+	// The panels below the keys: the commands the server runs, its slow
+	// log, and the keys' memory.
+	r.panel = panelMonitor
+	r.startMonitor()
+	testutil.WaitFor(t, tt, "the monitor", func() bool {
+		kv.Do(ctx, []string{"GET", "monitored"})
+		return slices.ContainsFunc(r.monitor.lines, func(l db.MonitorLine) bool { return strings.Contains(l.Command, "monitored") })
+	})
+	r.monitor.cancel()
+	testutil.WaitFor(t, tt, "the monitor to stop", func() bool { return r.monitor.cancel == nil })
+	if r.monitor.err != "" {
+		t.Fatal(r.monitor.err)
+	}
+	r.panel = panelSlowLog
+	testutil.WaitFor(t, tt, "the slow log", func() bool { return r.slow.asked && !r.slow.loading })
+	if r.slow.err != "" {
+		t.Fatal(r.slow.err)
+	}
+	r.panel = panelMemory
+	r.analyseMemory()
+	testutil.WaitFor(t, tt, "the analysis", func() bool { return r.memory.cancel == nil })
+	if rep := r.memory.report; r.memory.err != "" || rep == nil || rep.Largest[0].Key != "big:hash" && rep.Largest[0].Key != "big:string" {
+		t.Fatalf("analysis %q %+v", r.memory.err, rep)
+	}
+	testutil.Snapshot(t, tt, "redis-memory")
 
 	// A file running holds the tab: closing it asks, then stops the file.
 	stop, cancel := context.WithCancel(ctx)
