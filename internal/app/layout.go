@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"dgopher/internal/connection"
@@ -52,6 +53,7 @@ func (a *App) ReadClipboard() string {
 func (a *App) view(c *ui.Context) {
 	a.drain()
 	a.now = c.Now()
+	widgets.ApplyTheme(c, strings.TrimSpace(a.settings.UIFontFamily))
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
 	if a.clipboard == nil {

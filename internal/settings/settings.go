@@ -13,11 +13,15 @@ import (
 
 // Settings are the user's preferences.
 type Settings struct {
-	Theme         string  `json:"theme"` // system, light or dark
-	EditorFont    float32 `json:"editorFontSize"`
-	SidebarWidth  float32 `json:"sidebarWidth"`
-	ResultsHeight float32 `json:"resultsHeight"`
-	PageSize      int     `json:"pageSize"`
+	Theme      string  `json:"theme"` // system, light or dark
+	EditorFont float32 `json:"editorFontSize"`
+	// EditorFontFamily and UIFontFamily are the families of the editor's
+	// and the grids' text, and of the rest; "" for the system's.
+	EditorFontFamily string  `json:"editorFontFamily,omitempty"`
+	UIFontFamily     string  `json:"uiFontFamily,omitempty"`
+	SidebarWidth     float32 `json:"sidebarWidth"`
+	ResultsHeight    float32 `json:"resultsHeight"`
+	PageSize         int     `json:"pageSize"`
 	// Vim edits SQL with Vim's keys.
 	Vim bool `json:"vim,omitempty"`
 	// SemicolonOnly ends statements at ';' only; by default a blank line

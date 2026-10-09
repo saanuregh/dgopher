@@ -1,6 +1,12 @@
 package app
 
 import (
+	"cmp"
+	"log"
+	"os"
+	"slices"
+	"strings"
+
 	"dgopher/internal/keymap"
 	"dgopher/internal/project"
 	"dgopher/internal/ui/widgets"
@@ -9,34 +15,75 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-var themeLabels = []string{"System", "Light", "Dark"}
+// appearances are the appearances the app offers: following the system,
+// light or dark, then the themes by their names.
+var appearances = []string{"System", "Light", "Dark"}
 
-func themeIndex(s string) int {
-	switch s {
-	case "light":
-		return 1
-	case "dark":
-		return 2
-	}
-	return 0
+// openSettings opens the settings, the themes read again.
+func (a *App) openSettings() {
+	a.loadThemes()
+	a.settingsOpen = true
 }
 
-// applyTheme follows the theme the user chose.
-func applyTheme(s string) {
+// appearanceOf is the label of the setting's appearance.
+func appearanceOf(s string) string {
 	switch s {
+	case "system", "":
+		return "System"
 	case "light":
-		mygo.Theme.SetSource(mygo.ThemeLight)
+		return "Light"
 	case "dark":
-		mygo.Theme.SetSource(mygo.ThemeDark)
-	default:
-		mygo.Theme.SetSource(mygo.ThemeSystem)
+		return "Dark"
 	}
+	return s
 }
+
+// loadThemes reads the user's themes, the built-in ones first; a file
+// that does not read is logged.
+func (a *App) loadThemes() {
+	themes, errs := widgets.LoadThemes(widgets.ThemesDir(a.st.Dir()))
+	for _, err := range errs {
+		log.Println("themes:", err)
+	}
+	a.themes = themes
+}
+
+// applyTheme follows the appearance the user chose: the system's, light,
+// dark, or a theme, in its own light or dark.
+func (a *App) applyTheme() {
+	s := a.settings.Theme
+	source := map[string]mygo.ThemeSource{"light": mygo.ThemeLight, "dark": mygo.ThemeDark}[s]
+	var theme *widgets.Theme
+	if i := slices.IndexFunc(a.themes, func(t widgets.Theme) bool { return t.Name == s }); i >= 0 {
+		theme = &a.themes[i]
+		source = mygo.ThemeLight
+		if theme.Base == "dark" {
+			source = mygo.ThemeDark
+		}
+	} else if source == "" {
+		source = mygo.ThemeSystem // as for a theme taken away since
+	}
+	widgets.UseTheme(theme)
+	mygo.Theme.SetSource(source)
+	widgets.MonoFont = cmp.Or(strings.TrimSpace(a.settings.EditorFontFamily), widgets.DefaultMonoFont)
+}
+
+// monoFamilies and uiFamilies are families to suggest: the app cannot
+// list the system's.
+var (
+	monoFamilies = []string{"JetBrains Mono", "Fira Code", "SF Mono", "Menlo", "Monaco", "Consolas", "Cascadia Code",
+		"Source Code Pro", "IBM Plex Mono", "Ubuntu Mono", "DejaVu Sans Mono", "Hack"}
+	uiFamilies = []string{"Inter", "SF Pro Text", "Helvetica Neue", "Segoe UI", "Roboto", "Noto Sans", "Ubuntu", "Cantarell", "IBM Plex Sans"}
+)
 
 func (a *App) settingsView(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	open := a.settingsOpen
-	theme := themeIndex(a.settings.Theme)
+	appearance := appearanceOf(a.settings.Theme)
+	choices := slices.Clone(appearances)
+	for _, t := range a.themes {
+		choices = append(choices, t.Name)
+	}
 	font := float64(a.settings.EditorFont)
 	page := float64(a.settings.PageSize)
 	notifyAfter := float64(a.settings.NotifyAfter)
@@ -45,12 +92,36 @@ func (a *App) settingsView(c *ui.Context) {
 			ui.Text(c, "Settings").FontSize(16).Bold()
 			ui.Form(c, func() {
 				ui.Field(c, "Appearance", func() {
-					if ui.Segmented(c, &theme, themeLabels...).Changed() {
-						a.settings.Theme = []string{"system", "light", "dark"}[theme]
-						applyTheme(a.settings.Theme)
-						a.SaveSettings()
-					}
-				})
+					ui.Row(c).Gap(8).Children(func() {
+						if ui.Select(c, &appearance, choices).Label("Appearance").Width(220).Changed() {
+							a.settings.Theme = appearance
+							if i := slices.Index(appearances, appearance); i >= 0 {
+								a.settings.Theme = []string{"system", "light", "dark"}[i]
+							}
+							a.applyTheme()
+							a.SaveSettings()
+						}
+						if ui.Button(c, "Themes Folder").Tooltip("Add a theme as a JSON file there: see the documentation").Clicked() {
+							dir := widgets.ThemesDir(a.st.Dir())
+							if err := os.MkdirAll(dir, 0o755); err != nil {
+								a.ShowError("Could not make the themes folder", err.Error())
+							} else {
+								mygo.Shell.OpenPath(dir)
+							}
+						}
+					})
+				}).Description("A theme is light or dark. The themes folder's are read as Settings opens.")
+				ui.Field(c, "Fonts", func() {
+					ui.Row(c).Gap(8).Children(func() {
+						if ui.Autocomplete(c, &a.settings.EditorFontFamily, monoFamilies).Placeholder("Monospace, the system's").Label("Editor font").Width(220).Changed() {
+							a.applyTheme()
+							a.settingsDirty = true
+						}
+						if ui.Autocomplete(c, &a.settings.UIFontFamily, uiFamilies).Placeholder("The system's").Label("Interface font").Width(200).Changed() {
+							a.settingsDirty = true
+						}
+					})
+				}).Description("A family the system lacks shows in its own font.")
 				ui.Field(c, "Editor font size", func() {
 					if ui.NumberInput(c, &font, 9, 24, 1).Changed() {
 						a.settings.EditorFont = float32(font)

@@ -42,7 +42,8 @@ func Run(args []string) error {
 			fmt.Fprintln(os.Stderr, "dgopher:", err)
 		}
 	}
-	applyTheme(a.settings.Theme)
+	a.loadThemes()
+	a.applyTheme()
 	mygo.App.SetMenu(buildMenu(a))
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
@@ -159,7 +160,7 @@ var menuCommands = []string{keymap.Settings, keymap.NewConnection, keymap.NewEdi
 func (a *App) menuAction(id string) func() {
 	switch id {
 	case keymap.Settings:
-		return func() { a.settingsOpen = true }
+		return a.openSettings
 	case keymap.NewConnection:
 		return func() { a.openConnForm(nil) }
 	case keymap.NewEditor:

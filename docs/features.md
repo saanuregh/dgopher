@@ -33,9 +33,27 @@
 - **Window:** closing the last tab leaves the start page. On macOS,
   closing the window keeps DGopher running with its tabs and connections,
   and its Dock icon shows the window again.
-- **Settings:** theme (System, Light or Dark), editor font size, rows per
-  page, where statements end, what a script does on an error, and when
-  to notify.
+- **Settings:** appearance, editor font size, the editor's and the
+  interface's font families, rows per page, where statements end, what a
+  script does on an error, and when to notify.
+  - Appearance follows the system, is light or dark, or is a theme: Nord,
+    Dracula and Solarized Light come with the app, and a JSON file in the
+    themes folder (Themes Folder opens it) adds one, or replaces a
+    built-in of its name. A theme is light or dark, and sets any of the
+    app's colors by name, as `#rrggbb` or with an alpha `#rrggbbaa`:
+
+    ```json
+    {"name": "Night Shift", "base": "dark",
+     "colors": {"accent": "#f59e0b", "editor": "#101010", "keyword": "#fbbf24"}}
+    ```
+
+    The names: background, surface, surfaceHover, surfacePressed, border,
+    text, textMuted, accent, accentText, danger, warning, success,
+    selection, focus; sidebar, editor, gutter, lineNumber,
+    currentStatement, gridHeader, gridLine, cellSelected, null, modified,
+    inserted, deleted, muted, hover; and the SQL's keyword, string,
+    number, comment, quotedIdentifier, parameter and operator. A file
+    that does not read is left out, and logged.
 - **Notifications:** a statement, script, export or import that took 10
   seconds or more (a setting; 0 for never) tells the system as it ends,
   if DGopher is in the background then: what ran, on which connection,

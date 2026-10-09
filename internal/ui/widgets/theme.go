@@ -83,7 +83,12 @@ var darkPalette = Palette{
 	},
 }
 
+// PaletteOf is the palette of the frame's theme: the one in use, when
+// the window is of its darkness.
 func PaletteOf(c *ui.Context) *Palette {
+	if look != nil && look.dark == c.Theme().Dark {
+		return &look.pal
+	}
 	if c.Theme().Dark {
 		return &darkPalette
 	}
@@ -134,4 +139,9 @@ func EngineColor(e db.Engine) ui.Color {
 	return ui.Hex("#737373")
 }
 
-const MonoFont = "monospace"
+// MonoFont is the family of the editor's and the grids' text: the user's,
+// or the system's monospaced one.
+var MonoFont = DefaultMonoFont
+
+// DefaultMonoFont is the system's monospaced family.
+const DefaultMonoFont = "monospace"

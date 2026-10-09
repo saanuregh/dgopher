@@ -40,9 +40,8 @@ Next or Later are not repeated.
   - [DEFERRED] An MCP server that lets coding agents use a connection, asking
     before each kind of access.
 - **Interface:**
-  - Custom themes, a choice of font family, translations, and support
-    for screen readers and keyboard-only use. Font sizes can already be
-    set.
+  - Translations, and support for screen readers and keyboard-only
+    use.
   - A guided tour for new users.
 
 ## Known limitations

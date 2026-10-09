@@ -82,6 +82,7 @@ type App struct {
 	addingPanel    *addToDashboard
 	savingModel    *saveModelForm
 	keys           *keysEditor
+	themes         []widgets.Theme // the built-in and the user's
 	newModel       *newModelForm
 	// fileLists are the projects' dashboards and models, by folder: a
 	// menu asks for them each frame it shows.
