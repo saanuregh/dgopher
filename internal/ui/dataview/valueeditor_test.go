@@ -42,7 +42,9 @@ func TestValueEditorForms(t *testing.T) {
 	a.OpenTable(cn, "", db.Object{Schema: "main", Name: "things", Kind: db.KindTable, Rows: -1}, PageData)
 	v := a.Tabs[0].(*TableTab).view
 	testutil.WaitFor(t, tt, "the rows", func() bool { return len(v.src.Rows) == 1 && v.columns != nil })
-	col := func(name string) int { return slices.IndexFunc(v.src.Cols, func(c db.ColumnInfo) bool { return c.Name == name }) }
+	col := func(name string) int {
+		return slices.IndexFunc(v.src.Cols, func(c db.ColumnInfo) bool { return c.Name == name })
+	}
 
 	openValueEditor(a, v.grid, &v.src, 0, col("due"))
 	e := a.Dialogs().valueEdit
