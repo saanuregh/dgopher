@@ -2,7 +2,6 @@ package query
 
 import (
 	"fmt"
-	"strings"
 	"unicode/utf8"
 
 	"dgopher/internal/keymap"
@@ -57,7 +56,7 @@ func (q *Tab) findView(c *ui.Context, fontSize float32) {
 // shows already.
 func (q *Tab) reveal(at int, fontSize float32) {
 	e := &q.Editor
-	line := strings.Count(string([]rune(e.Text)[:min(at, utf8.RuneCountInString(e.Text))]), "\n")
+	line := e.ViewLine(min(at, utf8.RuneCountInString(e.Text)))
 	lh := fontSize * editor.LineHeight
 	y := float32(line) * lh
 	if y < e.Scroll.Y || y > e.Scroll.Y+q.editorH-3*lh {

@@ -23,7 +23,6 @@ Next or Later are not repeated.
   - [DEFERRED] Import saved connections from other database clients.
   - [DEFERRED] Group connections in sub-folders or by tags.
 - **SQL editor:**
-  - Folding of code blocks.
 - **Data grid:**
 - **Schema:**
 - **Import, export and backup:**

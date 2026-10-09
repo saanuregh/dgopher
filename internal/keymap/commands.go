@@ -40,6 +40,10 @@ const (
 	CursorBelow    = "editor.cursorBelow"
 	SelectNext     = "editor.selectNext"
 	SelectAll      = "editor.selectAll"
+	Fold           = "editor.fold"
+	Unfold         = "editor.unfold"
+	FoldAll        = "editor.foldAll"
+	UnfoldAll      = "editor.unfoldAll"
 	ToggleResults  = "editor.toggleResults"
 	Save           = "editor.save"
 	SaveAs         = "editor.saveAs"
@@ -127,6 +131,10 @@ var Commands = []Command{
 	command(CursorBelow, Editor, "Add a caret on the line below", "Cmd+Alt+Down"),
 	command(SelectNext, Editor, "Select the word, then the next time it occurs, with a caret at each", "Cmd+D"),
 	command(SelectAll, Editor, "Select every time the word occurs, with a caret at each", "Cmd+Shift+L"),
+	command(Fold, Editor, "Fold the block the caret is in: a statement, a group in parentheses, a comment", "Cmd+Alt+["),
+	command(Unfold, Editor, "Open the fold the caret is on", "Cmd+Alt+]"),
+	command(FoldAll, Editor, "Fold every block", "Cmd+Alt+Shift+["),
+	command(UnfoldAll, Editor, "Open every fold", "Cmd+Alt+Shift+]"),
 	command(ToggleResults, Editor, "Between the editor and its results", "Cmd+J"),
 	command(Save, Editor, "Save the file now (it also saves as you type)", "Cmd+S"),
 	command(SaveAs, Editor, "Save the editor as a file", "Cmd+Shift+S"),

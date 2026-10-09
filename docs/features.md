@@ -223,6 +223,12 @@
     next whole occurrence, and ⌘⇧L every one. What is typed, deleted or
     completed at the editor's caret is done at each; the arrows, Home and
     End move them all, and Esc leaves the editor's own.
+  - Folding: a statement, a group in parentheses or a block comment
+    over several lines folds to its first line and a ⋯, by the gutter's
+    ▾ and ▸, or ⌘⌥[ and ⌘⌥] at the caret (with ⇧, every block). What is
+    folded stays in the text, and runs; typing over a ⋯ takes its lines
+    with it, a find or go to inside a fold opens it, and the app's own
+    changes, Vim's keys and several carets open the folds.
   - Vim key bindings (Settings → Editor keys): normal, insert, visual and
     visual line modes, with a block caret and the mode under the editor;
     counts; the motions h j k l w b e W B E 0 ^ $ gg G f F t T ; , % { }

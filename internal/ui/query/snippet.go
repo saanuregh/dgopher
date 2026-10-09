@@ -212,18 +212,26 @@ func (q *Tab) snippetKey(mods ui.Modifiers, key ui.Key) bool {
 }
 
 // editorKey takes the keys of the completion popup, then of a snippet's
-// fields, then of the carets, before the editor does.
+// fields, then of the commands on the text, before the editor does.
 func (q *Tab) editorKey(mods ui.Modifiers, key ui.Key) bool {
-	return q.completionKey(mods, key) || q.snippetKey(mods, key) || q.caretKey(mods, key)
+	return q.completionKey(mods, key) || q.snippetKey(mods, key) || q.textKey(mods, key)
 }
 
-// caretKey takes the keys adding carets, which the text area would take
-// as its own moves before a shortcut could.
-func (q *Tab) caretKey(mods ui.Modifiers, key ui.Key) bool {
+// textKey takes the keys of the carets and of folding, which the text
+// area would take as its own moves before a shortcut could.
+func (q *Tab) textKey(mods ui.Modifiers, key ui.Key) bool {
 	e := &q.Editor
 	switch {
 	case e.Vim != nil:
 		return false
+	case keymap.Is(keymap.Fold, mods, key):
+		e.Fold()
+	case keymap.Is(keymap.Unfold, mods, key):
+		e.Unfold()
+	case keymap.Is(keymap.FoldAll, mods, key):
+		e.FoldAll()
+	case keymap.Is(keymap.UnfoldAll, mods, key):
+		e.UnfoldAll()
 	case keymap.Is(keymap.CursorAbove, mods, key):
 		e.AddCursor(-1)
 	case keymap.Is(keymap.CursorBelow, mods, key):

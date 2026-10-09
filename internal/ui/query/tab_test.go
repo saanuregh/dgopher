@@ -464,3 +464,57 @@ func TestCursors(t *testing.T) {
 		t.Fatalf("after Esc, typed at %q", q.Editor.Text)
 	}
 }
+
+// A block folds to its first line and a mark, the text whole beneath;
+// typing before it moves it, a selection set inside it opens it, and a
+// text the app changes opens every fold.
+func TestFolding(t *testing.T) {
+	a := newFakeQueryHost(t)
+	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1000, 700)
+	text := "select a,\n  b\nfrom t;\n\nselect 2;"
+	q := New(a, cn, "", "q", text)
+	q.Editor.PendingSel = &[2]int{0, 0}
+	a.AddTab(q)
+	testutil.WaitFor(t, tt, "the editor's focus", func() bool { return q.Editor.HasFocus })
+	step := func() {
+		tt.Frame()
+		tt.Frame()
+	}
+	tt.Key(ui.Cmd|ui.Alt, ui.KeyBracketLeft)
+	step()
+	if !q.Editor.Folded() || q.Editor.Text != text || q.Editor.ViewLine(len([]rune(text))) != 2 {
+		t.Fatalf("folded %v, text %q, last line shown at %d", q.Editor.Folded(), q.Editor.Text, q.Editor.ViewLine(len([]rune(text))))
+	}
+	testutil.Snapshot(t, tt, "folded")
+	tt.Type("x")
+	step()
+	if q.Editor.Text != "x"+text || !q.Editor.Folded() {
+		t.Fatalf("typed before the fold: %q, folded %v", q.Editor.Text, q.Editor.Folded())
+	}
+	q.Editor.PendingSel = &[2]int{14, 14}
+	step()
+	if q.Editor.Folded() || q.Editor.SelEnd != 14 {
+		t.Fatalf("a selection inside left it folded: %v, caret %d", q.Editor.Folded(), q.Editor.SelEnd)
+	}
+	// The caret after the block stays there as it folds and opens.
+	end := len([]rune(q.Editor.Text))
+	q.Editor.PendingSel = &[2]int{end, end}
+	step()
+	q.Editor.FoldAll()
+	step()
+	q.Editor.UnfoldAll()
+	step()
+	tt.Type("Z")
+	step()
+	if !strings.HasSuffix(q.Editor.Text, "select 2;Z") {
+		t.Fatalf("typed after folding and opening: %q", q.Editor.Text)
+	}
+	q.Editor.FoldAll()
+	step()
+	q.Editor.Text = "select 1;"
+	step()
+	if q.Editor.Folded() {
+		t.Fatal("the app's text kept the folds")
+	}
+}

@@ -70,6 +70,14 @@ type Editor struct {
 	// vimSel is the selection Vim last gave the text area, by which a
 	// caret the pointer moved is told from Vim's own.
 	vimSel [2]int
+	// folds are the blocks folded, in the text; while there are any, the
+	// text area shows shown, built from foldedText with builtFolds as
+	// builtShown: another text is the app's change, another shown the
+	// user's typing. blocks are the blocks of blocksOf that fold.
+	folds, builtFolds             folding
+	foldedText, shown, builtShown string
+	blocks                        []block
+	blocksOf                      string
 	// vimEscape is an Esc that ends typing, taken in the frame after.
 	vimEscape bool
 	// viewW and viewH are the size the editor showed in, for Vim to keep
@@ -120,9 +128,13 @@ func lineCol(text string, at int) (line, col int) {
 // text: the font is monospaced and lines do not wrap, so a rune's column
 // is where it shows.
 func (e *Editor) drawProblems(p *ui.Painter, r ui.Rect, textX, lh float32, c ui.Color) {
+	view := e.viewText()
 	for _, pr := range e.Problems {
-		line, col := lineCol(e.Text, pr.Start)
-		endLine, endCol := lineCol(e.Text, max(pr.End, pr.Start+1))
+		if len(e.folds) > 0 && e.folds.hides(pr.Start) {
+			continue
+		}
+		line, col := lineCol(view, e.toView(pr.Start))
+		endLine, endCol := lineCol(view, e.toView(max(pr.End, pr.Start+1)))
 		if endLine != line {
 			endCol = col + 1
 		}
@@ -172,6 +184,19 @@ func (e *Editor) highlight(pal *widgets.Palette) []ui.TextRange {
 }
 
 func (e *Editor) lineNumbers() string {
+	if len(e.folds) > 0 {
+		// The text's numbers of the lines that show.
+		var b strings.Builder
+		text := lineStarts([]rune(e.Text))
+		for i, at := range lineStarts([]rune(e.shown)) {
+			if i > 0 {
+				b.WriteByte('\n')
+			}
+			b.WriteString(strconv.Itoa(lineIndex(text, e.folds.toText(at, false)) + 1))
+		}
+		e.gutterLines, e.gutter = len(text), ""
+		return b.String()
+	}
 	n := strings.Count(e.Text, "\n") + 1
 	if n != e.gutterLines || e.gutter == "" {
 		var b strings.Builder
@@ -190,6 +215,15 @@ func (e *Editor) lineNumbers() string {
 	return e.gutter
 }
 
+// markersWidth is the width of the gutter's column of fold markers.
+func (e *Editor) markersWidth() float32 { return e.charW + 8 }
+
+// gutterWidth is the width of the gutter: its line numbers, and the fold
+// markers.
+func (e *Editor) gutterWidth() float32 {
+	return e.charW*float32(max(4, len(strconv.Itoa(e.gutterLines)))) + 22 + e.markersWidth()
+}
+
 // View builds the editor, which grows in its parent; it returns the text
 // area.
 func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
@@ -200,8 +234,11 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 		e.charW = w / 20
 	}
 	var area ui.Element
+	folded := e.syncFolds()
 	numbers := e.lineNumbers()
-	gutterW := e.charW*float32(max(4, len(strconv.Itoa(e.gutterLines)))) + 22
+	markers, foldAt := e.foldMarkers()
+	markersW := e.markersWidth()
+	gutterW := e.gutterWidth()
 	textX := gutterW + 12
 	// Vim's modes but insert take the keys in the container, which takes
 	// the text typed as keys, where the text area would type it.
@@ -228,6 +265,10 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 		// The statement a run would send, across the whole width.
 		if e.HasCurrent {
 			first, last := e.CurrentLines[0], e.CurrentLines[1]
+			if folded {
+				t := []rune(e.Text)
+				first, last = e.ViewLine(lineAt(t, 0, first)), e.ViewLine(lineAt(t, 0, last))
+			}
 			top := r.Y + 8 + float32(first)*lh - e.Scroll.Y
 			p.Fill(ui.Rect{X: r.X + gutterW, Y: top, W: r.W - gutterW, H: float32(last-first+1) * lh}, pal.CurrentStatement, 0)
 		}
@@ -258,11 +299,25 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 	box.Children(func() {
 		ui.Row(c).AlignItems(ui.Stretch).MinHeightPercent(100).MinWidthPercent(100).Children(func() {
 			ui.Text(c, numbers).Font(widgets.MonoFont).FontSize(fontSize).FixedLineHeight(lh).
-				TextColor(pal.LineNumber).TextAlign(ui.End).Padding(8, 10, 8, 12).
-				Width(gutterW).Unselectable()
-			area = ui.TextAreaBase(c, &e.Text).Font(widgets.MonoFont).FontSize(fontSize).FixedLineHeight(lh).
+				TextColor(pal.LineNumber).TextAlign(ui.End).Padding(8, 4, 8, 12).
+				Width(gutterW - markersW).Unselectable()
+			// A block's marker folds it, or opens it, as it is clicked.
+			marks := ui.Text(c, markers).Font(widgets.MonoFont).FontSize(fontSize).FixedLineHeight(lh).
+				TextColor(pal.LineNumber).Padding(8, 6, 8, 2).Width(markersW).Unselectable()
+			if marks.Clicked() {
+				if _, y, ok := marks.PointerPosition(); ok {
+					if b, ok := foldAt[int((y-8)/lh)]; ok {
+						e.toggleFold(b)
+					}
+				}
+			}
+			bound := &e.Text
+			if folded {
+				bound = &e.shown
+			}
+			area = ui.TextAreaBase(c, bound).Font(widgets.MonoFont).FontSize(fontSize).FixedLineHeight(lh).
 				NoWrap().Padding(8, 12).Grow(1).MinWidth(float32(e.longest+2)*e.charW + 24).Label("SQL editor")
-			area.TextRanges(overlay(e.highlight(pal), e.Marks)...)
+			area.TextRanges(e.foldRanges(overlay(e.highlight(pal), e.Marks), pal.Muted)...)
 			area.HandleInput(func(ev ui.InputEvent) bool {
 				if ev.Kind != ui.InputKeyDown {
 					return false
@@ -297,7 +352,7 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 				}
 			}
 			if e.PendingSel != nil {
-				area.SetTextSelection(e.PendingSel[0], e.PendingSel[1])
+				area.SetTextSelection(e.toView(e.PendingSel[0]), e.toView(e.PendingSel[1]))
 				e.PendingSel = nil
 			} else if commands {
 				e.vimSync(area.TextSelection())
@@ -311,6 +366,16 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 				area.Focus()
 			}
 			e.SelStart, e.SelEnd = area.TextSelection()
+			if folded {
+				// Each end rounded outward, the selection whichever way.
+				lo, hi := min(e.SelStart, e.SelEnd), max(e.SelStart, e.SelEnd)
+				lo, hi = e.folds.toText(lo, false), e.folds.toText(hi, hi > lo)
+				if e.SelStart <= e.SelEnd {
+					e.SelStart, e.SelEnd = lo, hi
+				} else {
+					e.SelStart, e.SelEnd = hi, lo
+				}
+			}
 			e.HasFocus = area.Focused() || vim != nil && box.Focused()
 			if vim == nil {
 				e.followCursors(c, area, was)
@@ -336,10 +401,10 @@ func (e *Editor) Selection() string {
 // CaretXY is where the caret is in the editor's content, before its
 // scrolling, in DIPs from the content's top left.
 func (e *Editor) CaretXY(fontSize float32) (x, y float32) {
-	caret := e.SelEnd
+	caret := e.toView(e.SelEnd)
 	line, col := 0, 0
 	i := 0
-	for _, r := range e.Text {
+	for _, r := range e.viewText() {
 		if i == caret {
 			break
 		}
@@ -351,8 +416,7 @@ func (e *Editor) CaretXY(fontSize float32) (x, y float32) {
 		}
 		i++
 	}
-	gutter := e.charW*float32(max(4, len(strconv.Itoa(e.gutterLines)))) + 22
-	return gutter + 12 + float32(col)*e.charW, 8 + float32(line+1)*fontSize*LineHeight
+	return e.gutterWidth() + 12 + float32(col)*e.charW, 8 + float32(line+1)*fontSize*LineHeight
 }
 
 // Replace replaces runes [start, end) of the text and puts the caret
@@ -361,6 +425,13 @@ func (e *Editor) Replace(start, end int, s string) {
 	r := []rune(e.Text)
 	start, end = max(0, min(start, len(r))), max(0, min(end, len(r)))
 	e.Text = string(r[:start]) + s + string(r[end:])
+	if len(e.folds) > 0 {
+		// The folds it does not touch stay folded.
+		n := utf8.RuneCountInString(s)
+		e.folds = e.folds.edited(start, end, n)
+		e.builtFolds = e.builtFolds.edited(start, end, n)
+		e.foldedText = e.Text
+	}
 	at := start + utf8.RuneCountInString(s)
 	e.PendingSel = &[2]int{at, at}
 }

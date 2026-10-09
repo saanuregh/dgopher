@@ -1253,7 +1253,7 @@ func (e *Editor) revealCaret(at int, lh float32) {
 	case y+2*lh > e.Scroll.Y+e.viewH:
 		e.Scroll.Y = y + 2*lh - e.viewH
 	}
-	textW := e.viewW - e.charW*float32(max(4, len(strconv.Itoa(e.gutterLines)))) - 46
+	textW := e.viewW - e.gutterWidth() - 24
 	switch {
 	case x < e.Scroll.X:
 		e.Scroll.X = max(0, x-4*e.charW)
