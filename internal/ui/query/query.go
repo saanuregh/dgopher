@@ -96,6 +96,10 @@ type Tab struct {
 	// DiskConflict says why the file is not saved as typed: it changed or
 	// went on disk since the editor read it, as by a git pull.
 	DiskConflict string
+	// The statements' starts, and their first lines, in linesText.
+	linesText  string
+	stmtStarts []int
+	stmtLines  []int
 	// The statement under the caret, as currentStatement last found it.
 	stmtText  string
 	stmtKey   [2]int
@@ -451,9 +455,42 @@ func (q *Tab) refuseAnotherConnection() bool {
 	return true
 }
 
-// runStatement runs the statement at the caret, as the editor's run
-// button does.
+// runStatement runs the statement at the caret.
 func (q *Tab) runStatement() { q.Run(RunStatement) }
+
+// statementLines are the first lines of the text's statements, which
+// have run buttons, found again as the text changes.
+func (q *Tab) statementLines() []int {
+	if q.Editor.Text == q.linesText && q.stmtStarts != nil {
+		return q.stmtLines
+	}
+	q.linesText, q.stmtStarts, q.stmtLines = q.Editor.Text, []int{}, nil
+	text := []rune(q.Editor.Text)
+	line, at := 0, 0 // the line of rune at, counted once through the text
+	for _, st := range sqltext.SplitWith(q.Editor.Text, q.Editor.Dialect, SplitOptions(q.a.Settings())) {
+		for ; at < st.Start && at < len(text); at++ {
+			if text[at] == '\n' {
+				line++
+			}
+		}
+		q.stmtStarts = append(q.stmtStarts, st.Start)
+		q.stmtLines = append(q.stmtLines, line)
+	}
+	return q.stmtLines
+}
+
+// runLine runs the statement starting on a line, as its run button does,
+// with the caret put in it: the result is the one of the statement at
+// the caret.
+func (q *Tab) runLine(line int) {
+	i := slices.Index(q.stmtLines, line)
+	if i < 0 {
+		return
+	}
+	at := q.stmtStarts[i]
+	q.Editor.SelStart, q.Editor.SelEnd, q.Editor.PendingSel = at, at, &[2]int{at, at}
+	q.runStatement()
+}
 
 // Run runs statements of the editor, through the safety policy, once
 // the results it replaces have no changes pending.
@@ -1120,10 +1157,8 @@ func (q *Tab) View(c *ui.Context) {
 				q.findView(c, a.Settings().EditorFont)
 				_, _, ok := q.currentStatement()
 				q.Editor.HasCurrent = ok && q.Editor.HasFocus
-				q.Editor.Run, q.Editor.RunTip = nil, keymap.Hint("Run the statement", keymap.Run)
-				if ok {
-					q.Editor.Run = q.runStatement
-				}
+				q.Editor.Run, q.Editor.RunTip = q.runLine, keymap.Hint("Run the statement", keymap.Run)
+				q.Editor.RunLines = q.statementLines()
 				q.checkProblems()
 				q.syncVim()
 				q.Editor.View(c, a.Settings().EditorFont).ContextMenu(q.editorMenu)

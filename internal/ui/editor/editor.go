@@ -48,11 +48,12 @@ type Editor struct {
 	// statement a run would send, shown behind them when hasCurrent.
 	CurrentLines [2]int
 	HasCurrent   bool
-	// Run, when set, runs the statement of CurrentLines, from a button on
-	// its first line in the gutter, shown with or without the focus;
-	// RunTip names it.
-	Run    func()
-	RunTip string
+	// RunLines are the first lines, 0-based, of the text's statements,
+	// each with a button in the gutter that calls Run with its line, shown
+	// with or without the focus; RunTip names it.
+	RunLines []int
+	Run      func(line int)
+	RunTip   string
 	// Problems are marked with a wavy line under their text.
 	Problems []Problem
 	// Vim, when set, edits with Vim's keys.
@@ -230,13 +231,16 @@ func (e *Editor) lineNumbers() string {
 // currentViewLines are the first and last lines, as the editor shows
 // them, of the current statement.
 func (e *Editor) currentViewLines(folded bool) (int, int) {
-	first, last := e.CurrentLines[0], e.CurrentLines[1]
-	if folded {
-		starts := e.textLines().starts
-		lineAt := func(line int) int { return starts[max(0, min(line, len(starts)-1))] }
-		first, last = e.ViewLine(lineAt(first)), e.ViewLine(lineAt(last))
+	return e.viewLineOf(e.CurrentLines[0], folded), e.viewLineOf(e.CurrentLines[1], folded)
+}
+
+// viewLineOf is the line, as the editor shows it, of a line of the text.
+func (e *Editor) viewLineOf(line int, folded bool) int {
+	if !folded {
+		return line
 	}
-	return first, last
+	starts := e.textLines().starts
+	return e.ViewLine(starts[max(0, min(line, len(starts)-1))])
 }
 
 // markersWidth is the width of the gutter's column of fold markers.
@@ -402,19 +406,36 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 			}
 		})
 		if e.Run != nil {
-			// The current statement's run button, on its first line in the
-			// gutter's margin, before the line numbers.
-			first, _ := e.currentViewLines(folded)
-			run := ui.Box(c).Absolute().Left(2).Top(8+float32(first)*lh).Size(14, lh).Center().
-				Label(e.RunTip).Tooltip(e.RunTip).Cursor(ui.CursorPointer)
-			run.Children(func() { ui.Icon(c, widgets.IconPlay).FontSize(fontSize * 0.85).TextColor(c.Theme().Success) })
-			if run.Clicked() {
-				e.Run()
-				e.WantFocus = true
-			}
+			e.runButtons(c, folded, lh, fontSize)
 		}
 	})
 	return area
+}
+
+// runButtons draws the statements' run buttons, on their first lines in
+// the gutter's margin, before the line numbers: those in sight alone, as
+// a long script has many. A statement inside a fold has none.
+func (e *Editor) runButtons(c *ui.Context, folded bool, lh, fontSize float32) {
+	top := int((e.Scroll.Y - 8) / lh)
+	bottom := int((e.Scroll.Y+e.viewH)/lh) + 1
+	shown := -1
+	for _, line := range e.RunLines {
+		view := e.viewLineOf(line, folded)
+		if view < top || view == shown || folded && e.textLineOf(view) != line {
+			continue
+		}
+		if view > bottom {
+			break
+		}
+		shown = view
+		run := ui.Box(c.Key(line)).Absolute().Left(2).Top(8+float32(view)*lh).Size(14, lh).Center().
+			Label(e.RunTip).Tooltip(e.RunTip).Cursor(ui.CursorPointer)
+		run.Children(func() { ui.Icon(c, widgets.IconPlay).FontSize(fontSize * 0.85).TextColor(c.Theme().Success) })
+		if run.Clicked() {
+			e.Run(line)
+			e.WantFocus = true
+		}
+	}
 }
 
 // Selection returns the selected text, "" when nothing is selected.

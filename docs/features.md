@@ -270,8 +270,8 @@
     next whole occurrence, and ⌘⇧L every one. What is typed, deleted or
     completed at the editor's caret is done at each; the arrows, Home and
     End move them all, and Esc leaves the editor's own.
-  - A ▶ in the gutter, on the first line of the statement at the caret,
-    runs it, as ⌘↵ does.
+  - A ▶ in the gutter, on the first line of each statement, puts the
+    caret in it and runs it, as ⌘↵ does.
   - Folding: a statement, a group in parentheses or a block comment
     over several lines folds to its first line and a ⋯, by the gutter's
     ▾ and ▸, or ⌘⌥[ and ⌘⌥] at the caret (with ⇧, every block). What is

@@ -356,6 +356,14 @@ func (e *Editor) ViewLine(at int) int {
 	return line
 }
 
+// textLineOf is the line of the text that a line the editor shows starts
+// on.
+func (e *Editor) textLineOf(view int) int {
+	starts := e.viewLines().starts
+	line, _ := e.textLines().lineCol(e.folds.toText(starts[max(0, min(view, len(starts)-1))], false))
+	return line
+}
+
 // foldRanges are the text's colored runs as they show folded: those in a
 // fold left out, and the marks muted.
 func (e *Editor) foldRanges(ranges []ui.TextRange, muted ui.Color) []ui.TextRange {

@@ -739,12 +739,15 @@ func TestGutterRunButton(t *testing.T) {
 	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1000, 700)
 	q := newEditor(t, a, tt, cn, "SELECT 1;\n\nSELECT 2 AS two;")
-	testutil.SetCaret(tt, &q.Editor, 12)
 	tt.Frame()
+	// Every statement has one, the caret anywhere; the second runs its own.
 	tip := keymap.Hint("Run the statement", keymap.Run)
-	if err := tt.Click(tip); err != nil {
-		t.Fatalf("no run button: %v", err)
+	if n := slices.Index(tt.Texts(), tip); n < 0 || slices.Index(tt.Texts()[n+1:], tip) < 0 {
+		t.Fatalf("not a run button for each statement: %q", tt.Texts())
 	}
+	testutil.Snapshot(t, tt, "run-buttons")
+	first, _ := tt.Find(tip)
+	tt.ClickAt(first.X+first.W/2, first.Y+first.H/2+2*first.H) // line 3's
 	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running && len(q.results) == 1 })
 	if cols := q.results[0].view.Columns(); len(cols) != 1 || cols[0].Name != "two" {
 		t.Fatalf("ran another statement: %v", cols)
