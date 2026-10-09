@@ -19,7 +19,7 @@ func OpenItemDefinition(a Host, cn *connection.Conn, database string, it db.Item
 		d, err := poolOf(ctx)
 		var def string
 		if err == nil {
-			def, err = d.Dialect.ItemDDL(ctx, d.SQL, it)
+			def, err = d.Dialect.ItemDDL(ctx, d.Catalog(), it)
 		}
 		return func() {
 			if err != nil {

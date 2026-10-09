@@ -105,7 +105,7 @@ var ReferentialActions = []string{"NO ACTION", "RESTRICT", "CASCADE", "SET NULL"
 // ReadTableDesign reads a table as the table form changes it.
 func ReadTableDesign(ctx context.Context, d *DB, obj Object) (TableDesign, error) {
 	t := TableDesign{Schema: obj.Schema, Name: obj.Name, Comment: obj.Comment}
-	dl, q := d.Dialect, d.SQL
+	dl, q := d.Dialect, d.Catalog()
 	cols, err := dl.Columns(ctx, q, obj.Schema, obj.Name)
 	if err != nil {
 		return t, err
@@ -163,7 +163,7 @@ var checkClause = regexp.MustCompile(`(?is)^CHECK\s*\((.*)\)(\s+NOT VALID)?$`)
 // indexes are constraints.
 func readPostgresDesign(ctx context.Context, d *DB, t *TableDesign) error {
 	name := QualifiedName(d.Dialect, t.Schema, t.Name)
-	err := scanRows(ctx, d.SQL, `SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
+	err := scanRows(ctx, d.Catalog(), `SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
 WHERE conrelid = $1::regclass AND contype = 'c' ORDER BY conname`, []any{name}, func(scan func(...any) error) error {
 		var c CheckDesign
 		var def string
@@ -180,7 +180,7 @@ WHERE conrelid = $1::regclass AND contype = 'c' ORDER BY conname`, []any{name}, 
 	if err != nil {
 		return err
 	}
-	unique, err := queryStrings(ctx, d.SQL, `SELECT conname FROM pg_constraint WHERE conrelid = $1::regclass AND contype = 'u'`, name)
+	unique, err := queryStrings(ctx, d.Catalog(), `SELECT conname FROM pg_constraint WHERE conrelid = $1::regclass AND contype = 'u'`, name)
 	for i := range t.Indexes {
 		t.Indexes[i].Constraint = slices.Contains(unique, t.Indexes[i].Name)
 	}
@@ -190,7 +190,7 @@ WHERE conrelid = $1::regclass AND contype = 'c' ORDER BY conname`, []any{name}, 
 // readMySQLDesign reads the check constraints, and each column's default
 // as an expression and what else MySQL keeps of it.
 func readMySQLDesign(ctx context.Context, d *DB, t *TableDesign) error {
-	err := scanRows(ctx, d.SQL, `SELECT COLUMN_NAME, DATA_TYPE, COLUMN_DEFAULT, EXTRA, COALESCE(CHARACTER_SET_NAME, ''), COALESCE(COLLATION_NAME, ''),
+	err := scanRows(ctx, d.Catalog(), `SELECT COLUMN_NAME, DATA_TYPE, COLUMN_DEFAULT, EXTRA, COALESCE(CHARACTER_SET_NAME, ''), COALESCE(COLLATION_NAME, ''),
   COALESCE(GENERATION_EXPRESSION, '')
 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION`, []any{t.Schema, t.Name},
 		func(scan func(...any) error) error {
@@ -223,7 +223,7 @@ FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER 
 	if err != nil {
 		return err
 	}
-	return scanRows(ctx, d.SQL, `SELECT cc.CONSTRAINT_NAME, cc.CHECK_CLAUSE
+	return scanRows(ctx, d.Catalog(), `SELECT cc.CONSTRAINT_NAME, cc.CHECK_CLAUSE
 FROM information_schema.TABLE_CONSTRAINTS tc
 JOIN information_schema.CHECK_CONSTRAINTS cc ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
 WHERE tc.TABLE_SCHEMA = ? AND tc.TABLE_NAME = ? AND tc.CONSTRAINT_TYPE = 'CHECK' ORDER BY cc.CONSTRAINT_NAME`, []any{t.Schema, t.Name},
@@ -263,7 +263,7 @@ func mysqlDefault(def *string, dataType, extra string) string {
 }
 
 func readDuckDBChecks(ctx context.Context, d *DB, t *TableDesign) error {
-	return scanRows(ctx, d.SQL, `SELECT COALESCE(constraint_name, ''), expression FROM duckdb_constraints()
+	return scanRows(ctx, d.Catalog(), `SELECT COALESCE(constraint_name, ''), expression FROM duckdb_constraints()
 WHERE database_name = current_database() AND schema_name = ? AND table_name = ? AND constraint_type = 'CHECK'`, []any{t.Schema, t.Name},
 		func(scan func(...any) error) error {
 			var c CheckDesign

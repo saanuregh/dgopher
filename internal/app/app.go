@@ -72,12 +72,14 @@ type App struct {
 	newProject  *newProjectForm
 	renaming    *renameForm
 	generating  *generateState
-	quitting    bool // the user agreed to what quitting loses
-	idleWarn    *idleWarning
-	auditView   *auditState
-	snippetForm *snippetForm
-	history     *historyState
-	toast       *pendingToast
+	// catalogQueries shows the catalog queries of a connection.
+	catalogQueries *catalogView
+	quitting       bool // the user agreed to what quitting loses
+	idleWarn       *idleWarning
+	auditView      *auditState
+	snippetForm    *snippetForm
+	history        *historyState
+	toast          *pendingToast
 
 	settingsOpen  bool
 	shortcutsOpen bool

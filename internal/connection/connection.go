@@ -124,10 +124,10 @@ func LoadSchemas(r Runner, cn *Conn, database string, then func()) {
 		var schemas, dbs []string
 		var current string
 		if err == nil {
-			schemas, err = d.Dialect.Schemas(ctx, d.SQL)
-			current, _ = d.Dialect.CurrentSchema(ctx, d.SQL)
+			schemas, err = d.Dialect.Schemas(ctx, d.Catalog())
+			current, _ = d.Dialect.CurrentSchema(ctx, d.Catalog())
 			if database == "" {
-				dbs, _ = d.Dialect.Databases(ctx, d.SQL)
+				dbs, _ = d.Dialect.Databases(ctx, d.Catalog())
 			}
 		}
 		return func() {
@@ -163,7 +163,7 @@ func LoadObjects(r Runner, cn *Conn, database, schema string) {
 		d, err := poolOf(ctx)
 		var objs []db.Object
 		if err == nil {
-			objs, err = d.Dialect.Objects(ctx, d.SQL, schema)
+			objs, err = d.Dialect.Objects(ctx, d.Catalog(), schema)
 		}
 		return func() {
 			delete(cn.Loading, key)
@@ -199,7 +199,7 @@ func LoadItems(r Runner, cn *Conn, database, schema string) {
 		d, err := poolOf(ctx)
 		var items []db.Item
 		if err == nil {
-			items, err = d.Dialect.Items(ctx, d.SQL, schema)
+			items, err = d.Dialect.Items(ctx, d.Catalog(), schema)
 		}
 		return func() {
 			delete(cn.Loading, itemsKey(key))
@@ -241,7 +241,7 @@ func LoadColumns(r Runner, cn *Conn, database, schema, name string, then func([]
 		d, err := poolOf(ctx)
 		var cols []db.Column
 		if err == nil {
-			cols, err = d.Dialect.Columns(ctx, d.SQL, schema, name)
+			cols, err = d.Dialect.Columns(ctx, d.Catalog(), schema, name)
 		}
 		return func() {
 			delete(cn.Loading, key)

@@ -145,13 +145,13 @@ func (t *TableTab) loadMeta(then func()) {
 		var fks []db.ForeignKey
 		var ddl string
 		if err == nil {
-			cols, err = d.Dialect.Columns(ctx, d.SQL, obj.Schema, obj.Name)
+			cols, err = d.Dialect.Columns(ctx, d.Catalog(), obj.Schema, obj.Name)
 		}
 		if err == nil {
-			ixs, _ = d.Dialect.Indexes(ctx, d.SQL, obj.Schema, obj.Name)
-			fks, _ = d.Dialect.ForeignKeys(ctx, d.SQL, obj.Schema, obj.Name)
+			ixs, _ = d.Dialect.Indexes(ctx, d.Catalog(), obj.Schema, obj.Name)
+			fks, _ = d.Dialect.ForeignKeys(ctx, d.Catalog(), obj.Schema, obj.Name)
 			var derr error
-			ddl, derr = d.Dialect.DDL(ctx, d.SQL, obj.Schema, obj)
+			ddl, derr = d.Dialect.DDL(ctx, d.Catalog(), obj.Schema, obj)
 			if derr != nil {
 				ddl = "-- " + derr.Error()
 			}

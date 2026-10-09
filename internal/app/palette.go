@@ -71,6 +71,10 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 			if db.UsersSupported(active.Config.Engine) {
 				cmds = append(cmds, paletteItem{title: "Users and Privileges", detail: active.Config.Name, group: "Command", icon: widgets.IconUsers, run: func() { a.openUsers(active) }})
 			}
+			if active.Config.Engine.IsSQL() {
+				cmds = append(cmds, paletteItem{title: "Catalog Queries", detail: active.Config.Name + ", what the app reads on its own", group: "Command", icon: widgets.IconHistory,
+					run: func() { a.openCatalogQueries(active) }})
+			}
 			cmds = append(cmds, paletteItem{title: "Refresh Schema", detail: active.Config.Name, group: "Command", icon: widgets.IconRefresh, run: func() { a.refresh(active) }},
 				paletteItem{title: "Disconnect", detail: active.Config.Name, group: "Command", icon: widgets.IconUnplug, run: func() {
 					a.requestDisconnect("Disconnect "+active.Config.Name+"?", []*connection.Conn{active}, func() { a.disconnect(active) })

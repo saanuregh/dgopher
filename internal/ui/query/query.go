@@ -1214,7 +1214,7 @@ func (q *Tab) bindTable(v *dataview.Viewer, ref sqltext.TableRef, schema string)
 		if err == nil && !found {
 			// The schema's list may be older than the table.
 			var objs []db.Object
-			if objs, err = d.Dialect.Objects(ctx, d.SQL, schema); err == nil {
+			if objs, err = d.Dialect.Objects(ctx, d.Catalog(), schema); err == nil {
 				obj, found = findObject(objs, ref.Name, ref.Quoted, engine)
 			}
 		}
@@ -1224,8 +1224,8 @@ func (q *Tab) bindTable(v *dataview.Viewer, ref sqltext.TableRef, schema string)
 			if obj.Schema == "" {
 				obj.Schema = schema
 			}
-			if cols, err = d.Dialect.Columns(ctx, d.SQL, obj.Schema, obj.Name); err == nil {
-				fks, _ = d.Dialect.ForeignKeys(ctx, d.SQL, obj.Schema, obj.Name)
+			if cols, err = d.Dialect.Columns(ctx, d.Catalog(), obj.Schema, obj.Name); err == nil {
+				fks, _ = d.Dialect.ForeignKeys(ctx, d.Catalog(), obj.Schema, obj.Name)
 			}
 		}
 		return func() {

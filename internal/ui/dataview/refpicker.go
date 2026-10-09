@@ -78,7 +78,7 @@ func (v *Viewer) openRefPicker(row, col int, fk db.ForeignKey) {
 		d, err := poolOf(ctx)
 		var cols []db.Column
 		if err == nil {
-			cols, err = d.Dialect.Columns(ctx, d.SQL, schema, fk.RefTable)
+			cols, err = d.Dialect.Columns(ctx, d.Catalog(), schema, fk.RefTable)
 		}
 		return func() {
 			if err != nil {

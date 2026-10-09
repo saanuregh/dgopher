@@ -588,6 +588,9 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		if db.UsersSupported(cn.Config.Engine) && m.Item("Users and Privileges").Chosen() {
 			a.openUsers(cn)
 		}
+		if cn.Config.Engine.IsSQL() && m.Item("Catalog Queries").Disabled(cn.DB == nil).Chosen() {
+			a.openCatalogQueries(cn)
+		}
 		m.Separator()
 		if m.Item("Edit Connection…").Chosen() {
 			a.openConnForm(cn)
@@ -740,7 +743,7 @@ func (a *App) openExportTables(cn *connection.Conn, database, schema string) {
 		d, err := poolOf(ctx)
 		var objs []db.Object
 		if err == nil {
-			objs, err = d.Dialect.Objects(ctx, d.SQL, schema)
+			objs, err = d.Dialect.Objects(ctx, d.Catalog(), schema)
 		}
 		return func() {
 			if err != nil {

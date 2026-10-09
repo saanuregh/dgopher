@@ -73,7 +73,7 @@ func Search(ctx context.Context, d *DB, text string, definitions bool) ([]Search
 	case DuckDB:
 		query, args = duckdbSearch, []any{text, definitions}
 	case SQLite:
-		schemas, err := d.Dialect.Schemas(ctx, d.SQL)
+		schemas, err := d.Dialect.Schemas(ctx, d.Catalog())
 		if err != nil {
 			return nil, false, err
 		}
@@ -90,7 +90,7 @@ WHERE instr(lower(name), ?) > 0 OR (? AND instr(lower(def), ?) > 0)`
 	}
 	query += " ORDER BY 1, 3, 4 LIMIT " + strconv.Itoa(SearchLimit+1)
 	var hits []SearchHit
-	err := scanRows(ctx, d.SQL, query, args, func(scan func(...any) error) error {
+	err := scanRows(ctx, d.Catalog(), query, args, func(scan func(...any) error) error {
 		var h SearchHit
 		var tableKind, def string
 		if err := scan(&h.Schema, &h.Kind, &h.Name, &h.Table, &tableKind, &h.Detail, &h.ID, &def); err != nil {

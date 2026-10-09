@@ -1640,6 +1640,21 @@ func TestGenerateScript(t *testing.T) {
 	}
 }
 
+// The catalog queries the app runs for the navigator show, the newest
+// first.
+func TestCatalogQueries(t *testing.T) {
+	a := newTestApp(t)
+	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1200, 800)
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	connection.LoadObjects(a, cn, "", "main")
+	testutil.WaitFor(t, tt, "the tables", func() bool { _, ok := cn.Objects[connection.SchemaKey{Schema: "main"}]; return ok })
+	a.openCatalogQueries(cn)
+	testutil.WaitFor(t, tt, "the log", func() bool { return testutil.HasTextContaining(tt, "FROM \"main\".sqlite_master") })
+	testutil.Snapshot(t, tt, "catalog-queries")
+}
+
 // Users are made, granted, taken back from and dropped from their tab;
 // a password shows nowhere: not in the confirmation, the audit log or a
 // file.

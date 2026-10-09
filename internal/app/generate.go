@@ -81,10 +81,10 @@ func (a *App) openGenerate(cn *connection.Conn, database, schema string, output 
 		var objs []db.Object
 		var items []db.Item
 		if err == nil {
-			objs, err = d.Dialect.Objects(ctx, d.SQL, schema)
+			objs, err = d.Dialect.Objects(ctx, d.Catalog(), schema)
 		}
 		if err == nil {
-			items, err = d.Dialect.Items(ctx, d.SQL, schema)
+			items, err = d.Dialect.Items(ctx, d.Catalog(), schema)
 		}
 		return func() {
 			g.loading = false

@@ -89,6 +89,9 @@ func (a *App) view(c *ui.Context) {
 	if a.generating != nil {
 		a.generateView(c)
 	}
+	if a.catalogQueries != nil {
+		a.catalogQueriesView(c)
+	}
 	query.DialogsView(a, c)
 	dataview.DialogsView(a, c)
 	a.checkIdleTransactions(c)

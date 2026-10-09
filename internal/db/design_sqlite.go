@@ -14,7 +14,7 @@ import (
 // its CREATE TABLE: its checks, which column is AUTOINCREMENT, and what a
 // rebuild could not keep; and its foreign keys' actions.
 func readSQLiteDesign(ctx context.Context, d *DB, t *TableDesign) error {
-	create, err := queryString(ctx, d.SQL, `SELECT sql FROM `+d.Dialect.Quote(t.Schema)+`.sqlite_master WHERE type = 'table' AND name = ?`, t.Name)
+	create, err := queryString(ctx, d.Catalog(), `SELECT sql FROM `+d.Dialect.Quote(t.Schema)+`.sqlite_master WHERE type = 'table' AND name = ?`, t.Name)
 	if err != nil {
 		return err
 	}
@@ -32,7 +32,7 @@ func readSQLiteDesign(ctx context.Context, d *DB, t *TableDesign) error {
 	}
 	i := -1
 	last := int64(-1)
-	return scanRows(ctx, d.SQL, `SELECT id, on_update, on_delete FROM pragma_foreign_key_list(?, ?) ORDER BY id, seq`, []any{t.Name, t.Schema},
+	return scanRows(ctx, d.Catalog(), `SELECT id, on_update, on_delete FROM pragma_foreign_key_list(?, ?) ORDER BY id, seq`, []any{t.Name, t.Schema},
 		func(scan func(...any) error) error {
 			var id int64
 			var onUpdate, onDelete string

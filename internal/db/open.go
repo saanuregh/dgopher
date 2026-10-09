@@ -57,6 +57,8 @@ type DB struct {
 
 	mu        sync.Mutex
 	databases map[string]*DB // other databases of a PostgreSQL server
+
+	catalog catalogLog
 }
 
 // route is a local port leading to the server: an SSH tunnel's or a

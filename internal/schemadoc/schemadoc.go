@@ -85,14 +85,14 @@ send:
 func readTable(ctx context.Context, d *db.DB, o db.Object, structure bool) Table {
 	t := Table{Object: o}
 	var err error
-	t.Definition, err = d.Dialect.DDL(ctx, d.SQL, o.Schema, o)
+	t.Definition, err = d.Dialect.DDL(ctx, d.Catalog(), o.Schema, o)
 	if err == nil && structure {
-		t.Columns, err = d.Dialect.Columns(ctx, d.SQL, o.Schema, o.Name)
+		t.Columns, err = d.Dialect.Columns(ctx, d.Catalog(), o.Schema, o.Name)
 	}
 	if err == nil && structure && o.Kind == db.KindTable {
-		if t.Indexes, err = d.Dialect.Indexes(ctx, d.SQL, o.Schema, o.Name); err == nil {
-			if t.ForeignKeys, err = d.Dialect.ForeignKeys(ctx, d.SQL, o.Schema, o.Name); err == nil {
-				t.ReferencedBy, err = d.Dialect.ReferencedBy(ctx, d.SQL, o.Schema, o.Name)
+		if t.Indexes, err = d.Dialect.Indexes(ctx, d.Catalog(), o.Schema, o.Name); err == nil {
+			if t.ForeignKeys, err = d.Dialect.ForeignKeys(ctx, d.Catalog(), o.Schema, o.Name); err == nil {
+				t.ReferencedBy, err = d.Dialect.ReferencedBy(ctx, d.Catalog(), o.Schema, o.Name)
 			}
 		}
 	}
@@ -103,7 +103,7 @@ func readTable(ctx context.Context, d *db.DB, o db.Object, structure bool) Table
 }
 
 func readItem(ctx context.Context, d *db.DB, it db.Item) Item {
-	def, err := d.Dialect.ItemDDL(ctx, d.SQL, it)
+	def, err := d.Dialect.ItemDDL(ctx, d.Catalog(), it)
 	out := Item{Item: it, Definition: def}
 	if err != nil {
 		out.Err = err.Error()

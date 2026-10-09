@@ -30,8 +30,6 @@ Next or Later are not repeated.
     once, and folding of code blocks.
   - Two editors side by side, and more than one window.
   - Build a query by choosing tables and columns instead of typing SQL.
-  - Show the catalog queries the app runs by itself. The audit log
-    already records statements, grid edits, imports and commands.
 - **Query plans:**
   - Draw the plan of a query as a tree or a flame graph instead of a
     table of rows.

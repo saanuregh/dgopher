@@ -19,7 +19,7 @@ func EnumValues(ctx context.Context, d *DB, typ string) ([]string, error) {
 	typ = strings.TrimSpace(typ)
 	switch d.Dialect.Engine() {
 	case Postgres:
-		return queryStrings(ctx, d.SQL, `SELECT enumlabel FROM pg_enum WHERE enumtypid = to_regtype($1) ORDER BY enumsortorder`, typ)
+		return queryStrings(ctx, d.Catalog(), `SELECT enumlabel FROM pg_enum WHERE enumtypid = to_regtype($1) ORDER BY enumsortorder`, typ)
 	case ClickHouse:
 		for {
 			m := wrapped.FindStringSubmatch(typ)

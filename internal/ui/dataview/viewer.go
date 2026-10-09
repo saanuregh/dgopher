@@ -1393,7 +1393,7 @@ func (v *Viewer) loadRefs(then func()) {
 		defer cancel()
 		refs := []db.Reference{}
 		if d, err := poolOf(ctx); err == nil {
-			if found, err := d.Dialect.ReferencedBy(ctx, d.SQL, schema, name); err == nil {
+			if found, err := d.Dialect.ReferencedBy(ctx, d.Catalog(), schema, name); err == nil {
 				refs = found
 			}
 		}

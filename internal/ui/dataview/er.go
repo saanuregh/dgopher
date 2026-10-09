@@ -93,7 +93,7 @@ func (e *ERTab) load() {
 			tables, err = loadNeighbours(ctx, d, *focus)
 		} else if err == nil {
 			var objs []db.Object
-			objs, err = d.Dialect.Objects(ctx, d.SQL, schema)
+			objs, err = d.Dialect.Objects(ctx, d.Catalog(), schema)
 			objs = connection.SortedObjects(objs, false)
 			if len(objs) > erMaxTables {
 				more = len(objs) - erMaxTables
@@ -104,9 +104,9 @@ func (e *ERTab) load() {
 					break
 				}
 				t := &erTable{schema: schema, obj: o}
-				t.cols, err = d.Dialect.Columns(ctx, d.SQL, schema, o.Name)
+				t.cols, err = d.Dialect.Columns(ctx, d.Catalog(), schema, o.Name)
 				if err == nil {
-					t.fks, _ = d.Dialect.ForeignKeys(ctx, d.SQL, schema, o.Name)
+					t.fks, _ = d.Dialect.ForeignKeys(ctx, d.Catalog(), schema, o.Name)
 				}
 				tables = append(tables, t)
 			}
@@ -447,10 +447,10 @@ func loadNeighbours(ctx context.Context, d *db.DB, focus db.Object) ([]*erTable,
 		seen[erKey(schema, obj.Name)] = true
 		t := &erTable{schema: schema, obj: obj}
 		var err error
-		if t.cols, err = d.Dialect.Columns(ctx, d.SQL, schema, obj.Name); err != nil {
+		if t.cols, err = d.Dialect.Columns(ctx, d.Catalog(), schema, obj.Name); err != nil {
 			return err
 		}
-		t.fks, _ = d.Dialect.ForeignKeys(ctx, d.SQL, schema, obj.Name)
+		t.fks, _ = d.Dialect.ForeignKeys(ctx, d.Catalog(), schema, obj.Name)
 		tables = append(tables, t)
 		return nil
 	}
@@ -466,7 +466,7 @@ func loadNeighbours(ctx context.Context, d *db.DB, focus db.Object) ([]*erTable,
 			return nil, err
 		}
 	}
-	refs, err := d.Dialect.ReferencedBy(ctx, d.SQL, focus.Schema, focus.Name)
+	refs, err := d.Dialect.ReferencedBy(ctx, d.Catalog(), focus.Schema, focus.Name)
 	if err != nil {
 		return nil, err
 	}
