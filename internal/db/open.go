@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"dgopher/internal/netproxy"
 	"dgopher/internal/sshtunnel"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -38,8 +39,11 @@ type DB struct {
 	Dialect Dialect
 	SQL     *sql.DB
 
-	tunnel     *sshtunnel.Tunnel
-	ownsTunnel bool
+	// route is the local port the driver reaches the server by, through
+	// an SSH tunnel or a proxy, nil when it connects directly; the DB
+	// closes it when it owns it, as its other databases do not.
+	route     route
+	ownsRoute bool
 	// single is set when the pool holds exactly one connection, which
 	// every session shares: DuckDB, whose driver opens the file anew for
 	// each connection, and in-memory SQLite, private to its connection.
@@ -54,6 +58,13 @@ type DB struct {
 	databases map[string]*DB // other databases of a PostgreSQL server
 }
 
+// route is a local port leading to the server: an SSH tunnel's or a
+// proxy's.
+type route interface {
+	LocalPort() int
+	Close() error
+}
+
 // endpoint is where the driver connects, and the host its certificate
 // must name.
 type endpoint struct {
@@ -62,19 +73,26 @@ type endpoint struct {
 	serverName string
 }
 
-// openTunnel starts the SSH tunnel of a configuration, if it has one, and
-// returns where the driver should connect.
-func openTunnel(ctx context.Context, cfg *Config, knownHosts []string) (endpoint, *sshtunnel.Tunnel, error) {
+// openRoute starts the SSH tunnel of a configuration, or the forwarding
+// through its proxy, if it has either, and returns where the driver
+// should connect.
+func openRoute(ctx context.Context, cfg *Config, knownHosts []string) (endpoint, route, error) {
 	ep := endpoint{host: cfg.Host, port: cfg.port(), serverName: cfg.Host}
-	if !cfg.SSH.Enabled {
+	var r route
+	var err error
+	switch {
+	case cfg.SSH.Enabled:
+		r, err = sshtunnel.Open(ctx, sshConfig(cfg), cfg.Host, cfg.port(), knownHosts)
+	case cfg.Proxy.Kind != "":
+		r, err = netproxy.Forward(net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.port())), cfg.Proxy.dialer())
+	default:
 		return ep, nil, nil
 	}
-	t, err := sshtunnel.Open(ctx, sshConfig(cfg), cfg.Host, cfg.port(), knownHosts)
 	if err != nil {
 		return ep, nil, err
 	}
-	ep.host, ep.port = "127.0.0.1", t.LocalPort()
-	return ep, t, nil
+	ep.host, ep.port = "127.0.0.1", r.LocalPort()
+	return ep, r, nil
 }
 
 // sshConfig is the SSH server a configuration reaches its database
@@ -83,6 +101,7 @@ func sshConfig(cfg *Config) sshtunnel.Config {
 	jumps, _ := cfg.SSH.Jumps() // Validate refused them, when they do not read
 	return sshtunnel.Config{
 		Jumps:         jumps,
+		Dial:          cfg.Proxy.dialer(),
 		Host:          cfg.SSH.Host,
 		Port:          cfg.SSH.Port,
 		User:          cfg.SSH.User,
@@ -143,22 +162,22 @@ func Open(ctx context.Context, cfg Config, knownHosts []string) (*DB, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	ep, tunnel, err := openTunnel(ctx, &cfg, knownHosts)
+	ep, r, err := openRoute(ctx, &cfg, knownHosts)
 	if err != nil {
 		return nil, redact(err, cfg)
 	}
-	d, err := openWith(ctx, cfg, ep, tunnel)
+	d, err := openWith(ctx, cfg, ep, r)
 	if err != nil {
-		if tunnel != nil {
-			tunnel.Close()
+		if r != nil {
+			r.Close()
 		}
 		return nil, redact(err, cfg)
 	}
-	d.ownsTunnel = tunnel != nil
+	d.ownsRoute = r != nil
 	return d, nil
 }
 
-func openWith(ctx context.Context, cfg Config, ep endpoint, tunnel *sshtunnel.Tunnel) (*DB, error) {
+func openWith(ctx context.Context, cfg Config, ep endpoint, r route) (*DB, error) {
 	tc, err := tlsConfig(&cfg, ep.serverName)
 	if err != nil {
 		return nil, err
@@ -199,7 +218,7 @@ func openWith(ctx context.Context, cfg Config, ep endpoint, tunnel *sshtunnel.Tu
 		sqldb.Close()
 		return nil, redact(err, cfg)
 	}
-	return &DB{Config: cfg, Dialect: DialectOf(cfg.Engine), SQL: sqldb, tunnel: tunnel, single: single}, nil
+	return &DB{Config: cfg, Dialect: DialectOf(cfg.Engine), SQL: sqldb, route: r, single: single}, nil
 }
 
 func openPostgres(cfg Config, ep endpoint, tc *tls.Config) (*sql.DB, error) {
@@ -315,10 +334,10 @@ func (d *DB) Database(ctx context.Context, name string) (*DB, error) {
 	cfg := d.Config
 	cfg.Database = name
 	ep := endpoint{host: cfg.Host, port: cfg.port(), serverName: cfg.Host}
-	if d.tunnel != nil {
-		ep.host, ep.port = "127.0.0.1", d.tunnel.LocalPort()
+	if d.route != nil {
+		ep.host, ep.port = "127.0.0.1", d.route.LocalPort()
 	}
-	other, err := openWith(ctx, cfg, ep, d.tunnel)
+	other, err := openWith(ctx, cfg, ep, d.route)
 	if err != nil {
 		return nil, err
 	}
@@ -345,8 +364,8 @@ func (d *DB) Close() error {
 		o.SQL.Close()
 	}
 	err := d.SQL.Close()
-	if d.ownsTunnel {
-		d.tunnel.Close()
+	if d.ownsRoute {
+		d.route.Close()
 	}
 	return err
 }
@@ -503,7 +522,8 @@ func redact(err error, cfg Config) error {
 		return nil
 	}
 	msg := err.Error()
-	for _, secret := range []string{cfg.Password, cfg.SSH.Password, cfg.SSH.KeyPassphrase, cfg.Redis.SentinelPassword, url.QueryEscape(cfg.Password), url.PathEscape(cfg.Password)} {
+	for _, secret := range []string{cfg.Password, cfg.SSH.Password, cfg.SSH.KeyPassphrase, cfg.Redis.SentinelPassword, cfg.Proxy.Password,
+		url.QueryEscape(cfg.Password), url.PathEscape(cfg.Password)} {
 		if len(secret) >= 3 {
 			msg = strings.ReplaceAll(msg, secret, "•••")
 		}

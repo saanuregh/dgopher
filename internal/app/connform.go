@@ -15,6 +15,7 @@ import (
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/netproxy"
 	"dgopher/internal/project"
 	"dgopher/internal/safety"
 	"dgopher/internal/secretcmd"
@@ -39,6 +40,8 @@ type connForm struct {
 	commit    string
 	page      int // the page shown: pageGeneral, pageOptions or pageNetwork
 	redisMode int // an index of redisModes
+	proxy     int // an index of proxyKinds
+	proxyPort string
 
 	project    *project.Project // where a new connection goes
 	projectSel string           // its label in the project choice
@@ -96,6 +99,7 @@ func (a *App) openConnForm(cn *connection.Conn) {
 		a.loadSecrets(&loaded)
 		f.cfg.SSH.Password, f.cfg.SSH.KeyPassphrase = loaded.SSH.Password, loaded.SSH.KeyPassphrase
 		f.cfg.Redis.SentinelPassword = loaded.Redis.SentinelPassword
+		f.cfg.Proxy.Password = loaded.Proxy.Password
 		if sourceOf(&f.cfg) == sourceKeychain {
 			f.cfg.Password = loaded.Password
 		}
@@ -134,6 +138,10 @@ func (a *App) openConnForm(cn *connection.Conn) {
 	}
 	if f.cfg.SSH.Port > 0 {
 		f.sshPort = strconv.Itoa(f.cfg.SSH.Port)
+	}
+	f.proxy = max(0, slices.Index(proxyKinds, f.cfg.Proxy.Kind))
+	if f.cfg.Proxy.Port > 0 {
+		f.proxyPort = strconv.Itoa(f.cfg.Proxy.Port)
 	}
 	for i, e := range db.Environments() {
 		if e == f.cfg.Env {
@@ -222,6 +230,12 @@ func (f *connForm) config() db.Config {
 		cfg.Password, cfg.PasswordEnv, cfg.PasswordCommand, cfg.AskPassword = "", "", "", false
 	}
 	// Only what the chosen topology uses is kept.
+	cfg.Proxy.Kind = proxyKinds[f.proxy]
+	cfg.Proxy.Host = strings.TrimSpace(cfg.Proxy.Host)
+	cfg.Proxy.Port, _ = strconv.Atoi(strings.TrimSpace(f.proxyPort))
+	if cfg.Proxy.Kind == "" || cfg.Engine.IsFile() {
+		cfg.Proxy = db.ProxyConfig{}
+	}
 	cfg.Redis.Mode = redisModes[f.redisMode]
 	cfg.Redis.Nodes, cfg.Redis.Master = strings.TrimSpace(cfg.Redis.Nodes), strings.TrimSpace(cfg.Redis.Master)
 	switch {
@@ -336,7 +350,7 @@ func (f *connForm) pages(e db.Engine) []int {
 func (f *connForm) pageLabel(page int) string {
 	switch page {
 	case pageNetwork:
-		if f.cfg.SSH.Enabled {
+		if f.cfg.SSH.Enabled || f.proxy != 0 || f.cfg.CertFile != "" {
 			return "Network •"
 		}
 		return "Network"
@@ -535,6 +549,7 @@ func (a *App) networkPage(c *ui.Context, f *connForm) {
 			})
 		}
 	}
+	a.proxyFields(c, f)
 	ui.Field(c, "SSH tunnel", func() {
 		ui.Checkbox(c, &f.cfg.SSH.Enabled, "Connect through an SSH server")
 	})
@@ -822,6 +837,9 @@ func (a *App) checkConnForm(f *connForm, cfg *db.Config) error {
 	if cfg.Redis.SentinelPassword != "" && !a.st.Secrets().Available() {
 		return errors.New("no system keychain is available to keep the sentinels' password")
 	}
+	if cfg.Proxy.Password != "" && !a.st.Secrets().Available() {
+		return errors.New("no system keychain is available to keep the proxy's password")
+	}
 	return nil
 }
 
@@ -880,7 +898,7 @@ func (a *App) finishConnForm(f *connForm, cfg db.Config, connect bool) {
 		}
 	}
 	password := cfg.Password
-	cfg.Password, cfg.SSH.Password, cfg.SSH.KeyPassphrase, cfg.Redis.SentinelPassword = "", "", "", ""
+	cfg.Password, cfg.SSH.Password, cfg.SSH.KeyPassphrase, cfg.Redis.SentinelPassword, cfg.Proxy.Password = "", "", "", "", ""
 	if cn == nil {
 		cn = &connection.Conn{Project: f.project}
 		cn.Reset()
@@ -1070,6 +1088,43 @@ func (a *App) passwordField(c *ui.Context, f *connForm) {
 			ui.Text(c, note).FontSize(12).TextColor(widgets.PaletteOf(c).Muted)
 		})
 	}
+}
+
+// proxyKinds are the proxy choices of the form, as proxyLabels names them.
+var (
+	proxyKinds  = []string{"", netproxy.SOCKS5, netproxy.HTTP}
+	proxyLabels = []string{"None", "SOCKS5", "HTTP (CONNECT)"}
+)
+
+// proxyFields show the proxy the connection goes through, and how it
+// logs in to it.
+func (a *App) proxyFields(c *ui.Context, f *connForm) {
+	ui.Field(c, "Proxy", func() {
+		ui.Segmented(c, &f.proxy, proxyLabels...).Label("Proxy")
+	}).Description("The connection goes through it to the server, or to the SSH host when there is one.")
+	if f.proxy == 0 {
+		return
+	}
+	ui.Field(c, "Proxy host", func() {
+		ui.Row(c).Gap(6).Grow(1).Children(func() {
+			ui.TextInput(c, &f.cfg.Proxy.Host).Placeholder("proxy.example.com").Grow(1).Label("Proxy host")
+			ui.TextInput(c, &f.proxyPort).Placeholder("1080").Width(70).Label("Proxy port")
+		})
+	})
+	ui.Field(c, "Proxy user", func() {
+		ui.TextInput(c, &f.cfg.Proxy.User).Placeholder("none").Label("Proxy user")
+	})
+	note := "Not needed when the proxy asks for no password."
+	switch {
+	case f.cfg.Proxy.Password == "":
+	case !a.st.Secrets().Available():
+		note = "No system keychain is available on this computer to keep it."
+	default:
+		note = keychainNote(secretKey(a.formID(f, &f.cfg), "proxy-password"))
+	}
+	ui.Field(c, "Proxy password", func() {
+		ui.TextInput(c, &f.cfg.Proxy.Password).Password().Placeholder("If the proxy asks for one").Label("Proxy password")
+	}).Description(note)
 }
 
 // sentinelFields show how the connection logs in to the sentinels, which

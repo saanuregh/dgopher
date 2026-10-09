@@ -71,6 +71,8 @@
     certificate to log in with where the server asks for one. Prefer
     first checks for TLS with a handshake that sends no password; local
     connections skip TLS.
+  - Proxies: SOCKS5 or HTTP CONNECT, with a user and a password kept in
+    the keychain, to the server or to the SSH host.
   - SSH tunnels: agent, key file with passphrase, or password, through
     jump hosts as `ssh -J` does. Host keys are checked against
     `known_hosts`, a jump host's too, and a new host must be trusted

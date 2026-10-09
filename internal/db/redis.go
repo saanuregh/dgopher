@@ -55,11 +55,15 @@ func OpenRedis(ctx context.Context, cfg Config, knownHosts []string) (*KV, error
 		d := net.Dialer{Timeout: 15 * time.Second}
 		return d.DialContext(ctx, "tcp", addr)
 	}
-	if cfg.SSH.Enabled {
+	switch {
+	case cfg.SSH.Enabled:
 		if tunnel, err = sshtunnel.Connect(ctx, sshConfig(&cfg), knownHosts); err != nil {
 			return nil, redact(err, cfg)
 		}
 		dialTCP = tunnel.Dial
+	case cfg.Proxy.Kind != "":
+		proxy := cfg.Proxy.dialer()
+		dialTCP = func(ctx context.Context, addr string) (net.Conn, error) { return proxy(ctx, "tcp", addr) }
 	}
 	fail := func(err error) (*KV, error) {
 		if tunnel != nil {

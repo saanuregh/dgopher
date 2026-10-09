@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"dgopher/internal/netproxy"
+	"dgopher/internal/netproxy/proxytest"
 	"dgopher/internal/sshtunnel"
 	"dgopher/internal/sshtunnel/sshtest"
 )
@@ -1361,5 +1363,59 @@ func TestIntegrationPostgresEnum(t *testing.T) {
 	}
 	if got, err := EnumValues(ctx, d, "integer"); err != nil || len(got) != 0 {
 		t.Fatalf("integer: %q %v", got, err)
+	}
+}
+
+// A connection goes through a SOCKS5 or HTTP proxy: to its server, or to
+// its SSH host. MySQL, whose server speaks first, goes through HTTP.
+func TestIntegrationThroughProxy(t *testing.T) {
+	integration(t)
+	ctx := context.Background()
+	socks := proxytest.SOCKS5(t, "proxy-user", "proxy-pass")
+	web := proxytest.HTTP(t, "web-user", "web-pass")
+	proxy := func(p netproxy.Config) ProxyConfig {
+		return ProxyConfig{Kind: p.Kind, Host: p.Host, Port: p.Port, User: p.User, Password: p.Password}
+	}
+	pg := Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dbgopher", Database: "postgres", Proxy: proxy(socks)}
+	my := Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop", Proxy: proxy(web)}
+	for _, cfg := range []Config{pg, my} {
+		d, err := Open(ctx, cfg, nil)
+		if err != nil {
+			t.Fatalf("%s: %v", cfg.Name, err)
+		}
+		if d.route == nil {
+			t.Fatalf("%s connected without the proxy", cfg.Name)
+		}
+		if _, err := d.Database(ctx, "template1"); cfg.Engine == Postgres && err != nil {
+			t.Fatalf("another database: %v", err)
+		}
+		d.Close()
+	}
+	wrong := pg
+	wrong.Proxy.Password = "wrong-pass"
+	if _, err := Open(ctx, wrong, nil); err == nil || strings.Contains(err.Error(), "wrong-pass") {
+		t.Fatalf("a refused proxy login: %v", err)
+	}
+
+	s := sshtest.Start(t, "secret", nil)
+	known := filepath.Join(t.TempDir(), "known_hosts")
+	if err := sshtunnel.Trust(known, s.Addr, s.HostKey.PublicKey()); err != nil {
+		t.Fatal(err)
+	}
+	viaSSH := pg
+	viaSSH.SSH = SSHConfig{Enabled: true, Host: s.Host, Port: s.Port, User: "tester", Password: "secret"}
+	d, err := Open(ctx, viaSSH, []string{known})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Close()
+
+	k, err := OpenRedis(ctx, Config{Name: "r", Engine: Redis, Host: "127.0.0.1", Port: 16379, Proxy: proxy(socks)}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer k.Close()
+	if _, err := k.Do(ctx, []string{"PING"}); err != nil {
+		t.Fatal(err)
 	}
 }

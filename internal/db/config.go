@@ -4,6 +4,7 @@
 package db
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 
+	"dgopher/internal/netproxy"
 	"dgopher/internal/sshtunnel"
 )
 
@@ -219,9 +221,29 @@ type Config struct {
 	// Color overrides the environment's color, as a hex string.
 	Color string    `json:"color,omitempty"`
 	SSH   SSHConfig `json:"ssh"`
+	// Proxy is a SOCKS5 or HTTP proxy the connection goes through to its
+	// server, or to its SSH host when it has one.
+	Proxy ProxyConfig `json:"proxy,omitzero"`
 	// Redis says how a Redis connection reaches its data, when not on the
 	// one server of Host and Port.
 	Redis RedisConfig `json:"redis,omitzero"`
+}
+
+// ProxyConfig is a proxy a connection goes through, none without a Kind.
+type ProxyConfig struct {
+	Kind     string `json:"kind,omitempty"` // netproxy.SOCKS5 or netproxy.HTTP
+	Host     string `json:"host,omitempty"`
+	Port     int    `json:"port,omitempty"`
+	User     string `json:"user,omitempty"`
+	Password string `json:"-"`
+}
+
+// dialer is the proxy's, nil for none.
+func (p *ProxyConfig) dialer() func(ctx context.Context, network, addr string) (net.Conn, error) {
+	if p.Kind == "" {
+		return nil
+	}
+	return netproxy.Config{Kind: p.Kind, Host: p.Host, Port: p.Port, User: p.User, Password: p.Password}.Dial
 }
 
 // RedisMode is how a Redis connection reaches its data.
@@ -357,6 +379,15 @@ func (c *Config) Validate() error {
 		if _, err := c.SSH.Jumps(); err != nil {
 			errs = append(errs, err.Error())
 		}
+	}
+	switch c.Proxy.Kind {
+	case "":
+	case netproxy.SOCKS5, netproxy.HTTP:
+		if strings.TrimSpace(c.Proxy.Host) == "" || c.Proxy.Port < 1 || c.Proxy.Port > 65535 {
+			errs = append(errs, "the proxy needs a host and a port")
+		}
+	default:
+		errs = append(errs, fmt.Sprintf("unknown proxy kind %q", c.Proxy.Kind))
 	}
 	sources := 0
 	for _, set := range []bool{c.AskPassword, c.PasswordEnv != "", c.PasswordCommand != ""} {

@@ -18,7 +18,6 @@ comparison in October 2026. Not ordered by priority; items already in
 Next or Later are not repeated.
 
 - **Connections:**
-  - Connect through an HTTP or SOCKS proxy.
   - Log in with Kerberos, LDAP or PAM.
   - Log in with cloud identities: AWS IAM, Azure Entra ID, single
     sign-on and OAuth.

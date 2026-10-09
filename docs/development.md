@@ -73,6 +73,7 @@ your own.
 | `internal/sqlfile` | reads the statements of a SQL file as it streams, as a dump, `COPY` rows included |
 | `internal/store` | private JSON files, keychain secrets, query history |
 | `internal/secretcmd` | runs a password command without a shell |
+| `internal/netproxy` | SOCKS5 and HTTP CONNECT proxies, and a local port forwarded through one; `proxytest` runs both for tests |
 | `internal/sshtunnel` | SSH port forwarding, and dialing through SSH, with host key checks; `sshtest` is an SSH server for tests |
 | `internal/audit` | the hash-chained audit log: append, read, verify |
 | `internal/settings` | the user's settings and how values are shown |

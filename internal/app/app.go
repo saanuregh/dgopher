@@ -223,6 +223,16 @@ func jumpWhere(cfg *db.Config) string {
 	return fmt.Sprintf("|jump|%q", cfg.SSH.Jump)
 }
 
+// proxyWhere is the proxy a connection goes through, "" for none, which
+// keeps the fingerprints of connections without one.
+func proxyWhere(cfg *db.Config) string {
+	if cfg.Proxy.Kind == "" {
+		return ""
+	}
+	p := cfg.Proxy
+	return fmt.Sprintf("|proxy|%s|%s|%d|%s", p.Kind, p.Host, p.Port, p.User)
+}
+
 // projectEnvPrefix is what the environment variables named by a project
 // file must start with: a cloned repository may not have the app send
 // GITHUB_TOKEN, or any other variable, to a host of its choice.
@@ -251,6 +261,9 @@ func (a *App) loadSecrets(cfg *db.Config) {
 	if cfg.Redis.Mode == db.RedisSentinel && cfg.Redis.SentinelPassword == "" {
 		cfg.Redis.SentinelPassword, _ = sec.Get(secretKey(cfg, "sentinel-password"))
 	}
+	if cfg.Proxy.Kind != "" && cfg.Proxy.Password == "" {
+		cfg.Proxy.Password, _ = sec.Get(secretKey(cfg, "proxy-password"))
+	}
 	if cfg.SSH.Enabled {
 		if cfg.SSH.Password == "" {
 			cfg.SSH.Password, _ = sec.Get(secretKey(cfg, "ssh-password"))
@@ -273,12 +286,12 @@ func (a *App) saveSecrets(cfg *db.Config, savePassword bool) error {
 		return sec.Set(secretKey(cfg, what), v)
 	}
 	return errors.Join(set("password", cfg.Password), set("ssh-password", cfg.SSH.Password), set("ssh-passphrase", cfg.SSH.KeyPassphrase),
-		set("sentinel-password", cfg.Redis.SentinelPassword))
+		set("sentinel-password", cfg.Redis.SentinelPassword), set("proxy-password", cfg.Proxy.Password))
 }
 
 // secretNames are what a connection keeps in the keychain, as secretKey
 // names them.
-var secretNames = []string{"password", "ssh-password", "ssh-passphrase", "sentinel-password"}
+var secretNames = []string{"password", "ssh-password", "ssh-passphrase", "sentinel-password", "proxy-password"}
 
 func (a *App) deleteSecrets(cfg *db.Config) {
 	sec := a.st.Secrets()
@@ -710,7 +723,7 @@ func (a *App) requestQuit(quit func()) bool {
 func sharedFingerprint(cfg *db.Config, projectDir string) string {
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%s|%d|%s|%s|%s|%q|%v|%s|%d|%s|%q|%s|%q|%q%s", projectDir, cfg.ID, cfg.Engine, cfg.Host, cfg.Port,
 		cfg.User, cfg.Database, cfg.TLS, cfg.CAFile, cfg.SSH.Enabled, cfg.SSH.Host, cfg.SSH.Port, cfg.SSH.User, cfg.SSH.KeyPath,
-		cfg.PasswordEnv, cfg.PasswordCommand, cfg.SSH.PasswordCommand, redisWhere(cfg)+clientCertWhere(cfg)+jumpWhere(cfg))))
+		cfg.PasswordEnv, cfg.PasswordCommand, cfg.SSH.PasswordCommand, redisWhere(cfg)+clientCertWhere(cfg)+jumpWhere(cfg)+proxyWhere(cfg))))
 	return hex.EncodeToString(sum[:])
 }
 
