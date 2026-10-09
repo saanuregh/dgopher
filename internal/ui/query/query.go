@@ -61,6 +61,12 @@ type result struct {
 	skip int
 	// pinned keeps the result when the next run replaces the others.
 	pinned bool
+	// plan is what an explain's rows tell, nil for other rows, with the
+	// advice about it; planMode is how it shows, planSel the step chosen.
+	plan     *db.Plan
+	advice   []db.Advice
+	planMode int
+	planSel  *db.PlanNode
 }
 
 type message struct {
@@ -321,10 +327,11 @@ func (q *Tab) adoptSession(s *db.Session) {
 type RunMode int
 
 const (
-	RunStatement RunMode = iota // the selection, or the statement at the caret
-	RunScript                   // every statement
-	RunExplain                  // the plan of the statement at the caret
-	RunNewTab                   // as runStatement, keeping the results shown
+	RunStatement      RunMode = iota // the selection, or the statement at the caret
+	RunScript                        // every statement
+	RunExplain                       // the plan of the statement at the caret
+	RunNewTab                        // as runStatement, keeping the results shown
+	RunExplainAnalyze                // the plan of the statement at the caret, as it runs
 )
 
 // statements returns what a run sends, and where each starts in the
@@ -340,7 +347,7 @@ func (q *Tab) statements(mode RunMode) ([]string, []int) {
 	var out []string
 	var starts []int
 	switch {
-	case mode == RunExplain && selected:
+	case explaining(mode) && selected:
 		stmts := sqltext.SplitWith(text, d, SplitOptions(q.a.Settings()))
 		if len(stmts) != 1 {
 			return nil, nil
@@ -356,20 +363,30 @@ func (q *Tab) statements(mode RunMode) ([]string, []int) {
 			out, starts = append(out, st.Text), append(starts, st.Start)
 		}
 	}
-	if mode == RunExplain && len(out) == 1 {
-		out[0] = explainPrefix(q.Conn.Config.Engine) + out[0]
+	if explaining(mode) && len(out) == 1 {
+		out[0] = db.ExplainPrefix(q.Conn.Config.Engine, mode == RunExplainAnalyze) + out[0]
 	}
 	return out, starts
 }
 
-func explainPrefix(e db.Engine) string {
-	switch e {
-	case db.SQLite:
-		return "EXPLAIN QUERY PLAN "
-	case db.Postgres:
-		return "EXPLAIN (VERBOSE) "
+func explaining(mode RunMode) bool { return mode == RunExplain || mode == RunExplainAnalyze }
+
+// analyzeRefusal says why a statement's plan cannot be measured by
+// running it, "" when it can: the engine explains without running, or
+// the statement changes the database.
+func (q *Tab) analyzeRefusal() string {
+	e := q.Conn.Config.Engine
+	if db.ExplainPrefix(e, true) == "" {
+		return e.Label() + " explains a statement without running it: Explain shows its plan."
 	}
-	return "EXPLAIN "
+	stmts, _ := q.statements(RunStatement)
+	if len(stmts) != 1 {
+		return "Put the caret in one statement, or select it, to explain it."
+	}
+	if sqltext.Classify(stmts[0], q.Editor.Dialect).Class != sqltext.Read {
+		return "Explain Analyze runs the statement: only one that reads is explained so."
+	}
+	return ""
 }
 
 // namedConnection is the connection the file's header names, "" for
@@ -450,19 +467,25 @@ func (q *Tab) run(mode RunMode) {
 	if q.Running {
 		return
 	}
+	if mode == RunExplainAnalyze {
+		if why := q.analyzeRefusal(); why != "" {
+			q.note(why, "", true)
+			return
+		}
+	}
 	q.newTab = mode == RunNewTab
 	stmts, starts := q.statements(mode)
 	if len(stmts) == 0 {
 		msg := "Nothing to run: the caret is not in a statement."
-		if mode == RunExplain && q.Editor.Selection() != "" {
+		if explaining(mode) && q.Editor.Selection() != "" {
 			msg = "Select one statement to explain."
 		}
 		q.note(msg, "", true)
 		return
 	}
 	skip := 0
-	if mode == RunExplain {
-		skip = len([]rune(explainPrefix(q.Conn.Config.Engine)))
+	if explaining(mode) {
+		skip = len([]rune(db.ExplainPrefix(q.Conn.Config.Engine, mode == RunExplainAnalyze)))
 	}
 	keys := params.Keys(stmts, q.Editor.Dialect)
 	if len(keys) == 0 {
@@ -687,6 +710,15 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 					if len(cursor.Columns) == 0 {
 						res.rowsMode = false
 						res.affected = -1
+					}
+					if strings.EqualFold(res.verb, "EXPLAIN") {
+						names := make([]string, len(cursor.Columns))
+						for i, col := range cursor.Columns {
+							names[i] = col.Name
+						}
+						if plan, ok := db.ParsePlan(cfg.Engine, names, first); ok {
+							res.plan, res.advice = plan, db.Advise(cfg.Engine, plan)
+						}
 					}
 				}
 			} else {
@@ -954,6 +986,9 @@ func (q *Tab) View(c *ui.Context) {
 			q.askRename()
 		}
 	}
+	if q.key(c, ui.Cmd|ui.Shift, ui.KeyE) {
+		q.Run(RunExplainAnalyze)
+	}
 	if q.key(c, ui.Cmd, ui.KeyE) {
 		q.Run(RunExplain)
 	}
@@ -996,6 +1031,9 @@ func (q *Tab) View(c *ui.Context) {
 			}
 			if widgets.ToolButton(c, widgets.IconCode, "Explain", widgets.KeyLabel("Explain plan (⌘E)")).Clicked() {
 				q.Run(RunExplain)
+			}
+			if widgets.ToolButton(c, widgets.IconClock, "Analyze", widgets.KeyLabel("Run the statement to measure its plan (⌘⇧E)")).Clicked() {
+				q.Run(RunExplainAnalyze)
 			}
 			if widgets.ToolButton(c, widgets.IconWand, "Format", widgets.KeyLabel("Format SQL (⌘⇧F)")).Clicked() {
 				q.format()
@@ -1142,6 +1180,8 @@ func (q *Tab) resultsView(c *ui.Context, a Host) {
 			q.messagesView(c)
 		case r.view == nil:
 			q.errorPanel(c, r)
+		case r.plan != nil:
+			q.planView(c, r)
 		default:
 			r.view.View(c)
 		}
@@ -1643,6 +1683,9 @@ func (q *Tab) editorMenu(m *ui.Menu) {
 		}
 		if m.Item("Explain Plan").Shortcut(ui.Cmd, ui.KeyE).Chosen() {
 			q.Run(RunExplain)
+		}
+		if m.Item("Explain Analyze").Shortcut(ui.Cmd|ui.Shift, ui.KeyE).Chosen() {
+			q.Run(RunExplainAnalyze)
 		}
 		m.Separator()
 		if m.Item("Export From Query…").Chosen() {

@@ -30,10 +30,6 @@ Next or Later are not repeated.
     once, and folding of code blocks.
   - More than one window.
   - Build a query by choosing tables and columns instead of typing SQL.
-- **Query plans:**
-  - Draw the plan of a query as a tree or a flame graph instead of a
-    table of rows.
-  - Read a plan and suggest how to make the query faster.
 - **Data grid:**
 - **Schema:**
   - Save an ER diagram as PNG or SVG, and change the schema by editing

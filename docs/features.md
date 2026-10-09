@@ -195,6 +195,15 @@
   - Explain (⌘E), format (⌘⇧F, the selection only when there is one,
     keeping the blank lines between statements), find (⌘F) and replace
     (⌘⌥F): one match at a time, or all at once, which a toast can undo.
+  - A plan (⌘E), or one measured by running the statement (Explain
+    Analyze, ⌘⇧E, for statements that read, on PostgreSQL, MySQL and
+    DuckDB), shows as a tree of its steps, with their rows, estimated and
+    found, and their share of the time or cost; as a flame graph; or as
+    the rows the server gave. Advice above it points at what may make the
+    query faster: a scan reading every row to keep few, estimates far from
+    what ran, a sort or hash spilling to disk, a nested loop rescanning a
+    table, a ClickHouse key that narrows nothing. A typed `EXPLAIN` in
+    those forms shows so too.
   - An optional statement timeout per connection.
   - Each editor has its own session, so `SET`, temporary tables and
     transactions persist between statements.
