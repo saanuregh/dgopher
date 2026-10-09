@@ -33,6 +33,7 @@ type decodeView struct {
 	runs    int    // counts the decodings: a stale one's result is dropped
 	running bool
 	shown   decode.Decoded
+	steps   string // shown's steps, joined for the label
 	err     string
 	display string // what the text area shows: its start, past stringStart
 }
@@ -72,7 +73,12 @@ func (d *decodeView) decode(value string, run func(work func() func())) {
 			if at != d.runs {
 				return
 			}
+			steps := make([]string, len(shown.Steps))
+			for i, s := range shown.Steps {
+				steps[i] = string(s)
+			}
 			d.running, d.shown, d.display = false, shown, display
+			d.steps = strings.Join(steps, " → ")
 			if err != nil {
 				d.err = err.Error()
 			}
@@ -96,20 +102,16 @@ func (d *decodeView) view(c *ui.Context, value, label string, run func(work func
 		if d.as == viewRaw {
 			return
 		}
-		steps := make([]string, len(d.shown.Steps))
-		for i, s := range d.shown.Steps {
-			steps[i] = string(s)
-		}
 		switch {
 		case d.running:
 			ui.Spinner(c).Size(12, 12)
 			ui.Text(c, "Decoding…").FontSize(12).TextColor(pal.Muted)
 		case d.err != "":
 			ui.Text(c, d.err).FontSize(12).TextColor(th.Danger).SingleLine().Shrink(1)
-		case len(steps) == 0:
+		case len(d.shown.Steps) == 0:
 			ui.Text(c, "Nothing to decode: shown as stored.").FontSize(12).TextColor(pal.Muted)
 		default:
-			ui.Text(c, strings.Join(steps, " → ")+", read only").FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, d.steps+", read only").FontSize(12).TextColor(pal.Muted)
 		}
 	})
 	if d.as == viewRaw || fallBack {

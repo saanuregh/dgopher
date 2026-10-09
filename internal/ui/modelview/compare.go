@@ -165,9 +165,10 @@ func defaultSchema(e db.Engine, cn *connection.Conn) string {
 // comparison is a model compared with a database's schema, or another
 // model.
 type comparison struct {
-	label string // what the model is compared with
-	other *datamodel.Model
-	diffs []datamodel.TableDiff
+	label  string // what the model is compared with
+	other  *datamodel.Model
+	diffs  []datamodel.TableDiff
+	counts map[datamodel.State]int // diffs in each state, counted once
 	// The database's, when the model is compared with one.
 	conn             *connection.Conn
 	database, schema string
@@ -277,10 +278,13 @@ func (t *Tab) comparisonView(c *ui.Context) {
 	r := t.result
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	counts := map[datamodel.State]int{}
-	for _, d := range r.diffs {
-		counts[d.State]++
+	if r.counts == nil {
+		r.counts = map[datamodel.State]int{}
+		for _, d := range r.diffs {
+			r.counts[d.State]++
+		}
 	}
+	counts := r.counts
 	ui.Column(c).Grow(1).Children(func() {
 		ui.Row(c).Padding(6, 12).Gap(10).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Text(c, "Compared with "+r.label).Bold().SingleLine().Shrink(1)

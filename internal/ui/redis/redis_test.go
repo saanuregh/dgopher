@@ -401,3 +401,18 @@ func TestRedisModules(t *testing.T) {
 		t.Fatal("a type without a viewer says nothing")
 	}
 }
+
+// TestConsoleLogCap keeps the newest lines when the log passes its limit.
+func TestConsoleLogCap(t *testing.T) {
+	r := &Tab{}
+	for i := range consoleLogLimit {
+		r.logConsole(consoleLine{text: strconv.Itoa(i)})
+	}
+	r.logConsole(consoleLine{text: "a"}, consoleLine{text: "b"})
+	if len(r.consoleLog) != consoleLogLimit {
+		t.Fatalf("%d lines", len(r.consoleLog))
+	}
+	if first, last := r.consoleLog[0].text, r.consoleLog[len(r.consoleLog)-1].text; first != "2" || last != "b" {
+		t.Fatalf("first %q, last %q", first, last)
+	}
+}

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -196,16 +195,16 @@ func (r *Tab) runConsole(line string) {
 	r.consoleIn = ""
 	r.history = append(r.history, line)
 	r.histIdx = len(r.history)
-	r.consoleLog = append(r.consoleLog, consoleLine{input: true, text: "> " + line})
+	r.logConsole(consoleLine{input: true, text: "> " + line})
 	args, err := db.SplitCommand(line)
 	if err != nil {
-		r.consoleLog = append(r.consoleLog, consoleLine{text: "(error) " + err.Error(), err: true})
+		r.logConsole(consoleLine{text: "(error) " + err.Error(), err: true})
 		return
 	}
 	v := safety.ReviewRedis(&r.conn.Config, r.conn.KV, args)
 	if v.Blocked != "" {
 		r.a.RecordBlocked(r.conn, v.Blocked, redact.Redis(args))
-		r.consoleLog = append(r.consoleLog, consoleLine{text: "(refused) " + v.Blocked, err: true})
+		r.logConsole(consoleLine{text: "(refused) " + v.Blocked, err: true})
 		return
 	}
 	run := func() {
@@ -222,12 +221,10 @@ func (r *Tab) runConsole(line string) {
 			st.AppendHistory(entry)
 			return func() {
 				if err != nil {
-					r.consoleLog = append(r.consoleLog, consoleLine{text: "(error) " + err.Error(), err: true})
+					r.logConsole(consoleLine{text: "(error) " + err.Error(), err: true})
 					return
 				}
-				for _, l := range strings.Split(db.FormatReply(out), "\n") {
-					r.consoleLog = append(r.consoleLog, consoleLine{text: l})
-				}
+				r.logConsole(replyLines(out)...)
 				if v.Writes && r.selected != "" {
 					r.loadKey()
 				}
@@ -266,7 +263,7 @@ func (r *Tab) chooseCommandFile() {
 // other, stopping at the first that fails: every one through the safety
 // policy first, then, when any writes, once the user agrees.
 func (r *Tab) runCommandFile(path string) {
-	fail := func(msg string) { r.consoleLog = append(r.consoleLog, consoleLine{text: "(error) " + msg, err: true}) }
+	fail := func(msg string) { r.logConsole(consoleLine{text: "(error) " + msg, err: true}) }
 	text, err := os.ReadFile(path)
 	if err != nil {
 		fail(err.Error())
@@ -294,15 +291,14 @@ func (r *Tab) runCommandFile(path string) {
 		if cv.Writes {
 			writes++
 		}
-		v.Confirm, v.TypeName = v.Confirm || cv.Confirm, v.TypeName || cv.TypeName
-		v.Reasons = append(v.Reasons, cv.Reasons...)
+		v.Add(cv)
 	}
 	run := func() { r.startCommandFile(path, cmds) }
 	if writes == 0 && !v.Confirm {
 		run()
 		return
 	}
-	v.Reasons = append([]string{fmt.Sprintf("%d of the %d commands write, one after the other, stopping at the first that fails: those before it stay.", writes, len(cmds))}, uniqueReasons(v.Reasons)...)
+	v.Reasons = append([]string{fmt.Sprintf("%d of the %d commands write, one after the other, stopping at the first that fails: those before it stay.", writes, len(cmds))}, v.Reasons...)
 	lines := make([]string, 0, min(len(cmds), 50))
 	for _, cmd := range cmds[:min(len(cmds), 50)] {
 		lines = append(lines, redact.Redis(cmd.Args))
@@ -319,20 +315,20 @@ func (r *Tab) startCommandFile(path string, cmds []db.CommandLine) {
 	for _, cmd := range cmds {
 		if v := safety.ReviewRedis(&cfg, r.conn.KV, cmd.Args); v.Blocked != "" {
 			r.a.RecordBlocked(r.conn, v.Blocked, redact.Redis(cmd.Args))
-			r.consoleLog = append(r.consoleLog, consoleLine{text: fmt.Sprintf("(refused) line %d: %s", cmd.Line, v.Blocked), err: true})
+			r.logConsole(consoleLine{text: fmt.Sprintf("(refused) line %d: %s", cmd.Line, v.Blocked), err: true})
 			return
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	f := &fileRun{path: path, total: len(cmds), cancel: cancel}
 	r.file = f
-	r.consoleLog = append(r.consoleLog, consoleLine{input: true, text: "> run " + filepath.Base(path)})
+	r.logConsole(consoleLine{input: true, text: "> run " + filepath.Base(path)})
 	kv, st := r.conn.KV, r.conn.Project.Local
 	go func() {
 		defer cancel()
 		for i, cmd := range cmds {
 			if ctx.Err() != nil {
-				r.a.Post(func() { r.consoleLog = append(r.consoleLog, consoleLine{text: "(stopped)", err: true}) })
+				r.a.Post(func() { r.logConsole(consoleLine{text: "(stopped)", err: true}) })
 				break
 			}
 			// Stop waits for the command sent: cut off, it might have run
@@ -346,14 +342,12 @@ func (r *Tab) startCommandFile(path string, cmds []db.CommandLine) {
 			st.AppendHistory(storeHistory(cfg, logged, time.Since(start), err))
 			r.a.Post(func() {
 				f.done = i + 1
-				r.consoleLog = append(r.consoleLog, consoleLine{input: true, text: fmt.Sprintf("%d> %s", cmd.Line, logged)})
+				r.logConsole(consoleLine{input: true, text: fmt.Sprintf("%d> %s", cmd.Line, logged)})
 				if err != nil {
-					r.consoleLog = append(r.consoleLog, consoleLine{text: "(error) " + err.Error(), err: true})
+					r.logConsole(consoleLine{text: "(error) " + err.Error(), err: true})
 					return
 				}
-				for _, l := range strings.Split(db.FormatReply(out), "\n") {
-					r.consoleLog = append(r.consoleLog, consoleLine{text: l})
-				}
+				r.logConsole(replyLines(out)...)
 			})
 			if err != nil {
 				break
@@ -369,13 +363,24 @@ func (r *Tab) startCommandFile(path string, cmds []db.CommandLine) {
 	}()
 }
 
-// uniqueReasons drops the reasons said already, which commands alike give.
-func uniqueReasons(reasons []string) []string {
-	var out []string
-	for _, r := range reasons {
-		if !slices.Contains(out, r) {
-			out = append(out, r)
-		}
+// consoleLogLimit is the most lines the console keeps: the oldest go, so
+// a long session or a large reply does not grow the log without bound.
+const consoleLogLimit = 10_000
+
+// logConsole adds lines to the console, keeping the newest consoleLogLimit.
+func (r *Tab) logConsole(lines ...consoleLine) {
+	r.consoleLog = append(r.consoleLog, lines...)
+	if over := len(r.consoleLog) - consoleLogLimit; over > 0 {
+		r.consoleLog = r.consoleLog[over:]
 	}
-	return out
+}
+
+// replyLines is a reply as the console shows it, a line each.
+func replyLines(out any) []consoleLine {
+	split := strings.Split(db.FormatReply(out), "\n")
+	lines := make([]consoleLine, len(split))
+	for i, l := range split {
+		lines[i] = consoleLine{text: l}
+	}
+	return lines
 }

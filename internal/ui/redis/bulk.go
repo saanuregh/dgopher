@@ -241,8 +241,7 @@ func (r *Tab) importKeys(b *bulkDialog) {
 				b.err = kv.Blocked
 				return
 			}
-			v.Confirm, v.TypeName = v.Confirm || kv.Confirm, v.TypeName || kv.TypeName
-			v.Reasons = append(v.Reasons, kv.Reasons...)
+			v.Add(kv)
 		}
 	}
 	if b.replace {

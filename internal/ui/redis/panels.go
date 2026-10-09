@@ -65,6 +65,7 @@ type memoryState struct {
 	cancel  context.CancelFunc
 	read    int64
 	report  *db.MemoryReport
+	byType  []string // the report's types, the largest first
 	err     string
 	largest ui.ListState
 	row     int
@@ -353,7 +354,7 @@ func (r *Tab) analyseMemory() {
 				m.err = err.Error()
 				return
 			}
-			m.report = report
+			m.report, m.byType = report, typesBySize(report)
 		}
 	})
 }
@@ -452,16 +453,7 @@ func (r *Tab) memoryView(c *ui.Context) {
 					ui.Text(c, text).Font(widgets.MonoFont).FontSize(12).SingleLine()
 				}).Grow(1).Label("Namespaces")
 				ui.Text(c, "Types").FontSize(12).Bold()
-				types := make([]string, 0, len(rep.ByType))
-				for t := range rep.ByType {
-					types = append(types, t)
-				}
-				slices.SortFunc(types, func(a, b string) int {
-					if d := cmp.Compare(rep.ByType[b].Memory, rep.ByType[a].Memory); d != 0 {
-						return d
-					}
-					return strings.Compare(a, b)
-				})
+				types := m.byType
 				cols = []ui.TableColumn{{Title: "Type"}, {Title: "Keys", Width: 70, Align: ui.End}, {Title: "Size", Width: 80, Align: ui.End}, {Title: "Share", Width: 60, Align: ui.End}}
 				ui.Table(c, &m.types, cols, len(types), func(row, col int) {
 					sum := rep.ByType[types[row]]
@@ -479,4 +471,19 @@ func (r *Tab) memoryView(c *ui.Context) {
 			})
 		})
 	})
+}
+
+// typesBySize is the report's types, the most memory first.
+func typesBySize(rep *db.MemoryReport) []string {
+	types := make([]string, 0, len(rep.ByType))
+	for t := range rep.ByType {
+		types = append(types, t)
+	}
+	slices.SortFunc(types, func(a, b string) int {
+		if d := cmp.Compare(rep.ByType[b].Memory, rep.ByType[a].Memory); d != 0 {
+			return d
+		}
+		return strings.Compare(a, b)
+	})
+	return types
 }

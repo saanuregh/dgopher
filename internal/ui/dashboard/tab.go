@@ -69,6 +69,7 @@ type Tab struct {
 
 // panelState is a panel's result, and its settings as edited.
 type panelState struct {
+	key     string // the panel's UI key, which follows it as panels move
 	src     *dataview.Source
 	chart   dataview.Chart
 	applied bool                   // the panel's chart settings were applied to src
@@ -146,7 +147,9 @@ func (t *Tab) Reload() {
 // syncPanels keeps a state for each panel, after panels came or went.
 func (t *Tab) syncPanels() {
 	for len(t.panels) < len(t.d.Panels) {
-		t.panels = append(t.panels, &panelState{})
+		s := &panelState{}
+		s.key = fmt.Sprintf("panel-%p", s)
+		t.panels = append(t.panels, s)
 	}
 	t.panels = t.panels[:len(t.d.Panels)]
 	for i, p := range t.d.Panels {
@@ -492,7 +495,7 @@ func (t *Tab) panelView(c *ui.Context, i int, height float32) {
 	pal := widgets.PaletteOf(c)
 	p, s := &t.d.Panels[i], t.panels[i]
 	connecting, failed := t.connState(*p)
-	ui.Column(c.Key(fmt.Sprintf("panel-%p", s))).Grow(float32(p.Width)).Basis(0).Height(height).Radius(8).Background(th.Background).Border(1, th.Border).Clip().Children(func() {
+	ui.Column(c.Key(s.key)).Grow(float32(p.Width)).Basis(0).Height(height).Radius(8).Background(th.Background).Border(1, th.Border).Clip().Children(func() {
 		ui.Row(c).Padding(6, 10).Gap(6).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			if t.editing {
 				if ui.TextInput(c, &s.title).FontSize(12.5).Grow(1).Label("Panel title").Changed() {
