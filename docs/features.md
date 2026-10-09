@@ -228,6 +228,14 @@
     times, and rows.
   - Metrics (ClickHouse): queries and merges running, connections,
     memory, parts and load, and queries and rows per second.
+- **Users and Privileges** (PostgreSQL, MySQL, ClickHouse): users and
+  roles, with what each may do and the roles it belongs to. Make users and
+  roles, change a password, grant privileges on a table or on every table
+  of a schema, add to a role, revoke a privilege, or drop. Each shows its
+  statements and asks first; a password shows nowhere, and on PostgreSQL
+  it is hashed (SCRAM-SHA-256) before it is sent, as psql's `\password`
+  does. Dropping a PostgreSQL role passes what it owns to you, never
+  dropping it.
 - **Maintenance** from a table's menu: VACUUM, ANALYZE and REINDEX on
   PostgreSQL, ANALYZE, OPTIMIZE and CHECK on MySQL, ANALYZE and REINDEX on
   SQLite, OPTIMIZE on ClickHouse. Each runs in an editor, through the

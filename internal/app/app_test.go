@@ -1507,3 +1507,70 @@ func TestMaintenanceOnProduction(t *testing.T) {
 		t.Fatalf("vacuum: transaction %v, %q", q.Tx, tt.Texts())
 	}
 }
+
+// Users are made, granted, taken back from and dropped from their tab;
+// a password shows nowhere: not in the confirmation, the audit log or a
+// file.
+func TestUsersTab(t *testing.T) {
+	testutil.Integration(t)
+	testutil.SeedPostgres(t)
+	a := newTestApp(t)
+	cn := addConn(a, testutil.PGConfig())
+	tt := ui.NewTester(a.view, 1300, 800)
+	const secret = "Tr0ub4dor&3-it"
+	cleanup := func() {
+		cn.DB.SQL.Exec(`REASSIGN OWNED BY dgopher_it_grace TO CURRENT_USER; DROP OWNED BY dgopher_it_grace`)
+		cn.DB.SQL.Exec(`DROP ROLE IF EXISTS dgopher_it_grace`)
+	}
+	a.openUsers(cn)
+	testutil.WaitFor(t, tt, "the users", func() bool {
+		ut, ok := a.ActiveTab().(*usersTab)
+		return ok && !ut.loading && len(ut.accounts) > 0
+	})
+	cleanup()
+	defer cleanup()
+	ut := a.ActiveTab().(*usersTab)
+	agree := func(what string) {
+		t.Helper()
+		testutil.WaitFor(t, tt, what+" confirmation", func() bool { return a.confirm != nil })
+		if strings.Contains(a.confirm.Preview, secret) {
+			t.Fatalf("the confirmation shows the password: %s", a.confirm.Preview)
+		}
+		a.confirm.OnConfirm()
+		a.confirm = nil
+	}
+	ut.openForm(formNewUser)
+	ut.form.name, ut.form.password, ut.form.repeated = "dgopher_it_grace", secret, secret
+	ut.submit(ut.form)
+	agree("create")
+	testutil.WaitFor(t, tt, "the new user", func() bool { return !ut.loading && ut.sel >= 0 && ut.accounts[ut.sel].Name == "dgopher_it_grace" })
+
+	ut.openForm(formGrant)
+	ut.form.schema, ut.form.table = "shop", "orders"
+	ut.submit(ut.form)
+	agree("grant")
+	testutil.WaitFor(t, tt, "the privilege", func() bool { return tt.HasText("SELECT on table shop.orders") })
+	if err := tt.Click("Revoke SELECT on table shop.orders"); err != nil {
+		t.Fatal(err)
+	}
+	agree("revoke")
+	testutil.WaitFor(t, tt, "the revoke", func() bool { return !ut.loading && !tt.HasText("SELECT on table shop.orders") })
+	if err := tt.Click("Drop…"); err != nil {
+		t.Fatal(err)
+	}
+	agree("drop")
+	testutil.WaitFor(t, tt, "the drop", func() bool {
+		return !ut.loading && !slices.ContainsFunc(ut.accounts, func(acc db.Account) bool { return acc.Name == "dgopher_it_grace" })
+	})
+
+	events, _ := a.projects[0].Audit.Read(0)
+	for _, e := range events {
+		if strings.Contains(e.Statement, secret) || strings.Contains(e.Detail, secret) {
+			t.Fatalf("the audit log holds the password: %+v", e)
+		}
+	}
+	files, _ := filepath.Glob(filepath.Join(a.projects[0].Queries, "*.sql"))
+	if len(files) != 0 {
+		t.Fatalf("query files made: %v", files)
+	}
+}

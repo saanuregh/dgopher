@@ -50,7 +50,7 @@ SQLite and DuckDB need no server.
 ```sh
 docker run -d --name dbgopher-pg -p 127.0.0.1:15432:5432 -e POSTGRES_PASSWORD=dbgopher postgres:17
 docker run -d --name dbgopher-mysql -p 127.0.0.1:13306:3306 -e MYSQL_ROOT_PASSWORD=dbgopher -e MYSQL_DATABASE=shop mysql:8.4
-docker run -d --name dbgopher-ch -p 127.0.0.1:19000:9000 -p 127.0.0.1:18123:8123 -e CLICKHOUSE_USER=default -e CLICKHOUSE_PASSWORD=dbgopher clickhouse/clickhouse-server:26.3
+docker run -d --name dbgopher-ch -p 127.0.0.1:19000:9000 -p 127.0.0.1:18123:8123 -e CLICKHOUSE_USER=default -e CLICKHOUSE_PASSWORD=dbgopher -e CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1 clickhouse/clickhouse-server:26.3
 docker run -d --name dbgopher-redis -p 127.0.0.1:16379:6379 redis:7
 # A cluster of three masters, and a master watched by a sentinel. They use the
 # host's network, so that the addresses the nodes announce are reachable.

@@ -462,6 +462,9 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		if !cn.Config.Engine.IsFile() && m.Item("Server Activity").Chosen() {
 			a.openActivity(cn)
 		}
+		if db.UsersSupported(cn.Config.Engine) && m.Item("Users and Privileges").Chosen() {
+			a.openUsers(cn)
+		}
 		m.Separator()
 		if m.Item("Edit Connection…").Chosen() {
 			a.openConnForm(cn)

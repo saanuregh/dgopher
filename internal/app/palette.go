@@ -66,6 +66,9 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 			if !active.Config.Engine.IsFile() {
 				cmds = append(cmds, paletteItem{title: "Server Activity", detail: active.Config.Name, group: "Command", icon: widgets.IconClock, run: func() { a.openActivity(active) }})
 			}
+			if db.UsersSupported(active.Config.Engine) {
+				cmds = append(cmds, paletteItem{title: "Users and Privileges", detail: active.Config.Name, group: "Command", icon: widgets.IconUsers, run: func() { a.openUsers(active) }})
+			}
 			cmds = append(cmds, paletteItem{title: "Refresh Schema", detail: active.Config.Name, group: "Command", icon: widgets.IconRefresh, run: func() { a.refresh(active) }},
 				paletteItem{title: "Disconnect", detail: active.Config.Name, group: "Command", icon: widgets.IconUnplug, run: func() {
 					a.requestDisconnect("Disconnect "+active.Config.Name+"?", []*connection.Conn{active}, func() { a.disconnect(active) })

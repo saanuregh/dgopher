@@ -202,6 +202,8 @@ func (a *App) tabBar(c *ui.Context) {
 							ic = widgets.IconSchema
 						case *activityTab:
 							ic = widgets.IconClock
+						case *usersTab:
+							ic = widgets.IconUsers
 						}
 						ui.Icon(c, ic).FontSize(12).TextColor(pal.Muted)
 						txt := ui.Text(c, tb.Title()).SingleLine().Shrink(1).FontSize(12.5)

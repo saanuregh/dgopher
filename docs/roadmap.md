@@ -85,7 +85,6 @@ Next or Later are not repeated.
 - **Test data and automation:**
   - Fill tables with generated test data.
 - **Admin and monitoring:**
-  - Manage database users and their privileges.
 - **Redis:**
   - Publish and subscribe to channels.
   - Add entries to streams, and manage consumer groups.

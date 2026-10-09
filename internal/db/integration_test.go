@@ -871,3 +871,105 @@ func TestIntegrationRedisSentinel(t *testing.T) {
 		t.Fatalf("no master name: %v", err)
 	}
 }
+
+// An account made, granted, listed, taken back and dropped on each
+// server; one made with a password logs in with it, which on PostgreSQL
+// proves the verifier hashed here.
+func TestIntegrationUsers(t *testing.T) {
+	integration(t)
+	ctx := context.Background()
+	for _, c := range []struct {
+		cfg    Config
+		schema string
+		table  string
+	}{
+		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dbgopher", Database: "postgres"}, "public", "it_users"},
+		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"}, "shop", "it_users"},
+		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher"}, "default", "it_users"},
+	} {
+		t.Run(string(c.cfg.Engine), func(t *testing.T) {
+			d, err := Open(ctx, c.cfg, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer d.Close()
+			table := QualifiedName(d.Dialect, c.schema, c.table)
+			create := "CREATE TABLE " + table + " (id int)"
+			if c.cfg.Engine == ClickHouse {
+				create += " ENGINE = Memory"
+			}
+			ada := Account{Name: "dgopher_it_ada"}
+			if c.cfg.Engine == MySQL {
+				ada.Host = "%"
+			}
+			cleanup := func() {
+				for _, q := range DropAccountSQL(d.Dialect, ada) {
+					d.SQL.ExecContext(ctx, q)
+				}
+				d.SQL.ExecContext(ctx, "DROP TABLE IF EXISTS "+table)
+			}
+			cleanup()
+			defer cleanup()
+			stmt, err := CreateAccountSQL(d.Dialect, NewAccount{Account: ada, Password: "Correct-Horse-1"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			grants, err := GrantSQL(d.Dialect, []string{"SELECT"}, c.schema, c.table, ada)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, q := range append([]string{create, stmt}, grants...) {
+				if _, err := d.SQL.ExecContext(ctx, q); err != nil {
+					t.Fatal(q, err)
+				}
+			}
+			accounts, err := ListAccounts(ctx, d.Dialect, d.SQL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, a := range accounts {
+				found = found || a.Name == ada.Name
+			}
+			if !found {
+				t.Fatalf("%s not listed in %+v", ada.Name, accounts)
+			}
+			privs, err := AccountPrivileges(ctx, d.Dialect, d.SQL, ada)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var revoke string
+			for _, p := range privs {
+				if strings.Contains(p.Text, "SELECT") && strings.Contains(p.Text, c.table) {
+					revoke = p.Revoke
+				}
+			}
+			if revoke == "" {
+				t.Fatalf("no SELECT on %s in %+v", c.table, privs)
+			}
+			// The new account logs in with its password, and reads.
+			as := c.cfg
+			as.User, as.Password = ada.Name, "Correct-Horse-1"
+			login, err := Open(ctx, as, nil)
+			if err != nil {
+				t.Fatalf("logging in as the new account: %v", err)
+			}
+			var n int
+			err = login.SQL.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&n)
+			login.Close()
+			if err != nil {
+				t.Fatalf("reading as the new account: %v", err)
+			}
+			if _, err := d.SQL.ExecContext(ctx, revoke); err != nil {
+				t.Fatal(revoke, err)
+			}
+			// Dropped although it still holds USAGE on the schema, on
+			// PostgreSQL.
+			for _, q := range DropAccountSQL(d.Dialect, ada) {
+				if _, err := d.SQL.ExecContext(ctx, q); err != nil {
+					t.Fatal(q, err)
+				}
+			}
+		})
+	}
+}
