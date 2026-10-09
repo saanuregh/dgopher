@@ -7,9 +7,11 @@ import (
 	"testing"
 	"time"
 
+	"dgopher/internal/datamodel"
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
 	"dgopher/internal/testutil"
+	"dgopher/internal/ui/dashboard"
 	"dgopher/internal/ui/query"
 
 	"github.com/egoist/mygo/ui"
@@ -89,4 +91,27 @@ func TestPaletteQueryFiles(t *testing.T) {
 		q, ok := a.ActiveTab().(*query.Tab)
 		return ok && q.Path == filepath.Join(p.Queries, "daily.sql")
 	})
+}
+
+// The palette opens the dashboard chosen, not what a data model listed
+// after it holds at its place.
+func TestPaletteOpensItsDashboard(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1000, 700)
+	p := a.projects[0]
+	path := dashboard.File(p, "terst")
+	if _, err := (&dashboard.Dashboard{Name: "terst", Panels: []dashboard.Panel{}}).Save(path, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (&datamodel.Model{Name: "mkt", Engine: db.Postgres}).Save(datamodel.File(p, "mkt"), nil); err != nil {
+		t.Fatal(err)
+	}
+	a.openPalette(false)
+	a.palette.query = "terst"
+	tt.Frame()
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if d, ok := a.ActiveTab().(*dashboard.Tab); !ok || d.Path != path {
+		t.Fatalf("opened %v", a.ActiveTab())
+	}
 }

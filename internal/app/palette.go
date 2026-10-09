@@ -155,13 +155,16 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 	cmds = append(cmds, paletteItem{title: "Customize Keyboard Shortcuts…", detail: "change the keys of the commands", group: "Command", icon: widgets.IconSettings,
 		run: func() { a.keys = &keysEditor{open: true} }})
 	for _, p := range a.projects {
+		// Each item keeps its own path: the closures outlive the loop.
 		names, paths := a.dashboardNames(p)
 		for i, name := range names {
-			cmds = append(cmds, paletteItem{title: name, detail: p.Name, group: "Dashboard", icon: widgets.IconLayers, run: func() { a.openDashboard(p, paths[i]) }})
+			path := paths[i]
+			cmds = append(cmds, paletteItem{title: name, detail: p.Name, group: "Dashboard", icon: widgets.IconLayers, run: func() { a.openDashboard(p, path) }})
 		}
 		names, paths = a.modelNames(p)
 		for i, name := range names {
-			cmds = append(cmds, paletteItem{title: name, detail: p.Name, group: "Data Model", icon: widgets.IconSchema, run: func() { a.openModel(p, paths[i]) }})
+			path := paths[i]
+			cmds = append(cmds, paletteItem{title: name, detail: p.Name, group: "Data Model", icon: widgets.IconSchema, run: func() { a.openModel(p, path) }})
 		}
 		for _, rel := range p.Files {
 			files = append(files, paletteItem{title: rel, detail: p.Name, group: "Query", icon: widgets.IconFile, run: func() { a.openQueryFile(p, rel, nil) }})
