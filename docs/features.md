@@ -183,6 +183,16 @@
     needs quotes, while the navigator's Rename renames it in the database.
   - Go to Statement (⌘⇧O) lists the file's statements, by line, with the
     comment above each, filtered as you type; Enter goes to one.
+  - Vim key bindings (Settings → Editor keys): normal, insert, visual and
+    visual line modes, with a block caret and the mode under the editor;
+    counts; the motions h j k l w b e W B E 0 ^ $ gg G f F t T ; , % { }
+    and Ctrl+D/U; the operators d c y > < with motions, doubled, and the
+    text objects iw aw i" a" i' a' i( a( i[ a[ i{ a{; x X D C Y s S r J
+    ~ p P o O i a I A; u and Ctrl+R; . repeating the last change, typing
+    included; / ? n N searching; :w saving and :N going to a line. The
+    register is the clipboard. The app's commands keep their keys, as ⌘↵,
+    and Vim's Control keys win over theirs while the editor has the
+    keys.
   - The editor's toolbar shows the schema it finds names in, and on
     PostgreSQL its database, and switches them: `SET search_path` or `USE`
     on its session, audited, and another database on a session of its

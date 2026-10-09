@@ -1090,10 +1090,12 @@ func (q *Tab) View(c *ui.Context) {
 				_, _, ok := q.currentStatement()
 				q.Editor.HasCurrent = ok && q.Editor.HasFocus
 				q.checkProblems()
+				q.syncVim()
 				q.Editor.View(c, a.Settings().EditorFont).ContextMenu(q.editorMenu)
 				q.trackSnippet()
 				q.completionView(c, a)
 				q.problemBar(c)
+				q.vimBar(c)
 			})
 		}, func() {
 			q.resultsView(c, a)

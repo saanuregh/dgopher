@@ -48,7 +48,21 @@ type Editor struct {
 	HasCurrent   bool
 	// Problems are marked with a wavy line under their text.
 	Problems []Problem
+	// Vim, when set, edits with Vim's keys.
+	Vim *Vim
+	// vimSel is the selection Vim last gave the text area, by which a
+	// caret the pointer moved is told from Vim's own.
+	vimSel [2]int
+	// vimEscape is an Esc that ends typing, taken in the frame after.
+	vimEscape bool
+	// viewW and viewH are the size the editor showed in, for Vim to keep
+	// its caret in view.
+	viewW, viewH float32
 }
+
+// Typing reports whether keys type in the editor: not in Vim's modes but
+// insert, whose changes are commands'.
+func (e *Editor) Typing() bool { return e.Vim == nil || e.Vim.Mode == VimInsert }
 
 // Problem is a mistake in the text: Message says what; Fix, when set, is
 // the text that replaces its own to mend it.
@@ -171,7 +185,13 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 	var area ui.Element
 	numbers := e.lineNumbers()
 	gutterW := e.charW*float32(max(4, len(strconv.Itoa(e.gutterLines)))) + 22
-	ui.ScrollBoth(c).TrackScroll(&e.Scroll).Grow(1).Background(pal.EditorBg).Draw(func(p *ui.Painter, r ui.Rect) {
+	textX := gutterW + 12
+	// Vim's modes but insert take the keys in the container, which takes
+	// the text typed as keys, where the text area would type it.
+	vim := e.Vim
+	commands := vim != nil && vim.Mode != VimInsert
+	box := ui.ScrollBoth(c).TrackScroll(&e.Scroll).Grow(1).Background(pal.EditorBg).Draw(func(p *ui.Painter, r ui.Rect) {
+		e.viewW, e.viewH = r.W, r.H
 		// The gutter's color down the whole height, below short texts too.
 		p.Fill(ui.Rect{X: r.X, Y: r.Y, W: gutterW, H: r.H}, pal.Gutter, 0)
 		// The statement a run would send, across the whole width.
@@ -180,8 +200,28 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 			top := r.Y + 8 + float32(first)*lh - e.Scroll.Y
 			p.Fill(ui.Rect{X: r.X + gutterW, Y: top, W: r.W - gutterW, H: float32(last-first+1) * lh}, pal.CurrentStatement, 0)
 		}
-		e.drawProblems(p, r, r.X+gutterW+12, lh, c.Theme().Danger)
-	}).Children(func() {
+		e.drawProblems(p, r, r.X+textX, lh, c.Theme().Danger)
+		if commands && e.HasFocus {
+			e.drawVim(p, r.X+textX-e.Scroll.X, r.Y+8-e.Scroll.Y, lh, c.Theme().Accent)
+		}
+	})
+	if vim != nil {
+		box.Focusable().Label("SQL editor, Vim keys").HandleInput(func(ev ui.InputEvent) bool { return commands && e.vimInput(ev, lh) })
+		if commands {
+			line, col := lineCol(e.Text, vim.Caret)
+			box.TextCaret(ui.Rect{X: textX + float32(col)*e.charW - e.Scroll.X, Y: 8 + float32(line)*lh - e.Scroll.Y, W: e.charW, H: lh})
+			if box.Focused() {
+				// Vim's Control keys before the app's commands, which on
+				// Linux and Windows have the same keys.
+				for key, tok := range vimCtrlKeys {
+					if c.Shortcut(ui.Ctrl, key) {
+						e.vimFeed([]string{tok}, lh)
+					}
+				}
+			}
+		}
+	}
+	box.Children(func() {
 		ui.Row(c).AlignItems(ui.Stretch).MinHeightPercent(100).MinWidthPercent(100).Children(func() {
 			ui.Text(c, numbers).Font(widgets.MonoFont).FontSize(fontSize).FixedLineHeight(lh).
 				TextColor(pal.LineNumber).TextAlign(ui.End).Padding(8, 10, 8, 12).
@@ -189,25 +229,55 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 			area = ui.TextAreaBase(c, &e.Text).Font(widgets.MonoFont).FontSize(fontSize).FixedLineHeight(lh).
 				NoWrap().Padding(8, 12).Grow(1).MinWidth(float32(e.longest+2)*e.charW + 24).Label("SQL editor")
 			area.TextRanges(overlay(e.highlight(pal), e.Marks)...)
-			if e.KeyHook != nil {
-				area.HandleInput(func(ev ui.InputEvent) bool {
-					return ev.Kind == ui.InputKeyDown && e.KeyHook(ev.Mods, ev.Key)
-				})
+			area.HandleInput(func(ev ui.InputEvent) bool {
+				if ev.Kind != ui.InputKeyDown {
+					return false
+				}
+				if e.KeyHook != nil && e.KeyHook(ev.Mods, ev.Key) {
+					return true
+				}
+				// Typing ends at Esc, the text area's one key Vim takes: once
+				// the text area has typed what came before it, in the frame.
+				if vim != nil && vim.Mode == VimInsert && (ev.Mods == 0 && ev.Key == ui.KeyEscape || ev.Mods == ui.Ctrl && ev.Key == ui.KeyBracketLeft) {
+					e.vimEscape = true
+					return true
+				}
+				return false
+			})
+			if e.vimEscape && vim != nil {
+				e.vimEscape = false
+				_, caret := area.TextSelection()
+				vim.Typed([]rune(e.Text), caret)
+				e.vimFeed([]string{"<Esc>"}, lh)
+			}
+			focus := area
+			if commands {
+				focus = box
 			}
 			if e.WantFocus {
 				// Asked until it holds: the frame that builds a new tab
 				// may not be the one that settles the focus.
-				area.Focus()
-				if area.Focused() {
+				focus.Focus()
+				if focus.Focused() {
 					e.WantFocus = false
 				}
 			}
 			if e.PendingSel != nil {
 				area.SetTextSelection(e.PendingSel[0], e.PendingSel[1])
 				e.PendingSel = nil
+			} else if commands {
+				e.vimSync(area.TextSelection())
+			}
+			switch {
+			case commands && area.Focused():
+				// A click in the text puts the caret there; the keys stay
+				// Vim's.
+				box.Focus()
+			case vim != nil && vim.Mode == VimInsert && box.Focused():
+				area.Focus()
 			}
 			e.SelStart, e.SelEnd = area.TextSelection()
-			e.HasFocus = area.Focused()
+			e.HasFocus = area.Focused() || vim != nil && box.Focused()
 		})
 	})
 	return area

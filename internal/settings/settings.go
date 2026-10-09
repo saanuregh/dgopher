@@ -18,6 +18,8 @@ type Settings struct {
 	SidebarWidth  float32 `json:"sidebarWidth"`
 	ResultsHeight float32 `json:"resultsHeight"`
 	PageSize      int     `json:"pageSize"`
+	// Vim edits SQL with Vim's keys.
+	Vim bool `json:"vim,omitempty"`
 	// SemicolonOnly ends statements at ';' only; by default a blank line
 	// ends one too, as in DBeaver.
 	SemicolonOnly bool `json:"semicolonOnly,omitempty"`

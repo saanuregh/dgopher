@@ -95,6 +95,11 @@ func (a *App) settingsView(c *ui.Context) {
 						ui.Text(c, "seconds, 0 for never").TextColor(pal.Muted)
 					})
 				}).Description("A statement, script, export or import that takes this long tells the system when it ends, if DGopher is in the background then.")
+				ui.Field(c, "Editor keys", func() {
+					if ui.Checkbox(c, &a.settings.Vim, "Vim key bindings").Changed() {
+						a.SaveSettings()
+					}
+				}).Description("Normal, insert and visual modes, motions, operators, text objects, . and :w.")
 				ui.Field(c, "Keys", func() {
 					if ui.Button(c, "Keyboard Shortcuts…").Clicked() {
 						open = false

@@ -12,6 +12,7 @@ import (
 	"dgopher/internal/keymap"
 	"dgopher/internal/safety"
 	"dgopher/internal/testutil"
+	"dgopher/internal/ui/editor"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -342,5 +343,60 @@ func TestChangedKey(t *testing.T) {
 	tt.Frame()
 	if !q.find.Open {
 		t.Fatal("the key given does not find")
+	}
+}
+
+// With Vim's keys, the editor moves and changes in normal mode, types in
+// insert mode, and undoes and redoes; the app's commands keep their keys.
+func TestVimInEditor(t *testing.T) {
+	a := newFakeQueryHost(t)
+	a.Settings().Vim = true
+	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1000, 700)
+	q := New(a, cn, "", "q", "select a, b from t")
+	q.Editor.PendingSel = &[2]int{0, 0}
+	a.AddTab(q)
+	testutil.WaitFor(t, tt, "the editor's focus", func() bool { return q.Editor.HasFocus && q.Editor.Vim != nil })
+	press := func(s string) {
+		t.Helper()
+		tt.Type(s)
+		tt.Frame()
+		tt.Frame()
+	}
+	press("w")
+	if q.Editor.SelEnd != 7 {
+		t.Fatalf("w: caret at %d", q.Editor.SelEnd)
+	}
+	press("cwx")
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	tt.Frame()
+	if q.Editor.Text != "select x, b from t" || q.Editor.Vim.Mode != editor.VimNormal {
+		t.Fatalf("cw: %q, mode %v", q.Editor.Text, q.Editor.Vim.Mode)
+	}
+	press("u")
+	if q.Editor.Text != "select a, b from t" {
+		t.Fatalf("u: %q", q.Editor.Text)
+	}
+	tt.Key(ui.Ctrl, ui.KeyR)
+	tt.Frame()
+	tt.Frame()
+	if q.Editor.Text != "select x, b from t" {
+		t.Fatalf("Ctrl+R: %q", q.Editor.Text)
+	}
+	testutil.Snapshot(t, tt, "vim-normal")
+	press("$")
+	if !testutil.HasTextContaining(tt, "-- NORMAL --") {
+		t.Fatalf("no mode shown: %q", tt.Texts())
+	}
+	tt.Key(ui.Cmd, ui.KeyEnter)
+	testutil.WaitFor(t, tt, "the run", func() bool { return len(q.messages) > 0 && !q.Running })
+	if !strings.Contains(q.messages[len(q.messages)-1].text, "no such table") {
+		t.Fatalf("ran as %+v", q.messages)
+	}
+	a.Settings().Vim = false
+	tt.Frame()
+	if q.Editor.Vim != nil {
+		t.Fatal("Vim kept after the setting went off")
 	}
 }
