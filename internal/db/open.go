@@ -265,7 +265,15 @@ func openPostgres(cfg Config, ep endpoint, tc *tls.Config) (*sql.DB, error) {
 		// The server refuses writes in every transaction of the session.
 		pc.RuntimeParams["default_transaction_read_only"] = "on"
 	}
-	return stdlib.OpenDB(*pc), nil
+	var opts []stdlib.OptionOpenDB
+	if cfg.Identity != "" {
+		opts = append(opts, stdlib.OptionBeforeConnect(func(ctx context.Context, cc *pgx.ConnConfig) error {
+			token, err := identityToken(ctx, cfg)
+			cc.Password = token
+			return err
+		}))
+	}
+	return stdlib.OpenDB(*pc, opts...), nil
 }
 
 func openMySQL(cfg Config, ep endpoint, tc *tls.Config) (*sql.DB, error) {
@@ -283,6 +291,18 @@ func openMySQL(cfg Config, ep endpoint, tc *tls.Config) (*sql.DB, error) {
 	// Prefer is the driver's "preferred": unverified TLS when the server
 	// offers it, else plain text; here with the client certificate too.
 	mc.TLS, mc.AllowFallbackToPlaintext = tc, cfg.TLS == TLSPrefer
+	// LDAP, PAM and the clouds' identities take the password, or the
+	// token, as it is; Validate keeps that to TLS.
+	mc.AllowCleartextPasswords = cfg.ClearTextPassword || cfg.Identity != ""
+	if cfg.Identity != "" {
+		if err := mc.Apply(mysql.BeforeConnect(func(ctx context.Context, c *mysql.Config) error {
+			token, err := identityToken(ctx, cfg)
+			c.Passwd = token
+			return err
+		})); err != nil {
+			return nil, err
+		}
+	}
 	if cfg.ReadOnly {
 		// Sent as SET on every new connection.
 		mc.Params = map[string]string{"transaction_read_only": "1"}

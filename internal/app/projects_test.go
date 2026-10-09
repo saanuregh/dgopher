@@ -1080,3 +1080,39 @@ func TestConnFormSentinel(t *testing.T) {
 		t.Fatalf("one server keeps %+v", got.Redis)
 	}
 }
+
+// A cloud identity takes the password's place, on PostgreSQL and MySQL
+// only, and keeps no password of the form; it is part of what a shared
+// connection is trusted for.
+func TestCloudIdentityForm(t *testing.T) {
+	a := newTestApp(t)
+	a.openConnForm(nil)
+	f := a.connForm
+	f.engine = db.MySQL.Label()
+	f.cfg.Name, f.cfg.Host, f.cfg.User, f.cfg.Password = "Orders", "orders.rds.amazonaws.com", "app", "typed"
+	f.source, f.identity = passwordSources[sourceIdentity], db.IdentityAWS.Label()
+	f.cfg.IdentityRegion = " eu-west-1 "
+	cfg := f.config()
+	if cfg.Identity != db.IdentityAWS || cfg.IdentityRegion != "eu-west-1" || cfg.Password != "" || sourceOf(&cfg) != sourceIdentity {
+		t.Fatalf("config %+v", cfg)
+	}
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "TLS") {
+		t.Fatalf("an identity without TLS: %v", err)
+	}
+	f.tls = tlsLabels[db.TLSRequire]
+	if cfg = f.config(); cfg.Validate() != nil {
+		t.Fatal(cfg.Validate())
+	}
+	before := sharedFingerprint(&cfg, "/p")
+	cfg.IdentityProfile = "prod"
+	if sharedFingerprint(&cfg, "/p") == before {
+		t.Fatal("the identity is not part of the fingerprint")
+	}
+	if plain := (db.Config{ID: "x"}); sharedFingerprint(&plain, "/p") == "" {
+		t.Fatal("no fingerprint")
+	}
+	f.engine = db.Redis.Label()
+	if slices.Contains(passwordSourcesOf(db.Redis), passwordSources[sourceIdentity]) || f.config().Identity != "" {
+		t.Fatal("Redis offered a cloud identity")
+	}
+}

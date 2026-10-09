@@ -73,6 +73,12 @@
     connections skip TLS.
   - Proxies: SOCKS5 or HTTP CONNECT, with a user and a password kept in
     the keychain, to the server or to the SSH host.
+  - Cloud identities log in to PostgreSQL and MySQL without a password:
+    a token of your AWS IAM, Google Cloud IAM or Microsoft Entra ID login,
+    printed by the cloud's own tool (`aws`, `gcloud`, `az`) after its
+    single sign-on, made again for new connections as it ages, and sent
+    only over TLS. MySQL can send the password as clear text, over TLS,
+    as LDAP and PAM logins need.
   - SSH tunnels: agent, key file with passphrase, or password, through
     jump hosts as `ssh -J` does. Host keys are checked against
     `known_hosts`, a jump host's too, and a new host must be trusted

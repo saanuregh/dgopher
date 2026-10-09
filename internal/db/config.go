@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -199,10 +200,18 @@ type Config struct {
 	AskPassword bool `json:"askPassword,omitempty"`
 	// PasswordCommand runs to print the password, as a password
 	// manager's CLI does; the app asks before it first runs.
-	PasswordCommand string  `json:"passwordCommand,omitempty"`
-	Database        string  `json:"database,omitempty"`
-	TLS             TLSMode `json:"tls,omitempty"`
-	CAFile          string  `json:"caFile,omitempty"`
+	PasswordCommand string `json:"passwordCommand,omitempty"`
+	// Identity logs in with a token of a cloud identity in place of a
+	// password; IdentityRegion and IdentityProfile choose AWS's.
+	Identity        Identity `json:"identity,omitempty"`
+	IdentityRegion  string   `json:"identityRegion,omitempty"`
+	IdentityProfile string   `json:"identityProfile,omitempty"`
+	// ClearTextPassword sends MySQL the password as it is, as logging in
+	// through LDAP or PAM needs; only over TLS.
+	ClearTextPassword bool    `json:"clearTextPassword,omitempty"`
+	Database          string  `json:"database,omitempty"`
+	TLS               TLSMode `json:"tls,omitempty"`
+	CAFile            string  `json:"caFile,omitempty"`
 	// CertFile and KeyFile are the PEM files of a TLS client certificate
 	// and its key, which the server may ask the connection to log in with.
 	CertFile string      `json:"certFile,omitempty"`
@@ -390,7 +399,7 @@ func (c *Config) Validate() error {
 		errs = append(errs, fmt.Sprintf("unknown proxy kind %q", c.Proxy.Kind))
 	}
 	sources := 0
-	for _, set := range []bool{c.AskPassword, c.PasswordEnv != "", c.PasswordCommand != ""} {
+	for _, set := range []bool{c.AskPassword, c.PasswordEnv != "", c.PasswordCommand != "", c.Identity != ""} {
 		if set {
 			sources++
 		}
@@ -402,7 +411,22 @@ func (c *Config) Validate() error {
 		errs = append(errs, "the idle transaction timeout must be -1 (never), 0 (default) or more")
 	}
 	if sources > 1 {
-		errs = append(errs, "choose one way to get the password: ask, an environment variable or a command")
+		errs = append(errs, "choose one way to get the password: ask, an environment variable, a command or a cloud identity")
+	}
+	// Prefer may fall back to plain text: a token, or a clear password,
+	// goes only where TLS is required.
+	noTLS := c.TLS != TLSRequire && c.TLS != TLSVerifyFull
+	switch {
+	case c.Identity == "":
+	case !slices.Contains(Identities(), c.Identity):
+		errs = append(errs, fmt.Sprintf("unknown identity %q", c.Identity))
+	case c.Engine != Postgres && c.Engine != MySQL:
+		errs = append(errs, "a cloud identity logs in to PostgreSQL or MySQL")
+	case noTLS:
+		errs = append(errs, "a cloud identity's token goes only over TLS")
+	}
+	if c.ClearTextPassword && (c.Engine != MySQL || noTLS) {
+		errs = append(errs, "a password sent as clear text goes only to MySQL, over TLS")
 	}
 	if len(errs) > 0 {
 		return errors.New(strings.Join(errs, "; "))

@@ -54,3 +54,15 @@ func TestJumps(t *testing.T) {
 		}
 	}
 }
+
+func TestIdentityCommand(t *testing.T) {
+	cfg := Config{Engine: MySQL, Host: "db.example.com; rm -rf /", Port: 3307, User: "app user", Identity: IdentityAWS, IdentityProfile: "prod"}
+	got := identityCommand(&cfg)
+	want := []string{"aws", "rds", "generate-db-auth-token", "--hostname", "db.example.com; rm -rf /", "--port", "3307", "--username", "app user", "--profile", "prod"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("%q", got)
+	}
+	if cmd := identityCommand(&Config{Identity: IdentityAzure}); cmd[0] != "az" {
+		t.Fatalf("%q", cmd)
+	}
+}

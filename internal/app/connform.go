@@ -46,6 +46,7 @@ type connForm struct {
 	project    *project.Project // where a new connection goes
 	projectSel string           // its label in the project choice
 	source     string           // where the password comes from: a passwordSources label
+	identity   string           // the cloud identity's label, when the source is one
 	sshSource  string           // where the SSH secret comes from: keychain or command
 	timeout    float64          // statement timeout, seconds, 0 for none
 	idleMin    float64          // idle transaction timeout, minutes, 0 for the environment's
@@ -121,6 +122,10 @@ func (a *App) openConnForm(cn *connection.Conn) {
 		f.idleMin = float64(f.cfg.IdleTxTimeout) / 60
 	}
 	f.source = passwordSources[sourceOf(&f.cfg)]
+	f.identity = db.IdentityAWS.Label()
+	if f.cfg.Identity != "" {
+		f.identity = f.cfg.Identity.Label()
+	}
 	f.redisMode = max(0, slices.Index(redisModes, f.cfg.Redis.Mode))
 	f.sshSource = sshSources[0]
 	if f.cfg.SSH.PasswordCommand != "" {
@@ -199,7 +204,14 @@ func (f *connForm) config() db.Config {
 	// Only the chosen source is kept: a password typed, then a switch to
 	// a command, is not saved.
 	cfg.AskPassword = false
-	switch sourceByLabel(f.source) {
+	source := f.passwordSource()
+	if source != sourceIdentity {
+		cfg.Identity, cfg.IdentityRegion, cfg.IdentityProfile = "", "", ""
+	}
+	if cfg.Engine != db.MySQL {
+		cfg.ClearTextPassword = false
+	}
+	switch source {
 	case sourceKeychain:
 		cfg.PasswordEnv, cfg.PasswordCommand = "", ""
 	case sourceEnv:
@@ -211,6 +223,13 @@ func (f *connForm) config() db.Config {
 	case sourceAsk:
 		cfg.Password, cfg.PasswordEnv, cfg.PasswordCommand = "", "", ""
 		cfg.AskPassword = true
+	case sourceIdentity:
+		cfg.Password, cfg.PasswordEnv, cfg.PasswordCommand, cfg.ClearTextPassword = "", "", "", false
+		cfg.Identity = db.Identities()[max(0, slices.IndexFunc(db.Identities(), func(i db.Identity) bool { return i.Label() == f.identity }))]
+		cfg.IdentityRegion, cfg.IdentityProfile = strings.TrimSpace(cfg.IdentityRegion), strings.TrimSpace(cfg.IdentityProfile)
+		if cfg.Identity != db.IdentityAWS {
+			cfg.IdentityRegion, cfg.IdentityProfile = "", ""
+		}
 	}
 	if f.sshSource == sshSources[1] {
 		cfg.SSH.Password, cfg.SSH.KeyPassphrase = "", ""
@@ -436,7 +455,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 			ui.TextInput(c, &f.cfg.User).Placeholder(engine.DefaultUser())
 		})
 		ui.Field(c, "Password from", func() {
-			ui.Select(c, &f.source, passwordSources).Label("Password from")
+			ui.Select(c, &f.source, passwordSourcesOf(engine)).Label("Password from")
 		})
 		a.passwordField(c, f)
 		label := "Database"
@@ -974,13 +993,26 @@ const (
 	sourceEnv
 	sourceCommand
 	sourceAsk
+	sourceIdentity // last: offered for PostgreSQL and MySQL only
 )
 
-var passwordSources = []string{"System keychain", "Environment variable", "Command", "Ask every time"}
+var passwordSources = []string{"System keychain", "Environment variable", "Command", "Ask every time", "Cloud identity"}
+
+// passwordSourcesOf are the sources an engine's connections may take
+// their password from.
+func passwordSourcesOf(e db.Engine) []string {
+	if e == db.Postgres || e == db.MySQL {
+		return passwordSources
+	}
+	return passwordSources[:sourceIdentity]
+}
+
 var sshSources = []string{"System keychain", "Command"}
 
 func sourceOf(cfg *db.Config) passwordSource {
 	switch {
+	case cfg.Identity != "":
+		return sourceIdentity
 	case cfg.AskPassword:
 		return sourceAsk
 	case cfg.PasswordCommand != "":
@@ -989,6 +1021,15 @@ func sourceOf(cfg *db.Config) passwordSource {
 		return sourceEnv
 	}
 	return sourceKeychain
+}
+
+// passwordSource is the source the form chose, the keychain when it is
+// one the engine chosen now does not offer.
+func (f *connForm) passwordSource() passwordSource {
+	if !slices.Contains(passwordSourcesOf(engineByLabel(f.engine)), f.source) {
+		return sourceKeychain
+	}
+	return sourceByLabel(f.source)
 }
 
 func sourceByLabel(label string) passwordSource {
@@ -1029,7 +1070,7 @@ func keychainNote(accounts ...string) string {
 
 // storageNote says where, and how, the form's password would be kept.
 func (a *App) storageNote(f *connForm, cfg *db.Config) string {
-	switch sourceByLabel(f.source) {
+	switch f.passwordSource() {
 	case sourceEnv:
 		name := "the variable above"
 		if cfg.PasswordEnv != "" {
@@ -1040,6 +1081,8 @@ func (a *App) storageNote(f *connForm, cfg *db.Config) string {
 		return "Not stored. The command runs each time you connect, without a shell; on each computer you approve it once, and again whenever it changes. What it prints is never logged or saved."
 	case sourceAsk:
 		return "Not stored. Asked for on each connect, and kept in memory only until you disconnect."
+	case sourceIdentity:
+		return "No password: a token of your cloud login, which its command-line tool prints, logs in, made again for new connections as it ages. It goes only over TLS, required or verified."
 	}
 	if !a.st.Secrets().Available() {
 		return "Not saved: no system keychain is available on this computer, so it is asked for on each connect."
@@ -1064,7 +1107,7 @@ func (a *App) formID(f *connForm, cfg *db.Config) *db.Config {
 func (a *App) passwordField(c *ui.Context, f *connForm) {
 	cfg := f.config()
 	note := a.storageNote(f, &cfg)
-	switch sourceByLabel(f.source) {
+	switch f.passwordSource() {
 	case sourceKeychain:
 		ui.Field(c, "Password", func() {
 			ui.TextInput(c, &f.cfg.Password).Password()
@@ -1087,6 +1130,27 @@ func (a *App) passwordField(c *ui.Context, f *connForm) {
 		ui.Field(c, "", func() {
 			ui.Text(c, note).FontSize(12).TextColor(widgets.PaletteOf(c).Muted)
 		})
+	case sourceIdentity:
+		labels := make([]string, len(db.Identities()))
+		for i, id := range db.Identities() {
+			labels[i] = id.Label()
+		}
+		ui.Field(c, "Identity", func() {
+			ui.Select(c, &f.identity, labels).Label("Identity")
+		}).Description(note)
+		if cfg.Identity == db.IdentityAWS {
+			ui.Field(c, "AWS region", func() {
+				ui.TextInput(c, &f.cfg.IdentityRegion).Placeholder("the profile's").Label("AWS region")
+			})
+			ui.Field(c, "AWS profile", func() {
+				ui.TextInput(c, &f.cfg.IdentityProfile).Placeholder("default").Label("AWS profile")
+			})
+		}
+	}
+	if cfg.Engine == db.MySQL && f.passwordSource() != sourceIdentity {
+		ui.Field(c, "", func() {
+			ui.Checkbox(c, &f.cfg.ClearTextPassword, "Send the password as clear text")
+		}).Description("As logging in through LDAP or PAM needs: only over TLS, required or verified.")
 	}
 }
 

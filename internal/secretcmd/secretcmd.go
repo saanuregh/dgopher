@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -102,6 +103,15 @@ func Run(ctx context.Context, line string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return RunArgv(ctx, argv)
+}
+
+// RunArgv runs a command given as its words, as Run runs a line.
+func RunArgv(ctx context.Context, argv []string) (string, error) {
+	if len(argv) == 0 {
+		return "", errors.New("the command is empty")
+	}
+	argv = slices.Clone(argv)
 	if strings.HasPrefix(argv[0], "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -120,7 +130,7 @@ func Run(ctx context.Context, line string) (string, error) {
 	cmd.Stderr = &stderr
 	// A child that hands its pipes to a grandchild would otherwise keep Wait blocked after the kill.
 	cmd.WaitDelay = 2 * time.Second
-	err = cmd.Run()
+	err := cmd.Run()
 	if ctx.Err() != nil {
 		return "", fmt.Errorf("the command took longer than %.3g seconds", limit.Seconds())
 	}

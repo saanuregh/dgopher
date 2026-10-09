@@ -74,6 +74,14 @@ func connectionSummary(cfg *db.Config) string {
 		parts = append(parts, "password from command")
 	case sourceAsk:
 		parts = append(parts, "password asked")
+	case sourceIdentity:
+		parts = append(parts, "logged in as "+cfg.Identity.Label())
+	}
+	if cfg.ClearTextPassword {
+		parts = append(parts, "clear-text password")
+	}
+	if cfg.Proxy.Kind != "" {
+		parts = append(parts, cfg.Proxy.Kind+" proxy "+cfg.Proxy.Host)
 	}
 	if cfg.ReadOnly {
 		parts = append(parts, "read-only")

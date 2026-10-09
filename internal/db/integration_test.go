@@ -1419,3 +1419,69 @@ func TestIntegrationThroughProxy(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// fakeCLI puts a program named name first on PATH, which prints token
+// and counts its runs in the file it returns.
+func fakeCLI(t *testing.T, name, token string) string {
+	t.Helper()
+	dir := t.TempDir()
+	runs := filepath.Join(dir, "runs")
+	script := "#!/bin/sh\necho run >> '" + runs + "'\necho '" + token + "'\n"
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return runs
+}
+
+func countRuns(path string) int {
+	data, _ := os.ReadFile(path)
+	return strings.Count(string(data), "run")
+}
+
+// A cloud identity logs in with the token its CLI prints, made again for
+// the connections opened once it is old.
+func TestIntegrationCloudIdentity(t *testing.T) {
+	integration(t)
+	ctx := context.Background()
+	runs := fakeCLI(t, "aws", "dbgopher")
+	my := Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Database: "shop", TLS: TLSRequire, Identity: IdentityAWS}
+	d, err := Open(ctx, my, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if n := countRuns(runs); n != 1 {
+		t.Fatalf("the CLI ran %d times", n)
+	}
+	// A token past its reuse is made again for the next connection.
+	tokens.Lock()
+	for k, tok := range tokens.byCommand {
+		tok.made = tok.made.Add(-tokenReuse)
+		tokens.byCommand[k] = tok
+	}
+	tokens.Unlock()
+	d.SQL.SetMaxIdleConns(0)
+	if err := d.SQL.PingContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := countRuns(runs); n != 2 {
+		t.Fatalf("the CLI ran %d times, not again for a new connection", n)
+	}
+
+	// PostgreSQL's test server has no TLS, which Validate asks for: its
+	// connections are opened as Open would.
+	pg := Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Database: "postgres", Identity: IdentityAWS, IdentityRegion: "eu-west-1"}
+	fakeCLI(t, "aws", "dbgopher")
+	sqldb, err := openPostgres(pg, endpoint{host: pg.Host, port: pg.Port, serverName: pg.Host}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sqldb.Close()
+	if err := sqldb.PingContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&Config{Name: "x", Engine: Postgres, Host: "h", Identity: IdentityAWS, TLS: TLSPrefer}).Validate(); err == nil {
+		t.Fatal("a token allowed without required TLS")
+	}
+}

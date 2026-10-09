@@ -19,8 +19,6 @@ Next or Later are not repeated.
 
 - **Connections:**
   - Log in with Kerberos, LDAP or PAM.
-  - Log in with cloud identities: AWS IAM, Azure Entra ID, single
-    sign-on and OAuth.
   - [DEFERRED] List the databases in an AWS, GCP or Azure account and
     add them as connections.
   - [DEFERRED] Import saved connections from other database clients.
