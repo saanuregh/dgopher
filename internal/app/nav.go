@@ -70,6 +70,12 @@ type navNode struct {
 type navState struct {
 	tree ui.OutlineState[navNode]
 	row  int
+	// shown is the tab in front the navigator last followed; reveal is
+	// its node, until the tree shows it, and opened the nodes opened to
+	// show it.
+	shown  widgets.Tab
+	reveal *navNode
+	opened map[navNode]bool
 	// listed are the projects shown already, whose Connections were
 	// opened as they first showed.
 	listed map[string]bool
@@ -390,9 +396,12 @@ func (a *App) sidebar(c *ui.Context) {
 			ui.Spacer(c)
 			return
 		}
+		a.followTab()
+		a.openToReveal()
 		tree := ui.Outline(c, &a.nav.tree, a.navRoots(), a.navChildren, func(n navNode) {
 			a.navRow(c, n)
 		}).Grow(1).Label("Navigator")
+		a.chooseRevealed(c)
 		if tree.Submitted() && a.nav.row >= 0 && a.nav.row < a.nav.tree.Rows() {
 			a.activate(a.nav.tree.Item(a.nav.row))
 		}

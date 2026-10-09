@@ -178,7 +178,8 @@
     tabs and the band above its work. On staging and production the band
     and the questions before a write keep the environment's colour, so a
     colour from a shared project cannot make production look safe; the
-    status bar names the environment in its own colour.
+    status bar names the environment in its own colour, and, for a
+    dashboard, each of its panels' connections.
   - A connection to another machine saves only once its environment is
     chosen in the form, Development included, and again when an edit
     points it elsewhere: the default, Development, asks nothing before a
@@ -193,7 +194,9 @@
   Queries, Dashboards and Data Models, each with its count; a connection
   is a lazy tree of databases, schemas, tables, views and columns, with
   row estimates. It has context menus, and quick open (⌘P) for tables,
-  routines and query files.
+  routines and query files. It follows the tab in front, choosing its
+  query file, table, dashboard or data model, else its connection, and
+  opening what holds it.
   - Read Catalog, on a schema, sets how much of it is read, for very large
     ones, kept in the project's file: As Needed (tables with their sizes,
     a table's columns once opened or named in an editor), Names Only (no

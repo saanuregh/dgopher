@@ -111,6 +111,17 @@ func (t *Tab) Title() string { return t.d.Name + " · dashboard" }
 // Connection is none: a dashboard's panels are of any connection.
 func (t *Tab) Connection() *connection.Conn { return nil }
 
+// Connections are those of the panels, each once, in the panels' order.
+func (t *Tab) Connections() []*connection.Conn {
+	var out []*connection.Conn
+	for _, p := range t.d.Panels {
+		if cn := t.conn(p); cn != nil && !slices.Contains(out, cn) {
+			out = append(out, cn)
+		}
+	}
+	return out
+}
+
 func (t *Tab) CloseReason() string { return "" }
 
 func (t *Tab) Close() {

@@ -69,6 +69,11 @@ func (a *App) view(c *ui.Context) {
 		}
 		a.statusBar(c)
 	})
+	// A tab chosen after the sidebar was drawn, as by a click on it,
+	// shows there in the next frame, asked at once.
+	if a.window == a.main && !a.sidebarHidden && a.ActiveTab() != a.nav.shown {
+		c.Invalidate()
+	}
 	a.titleWindow()
 	a.checkIdleTransactions(c)
 	// The dialogs and toasts show in the window the user uses.
@@ -551,17 +556,29 @@ func (a *App) statusBar(c *ui.Context) {
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
 	cn := a.activeConn()
+	var several []*connection.Conn // a dashboard's panels'
+	if d, ok := a.ActiveTab().(*dashboard.Tab); ok {
+		if conns := d.Connections(); len(conns) == 1 {
+			cn = conns[0]
+		} else {
+			several = conns
+		}
+	}
 	ui.Row(c).Height(26).Padding(0, 10).Gap(12).Background(pal.Sidebar).BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
 		a.txIndicator(c)
+		if len(several) > 0 {
+			for _, cn := range several {
+				ui.Row(c).Gap(6).Children(func() { connBadge(c, cn) })
+			}
+			ui.Spacer(c)
+			return
+		}
 		if cn == nil {
 			ui.Text(c, "No connection").FontSize(12).TextColor(pal.Muted)
 			ui.Spacer(c)
 			return
 		}
-		ui.Row(c).Gap(5).Padding(1, 8).Radius(4).Background(widgets.EnvironmentColor(cn.Config.Env)).Children(func() {
-			ui.Text(c, cn.Config.Env.Label()).FontSize(11).Bold().TextColor(ui.RGB(255, 255, 255))
-		})
-		ui.Text(c, cn.Config.Name).FontSize(12).Bold()
+		connBadge(c, cn)
 		status := "disconnected"
 		switch cn.Status {
 		case connection.StatusConnected:
@@ -605,6 +622,14 @@ func (a *App) statusBar(c *ui.Context) {
 			ui.Text(c, mode).FontSize(12).TextColor(pal.Muted)
 		}
 	})
+}
+
+// connBadge shows a connection's environment and name.
+func connBadge(c *ui.Context, cn *connection.Conn) {
+	ui.Row(c).Gap(5).Padding(1, 8).Radius(4).Background(widgets.EnvironmentColor(cn.Config.Env)).Children(func() {
+		ui.Text(c, cn.Config.Env.Label()).FontSize(11).Bold().TextColor(ui.RGB(255, 255, 255))
+	})
+	ui.Text(c, cn.Config.Name).FontSize(12).Bold()
 }
 
 // tabKey identifies a tab among the elements of the frame.
