@@ -17,6 +17,8 @@ type Host interface {
 	connection.Runner
 	Settings() *settings.Settings
 	SaveSettings()
+	// Layout is the windows' layout, which the app keeps as it changes.
+	Layout() *widgets.Layout
 	ShowError(title, message string)
 	// Toast shows text, with a button doing run when action is set.
 	Toast(text, action string, run func())

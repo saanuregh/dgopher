@@ -120,7 +120,8 @@ const (
 )
 
 func New(a Host, cn *connection.Conn) *Tab {
-	r := &Tab{a: a, conn: cn, typeFilter: allTypes, split: 340, consoleH: 520, treeRow: -1, fieldRow: -1}
+	l := a.Layout()
+	r := &Tab{a: a, conn: cn, typeFilter: allTypes, split: l.RedisKeysWidth, consoleH: l.RedisConsoleHeight, treeRow: -1, fieldRow: -1}
 	r.tree.List.Selected = &r.treeRow
 	r.consoleList.FollowEnd = true
 	r.rescan()
@@ -443,11 +444,16 @@ func (r *Tab) write(args []string, then func()) {
 func (r *Tab) View(c *ui.Context) {
 	a := r.a
 	ui.Column(c).Grow(1).Children(func() {
-		ui.SplitVertical(c, &r.consoleH, func() {
-			ui.Split(c, &r.split, func() { r.keysView(c, a) }, func() { r.keyView(c, a) }).Fill()
+		// Where the next browser's keys and console start.
+		if ui.SplitVertical(c, &r.consoleH, func() {
+			if ui.Split(c, &r.split, func() { r.keysView(c, a) }, func() { r.keyView(c, a) }).Fill().Changed() {
+				a.Layout().RedisKeysWidth = r.split
+			}
 		}, func() {
 			r.panelView(c)
-		}).Grow(1)
+		}).Grow(1).Changed() {
+			a.Layout().RedisConsoleHeight = r.consoleH
+		}
 	})
 }
 

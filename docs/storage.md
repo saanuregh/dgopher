@@ -46,6 +46,22 @@ Support/dgopher` on macOS, and `%AppData%\dgopher` on Windows.
 Trust stays here, not in the project, so that a cloned repository cannot
 approve its own servers.
 
+**The app's data directory** holds what the app keeps as it runs, apart
+from your preferences: `$XDG_DATA_HOME/dgopher` on Linux
+(`~/.local/share/dgopher` by default), `~/Library/Application
+Support/dgopher` on macOS, and `%LocalAppData%\dgopher` on Windows.
+`$DGOPHER_DATA_DIR` overrides it, and a set `$DGOPHER_CONFIG_DIR` stands for
+it too, so that a run kept away from your config keeps away from your
+layout as well.
+
+| File | What |
+| --- | --- |
+| `ui.sqlite` | the windows' layout, a row a value in its `kv` table: the sidebar's width and whether it shows, the editor's height above its results (where new editors start), the split of two tabs side by side, and the Redis browser's keys width and console height |
+
+Each value is written as a drag ends, and read at start; one missing keeps
+its default. The window's own size and place are kept by the toolkit.
+Without the file, as when it cannot be written, the layout lasts the run.
+
 **Passwords** are never in either place: see
 [Secrets](safety.md#secrets).
 - A keychain password is kept for where it was typed for: the engine,

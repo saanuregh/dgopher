@@ -1,6 +1,7 @@
 // Package state keeps a project's own state, which git ignores, in one
 // SQLite file: the open editors, query history, grid filters and row
-// colours, and the audit log.
+// colours, and the audit log; and the app's UI state, as the layout of its
+// windows, in another, in its data folder.
 package state
 
 import (
@@ -23,6 +24,9 @@ import (
 
 // FileName is the state's file in the project's .dgopher folder.
 const FileName = "state.sqlite"
+
+// UIFile is the app's UI state's file, in its data folder.
+const UIFile = "ui.sqlite"
 
 const (
 	historyMax  = 5000
@@ -61,10 +65,20 @@ CREATE TABLE audit (
 	},
 }
 
-// DB is a project's state file.
+// uiMigrations are the UI state's, as migrations a project state's.
+var uiMigrations = []func(*sql.Tx) error{
+	func(tx *sql.Tx) error {
+		_, err := tx.Exec(`CREATE TABLE kv (name TEXT PRIMARY KEY, value TEXT NOT NULL)`)
+		return err
+	},
+}
+
+// DB is a project's state file, or the app's UI state's, whose kv table
+// LoadJSON and SaveJSON use.
 type DB struct {
-	dir string
-	sql *sql.DB
+	dir, file  string
+	migrations []func(*sql.Tx) error
+	sql        *sql.DB
 	// historyMu keeps the trim of one append from racing another's.
 	historyMu sync.Mutex
 }
@@ -72,10 +86,27 @@ type DB struct {
 // Open opens, or creates, the state file of a .dgopher folder, brings its
 // schema up to date, and imports what older versions kept in files.
 func Open(dir string) (*DB, error) {
+	d, err := openFile(dir, FileName, migrations)
+	if err != nil {
+		return nil, err
+	}
+	if err := d.importLegacy(); err != nil {
+		d.Close()
+		return nil, err
+	}
+	return d, nil
+}
+
+// OpenUI opens, or creates, the app's UI state file in its data folder.
+func OpenUI(dir string) (*DB, error) { return openFile(dir, UIFile, uiMigrations) }
+
+// openFile opens, or creates, a state file only its owner reads, its schema
+// brought up to date by migrations.
+func openFile(dir, file string, migrations []func(*sql.Tx) error) (*DB, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	path := filepath.Join(dir, FileName)
+	path := filepath.Join(dir, file)
 	// Private before SQLite writes to it; its -wal and -shm files take its mode.
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDONLY, 0o600)
 	if err != nil {
@@ -95,7 +126,7 @@ func Open(dir string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &DB{dir: dir, sql: s}
+	d := &DB{dir: dir, file: file, migrations: migrations, sql: s}
 	if err := d.useWAL(); err != nil {
 		s.Close()
 		return nil, fmt.Errorf("%s: %w", path, err)
@@ -103,10 +134,6 @@ func Open(dir string) (*DB, error) {
 	if err := d.migrate(); err != nil {
 		s.Close()
 		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	if err := d.importLegacy(); err != nil {
-		s.Close()
-		return nil, err
 	}
 	return d, nil
 }
@@ -139,6 +166,7 @@ func (d *DB) migrate() error {
 	if err := tx.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
+	migrations := d.migrations
 	if version > len(migrations) {
 		return fmt.Errorf("written by a newer DGopher (schema %d, this one knows %d)", version, len(migrations))
 	}
@@ -160,7 +188,7 @@ func (d *DB) migrate() error {
 func (d *DB) Dir() string { return d.dir }
 
 // Path is the state file.
-func (d *DB) Path() string { return filepath.Join(d.dir, FileName) }
+func (d *DB) Path() string { return filepath.Join(d.dir, d.file) }
 
 // SQL is the file's connection pool, for the audit log.
 func (d *DB) SQL() *sql.DB { return d.sql }

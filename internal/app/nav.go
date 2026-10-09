@@ -447,7 +447,7 @@ func (a *App) object(n navNode) (*connection.Conn, db.Object, bool) {
 func (a *App) sidebar(c *ui.Context) {
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
-	side := ui.Column(c).FillHeight().Width(a.settings.SidebarWidth).Background(pal.Sidebar)
+	side := ui.Column(c).FillHeight().Width(a.layout.SidebarWidth).Background(pal.Sidebar)
 	a.tourPart(tourSidebar, side)
 	side.Children(func() {
 		a.sidebarBar(c)

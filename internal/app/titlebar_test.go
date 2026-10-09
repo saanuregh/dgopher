@@ -49,7 +49,7 @@ func TestTitleBar(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if err := tt.Click("Show Sidebar"); err != nil || a.sidebarHidden {
+	if err := tt.Click("Show Sidebar"); err != nil || a.layout.SidebarHidden {
 		t.Fatalf("the sidebar did not come back: %v", err)
 	}
 	tt.Frame()
@@ -57,7 +57,7 @@ func TestTitleBar(t *testing.T) {
 	if !nativeMenuBar {
 		tt.Key(ui.Cmd, ui.KeyB)
 		tt.Frame()
-		if !a.sidebarHidden {
+		if !a.layout.SidebarHidden {
 			t.Fatal("the first key of Toggle Sidebar did nothing")
 		}
 	}

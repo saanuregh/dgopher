@@ -17,11 +17,9 @@ type Settings struct {
 	EditorFont float32 `json:"editorFontSize"`
 	// EditorFontFamily and UIFontFamily are the families of the editor's
 	// and the grids' text, and of the rest; "" for the system's.
-	EditorFontFamily string  `json:"editorFontFamily,omitempty"`
-	UIFontFamily     string  `json:"uiFontFamily,omitempty"`
-	SidebarWidth     float32 `json:"sidebarWidth"`
-	ResultsHeight    float32 `json:"resultsHeight"`
-	PageSize         int     `json:"pageSize"`
+	EditorFontFamily string `json:"editorFontFamily,omitempty"`
+	UIFontFamily     string `json:"uiFontFamily,omitempty"`
+	PageSize         int    `json:"pageSize"`
 	// Vim edits SQL with Vim's keys.
 	Vim bool `json:"vim,omitempty"`
 	// SemicolonOnly ends statements at ';' only; by default a blank line
@@ -67,7 +65,7 @@ type Settings struct {
 
 // Default returns the settings of a first run.
 func Default() Settings {
-	return Settings{Theme: "system", EditorFont: 13, SidebarWidth: 260, ResultsHeight: 320, PageSize: 500, NotifyAfter: 10, ChangeLimit: 1000}
+	return Settings{Theme: "system", EditorFont: 13, PageSize: 500, NotifyAfter: 10, ChangeLimit: 1000}
 }
 
 // ExportPrefs are the export choices the app keeps from one export to

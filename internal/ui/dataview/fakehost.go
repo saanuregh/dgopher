@@ -26,6 +26,7 @@ import (
 type FakeHost struct {
 	tb       TB
 	settings settings.Settings
+	layout   widgets.Layout
 	Project  *project.Project
 	Conns    []*connection.Conn
 	Tabs     []widgets.Tab
@@ -80,7 +81,7 @@ func NewFakeHost(t TB) *FakeHost {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { p.Close() })
-	return &FakeHost{tb: t, settings: settings.Default(), Project: p}
+	return &FakeHost{tb: t, settings: settings.Default(), layout: widgets.DefaultLayout(), Project: p}
 }
 
 // AddConn adds a connection of the host's project, not yet connected.
@@ -143,6 +144,8 @@ func (h *FakeHost) Background(work func() func()) {
 }
 
 func (h *FakeHost) Settings() *settings.Settings { return &h.settings }
+
+func (h *FakeHost) Layout() *widgets.Layout { return &h.layout }
 
 func (h *FakeHost) SaveSettings() {}
 

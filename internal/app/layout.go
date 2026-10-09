@@ -62,16 +62,16 @@ func (a *App) view(c *ui.Context) {
 	defer a.dropZone(c, root)
 	root.Children(func() {
 		// The sidebar is the main window's; the others hold tabs alone.
-		if a.sidebarHidden || a.window != a.main {
+		if a.layout.SidebarHidden || a.window != a.main {
 			ui.Column(c).Grow(1).Children(func() { a.workspace(c) })
-		} else if ui.Split(c, &a.settings.SidebarWidth, func() { a.sidebar(c) }, func() { a.workspace(c) }).Grow(1).Changed() {
-			a.settingsDirty = true
+		} else {
+			ui.Split(c, &a.layout.SidebarWidth, func() { a.sidebar(c) }, func() { a.workspace(c) }).Grow(1)
 		}
 		a.statusBar(c)
 	})
 	// A tab chosen after the sidebar was drawn, as by a click on it,
 	// shows there in the next frame, asked at once.
-	if a.window == a.main && !a.sidebarHidden && a.ActiveTab() != a.nav.shown {
+	if a.window == a.main && !a.layout.SidebarHidden && a.ActiveTab() != a.nav.shown {
 		c.Invalidate()
 	}
 	a.titleWindow()
@@ -84,6 +84,9 @@ func (a *App) view(c *ui.Context) {
 	if a.settingsDirty && !c.Root().Dragging() {
 		a.settingsDirty = false
 		a.SaveSettings()
+	}
+	if a.layout != a.layoutSaved && !c.Root().Dragging() {
+		a.saveLayout()
 	}
 }
 
@@ -203,7 +206,7 @@ func (a *App) shortcuts(c *ui.Context) {
 	}
 	switch {
 	case keymap.Pressed(c, keymap.FocusNavigator):
-		a.sidebarHidden = false
+		a.layout.SidebarHidden = false
 		a.focusWant = "nav"
 	case keymap.Pressed(c, keymap.FocusFilter) && a.ActiveTab() != nil:
 		a.focusWant = "filter"
@@ -241,9 +244,11 @@ func (a *App) workspace(c *ui.Context) {
 				left, right = side, at
 			}
 			if a.splitW == 0 {
-				a.splitW = 560
+				a.splitW = a.layout.SideWidth
 			}
-			ui.Split(c, &a.splitW, func() { a.pane(c, left, true) }, func() { a.pane(c, right, true) }).Grow(1)
+			if ui.Split(c, &a.splitW, func() { a.pane(c, left, true) }, func() { a.pane(c, right, true) }).Grow(1).Changed() {
+				a.layout.SideWidth = a.splitW // where the next split starts
+			}
 		}
 		if a.focusWant == "editor" {
 			a.focusWant = "" // a tab without an editor keeps the focus where it is

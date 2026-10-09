@@ -147,3 +147,34 @@ func TestKeyringSecretsUnavailable(t *testing.T) {
 		t.Fatal("want unavailable")
 	}
 }
+
+// The data folder is the one the variables name, else the system's.
+func TestDefaultDataDir(t *testing.T) {
+	t.Setenv("DGOPHER_DATA_DIR", "/data")
+	t.Setenv("DGOPHER_CONFIG_DIR", "/config")
+	if d, _ := DefaultDataDir(); d != "/data" {
+		t.Fatalf("with DGOPHER_DATA_DIR: %s", d)
+	}
+	t.Setenv("DGOPHER_DATA_DIR", "")
+	if d, _ := DefaultDataDir(); d != "/config" {
+		t.Fatalf("with DGOPHER_CONFIG_DIR alone: %s", d)
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("LOCALAPPDATA", `C:\Users\me\AppData\Local`)
+	t.Setenv("XDG_DATA_HOME", "relative/ignored")
+	for goos, want := range map[string]string{
+		"linux":   filepath.Join(home, ".local", "share"),
+		"darwin":  filepath.Join(home, "Library", "Application Support"),
+		"windows": `C:\Users\me\AppData\Local`,
+	} {
+		if d, err := userDataDir(goos); err != nil || d != want {
+			t.Errorf("%s: %s, %v; want %s", goos, d, err, want)
+		}
+	}
+	t.Setenv("XDG_DATA_HOME", "/xdg")
+	if d, _ := userDataDir("linux"); d != "/xdg" {
+		t.Errorf("with XDG_DATA_HOME: %s", d)
+	}
+}

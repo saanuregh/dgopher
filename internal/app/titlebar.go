@@ -33,7 +33,7 @@ func (a *App) sidebarBar(c *ui.Context) {
 		}
 		widgets.IconButton(c, widgets.IconPlus, "New…").Menu(a.addMenu)
 		if widgets.IconButton(c, widgets.IconSidebar, "Hide Sidebar").Clicked() {
-			a.sidebarHidden = true
+			a.layout.SidebarHidden = true
 		}
 	})
 }
@@ -44,7 +44,7 @@ func (a *App) workspaceBar(c *ui.Context) {
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
 	bar := c.TitleBar()
-	hidden := a.window != a.main || a.sidebarHidden
+	hidden := a.window != a.main || a.layout.SidebarHidden
 	left := float32(0)
 	if hidden {
 		left = bar.Left + 8 // the sidebar holds the controls on the left
@@ -53,7 +53,7 @@ func (a *App) workspaceBar(c *ui.Context) {
 		Background(pal.Sidebar).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).DragWindow().Children(func() {
 		if hidden && a.window == a.main {
 			if widgets.IconButton(c, widgets.IconSidebar, "Show Sidebar").Clicked() {
-				a.sidebarHidden = false
+				a.layout.SidebarHidden = false
 			}
 		}
 		a.tabBar(c)

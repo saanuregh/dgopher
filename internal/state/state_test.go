@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -139,5 +140,37 @@ func TestHistoryRedactsErrors(t *testing.T) {
 	}
 	if strings.Contains(got[0].SQL, "s3cret") || strings.Contains(got[0].Error, "s3cret") {
 		t.Fatalf("the secret was kept: %+v", got[0])
+	}
+}
+
+// The app's UI state file is its own, private, and keeps what is saved in
+// it across opens.
+func TestOpenUI(t *testing.T) {
+	dir := t.TempDir()
+	d, err := OpenUI(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.SaveJSON("sidebar.width", 312.5); err != nil {
+		t.Fatal(err)
+	}
+	d.Close()
+	d, err = OpenUI(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	var width float64
+	if err := d.LoadJSON("sidebar.width", &width); err != nil || width != 312.5 {
+		t.Fatalf("width %v, %v", width, err)
+	}
+	if err := d.LoadJSON("absent", &width); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("an absent key: %v", err)
+	}
+	if d.Path() != filepath.Join(dir, UIFile) {
+		t.Fatalf("path %s", d.Path())
+	}
+	if info, err := os.Stat(d.Path()); err != nil || runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode %v, %v", info.Mode(), err)
 	}
 }

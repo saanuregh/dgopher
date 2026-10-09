@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"dgopher/internal/keymap"
+	"dgopher/internal/state"
 	"dgopher/internal/store"
 
 	"github.com/egoist/mygo"
@@ -36,6 +37,15 @@ func Run(args []string) error {
 		return err
 	}
 	a := newApp(st)
+	// The layout without a file of its own lasts the run: never a reason
+	// not to start.
+	if dir, err := store.DefaultDataDir(); err != nil {
+		log.Println("ui state:", err)
+	} else if ui, err := state.OpenUI(dir); err != nil {
+		log.Println("ui state:", err)
+	} else {
+		a.useUIState(ui)
+	}
 	// dgopher <folder> opens a project folder, as a repository's.
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		if _, err := a.addProject(args[0]); err != nil {
@@ -232,7 +242,7 @@ func (a *App) menuAction(id string) func() {
 	case keymap.AuditLog:
 		return a.openAudit
 	case keymap.ToggleSidebar:
-		return func() { a.sidebarHidden = !a.sidebarHidden }
+		return func() { a.layout.SidebarHidden = !a.layout.SidebarHidden }
 	}
 	panic("no menu command " + id)
 }

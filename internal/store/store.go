@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -21,6 +22,48 @@ func DefaultDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(base, "dgopher"), nil
+}
+
+// DefaultDataDir returns the folder of what the app keeps as it runs, as
+// the layout of its windows: DGOPHER_DATA_DIR, else DGOPHER_CONFIG_DIR's
+// folder, so that a run pointed away from the real config keeps away from
+// the real data too, else the platform's data folder.
+func DefaultDataDir() (string, error) {
+	if d := os.Getenv("DGOPHER_DATA_DIR"); d != "" {
+		return d, nil
+	}
+	if d := os.Getenv("DGOPHER_CONFIG_DIR"); d != "" {
+		return d, nil
+	}
+	base, err := userDataDir(runtime.GOOS)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "dgopher"), nil
+}
+
+// userDataDir is a system's folder for the data of its users' apps:
+// %LOCALAPPDATA% on Windows, Application Support on macOS, and
+// $XDG_DATA_HOME elsewhere, ~/.local/share when it is unset or, against
+// the XDG specification, not absolute.
+func userDataDir(goos string) (string, error) {
+	if goos == "windows" {
+		if d := os.Getenv("LOCALAPPDATA"); d != "" {
+			return d, nil
+		}
+		return "", errors.New("%LOCALAPPDATA% is not set")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	if goos == "darwin" || goos == "ios" {
+		return filepath.Join(home, "Library", "Application Support"), nil
+	}
+	if d := os.Getenv("XDG_DATA_HOME"); filepath.IsAbs(d) {
+		return d, nil
+	}
+	return filepath.Join(home, ".local", "share"), nil
 }
 
 // Store is a directory of private JSON files plus a Secrets backend.

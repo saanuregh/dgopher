@@ -61,8 +61,9 @@ docker run -d --name dbgopher-redis-cluster --network host redis:7 sh -c 'for p 
 docker run -d --name dbgopher-redis-sentinel --network host redis:7 sh -c 'redis-server --port 16380 --bind 127.0.0.1 --requirepass dbgopher --daemonize yes; printf "port 26379\nbind 127.0.0.1\nrequirepass sentinelpw\nsentinel monitor mymaster 127.0.0.1 16380 1\nsentinel auth-pass mymaster dbgopher\n" > /tmp/sentinel.conf; exec redis-sentinel /tmp/sentinel.conf'
 ```
 
-Set `DGOPHER_CONFIG_DIR` to keep a development run's settings apart from
-your own.
+Set `DGOPHER_CONFIG_DIR` to keep a development run's settings, and its
+windows' layout, apart from your own; `DGOPHER_DATA_DIR` moves the layout
+alone ([Where things are kept](storage.md)).
 
 ## Layout
 

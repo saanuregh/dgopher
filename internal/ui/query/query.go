@@ -164,7 +164,7 @@ func (q *Tab) pressed(c *ui.Context, id string) bool {
 }
 
 func New(a Host, cn *connection.Conn, database, name, text string) *Tab {
-	q := &Tab{a: a, Conn: cn, Database: database, Name: name, editorH: 260}
+	q := &Tab{a: a, Conn: cn, Database: database, Name: name, editorH: a.Layout().EditorHeight}
 	q.Editor.Text = text
 	q.ac.lastText = text // what the tab opens on was not typed
 	q.Editor.Dialect = safety.Dialect(cn.Config.Engine)
@@ -1156,7 +1156,7 @@ func (q *Tab) View(c *ui.Context) {
 				q.connectBar(c)
 			}
 		})
-		ui.SplitVertical(c, &q.editorH, func() {
+		split := ui.SplitVertical(c, &q.editorH, func() {
 			ui.Column(c).Fill().Children(func() {
 				q.findView(c, a.Settings().EditorFont)
 				_, _, ok := q.currentStatement()
@@ -1180,6 +1180,9 @@ func (q *Tab) View(c *ui.Context) {
 		}, func() {
 			q.resultsView(c, a)
 		}).Grow(1)
+		if split.Changed() {
+			a.Layout().EditorHeight = q.editorH // where the next editor starts
+		}
 	})
 }
 

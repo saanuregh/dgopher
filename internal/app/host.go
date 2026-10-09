@@ -14,9 +14,11 @@ import (
 // their Host interfaces say.
 
 func (a *App) Settings() *settings.Settings { return &a.settings }
-func (a *App) Now() time.Time               { return a.now }
-func (a *App) FocusWant() *string           { return &a.focusWant }
-func (a *App) Dialogs() *dataview.Dialogs   { return &a.data }
+
+func (a *App) Layout() *widgets.Layout    { return &a.layout }
+func (a *App) Now() time.Time             { return a.now }
+func (a *App) FocusWant() *string         { return &a.focusWant }
+func (a *App) Dialogs() *dataview.Dialogs { return &a.data }
 
 func (a *App) Toast(text, action string, run func()) {
 	a.toast = &pendingToast{text: text, action: action, run: run}

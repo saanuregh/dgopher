@@ -757,3 +757,14 @@ func TestGutterRunButton(t *testing.T) {
 		t.Fatal("the editor lost the keys")
 	}
 }
+
+// A new editor takes the height the last one dragged to, which the host
+// keeps.
+func TestEditorTakesLayoutHeight(t *testing.T) {
+	a := newFakeQueryHost(t)
+	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	a.Layout().EditorHeight = 420
+	if q := New(a, cn, "", "q", ""); q.editorH != 420 {
+		t.Fatalf("height %v", q.editorH)
+	}
+}

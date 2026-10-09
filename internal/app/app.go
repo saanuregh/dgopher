@@ -26,6 +26,7 @@ import (
 	"dgopher/internal/secretcmd"
 	"dgopher/internal/settings"
 	"dgopher/internal/sshtunnel"
+	"dgopher/internal/state"
 	"dgopher/internal/store"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/query"
@@ -115,10 +116,13 @@ type App struct {
 	shortcutsOpen bool
 	// shortcutsFind filters the list of keys.
 	shortcutsFind string
-	sidebarHidden bool
 	settingsDirty bool
-	clipboard     func(string)
-	readClip      func() string
+	// layout is the windows' layout, which ui keeps, when there is one,
+	// as layoutSaved was last written to it.
+	layout, layoutSaved widgets.Layout
+	ui                  *state.DB
+	clipboard           func(string)
+	readClip            func() string
 
 	// auditLogs are the projects' audit logs by the prefix of their
 	// connections' IDs, for record, which may run on any goroutine.
@@ -131,7 +135,8 @@ type App struct {
 }
 
 func newApp(st *store.Store) *App {
-	a := &App{st: st, settings: settings.Default()}
+	a := &App{st: st, settings: settings.Default(), layout: widgets.DefaultLayout()}
+	a.layoutSaved = a.layout
 	a.main = &window{}
 	a.window, a.windows = a.main, []*window{a.main}
 	if err := st.LoadJSON("settings.json", &a.settings); err != nil && !errors.Is(err, store.ErrNotFound) {

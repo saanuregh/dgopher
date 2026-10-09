@@ -14,6 +14,8 @@ type Host interface {
 	connection.Runner
 	ShowError(title, message string)
 	WriteClipboard(text string)
+	// Layout is the windows' layout, which the app keeps as it changes.
+	Layout() *widgets.Layout
 	AskConfirm(cn *connection.Conn, v safety.Verdict, title, action, preview string, onConfirm func()) *widgets.ConfirmRequest
 	// AskDiscard asks whether to drop what reason says, then calls
 	// onDiscard.
