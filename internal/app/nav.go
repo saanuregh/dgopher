@@ -418,7 +418,7 @@ func (a *App) sidebar(c *ui.Context) {
 				a.refresh(cn)
 			}
 		}
-		a.objectKeys(c)
+		a.nodeKeys(c)
 		// On a table: a new editor with its rows, the quickest look.
 		if keymap.ListPressed(c, &a.nav.tree.List, keymap.NavigatorSelect) && a.nav.row >= 0 && a.nav.row < a.nav.tree.Rows() {
 			if n := a.nav.tree.Item(a.nav.row); n.kind == nodeObject {
@@ -431,14 +431,25 @@ func (a *App) sidebar(c *ui.Context) {
 	})
 }
 
-// objectKeys handles the keys of the table chosen in the navigator, as
-// its menu's items.
-func (a *App) objectKeys(c *ui.Context) {
+// nodeKeys handles the keys of the node chosen in the navigator, as its
+// menu's items: a table's, or a project file's.
+func (a *App) nodeKeys(c *ui.Context) {
 	l := &a.nav.tree.List
 	if a.nav.row < 0 || a.nav.row >= a.nav.tree.Rows() {
 		return
 	}
 	n := a.nav.tree.Item(a.nav.row)
+	if p := a.projectByDir(n.projectDir); p != nil {
+		if rename, del := a.fileActions(p, n); rename != nil {
+			switch {
+			case keymap.ListPressed(c, l, keymap.NavigatorRename):
+				rename()
+			case keymap.ListPressed(c, l, keymap.NavigatorDrop):
+				del()
+			}
+		}
+		return
+	}
 	if n.kind != nodeObject {
 		return
 	}
@@ -1042,10 +1053,7 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 				ic = widgets.IconSchema
 				names, paths = a.modelNames(p)
 			}
-			name := filepath.Base(n.name)
-			if i := slices.Index(paths, n.name); i >= 0 {
-				name = names[i]
-			}
+			name := nameOf(names, paths, n.name)
 			ui.Icon(c, ic).TextColor(pal.Muted).FontSize(12)
 			ui.Text(c, name).SingleLine().Shrink(1).Tooltip(n.name)
 		case nodeInfo:
@@ -1114,9 +1122,12 @@ func (a *App) projectMenu(m *ui.Menu, n navNode) {
 				run()
 			}
 		}
-		if n.kind == nodeQueryFile {
-			if m.Item("Rename…").Chosen() {
-				a.askRename(p, filepath.Join(p.Queries, filepath.FromSlash(n.name)))
+		if rename, del := a.fileActions(p, n); rename != nil {
+			if keymap.Item(m.Item("Rename…"), keymap.NavigatorRename).Chosen() {
+				rename()
+			}
+			if keymap.Item(m.Item("Delete…"), keymap.NavigatorDrop).Chosen() {
+				del()
 			}
 		}
 		m.Separator()

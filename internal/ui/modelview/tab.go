@@ -91,6 +91,19 @@ func (t *Tab) Reload() {
 	t.table = min(t.table, max(len(m.Tables)-1, 0))
 }
 
+// Rename names the model, its file moving to to, named after it.
+func (t *Tab) Rename(name, to string) error {
+	was := t.m.Name
+	t.m.Name = name
+	data, err := t.m.Move(t.Path, to, t.was)
+	if data == nil {
+		t.m.Name = was
+		return err
+	}
+	t.Path, t.was = to, data
+	return err
+}
+
 // save writes the model's file, unless it changed on disk since it was
 // read.
 func (t *Tab) save() error {

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"slices"
 	"strings"
 
@@ -161,7 +162,7 @@ func (a *App) dialogs(c *ui.Context) {
 			case 2:
 				a.commitThen(r.txs, r.onClose)
 			}
-		} else if ui.AlertDialog(c, &r.open, r.title, r.reason, "Cancel", "Close") == 1 {
+		} else if ui.AlertDialog(c, &r.open, r.title, r.reason, "Cancel", cmp.Or(r.action, "Close")) == 1 {
 			r.onClose()
 		}
 		if !r.open {
@@ -207,7 +208,7 @@ func (a *App) askDeleteConn(cn *connection.Conn) {
 		reason += "\n\nIts tabs close, losing:\n" + strings.Join(lost, "\n")
 	}
 	a.closing = &closeRequest{open: true, title: "Delete " + cn.Config.Name + "?",
-		reason: reason,
+		reason: reason, action: "Delete",
 		onClose: func() {
 			if err := cn.Project.Writable(); err != nil {
 				a.ShowError("Could not delete "+cn.Config.Name, err.Error())

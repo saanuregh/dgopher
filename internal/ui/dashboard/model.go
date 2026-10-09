@@ -100,6 +100,12 @@ func (d *Dashboard) check() error {
 	return nil
 }
 
+// Move writes a dashboard's file at to in place of path, which must still
+// hold was, as project.MoveJSON does.
+func (d *Dashboard) Move(path, to string, was []byte) ([]byte, error) {
+	return project.MoveJSON(path, to, was, d)
+}
+
 // Save writes a dashboard's file, whole or not at all, when it still holds
 // was, as read; a new one, when there is none. It returns what it wrote.
 func (d *Dashboard) Save(path string, was []byte) ([]byte, error) {

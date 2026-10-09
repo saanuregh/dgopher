@@ -246,6 +246,21 @@ func (t *Tab) save() {
 	t.disk, t.err, t.dirty = disk, "", false
 }
 
+// Rename names the dashboard, its file moving to to, named after it, with
+// what is not saved yet; the parameters' values follow it.
+func (t *Tab) Rename(name, to string) error {
+	was := t.d.Name
+	t.d.Name = name
+	disk, err := t.d.Move(t.Path, to, t.disk)
+	if disk == nil {
+		t.d.Name = was
+		return err
+	}
+	t.Path, t.disk, t.dirty = to, disk, false
+	t.saveValues()
+	return err
+}
+
 func (t *Tab) saveIfDirty() {
 	if t.dirty {
 		t.save()

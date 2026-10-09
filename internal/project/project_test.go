@@ -81,3 +81,34 @@ func TestHeaderAt(t *testing.T) {
 		t.Error("a header below the fifth line")
 	}
 }
+
+// MoveJSON moves a shared file to its new name as it is written there,
+// unless it changed since it was read or the name is taken.
+func TestMoveJSON(t *testing.T) {
+	dir := t.TempDir()
+	from, to := filepath.Join(dir, "a.json"), filepath.Join(dir, "b.json")
+	was, err := SaveJSON(from, nil, map[string]string{"name": "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := MoveJSON(from, to, []byte("{}\n"), map[string]string{"name": "b"}); !errors.Is(err, ErrChanged) {
+		t.Fatalf("moved a file changed since: %v", err)
+	}
+	if err := os.WriteFile(to, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := MoveJSON(from, to, was, map[string]string{"name": "b"}); data != nil || err == nil {
+		t.Fatalf("moved onto a file there: %v", err)
+	}
+	os.Remove(to)
+	data, err := MoveJSON(from, to, was, map[string]string{"name": "b"})
+	if err != nil || !strings.Contains(string(data), `"b"`) {
+		t.Fatalf("move: %v %s", err, data)
+	}
+	if _, err := os.Stat(from); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("the old file stayed")
+	}
+	if disk, _ := os.ReadFile(to); string(disk) != string(data) {
+		t.Fatalf("the new file holds %s", disk)
+	}
+}

@@ -104,10 +104,22 @@ func (m *Model) Table(schema, name string) (db.TableDesign, bool) {
 // when it still holds was, as read; a new one, when there is none. It
 // returns what it wrote.
 func (m *Model) Save(path string, was []byte) ([]byte, error) {
+	m.sortTables()
+	return project.SaveJSON(path, was, m)
+}
+
+// Move writes a model's file at to in place of path, which must still
+// hold was, as project.MoveJSON does.
+func (m *Model) Move(path, to string, was []byte) ([]byte, error) {
+	m.sortTables()
+	return project.MoveJSON(path, to, was, m)
+}
+
+// sortTables orders the tables as the file keeps them.
+func (m *Model) sortTables() {
 	slices.SortFunc(m.Tables, func(a, b db.TableDesign) int {
 		return cmp.Or(cmp.Compare(a.Schema, b.Schema), cmp.Compare(a.Name, b.Name))
 	})
-	return project.SaveJSON(path, was, m)
 }
 
 // Build reads tables of a schema into a model's: those named, or every

@@ -706,7 +706,9 @@ type pendingAsk struct {
 type closeRequest struct {
 	open          bool
 	title, reason string
-	onClose       func()
+	// action is the button that agrees, "Close" when empty.
+	action  string
+	onClose func()
 	// txs are the open transactions closing would end: the dialog offers
 	// to commit them first, else onClose rolls them back.
 	txs []txHolder

@@ -193,8 +193,11 @@
     commit mode and idle-transaction limit: see [Safety model](safety.md).
 - **Navigator:** each project in sections, Connections (open at first),
   Queries, Dashboards and Data Models, each with its count and a + that
-  makes another, shown as the row is pointed at. A connection is a lazy
-  tree of databases, schemas, tables, views and columns, with
+  makes another, shown as the row is pointed at. A query file,
+  dashboard or data model is renamed (F2) or deleted (Delete) from its
+  menu, an open tab following it; a dashboard's or a model's file is
+  named after it. A connection is a lazy tree of databases, schemas,
+  tables, views and columns, with
   row estimates. It has context menus, and quick open (⌘P) for tables,
   routines and query files. It follows the tab in front, choosing its
   query file, table, dashboard or data model, else its connection, and

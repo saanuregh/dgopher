@@ -337,6 +337,30 @@ func SaveJSON(path string, was []byte, v any) ([]byte, error) {
 	return data, nil
 }
 
+// MoveJSON writes v to the file to in place of path, which must still
+// hold was, as read: the rename of a shared file named after what it
+// holds. It refuses a to that is a file already. It returns what it wrote,
+// nil when it wrote nothing; path goes once to holds it.
+func MoveJSON(path, to string, was []byte, v any) ([]byte, error) {
+	if to == path {
+		return SaveJSON(path, was, v)
+	}
+	switch disk, err := os.ReadFile(path); {
+	case err != nil:
+		return nil, err
+	case !bytes.Equal(disk, was):
+		return nil, ErrChanged
+	}
+	if _, err := os.Lstat(to); err == nil {
+		return nil, fmt.Errorf("%s exists already", filepath.Base(to))
+	}
+	data, err := SaveJSON(to, nil, v)
+	if err != nil {
+		return nil, err
+	}
+	return data, os.Remove(path)
+}
+
 // writeProjectFile replaces the file at once.
 func writeProjectFile(path string, data []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".dgopher-*.json")

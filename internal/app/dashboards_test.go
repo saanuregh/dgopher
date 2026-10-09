@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"dgopher/internal/connection"
+	"dgopher/internal/datamodel"
 	"dgopher/internal/db"
 	"dgopher/internal/store"
 	"dgopher/internal/testutil"
@@ -79,4 +80,61 @@ func TestAddToDashboard(t *testing.T) {
 		}
 	}
 	t.Fatal("the dashboard did not open again")
+}
+
+// Dashboards and data models are renamed, their files following their
+// names, and deleted from the navigator, an open one's tab closing.
+func TestRenameAndDeleteProjectFiles(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1000, 700)
+	p := a.projects[0]
+	path := dashboard.File(p, "Sales")
+	if _, err := (&dashboard.Dashboard{Name: "Sales", Panels: []dashboard.Panel{}}).Save(path, nil); err != nil {
+		t.Fatal(err)
+	}
+	a.openDashboard(p, path)
+	tt.Frame()
+
+	a.askRenameDashboard(p, path)
+	if err := a.renaming.rename("Revenue"); err != nil {
+		t.Fatal(err)
+	}
+	a.renaming = nil
+	renamed := dashboard.File(p, "Revenue")
+	d, ok := a.ActiveTab().(*dashboard.Tab)
+	if saved, err := dashboard.Load(renamed); !ok || d.Path != renamed || err != nil || saved.Name != "Revenue" {
+		t.Fatalf("the tab is on %s, the file %+v %v", d.Path, saved, err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("the old file stayed")
+	}
+
+	// From the navigator's menu, which the tab in front opened to its row.
+	testutil.WaitFor(t, tt, "the dashboard's row", func() bool { return tt.HasText("Revenue") })
+	if err := tt.RightClick("Revenue"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem("Delete…"); err != nil {
+		t.Fatalf("%v; menu %q", err, tt.Menu())
+	}
+	tt.Frame()
+	if err := tt.Click("Delete"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if _, err := os.Stat(renamed); !os.IsNotExist(err) || len(a.tabs) != 0 {
+		t.Fatalf("the file stayed (%v), or its tab: %d", err, len(a.tabs))
+	}
+
+	model := datamodel.File(p, "Shop")
+	if _, err := (&datamodel.Model{Name: "Shop", Engine: db.Postgres}).Save(model, nil); err != nil {
+		t.Fatal(err)
+	}
+	a.askRenameModel(p, model)
+	if err := a.renaming.rename("Store"); err != nil {
+		t.Fatal(err)
+	}
+	if m, err := datamodel.Load(datamodel.File(p, "Store")); err != nil || m.Name != "Store" {
+		t.Fatalf("model %+v %v", m, err)
+	}
 }
