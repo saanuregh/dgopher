@@ -53,8 +53,6 @@ Next or Later are not repeated.
 - **Data grid:**
   - An editor suited to each type: a tree for JSON, a list for enums, a
     calendar for dates.
-  - When editing a foreign key, pick the value from the rows of the
-    referenced table.
   - Compare two results side by side and highlight the differences.
 - **Schema:**
   - Save an ER diagram as PNG or SVG, and change the schema by editing

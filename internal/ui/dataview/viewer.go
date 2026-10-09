@@ -997,6 +997,8 @@ func (v *Viewer) View(c *ui.Context) {
 		v.FetchAll()
 	case v.grid.List.Shortcut(c, ui.Alt, ui.KeySpace):
 		v.followKey()
+	case v.grid.List.Shortcut(c, ui.Alt, ui.KeyDown):
+		v.pickRef()
 	}
 	ui.Toolbar(c, func() {
 		refreshTip := "Read the rows again (⌘R)"
@@ -1272,10 +1274,21 @@ func (v *Viewer) lendSession() (sess *db.Session, done func(), why string) {
 	}, ""
 }
 
-// cellMenu offers to follow a foreign key from its cell, and to filter
-// by a cell's value: what needs a table, only for rows of one.
+// cellMenu offers to choose a foreign key's value, to follow a foreign
+// key from its cell, and to filter by a cell's value: what needs a
+// table, only for rows of one, and what needs a value, only for rows
+// read.
 func (v *Viewer) cellMenu(m *ui.Menu, row, col int) {
 	if v.source.Table == nil {
+		return
+	}
+	if fk, ok := v.refOf(col); ok && v.grid.edits != nil && v.grid.columnReadOnly(col) == "" {
+		m.Separator()
+		if m.Item("Choose from "+fk.RefTable+"…").Shortcut(ui.Alt, ui.KeyDown).Chosen() {
+			v.openRefPicker(row, col, fk)
+		}
+	}
+	if row >= len(v.src.Rows) {
 		return
 	}
 	name := v.tableName(col)

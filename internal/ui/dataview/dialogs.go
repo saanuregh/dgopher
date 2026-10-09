@@ -29,6 +29,9 @@ func DialogsView(a Host, c *ui.Context) {
 	if d.keyForm != nil {
 		keyFormView(a, c)
 	}
+	if d.refPicker != nil {
+		refPickerView(a, c)
+	}
 }
 
 // ExportOpen reports whether the export dialog is open.
@@ -44,4 +47,5 @@ type Dialogs struct {
 	filterPrompt *filterPrompt
 	distinct     *distinctForm
 	keyForm      *keyForm
+	refPicker    *refPicker
 }

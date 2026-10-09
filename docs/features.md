@@ -233,6 +233,9 @@
     cannot be edited. Its edits apply on the editor's session, so with
     manual commit they join its open transaction, and ⌘S reviews them,
     then saves the file.
+  - A foreign key's cell takes its value from the table it points at:
+    Choose from…, in the cell's menu, or ⌥↓, lists that table's rows by
+    key with their first columns, searched by key or text.
   - A table without a primary key becomes editable with a virtual key,
     kept in `dgopher.json` for the team, in its tab and in query results.
   - Sensitive values stay off the screen: columns named as passwords,

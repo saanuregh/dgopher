@@ -743,7 +743,7 @@ func (g *Grid) cellMenu(m *ui.Menu, a Host, src *Source, row, col int) {
 	m.Separator()
 	g.filterMenu(m, a, src, row, col, apply, clearF)
 	g.orderMenu(m, col)
-	if g.menu != nil && row < len(src.Rows) {
+	if g.menu != nil {
 		g.menu(m, row, col)
 	}
 	if g.edits != nil && g.readOnly == "" {
