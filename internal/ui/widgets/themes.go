@@ -158,9 +158,8 @@ func LoadThemes(dir string) ([]Theme, []error) {
 }
 
 // look is the theme in use, as the app's theme and the palette made of
-// the base's with its colors; nil for the light and dark ones alone.
+// the base's with its colors; nil to follow the system's appearance.
 var look *struct {
-	dark  bool
 	theme ui.Theme
 	pal   Palette
 }
@@ -188,18 +187,18 @@ func UseTheme(t *Theme) {
 		th.AccentHover, th.AccentPressed = th.Accent.Mix(th.Text, 0.12), th.Accent.Mix(th.Text, 0.24)
 	}
 	look = &struct {
-		dark  bool
 		theme ui.Theme
 		pal   Palette
-	}{t.Base == "dark", th, pal}
+	}{th, pal}
 }
 
-// ApplyTheme sets the window's theme for the frame: the theme in use, when
-// the window is of its darkness, with the interface font, "" for the
-// system's.
+// ApplyTheme sets the window's theme for the frame: the theme in use,
+// whatever the window's darkness, which a system's dark appearance may
+// keep though a light one was asked for, as on Linux; with the interface
+// font, "" for the system's.
 func ApplyTheme(c *ui.Context, font string) {
 	root = *c.Theme()
-	if look != nil && look.dark == root.Dark {
+	if look != nil {
 		root = look.theme
 	}
 	root.Font = font

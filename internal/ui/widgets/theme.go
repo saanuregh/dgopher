@@ -83,10 +83,10 @@ var darkPalette = Palette{
 	},
 }
 
-// PaletteOf is the palette of the frame's theme: the one in use, when
-// the window is of its darkness.
+// PaletteOf is the palette of the frame's theme: the one in use, else
+// the window's darkness's.
 func PaletteOf(c *ui.Context) *Palette {
-	if look != nil && look.dark == c.Theme().Dark {
+	if look != nil {
 		return &look.pal
 	}
 	if c.Theme().Dark {

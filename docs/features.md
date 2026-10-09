@@ -76,10 +76,13 @@
     window. Dialogs show in the window being used. Closing a window
     moves its tabs back to the main one, so nothing in them is lost, as
     an open transaction; the workspace reopens them all there.
-- **Settings:** appearance, editor font size, the editor's and the
-  interface's font families, rows per page, where statements end, what a
-  script does on an error, and when to notify.
-  - Appearance follows the system, is light or dark, or is a theme: Nord,
+- **Settings,** on pages: Appearance (theme, the editor's and the
+  interface's fonts, the editor's font size), Editor (where statements
+  end, what a script does on an error, Vim, the keys), Results (rows per
+  page, when to notify), Safety (large changes, sensitive values) and
+  Storage (where the app keeps what it keeps).
+  - Appearance follows the system, is light or dark, or is a theme, shown
+    as chosen though the system's stays dark, as on Linux: Nord,
     Dracula and Solarized Light come with the app, and a JSON file in the
     themes folder (Themes Folder opens it) adds one, or replaces a
     built-in of its name. A theme is light or dark, and sets any of the
@@ -179,8 +182,10 @@
   - Test Connection reports the server version and how long connecting took.
   - Each connection has an environment, and can be read-only, with its own
     commit mode and idle-transaction limit: see [Safety model](safety.md).
-- **Navigator:** a lazy tree of databases, schemas, tables, views and columns,
-  with row estimates. It has a filter, context menus, and quick open (⌘P).
+- **Navigator:** each project in sections, Connections (open at first),
+  Queries, Dashboards and Data Models, each with its count; a connection
+  is a lazy tree of databases, schemas, tables, views and columns, with
+  row estimates. It has a filter, context menus, and quick open (⌘P).
   - Read Catalog, on a schema, sets how much of it is read, for very large
     ones, kept in the project's file: As Needed (tables with their sizes,
     a table's columns once opened or named in an editor), Names Only (no
@@ -257,13 +262,15 @@
     next whole occurrence, and ⌘⇧L every one. What is typed, deleted or
     completed at the editor's caret is done at each; the arrows, Home and
     End move them all, and Esc leaves the editor's own.
+  - A ▶ in the gutter, on the first line of the statement at the caret,
+    runs it, as ⌘↵ does.
   - Folding: a statement, a group in parentheses or a block comment
     over several lines folds to its first line and a ⋯, by the gutter's
     ▾ and ▸, or ⌘⌥[ and ⌘⌥] at the caret (with ⇧, every block). What is
     folded stays in the text, and runs; typing over a ⋯ takes its lines
     with it, a find or go to inside a fold opens it, and the app's own
     changes, Vim's keys and several carets open the folds.
-  - Vim key bindings (Settings → Editor keys): normal, insert, visual and
+  - Vim key bindings (Settings → Editor → Vim): normal, insert, visual and
     visual line modes, with a block caret and the mode under the editor;
     counts; the motions h j k l w b e W B E 0 ^ $ gg G f F t T ; , % { }
     and Ctrl+D/U; the operators d c y > < with motions, doubled, and the
@@ -325,6 +332,8 @@
 - **Results grid**, one viewer for a query's results and a table's data,
   as DBeaver's:
   - Virtualized: only the rows in view are built.
+  - Every column and its header start at the left, numbers too; the text
+    presentation lines numbers up on the right, as psql does.
   - Columns resize, move, sort by several at once (⌘-click), pin to the
     left, hide (or hide those with no data), and fit to their values or
     the screen, from the header's menu.

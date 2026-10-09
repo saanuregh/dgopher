@@ -63,3 +63,24 @@ func TestLoadThemes(t *testing.T) {
 		t.Fatal("the theme changed the light palette")
 	}
 }
+
+// A light theme shows light though the window stays dark, as a dark
+// desktop keeps a window on Linux.
+func TestLightThemeOnDarkWindow(t *testing.T) {
+	defer UseTheme(nil)
+	for _, theme := range []*Theme{{Base: "light"}, &BuiltinThemes[2]} {
+		UseTheme(theme)
+		var dark bool
+		var pal *Palette
+		tt := ui.NewTester(func(c *ui.Context) {
+			ApplyTheme(c, "")
+			dark, pal = c.Theme().Dark, PaletteOf(c)
+			ui.Text(c, "x")
+		}, 200, 100)
+		tt.SetDark(true)
+		tt.Frame()
+		if dark || pal.EditorBg == darkPalette.EditorBg {
+			t.Errorf("%q showed dark", theme.Name)
+		}
+	}
+}

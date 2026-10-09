@@ -111,6 +111,7 @@ type App struct {
 	toast       *pendingToast
 
 	settingsOpen  bool
+	settingsPage  int // an index of settingsPages
 	shortcutsOpen bool
 	// shortcutsFind filters the list of keys.
 	shortcutsFind string
