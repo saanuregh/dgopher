@@ -37,6 +37,9 @@ type Host interface {
 	// ReplaceTab puts next in the place of old, which closes.
 	ReplaceTab(old, next widgets.Tab)
 	ActiveTab() widgets.Tab
+	// KeysTo reports whether a tab takes the shortcuts pressed: the tab in
+	// front, of the pane with the focus when two tabs show side by side.
+	KeysTo(t widgets.Tab) bool
 	// ActivateTab brings forward the first tab match accepts, and reports
 	// whether there was one.
 	ActivateTab(match func(widgets.Tab) bool) bool

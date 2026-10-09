@@ -28,7 +28,7 @@ Next or Later are not repeated.
 - **SQL editor:**
   - Vim key bindings, shortcuts that can be changed, several cursors at
     once, and folding of code blocks.
-  - Two editors side by side, and more than one window.
+  - More than one window.
   - Build a query by choosing tables and columns instead of typing SQL.
 - **Query plans:**
   - Draw the plan of a query as a tree or a flame graph instead of a

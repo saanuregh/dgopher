@@ -134,6 +134,12 @@ type Tab struct {
 	exports int
 }
 
+// key reports whether mods+key was pressed for this editor: while its
+// tab takes the shortcuts.
+func (q *Tab) key(c *ui.Context, mods ui.Modifiers, key ui.Key) bool {
+	return q.a.KeysTo(q) && c.Shortcut(mods, key)
+}
+
 func New(a Host, cn *connection.Conn, database, name, text string) *Tab {
 	q := &Tab{a: a, Conn: cn, Database: database, Name: name, editorH: 260}
 	q.Editor.Text = text
@@ -906,16 +912,16 @@ func (q *Tab) View(c *ui.Context) {
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
 	// Shortcuts of the editor: those of DataGrip and DBeaver.
-	if c.Shortcut(ui.Cmd, ui.KeyEnter) || c.Shortcut(0, ui.KeyF5) {
+	if q.key(c, ui.Cmd, ui.KeyEnter) || q.key(c, 0, ui.KeyF5) {
 		q.Run(RunStatement)
 	}
-	if c.Shortcut(ui.Cmd, ui.KeyBackslash) {
+	if q.key(c, ui.Cmd, ui.KeyBackslash) {
 		q.Run(RunNewTab)
 	}
-	if c.Shortcut(ui.Alt, ui.KeyX) {
+	if q.key(c, ui.Alt, ui.KeyX) {
 		q.Run(RunScript)
 	}
-	if c.Shortcut(ui.Cmd, ui.KeyJ) {
+	if q.key(c, ui.Cmd, ui.KeyJ) {
 		// Between the editor and its results, without the pointer.
 		if q.Editor.HasFocus && q.current() != nil {
 			*a.FocusWant() = "results"
@@ -923,38 +929,38 @@ func (q *Tab) View(c *ui.Context) {
 			*a.FocusWant() = "editor"
 		}
 	}
-	if *a.FocusWant() == "editor" {
+	if *a.FocusWant() == "editor" && a.KeysTo(q) {
 		q.Editor.WantFocus = true
 		*a.FocusWant() = ""
 	}
-	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyEnter) {
+	if q.key(c, ui.Cmd|ui.Shift, ui.KeyEnter) {
 		q.Run(RunScript)
 	}
-	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyF) {
+	if q.key(c, ui.Cmd|ui.Shift, ui.KeyF) {
 		q.format()
 	}
-	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyO) {
+	if q.key(c, ui.Cmd|ui.Shift, ui.KeyO) {
 		q.openOutline()
 	}
 	if q.Editor.HasFocus {
 		switch {
-		case c.Shortcut(ui.Alt, ui.KeyEnter):
+		case q.key(c, ui.Alt, ui.KeyEnter):
 			q.fixProblem()
-		case c.Shortcut(0, ui.KeyF12), c.Shortcut(ui.Cmd, ui.KeyB):
+		case q.key(c, 0, ui.KeyF12), q.key(c, ui.Cmd, ui.KeyB):
 			q.goToDefinition()
-		case c.Shortcut(ui.Shift, ui.KeyF12):
+		case q.key(c, ui.Shift, ui.KeyF12):
 			q.findUsages()
-		case c.Shortcut(0, ui.KeyF2):
+		case q.key(c, 0, ui.KeyF2):
 			q.askRename()
 		}
 	}
-	if c.Shortcut(ui.Cmd, ui.KeyE) {
+	if q.key(c, ui.Cmd, ui.KeyE) {
 		q.Run(RunExplain)
 	}
-	if q.Running && c.Shortcut(0, ui.KeyEscape) && q.cancel != nil {
+	if q.Running && q.key(c, 0, ui.KeyEscape) && q.cancel != nil {
 		q.cancel()
 	}
-	if c.Shortcut(ui.Cmd, ui.KeyS) {
+	if q.key(c, ui.Cmd, ui.KeyS) {
 		q.save()
 	}
 	// What is typed goes to the file once typing stops for a second.
@@ -968,7 +974,7 @@ func (q *Tab) View(c *ui.Context) {
 			q.Flush(false)
 		}
 	}
-	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyS) {
+	if q.key(c, ui.Cmd|ui.Shift, ui.KeyS) {
 		a.SaveSQLFile(q, true)
 	}
 	// Editors of a connection set to auto-connect open it as they are
@@ -1164,6 +1170,7 @@ func (q *Tab) newView(res *result, c *db.Cursor, rows [][]any, done bool, stop c
 		why = "Reading the table's columns…"
 	}
 	v := dataview.NewViewer(q.a, dataview.ViewerSource{
+		Keys:           func() bool { return q.a.KeysTo(q) },
 		Conn:           q.Conn,
 		Database:       q.Database,
 		Statement:      s.SQL,

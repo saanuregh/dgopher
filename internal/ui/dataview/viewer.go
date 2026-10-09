@@ -25,6 +25,9 @@ import (
 
 // ViewerSource is where a Viewer's rows come from.
 type ViewerSource struct {
+	// Keys reports whether the rows' tab takes the shortcuts pressed;
+	// nil for always.
+	Keys     func() bool
 	Conn     *connection.Conn
 	Database string
 	// Statement is the SQL of the rows: "SELECT * FROM <table>" for a table (filters append
@@ -977,14 +980,17 @@ func (v *Viewer) View(c *ui.Context) {
 	if v.applying {
 		v.grid.readOnly = "Applying the changes…" // no edit may slip in between
 	}
-	if c.Shortcut(ui.Cmd, ui.KeyS) {
+	keys := v.source.Keys == nil || v.source.Keys()
+	v.grid.keys = keys
+	key := func(mods ui.Modifiers, k ui.Key) bool { return keys && c.Shortcut(mods, k) }
+	if key(ui.Cmd, ui.KeyS) {
 		v.Review(nil)
 	}
 	switch {
-	case c.Shortcut(ui.Cmd, ui.KeyR) && v.grid.edits.count() > 0:
+	case key(ui.Cmd, ui.KeyR) && v.grid.edits.count() > 0:
 		// DBeaver's Cancel: the pending changes go; without any, a refresh.
 		v.discard()
-	case c.Shortcut(ui.Cmd, ui.KeyR) || c.Shortcut(0, ui.KeyF5):
+	case key(ui.Cmd, ui.KeyR) || key(0, ui.KeyF5):
 		v.RequestReload()
 	case v.grid.List.Shortcut(c, ui.Cmd|ui.Alt, ui.KeyN) && !v.done:
 		// A page may not come between pending changes and their rows:
@@ -1047,7 +1053,7 @@ func (v *Viewer) View(c *ui.Context) {
 					v.whereIn, v.count = typed, -1
 				})
 			}
-			if want := a.FocusWant(); *want == "filter" && in.Focus().Focused() {
+			if want := a.FocusWant(); *want == "filter" && keys && in.Focus().Focused() {
 				*want = ""
 			}
 			if widgets.IconButton(c, widgets.IconListFilter, "Build a filter from conditions").Disabled(len(v.src.Cols) == 0).Clicked() {
@@ -1059,7 +1065,7 @@ func (v *Viewer) View(c *ui.Context) {
 			}
 		})
 		quick := widgets.SearchBox(c, &v.grid.Filter, "Filter rows", 170)
-		if want := a.FocusWant(); *want == "filter" && !v.source.Reads && quick.Focus().Focused() {
+		if want := a.FocusWant(); *want == "filter" && keys && !v.source.Reads && quick.Focus().Focused() {
 			*want = ""
 		}
 		if readOnly == "" {
@@ -1132,7 +1138,7 @@ func (v *Viewer) View(c *ui.Context) {
 		ChartView(c, &v.chart, &v.src)
 	} else {
 		v.grid.View(c, a, &v.src)
-		if *a.FocusWant() == "results" {
+		if *a.FocusWant() == "results" && keys {
 			if v.grid.SelRow < 0 && len(v.src.Rows) > 0 {
 				v.grid.SelRow = 0
 			}

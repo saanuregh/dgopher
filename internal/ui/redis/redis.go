@@ -503,7 +503,7 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 					if ui.Button(c, "Revert").Clicked() {
 						r.editValue, r.editDirty = r.value, false
 					}
-					if ui.PrimaryButton(c, "Save").Clicked() || c.Shortcut(ui.Cmd, ui.KeyS) {
+					if ui.PrimaryButton(c, "Save").Clicked() || a.KeysTo(r) && c.Shortcut(ui.Cmd, ui.KeyS) {
 						args := []string{"SET", key, r.editValue, "KEEPTTL"}
 						r.write(args, r.loadKey)
 					}

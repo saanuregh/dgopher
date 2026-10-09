@@ -21,6 +21,7 @@ import (
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/redis"
+	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -1653,6 +1654,46 @@ func TestCatalogQueries(t *testing.T) {
 	a.openCatalogQueries(cn)
 	testutil.WaitFor(t, tt, "the log", func() bool { return testutil.HasTextContaining(tt, "FROM \"main\".sqlite_master") })
 	testutil.Snapshot(t, tt, "catalog-queries")
+}
+
+// Two tabs show side by side; the one in front takes the keys, and the
+// other comes in front, where it is, as the focus goes into it.
+func TestSideBySide(t *testing.T) {
+	a := newTestApp(t)
+	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1300, 800)
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	left := query.New(a, cn, "", "left", "SELECT 'left one';")
+	right := query.New(a, cn, "", "right", "SELECT 'right one';")
+	a.AddTab(right)
+	a.AddTab(left)
+	a.openToSide(right)
+	tt.Frame()
+	testutil.Snapshot(t, tt, "side-by-side")
+	if a.ActiveTab() != left || !a.KeysTo(left) || a.KeysTo(right) || a.sideTab() != right {
+		t.Fatalf("active %v, side %v", a.ActiveTab(), a.side)
+	}
+	right.Editor.WantFocus = true
+	tt.Frame()
+	tt.Frame()
+	if a.ActiveTab() != right || a.side != left || !a.sideLeft {
+		t.Fatalf("after focusing the side: active %v, side %v, left %v", a.ActiveTab(), a.side, a.sideLeft)
+	}
+	ran := func(sql string) bool {
+		events, _ := cn.Project.Audit.Read(0)
+		return slices.ContainsFunc(events, func(e audit.Event) bool { return strings.Contains(e.Statement, sql) })
+	}
+	tt.Key(ui.Cmd, ui.KeyEnter)
+	testutil.WaitFor(t, tt, "the run", func() bool { return !right.Running && ran("right one") })
+	if ran("left one") {
+		t.Fatal("the editor beside ran too")
+	}
+	a.closeTab(slices.IndexFunc(a.tabs, func(t widgets.Tab) bool { return t == left }))
+	tt.Frame()
+	if a.sideTab() != nil || a.ActiveTab() != right {
+		t.Fatalf("after closing the side: side %v", a.side)
+	}
 }
 
 // Users are made, granted, taken back from and dropped from their tab;

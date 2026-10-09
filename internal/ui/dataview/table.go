@@ -56,6 +56,7 @@ type TableTab struct {
 func NewTableTab(a Host, cn *connection.Conn, database string, obj db.Object, page int) *TableTab {
 	t := &TableTab{a: a, Conn: cn, Database: database, Object: obj, Page: page}
 	t.view = NewViewer(a, ViewerSource{
+		Keys:         func() bool { return a.KeysTo(t) },
 		Conn:         cn,
 		Database:     database,
 		Statement:    "SELECT * FROM " + db.QualifiedName(cn.DB.Dialect, obj.Schema, obj.Name),

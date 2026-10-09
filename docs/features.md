@@ -147,6 +147,10 @@
     lists the latest queries the app ran on its own to read the catalog,
     as the navigator's tables and an editor's completions, with how long
     each took, its arguments and its error.
+  - Two tabs side by side: Open to the Side, in a tab's menu, shows it
+    beside the tab in front, with a divider to drag. The keys go to the
+    one in front, marked above it; clicking into the other brings it in
+    front where it is.
   - Mistakes are marked as you type, with a wavy line: a string, quoted
     name or comment left open, a parenthesis that closes nothing or is
     not closed, and, against the catalog read, a table or a column

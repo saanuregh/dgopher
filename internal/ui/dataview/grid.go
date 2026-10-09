@@ -64,6 +64,9 @@ type Source struct {
 // Grid shows rows in columns, with a chosen cell, and edits them when
 // edits is set.
 type Grid struct {
+	// keys is set while the grid's tab takes the shortcuts pressed
+	// anywhere, as ⌘` .
+	keys bool
 	// numeric caches numericColumn for the columns and rows it was
 	// worked out for.
 	numeric     []bool
@@ -425,7 +428,7 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 	if g.mode == viewGrid && g.List.Shortcut(c, 0, ui.KeyTab) {
 		g.mode = viewRecord
 	}
-	if c.Shortcut(ui.Cmd, ui.KeyBackquote) {
+	if g.keys && c.Shortcut(ui.Cmd, ui.KeyBackquote) {
 		g.mode = (g.mode + 1) % 3
 	}
 	g.moveKeys(c, a, src, order)

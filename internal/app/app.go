@@ -74,12 +74,17 @@ type App struct {
 	generating  *generateState
 	// catalogQueries shows the catalog queries of a connection.
 	catalogQueries *catalogView
-	quitting       bool // the user agreed to what quitting loses
-	idleWarn       *idleWarning
-	auditView      *auditState
-	snippetForm    *snippetForm
-	history        *historyState
-	toast          *pendingToast
+	// side is the tab shown beside the active one, nil for none; it shows
+	// left of it when sideLeft is set, and the left pane is splitW wide.
+	side        widgets.Tab
+	sideLeft    bool
+	splitW      float32
+	quitting    bool // the user agreed to what quitting loses
+	idleWarn    *idleWarning
+	auditView   *auditState
+	snippetForm *snippetForm
+	history     *historyState
+	toast       *pendingToast
 
 	settingsOpen  bool
 	shortcutsOpen bool
@@ -576,6 +581,10 @@ func (a *App) ReplaceTab(old, next widgets.Tab) {
 		old.Close()
 	}
 }
+
+// KeysTo reports whether a tab takes the shortcuts pressed: the active
+// one, which is the focused pane's when two tabs show side by side.
+func (a *App) KeysTo(t widgets.Tab) bool { return t != nil && t == a.ActiveTab() }
 
 func (a *App) ActiveTab() widgets.Tab {
 	if a.active >= 0 && a.active < len(a.tabs) {

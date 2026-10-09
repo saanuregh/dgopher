@@ -232,6 +232,8 @@ func (h *FakeHost) ReplaceTab(old, next widgets.Tab) {
 	}
 }
 
+func (h *FakeHost) KeysTo(t widgets.Tab) bool { return t == h.ActiveTab() }
+
 func (h *FakeHost) ActiveTab() widgets.Tab {
 	if h.active < len(h.Tabs) {
 		return h.Tabs[h.active]

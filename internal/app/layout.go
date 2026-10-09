@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"slices"
 	"time"
 
 	"dgopher/internal/connection"
@@ -161,18 +162,75 @@ func (a *App) workspace(c *ui.Context) {
 			return
 		}
 		a.tabBar(c)
-		at := a.ActiveTab()
-		if cn := at.Connection(); cn != nil {
-			// The environment's color all along the top of the work: the
-			// first thing to see before typing into production.
-			ui.Box(c).FillWidth().Height(3).Background(widgets.EnvColor(&cn.Config))
+		at, side := a.ActiveTab(), a.sideTab()
+		if side == nil {
+			a.pane(c, at, false)
+		} else {
+			left, right := at, side
+			if a.sideLeft {
+				left, right = side, at
+			}
+			if a.splitW == 0 {
+				a.splitW = 560
+			}
+			ui.Split(c, &a.splitW, func() { a.pane(c, left, true) }, func() { a.pane(c, right, true) }).Grow(1)
 		}
-		// Keyed by a string: a pointer as the key loses the focus within.
-		ui.Column(c.Key(tabKey(at))).Grow(1).Children(func() { at.View(c) })
 		if a.focusWant == "editor" {
 			a.focusWant = "" // a tab without an editor keeps the focus where it is
 		}
 	})
+}
+
+// pane shows a tab, under the color of its connection's environment; of
+// two side by side, the one in front is marked, and the other comes in
+// front as the focus goes into it.
+func (a *App) pane(c *ui.Context, t widgets.Tab, split bool) {
+	th := c.Theme()
+	// Keyed by a string: a pointer as the key loses the focus within.
+	col := ui.Column(c.Key(tabKey(t))).Grow(1).Children(func() {
+		if cn := t.Connection(); cn != nil {
+			// The environment's color all along the top of the work: the
+			// first thing to see before typing into production.
+			ui.Box(c).FillWidth().Height(3).Background(widgets.EnvColor(&cn.Config))
+		}
+		if split {
+			band := th.Border
+			if t == a.ActiveTab() {
+				band = th.Accent
+			}
+			ui.Box(c).FillWidth().Height(2).Background(band)
+		}
+		ui.Column(c).Grow(1).Children(func() { t.View(c) })
+	})
+	if split && t == a.side && col.FocusWithin() {
+		a.bringSide()
+	}
+}
+
+// sideTab is the tab shown beside the active one, nil for none, as one
+// closed or brought in front ends the split.
+func (a *App) sideTab() widgets.Tab {
+	if a.side != nil && (a.side == a.ActiveTab() || !slices.Contains(a.tabs, a.side)) {
+		a.side = nil
+	}
+	return a.side
+}
+
+// openToSide shows a tab beside the active one, right of it.
+func (a *App) openToSide(t widgets.Tab) {
+	if t != a.ActiveTab() {
+		a.side, a.sideLeft = t, false
+	}
+}
+
+// bringSide makes the side tab the active one, which stays where it is:
+// the one in front before goes to its side.
+func (a *App) bringSide() {
+	i := slices.Index(a.tabs, a.side)
+	if i < 0 {
+		return
+	}
+	a.side, a.active, a.sideLeft = a.ActiveTab(), i, !a.sideLeft
 }
 
 func (a *App) tabBar(c *ui.Context) {
@@ -186,9 +244,12 @@ func (a *App) tabBar(c *ui.Context) {
 				on := i == a.active
 				cn := tb.Connection()
 				item := ui.ButtonBase(c.Key(tabKey(tb))).Padding(0, 6, 0, 12).Height(34).MaxWidth(260).Label(tb.Title())
-				if on {
+				switch {
+				case on:
 					item.Background(t.Background)
-				} else if item.Hovered() {
+				case tb == a.side:
+					item.Background(t.Background.Alpha(0.6)) // shown beside the one in front
+				case item.Hovered():
 					item.Background(pal.Hover)
 				}
 				hovered := item.Hovered()
@@ -233,12 +294,23 @@ func (a *App) tabBar(c *ui.Context) {
 					})
 				})
 				if item.Clicked() {
-					a.active = i
+					if tb == a.side {
+						a.bringSide()
+					} else {
+						a.active = i
+					}
 				}
 				item.ContextMenu(func(m *ui.Menu) {
 					if q, ok := tb.(*query.Tab); ok && q.Path != "" && m.Item("Rename…").Chosen() {
 						a.askRename(q.Conn.Project, q.Path)
 					}
+					if m.Item("Open to the Side").Disabled(on || tb == a.side).Chosen() {
+						a.openToSide(tb)
+					}
+					if a.side != nil && m.Item("Close the Side").Chosen() {
+						a.side = nil
+					}
+					m.Separator()
 					if m.Item("Close").Shortcut(ui.Cmd, ui.KeyW).Chosen() {
 						closed = i
 					}

@@ -20,4 +20,6 @@ type Host interface {
 	AskDiscard(title, reason string, onDiscard func())
 	RecordBlocked(cn *connection.Conn, why, what string)
 	RecordRun(cfg db.Config, kind, database, stmt string, rows int64, d time.Duration, err error)
+	// KeysTo reports whether a tab takes the shortcuts pressed.
+	KeysTo(t widgets.Tab) bool
 }

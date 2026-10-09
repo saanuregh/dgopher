@@ -62,7 +62,7 @@ func (q *Tab) completionView(c *ui.Context, a Host) {
 			q.suggest(a, true)
 		}
 	}
-	if c.Shortcut(ui.Ctrl, ui.KeySpace) {
+	if q.key(c, ui.Ctrl, ui.KeySpace) {
 		q.suggest(a, true)
 	}
 	if ac.retry && len(q.Conn.Loading) == 0 {

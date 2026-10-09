@@ -15,9 +15,9 @@ import (
 func (q *Tab) findView(c *ui.Context, fontSize float32) {
 	f := &q.find
 	switch {
-	case c.Shortcut(ui.Cmd|ui.Alt, ui.KeyF):
+	case q.key(c, ui.Cmd|ui.Alt, ui.KeyF):
 		f.Open, f.Replacing, f.Shown = true, true, -1
-	case c.Shortcut(ui.Cmd, ui.KeyF):
+	case q.key(c, ui.Cmd, ui.KeyF):
 		f.Open, f.Replacing, f.Shown = true, false, -1
 	}
 	if !f.Open {
