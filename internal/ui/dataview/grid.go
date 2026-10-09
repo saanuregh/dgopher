@@ -360,18 +360,16 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 	g.List.Key = func(i int) any { return order[i] }
 	cols := make([]ui.TableColumn, 0, len(src.Cols)+1)
 	digits := len(strconv.Itoa(len(order) + 1))
-	cols = append(cols, ui.TableColumn{Title: "#", ID: "#", Width: float32(digits*8 + 18), Fixed: true, Frozen: true, Align: ui.End})
+	// Every column starts at the left, numbers too, as in TablePlus: one
+	// rule down the whole grid.
+	cols = append(cols, ui.TableColumn{Title: "#", ID: "#", Width: float32(digits*8 + 18), Fixed: true, Frozen: true})
 	visible := make([]int, 0, len(src.Cols))
 	for i, col := range src.Cols {
 		if g.hidden[i] {
 			continue
 		}
 		visible = append(visible, i)
-		align := ui.Start
-		if db.IsNumericType(col.Type) {
-			align = ui.End
-		}
-		cols = append(cols, ui.TableColumn{Title: col.Name, ID: colID(i), Width: widths[i], MinWidth: 40, Align: align, Sortable: true, Frozen: g.pinned[i]})
+		cols = append(cols, ui.TableColumn{Title: col.Name, ID: colID(i), Width: widths[i], MinWidth: 40, Sortable: true, Frozen: g.pinned[i]})
 	}
 	g.List.HeaderMenu = func(m *ui.Menu, col int) {
 		if col > 0 {
@@ -521,9 +519,6 @@ func (g *Grid) cell(c *ui.Context, a Host, src *Source, viewRow, data, col int) 
 				v = string(typed)
 			}
 			txt = ui.Text(c, cellText(a.Settings().ViewFormat.Format(v), 200))
-		}
-		if g.numericColumn(src, col) {
-			txt.TextAlign(ui.End).FillWidth()
 		}
 		txt.SingleLine().FontSize(a.Settings().GridFontSize())
 		if g.edits != nil && g.edits.deleted[data] {
@@ -786,8 +781,8 @@ func sameSort(x, y ui.SortOrder) bool {
 	return x.Column == y.Column && x.Descending == y.Descending && slices.Equal(x.Then, y.Then)
 }
 
-// numericColumn reports whether a column holds numbers, which line up on
-// the right, NULLs included. Its type says so; without one, as for an
+// numericColumn reports whether a column holds numbers, which the text
+// presentation lines up on the right, NULLs included. Its type says so; without one, as for an
 // expression in SQLite, its first value that is not NULL does.
 func (g *Grid) numericColumn(src *Source, col int) bool {
 	if len(src.Cols) == 0 {
