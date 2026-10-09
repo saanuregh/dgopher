@@ -162,14 +162,14 @@ func TestApplyEditsRollsBack(t *testing.T) {
 func TestIntegrationCompareRows(t *testing.T) {
 	integration(t)
 	ctx := context.Background()
-	pg := open(t, fixture{cfg: Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dbgopher", Database: "postgres"},
+	pg := open(t, fixture{cfg: Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"},
 		setup: []string{`DROP SCHEMA IF EXISTS cmp CASCADE`, `CREATE SCHEMA cmp`,
 			`CREATE TABLE cmp.t (id int PRIMARY KEY, ok boolean, total numeric, at timestamptz, day date, doc jsonb, name text)`,
 			`INSERT INTO cmp.t VALUES
 				(1, true, 1.50, '2024-03-01 09:30:00+01', '2024-03-01', '{"b": 1, "a": [1, 2]}', 'pen'),
 				(2, false, 3, '2024-03-02 00:00:00+00', '2024-03-02', 'null', 'ink'),
 				(3, NULL, NULL, NULL, NULL, NULL, 'pad')`}})
-	my := open(t, fixture{cfg: Config{Name: "mysql", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"},
+	my := open(t, fixture{cfg: Config{Name: "mysql", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"},
 		setup: []string{`DROP TABLE IF EXISTS cmp_t`,
 			`CREATE TABLE cmp_t (id int PRIMARY KEY, ok tinyint(1), total decimal(10,2), at datetime(6), day date, doc json, name text)`,
 			`INSERT INTO cmp_t VALUES

@@ -207,12 +207,12 @@ func TestEnginesSmoke(t *testing.T) {
 		setup  []string
 	}
 	cases := []engineCase{
-		{db.Config{ID: "my", Name: "Shop MySQL", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop", Env: db.Staging}, "shop", []string{
+		{db.Config{ID: "my", Name: "Shop MySQL", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop", Env: db.Staging}, "shop", []string{
 			"DROP TABLE IF EXISTS notes",
 			"CREATE TABLE notes (id INT AUTO_INCREMENT PRIMARY KEY, title VARCHAR(200) NOT NULL, body TEXT, created DATETIME DEFAULT CURRENT_TIMESTAMP)",
 			"INSERT INTO notes (title, body) VALUES ('first', 'hello'), ('second', NULL), ('third', 'ünïcødé ✓')",
 		}},
-		{db.Config{ID: "ch", Name: "Events ClickHouse", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher", Database: "default", Env: db.Production}, "default", []string{
+		{db.Config{ID: "ch", Name: "Events ClickHouse", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher", Database: "default", Env: db.Production}, "default", []string{
 			"DROP TABLE IF EXISTS default.notes",
 			"CREATE TABLE default.notes (id UInt64, title String, body Nullable(String), created DateTime DEFAULT now()) ENGINE = MergeTree ORDER BY id",
 			"INSERT INTO default.notes (id, title, body) VALUES (1, 'first', 'hello'), (2, 'second', NULL), (3, 'third', 'ünïcødé ✓')",
@@ -461,8 +461,8 @@ func TestImportNewTableServers(t *testing.T) {
 	}
 	for _, cfg := range []db.Config{
 		testutil.PGConfig(),
-		{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"},
-		{ID: "ch", Name: "ch", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher"},
+		{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"},
+		{ID: "ch", Name: "ch", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"},
 	} {
 		t.Run(string(cfg.Engine), func(t *testing.T) {
 			a := newTestApp(t)
@@ -544,8 +544,8 @@ func TestServerActivity(t *testing.T) {
 	a := newTestApp(t)
 	cases := []db.Config{
 		testutil.PGConfig(),
-		{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"},
-		{ID: "ch", Name: "ch", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher"},
+		{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"},
+		{ID: "ch", Name: "ch", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"},
 		{ID: "rd", Name: "rd", Engine: db.Redis, Host: "127.0.0.1", Port: 16379},
 	}
 	tt := ui.NewTester(a.view, 1360, 760)
@@ -577,7 +577,7 @@ func TestServerActivity(t *testing.T) {
 func TestClickHouseMetrics(t *testing.T) {
 	testutil.Integration(t)
 	a := newTestApp(t)
-	cn := addConn(a, db.Config{ID: "ch", Name: "ch", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher"})
+	cn := addConn(a, db.Config{ID: "ch", Name: "ch", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"})
 	tt := ui.NewTester(a.view, 1360, 760)
 	a.openActivity(cn)
 	testutil.WaitFor(t, tt, "the activity", func() bool { _, ok := a.ActiveTab().(*activityTab); return ok })
@@ -1430,7 +1430,7 @@ func TestLocksShowWhoWaits(t *testing.T) {
 		{cfg: testutil.PGConfig(),
 			hold: []string{"BEGIN", "LOCK TABLE shop.customers IN ACCESS EXCLUSIVE MODE"},
 			wait: []string{"SELECT count(*) FROM shop.customers"}},
-		{cfg: db.Config{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"},
+		{cfg: db.Config{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"},
 			setup: []string{"DROP TABLE IF EXISTS it_locks", "CREATE TABLE it_locks (id int primary key, n int)", "INSERT INTO it_locks VALUES (1, 0)"},
 			hold:  []string{"START TRANSACTION", "SELECT * FROM it_locks WHERE id = 1 FOR UPDATE"},
 			wait:  []string{"UPDATE it_locks SET n = 1 WHERE id = 1"}},
@@ -1809,8 +1809,8 @@ func TestCopyTablesAcrossServers(t *testing.T) {
 	testutil.Integration(t)
 	a := newTestApp(t)
 	pg := addConn(a, testutil.PGConfig())
-	my := addConn(a, db.Config{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop", Env: db.Development})
-	ch := addConn(a, db.Config{ID: "ch", Name: "ch", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher", Env: db.Development})
+	my := addConn(a, db.Config{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop", Env: db.Development})
+	ch := addConn(a, db.Config{ID: "ch", Name: "ch", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher", Env: db.Development})
 	tt := ui.NewTester(a.view, 1200, 800)
 	for _, cn := range []*connection.Conn{pg, my, ch} {
 		a.Connect(cn, nil)
@@ -2160,7 +2160,7 @@ func TestFillTablesOnServers(t *testing.T) {
 	testutil.Integration(t)
 	a := newTestApp(t)
 	pg := addConn(a, testutil.PGConfig())
-	my := addConn(a, db.Config{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop", Env: db.Development})
+	my := addConn(a, db.Config{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop", Env: db.Development})
 	tt := ui.NewTester(a.view, 1200, 800)
 	for _, cn := range []*connection.Conn{pg, my} {
 		a.Connect(cn, nil)

@@ -93,7 +93,7 @@ func TestNativeBackups(t *testing.T) {
 func TestIntegrationPostgresBackup(t *testing.T) {
 	integration(t)
 	ctx := context.Background()
-	cfg := Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dbgopher", Database: "postgres"}
+	cfg := Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"}
 	d, err := Open(ctx, cfg, nil)
 	if err != nil {
 		t.Fatal(err)

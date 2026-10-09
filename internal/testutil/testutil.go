@@ -43,7 +43,7 @@ func Integration(t *testing.T) {
 }
 
 func PGConfig() db.Config {
-	return db.Config{ID: "pg", Name: "Shop (local)", Engine: db.Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dbgopher", Database: "postgres", Env: db.Development}
+	return db.Config{ID: "pg", Name: "Shop (local)", Engine: db.Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres", Env: db.Development}
 }
 
 func SeedPostgres(t *testing.T) {

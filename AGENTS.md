@@ -43,9 +43,9 @@ integration tests too when it touches `internal/db`.
 
 ## Conventions
 
-- Integration servers are Docker containers `dbgopher-pg`, `dbgopher-mysql`,
-  `dbgopher-ch`, `dbgopher-redis`, `dbgopher-redis-cluster` and
-  `dbgopher-redis-sentinel` (`docs/development.md` starts them); ports and
+- Integration servers are Docker containers `dgopher-pg`, `dgopher-mysql`,
+  `dgopher-ch`, `dgopher-redis`, `dgopher-redis-cluster` and
+  `dgopher-redis-sentinel` (`docs/development.md` starts them); ports and
   passwords are in `internal/testutil/testutil.go` and, for Redis's,
   `internal/db/integration_test.go`. Tests call `testutil.Integration(t)`, which
   serializes them on Unix; elsewhere use `go test -p 1`.

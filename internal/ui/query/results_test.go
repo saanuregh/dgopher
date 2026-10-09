@@ -576,7 +576,7 @@ func TestQueryResultApplyCancelledRollsBack(t *testing.T) {
 		waiting string
 	}{
 		{testutil.PGConfig(), "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE 'UPDATE%rv_cancel%'"},
-		{db.Config{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"},
+		{db.Config{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"},
 			"SELECT count(*) FROM information_schema.processlist WHERE state = 'updating' AND info LIKE '%rv_cancel%WHERE `id` = 2'"},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {

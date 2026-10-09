@@ -335,7 +335,7 @@ func TestPasswordCommandConnects(t *testing.T) {
 	}
 	a := newTestApp(t)
 	cfg := testutil.PGConfig()
-	cfg.Password, cfg.PasswordCommand = "", "printf dbgopher"
+	cfg.Password, cfg.PasswordCommand = "", "printf dgopher"
 	cn := addConn(a, cfg)
 	tt := ui.NewTester(a.view, 1000, 700)
 	a.Connect(cn, nil)
@@ -359,7 +359,7 @@ func TestPasswordCommandConnects(t *testing.T) {
 	var log bytes.Buffer
 	a.projects[0].Audit.Export(&log)
 	raw := log.Bytes()
-	if strings.Contains(string(raw), "dbgopher") || strings.Contains(string(raw), "leaked") {
+	if strings.Contains(string(raw), "dgopher") || strings.Contains(string(raw), "leaked") {
 		t.Fatalf("command output reached the audit log:\n%s", raw)
 	}
 	if !strings.Contains(string(raw), "password from command") {

@@ -21,7 +21,7 @@ import (
 )
 
 // The integration tests run against the servers of `docker ps --filter
-// name=dbgopher` (see docs/development.md): DGOPHER_IT=1 go test ./internal/db/
+// name=dgopher` (see docs/development.md): DGOPHER_IT=1 go test ./internal/db/
 func integration(t *testing.T) {
 	t.Helper()
 	if os.Getenv("DGOPHER_IT") == "" {
@@ -55,19 +55,19 @@ line two'), (3, 'Linus', NULL, NULL)`,
 	}
 	fs := []fixture{
 		{
-			cfg:    Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dbgopher", Database: "postgres"},
+			cfg:    Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"},
 			schema: "it",
 			setup:  append([]string{`DROP SCHEMA IF EXISTS it CASCADE`, `CREATE SCHEMA it`, `SET search_path = it`}, common...),
 			sleep:  `SELECT pg_sleep(10)`,
 		},
 		{
-			cfg:    Config{Name: "mysql", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"},
+			cfg:    Config{Name: "mysql", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"},
 			schema: "shop",
 			setup:  append([]string{`DROP VIEW IF EXISTS big_orders`, `DROP TABLE IF EXISTS orders`, `DROP TABLE IF EXISTS customers`}, common...),
 			sleep:  `SELECT SLEEP(10)`,
 		},
 		{
-			cfg:    Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher", Database: "default"},
+			cfg:    Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher", Database: "default"},
 			schema: "it",
 			setup: []string{
 				`DROP DATABASE IF EXISTS it`, `CREATE DATABASE it`,
@@ -566,7 +566,7 @@ func TestIntegrationMySQLCountsMatchedRows(t *testing.T) {
 func TestIntegrationTLSPreferFallsBack(t *testing.T) {
 	integration(t)
 	ctx := context.Background()
-	ch, err := Open(ctx, Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher", TLS: TLSPrefer}, nil)
+	ch, err := Open(ctx, Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher", TLS: TLSPrefer}, nil)
 	if err != nil {
 		t.Fatalf("ClickHouse prefer: %v", err)
 	}
@@ -821,9 +821,9 @@ func TestIntegrationTerminatedTransactionIsLost(t *testing.T) {
 }
 
 // redisCluster is the test cluster of three masters, on the ports of the
-// dbgopher-redis-cluster container (docs/development.md).
+// dgopher-redis-cluster container (docs/development.md).
 func redisCluster() Config {
-	return Config{Name: "cluster", Engine: Redis, Host: "127.0.0.1", Port: 17000, Password: "dbgopher",
+	return Config{Name: "cluster", Engine: Redis, Host: "127.0.0.1", Port: 17000, Password: "dgopher",
 		Redis: RedisConfig{Mode: RedisCluster, Nodes: "127.0.0.1:17001"}}
 }
 
@@ -917,7 +917,7 @@ func testCluster(t *testing.T, ctx context.Context, cfg Config, known []string) 
 func TestIntegrationRedisSentinel(t *testing.T) {
 	integration(t)
 	ctx := context.Background()
-	cfg := Config{Name: "sentinel", Engine: Redis, Host: "127.0.0.1", Port: 26379, Password: "dbgopher",
+	cfg := Config{Name: "sentinel", Engine: Redis, Host: "127.0.0.1", Port: 26379, Password: "dgopher",
 		Redis: RedisConfig{Mode: RedisSentinel, Master: "mymaster", SentinelPassword: "sentinelpw"}}
 	k, err := OpenRedis(ctx, cfg, nil)
 	if err != nil {
@@ -956,9 +956,9 @@ func TestIntegrationUsers(t *testing.T) {
 		schema string
 		table  string
 	}{
-		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dbgopher", Database: "postgres"}, "public", "it_users"},
-		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"}, "shop", "it_users"},
-		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher"}, "default", "it_users"},
+		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"}, "public", "it_users"},
+		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"}, "shop", "it_users"},
+		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default", "it_users"},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
 			d, err := Open(ctx, c.cfg, nil)
@@ -1060,7 +1060,7 @@ func TestIntegrationItems(t *testing.T) {
 		// label.
 		drop map[string]string
 	}{
-		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dbgopher", Database: "postgres"}, "it_items",
+		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"}, "it_items",
 			[]string{"DROP SCHEMA IF EXISTS it_items CASCADE", "CREATE SCHEMA it_items",
 				"CREATE FUNCTION it_items.twice(a int) RETURNS int LANGUAGE sql AS 'SELECT a * 2'",
 				"CREATE FUNCTION it_items.twice(a text) RETURNS text LANGUAGE sql AS 'SELECT a || a'",
@@ -1083,7 +1083,7 @@ func TestIntegrationItems(t *testing.T) {
 				"mood": "DROP TYPE it_items.mood", "positive": "DROP DOMAIN it_items.positive",
 				"pair": "DROP TYPE it_items.pair", "floats": "DROP TYPE it_items.floats",
 			}},
-		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"}, "shop",
+		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"}, "shop",
 			[]string{"DROP TABLE IF EXISTS it_items_t", "CREATE TABLE it_items_t (id int)",
 				"DROP FUNCTION IF EXISTS it_twice", "CREATE FUNCTION it_twice(a int) RETURNS int DETERMINISTIC RETURN a * 2",
 				"DROP PROCEDURE IF EXISTS it_noop", "CREATE PROCEDURE it_noop() BEGIN SELECT 1; END",
@@ -1099,7 +1099,7 @@ func TestIntegrationItems(t *testing.T) {
 			[]string{"CREATE MACRO add1(a) AS a + 1", "CREATE MACRO three() AS TABLE SELECT 3 AS x", "CREATE SEQUENCE counter START 5",
 				"CREATE TYPE mood AS ENUM ('sad', 'it''s ok')"},
 			map[string]string{"add1(a)": "DROP MACRO add1", "three()": "DROP MACRO TABLE three", "counter": "DROP SEQUENCE counter", "mood": "DROP TYPE mood"}},
-		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher"}, "default",
+		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default",
 			[]string{"DROP TABLE IF EXISTS it_items_p", "CREATE TABLE it_items_p (id UInt64, v UInt64) ENGINE = MergeTree ORDER BY id",
 				"ALTER TABLE it_items_p ADD PROJECTION by_v (SELECT * ORDER BY v)"},
 			map[string]string{"by_v on it_items_p": "ALTER TABLE it_items_p DROP PROJECTION by_v"}},
@@ -1165,11 +1165,11 @@ func TestIntegrationRename(t *testing.T) {
 		cfg    Config
 		schema string
 	}{
-		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dbgopher", Database: "postgres"}, "public"},
-		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"}, "shop"},
+		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"}, "public"},
+		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"}, "shop"},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "r.sqlite")}, "main"},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main"},
-		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher"}, "default"},
+		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default"},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
 			if c.cfg.Engine == SQLite {
@@ -1217,11 +1217,11 @@ func TestIntegrationSearch(t *testing.T) {
 		cfg    Config
 		schema string
 	}{
-		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dbgopher", Database: "postgres"}, "public"},
-		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"}, "shop"},
+		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"}, "public"},
+		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"}, "shop"},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "s.sqlite")}, "main"},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main"},
-		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher"}, "default"},
+		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default"},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
 			if c.cfg.Engine == SQLite {
@@ -1289,10 +1289,10 @@ func TestIntegrationTableDesign(t *testing.T) {
 		integer, big, text  string
 		keys, indexes, more bool // foreign keys and checks; indexes; changing the key and checks later
 	}{
-		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dbgopher", Database: "postgres"}, "public", "integer", "bigint", "text", true, true, true},
-		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"}, "shop", "int", "bigint", "varchar(50)", true, true, true},
+		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"}, "public", "integer", "bigint", "text", true, true, true},
+		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"}, "shop", "int", "bigint", "varchar(50)", true, true, true},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main", "INTEGER", "BIGINT", "VARCHAR", false, true, false},
-		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher"}, "default", "Int32", "Int64", "String", false, false, false},
+		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default", "Int32", "Int64", "String", false, false, false},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
 			d, err := Open(ctx, c.cfg, nil)
@@ -1418,7 +1418,7 @@ func TestIntegrationTableDesign(t *testing.T) {
 func TestIntegrationPostgresEnum(t *testing.T) {
 	integration(t)
 	ctx := context.Background()
-	d, err := Open(ctx, Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dbgopher", Database: "postgres"}, nil)
+	d, err := Open(ctx, Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1447,8 +1447,8 @@ func TestIntegrationThroughProxy(t *testing.T) {
 	proxy := func(p netproxy.Config) ProxyConfig {
 		return ProxyConfig{Kind: p.Kind, Host: p.Host, Port: p.Port, User: p.User, Password: p.Password}
 	}
-	pg := Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dbgopher", Database: "postgres", Proxy: proxy(socks)}
-	my := Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop", Proxy: proxy(web)}
+	pg := Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres", Proxy: proxy(socks)}
+	my := Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop", Proxy: proxy(web)}
 	for _, cfg := range []Config{pg, my} {
 		d, err := Open(ctx, cfg, nil)
 		if err != nil {
@@ -1515,7 +1515,7 @@ func countRuns(path string) int {
 func TestIntegrationCloudIdentity(t *testing.T) {
 	integration(t)
 	ctx := context.Background()
-	runs := fakeCLI(t, "aws", "dbgopher")
+	runs := fakeCLI(t, "aws", "dgopher")
 	my := Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Database: "shop", TLS: TLSRequire, Identity: IdentityAWS}
 	d, err := Open(ctx, my, nil)
 	if err != nil {
@@ -1543,7 +1543,7 @@ func TestIntegrationCloudIdentity(t *testing.T) {
 	// PostgreSQL's test server has no TLS, which Validate asks for: its
 	// connections are opened as Open would.
 	pg := Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Database: "postgres", Identity: IdentityAWS, IdentityRegion: "eu-west-1"}
-	fakeCLI(t, "aws", "dbgopher")
+	fakeCLI(t, "aws", "dgopher")
 	sqldb, err := openPostgres(pg, endpoint{host: pg.Host, port: pg.Port, serverName: pg.Host}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -1569,10 +1569,10 @@ func TestIntegrationPlans(t *testing.T) {
 		query  string
 		advice string // what the advice holds, "" for none expected
 	}{
-		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dbgopher", Database: "postgres"}, "public",
+		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"}, "public",
 			[]string{"CREATE TABLE it_plan AS SELECT i AS id, i % 1000 AS g FROM generate_series(1, 20000) i", "ANALYZE it_plan"},
 			"SELECT * FROM it_plan WHERE g = 5", "an index on (g)"},
-		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"}, "shop",
+		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"}, "shop",
 			[]string{"CREATE TABLE it_plan (id int, g int)",
 				"INSERT INTO it_plan WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 1000) " +
 					"SELECT r.i * 3 + k.i, r.i % 100 FROM r CROSS JOIN (SELECT 0 AS i UNION ALL SELECT 1 UNION ALL SELECT 2) k", "ANALYZE TABLE it_plan"},
@@ -1583,7 +1583,7 @@ func TestIntegrationPlans(t *testing.T) {
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main",
 			[]string{"CREATE TABLE it_plan AS SELECT range AS id, range % 1000 AS g FROM range(20000)"},
 			"SELECT g, count(*) FROM it_plan WHERE id > 5 GROUP BY g", ""},
-		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher"}, "default",
+		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default",
 			[]string{"CREATE TABLE it_plan (id UInt64, g UInt64) ENGINE = MergeTree ORDER BY id SETTINGS index_granularity = 1024",
 				"INSERT INTO it_plan SELECT number, number % 1000 FROM numbers(20000)"},
 			"SELECT * FROM it_plan WHERE g = 5", "all 20 granules of"},

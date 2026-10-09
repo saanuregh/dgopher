@@ -104,7 +104,7 @@ func TestTransactionSurvivesNewRun(t *testing.T) {
 	testutil.SeedPostgres(t)
 	for _, cfg := range []db.Config{
 		testutil.PGConfig(),
-		{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop", Env: db.Production},
+		{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop", Env: db.Production},
 	} {
 		t.Run(string(cfg.Engine), func(t *testing.T) {
 			cfg.Env = db.Production // manual commit
@@ -222,8 +222,8 @@ func TestExplain(t *testing.T) {
 	os.WriteFile(file, nil, 0o600)
 	for _, cfg := range []db.Config{
 		testutil.PGConfig(),
-		{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"},
-		{ID: "ch", Name: "ch", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher"},
+		{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"},
+		{ID: "ch", Name: "ch", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"},
 		{ID: "sq", Name: "sq", Engine: db.SQLite, Database: file},
 	} {
 		t.Run(string(cfg.Engine), func(t *testing.T) {
@@ -617,7 +617,7 @@ func TestIntegrationLargeChangeMySQL(t *testing.T) {
 	testutil.Integration(t)
 	a := newFakeQueryHost(t)
 	a.Settings().ChangeLimit = 2
-	cn := a.AddConn(db.Config{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher",
+	cn := a.AddConn(db.Config{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher",
 		Database: "shop", Env: db.Staging})
 	tt := ui.NewTester(a.view, 1000, 700)
 	a.Connect(cn, nil)

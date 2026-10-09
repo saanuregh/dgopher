@@ -20,11 +20,11 @@ func TestReferencedBy(t *testing.T) {
 	lite := filepath.Join(t.TempDir(), "r.sqlite")
 	os.WriteFile(lite, nil, 0o600)
 	cases := []tc{
-		{Config{Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dbgopher", Database: "postgres"}, true, "refs_t",
+		{Config{Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"}, true, "refs_t",
 			[]string{"DROP SCHEMA IF EXISTS refs_t CASCADE", "CREATE SCHEMA refs_t", "CREATE TABLE refs_t.parent (id int PRIMARY KEY)",
 				"CREATE TABLE refs_t.child (id int PRIMARY KEY, parent_id int REFERENCES refs_t.parent (id))"},
 			[]string{"DROP SCHEMA refs_t CASCADE"}},
-		{Config{Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"}, true, "shop",
+		{Config{Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"}, true, "shop",
 			[]string{"DROP TABLE IF EXISTS refs_child", "DROP TABLE IF EXISTS refs_parent", "CREATE TABLE refs_parent (id int PRIMARY KEY)",
 				"CREATE TABLE refs_child (id int PRIMARY KEY, parent_id int, FOREIGN KEY (parent_id) REFERENCES refs_parent (id))"},
 			[]string{"DROP TABLE refs_child", "DROP TABLE refs_parent"}},

@@ -26,7 +26,7 @@ func servers() []server {
 			dropSchema:   func(s string) string { return `DROP SCHEMA IF EXISTS "` + s + `" CASCADE` },
 		},
 		{
-			cfg:          db.Config{Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"},
+			cfg:          db.Config{Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"},
 			createSchema: func(s string) string { return "CREATE DATABASE `" + s + "`" },
 			dropSchema:   func(s string) string { return "DROP DATABASE IF EXISTS `" + s + "`" },
 		},

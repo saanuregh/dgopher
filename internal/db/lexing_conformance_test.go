@@ -212,7 +212,7 @@ func TestIntegrationLexingConformance(t *testing.T) {
 	})
 
 	t.Run("MySQL", func(t *testing.T) {
-		d := openFor(t, db.Config{Name: "mysql", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"})
+		d := openFor(t, db.Config{Name: "mysql", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"})
 		runLexCases(t, d, sqltext.MySQL, []lexCase{
 			{"SELECT 1--1", func(t *testing.T, a serverAnswer, toks []sqltext.Token) {
 				if a.err != nil || len(a.row) != 1 || a.row[0] != "2" {
@@ -238,7 +238,7 @@ func TestIntegrationLexingConformance(t *testing.T) {
 	})
 
 	t.Run("ClickHouse", func(t *testing.T) {
-		d := openFor(t, db.Config{Name: "ch", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher", Database: "default"})
+		d := openFor(t, db.Config{Name: "ch", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher", Database: "default"})
 		runLexCases(t, d, sqltext.ClickHouse, []lexCase{
 			{"SELECT 1 #x", func(t *testing.T, a serverAnswer, toks []sqltext.Token) {
 				if a.err == nil {
