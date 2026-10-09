@@ -319,9 +319,23 @@ func (a *App) runImport(x *importState) {
 	started := time.Now()
 	go func() {
 		defer cancel()
-		n, err := importRows(ctx, a, pool, cfg, database, f, target, cols, idx, create, func(done int64) {
-			a.Post(func() { x.done = done })
-		})
+		fileCols := f.Columns
+		n, err := writeRows(ctx, a, pool, cfg, database, rowWrite{target: target, cols: cols, create: create, verb: "imported",
+			read: func(ctx context.Context, batch int, emit func([][]any) error) error {
+				_, err := f.Read(ctx, batch, func(rows [][]any) error {
+					values := make([][]any, len(rows))
+					for r, row := range rows {
+						vals := make([]any, len(cols))
+						for i, j := range idx {
+							vals[i] = importValue(cfg.Engine, row[j], fileCols[j].Type)
+						}
+						values[r] = vals
+					}
+					return emit(values)
+				})
+				return err
+			},
+			progress: func(done int64) { a.Post(func() { x.done = done }) }})
 		ev := audit.Event{Kind: audit.KindImport, Database: database, Rows: n,
 			Statement: "INSERT INTO " + target.Table, Detail: "imported from " + path}
 		if err != nil {
@@ -357,8 +371,26 @@ func (a *App) runImport(x *importState) {
 // nothing, the table created included. Where creating a table commits, on
 // MySQL, or nothing is transactional, on ClickHouse, a failure drops the
 // table it created; on ClickHouse rows written into a table there stay.
-func importRows(ctx context.Context, a *App, pool *db.DB, cfg db.Config, database string, f *fileimport.File, target *db.EditTarget,
-	cols []db.Column, idx []int, create string, progress func(int64)) (int64, error) {
+// rowSource hands a write its rows, as the INSERT takes them, at most n
+// at a time, until it returns.
+type rowSource func(ctx context.Context, n int, emit func(rows [][]any) error) error
+
+// rowWrite is what writeRows writes: rows into a table, which create
+// makes first when it is new, and empty empties first when its rows are
+// to go. verb says what was done, in the errors, as "imported".
+type rowWrite struct {
+	target   *db.EditTarget
+	cols     []db.Column
+	create   string
+	empty    string
+	verb     string
+	read     rowSource
+	progress func(int64)
+}
+
+// writeRows writes rows into a table of a database, in one transaction
+// where the engine has them: all or none.
+func writeRows(ctx context.Context, a *App, pool *db.DB, cfg db.Config, database string, w rowWrite) (int64, error) {
 	if pool == nil {
 		return 0, errors.New("not connected")
 	}
@@ -371,10 +403,10 @@ func importRows(ctx context.Context, a *App, pool *db.DB, cfg db.Config, databas
 		return 0, err
 	}
 	defer sess.Close()
-	engine := cfg.Engine
+	engine, target := cfg.Engine, w.target
 	transactional := engine != db.ClickHouse
 	// A database of one connection shares its transaction with every
-	// editor: never import into, or roll back, someone else's.
+	// editor: never write into, or roll back, someone else's.
 	if transactional && sess.Tx() != db.TxNone {
 		return 0, errors.New("a transaction is open on this database: commit or roll it back first")
 	}
@@ -386,9 +418,9 @@ func importRows(ctx context.Context, a *App, pool *db.DB, cfg db.Config, databas
 		}
 		return err
 	}
-	ddlCommits := create != "" && (engine == db.MySQL || engine == db.ClickHouse)
+	ddlCommits := w.create != "" && (engine == db.MySQL || engine == db.ClickHouse)
 	if ddlCommits {
-		if err := exec(create); err != nil {
+		if err := exec(w.create); err != nil {
 			return 0, err
 		}
 	}
@@ -397,16 +429,10 @@ func importRows(ctx context.Context, a *App, pool *db.DB, cfg db.Config, databas
 			return 0, err
 		}
 	}
-	if create != "" && !ddlCommits {
-		if err := exec(create); err != nil {
-			sess.Rollback(context.Background())
-			return 0, err
-		}
-	}
 	var n int64
 	fail := func(err error) (int64, error) {
 		if ctx.Err() != nil {
-			err = errors.New("the import was cancelled")
+			err = errors.New("cancelled")
 		}
 		rctx, c := context.WithTimeout(context.Background(), 30*time.Second)
 		defer c()
@@ -415,7 +441,7 @@ func importRows(ctx context.Context, a *App, pool *db.DB, cfg db.Config, databas
 			n = 0
 		}
 		if ddlCommits {
-			// Only the table this import created, and nothing was in it.
+			// Only the table this write created, and nothing was in it.
 			drop := "DROP TABLE " + db.QualifiedName(target.Dialect, target.Schema, target.Table)
 			_, derr := sess.Exec(rctx, drop)
 			a.RecordRun(cfg, audit.KindStatement, database, drop, -1, 0, derr)
@@ -424,28 +450,29 @@ func importRows(ctx context.Context, a *App, pool *db.DB, cfg db.Config, databas
 		switch {
 		case n > 0:
 			return n, fmt.Errorf("%w\n\nClickHouse has no transactions: the %d rows before stay in %s", err, n, target.Table)
-		case create != "":
-			return 0, fmt.Errorf("%w\n\nNothing was imported, and the table was not created", err)
+		case w.create != "":
+			return 0, fmt.Errorf("%w\n\nNothing was %s, and the table was not created", err, w.verb)
 		}
-		return 0, fmt.Errorf("%w\n\nNothing was imported: the transaction was rolled back", err)
+		return 0, fmt.Errorf("%w\n\nNothing was %s: the transaction was rolled back", err, w.verb)
 	}
-	fileCols := f.Columns
-	batch := db.InsertBatch(engine, len(cols))
-	_, err = f.Read(ctx, batch, func(rows [][]any) error {
-		values := make([][]any, len(rows))
-		for r, row := range rows {
-			vals := make([]any, len(cols))
-			for i, j := range idx {
-				vals[i] = importValue(engine, row[j], fileCols[j].Type)
-			}
-			values[r] = vals
+	if w.create != "" && !ddlCommits {
+		if err := exec(w.create); err != nil {
+			return fail(err)
 		}
-		st := target.InsertRows(cols, values)
+	}
+	if w.empty != "" {
+		if err := exec(w.empty); err != nil {
+			return fail(err)
+		}
+	}
+	batch := db.InsertBatch(engine, len(w.cols))
+	err = w.read(ctx, batch, func(rows [][]any) error {
+		st := target.InsertRows(w.cols, rows)
 		if err := exec(st.SQL, st.Args...); err != nil {
 			return fmt.Errorf("rows %d to %d: %w", n+1, n+int64(len(rows)), err)
 		}
 		n += int64(len(rows))
-		progress(n)
+		w.progress(n)
 		return nil
 	})
 	if err != nil {
@@ -463,6 +490,11 @@ func importRows(ctx context.Context, a *App, pool *db.DB, cfg db.Config, databas
 // statement casts to its column, bytes as they are, or nil for NULL.
 // MySQL and SQLite keep a boolean as 1 or 0, where true would be text.
 func importValue(e db.Engine, v any, fileType string) any {
+	if at, ok := v.(time.Time); ok && e == db.ClickHouse && (fileType == "TIMESTAMPTZ" || strings.HasSuffix(fileType, "WITH TIME ZONE")) {
+		// ClickHouse reads a time with an offset as NULL, without a word:
+		// its column keeps UTC, which the time is written in.
+		v, fileType = at.UTC(), "TIMESTAMP"
+	}
 	t := fileimport.Text(v, fileType)
 	switch x := t.(type) {
 	case nil:

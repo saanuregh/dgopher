@@ -37,8 +37,6 @@ Next or Later are not repeated.
   - Data models: build a model from a database, generate DDL from a
     model, and compare two models.
 - **Import, export and backup:**
-  - Copy tables and rows from one database to another, also between
-    different engines.
 - **Compare and migrate:**
   - Compare the rows of two tables and copy the differences across.
 - **Test data and automation:**

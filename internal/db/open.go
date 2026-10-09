@@ -407,6 +407,10 @@ func (d *DB) Close() error {
 }
 
 // Ping checks that the server still answers.
+// Single reports whether the pool is one connection every session shares,
+// as DuckDB's and an in-memory SQLite database's.
+func (d *DB) Single() bool { return d.single }
+
 func (d *DB) Ping(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

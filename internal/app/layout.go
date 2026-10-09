@@ -96,6 +96,9 @@ func (a *App) view(c *ui.Context) {
 	if a.backup != nil {
 		a.backupView(c)
 	}
+	if a.copying != nil {
+		a.copyView(c)
+	}
 	query.DialogsView(a, c)
 	dataview.DialogsView(a, c)
 	a.checkIdleTransactions(c)

@@ -361,6 +361,13 @@
 
 ## Import, snippets and history
 
+- **Copy tables** to another database, of the same engine or another: a
+  table's Copy to Another Database…, or a schema's for several. A table
+  not there is made with the same columns, nullability and primary key,
+  typed as the target holds the values exactly (on the same engine, as
+  they were); one there stops the copy, gets the rows added, or has its
+  rows replaced. Each table copies in one transaction where the target
+  has them, through the target's safety policy, and is audited.
 - **Back up and restore** a database, from its menu or its connection's:
   PostgreSQL with `pg_dump`, as an archive or SQL, schema, data or both;
   MySQL with `mysqldump`, in one transaction with its routines, triggers

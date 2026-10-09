@@ -1737,6 +1737,117 @@ func TestBackup(t *testing.T) {
 	}
 }
 
+// copyTables copies tables of a schema into a target, in the mode
+// given, and waits for the copy to end.
+func copyTables(t *testing.T, a *App, tt *ui.Tester, from *connection.Conn, schema string, tables []string, to *connection.Conn, toSchema string, mode int) *copyDialog {
+	t.Helper()
+	a.openCopy(from, "", schema, tables)
+	x := a.copying
+	x.to = copyTargetLabel(to)
+	tt.Frame()
+	x.toSchema, x.mode = toSchema, mode
+	tt.Frame()
+	a.startCopy(x)
+	if a.confirm != nil {
+		a.confirm.OnConfirm()
+		a.confirm = nil
+	}
+	testutil.WaitFor(t, tt, "the copy", func() bool { return !x.running && (x.done || x.err != "") })
+	return x
+}
+
+// Tables copy into another engine, made there with their types mapped,
+// or into one there already, their rows added or replaced.
+func TestCopyTables(t *testing.T) {
+	a := newTestApp(t)
+	file := filepath.Join(t.TempDir(), "x.sqlite")
+	os.WriteFile(file, nil, 0o600)
+	lite := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
+	duck := addConn(a, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1200, 800)
+	for _, cn := range []*connection.Conn{lite, duck} {
+		a.Connect(cn, nil)
+		testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	}
+	for _, q := range []string{`CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, price REAL, sold BOOLEAN, at DATE, raw BLOB)`,
+		`INSERT INTO items VALUES (1, 'pen', 1.5, 1, '2026-01-31', x'0102'), (2, 'ink', NULL, 0, NULL, NULL)`} {
+		if _, err := lite.DB.SQL.Exec(q); err != nil {
+			t.Fatal(q, err)
+		}
+	}
+	x := copyTables(t, a, tt, lite, "main", []string{"items"}, duck, "main", copyCreate)
+	testutil.Snapshot(t, tt, "copy-tables")
+	if x.err != "" {
+		t.Fatal(x.err)
+	}
+	var name, at string
+	var price float64
+	var sold bool
+	var raw []byte
+	if err := duck.DB.SQL.QueryRow(`SELECT name, price, sold, CAST("at" AS VARCHAR), raw FROM items WHERE id = 1`).Scan(&name, &price, &sold, &at, &raw); err != nil ||
+		name != "pen" || price != 1.5 || !sold || at != "2026-01-31" || string(raw) != "\x01\x02" {
+		t.Fatalf("copied %q %v %v %q %v: %v", name, price, sold, at, raw, err)
+	}
+	x = copyTables(t, a, tt, lite, "main", []string{"items"}, duck, "main", copyCreate)
+	if !strings.Contains(x.err, "already") {
+		t.Fatalf("a table there: %q", x.err)
+	}
+	lite.DB.SQL.Exec(`INSERT INTO items (id, name) VALUES (3, 'cap')`)
+	x = copyTables(t, a, tt, lite, "main", []string{"items"}, duck, "main", copyReplace)
+	var n int
+	if duck.DB.SQL.QueryRow(`SELECT count(*) FROM items`).Scan(&n); x.err != "" || n != 3 {
+		t.Fatalf("replaced: %d rows, %q", n, x.err)
+	}
+}
+
+// A PostgreSQL table copies into MySQL and ClickHouse, its numbers,
+// times and booleans as they were.
+func TestCopyTablesAcrossServers(t *testing.T) {
+	testutil.Integration(t)
+	a := newTestApp(t)
+	pg := addConn(a, testutil.PGConfig())
+	my := addConn(a, db.Config{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop", Env: db.Development})
+	ch := addConn(a, db.Config{ID: "ch", Name: "ch", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher", Env: db.Development})
+	tt := ui.NewTester(a.view, 1200, 800)
+	for _, cn := range []*connection.Conn{pg, my, ch} {
+		a.Connect(cn, nil)
+		testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	}
+	drop := func() {
+		pg.DB.SQL.Exec(`DROP TABLE IF EXISTS public.it_copy`)
+		my.DB.SQL.Exec("DROP TABLE IF EXISTS shop.it_copy")
+		ch.DB.SQL.Exec("DROP TABLE IF EXISTS default.it_copy")
+	}
+	drop()
+	defer drop()
+	for _, q := range []string{`CREATE TABLE public.it_copy (id int PRIMARY KEY, amount numeric(10,2), at timestamptz, ok boolean, note text)`,
+		`INSERT INTO public.it_copy VALUES (1, 12345678.91, '2026-01-31 10:20:30.123456+00', true, 'it''s'), (2, NULL, NULL, NULL, NULL)`} {
+		if _, err := pg.DB.SQL.Exec(q); err != nil {
+			t.Fatal(q, err)
+		}
+	}
+	for _, c := range []struct {
+		to     *connection.Conn
+		schema string
+		query  string
+	}{
+		{my, "shop", "SELECT CAST(amount AS CHAR), DATE_FORMAT(at, '%Y-%m-%d %H:%i:%s.%f'), ok, note FROM shop.it_copy WHERE id = 1"},
+		{ch, "default", "SELECT toString(amount), toString(at), toString(ok), note FROM default.it_copy WHERE id = 1"},
+	} {
+		x := copyTables(t, a, tt, pg, "public", []string{"it_copy"}, c.to, c.schema, copyCreate)
+		if x.err != "" {
+			t.Fatalf("%s: %s", c.to.Config.Engine, x.err)
+		}
+		var amount, at, ok, note string
+		if err := c.to.DB.SQL.QueryRow(c.query).Scan(&amount, &at, &ok, &note); err != nil {
+			t.Fatalf("%s: %v", c.to.Config.Engine, err)
+		}
+		if amount != "12345678.91" || !strings.HasPrefix(at, "2026-01-31 10:20:30.123456") || note != "it's" || ok != "1" && ok != "true" {
+			t.Fatalf("%s: %q %q %q %q", c.to.Config.Engine, amount, at, ok, note)
+		}
+	}
+}
+
 // Users are made, granted, taken back from and dropped from their tab;
 // a password shows nowhere: not in the confirmation, the audit log or a
 // file.
