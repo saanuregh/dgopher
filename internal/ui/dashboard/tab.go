@@ -505,7 +505,7 @@ func (t *Tab) panelView(c *ui.Context, i int, height float32) {
 			case s.running || connecting:
 				ui.Spinner(c).Size(12, 12)
 			case s.src != nil:
-				ui.Text(c, fmt.Sprintf("%d row%s · %s", len(s.src.Rows), widgets.Plural(len(s.src.Rows)), s.took.Round(time.Millisecond))).FontSize(11.5).TextColor(pal.Muted).Tooltip("Read at " + s.at.Format(time.TimeOnly))
+				ui.Text(c, widgets.Count(len(s.src.Rows), "row")+" · "+s.took.Round(time.Millisecond).String()).FontSize(11.5).TextColor(pal.Muted).Tooltip("Read at " + s.at.Format(time.TimeOnly))
 			}
 			if t.editing {
 				t.panelTools(c, i)

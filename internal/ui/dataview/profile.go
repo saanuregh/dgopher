@@ -313,7 +313,7 @@ func (g *Grid) profileRow(c *ui.Context, src *Source, i int, p columnProfile) {
 			if len(p.bins) > 0 && !masked {
 				drawHistogram(c, p.bins, th.Accent)
 			}
-			figures := []string{fmt.Sprintf("%d values", p.count-p.nulls)}
+			figures := []string{widgets.Count(p.count-p.nulls, "value")}
 			if p.distinct >= 0 {
 				figures = append(figures, fmt.Sprintf("%d distinct", p.distinct))
 			}

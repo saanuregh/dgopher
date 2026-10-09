@@ -266,7 +266,7 @@ func (e *ERTab) View(c *ui.Context) {
 			} else {
 				ui.Text(c, e.schema).Bold()
 			}
-			ui.Text(c, fmt.Sprintf("%d tables", len(e.tables))).FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, widgets.Count(len(e.tables), "table")).FontSize(12).TextColor(pal.Muted)
 			if e.more > 0 {
 				ui.Text(c, fmt.Sprintf("(%d more not drawn)", e.more)).FontSize(12).TextColor(th.Warning)
 			}

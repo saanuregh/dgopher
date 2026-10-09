@@ -59,7 +59,7 @@ func (g *Grid) SelectionStats(src *Source) string {
 		}
 		return s
 	}
-	return fmt.Sprintf("%d values · sum %s · avg %s · min %s · max %s%s", count, num(sum), num(avg), num(minV), num(maxV), nullNote)
+	return fmt.Sprintf("%s · sum %s · avg %s · min %s · max %s%s", widgets.Count(count, "value"), num(sum), num(avg), num(minV), num(maxV), nullNote)
 }
 
 // cellText is a value's text as a cell shows it: its first line, cut to

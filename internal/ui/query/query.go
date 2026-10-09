@@ -779,14 +779,14 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 				err = guard.finish(ctx, rows, err)
 			}
 			entry := store.HistoryEntry{Time: start, ConnectionID: cfg.ID, Connection: cfg.Name, Database: database,
-				SQL: redact.Secrets(logged), Duration: res.elapsed, Rows: rows}
+				SQL: logged, Duration: res.elapsed, Rows: rows} // the history redacts it
 			if err != nil {
 				res.err = err.Error()
 				res.errInfo = db.DescribeError(err)
 				if timedOut.Load() {
 					res.errInfo.Message = fmt.Sprintf("Stopped after the connection's statement timeout of %s. %s", timeout, res.errInfo.Message)
 				}
-				entry.Error = redact.Error(res.err, logged)
+				entry.Error = res.err
 			}
 			st.AppendHistory(entry)
 			q.a.Post(func() {
@@ -884,13 +884,10 @@ func verbLabel(v string) string {
 }
 
 func affectedLabel(n int64) string {
-	switch {
-	case n < 0:
+	if n < 0 {
 		return "done"
-	case n == 1:
-		return "1 row affected"
 	}
-	return fmt.Sprintf("%d rows affected", n)
+	return widgets.Count(n, "row") + " affected"
 }
 
 func (q *Tab) note(text, sql string, isErr bool) {

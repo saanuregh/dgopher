@@ -22,7 +22,8 @@
     refreshing, exporting, fetching, charting and applying rows. Each
     shows its key. Tables, functions and procedures open by
     name (⌘P).
-  - In manual commit, ⌘⌥⇧↵ commits. Rolling back has no key until one is
+  - In manual commit, ⌘⌥⇧↵ commits an editor's or a table's
+    transaction. Rolling back has no key until one is
     set, as it loses the transaction's work.
   - ⌘1…⌘9 switch tabs (in the results grid, ⌘2 sorts by the chosen
     column instead), the keys going on in the tab chosen: an editor's

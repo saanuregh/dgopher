@@ -9,6 +9,7 @@ import (
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
 
@@ -175,6 +176,16 @@ func (t *TableTab) loadMeta(then func()) {
 	})
 }
 
+// endOpenTx commits or rolls back the open transaction, when one is open
+// that can: a failed one only rolls back, and none ends while changes
+// are being applied.
+func (t *TableTab) endOpenTx(commit bool) {
+	if t.tx == db.TxNone || t.view.applying || commit && t.tx != db.TxOpen {
+		return
+	}
+	t.endTx(commit)
+}
+
 func (t *TableTab) endTx(commit bool) {
 	sess, cfg, database := t.sess, t.Conn.Config, t.Database
 	if sess == nil || t.ending {
@@ -234,11 +245,11 @@ func (t *TableTab) txBar(c *ui.Context) {
 		ui.Row(c).Padding(6, 12).Gap(10).Background(th.Warning.Alpha(0.16)).Children(func() {
 			ui.Icon(c, widgets.IconAlert).TextColor(th.Warning).FontSize(14)
 			ui.Text(c, "Changes applied in an open transaction (manual commit).").Grow(1)
-			if ui.PrimaryButton(c, "Commit").Disabled(t.view.applying).Clicked() {
-				t.endTx(true)
+			if ui.PrimaryButton(c, "Commit").Disabled(t.view.applying).Tooltip(keymap.Hint("Commit the transaction", keymap.Commit)).Clicked() {
+				t.endOpenTx(true)
 			}
-			if ui.Button(c, "Roll Back").Disabled(t.view.applying).Clicked() {
-				t.endTx(false)
+			if ui.Button(c, "Roll Back").Disabled(t.view.applying).Tooltip(keymap.Hint("Roll back the transaction", keymap.Rollback)).Clicked() {
+				t.endOpenTx(false)
 			}
 		})
 	}
@@ -250,6 +261,12 @@ func (t *TableTab) View(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	if want := a.FocusWant(); *want == "editor" && t.Page == PageData && a.KeysTo(t) {
 		*want = "results" // the tab chosen by its key: its rows take the keys
+	}
+	if a.KeysTo(t) && keymap.Pressed(c, keymap.Commit) {
+		t.endOpenTx(true)
+	}
+	if a.KeysTo(t) && keymap.Pressed(c, keymap.Rollback) {
+		t.endOpenTx(false)
 	}
 	ui.Column(c).Grow(1).Children(func() {
 		ui.Row(c).Padding(6, 10).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {

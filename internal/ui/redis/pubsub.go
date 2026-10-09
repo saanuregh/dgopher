@@ -107,7 +107,7 @@ func (r *Tab) pubSubActions(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	if p.cancel != nil {
 		ui.Spinner(c).Size(12, 12)
-		ui.Text(c, fmt.Sprintf("%d messages", len(p.messages))).FontSize(12).TextColor(pal.Muted)
+		ui.Text(c, widgets.Count(len(p.messages), "message")).FontSize(12).TextColor(pal.Muted)
 	}
 	if ui.Link(c, "Clear", "").FontSize(12).Clicked() {
 		p.messages = nil

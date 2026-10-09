@@ -223,7 +223,7 @@ func (a *App) startSync(x *rowCompareDialog) {
 	if !x.result.Complete() {
 		v.Reasons = append(v.Reasons, fmt.Sprintf("Only the first %s differences are changed: compare again for the rest.", widgets.HumanCount(db.DifferenceLimit)))
 	}
-	v.ManyRows(&cfg, db.Existing(stmts), a.settings.ChangeLimit)
+	v.ManyRows(&cfg, db.ExistingRowChanges(stmts), a.settings.ChangeLimit)
 	title := fmt.Sprintf("Apply %s change%s to %s?", widgets.HumanCount(int64(len(stmts))), widgets.Plural(len(stmts)), x.toTable)
 	a.AskConfirm(to, v, title, "Apply", preview, func() { a.runSync(x, stmts, shown) })
 }
@@ -235,7 +235,7 @@ func (a *App) runSync(x *rowCompareDialog, stmts, shown []db.Statement) {
 	x.progress = fmt.Sprintf("Applying %s change%s…", widgets.HumanCount(int64(len(stmts))), widgets.Plural(len(stmts)))
 	pool, cfg, database := x.to.PoolFor(x.toDB), x.to.Config, x.toDB
 	to, toSchema, toTable := x.to, x.toSchema, x.toTable
-	detail := fmt.Sprintf("%d changes making %s's rows as %s's of %s ", len(stmts), x.toTable, x.fromTable, x.from.Config.Name)
+	detail := fmt.Sprintf("%s making %s's rows as %s's of %s ", widgets.Count(len(stmts), "change"), x.toTable, x.fromTable, x.from.Config.Name)
 	started := time.Now()
 	a.Background(func() func() {
 		defer cancel()

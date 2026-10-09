@@ -257,7 +257,7 @@ func (a *App) sqlFileSummary(c *ui.Context, x *sqlFileRun) {
 	for i, v := range verbs {
 		parts[i] = fmt.Sprintf("%d %s", x.verbs[v], v)
 	}
-	ui.Text(c, fmt.Sprintf("%d statements in %s: %s.", x.statements, widgets.HumanBytes(x.size), strings.Join(parts, ", "))).FontSize(13)
+	ui.Text(c, fmt.Sprintf("%s in %s: %s.", widgets.Count(x.statements, "statement"), widgets.HumanBytes(x.size), strings.Join(parts, ", "))).FontSize(13)
 	if len(x.dangerous) > 0 {
 		ui.Column(c).Gap(2).Padding(8, 10).Radius(6).Background(th.Danger.Alpha(0.1)).Children(func() {
 			ui.Text(c, "It destroys data:").Bold().FontSize(12).TextColor(th.Danger)
@@ -296,7 +296,7 @@ func (a *App) confirmSQLFile(x *sqlFileRun) {
 		a.runSQLFile(x)
 		return
 	}
-	preview := fmt.Sprintf("%d statements of %s", x.statements, filepath.Base(x.path))
+	preview := fmt.Sprintf("%s of %s", widgets.Count(x.statements, "statement"), filepath.Base(x.path))
 	if len(x.dangerous) > 0 {
 		preview += ", among them:\n" + strings.Join(x.dangerous, "\n")
 	}

@@ -182,9 +182,9 @@ func (t *EditTarget) Statements(changes []Change) ([]Statement, error) {
 	return out, nil
 }
 
-// Existing counts the statements, as Statements writes them, that change
-// or delete a row already there, rather than add one.
-func Existing(stmts []Statement) int {
+// ExistingRowChanges counts the statements, as Statements writes them,
+// that change or delete a row already there, rather than add one.
+func ExistingRowChanges(stmts []Statement) int {
 	n := 0
 	for _, s := range stmts {
 		if strings.HasPrefix(s.SQL, "UPDATE ") || strings.HasPrefix(s.SQL, "DELETE ") {

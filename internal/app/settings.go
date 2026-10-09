@@ -160,7 +160,7 @@ func (a *App) settingsView(c *ui.Context) {
 						}
 						ui.Text(c, "rows, 0 for no limit").TextColor(pal.Muted)
 					})
-				}).Description("On staging and production in auto-commit, an UPDATE, DELETE, MERGE or upsert that changes more rows than this asks before it commits; until then it is held in a transaction.")
+				}).Description("On staging and production in auto-commit, an UPDATE, DELETE, MERGE, REPLACE or upsert that changes more rows than this asks before it commits; until then it is held in a transaction.")
 				ui.Field(c, "Sensitive values", func() {
 					hide := !a.settings.ShowSensitive
 					if ui.Checkbox(c, &hide, "Hide the values of columns that look sensitive").Changed() {

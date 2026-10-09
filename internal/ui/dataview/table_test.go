@@ -182,3 +182,22 @@ func TestApplyInsideOpenTransaction(t *testing.T) {
 	tb.endTx(false)
 	testutil.WaitFor(t, tt, "rollback", func() bool { return tb.sess.Tx() == db.TxNone })
 }
+
+// A table whose rows cannot be read leaves no wish to focus its grid,
+// which another tab's grid would take later.
+func TestFailedTableDropsFocusWant(t *testing.T) {
+	a := NewFakeHost(t)
+	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.View, 1000, 700)
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	a.OpenTable(cn, "", db.Object{Schema: "main", Name: "missing", Kind: db.KindTable, Rows: -1}, PageData)
+	tb := a.Tabs[0].(*TableTab)
+	testutil.WaitFor(t, tt, "the error", func() bool { return tb.view.err != "" })
+	*a.FocusWant() = "editor"
+	tt.Frame()
+	tt.Frame()
+	if want := *a.FocusWant(); want != "" {
+		t.Fatalf("focus still wanted: %q", want)
+	}
+}

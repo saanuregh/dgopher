@@ -1,6 +1,7 @@
 package query
 
 import (
+	"cmp"
 	"context"
 	"time"
 
@@ -24,6 +25,10 @@ func schemaStatement(e db.Engine, d db.Dialect, schema string) string {
 	return ""
 }
 
+// currentDatabase is the database the editor works in: its own, else the
+// connection's.
+func (q *Tab) currentDatabase() string { return cmp.Or(q.Database, q.Conn.Config.Database) }
+
 // currentSchema is the schema the editor's session finds names in, as
 // last read, else the connection's.
 func (q *Tab) currentSchema() string {
@@ -41,10 +46,7 @@ func (q *Tab) switcherView(c *ui.Context) {
 		return
 	}
 	if cn.Config.Engine == db.Postgres && len(cn.Databases) > 1 {
-		database := q.Database
-		if database == "" {
-			database = cn.Config.Database
-		}
+		database := q.currentDatabase()
 		ui.MenuButton(c, database, func(m *ui.Menu) {
 			for _, name := range cn.Databases {
 				if m.Item(name).Checked(name == database).Chosen() {

@@ -519,7 +519,7 @@ func runExport(a Host, x *exportState) {
 				a.Toast(fmt.Sprintf("Copied %s as %s%s", widgets.Count(n, "row"), f.Label(), note), "", nil)
 				return
 			}
-			what := fmt.Sprintf("Exported %d rows%s", n, note)
+			what := "Exported " + widgets.Count(n, "row") + note
 			if len(srcs) > 1 {
 				what = fmt.Sprintf("Exported %s of %d tables%s", widgets.Count(n, "row"), len(srcs), note)
 			}

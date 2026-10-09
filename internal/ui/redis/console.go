@@ -241,9 +241,10 @@ func (r *Tab) runConsole(line string) {
 	run()
 }
 
-// storeHistory is a history entry of a statement or command that ran.
+// storeHistory is a history entry of a command that ran, written as
+// redact.Redis writes it; the history redacts the rest.
 func storeHistory(cfg db.Config, sql string, d time.Duration, err error) store.HistoryEntry {
-	e := store.HistoryEntry{Time: time.Now().Add(-d), ConnectionID: cfg.ID, Connection: cfg.Name, Database: cfg.Database, SQL: redact.Secrets(sql), Duration: d}
+	e := store.HistoryEntry{Time: time.Now().Add(-d), ConnectionID: cfg.ID, Connection: cfg.Name, Database: cfg.Database, SQL: sql, Duration: d}
 	if err != nil {
 		e.Error = err.Error()
 	}

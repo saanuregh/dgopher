@@ -185,7 +185,7 @@ func (a *App) runCopy(x *copyDialog, to *connection.Conn, tables []string) {
 				return
 			}
 			x.done = true
-			a.Notify(started, "Copy finished", fmt.Sprintf("%d tables into %s", len(tables), to.Config.Name), nil)
+			a.Notify(started, "Copy finished", widgets.Count(len(tables), "table")+" into "+to.Config.Name, nil)
 		})
 	}()
 }

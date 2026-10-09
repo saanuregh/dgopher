@@ -355,7 +355,7 @@ func (a *App) runImport(x *importState) {
 				cn.ForgetCatalog()
 			}
 			a.toast = &pendingToast{text: fmt.Sprintf("Imported %d rows into %s", n, target.Table)}
-			a.Notify(started, "Import finished", fmt.Sprintf("%d rows into %s", n, target.Table), nil)
+			a.Notify(started, "Import finished", fmt.Sprintf("%s into %s", widgets.Count(n, "row"), target.Table), nil)
 			a.reloadTableTabs(cn, x.schema, target.Table)
 		})
 	}()
@@ -542,7 +542,7 @@ func (a *App) importView(c *ui.Context) {
 					ui.Spinner(c).Size(14, 14)
 					ui.Text(c, fmt.Sprintf("%d of %d rows…", x.done, x.total)).TextColor(pal.Muted)
 				case x.file != nil:
-					ui.Text(c, fmt.Sprintf("%d rows", x.total)).TextColor(pal.Muted)
+					ui.Text(c, widgets.Count(x.total, "row")).TextColor(pal.Muted)
 				}
 				ui.Spacer(c)
 				if x.running {

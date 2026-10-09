@@ -152,9 +152,9 @@ var Commands = []Command{
 	command(ToggleResults, Editor, "Between the editor and its results", "Cmd+J"),
 	command(Save, Editor, "Save the file now (it also saves as you type)", "Cmd+S"),
 	command(SaveAs, Editor, "Save the editor as a file", "Cmd+Shift+S"),
-	command(Commit, Editor, "Commit the open transaction", "Cmd+Alt+Shift+Enter"),
+	command(Commit, Editor, "Commit the open transaction, an editor's or a table's", "Cmd+Alt+Shift+Enter"),
 	// Rolling back loses the transaction's work: no key unless one is set.
-	command(Rollback, Editor, "Roll back the open transaction"),
+	command(Rollback, Editor, "Roll back the open transaction, an editor's or a table's"),
 
 	command(Copy, Grid, "Copy the cell, or the rows chosen", "Cmd+C"),
 	command(AdvancedCopy, Grid, "Advanced Copy: delimiter, column names, quoting, row numbers", "Cmd+Shift+C"),

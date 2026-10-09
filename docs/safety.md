@@ -8,7 +8,7 @@ before it reaches the server:
 | Reads | run | run | run |
 | Writes (INSERT, UPDATE, …) | run | run | confirm |
 | Schema changes (CREATE, ALTER, …) | run | confirm | confirm |
-| DROP, TRUNCATE, replacing a table (`CREATE OR REPLACE TABLE`), UPDATE/DELETE without WHERE or with one always true (`WHERE 1=1`, `WHERE TRUE`, `id = id`, `1=1 AND 2=2`, MySQL's `&&` too), also inside a `WITH`, ClickHouse ALTERs that lose rows (`CLEAR COLUMN`, `MODIFY TTL`, `REPLACE`/`MOVE`/`DETACH PARTITION`), `ALTER … TRUNCATE PARTITION`, Redis FLUSHALL/KEYS/… | confirm | confirm | confirm, by typing the connection's name |
+| DROP, TRUNCATE, replacing a table (`CREATE OR REPLACE TABLE`), UPDATE/DELETE without WHERE or with one always true (`WHERE 1=1`, `WHERE TRUE`, `id = id`, `1=1 AND 2=2`, MySQL's `&&` too), also inside a `WITH`, ClickHouse ALTERs that lose rows (`CLEAR COLUMN`, `MODIFY TTL`, `MATERIALIZE TTL`, `REPLACE PARTITION`, `DETACH PARTITION`, `MOVE PARTITION … TO TABLE`), `ALTER … TRUNCATE PARTITION`, Redis FLUSHALL/KEYS/… | confirm | confirm | confirm, by typing the connection's name |
 | Default commit mode | auto | auto | manual (ClickHouse and Redis: always auto) |
 
 Redis commands that write follow the Writes row. Commands that need a

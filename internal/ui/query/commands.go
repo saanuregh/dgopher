@@ -1,7 +1,6 @@
 package query
 
 import (
-	"cmp"
 	"slices"
 
 	"dgopher/internal/connection"
@@ -47,7 +46,7 @@ func (q *Tab) switchCommands() []widgets.Command {
 	}
 	var cmds []widgets.Command
 	if cn.Config.Engine == db.Postgres && len(cn.Databases) > 1 {
-		current := cmp.Or(q.Database, cn.Config.Database)
+		current := q.currentDatabase()
 		for _, name := range cn.Databases {
 			if name != current {
 				cmds = append(cmds, widgets.Command{Title: "Use Database " + name, Detail: "in this editor", Icon: widgets.IconDatabase, Run: func() { q.switchDatabase(name) }})

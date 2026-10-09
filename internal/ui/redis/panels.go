@@ -163,7 +163,7 @@ func (r *Tab) monitorActions(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	if m.cancel != nil {
 		ui.Spinner(c).Size(12, 12)
-		ui.Text(c, fmt.Sprintf("%d commands", len(m.lines))).FontSize(12).TextColor(pal.Muted)
+		ui.Text(c, widgets.Count(len(m.lines), "command")).FontSize(12).TextColor(pal.Muted)
 		if ui.Link(c, "Stop", "").FontSize(12).Clicked() {
 			m.cancel()
 		}

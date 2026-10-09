@@ -859,7 +859,7 @@ func (v *Viewer) reviewChanges() {
 				r.Schema, r.Table, strings.Join(r.Columns, ", "), strings.Join(r.RefColumns, ", ")))
 		}
 	}
-	verdict.ManyRows(&v.source.Conn.Config, db.Existing(stmts), v.a.Settings().ChangeLimit)
+	verdict.ManyRows(&v.source.Conn.Config, db.ExistingRowChanges(stmts), v.a.Settings().ChangeLimit)
 	title := fmt.Sprintf("Apply %d change%s to %s?", len(stmts), widgets.Plural(len(stmts)), v.source.Table.Name)
 	v.a.AskConfirm(v.source.Conn, verdict, title, "Apply", strings.Join(previews, "\n"), func() { v.apply(stmts) })
 }
@@ -1121,9 +1121,17 @@ func (v *Viewer) View(c *ui.Context) {
 			}
 		})
 	}
+	// Without a grid drawn, a wish to focus it goes: left, another tab's
+	// grid would take it later.
+	noGrid := func() {
+		if *a.FocusWant() == "results" && keys {
+			*a.FocusWant() = ""
+		}
+	}
 	if v.err != "" && v.src.Cols == nil {
 		ui.Text(c, v.err).TextColor(th.Danger).Padding(12).Selectable()
 		ui.Spacer(c)
+		noGrid()
 		return
 	}
 	if v.err != "" {
@@ -1136,6 +1144,7 @@ func (v *Viewer) View(c *ui.Context) {
 	}
 	if v.src.Cols == nil {
 		ui.Row(c).Grow(1).Center().Children(func() { ui.Spinner(c) })
+		noGrid()
 		return
 	}
 	// DBeaver's smart order: the server sorts while rows remain to be
@@ -1144,9 +1153,7 @@ func (v *Viewer) View(c *ui.Context) {
 	v.grid.serverSort = (!v.done || v.truncated) && v.source.Reads
 	if v.showChart {
 		ChartView(c, &v.chart, &v.src)
-		if *a.FocusWant() == "results" && keys {
-			*a.FocusWant() = "" // no grid to take it: the chart has no keys
-		}
+		noGrid()
 	} else {
 		v.grid.View(c, a, &v.src)
 		if *a.FocusWant() == "results" && keys {

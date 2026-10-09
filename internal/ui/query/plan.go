@@ -2,6 +2,7 @@ package query
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"dgopher/internal/db"
@@ -46,11 +47,11 @@ func planSummary(p *db.Plan) string {
 	p.Root.Walk(func(*db.PlanNode, int) { steps++ })
 	switch {
 	case p.Analyzed && p.Root.Time >= 0:
-		return fmt.Sprintf("%d steps · ran in %s", steps, formatMs(p.Root.Time))
+		return widgets.Count(steps, "step") + " · ran in " + formatMs(p.Root.Time)
 	case p.Root.Cost >= 0:
-		return fmt.Sprintf("%d steps · estimated cost %s", steps, formatNumber(p.Root.Cost))
+		return widgets.Count(steps, "step") + " · estimated cost " + formatNumber(p.Root.Cost)
 	}
-	return fmt.Sprintf("%d steps", steps)
+	return widgets.Count(steps, "step")
 }
 
 func formatMs(ms float64) string {
@@ -141,7 +142,7 @@ func (q *Tab) treeView(c *ui.Context, r *result) {
 			ui.Row(c).Gap(10).AlignItems(ui.Center).FillWidth().Children(func() {
 				ui.Row(c).Gap(6).Grow(1).Shrink(1).PaddingX(float32(depth) * 16).Children(func() {
 					ui.Text(c, n.Op).Font(widgets.MonoFont).FontSize(12.5).Bold().SingleLine().Shrink(0)
-					if n.Target != "" && !strings.Contains(n.Op, n.Target) {
+					if n.Target != "" && !opNames(n) {
 						ui.Text(c, n.Target).FontSize(12.5).SingleLine().Shrink(1)
 					}
 					if n.Detail != "" {
@@ -164,13 +165,18 @@ func (q *Tab) treeView(c *ui.Context, r *result) {
 	})
 }
 
-// stepTitle is a step's operation and what it reads, once: SQLite's
-// operation names its table already.
+// stepTitle is a step's operation and what it reads, once.
 func stepTitle(n *db.PlanNode) string {
-	if n.Target == "" || strings.Contains(n.Op, n.Target) {
+	if n.Target == "" || opNames(n) {
 		return n.Op
 	}
 	return n.Op + " " + n.Target
+}
+
+// opNames reports whether a step's operation names what it reads, as
+// SQLite's "SCAN orders" does.
+func opNames(n *db.PlanNode) bool {
+	return slices.Contains(strings.Fields(n.Op), n.Target)
 }
 
 // rowsLabel is a step's rows: estimated, and found when it ran.

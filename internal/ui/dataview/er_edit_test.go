@@ -3,6 +3,7 @@ package dataview
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"dgopher/internal/connection"
@@ -111,6 +112,12 @@ func TestERKeyboard(t *testing.T) {
 	if orders.x != x+erStep {
 		t.Fatalf("→ moved the table from %v to %v", x, orders.x)
 	}
+	// ⇧F10 opens its menu, there being no pointer to right-click with.
+	tt.Key(ui.Shift, ui.KeyF10)
+	if !slices.Contains(tt.Menu(), "Open Structure") {
+		t.Fatalf("⇧F10 opened %q", tt.Menu())
+	}
+	tt.CloseMenu()
 	tt.Key(0, ui.KeyEnter)
 	testutil.WaitFor(t, tt, "the data", func() bool { return len(a.Tabs) == 2 })
 }
