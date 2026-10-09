@@ -127,21 +127,19 @@ WHERE database_name = current_database() AND schema_name = ? AND table_name = ? 
 
 func (duckdbDialect) ForeignKeys(ctx context.Context, q Querier, schema, table string) ([]ForeignKey, error) {
 	var out []ForeignKey
-	err := scanRows(ctx, q, `SELECT constraint_text, array_to_string(constraint_column_names, chr(31)) FROM duckdb_constraints()
-WHERE database_name = current_database() AND schema_name = ? AND table_name = ? AND constraint_type = 'FOREIGN KEY'`,
+	// Its constraint_text quotes no names, so the parts are read apart.
+	err := scanRows(ctx, q, `SELECT constraint_name, constraint_text, array_to_string(constraint_column_names, chr(31)), referenced_table,
+  array_to_string(referenced_column_names, chr(31))
+FROM duckdb_constraints()
+WHERE database_name = current_database() AND schema_name = ? AND table_name = ? AND constraint_type = 'FOREIGN KEY'
+ORDER BY constraint_index`,
 		[]any{schema, table}, func(scan func(...any) error) error {
-			var text, cols string
-			if err := scan(&text, &cols); err != nil {
+			fk := ForeignKey{RefSchema: schema} // DuckDB's keys point within their schema
+			var cols, refCols string
+			if err := scan(&fk.Name, &fk.Definition, &cols, &fk.RefTable, &refCols); err != nil {
 				return err
 			}
-			fk := ForeignKey{Definition: text, Columns: splitList(cols), RefSchema: schema}
-			fk.Name = "fk_" + strings.Join(fk.Columns, "_")
-			// FOREIGN KEY (a) REFERENCES other(b)
-			if _, after, ok := strings.Cut(text, "REFERENCES "); ok {
-				name, rest, _ := strings.Cut(after, "(")
-				fk.RefTable = strings.Trim(strings.TrimSpace(name), `"`)
-				fk.RefColumns = strings.Split(strings.TrimSuffix(strings.TrimSpace(rest), ")"), ", ")
-			}
+			fk.Columns, fk.RefColumns = splitList(cols), splitList(refCols)
 			out = append(out, fk)
 			return nil
 		})
@@ -163,18 +161,17 @@ func (duckdbDialect) DDL(ctx context.Context, q Querier, schema string, obj Obje
 
 func (duckdbDialect) ReferencedBy(ctx context.Context, q Querier, schema, table string) ([]Reference, error) {
 	var out []Reference
-	err := scanRows(ctx, q, `SELECT schema_name, table_name, array_to_string(constraint_column_names, chr(31)),
+	err := scanRows(ctx, q, `SELECT constraint_name, schema_name, table_name, array_to_string(constraint_column_names, chr(31)),
   array_to_string(referenced_column_names, chr(31))
 FROM duckdb_constraints()
 WHERE database_name = current_database() AND constraint_type = 'FOREIGN KEY' AND schema_name = ? AND referenced_table = ?
 ORDER BY table_name`, []any{schema, table}, func(scan func(...any) error) error {
 		var r Reference
 		var cols, refCols string
-		if err := scan(&r.Schema, &r.Table, &cols, &refCols); err != nil {
+		if err := scan(&r.Name, &r.Schema, &r.Table, &cols, &refCols); err != nil {
 			return err
 		}
 		r.Columns, r.RefColumns = splitList(cols), splitList(refCols)
-		r.Name = "fk_" + strings.Join(r.Columns, "_")
 		out = append(out, r)
 		return nil
 	})
