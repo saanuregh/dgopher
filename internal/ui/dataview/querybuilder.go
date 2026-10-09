@@ -518,7 +518,7 @@ func queryBuilderView(a Host, c *ui.Context) {
 			})
 			ui.Scroll(c).MaxHeight(180).Radius(6).Background(pal.EditorBg).Border(1, th.Border).Children(func() {
 				if err != nil {
-					ui.Text(c, widgets.Capitalize(err.Error())+".").FontSize(12.5).TextColor(pal.Muted).Padding(8, 10)
+					ui.Text(c, widgets.Sentence(err.Error())).FontSize(12.5).TextColor(pal.Muted).Padding(8, 10)
 					return
 				}
 				ui.Text(c, sql).Font(widgets.MonoFont).FontSize(12).Padding(8, 10).Selectable()

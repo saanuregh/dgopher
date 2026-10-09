@@ -88,12 +88,17 @@ func TextStart(text string, n int) string {
 	return strings.ToValidUTF8(text[:n], "") + "\n…"
 }
 
-// Capitalize starts a message with a capital, as an error's text put in
-// a sentence.
-func Capitalize(s string) string {
+// Sentence makes an error's text a sentence: a capital first, a stop
+// last, unless it ends in one.
+func Sentence(s string) string {
+	s = strings.TrimSpace(s)
 	if s == "" {
 		return s
 	}
 	r, n := utf8.DecodeRuneInString(s)
-	return string(unicode.ToUpper(r)) + s[n:]
+	s = string(unicode.ToUpper(r)) + s[n:]
+	if strings.ContainsAny(s[len(s)-1:], ".!?") {
+		return s
+	}
+	return s + "."
 }

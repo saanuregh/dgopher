@@ -311,7 +311,7 @@ func (t *Tab) runPanel(i int, asked bool) {
 				if errors.Is(err, context.Canceled) {
 					err = errors.New("stopped")
 				}
-				s.err, s.src = err.Error(), nil
+				s.err, s.src = widgets.Sentence(err.Error()), nil
 				return
 			}
 			s.src, s.applied = src, false
@@ -505,7 +505,7 @@ func (t *Tab) panelView(c *ui.Context, i int, height float32) {
 			case s.running || connecting:
 				ui.Spinner(c).Size(12, 12)
 			case s.src != nil:
-				ui.Text(c, fmt.Sprintf("%d rows · %s", len(s.src.Rows), s.took.Round(time.Millisecond))).FontSize(11.5).TextColor(pal.Muted).Tooltip("Read at " + s.at.Format(time.TimeOnly))
+				ui.Text(c, fmt.Sprintf("%d row%s · %s", len(s.src.Rows), widgets.Plural(len(s.src.Rows)), s.took.Round(time.Millisecond))).FontSize(11.5).TextColor(pal.Muted).Tooltip("Read at " + s.at.Format(time.TimeOnly))
 			}
 			if t.editing {
 				t.panelTools(c, i)

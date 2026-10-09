@@ -246,7 +246,7 @@ func (d *designer) View(c *ui.Context) {
 				c.After(200 * time.Millisecond)
 			case err != nil && d.changed():
 				ui.Icon(c, widgets.IconAlert).TextColor(th.Danger).FontSize(13)
-				ui.Text(c, widgets.Capitalize(err.Error())+".").TextColor(th.Danger).FontSize(12.5).Shrink(1)
+				ui.Text(c, widgets.Sentence(err.Error())).TextColor(th.Danger).FontSize(12.5).Shrink(1)
 			case len(ch.Steps) > 0 && d.save == nil:
 				ui.Text(c, fmt.Sprintf("%d statement%s to run", len(ch.Statements()), widgets.Plural(len(ch.Statements())))).
 					FontSize(12.5).TextColor(pal.Muted)

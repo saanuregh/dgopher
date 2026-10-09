@@ -298,7 +298,7 @@ func (r *Tab) bulkView(c *ui.Context) {
 					}).Description("A glob, as SCAN takes: * any characters, ? one, [abc] one of them.")
 				} else {
 					ui.Field(c, "File", func() {
-						ui.Row(c).Gap(6).Grow(1).Children(func() {
+						ui.Row(c).Gap(6).Children(func() {
 							ui.Text(c, b.path).Font(widgets.MonoFont).FontSize(12).SingleLine().Grow(1).Shrink(1)
 							if ui.Button(c, "Choose…").Disabled(b.running).Clicked() {
 								r.chooseImport(b)

@@ -229,7 +229,7 @@ func (a *App) backupView(c *ui.Context) {
 					label = "Folder"
 				}
 				ui.Field(c, label, func() {
-					ui.Row(c).Gap(6).Grow(1).Children(func() {
+					ui.Row(c).Gap(6).Children(func() {
 						ui.TextInput(c, &b.path).Font(widgets.MonoFont).FontSize(12.5).Grow(1).Label(label).Disabled(b.running).AutoFocus()
 						if ui.Button(c, "Choose…").Disabled(b.running).Clicked() {
 							a.choosePath(b)

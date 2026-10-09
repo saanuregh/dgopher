@@ -53,7 +53,7 @@ func (k *keysEditor) record(a *App, ev ui.InputEvent) bool {
 	}
 	ch := keymap.Chord{Mods: ev.Mods, Key: ev.Key}
 	if err := keymap.Allowed(k.recording, ch); err != nil {
-		k.err = widgets.Capitalize(err.Error()) + "."
+		k.err = widgets.Sentence(err.Error())
 		return true
 	}
 	if chords := keymap.Chords(k.recording); !slices.Contains(chords, ch) {
@@ -130,7 +130,7 @@ func (k *keysEditor) commandRow(a *App, c *ui.Context, cmd keymap.Command) {
 			k.err = ""
 			for _, ch := range cmd.Default {
 				if err := keymap.Allowed(cmd.ID, ch); err != nil {
-					k.err = widgets.Capitalize(err.Error()) + "."
+					k.err = widgets.Sentence(err.Error())
 				}
 			}
 			if k.err == "" {

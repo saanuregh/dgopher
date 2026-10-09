@@ -419,7 +419,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 	})
 	if engine.IsFile() {
 		ui.Field(c, "File", func() {
-			ui.Row(c).Gap(6).Grow(1).Children(func() {
+			ui.Row(c).Gap(6).Children(func() {
 				ui.TextInput(c, &f.cfg.Database).Placeholder("/path/to/database").Grow(1)
 				if ui.Button(c, "Choose…").Clicked() {
 					a.chooseFile(engine)
@@ -445,7 +445,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 			hostLabel, port, more = "A sentinel", db.SentinelPort, "More sentinels"
 		}
 		ui.Field(c, hostLabel, func() {
-			ui.Row(c).Gap(6).Grow(1).Children(func() {
+			ui.Row(c).Gap(6).Children(func() {
 				ui.TextInput(c, &f.cfg.Host).Placeholder("localhost").Grow(1).Label(hostLabel)
 				ui.TextInput(c, &f.port).Placeholder(strconv.Itoa(port)).Width(80).Label("Port")
 			})
@@ -597,7 +597,7 @@ func (a *App) networkPage(c *ui.Context, f *connForm) {
 		return
 	}
 	ui.Field(c, "SSH host", func() {
-		ui.Row(c).Gap(6).Grow(1).Children(func() {
+		ui.Row(c).Gap(6).Children(func() {
 			ui.TextInput(c, &f.cfg.SSH.Host).Placeholder("bastion.example.com").Grow(1)
 			ui.TextInput(c, &f.sshPort).Placeholder("22").Width(70).Label("SSH port")
 		})
@@ -1239,7 +1239,7 @@ func (a *App) proxyFields(c *ui.Context, f *connForm) {
 		return
 	}
 	ui.Field(c, "Proxy host", func() {
-		ui.Row(c).Gap(6).Grow(1).Children(func() {
+		ui.Row(c).Gap(6).Children(func() {
 			ui.TextInput(c, &f.cfg.Proxy.Host).Placeholder("proxy.example.com").Grow(1).Label("Proxy host")
 			ui.TextInput(c, &f.proxyPort).Placeholder("1080").Width(70).Label("Proxy port")
 		})

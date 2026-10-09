@@ -162,7 +162,7 @@ func (v *Viewer) builderView(c *ui.Context) {
 				ui.Segmented(c, &b.any, "All", "Any").Label("Rows meeting")
 			}
 			if err != nil {
-				ui.Text(c, widgets.Capitalize(err.Error())+".").FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, widgets.Sentence(err.Error())).FontSize(12).TextColor(pal.Muted)
 			}
 			ui.Spacer(c)
 			if ui.Button(c, "Cancel").Clicked() {
