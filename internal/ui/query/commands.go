@@ -1,8 +1,10 @@
 package query
 
 import (
+	"cmp"
 	"slices"
 
+	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
 	"dgopher/internal/ui/widgets"
@@ -28,9 +30,37 @@ func (q *Tab) Commands() []widgets.Command {
 		}
 		cmds = append(cmds, widgets.Command{Title: "Roll Back", Detail: "the open transaction", Key: keymap.Rollback, Icon: widgets.IconUndo, Run: func() { q.endOpenTx(false) }})
 	}
+	cmds = append(cmds, q.switchCommands()...)
 	cmds = append(cmds, q.resultCommands()...)
 	if r := q.current(); r != nil && r.view != nil {
 		cmds = append(cmds, r.view.Commands()...)
+	}
+	return cmds
+}
+
+// switchCommands move the editor to another database or schema, as its
+// switcher's menus do.
+func (q *Tab) switchCommands() []widgets.Command {
+	cn := q.Conn
+	if cn.Status != connection.StatusConnected || cn.DB == nil {
+		return nil
+	}
+	var cmds []widgets.Command
+	if cn.Config.Engine == db.Postgres && len(cn.Databases) > 1 {
+		current := cmp.Or(q.Database, cn.Config.Database)
+		for _, name := range cn.Databases {
+			if name != current {
+				cmds = append(cmds, widgets.Command{Title: "Use Database " + name, Detail: "in this editor", Icon: widgets.IconDatabase, Run: func() { q.switchDatabase(name) }})
+			}
+		}
+	}
+	if schemaStatement(cn.Config.Engine, cn.DB.Dialect, "") != "" {
+		current := q.currentSchema()
+		for _, name := range cn.Schemas[q.Database] {
+			if name != current {
+				cmds = append(cmds, widgets.Command{Title: "Use Schema " + name, Detail: "in this editor", Icon: widgets.IconSchema, Run: func() { q.switchSchema(name) }})
+			}
+		}
 	}
 	return cmds
 }

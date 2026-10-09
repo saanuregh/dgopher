@@ -711,3 +711,23 @@ func TestResultCommands(t *testing.T) {
 	run("Close Result")
 	testutil.WaitFor(t, tt, "one result", func() bool { return len(q.results) == 1 })
 }
+
+// The palette moves the editor to another schema, as its switcher does.
+func TestSwitchSchemaCommand(t *testing.T) {
+	a := newFakeQueryHost(t)
+	cn := a.AddConn(db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1000, 700)
+	q := newEditor(t, a, tt, cn, "")
+	testutil.WaitFor(t, tt, "the first schemas", func() bool { _, ok := cn.Schemas[""]; return ok })
+	if _, err := cn.DB.SQL.Exec(`CREATE SCHEMA s2`); err != nil {
+		t.Fatal(err)
+	}
+	connection.LoadSchemas(a, cn, "", nil)
+	testutil.WaitFor(t, tt, "the schemas", func() bool { return slices.Contains(cn.Schemas[""], "s2") })
+	i := slices.IndexFunc(q.Commands(), func(c widgets.Command) bool { return c.Title == "Use Schema s2" })
+	if i < 0 {
+		t.Fatal("no Use Schema s2")
+	}
+	q.Commands()[i].Run()
+	testutil.WaitFor(t, tt, "the switch", func() bool { return !q.Running && q.schema == "s2" })
+}

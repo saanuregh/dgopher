@@ -17,7 +17,8 @@
 - **Keyboard first:**
   - The palette (⌘K) has the app's commands and the current tab's, these
     first: running, explaining, formatting, committing or rolling back
-    in an editor, moving between its results, pinning or closing one;
+    in an editor, switching its database or schema, moving between its
+    results, pinning or closing one;
     refreshing, exporting, fetching, charting and applying rows. Each
     shows its key. Tables, functions and procedures open by
     name (⌘P).
