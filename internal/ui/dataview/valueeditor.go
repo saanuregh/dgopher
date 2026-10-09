@@ -45,6 +45,49 @@ type valueEditor struct {
 	date     dateLayout // how the value spells its date
 	truth    int        // the switch: 0 true, 1 false
 	jsonOpen map[string]*bool
+
+	// The tree's JSON, decoded once for treeText, its objects as jsonObject.
+	treeText string
+	treeRoot any
+	treeErr  error
+	treeOK   bool
+}
+
+// jsonObject is a decoded JSON object with its keys sorted.
+type jsonObject struct {
+	keys   []string
+	values map[string]any
+}
+
+// sortedJSON turns every object under v into a jsonObject.
+func sortedJSON(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		keys := make([]string, 0, len(x))
+		for k, item := range x {
+			keys = append(keys, k)
+			x[k] = sortedJSON(item)
+		}
+		slices.Sort(keys)
+		return jsonObject{keys: keys, values: x}
+	case []any:
+		for i, item := range x {
+			x[i] = sortedJSON(item)
+		}
+	}
+	return v
+}
+
+// decodedTree is e.text decoded, decoding only when the text changed.
+func (e *valueEditor) decodedTree() (any, error) {
+	if !e.treeOK || e.treeText != e.text {
+		dec := json.NewDecoder(bytes.NewReader([]byte(e.text)))
+		dec.UseNumber()
+		var root any
+		err := dec.Decode(&root)
+		e.treeText, e.treeRoot, e.treeErr, e.treeOK = e.text, sortedJSON(root), err, true
+	}
+	return e.treeRoot, e.treeErr
 }
 
 // columnInfo is what the editor needs to know of a column of the rows:
@@ -292,10 +335,8 @@ func (e *valueEditor) switchForm(form string) {
 func (e *valueEditor) treeView(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	dec := json.NewDecoder(bytes.NewReader([]byte(e.text)))
-	dec.UseNumber()
-	var root any
-	if err := dec.Decode(&root); err != nil {
+	root, err := e.decodedTree()
+	if err != nil {
 		ui.Text(c, "Not JSON: "+err.Error()).TextColor(th.Danger)
 		return
 	}
@@ -321,15 +362,10 @@ func (e *valueEditor) treeNode(c *ui.Context, key, path string, v any) {
 		return key + ": " + s
 	}
 	switch x := v.(type) {
-	case map[string]any:
-		keys := make([]string, 0, len(x))
-		for k := range x {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		ui.TreeItem(c.Key(path), label(fmt.Sprintf("{%d}", len(x))), open(), func() {
-			for _, k := range keys {
-				e.treeNode(c, k, path+"."+k, x[k])
+	case jsonObject:
+		ui.TreeItem(c.Key(path), label(fmt.Sprintf("{%d}", len(x.keys))), open(), func() {
+			for _, k := range x.keys {
+				e.treeNode(c, k, path+"."+k, x.values[k])
 			}
 		})
 	case []any:

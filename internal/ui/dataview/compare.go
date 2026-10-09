@@ -181,6 +181,9 @@ type CompareTab struct {
 	cols  []string
 	diffs []rowDiff
 	lines []compareLine
+	// maskedCol is whether A or B hid the values of cols[i].
+	maskedCol                   []bool
+	same, changed, onlyA, onlyB int
 }
 
 // compareLine is a line of the comparison's table: a row of A or of B,
@@ -227,6 +230,11 @@ func (t *CompareTab) compare() {
 		key = []string{t.matchBy}
 	}
 	t.cols, t.diffs = compareRows(t.a, t.b, key)
+	t.maskedCol = make([]bool, len(t.cols))
+	for i, col := range t.cols {
+		t.maskedCol[i] = slices.Contains(t.a.masked, col) || slices.Contains(t.b.masked, col)
+	}
+	t.same, t.changed, t.onlyA, t.onlyB = t.counts()
 	t.lay()
 }
 
@@ -275,7 +283,7 @@ func (t *CompareTab) Close()                       {}
 func (t *CompareTab) View(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	same, changed, onlyA, onlyB := t.counts()
+	same, changed, onlyA, onlyB := t.same, t.changed, t.onlyA, t.onlyB
 	ui.Column(c).Grow(1).Children(func() {
 		ui.Row(c).Padding(8, 12).Gap(12).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Text(c, "A: "+t.a.title+"   B: "+t.b.title).Bold().SingleLine().Shrink(1)
@@ -322,7 +330,7 @@ func (t *CompareTab) View(c *ui.Context) {
 			case d.diff != nil && d.diff[i]:
 				box.Background(pal.Modified)
 			}
-			masked := slices.Contains(t.a.masked, t.cols[i]) || slices.Contains(t.b.masked, t.cols[i])
+			masked := t.maskedCol[i]
 			box.Children(func() {
 				switch v := values[i]; {
 				case v == missing:

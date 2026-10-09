@@ -84,3 +84,23 @@ func TestValueEditorForms(t *testing.T) {
 	e.open = false
 	tt.Frame()
 }
+
+func TestValueEditorTreeRefreshesWhenTextChanges(t *testing.T) {
+	e := &valueEditor{text: `{"b":1,"a":2}`}
+	root, err := e.decodedTree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := root.(jsonObject).keys; !slices.Equal(got, []string{"a", "b"}) {
+		t.Fatalf("keys = %v", got)
+	}
+	e.text = `{"c":3}`
+	root, _ = e.decodedTree()
+	if got := root.(jsonObject).keys; !slices.Equal(got, []string{"c"}) {
+		t.Fatalf("after the text changed, keys = %v", got)
+	}
+	e.text = `{`
+	if _, err := e.decodedTree(); err == nil {
+		t.Fatal("broken JSON decoded")
+	}
+}

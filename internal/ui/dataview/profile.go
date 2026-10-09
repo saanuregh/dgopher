@@ -21,6 +21,7 @@ const profileBins = 24
 // columnProfile is what a column's values are like.
 type columnProfile struct {
 	name, typ string
+	col       int   // in the source's columns, -1 when it has none of the name
 	count     int64 // values, NULL included
 	nulls     int64
 	distinct  int64 // -1 when not known; approximate from the server
@@ -246,7 +247,7 @@ func (g *Grid) profilePanel(c *ui.Context, a Host, src *Source) {
 	key := fmt.Sprint(g.gen, "/", len(src.Rows), "/", len(src.Cols))
 	if g.profileKey != key {
 		g.profileKey, g.profileServer, g.profileErr = key, nil, ""
-		g.profiles = profileRows(src, format)
+		g.profiles = withColumnIndexes(profileRows(src, format), src.Cols)
 	}
 	profiles := g.profiles
 	ui.Column(c).Grow(1).Children(func() {
@@ -261,7 +262,7 @@ func (g *Grid) profilePanel(c *ui.Context, a Host, src *Source) {
 				g.profiling = true
 				g.profileOnServer(func(ps []columnProfile, err error) {
 					g.profiling = false
-					g.profileServer, g.profileErr = ps, ""
+					g.profileServer, g.profileErr = withColumnIndexes(ps, src.Cols), ""
 					if err != nil {
 						g.profileErr = err.Error()
 					}
@@ -284,13 +285,21 @@ func (g *Grid) profilePanel(c *ui.Context, a Host, src *Source) {
 	})
 }
 
+// withColumnIndexes records where each profile's column is among cols.
+func withColumnIndexes(ps []columnProfile, cols []db.ColumnInfo) []columnProfile {
+	for i := range ps {
+		ps[i].col = slices.IndexFunc(cols, func(c db.ColumnInfo) bool { return c.Name == ps[i].name })
+	}
+	return ps
+}
+
 // profileRow shows a column's profile: its name and type, its histogram
 // or most frequent values, and its figures.
 func (g *Grid) profileRow(c *ui.Context, src *Source, i int, p columnProfile) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	row := ui.ButtonBase(c.Key("profile-"+strconv.Itoa(i))).Padding(6, 8).Radius(6).Label("Column " + p.name)
-	if col := slices.IndexFunc(src.Cols, func(c db.ColumnInfo) bool { return c.Name == p.name }); col == g.selCol {
+	if p.col == g.selCol {
 		row.Background(th.Accent.Alpha(0.12))
 	} else if row.Hovered() {
 		row.Background(pal.Hover)
@@ -305,7 +314,7 @@ func (g *Grid) profileRow(c *ui.Context, src *Source, i int, p columnProfile) {
 					ui.Text(c, fmt.Sprintf("%.0f%% NULL", float64(p.nulls)/float64(p.count)*100)).FontSize(11).TextColor(pal.Muted)
 				}
 			})
-			masked := g.isMasked(slices.IndexFunc(src.Cols, func(c db.ColumnInfo) bool { return c.Name == p.name }))
+			masked := g.isMasked(p.col)
 			if masked {
 				// Its figures and frequent values would show what it hides.
 				p.min, p.max, p.avg, p.median, p.top = "", "", "", "", nil
@@ -336,8 +345,8 @@ func (g *Grid) profileRow(c *ui.Context, src *Source, i int, p columnProfile) {
 		})
 	})
 	if row.Clicked() {
-		if col := slices.IndexFunc(src.Cols, func(c db.ColumnInfo) bool { return c.Name == p.name }); col >= 0 {
-			g.selCol = col
+		if p.col >= 0 {
+			g.selCol = p.col
 		}
 	}
 }
