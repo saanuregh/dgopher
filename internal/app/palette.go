@@ -110,7 +110,7 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 					group = "Procedure"
 				}
 				tables = append(tables, paletteItem{title: it.Label(), detail: cn.Config.Name + " · " + it.Schema, group: group, icon: itemIcon(it.Kind),
-					run: func() { a.openItemDefinition(cn, key.Database, it) }})
+					run: func() { dataview.OpenItemDefinition(a, cn, key.Database, it) }})
 			}
 		}
 	}

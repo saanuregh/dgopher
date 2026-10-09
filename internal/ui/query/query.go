@@ -933,6 +933,16 @@ func (q *Tab) View(c *ui.Context) {
 	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyO) {
 		q.openOutline()
 	}
+	if q.Editor.HasFocus {
+		switch {
+		case c.Shortcut(0, ui.KeyF12), c.Shortcut(ui.Cmd, ui.KeyB):
+			q.goToDefinition()
+		case c.Shortcut(ui.Shift, ui.KeyF12):
+			q.findUsages()
+		case c.Shortcut(0, ui.KeyF2):
+			q.askRename()
+		}
+	}
 	if c.Shortcut(ui.Cmd, ui.KeyE) {
 		q.Run(RunExplain)
 	}
@@ -1636,6 +1646,15 @@ func (q *Tab) editorMenu(m *ui.Menu) {
 	}
 	if m.Item("Go to Statement…").Shortcut(ui.Cmd|ui.Shift, ui.KeyO).Chosen() {
 		q.openOutline()
+	}
+	if m.Item("Go to Definition").Shortcut(0, ui.KeyF12).Chosen() {
+		q.goToDefinition()
+	}
+	if m.Item("Find Usages").Shortcut(ui.Shift, ui.KeyF12).Chosen() {
+		q.findUsages()
+	}
+	if m.Item("Rename in File…").Shortcut(0, ui.KeyF2).Chosen() {
+		q.askRename()
 	}
 	m.Separator()
 	m.Submenu("Format", func(m *ui.Menu) {

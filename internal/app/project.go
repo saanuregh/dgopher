@@ -269,12 +269,16 @@ func (a *App) ScanQueries(p *project.Project, now bool) {
 }
 
 // openQueryFile opens a .sql file of a project in an editor of the
-// connection its header names, or of the active one of the project.
-func (a *App) openQueryFile(p *project.Project, rel string) {
+// connection its header names, or of the active one of the project; then,
+// when set, goes on with the editor.
+func (a *App) openQueryFile(p *project.Project, rel string, then func(*query.Tab)) {
 	path := filepath.Join(p.Queries, filepath.FromSlash(rel))
 	for i, t := range a.tabs {
 		if q, ok := t.(*query.Tab); ok && q.Path == path {
 			a.active = i
+			if then != nil {
+				then(q)
+			}
 			return
 		}
 	}
@@ -284,13 +288,19 @@ func (a *App) openQueryFile(p *project.Project, rel string) {
 		return
 	}
 	text := string(data)
+	open := func(cn *connection.Conn) {
+		q := a.openFileTab(cn, "", path, text)
+		if then != nil {
+			then(q)
+		}
+	}
 	cn := a.activeConn()
 	if cn != nil && cn.Project != p {
 		cn = nil
 	}
 	id := project.HeaderConnection(text)
 	if named := a.connByID(p.Prefix + id); id != "" && named != nil && named.Config.Engine.IsSQL() {
-		a.Connect(named, func() { a.openFileTab(named, "", path, text) })
+		a.Connect(named, func() { open(named) })
 		return
 	}
 	if cn != nil && !cn.Config.Engine.IsSQL() {
@@ -307,7 +317,7 @@ func (a *App) openQueryFile(p *project.Project, rel string) {
 			a.ShowError("No connection "+id, rel+" names the connection "+id+", which "+project.File+" of "+p.Name+" does not have. Add a connection to "+p.Name+" to open it.")
 			return
 		}
-		a.openFileTab(cn, "", path, text)
+		open(cn)
 		return
 	}
 	if cn == nil {
@@ -316,7 +326,18 @@ func (a *App) openQueryFile(p *project.Project, rel string) {
 		a.ShowError("Which connection?", "Add a line such as\n\n-- connection: "+a.firstProjectSlug(p)+"\n\nat the top of "+rel+", or choose a connection of "+p.Name+" in the sidebar first.")
 		return
 	}
-	a.Connect(cn, func() { a.openFileTab(cn, "", path, text) })
+	a.Connect(cn, func() { open(cn) })
+}
+
+// OpenQueryFile opens a query file of a project at a rune offset.
+func (a *App) OpenQueryFile(path string, at int) {
+	for _, p := range a.projects {
+		if rel, err := filepath.Rel(p.Queries, path); err == nil && !strings.HasPrefix(rel, "..") {
+			a.openQueryFile(p, filepath.ToSlash(rel), func(q *query.Tab) { q.GoTo(at) })
+			return
+		}
+	}
+	a.ShowError("Could not open "+filepath.Base(path), "It is in no project's queries folder.")
 }
 
 // firstSQLConn is the first connection of a project an editor can use,

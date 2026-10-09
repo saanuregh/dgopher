@@ -293,28 +293,7 @@ func (a *App) openItem(cn *connection.Conn, database string, it db.Item) {
 		a.OpenTable(cn, database, db.Object{Schema: it.Schema, Name: it.Name, Kind: db.KindTable, Rows: -1}, dataview.PageData)
 		return
 	}
-	a.openItemDefinition(cn, database, it)
-}
-
-// openItemDefinition opens an item's definition in an editor.
-func (a *App) openItemDefinition(cn *connection.Conn, database string, it db.Item) {
-	poolOf := cn.PoolFor(database) // read on the main thread
-	a.Background(func() func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		d, err := poolOf(ctx)
-		var def string
-		if err == nil {
-			def, err = d.Dialect.ItemDDL(ctx, d.SQL, it)
-		}
-		return func() {
-			if err != nil {
-				a.ShowError("Could not read the definition of "+it.Name, err.Error())
-				return
-			}
-			a.NewQueryTab(cn, database, strings.TrimRight(def, "\n")+"\n")
-		}
-	})
+	dataview.OpenItemDefinition(a, cn, database, it)
 }
 
 func (a *App) schemaNodes(cn *connection.Conn, database string, open bool) []navNode {
@@ -417,7 +396,7 @@ func (a *App) activate(n navNode) {
 		return
 	case nodeQueryFile:
 		if p := a.projectByDir(n.projectDir); p != nil {
-			a.openQueryFile(p, n.name)
+			a.openQueryFile(p, n.name, nil)
 		}
 		return
 	}
@@ -703,7 +682,7 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			}
 		}
 		if m.Item("Open Definition").Chosen() {
-			a.openItemDefinition(cn, n.database, it)
+			dataview.OpenItemDefinition(a, cn, n.database, it)
 		}
 		if m.Item("Copy Name").Chosen() {
 			a.WriteClipboard(db.QualifiedName(cn.DB.Dialect, it.Schema, it.Name))

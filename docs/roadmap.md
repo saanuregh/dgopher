@@ -30,8 +30,6 @@ Next or Later are not repeated.
     once, and folding of code blocks.
   - Two editors side by side, and more than one window.
   - Mark errors while typing, with suggested fixes.
-  - Rename an object everywhere it is used, jump to where an object is
-    defined, and list every place it is used.
   - Build a query by choosing tables and columns instead of typing SQL.
   - Show the catalog queries the app runs by itself. The audit log
     already records statements, grid edits, imports and commands.

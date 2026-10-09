@@ -21,4 +21,7 @@ type Host interface {
 	// project with that ID, once the user agrees to what closing the
 	// editor loses.
 	SwitchConnection(q *Tab, id string)
+	// OpenQueryFile opens a query file of a project with the caret at a
+	// rune offset.
+	OpenQueryFile(path string, at int)
 }

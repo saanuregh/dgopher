@@ -90,4 +90,10 @@ func DialogsView(a Host, c *ui.Context) {
 	if a.QueryDialogs().outline != nil {
 		outlineView(a, c)
 	}
+	if a.QueryDialogs().usages != nil {
+		usagesView(a, c)
+	}
+	if a.QueryDialogs().rename != nil {
+		renameView(a, c)
+	}
 }

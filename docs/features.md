@@ -143,6 +143,12 @@
 
 - **SQL editor**, run as DBeaver runs it:
   - Syntax highlighting per dialect, and line numbers.
+  - Go to Definition (F12 or ⌘B) opens what the name at the caret names:
+    a table's or a view's structure, through an alias or a column of it
+    too, or a routine's definition. Find Usages (⇧F12) lists where the
+    name is used in the file and the project's other query files; Rename
+    in File (F2) renames it everywhere in the file, quoting it where it
+    needs quotes, while the navigator's Rename renames it in the database.
   - Go to Statement (⌘⇧O) lists the file's statements, by line, with the
     comment above each, filtered as you type; Enter goes to one.
   - The editor's toolbar shows the schema it finds names in, and on

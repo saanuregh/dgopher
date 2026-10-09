@@ -634,13 +634,21 @@ func TestProjectFolder(t *testing.T) {
 	a.ScanQueries(p, true)
 	testutil.WaitFor(t, tt, "query files", func() bool { return len(p.Files) == 1 })
 	a.connByID(p.Prefix + "billing-prod").Status = connection.StatusConnected // no server: the editor needs none to open
-	a.openQueryFile(p, "reports/top.sql")
+	a.openQueryFile(p, "reports/top.sql", nil)
 	tt.Frame()
 	q, ok := a.ActiveTab().(*query.Tab)
 	if !ok || q.Conn.Config.Name != "Billing (prod)" || q.Path == "" {
 		t.Fatalf("opened %+v", a.ActiveTab())
 	}
 	testutil.Snapshot(t, tt, "project")
+	// A usage in it opens it at its place, the tab open or not.
+	path := filepath.Join(dir, "queries", "reports", "top.sql")
+	a.OpenQueryFile(path, 30)
+	tt.Frame()
+	tt.Frame()
+	if q.Editor.SelEnd != 30 || a.ActiveTab() != q {
+		t.Fatalf("caret %d, tab %v", q.Editor.SelEnd, a.ActiveTab())
+	}
 	// Listed again, the project gives back its connections.
 	a2 := newBareApp(t)
 	if _, err := a2.addProject(dir); err != nil || len(a2.conns) != 2 {
@@ -995,7 +1003,7 @@ func TestQueryFileHeaderMustNameAConnection(t *testing.T) {
 	a.nav.row = -1
 	os.MkdirAll(p.Queries, 0o755)
 	os.WriteFile(p.Queries+"/q.sql", []byte("-- connection: staging\nDELETE FROM t;"), 0o644)
-	a.openQueryFile(p, "q.sql")
+	a.openQueryFile(p, "q.sql", nil)
 	tt := ui.NewTester(a.view, 1000, 700)
 	tt.Frame()
 	q, ok := a.ActiveTab().(*query.Tab)

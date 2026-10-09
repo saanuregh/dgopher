@@ -4,4 +4,6 @@ package query
 type Dialogs struct {
 	params  *paramForm
 	outline *outlineDialog
+	usages  *usagesDialog
+	rename  *renameForm
 }

@@ -1,6 +1,7 @@
 package query
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -21,6 +22,8 @@ type fakeQueryHost struct {
 	saves   int
 	// switched are the connections editors were asked to switch to.
 	switched []string
+	// opened are the query files asked for, as path@offset.
+	opened []string
 	// afterRun, when set, runs after each statement recorded, on the
 	// goroutine that ran it.
 	afterRun func(kind string)
@@ -46,6 +49,10 @@ func (h *fakeQueryHost) SaveSQLFile(*Tab, bool) { h.saves++ }
 func (h *fakeQueryHost) ScanQueries(*project.Project, bool) {}
 
 func (h *fakeQueryHost) SwitchConnection(q *Tab, id string) { h.switched = append(h.switched, id) }
+
+func (h *fakeQueryHost) OpenQueryFile(path string, at int) {
+	h.opened = append(h.opened, fmt.Sprint(path, "@", at))
+}
 
 // view draws the window, and the query tab's dialogs over it.
 func (h *fakeQueryHost) view(c *ui.Context) {
