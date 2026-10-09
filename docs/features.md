@@ -379,7 +379,18 @@
   through the target's safety policy, each statement changing exactly one
   row, audited with the hidden values masked. Changes without hidden
   values also open as SQL, to read or edit first.
-- **Back up and restore** a database, from its menu or its connection's:
+- **Generate test data** for a table: its Generate Test Data… adds up to
+  a million rows, each column's values made as its type and name
+  suggest, which a column's own settings change: names, e-mails, phone
+  numbers, cities, companies, addresses, URLs, words and paragraphs;
+  numbers, decimals, dates and times in a range; booleans, UUIDs, JSON; a
+  choice of values, an enum's by default; an existing value of the table
+  a foreign key refers to; or the column's default, as for auto-increment
+  keys. Keys continue from the highest; unique text differs from earlier
+  fills' too; text fits its column; a nullable column can take a share of
+  NULLs. A sample shows first. The rows are added in one transaction
+  where the engine has them, through the safety policy, audited.
+ from its menu or its connection's:
   PostgreSQL with `pg_dump`, as an archive or SQL, schema, data or both;
   MySQL with `mysqldump`, in one transaction with its routines, triggers
   and events; SQLite as a copy (`VACUUM INTO`) while it stays in use;

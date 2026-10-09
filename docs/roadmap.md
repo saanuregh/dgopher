@@ -39,7 +39,6 @@ Next or Later are not repeated.
 - **Import, export and backup:**
 - **Compare and migrate:**
 - **Test data and automation:**
-  - Fill tables with generated test data.
 - **Admin and monitoring:**
 - **Redis:**
   - Publish and subscribe to channels.

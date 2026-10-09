@@ -356,21 +356,21 @@ func (a *App) runImport(x *importState) {
 			}
 			a.toast = &pendingToast{text: fmt.Sprintf("Imported %d rows into %s", n, target.Table)}
 			a.Notify(started, "Import finished", fmt.Sprintf("%d rows into %s", n, target.Table), nil)
-			for _, t := range a.tabs {
-				if tt, ok := t.(*dataview.TableTab); ok && tt.Conn == cn && tt.Object.Name == target.Table && tt.Object.Schema == x.schema {
-					tt.RequestReload()
-				}
-			}
+			a.reloadTableTabs(cn, x.schema, target.Table)
 		})
 	}()
 }
 
-// importRows writes the file's rows into target, in multi-row INSERTs on
-// a session of its own, after creating the table when create is set. In
-// one transaction where the database has them: a failing row leaves
-// nothing, the table created included. Where creating a table commits, on
-// MySQL, or nothing is transactional, on ClickHouse, a failure drops the
-// table it created; on ClickHouse rows written into a table there stay.
+// reloadTableTabs reads again the rows of a table's open tabs, after
+// rows were written into it.
+func (a *App) reloadTableTabs(cn *connection.Conn, schema, table string) {
+	for _, t := range a.tabs {
+		if tt, ok := t.(*dataview.TableTab); ok && tt.Conn == cn && tt.Object.Name == table && tt.Object.Schema == schema {
+			tt.RequestReload()
+		}
+	}
+}
+
 // rowSource hands a write its rows, as the INSERT takes them, at most n
 // at a time, until it returns.
 type rowSource func(ctx context.Context, n int, emit func(rows [][]any) error) error
@@ -388,8 +388,12 @@ type rowWrite struct {
 	progress func(int64)
 }
 
-// writeRows writes rows into a table of a database, in one transaction
-// where the engine has them: all or none.
+// writeRows writes rows into a table of a database, in multi-row INSERTs
+// on a session of its own, after creating the table when create is set.
+// In one transaction where the database has them: a failing row leaves
+// nothing, the table created included. Where creating a table commits, on
+// MySQL, or nothing is transactional, on ClickHouse, a failure drops the
+// table it created; on ClickHouse rows written into a table there stay.
 func writeRows(ctx context.Context, a *App, pool *db.DB, cfg db.Config, database string, w rowWrite) (int64, error) {
 	if pool == nil {
 		return 0, errors.New("not connected")

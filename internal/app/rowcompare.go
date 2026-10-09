@@ -233,6 +233,7 @@ func (a *App) runSync(x *rowCompareDialog, stmts, shown []db.Statement) {
 	x.running, x.cancel, x.err = true, cancel, ""
 	x.progress = fmt.Sprintf("Applying %s change%s…", widgets.HumanCount(int64(len(stmts))), widgets.Plural(len(stmts)))
 	pool, cfg, database := x.to.PoolFor(x.toDB), x.to.Config, x.toDB
+	to, toSchema, toTable := x.to, x.toSchema, x.toTable
 	detail := fmt.Sprintf("%d changes making %s's rows as %s's of %s ", len(stmts), x.toTable, x.fromTable, x.from.Config.Name)
 	started := time.Now()
 	a.Background(func() func() {
@@ -268,6 +269,7 @@ func (a *App) runSync(x *rowCompareDialog, stmts, shown []db.Statement) {
 			}
 			done := fmt.Sprintf("Applied %s change%s to %s.", widgets.HumanCount(int64(len(stmts))), widgets.Plural(len(stmts)), x.toTable)
 			a.Notify(started, "Rows synced", done, nil)
+			a.reloadTableTabs(to, toSchema, toTable)
 			if a.rowCompare != x {
 				return // closed meanwhile
 			}

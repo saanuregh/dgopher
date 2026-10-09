@@ -2050,3 +2050,142 @@ func TestCompareRows(t *testing.T) {
 		t.Fatalf("the sync's SQL: %v", a.ActiveTab())
 	}
 }
+
+// fillTable fills a table with generated rows, as the dialog suggests
+// them after set changes them, and waits for the fill to end.
+func fillTable(t *testing.T, a *App, tt *ui.Tester, cn *connection.Conn, schema, table, rows string, set func(x *fillDialog)) *fillDialog {
+	t.Helper()
+	a.openFill(cn, "", db.Object{Schema: schema, Name: table, Kind: db.KindTable})
+	x := a.filling
+	testutil.WaitFor(t, tt, "the columns", func() bool { return !x.loading })
+	if x.err != "" {
+		t.Fatalf("%s: %s", table, x.err)
+	}
+	x.count = rows
+	if set != nil {
+		set(x)
+	}
+	tt.Frame()
+	a.startFill(x)
+	if a.confirm != nil {
+		a.confirm.OnConfirm()
+		a.confirm = nil
+	}
+	testutil.WaitFor(t, tt, "the fill", func() bool { return !x.running })
+	return x
+}
+
+func queryInt(t *testing.T, d *db.DB, q string) int {
+	t.Helper()
+	var n int
+	if err := d.SQL.QueryRow(q).Scan(&n); err != nil {
+		t.Fatal(q, err)
+	}
+	return n
+}
+
+// Generated rows fill tables: unique keys and e-mails, values in their
+// ranges, foreign keys taking the values of the table they refer to.
+func TestFillTables(t *testing.T) {
+	a := newTestApp(t)
+	file := filepath.Join(t.TempDir(), "x.sqlite")
+	os.WriteFile(file, nil, 0o600)
+	lite := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
+	tt := ui.NewTester(a.view, 1200, 800)
+	a.Connect(lite, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return lite.Status == connection.StatusConnected })
+	for _, q := range []string{
+		`PRAGMA foreign_keys = ON`,
+		`CREATE TABLE customers (id INTEGER PRIMARY KEY, email TEXT NOT NULL UNIQUE, name VARCHAR(12), age INTEGER, born DATE, active BOOLEAN, note TEXT)`,
+		`CREATE TABLE orders (code TEXT PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customers (id), total NUMERIC(6,2))`,
+	} {
+		if _, err := lite.DB.SQL.Exec(q); err != nil {
+			t.Fatal(q, err)
+		}
+	}
+	x := fillTable(t, a, tt, lite, "main", "orders", "5", nil)
+	if !strings.Contains(x.err, "no rows to refer to") {
+		t.Fatalf("orders without customers: %q", x.err)
+	}
+	a.filling = nil
+	x = fillTable(t, a, tt, lite, "main", "customers", "300", func(x *fillDialog) {
+		testutil.Snapshot(t, tt, "fill-table")
+		for i := range x.cols {
+			if x.cols[i].col.Name == "note" {
+				x.cols[i].nulls = "100"
+			}
+		}
+	})
+	if x.err != "" {
+		t.Fatal(x.err)
+	}
+	d := lite.DB
+	if n := queryInt(t, d, `SELECT count(DISTINCT email) FROM customers`); n != 300 {
+		t.Fatalf("%d distinct e-mails of 300", n)
+	}
+	if n := queryInt(t, d, `SELECT count(*) FROM customers WHERE age NOT BETWEEN 18 AND 90 OR length(name) > 12 OR note IS NOT NULL OR active NOT IN (0, 1) OR born NOT LIKE '____-__-__'`); n != 0 {
+		t.Fatalf("%d customers out of their ranges", n)
+	}
+	x = fillTable(t, a, tt, lite, "main", "orders", "1000", nil)
+	if x.err != "" {
+		t.Fatal(x.err)
+	}
+	if n := queryInt(t, d, `SELECT count(*) FROM orders o JOIN customers c ON c.id = o.customer_id WHERE o.total BETWEEN 0 AND 9999.99`); n != 1000 {
+		t.Fatalf("%d of 1000 orders refer to a customer, their totals in range", n)
+	}
+	// A second fill's unique values differ from the first's.
+	if x = fillTable(t, a, tt, lite, "main", "customers", "300", nil); x.err != "" {
+		t.Fatal(x.err)
+	}
+	if n := queryInt(t, d, `SELECT count(DISTINCT email) FROM customers`); n != 600 {
+		t.Fatalf("%d distinct e-mails of 600", n)
+	}
+	// A type no generator writes, which the column must have, stops the
+	// fill before it starts.
+	if _, err := d.SQL.Exec(`CREATE TABLE spans (id INTEGER PRIMARY KEY, span INET NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	if x = fillTable(t, a, tt, lite, "main", "spans", "5", nil); !strings.Contains(x.err, "span: it has no default") {
+		t.Fatalf("a column left out that must have a value: %q", x.err)
+	}
+}
+
+// Generated rows fill PostgreSQL's and MySQL's types: enums, UUIDs, JSON,
+// times with their zone, booleans, decimals; keys continue from the
+// highest.
+func TestFillTablesOnServers(t *testing.T) {
+	testutil.Integration(t)
+	a := newTestApp(t)
+	pg := addConn(a, testutil.PGConfig())
+	my := addConn(a, db.Config{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop", Env: db.Development})
+	tt := ui.NewTester(a.view, 1200, 800)
+	for _, cn := range []*connection.Conn{pg, my} {
+		a.Connect(cn, nil)
+		testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	}
+	setup := map[*connection.Conn][]string{
+		pg: {`DROP TABLE IF EXISTS public.it_fill`, `DROP TYPE IF EXISTS it_mood`, `CREATE TYPE it_mood AS ENUM ('calm', 'busy')`,
+			`CREATE TABLE public.it_fill (id int PRIMARY KEY, ref uuid NOT NULL, mood it_mood, doc jsonb, at timestamptz, ok boolean, price numeric(8,3), day date, tm time)`,
+			`INSERT INTO public.it_fill (id, ref) VALUES (41, gen_random_uuid())`},
+		my: {`DROP TABLE IF EXISTS shop.it_fill`,
+			"CREATE TABLE shop.it_fill (id int PRIMARY KEY, mood enum('calm','busy'), doc json, at datetime, ok tinyint(1), price decimal(8,3), day date, tm time, title varchar(10))",
+			`INSERT INTO shop.it_fill (id) VALUES (41)`},
+	}
+	for _, cn := range []*connection.Conn{pg, my} {
+		for _, q := range setup[cn] {
+			if _, err := cn.DB.SQL.Exec(q); err != nil {
+				t.Fatal(q, err)
+			}
+		}
+		schema := map[*connection.Conn]string{pg: "public", my: "shop"}[cn]
+		if x := fillTable(t, a, tt, cn, schema, "it_fill", "200", nil); x.err != "" {
+			t.Fatalf("%s: %s", cn.Config.Engine, x.err)
+		}
+		if n := queryInt(t, cn.DB, `SELECT count(*) FROM `+schema+`.it_fill WHERE id > 41 AND id <= 241 AND mood IS NOT NULL AND doc IS NOT NULL AND ok IS NOT NULL`); n != 200 {
+			t.Fatalf("%s: %d of 200 rows generated in full after the key 41", cn.Config.Engine, n)
+		}
+	}
+	pg.DB.SQL.Exec(`DROP TABLE IF EXISTS public.it_fill`)
+	pg.DB.SQL.Exec(`DROP TYPE IF EXISTS it_mood`)
+	my.DB.SQL.Exec(`DROP TABLE IF EXISTS shop.it_fill`)
+}

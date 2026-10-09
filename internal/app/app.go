@@ -77,6 +77,7 @@ type App struct {
 	backup         *backupDialog
 	copying        *copyDialog
 	rowCompare     *rowCompareDialog
+	filling        *fillDialog
 	// side is the tab shown beside the active one, nil for none; it shows
 	// left of it when sideLeft is set, and the left pane is splitW wide.
 	side        widgets.Tab

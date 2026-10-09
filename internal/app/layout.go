@@ -102,6 +102,9 @@ func (a *App) view(c *ui.Context) {
 	if a.rowCompare != nil {
 		a.rowCompareView(c)
 	}
+	if a.filling != nil {
+		a.fillView(c)
+	}
 	query.DialogsView(a, c)
 	dataview.DialogsView(a, c)
 	a.checkIdleTransactions(c)

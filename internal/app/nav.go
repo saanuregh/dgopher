@@ -651,6 +651,9 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			if m.Item("Import Data…").Disabled(cn.Config.ReadOnly).Chosen() {
 				a.openImport(cn, n.database, obj.Schema, &obj)
 			}
+			if m.Item("Generate Test Data…").Disabled(cn.Config.ReadOnly).Chosen() {
+				a.openFill(cn, n.database, obj)
+			}
 			if obj.Partitioning != "" && m.Item("New Partition…").Disabled(cn.Config.ReadOnly).Chosen() {
 				a.NewQueryTab(cn, n.database, partitionTemplate(cn.DB.Dialect, obj))
 			}
