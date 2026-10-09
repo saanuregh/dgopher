@@ -23,10 +23,12 @@ type Editor struct {
 	// The highlighting of hlText.
 	hlText   string
 	hlRanges []ui.TextRange
-	// The line numbers of a text of gutterLines lines.
-	gutterLines int
-	gutter      string
-	longest     int // runes of the longest line
+	// The text has gutterLines lines; gutter numbers gutterFor lines, and
+	// foldedGutter the lines that show folded.
+	gutterLines, gutterFor int
+	gutter, foldedGutter   string
+	longest                int // runes of the longest line of longestOf
+	longestOf              string
 
 	// The selection as the last frame read it, in runes.
 	SelStart, SelEnd int
@@ -77,12 +79,24 @@ type Editor struct {
 	vimSel [2]int
 	// folds are the blocks folded, in the text; while there are any, the
 	// text area shows shown, built from foldedText with builtFolds as
-	// builtShown: another text is the app's change, another shown the
-	// user's typing. blocks are the blocks of blocksOf that fold.
-	folds, builtFolds             folding
-	foldedText, shown, builtShown string
-	blocks                        []block
-	blocksOf                      string
+	// builtShown, from shownOf: another text is the app's change, another
+	// shown the user's typing. blocks are the blocks of blocksOf that fold.
+	folds, builtFolds                      folding
+	foldedText, shown, builtShown, shownOf string
+	blocks                                 []block
+	blocksOf                               string
+	// The line starts of the text and of shown.
+	textLineCache, shownLineCache lineCache
+	// The gutter's fold markers, and the blocks by their lines, of
+	// markersOf folded as markersFolds.
+	markers      string
+	markersAt    map[int]block
+	markersOf    string
+	markersFolds folding
+	// The colored runs foldRanges made of rangesIn, folded as rangesFolds.
+	rangesIn, rangesOut []ui.TextRange
+	rangesFolds         folding
+	rangesMuted         ui.Color
 	// vimEscape is an Esc that ends typing, taken in the frame after.
 	vimEscape bool
 	// viewW and viewH are the size the editor showed in, for Vim to keep
@@ -133,13 +147,13 @@ func lineCol(text string, at int) (line, col int) {
 // text: the font is monospaced and lines do not wrap, so a rune's column
 // is where it shows.
 func (e *Editor) drawProblems(p *ui.Painter, r ui.Rect, textX, lh float32, c ui.Color) {
-	view := e.viewText()
+	view := e.viewLines()
 	for _, pr := range e.Problems {
 		if len(e.folds) > 0 && e.folds.hides(pr.Start) {
 			continue
 		}
-		line, col := lineCol(view, e.toView(pr.Start))
-		endLine, endCol := lineCol(view, e.toView(max(pr.End, pr.Start+1)))
+		line, col := view.lineCol(e.toView(pr.Start))
+		endLine, endCol := view.lineCol(e.toView(max(pr.End, pr.Start+1)))
 		if endLine != line {
 			endCol = col + 1
 		}
@@ -189,21 +203,12 @@ func (e *Editor) highlight(pal *widgets.Palette) []ui.TextRange {
 }
 
 func (e *Editor) lineNumbers() string {
+	n := len(e.textLines().starts)
+	e.gutterLines = n
 	if len(e.folds) > 0 {
-		// The text's numbers of the lines that show.
-		var b strings.Builder
-		text := lineStarts([]rune(e.Text))
-		for i, at := range lineStarts([]rune(e.shown)) {
-			if i > 0 {
-				b.WriteByte('\n')
-			}
-			b.WriteString(strconv.Itoa(lineIndex(text, e.folds.toText(at, false)) + 1))
-		}
-		e.gutterLines, e.gutter = len(text), ""
-		return b.String()
+		return e.foldedGutter // built with shown
 	}
-	n := strings.Count(e.Text, "\n") + 1
-	if n != e.gutterLines || e.gutter == "" {
+	if n != e.gutterFor || e.gutter == "" {
 		var b strings.Builder
 		for i := 1; i <= n; i++ {
 			if i > 1 {
@@ -211,11 +216,13 @@ func (e *Editor) lineNumbers() string {
 			}
 			b.WriteString(strconv.Itoa(i))
 		}
-		e.gutterLines, e.gutter = n, b.String()
+		e.gutterFor, e.gutter = n, b.String()
 	}
-	e.longest = 0
-	for line := range strings.SplitSeq(e.Text, "\n") {
-		e.longest = max(e.longest, utf8.RuneCountInString(line))
+	if e.longestOf != e.Text {
+		e.longest, e.longestOf = 0, e.Text
+		for line := range strings.SplitSeq(e.Text, "\n") {
+			e.longest = max(e.longest, utf8.RuneCountInString(line))
+		}
 	}
 	return e.gutter
 }
@@ -225,8 +232,9 @@ func (e *Editor) lineNumbers() string {
 func (e *Editor) currentViewLines(folded bool) (int, int) {
 	first, last := e.CurrentLines[0], e.CurrentLines[1]
 	if folded {
-		t := []rune(e.Text)
-		first, last = e.ViewLine(lineAt(t, 0, first)), e.ViewLine(lineAt(t, 0, last))
+		starts := e.textLines().starts
+		lineAt := func(line int) int { return starts[max(0, min(line, len(starts)-1))] }
+		first, last = e.ViewLine(lineAt(first)), e.ViewLine(lineAt(last))
 	}
 	return first, last
 }
@@ -425,21 +433,7 @@ func (e *Editor) Selection() string {
 // CaretXY is where the caret is in the editor's content, before its
 // scrolling, in DIPs from the content's top left.
 func (e *Editor) CaretXY(fontSize float32) (x, y float32) {
-	caret := e.toView(e.SelEnd)
-	line, col := 0, 0
-	i := 0
-	for _, r := range e.viewText() {
-		if i == caret {
-			break
-		}
-		if r == '\n' {
-			line++
-			col = 0
-		} else {
-			col++
-		}
-		i++
-	}
+	line, col := lineCol(e.viewText(), e.toView(e.SelEnd))
 	return e.gutterWidth() + 12 + float32(col)*e.charW, 8 + float32(line+1)*fontSize*LineHeight
 }
 

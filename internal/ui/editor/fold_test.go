@@ -1,10 +1,13 @@
 package editor
 
 import (
+	"maps"
 	"slices"
 	"testing"
 
 	"dgopher/internal/sqltext"
+
+	"github.com/egoist/mygo/ui"
 )
 
 const folded = "select a,\n  b\nfrom t;\n\nselect (\n  1\n) x;"
@@ -71,5 +74,51 @@ func TestTypedFolded(t *testing.T) {
 	e.syncFolds()
 	if e.Text != folded[:21]+"!"+folded[21:] || !e.Folded() {
 		t.Fatalf("after typing past the mark: %q", e.Text)
+	}
+}
+
+// Kept between frames, the markers, the gutter and the colored runs follow
+// a text changed while folded, and runs rewritten in place.
+func TestFoldCachesFollowTheText(t *testing.T) {
+	e := &Editor{Text: folded, Dialect: sqltext.Postgres}
+	e.folds, e.foldedText = folding{}.add(block{9, 21}), folded
+	ranges := []ui.TextRange{{Start: 0, End: 6}, {Start: 31, End: 37}}
+	e.syncFolds()
+	e.foldMarkers()
+	e.lineNumbers()
+	e.foldRanges(ranges, ui.Color{})
+	e.Replace(len([]rune(folded)), len([]rune(folded)), "\nselect (\n  2\n);") // after the fold, which stays
+	e.syncFolds()
+	ranges[0].End = 5 // as the highlighting rewrites its runs
+
+	fresh := &Editor{Text: e.Text, Dialect: sqltext.Postgres}
+	fresh.folds, fresh.foldedText = slices.Clone(e.folds), e.Text
+	fresh.syncFolds()
+	markers, at := e.foldMarkers()
+	wantMarkers, wantAt := fresh.foldMarkers()
+	if markers != wantMarkers || !maps.Equal(at, wantAt) {
+		t.Errorf("markers %q %v, want %q %v", markers, at, wantMarkers, wantAt)
+	}
+	if got, want := e.lineNumbers(), fresh.lineNumbers(); got != want {
+		t.Errorf("gutter %q, want %q", got, want)
+	}
+	if got, want := e.foldRanges(ranges, ui.Color{}), fresh.foldRanges(slices.Clone(ranges), ui.Color{}); !slices.Equal(got, want) {
+		t.Errorf("runs %v, want %v", got, want)
+	}
+}
+
+// Folded, every colored run around the fold keeps its color, and the
+// fold's mark shows muted.
+func TestFoldRangesKeepRuns(t *testing.T) {
+	e := &Editor{Text: folded, Dialect: sqltext.Postgres}
+	e.folds, e.foldedText = folding{}.add(block{9, 21}), folded
+	e.syncFolds()
+	muted := ui.RGB(1, 2, 3)
+	got := e.foldRanges([]ui.TextRange{{Start: 0, End: 6}, {Start: 23, End: 29}}, muted)
+	mark := len([]rune(foldMark))
+	shift := 21 - 9 - mark
+	want := []ui.TextRange{{Start: 0, End: 6}, {Start: 9, End: 9 + mark, Color: muted}, {Start: 23 - shift, End: 29 - shift}}
+	if !slices.Equal(got, want) {
+		t.Fatalf("runs %v, want %v", got, want)
 	}
 }

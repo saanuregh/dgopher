@@ -3,6 +3,7 @@ package editor
 import (
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"dgopher/internal/sqltext"
@@ -218,16 +219,37 @@ func (e *Editor) syncFolds() bool {
 			return p[0] > b.from && p[0] < b.to || p[1] > b.from && p[1] < b.to
 		})
 	}
-	if !slices.Equal(e.folds, e.builtFolds) && e.PendingSel == nil {
+	changed := !slices.Equal(e.folds, e.builtFolds)
+	if changed && e.PendingSel == nil {
 		e.PendingSel = &[2]int{e.SelStart, e.SelEnd}
 	}
-	e.builtFolds = slices.Clone(e.folds)
+	if changed {
+		e.builtFolds = slices.Clone(e.folds)
+	}
 	if len(e.folds) == 0 {
 		return false
 	}
-	e.shown = string(e.folds.shown([]rune(e.Text)))
-	e.builtShown = e.shown
+	// Built again only as the text or the folds change: it runs each frame.
+	if changed || e.Text != e.shownOf || e.shown != e.builtShown {
+		e.shown = string(e.folds.shown([]rune(e.Text)))
+		e.builtShown, e.shownOf = e.shown, e.Text
+		e.foldedGutter = e.foldedNumbers()
+	}
 	return true
+}
+
+// foldedNumbers are the gutter's numbers while folded: the text's numbers
+// of the lines that show.
+func (e *Editor) foldedNumbers() string {
+	var b strings.Builder
+	text := e.textLines().starts
+	for i, at := range e.viewLines().starts {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(strconv.Itoa(lineIndex(text, e.folds.toText(at, false)) + 1))
+	}
+	return b.String()
 }
 
 // typedFolded puts in the text what the text area typed in what it shows
@@ -268,6 +290,43 @@ func lineStarts(t []rune) []int {
 	return out
 }
 
+// lineCache holds the line starts of a text, read again as it changes.
+type lineCache struct {
+	text   string
+	starts []int
+	runes  int
+}
+
+// of is the cache for a text.
+func (c *lineCache) of(text string) *lineCache {
+	if c.starts == nil || c.text != text {
+		t := []rune(text)
+		c.text, c.starts, c.runes = text, lineStarts(t), len(t)
+	}
+	return c
+}
+
+// lineCol is the line and column, 0-based, of a rune, as lineCol has
+// them: a rune outside the text is at its end.
+func (c *lineCache) lineCol(at int) (int, int) {
+	if at < 0 || at > c.runes {
+		at = c.runes
+	}
+	line := lineIndex(c.starts, at)
+	return line, at - c.starts[line]
+}
+
+// textLines are the lines of the text.
+func (e *Editor) textLines() *lineCache { return e.textLineCache.of(e.Text) }
+
+// viewLines are the lines of what the editor shows.
+func (e *Editor) viewLines() *lineCache {
+	if len(e.folds) == 0 {
+		return e.textLines()
+	}
+	return e.shownLineCache.of(e.shown)
+}
+
 // lineIndex is the line, 0-based, of lines starting at starts that a rune
 // is on.
 func lineIndex(starts []int, at int) int {
@@ -293,7 +352,7 @@ func (e *Editor) viewText() string {
 // ViewLine is the line, 0-based, of what the editor shows that a rune of
 // the text is on.
 func (e *Editor) ViewLine(at int) int {
-	line, _ := lineCol(e.viewText(), e.toView(at))
+	line, _ := e.viewLines().lineCol(e.toView(at))
 	return line
 }
 
@@ -303,7 +362,11 @@ func (e *Editor) foldRanges(ranges []ui.TextRange, muted ui.Color) []ui.TextRang
 	if len(e.folds) == 0 {
 		return ranges
 	}
-	var out []ui.TextRange
+	// The same runs, folds and color as the last frame's give its runs.
+	if e.rangesOut != nil && e.rangesMuted == muted && slices.Equal(e.rangesFolds, e.folds) && slices.Equal(e.rangesIn, ranges) {
+		return e.rangesOut
+	}
+	out := []ui.TextRange{}
 	for _, r := range ranges {
 		if e.folds.hides(r.Start) && e.folds.hides(max(r.End-1, r.Start)) {
 			continue
@@ -319,17 +382,25 @@ func (e *Editor) foldRanges(ranges []ui.TextRange, muted ui.Color) []ui.TextRang
 		out = append(out, ui.TextRange{Start: at, End: at + mark, Color: muted})
 	}
 	slices.SortFunc(out, func(a, b ui.TextRange) int { return a.Start - b.Start })
-	return slices.CompactFunc(out, func(a, b ui.TextRange) bool { return b.Start < a.End })
+	// CompactFunc passes a run, then the one before it: a run that starts
+	// inside the one before goes.
+	out = slices.CompactFunc(out, func(run, before ui.TextRange) bool { return run.Start < before.End })
+	// A copy of the runs: the highlighting's are rewritten in place.
+	e.rangesIn, e.rangesFolds, e.rangesMuted, e.rangesOut = slices.Clone(ranges), slices.Clone(e.folds), muted, out
+	return out
 }
 
 // foldMarkers are the gutter's markers, a line each of what shows: ▾ on a
 // block's first line, ▸ on a folded one's; and the blocks by those lines.
+// They are kept until the text or the folds change.
 func (e *Editor) foldMarkers() (string, map[int]block) {
-	t := []rune(e.Text)
-	view := lineStarts([]rune(e.viewText()))
+	if e.markersAt != nil && e.markersOf == e.Text && slices.Equal(e.markersFolds, e.folds) {
+		return e.markers, e.markersAt
+	}
+	text, view := e.textLines().starts, e.viewLines().starts
 	at := map[int]block{}
 	for _, b := range e.foldable() {
-		line := lineIndex(view, e.toView(lineStart(t, b.from)))
+		line := lineIndex(view, e.toView(text[lineIndex(text, b.from)]))
 		if o, ok := at[line]; !ok || b.to-b.from > o.to-o.from {
 			at[line] = b // the outermost
 		}
@@ -347,7 +418,8 @@ func (e *Editor) foldMarkers() (string, map[int]block) {
 			}
 		}
 	}
-	return sb.String(), at
+	e.markersOf, e.markersFolds, e.markers, e.markersAt = e.Text, slices.Clone(e.folds), sb.String(), at
+	return e.markers, at
 }
 
 // toggleFold folds the block on a line of what shows, or opens it.

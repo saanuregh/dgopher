@@ -2,7 +2,6 @@ package editor
 
 import (
 	"slices"
-	"sort"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -273,30 +272,34 @@ func (e *Editor) atCursors(before []rune, primary, ch span, ins []rune) {
 // drawCursors draws the cursors besides the primary: their selections,
 // and their carets, with the text's top left at x, y.
 func (e *Editor) drawCursors(p *ui.Painter, x, y, lh float32, caret, selection ui.Color) {
-	t := []rune(e.Text)
-	starts := []int{0} // of each line
-	for i, r := range t {
-		if r == '\n' {
-			starts = append(starts, i+1)
-		}
-	}
-	at := func(r int) (float32, float32) {
-		line := max(sort.SearchInts(starts, r+1)-1, 0)
-		return x + float32(r-starts[line])*e.charW, y + float32(line)*lh
-	}
+	lines := e.textLines()
 	for _, c := range e.cursors {
-		for l := lineStart(t, c.start); c.end > c.start; {
-			from, to := max(l, c.start), min(lineEnd(t, l), c.end)
-			px, py := at(from)
-			p.Fill(ui.Rect{X: px, Y: py, W: max(float32(to-from)*e.charW, 2), H: lh}, selection, 0)
-			next := lineEnd(t, l) + 1
-			if next >= c.end || next > len(t) {
-				break
-			}
-			l = next
+		if c.end > c.start {
+			e.fillSpan(p, lines, c.start, c.end, x, y, lh, 2, 0, selection)
 		}
-		cx, cy := at(min(c.end, len(t)))
-		p.Fill(ui.Rect{X: cx, Y: cy, W: 1.5, H: lh}, caret, 0)
+		line, col := lines.lineCol(min(c.end, lines.runes))
+		p.Fill(ui.Rect{X: x + float32(col)*e.charW, Y: y + float32(line)*lh, W: 1.5, H: lh}, caret, 0)
+	}
+}
+
+// fillSpan fills runes [from, to) of the text a line at a time, with the
+// text's top left at x, y: each line at least minW wide, and eol wider
+// when the span goes on past its end.
+func (e *Editor) fillSpan(p *ui.Painter, lines *lineCache, from, to int, x, y, lh, minW, eol float32, c ui.Color) {
+	for line := lineIndex(lines.starts, from); ; line++ {
+		start, end := lines.starts[line], lines.runes
+		if line+1 < len(lines.starts) {
+			end = lines.starts[line+1] - 1 // its newline
+		}
+		a, b := max(start, from), min(end, to)
+		w := float32(b-a) * e.charW
+		if b < to {
+			w += eol
+		}
+		p.Fill(ui.Rect{X: x + float32(a-start)*e.charW, Y: y + float32(line)*lh, W: max(w, minW), H: lh}, c, 0)
+		if end+1 >= to || end+1 > lines.runes {
+			return
+		}
 	}
 }
 

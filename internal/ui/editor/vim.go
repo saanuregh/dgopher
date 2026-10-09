@@ -1266,30 +1266,15 @@ func (e *Editor) revealCaret(at int, lh float32) {
 // text's top left at x, y.
 func (e *Editor) drawVim(p *ui.Painter, x, y, lh float32, accent ui.Color) {
 	v := e.Vim
-	at := func(rune int) (float32, float32) {
-		line, col := lineCol(e.Text, rune)
-		return x + float32(col)*e.charW, y + float32(line)*lh
-	}
+	lines := e.textLines()
 	if v.Mode == VimVisual || v.Mode == VimVisualLine {
 		start, end := v.Selection()
-		t := []rune(e.Text)
-		for l := lineStart(t, start); l < end || l == start; {
-			from, to := max(l, start), min(lineEnd(t, l), end)
-			px, py := at(from)
-			w := float32(to-from) * e.charW
-			if to < end {
-				w += e.charW // the line's end, as selected
-			}
-			p.Fill(ui.Rect{X: px, Y: py, W: max(w, e.charW), H: lh}, accent.Alpha(0.2), 0)
-			next := lineEnd(t, l) + 1
-			if next > len(t) || next >= end {
-				break
-			}
-			l = next
+		if l := lines.starts[lineIndex(lines.starts, start)]; l < end || l == start {
+			e.fillSpan(p, lines, start, end, x, y, lh, e.charW, e.charW, accent.Alpha(0.2)) // eol: the line's end, as selected
 		}
 	}
-	cx, cy := at(min(v.Caret, len([]rune(e.Text))))
-	p.Fill(ui.Rect{X: cx, Y: cy, W: e.charW, H: lh}, accent.Alpha(0.45), 1)
+	line, col := lines.lineCol(min(v.Caret, lines.runes))
+	p.Fill(ui.Rect{X: x + float32(col)*e.charW, Y: y + float32(line)*lh, W: e.charW, H: lh}, accent.Alpha(0.45), 1)
 }
 
 // vimSync takes a selection the text area has that Vim did not give it,
