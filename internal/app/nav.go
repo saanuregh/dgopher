@@ -12,6 +12,7 @@ import (
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 	"dgopher/internal/project"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/query"
@@ -376,8 +377,13 @@ func (a *App) sidebar(c *ui.Context) {
 				a.focusWant = ""
 			}
 		}
-		// ⌘↵ on a table: a new editor with its rows, the quickest look.
-		if a.nav.tree.List.Shortcut(c, ui.Cmd, ui.KeyEnter) && a.nav.row >= 0 && a.nav.row < a.nav.tree.Rows() {
+		if keymap.ListPressed(c, &a.nav.tree.List, keymap.NavigatorRefresh) && a.nav.row >= 0 && a.nav.row < a.nav.tree.Rows() {
+			if cn := a.connByID(a.nav.tree.Item(a.nav.row).conn); cn != nil {
+				a.refresh(cn)
+			}
+		}
+		// On a table: a new editor with its rows, the quickest look.
+		if keymap.ListPressed(c, &a.nav.tree.List, keymap.NavigatorSelect) && a.nav.row >= 0 && a.nav.row < a.nav.tree.Rows() {
 			if n := a.nav.tree.Item(a.nav.row); n.kind == nodeObject {
 				if cn, obj, ok := a.object(n); ok {
 					a.NewQueryTab(cn, n.database, "SELECT *\nFROM "+db.QualifiedName(cn.DB.Dialect, obj.Schema, obj.Name)+"\nLIMIT 100;\n")
@@ -565,7 +571,7 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			if m.Item("Disconnect").Chosen() {
 				a.requestDisconnect("Disconnect "+cn.Config.Name+"?", []*connection.Conn{cn}, func() { a.disconnect(cn) })
 			}
-			if m.Item("Refresh").Shortcut(ui.Cmd, ui.KeyR).Chosen() {
+			if keymap.Item(m.Item("Refresh"), keymap.NavigatorRefresh).Chosen() {
 				a.refresh(cn)
 			}
 		} else if m.Item("Connect").Chosen() {
@@ -576,7 +582,7 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 				a.openRedis(cn)
 			}
 		} else {
-			if m.Item("New SQL Editor").Shortcut(ui.Cmd, ui.KeyT).Chosen() {
+			if keymap.Item(m.Item("New SQL Editor"), keymap.NewEditor).Chosen() {
 				a.NewQueryTab(cn, "", "")
 			}
 			if m.Item("Run SQL File…").Chosen() {

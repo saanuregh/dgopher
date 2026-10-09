@@ -8,6 +8,7 @@ import (
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 	"dgopher/internal/project"
 	"dgopher/internal/sqltext"
 	"dgopher/internal/ui/widgets"
@@ -62,7 +63,7 @@ func (q *Tab) completionView(c *ui.Context, a Host) {
 			q.suggest(a, true)
 		}
 	}
-	if q.key(c, ui.Ctrl, ui.KeySpace) {
+	if q.pressed(c, keymap.Complete) {
 		q.suggest(a, true)
 	}
 	if ac.retry && len(q.Conn.Loading) == 0 {

@@ -23,8 +23,8 @@ Next or Later are not repeated.
   - [DEFERRED] Import saved connections from other database clients.
   - [DEFERRED] Group connections in sub-folders or by tags.
 - **SQL editor:**
-  - Vim key bindings, shortcuts that can be changed, several cursors at
-    once, and folding of code blocks.
+  - Vim key bindings, several cursors at once, and folding of code
+    blocks.
   - More than one window.
 - **Data grid:**
 - **Schema:**

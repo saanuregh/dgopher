@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	"dgopher/internal/keymap"
+
 	"github.com/egoist/mygo/ui"
 )
 
@@ -70,27 +72,27 @@ func (g *Grid) copyFromNeighbour(src *Source, step int) {
 
 // editKeys are DBeaver's keys of an editable grid.
 func (g *Grid) editKeys(c *ui.Context, src *Source, order []int) {
-	key := func(mods ui.Modifiers, k ui.Key) bool { return g.List.Shortcut(c, mods, k) }
+	pressed := func(id string) bool { return keymap.ListPressed(c, &g.List, id) }
 	row := -1
 	if g.SelRow >= 0 && g.SelRow < len(order) {
 		row = order[g.SelRow]
 	}
 	switch {
-	case key(ui.Cmd, ui.KeyZ):
+	case pressed(keymap.Undo):
 		g.undo()
-	case key(ui.Cmd|ui.Shift, ui.KeyZ):
+	case pressed(keymap.Redo):
 		g.redo()
-	case key(ui.Alt, ui.KeyInsert):
+	case pressed(keymap.AddRow):
 		g.addRow(src)
-	case row >= 0 && key(ui.Cmd|ui.Alt, ui.KeyInsert):
+	case row >= 0 && pressed(keymap.DuplicateRow):
 		g.duplicateRow(src, row, g.keyCols)
-	case key(ui.Alt, ui.KeyDelete):
+	case pressed(keymap.DeleteRows):
 		g.deleteSelected(src)
-	case key(ui.Cmd, ui.KeyD):
+	case pressed(keymap.CopyAbove):
 		g.copyFromNeighbour(src, -1)
-	case key(ui.Cmd|ui.Alt, ui.KeyD):
+	case pressed(keymap.CopyBelow):
 		g.copyFromNeighbour(src, 1)
-	case row >= 0 && g.editing == nil && g.changed(src, row, g.selCol) && key(0, ui.KeyEscape):
+	case row >= 0 && g.editing == nil && g.changed(src, row, g.selCol) && g.List.Shortcut(c, 0, ui.KeyEscape):
 		// Only a changed cell takes Escape, which otherwise closes what
 		// is open over the grid.
 		g.revertCell(src, row, g.selCol)
@@ -106,24 +108,24 @@ func (g *Grid) changed(src *Source, row, col int) bool {
 // moveKeys are DBeaver's keys of every grid: the value editor, going to a
 // row or a column, the first and last rows, the column's order.
 func (g *Grid) moveKeys(c *ui.Context, a Host, src *Source, order []int) {
-	key := func(mods ui.Modifiers, k ui.Key) bool { return g.List.Shortcut(c, mods, k) }
+	pressed := func(id string) bool { return keymap.ListPressed(c, &g.List, id) }
 	switch {
-	case key(ui.Shift, ui.KeyEnter) && g.SelRow >= 0 && g.SelRow < len(order):
+	case pressed(keymap.EditValue) && g.SelRow >= 0 && g.SelRow < len(order):
 		openValueEditor(a, g, src, order[g.SelRow], g.selCol)
-	case key(ui.Cmd, ui.KeyG):
+	case pressed(keymap.GoToRow):
 		openGoTo(a, g, src, false)
-	case key(ui.Cmd|ui.Shift, ui.KeyG):
+	case pressed(keymap.GoToColumn):
 		openGoTo(a, g, src, true)
-	case key(ui.Cmd, ui.KeyUp) && len(order) > 0:
+	case pressed(keymap.FirstRow) && len(order) > 0:
 		g.SelRow = 0
 		g.List.ScrollIntoView(0)
-	case key(ui.Cmd, ui.KeyDown) && len(order) > 0:
+	case pressed(keymap.LastRow) && len(order) > 0:
 		g.SelRow = len(order) - 1
 		g.List.ScrollToEnd()
-	case key(ui.Cmd, ui.KeyF11) && g.selCol < len(src.Cols):
+	case pressed(keymap.DistinctValues) && g.selCol < len(src.Cols):
 		apply, _ := g.filterFuncs()
 		openDistinct(a, g, src, g.selCol, apply)
-	case key(ui.Cmd, ui.Key2):
+	case pressed(keymap.SortColumn):
 		// Ascending, descending, none: the chosen column's order in turn.
 		id := colID(g.selCol)
 		switch {

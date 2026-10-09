@@ -95,6 +95,12 @@ func (a *App) settingsView(c *ui.Context) {
 						ui.Text(c, "seconds, 0 for never").TextColor(pal.Muted)
 					})
 				}).Description("A statement, script, export or import that takes this long tells the system when it ends, if DGopher is in the background then.")
+				ui.Field(c, "Keys", func() {
+					if ui.Button(c, "Keyboard Shortcuts…").Clicked() {
+						open = false
+						a.keys = &keysEditor{open: true}
+					}
+				}).Description("Change the keys of the app's commands.")
 				ui.Field(c, "Data", func() {
 					ui.Column(c).Gap(6).Children(func() {
 						ui.Text(c, a.st.Dir()).Font(widgets.MonoFont).FontSize(12).Selectable()

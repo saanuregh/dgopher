@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -70,10 +71,10 @@ func (g *Grid) editMenu(m *ui.Menu, src *Source, row, col int) {
 			g.startEdit(src, row, col)
 		}
 		m.Separator()
-		if m.Item("Add Row").Shortcut(ui.Alt, ui.KeyInsert).Chosen() {
+		if keymap.Item(m.Item("Add Row"), keymap.AddRow).Chosen() {
 			g.addRow(src)
 		}
-		if m.Item("Duplicate Row").Shortcut(ui.Cmd|ui.Alt, ui.KeyInsert).Chosen() {
+		if keymap.Item(m.Item("Duplicate Row"), keymap.DuplicateRow).Chosen() {
 			g.duplicateRow(src, row, g.keyCols)
 		}
 		if m.Item("Delete Row").Shortcut(0, ui.KeyDelete).Chosen() {

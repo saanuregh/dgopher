@@ -20,6 +20,7 @@ import (
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 	"dgopher/internal/project"
 	"dgopher/internal/safety"
 	"dgopher/internal/secretcmd"
@@ -80,6 +81,7 @@ type App struct {
 	filling        *fillDialog
 	addingPanel    *addToDashboard
 	savingModel    *saveModelForm
+	keys           *keysEditor
 	newModel       *newModelForm
 	// fileLists are the projects' dashboards and models, by folder: a
 	// menu asks for them each frame it shows.
@@ -121,6 +123,9 @@ func newApp(st *store.Store) *App {
 	a := &App{st: st, settings: settings.Default()}
 	if err := st.LoadJSON("settings.json", &a.settings); err != nil && !errors.Is(err, store.ErrNotFound) {
 		log.Println("settings:", err)
+	}
+	for _, err := range keymap.Use(a.settings.Keys) {
+		log.Println("settings: keys:", err)
 	}
 	if a.settings.PageSize <= 0 {
 		a.settings.PageSize = 500

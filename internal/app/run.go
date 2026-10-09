@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 
+	"dgopher/internal/keymap"
 	"dgopher/internal/store"
 
 	"github.com/egoist/mygo"
@@ -140,16 +141,79 @@ func Run(args []string) error {
 	return mygo.App.Run()
 }
 
-// buildMenu builds the menu bar, whose items act on the window's app.
+// accelerator is a command's first key as the menu bar takes it, "" for
+// none.
+func accelerator(id string) string {
+	if ch, ok := keymap.Primary(id); ok {
+		return ch.Accelerator()
+	}
+	return ""
+}
+
+// menuCommands are the commands of the menu bar that have keys: the menu
+// takes the first key of each, the window the others.
+var menuCommands = []string{keymap.Settings, keymap.NewConnection, keymap.NewEditor, keymap.OpenScript, keymap.AddFolder,
+	keymap.CloseTab, keymap.Palette, keymap.OpenTable, keymap.History, keymap.AuditLog, keymap.ToggleSidebar}
+
+// menuAction is what a command of the menu bar does.
+func (a *App) menuAction(id string) func() {
+	switch id {
+	case keymap.Settings:
+		return func() { a.settingsOpen = true }
+	case keymap.NewConnection:
+		return func() { a.openConnForm(nil) }
+	case keymap.NewEditor:
+		return func() {
+			if cn := a.activeConn(); cn != nil {
+				a.NewQueryTab(cn, "", "")
+			} else {
+				a.openPalette(false)
+			}
+		}
+	case keymap.OpenScript:
+		return func() {
+			if cn := a.activeConn(); cn != nil && cn.Config.Engine.IsSQL() {
+				a.openSQLFile(cn)
+			} else {
+				a.ShowError("Choose a connection first", "A script opens in an editor of the connection chosen in the navigator.")
+			}
+		}
+	case keymap.AddFolder:
+		return a.addExistingProject
+	case keymap.CloseTab:
+		return func() {
+			if len(a.tabs) > 0 {
+				a.closeTab(a.active)
+			}
+		}
+	case keymap.Palette:
+		return func() { a.openPalette(false) }
+	case keymap.OpenTable:
+		return func() { a.openPalette(true) }
+	case keymap.History:
+		return a.openHistory
+	case keymap.AuditLog:
+		return a.openAudit
+	case keymap.ToggleSidebar:
+		return func() { a.sidebarHidden = !a.sidebarHidden }
+	}
+	panic("no menu command " + id)
+}
+
+// buildMenu builds the menu bar, whose items act on the window's app: the
+// commands' keys as they are set, built again once they change.
 func buildMenu(a *App) *mygo.Menu {
 	do := func(fn func()) func(*mygo.MenuItem, *mygo.Window) {
 		return func(*mygo.MenuItem, *mygo.Window) { a.Post(fn) }
+	}
+	item := func(label, id string) *mygo.MenuItem {
+		return &mygo.MenuItem{Label: label, Accelerator: accelerator(id), Click: do(a.menuAction(id))}
 	}
 	return mygo.NewMenu([]*mygo.MenuItem{
 		{Role: mygo.RoleAppMenu, Submenu: []*mygo.MenuItem{
 			{Role: mygo.RoleAbout},
 			mygo.Separator(),
-			{Label: "Settings…", Accelerator: "CmdOrCtrl+,", Click: do(func() { a.settingsOpen = true })},
+			item("Settings…", keymap.Settings),
 			mygo.Separator(),
 			{Role: mygo.RoleHide},
 			{Role: mygo.RoleHideOthers},
@@ -158,21 +222,9 @@ func buildMenu(a *App) *mygo.Menu {
 			{Role: mygo.RoleQuit},
 		}},
 		{Label: "File", Submenu: []*mygo.MenuItem{
-			{Label: "New Connection…", Accelerator: "CmdOrCtrl+N", Click: do(func() { a.openConnForm(nil) })},
-			{Label: "New SQL Editor", Accelerator: "CmdOrCtrl+T", Click: do(func() {
-				if cn := a.activeConn(); cn != nil {
-					a.NewQueryTab(cn, "", "")
-				} else {
-					a.openPalette(false)
-				}
-			})},
-			{Label: "Open SQL Script…", Accelerator: "CmdOrCtrl+O", Click: do(func() {
-				if cn := a.activeConn(); cn != nil && cn.Config.Engine.IsSQL() {
-					a.openSQLFile(cn)
-				} else {
-					a.ShowError("Choose a connection first", "A script opens in an editor of the connection chosen in the navigator.")
-				}
-			})},
+			item("New Connection…", keymap.NewConnection),
+			item("New SQL Editor", keymap.NewEditor),
+			item("Open SQL Script…", keymap.OpenScript),
 			{Label: "Run SQL File…", Click: do(func() {
 				if cn := a.activeConn(); cn != nil && cn.Config.Engine.IsSQL() {
 					a.openSQLFileRun(cn, "")
@@ -182,24 +234,20 @@ func buildMenu(a *App) *mygo.Menu {
 			})},
 			mygo.Separator(),
 			{Label: "New Project…", Click: do(func() { a.openNewProject(nil) })},
-			{Label: "Add Existing Folder…", Accelerator: "CmdOrCtrl+Shift+O", Click: do(a.addExistingProject)},
+			item("Add Existing Folder…", keymap.AddFolder),
 			mygo.Separator(),
-			{Label: "Close Tab", Accelerator: "CmdOrCtrl+W", Click: do(func() {
-				if len(a.tabs) > 0 {
-					a.closeTab(a.active)
-				}
-			})},
+			item("Close Tab", keymap.CloseTab),
 			mygo.Separator(),
-			{Label: "Settings…", Hidden: runtime.GOOS == "darwin", Click: do(func() { a.settingsOpen = true })},
+			{Label: "Settings…", Hidden: runtime.GOOS == "darwin", Click: do(a.menuAction(keymap.Settings))},
 			{Role: mygo.RoleQuit, Hidden: runtime.GOOS == "darwin"},
 		}},
 		{Role: mygo.RoleEditMenu},
 		{Label: "View", Submenu: []*mygo.MenuItem{
-			{Label: "Command Palette", Accelerator: "CmdOrCtrl+K", Click: do(func() { a.openPalette(false) })},
-			{Label: "Open Table…", Accelerator: "CmdOrCtrl+P", Click: do(func() { a.openPalette(true) })},
-			{Label: "Query History", Accelerator: "CmdOrCtrl+Y", Click: do(func() { a.openHistory() })},
-			{Label: "Audit Log", Accelerator: "CmdOrCtrl+Shift+A", Click: do(a.openAudit)},
-			{Label: "Toggle Sidebar", Accelerator: "CmdOrCtrl+B", Click: do(func() { a.sidebarHidden = !a.sidebarHidden })},
+			item("Command Palette", keymap.Palette),
+			item("Open Table…", keymap.OpenTable),
+			item("Query History", keymap.History),
+			item("Audit Log", keymap.AuditLog),
+			item("Toggle Sidebar", keymap.ToggleSidebar),
 			mygo.Separator(),
 			{Role: mygo.RoleToggleFullScreen},
 			{Role: mygo.RoleToggleDevTools},

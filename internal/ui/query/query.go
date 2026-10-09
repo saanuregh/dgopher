@@ -19,6 +19,7 @@ import (
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 	"dgopher/internal/params"
 	"dgopher/internal/project"
 	"dgopher/internal/redact"
@@ -144,6 +145,12 @@ type Tab struct {
 // tab takes the shortcuts.
 func (q *Tab) key(c *ui.Context, mods ui.Modifiers, key ui.Key) bool {
 	return q.a.KeysTo(q) && c.Shortcut(mods, key)
+}
+
+// pressed reports whether a key of a command was pressed, the keys going
+// to the tab.
+func (q *Tab) pressed(c *ui.Context, id string) bool {
+	return q.a.KeysTo(q) && keymap.Pressed(c, id)
 }
 
 func New(a Host, cn *connection.Conn, database, name, text string) *Tab {
@@ -953,17 +960,17 @@ func (q *Tab) View(c *ui.Context) {
 	a := q.a
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
-	// Shortcuts of the editor: those of DataGrip and DBeaver.
-	if q.key(c, ui.Cmd, ui.KeyEnter) || q.key(c, 0, ui.KeyF5) {
+	// Shortcuts of the editor: by default, those of DataGrip and DBeaver.
+	if q.pressed(c, keymap.Run) {
 		q.Run(RunStatement)
 	}
-	if q.key(c, ui.Cmd, ui.KeyBackslash) {
+	if q.pressed(c, keymap.RunInNewTab) {
 		q.Run(RunNewTab)
 	}
-	if q.key(c, ui.Alt, ui.KeyX) {
+	if q.pressed(c, keymap.RunScript) {
 		q.Run(RunScript)
 	}
-	if q.key(c, ui.Cmd, ui.KeyJ) {
+	if q.pressed(c, keymap.ToggleResults) {
 		// Between the editor and its results, without the pointer.
 		if q.Editor.HasFocus && q.current() != nil {
 			*a.FocusWant() = "results"
@@ -975,37 +982,34 @@ func (q *Tab) View(c *ui.Context) {
 		q.Editor.WantFocus = true
 		*a.FocusWant() = ""
 	}
-	if q.key(c, ui.Cmd|ui.Shift, ui.KeyEnter) {
-		q.Run(RunScript)
-	}
-	if q.key(c, ui.Cmd|ui.Shift, ui.KeyF) {
+	if q.pressed(c, keymap.Format) {
 		q.format()
 	}
-	if q.key(c, ui.Cmd|ui.Shift, ui.KeyO) {
+	if q.pressed(c, keymap.GoToStatement) {
 		q.openOutline()
 	}
 	if q.Editor.HasFocus {
 		switch {
-		case q.key(c, ui.Alt, ui.KeyEnter):
+		case q.pressed(c, keymap.QuickFix):
 			q.fixProblem()
-		case q.key(c, 0, ui.KeyF12), q.key(c, ui.Cmd, ui.KeyB):
+		case q.pressed(c, keymap.GoToDefinition):
 			q.goToDefinition()
-		case q.key(c, ui.Shift, ui.KeyF12):
+		case q.pressed(c, keymap.FindUsages):
 			q.findUsages()
-		case q.key(c, 0, ui.KeyF2):
+		case q.pressed(c, keymap.Rename):
 			q.askRename()
 		}
 	}
-	if q.key(c, ui.Cmd|ui.Shift, ui.KeyE) {
+	if q.pressed(c, keymap.ExplainAnalyze) {
 		q.Run(RunExplainAnalyze)
 	}
-	if q.key(c, ui.Cmd, ui.KeyE) {
+	if q.pressed(c, keymap.Explain) {
 		q.Run(RunExplain)
 	}
 	if q.Running && q.key(c, 0, ui.KeyEscape) && q.cancel != nil {
 		q.cancel()
 	}
-	if q.key(c, ui.Cmd, ui.KeyS) {
+	if q.pressed(c, keymap.Save) {
 		q.save()
 	}
 	// What is typed goes to the file once typing stops for a second.
@@ -1019,7 +1023,7 @@ func (q *Tab) View(c *ui.Context) {
 			q.Flush(false)
 		}
 	}
-	if q.key(c, ui.Cmd|ui.Shift, ui.KeyS) {
+	if q.pressed(c, keymap.SaveAs) {
 		a.SaveSQLFile(q, true)
 	}
 	// Editors of a connection set to auto-connect open it as they are
@@ -1682,19 +1686,19 @@ func (q *Tab) toggleComment() {
 // editorMenu is the editor's context menu: running, editing, formatting.
 func (q *Tab) editorMenu(m *ui.Menu) {
 	m.Submenu("Execute", func(m *ui.Menu) {
-		if m.Item("Execute Statement").Shortcut(ui.Cmd, ui.KeyEnter).Chosen() {
+		if keymap.Item(m.Item("Execute Statement"), keymap.Run).Chosen() {
 			q.Run(RunStatement)
 		}
-		if m.Item("Execute in New Tab").Shortcut(ui.Cmd, ui.KeyBackslash).Chosen() {
+		if keymap.Item(m.Item("Execute in New Tab"), keymap.RunInNewTab).Chosen() {
 			q.Run(RunNewTab)
 		}
-		if m.Item("Execute Script").Shortcut(ui.Cmd|ui.Shift, ui.KeyEnter).Chosen() {
+		if keymap.Item(m.Item("Execute Script"), keymap.RunScript).Chosen() {
 			q.Run(RunScript)
 		}
-		if m.Item("Explain Plan").Shortcut(ui.Cmd, ui.KeyE).Chosen() {
+		if keymap.Item(m.Item("Explain Plan"), keymap.Explain).Chosen() {
 			q.Run(RunExplain)
 		}
-		if m.Item("Explain Analyze").Shortcut(ui.Cmd|ui.Shift, ui.KeyE).Chosen() {
+		if keymap.Item(m.Item("Explain Analyze"), keymap.ExplainAnalyze).Chosen() {
 			q.Run(RunExplainAnalyze)
 		}
 		m.Separator()
@@ -1705,27 +1709,27 @@ func (q *Tab) editorMenu(m *ui.Menu) {
 	m.Separator()
 	m.EditItems()
 	m.Separator()
-	if m.Item("Find…").Shortcut(ui.Cmd, ui.KeyF).Chosen() {
+	if keymap.Item(m.Item("Find…"), keymap.Find).Chosen() {
 		q.find.Open, q.find.Replacing, q.find.Shown = true, false, -1
 	}
-	if m.Item("Replace…").Shortcut(ui.Cmd|ui.Alt, ui.KeyF).Chosen() {
+	if keymap.Item(m.Item("Replace…"), keymap.Replace).Chosen() {
 		q.find.Open, q.find.Replacing, q.find.Shown = true, true, -1
 	}
-	if m.Item("Go to Statement…").Shortcut(ui.Cmd|ui.Shift, ui.KeyO).Chosen() {
+	if keymap.Item(m.Item("Go to Statement…"), keymap.GoToStatement).Chosen() {
 		q.openOutline()
 	}
-	if m.Item("Go to Definition").Shortcut(0, ui.KeyF12).Chosen() {
+	if keymap.Item(m.Item("Go to Definition"), keymap.GoToDefinition).Chosen() {
 		q.goToDefinition()
 	}
-	if m.Item("Find Usages").Shortcut(ui.Shift, ui.KeyF12).Chosen() {
+	if keymap.Item(m.Item("Find Usages"), keymap.FindUsages).Chosen() {
 		q.findUsages()
 	}
-	if m.Item("Rename in File…").Shortcut(0, ui.KeyF2).Chosen() {
+	if keymap.Item(m.Item("Rename in File…"), keymap.Rename).Chosen() {
 		q.askRename()
 	}
 	m.Separator()
 	m.Submenu("Format", func(m *ui.Menu) {
-		if m.Item("Format SQL").Shortcut(ui.Cmd|ui.Shift, ui.KeyF).Chosen() {
+		if keymap.Item(m.Item("Format SQL"), keymap.Format).Chosen() {
 			q.format()
 		}
 		_, _, ok := q.target()

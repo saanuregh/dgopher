@@ -17,6 +17,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/export"
+	"dgopher/internal/keymap"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -428,11 +429,11 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 	if g.mode == viewGrid && g.List.Shortcut(c, 0, ui.KeyTab) {
 		g.mode = viewRecord
 	}
-	if g.keys && c.Shortcut(ui.Cmd, ui.KeyBackquote) {
+	if g.keys && keymap.Pressed(c, keymap.NextPresentation) {
 		g.mode = (g.mode + 1) % 3
 	}
 	g.moveKeys(c, a, src, order)
-	if g.List.Shortcut(c, 0, ui.KeyF7) || g.recList.Shortcut(c, 0, ui.KeyF7) {
+	if keymap.ListPressed(c, &g.List, keymap.ValuePanel) || keymap.ListPressed(c, &g.recList, keymap.ValuePanel) {
 		g.ShowValue = !g.ShowValue
 	}
 	// Keys: Left and Right move between cells, as in a spreadsheet.
@@ -442,16 +443,16 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 	if g.List.Shortcut(c, 0, ui.KeyRight) {
 		g.moveCol(src, 1)
 	}
-	if g.List.Shortcut(c, ui.Cmd, ui.KeyC) {
+	if keymap.ListPressed(c, &g.List, keymap.Copy) {
 		a.WriteClipboard(g.copySelection(src, export.TSV, false))
 	}
-	if g.List.Shortcut(c, ui.Cmd|ui.Shift, ui.KeyC) {
+	if keymap.ListPressed(c, &g.List, keymap.AdvancedCopy) {
 		openAdvancedCopy(a, g, src)
 	}
-	if g.List.Shortcut(c, ui.Cmd, ui.KeyV) {
+	if keymap.ListPressed(c, &g.List, keymap.Paste) {
 		pasteInto(a, g, src, c.ReadClipboard(), pasteOptions{NullText: "NULL"})
 	}
-	if g.List.Shortcut(c, ui.Cmd|ui.Shift, ui.KeyV) {
+	if keymap.ListPressed(c, &g.List, keymap.AdvancedPaste) {
 		openAdvancedPaste(a, g, src)
 	}
 	if g.edits != nil && g.readOnly == "" {
@@ -460,9 +461,6 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 			if g.SelRow >= 0 && g.SelRow < len(order) {
 				g.startEdit(src, order[g.SelRow], g.selCol)
 			}
-		}
-		if g.List.Shortcut(c, 0, ui.KeyDelete) || g.List.Shortcut(c, ui.Cmd, ui.KeyBackspace) {
-			g.deleteSelected(src)
 		}
 	}
 	return table
@@ -704,23 +702,23 @@ func (g *Grid) copySelection(src *Source, f export.Format, header bool) string {
 }
 
 func (g *Grid) cellMenu(m *ui.Menu, a Host, src *Source, row, col int) {
-	if m.Item("Copy").Shortcut(ui.Cmd, ui.KeyC).Chosen() {
+	if keymap.Item(m.Item("Copy"), keymap.Copy).Chosen() {
 		a.WriteClipboard(g.copySelection(src, export.TSV, false))
 	}
 	if m.Item("Copy with Header").Chosen() {
 		a.WriteClipboard(g.copySelection(src, export.TSV, true))
 	}
-	if m.Item("Advanced Copy…").Shortcut(ui.Cmd|ui.Shift, ui.KeyC).Chosen() {
+	if keymap.Item(m.Item("Advanced Copy…"), keymap.AdvancedCopy).Chosen() {
 		openAdvancedCopy(a, g, src)
 	}
 	editable := g.edits != nil && g.readOnly == ""
-	if m.Item("Edit Value…").Shortcut(ui.Shift, ui.KeyEnter).Chosen() {
+	if keymap.Item(m.Item("Edit Value…"), keymap.EditValue).Chosen() {
 		openValueEditor(a, g, src, row, col)
 	}
-	if m.Item("Paste").Shortcut(ui.Cmd, ui.KeyV).Disabled(!editable).Chosen() {
+	if keymap.Item(m.Item("Paste"), keymap.Paste).Disabled(!editable).Chosen() {
 		pasteInto(a, g, src, a.ReadClipboard(), pasteOptions{NullText: "NULL"})
 	}
-	if m.Item("Advanced Paste…").Shortcut(ui.Cmd|ui.Shift, ui.KeyV).Disabled(!editable).Chosen() {
+	if keymap.Item(m.Item("Advanced Paste…"), keymap.AdvancedPaste).Disabled(!editable).Chosen() {
 		openAdvancedPaste(a, g, src)
 	}
 	m.Submenu("Copy as", func(m *ui.Menu) {

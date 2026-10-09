@@ -15,6 +15,7 @@ import (
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 	"dgopher/internal/project"
 	"dgopher/internal/safety"
 	"dgopher/internal/sqltext"
@@ -982,17 +983,18 @@ func (v *Viewer) View(c *ui.Context) {
 	}
 	keys := v.source.Keys == nil || v.source.Keys()
 	v.grid.keys = keys
-	key := func(mods ui.Modifiers, k ui.Key) bool { return keys && c.Shortcut(mods, k) }
-	if key(ui.Cmd, ui.KeyS) {
+	pressed := func(id string) bool { return keys && keymap.Pressed(c, id) }
+	listed := func(id string) bool { return keymap.ListPressed(c, &v.grid.List, id) }
+	if pressed(keymap.Apply) {
 		v.Review(nil)
 	}
 	switch {
-	case key(ui.Cmd, ui.KeyR) && v.grid.edits.count() > 0:
+	case pressed(keymap.Discard) && v.grid.edits.count() > 0:
 		// DBeaver's Cancel: the pending changes go; without any, a refresh.
 		v.discard()
-	case key(ui.Cmd, ui.KeyR) || key(0, ui.KeyF5):
+	case pressed(keymap.Discard) || pressed(keymap.Refresh):
 		v.RequestReload()
-	case v.grid.List.Shortcut(c, ui.Cmd|ui.Alt, ui.KeyN) && !v.done:
+	case listed(keymap.FetchNext) && !v.done:
 		// A page may not come between pending changes and their rows:
 		// asked, the rows are read again after the changes go.
 		if v.grid.edits.count() == 0 {
@@ -1000,11 +1002,11 @@ func (v *Viewer) View(c *ui.Context) {
 		} else {
 			v.CheckPending(v.reload, nil)
 		}
-	case v.grid.List.Shortcut(c, ui.Cmd|ui.Shift, ui.KeyEqual) && !v.done:
+	case listed(keymap.FetchAll) && !v.done:
 		v.FetchAll()
-	case v.grid.List.Shortcut(c, ui.Alt, ui.KeySpace):
+	case listed(keymap.FollowKey):
 		v.followKey()
-	case v.grid.List.Shortcut(c, ui.Alt, ui.KeyDown):
+	case listed(keymap.PickReference):
 		v.pickRef()
 	}
 	ui.Toolbar(c, func() {
@@ -1292,7 +1294,7 @@ func (v *Viewer) cellMenu(m *ui.Menu, row, col int) {
 	}
 	if fk, ok := v.refOf(col); ok && v.grid.edits != nil && v.grid.columnReadOnly(col) == "" {
 		m.Separator()
-		if m.Item("Choose from "+fk.RefTable+"…").Shortcut(ui.Alt, ui.KeyDown).Chosen() {
+		if keymap.Item(m.Item("Choose from "+fk.RefTable+"…"), keymap.PickReference).Chosen() {
 			v.openRefPicker(row, col, fk)
 		}
 	}

@@ -40,6 +40,10 @@ type Settings struct {
 	AdvancedCopy CopyOptions `json:"advancedCopy,omitzero"`
 	// Projects are the project folders in the sidebar, in its order.
 	Projects []string `json:"projects,omitempty"`
+	// Keys are the keys of the commands the user changed, by command, as
+	// "Cmd+Shift+F" (internal/keymap); none for a command they took every
+	// key from.
+	Keys map[string][]string `json:"keys,omitempty"`
 	// TrustedShared holds the connections the user agreed to connect
 	// to, by where they go and how they get the password
 	// (sharedFingerprint). It is kept here, not in a project, for a

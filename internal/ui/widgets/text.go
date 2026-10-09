@@ -5,6 +5,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // KeyLabel writes a shortcut as the platform does: ⌘ on macOS, Ctrl
@@ -84,4 +86,14 @@ func TextStart(text string, n int) string {
 		return text
 	}
 	return strings.ToValidUTF8(text[:n], "") + "\n…"
+}
+
+// Capitalize starts a message with a capital, as an error's text put in
+// a sentence.
+func Capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	r, n := utf8.DecodeRuneInString(s)
+	return string(unicode.ToUpper(r)) + s[n:]
 }

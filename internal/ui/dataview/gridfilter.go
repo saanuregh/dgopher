@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 	"dgopher/internal/params"
 	"dgopher/internal/project"
 	"dgopher/internal/ui/widgets"
@@ -207,7 +208,7 @@ func (g *Grid) filterMenu(m *ui.Menu, a Host, src *Source, row, col int, apply f
 				}
 			}
 		})
-		if m.Item("Distinct Values…").Shortcut(ui.Cmd, ui.KeyF11).Chosen() {
+		if keymap.Item(m.Item("Distinct Values…"), keymap.DistinctValues).Chosen() {
 			openDistinct(a, g, src, col, apply)
 		}
 		if rows := g.selectedRows(src); len(rows) > 1 {

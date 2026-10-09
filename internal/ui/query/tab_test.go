@@ -9,6 +9,7 @@ import (
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 	"dgopher/internal/safety"
 	"dgopher/internal/testutil"
 
@@ -317,5 +318,29 @@ func TestRunNotifies(t *testing.T) {
 	n := a.Notified[0]
 	if !strings.HasPrefix(n, "Script failed: query on Lite") || !strings.Contains(n, "no such table") || strings.Contains(n, "secret") {
 		t.Fatalf("notified %q", n)
+	}
+}
+
+// A command's key changed in the settings opens it in place of its own.
+func TestChangedKey(t *testing.T) {
+	defer keymap.Use(nil)
+	if errs := keymap.Use(map[string][]string{keymap.Find: {"Alt+F"}}); errs != nil {
+		t.Fatal(errs)
+	}
+	a := newFakeQueryHost(t)
+	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1000, 700)
+	q := New(a, cn, "", "q", "SELECT 1")
+	a.AddTab(q)
+	tt.Frame()
+	tt.Key(ui.Cmd, ui.KeyF)
+	tt.Frame()
+	if q.find.Open {
+		t.Fatal("the key taken away still finds")
+	}
+	tt.Key(ui.Alt, ui.KeyF)
+	tt.Frame()
+	if !q.find.Open {
+		t.Fatal("the key given does not find")
 	}
 }

@@ -19,7 +19,17 @@
     refreshes.
   - ⌘T opens an editor, ⌘N a connection, ⌘W closes a tab, Ctrl+Tab moves
     between tabs, and ⌘B shows or hides the sidebar.
-  - ⌘/ lists every shortcut.
+  - ⌘/ lists every shortcut, as they are set.
+  - Every command's keys can be changed: Settings → Keyboard Shortcuts
+    (or the palette's) records a key for it, removes one, or resets it.
+    A key that types needs ⌘, Ctrl or Alt, and one that moves in lists
+    a modifier; a key another command has in its section, or anywhere,
+    is refused, naming it, as are ⌘1…⌘9 and the grid's F2. An editor's
+    and its results' commands may share a key, as ⌘S and F5 do. Keys
+    are kept with the settings as `Cmd+Shift+F`, Cmd being ⌘ on macOS
+    and Control elsewhere, so they carry between machines (a Ctrl key
+    recorded on Linux is kept as Cmd, which is one key there); the menu
+    bar shows them.
 - **Window:** closing the last tab leaves the start page. On macOS,
   closing the window keeps DGopher running with its tabs and connections,
   and its Dock icon shows the window again.
@@ -37,7 +47,7 @@
   folder such as a repository. The sidebar lists every project with its
   connections and queries.
   - Create one with **New Project…**, or list an existing folder with
-    **Add Existing Folder…** (⌘⇧O) or `dgopher <folder>`.
+    **Add Existing Folder…** or `dgopher <folder>`.
   - Its `dgopher.json` shares connections and snippets with the team,
     environments included. It holds no secrets.
   - The file is written sorted and stable, so it diffs cleanly. A file
@@ -165,7 +175,7 @@
     what is wrong at the caret, with the closest existing name as a fix
     that ⌥↵ applies. Statements making or dropping tables are not
     checked for names.
-  - Go to Definition (F12 or ⌘B) opens what the name at the caret names:
+  - Go to Definition (F12) opens what the name at the caret names:
     a table's or a view's structure, through an alias or a column of it
     too, or a routine's definition. Find Usages (⇧F12) lists where the
     name is used in the file and the project's other query files; Rename

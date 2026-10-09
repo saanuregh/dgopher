@@ -7,6 +7,7 @@ import (
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 	"dgopher/internal/ui/dashboard"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/modelview"
@@ -125,6 +126,9 @@ func (a *App) view(c *ui.Context) {
 	if a.shortcutsOpen {
 		a.shortcutsView(c)
 	}
+	if a.keys != nil {
+		a.keysView(c)
+	}
 	if a.auditView != nil {
 		a.auditViewer(c)
 	}
@@ -146,7 +150,13 @@ func (a *App) view(c *ui.Context) {
 
 // shortcuts handles the keys of the whole window.
 func (a *App) shortcuts(c *ui.Context) {
-	// The commands of the menu bar take their keys there (main.go).
+	// The commands of the menu bar take their first keys there (run.go),
+	// and their others here.
+	for _, id := range menuCommands {
+		if keymap.LaterPressed(c, id) {
+			a.menuAction(id)()
+		}
+	}
 	for i, k := range []ui.Key{ui.Key1, ui.Key2, ui.Key3, ui.Key4, ui.Key5, ui.Key6, ui.Key7, ui.Key8, ui.Key9} {
 		if c.Shortcut(ui.Cmd, k) && len(a.tabs) > 0 {
 			a.active = min(i, len(a.tabs)-1) // ⌘9 is the last, as in browsers
@@ -157,19 +167,19 @@ func (a *App) shortcuts(c *ui.Context) {
 		}
 	}
 	switch {
-	case c.Shortcut(ui.Cmd, ui.Key0):
+	case keymap.Pressed(c, keymap.FocusNavigator):
 		a.sidebarHidden = false
 		a.focusWant = "nav"
-	case c.Shortcut(ui.Cmd, ui.KeyL):
+	case keymap.Pressed(c, keymap.FocusFilter):
 		a.focusWant = "filter"
-	case c.Shortcut(ui.Cmd, ui.KeySlash):
+	case keymap.Pressed(c, keymap.ShortcutsList):
 		a.shortcutsOpen = !a.shortcutsOpen
-	case c.Shortcut(ui.Ctrl, ui.KeyTab):
+	case keymap.Pressed(c, keymap.NextTab):
 		if len(a.tabs) > 0 {
 			a.active = (a.active + 1) % len(a.tabs)
 			a.focusWant = "editor"
 		}
-	case c.Shortcut(ui.Ctrl|ui.Shift, ui.KeyTab):
+	case keymap.Pressed(c, keymap.PreviousTab):
 		if len(a.tabs) > 0 {
 			a.active = (a.active + len(a.tabs) - 1) % len(a.tabs)
 			a.focusWant = "editor"
@@ -338,7 +348,7 @@ func (a *App) tabBar(c *ui.Context) {
 						a.side = nil
 					}
 					m.Separator()
-					if m.Item("Close").Shortcut(ui.Cmd, ui.KeyW).Chosen() {
+					if keymap.Item(m.Item("Close"), keymap.CloseTab).Chosen() {
 						closed = i
 					}
 					if m.Item("Close Others").Chosen() {

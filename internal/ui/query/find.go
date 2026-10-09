@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"dgopher/internal/keymap"
 	"dgopher/internal/ui/editor"
 
 	"github.com/egoist/mygo/ui"
@@ -15,9 +16,9 @@ import (
 func (q *Tab) findView(c *ui.Context, fontSize float32) {
 	f := &q.find
 	switch {
-	case q.key(c, ui.Cmd|ui.Alt, ui.KeyF):
+	case q.pressed(c, keymap.Replace):
 		f.Open, f.Replacing, f.Shown = true, true, -1
-	case q.key(c, ui.Cmd, ui.KeyF):
+	case q.pressed(c, keymap.Find):
 		f.Open, f.Replacing, f.Shown = true, false, -1
 	}
 	if !f.Open {
