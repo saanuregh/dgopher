@@ -105,6 +105,10 @@ type Grid struct {
 	// valuesMenu offers to hide or show a column's.
 	masked     []bool
 	valuesMenu func(m *ui.Menu, col int)
+	// columnInfo tells the value editor a column's type, and enumValues
+	// the values of an enum's, when the rows know more than the result.
+	columnInfo func(col int) columnInfo
+	enumValues func(col int, then func([]string))
 	// hidden and pinned are columns the header menu hid or froze, by index
 	// in the result.
 	hidden, pinned map[int]bool
@@ -707,6 +711,9 @@ func (g *Grid) cellMenu(m *ui.Menu, a Host, src *Source, row, col int) {
 		openAdvancedCopy(a, g, src)
 	}
 	editable := g.edits != nil && g.readOnly == ""
+	if m.Item("Edit Value…").Shortcut(ui.Shift, ui.KeyEnter).Chosen() {
+		openValueEditor(a, g, src, row, col)
+	}
 	if m.Item("Paste").Shortcut(ui.Cmd, ui.KeyV).Disabled(!editable).Chosen() {
 		pasteInto(a, g, src, a.ReadClipboard(), pasteOptions{NullText: "NULL"})
 	}

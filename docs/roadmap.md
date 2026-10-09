@@ -51,8 +51,6 @@ Next or Later are not repeated.
     table of rows.
   - Read a plan and suggest how to make the query faster.
 - **Data grid:**
-  - An editor suited to each type: a tree for JSON, a list for enums, a
-    calendar for dates.
   - Compare two results side by side and highlight the differences.
 - **Schema:**
   - Save an ER diagram as PNG or SVG, and change the schema by editing

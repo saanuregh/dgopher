@@ -1339,3 +1339,27 @@ func TestIntegrationTableDesign(t *testing.T) {
 		})
 	}
 }
+
+// PostgreSQL's enums are read from its catalog, by the type's name as
+// format_type writes it.
+func TestIntegrationPostgresEnum(t *testing.T) {
+	integration(t)
+	ctx := context.Background()
+	d, err := Open(ctx, Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dbgopher", Database: "postgres"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	for _, q := range []string{`DROP TYPE IF EXISTS "It Mood"`, `CREATE TYPE "It Mood" AS ENUM ('ok', 'sad')`} {
+		if _, err := d.SQL.ExecContext(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer d.SQL.ExecContext(ctx, `DROP TYPE IF EXISTS "It Mood"`)
+	if got, err := EnumValues(ctx, d, `"It Mood"`); err != nil || !slices.Equal(got, []string{"ok", "sad"}) {
+		t.Fatalf("%q %v", got, err)
+	}
+	if got, err := EnumValues(ctx, d, "integer"); err != nil || len(got) != 0 {
+		t.Fatalf("integer: %q %v", got, err)
+	}
+}

@@ -6,9 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"dgopher/internal/db"
-	"dgopher/internal/ui/widgets"
-
 	"github.com/egoist/mygo/ui"
 )
 
@@ -137,63 +134,6 @@ func (g *Grid) moveKeys(c *ui.Context, a Host, src *Source, order []int) {
 		default:
 			g.sort = ui.SortOrder{}
 		}
-	}
-}
-
-// valueEditor edits a cell's whole value, on lines of its own.
-type valueEditor struct {
-	open     bool
-	g        *Grid
-	src      *Source
-	row, col int
-	text     string
-	editable bool
-}
-
-func openValueEditor(a Host, g *Grid, src *Source, row, col int) {
-	v, _ := g.value(src, row, col)
-	text := ""
-	if v != nil && v != unset {
-		text = PrettyValue(a.Settings().ViewFormat.Format(v))
-	}
-	a.Dialogs().valueEdit = &valueEditor{open: true, g: g, src: src, row: row, col: col, text: text, editable: g.edits != nil && g.columnReadOnly(col) == ""}
-}
-
-func valueEditorView(a Host, c *ui.Context) {
-	e := a.Dialogs().valueEdit
-	pal := widgets.PaletteOf(c)
-	ui.Modal(c, &e.open, func() {
-		ui.Column(c).Width(640).Gap(10).Children(func() {
-			ui.Row(c).Gap(8).Children(func() {
-				ui.Text(c, e.src.Cols[e.col].Name).FontSize(15).Bold()
-				ui.Text(c, e.src.Cols[e.col].Type).FontSize(12).TextColor(pal.Muted)
-			})
-			area := ui.TextArea(c, &e.text).Font(widgets.MonoFont).FontSize(12.5).Height(320).AutoFocus().Label("Value")
-			if !e.editable {
-				area.Disabled(true)
-			}
-			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				if ui.Button(c, "Copy").Clicked() {
-					a.WriteClipboard(e.text)
-				}
-				if e.editable && ui.Button(c, "Set to NULL").Clicked() {
-					e.open = false
-					e.g.checkpoint()
-					e.g.setValue(e.src, e.row, e.col, nil)
-				}
-				if ui.Button(c, "Cancel").Clicked() {
-					e.open = false
-				}
-				if e.editable && ui.PrimaryButton(c, "Save").Clicked() {
-					e.open = false
-					e.g.checkpoint()
-					e.g.setValue(e.src, e.row, e.col, db.Typed(e.text))
-				}
-			})
-		})
-	})
-	if !e.open && a.Dialogs().valueEdit == e {
-		a.Dialogs().valueEdit = nil
 	}
 }
 

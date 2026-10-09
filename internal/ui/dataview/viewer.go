@@ -144,6 +144,7 @@ func NewViewer(a Host, src ViewerSource) *Viewer {
 	if src.Reads {
 		v.grid.filterSQL, v.grid.clearSQL = v.addFilter, v.clearFilters
 		v.grid.valuesMenu = v.valuesMenu
+		v.grid.columnInfo, v.grid.enumValues = v.columnInfo, v.enumValues
 	}
 	if src.Reads {
 		v.grid.distinctOf = v.distinctValues
@@ -1878,4 +1879,32 @@ func keyFormView(a Host, c *ui.Context) {
 func cloneSort(s ui.SortOrder) ui.SortOrder {
 	s.Then = slices.Clone(s.Then)
 	return s
+}
+
+// columnInfo is a column of the rows as the value editor needs it: with
+// the type the table's catalog gives, where the column is the table's.
+func (v *Viewer) columnInfo(col int) columnInfo {
+	info := columnInfo{Type: v.src.Cols[col].Type, Engine: v.source.Conn.Config.Engine}
+	if name := v.tableName(col); col < len(v.bound) && v.bound[col] != "" {
+		if i := slices.IndexFunc(v.columns, func(c db.Column) bool { return c.Name == name }); i >= 0 {
+			info.Type = v.columns[i].Type
+		}
+	}
+	return info
+}
+
+// enumValues reads the values a column's enum type may hold, none for
+// another type.
+func (v *Viewer) enumValues(col int, then func([]string)) {
+	typ := v.columnInfo(col).Type
+	poolOf := v.source.Conn.PoolFor(v.source.Database)
+	v.a.Background(func() func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		var values []string
+		if d, err := poolOf(ctx); err == nil {
+			values, _ = db.EnumValues(ctx, d, typ) // without them, the text editor stays
+		}
+		return func() { then(values) }
+	})
 }
