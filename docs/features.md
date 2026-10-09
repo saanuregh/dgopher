@@ -218,6 +218,11 @@
     needs quotes, while the navigator's Rename renames it in the database.
   - Go to Statement (⌘⇧O) lists the file's statements, by line, with the
     comment above each, filtered as you type; Enter goes to one.
+  - Several carets: ⌘⌥↑ and ⌘⌥↓ add one on the line above or below,
+    Alt+click where clicked; ⌘D selects the word at the caret, then its
+    next whole occurrence, and ⌘⇧L every one. What is typed, deleted or
+    completed at the editor's caret is done at each; the arrows, Home and
+    End move them all, and Esc leaves the editor's own.
   - Vim key bindings (Settings → Editor keys): normal, insert, visual and
     visual line modes, with a block caret and the mode under the editor;
     counts; the motions h j k l w b e W B E 0 ^ $ gg G f F t T ; , % { }

@@ -405,3 +405,62 @@ func TestVimInEditor(t *testing.T) {
 		t.Fatal("Vim kept after the setting went off")
 	}
 }
+
+// Several carets: added on the lines below, they type and delete alike;
+// every occurrence of a word selected is typed over at once; arrows move
+// them all, and Esc leaves the editor's own.
+func TestCursors(t *testing.T) {
+	a := newFakeQueryHost(t)
+	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1000, 700)
+	q := New(a, cn, "", "q", "select a;\nselect b;\nselect c;")
+	q.Editor.PendingSel = &[2]int{0, 0}
+	a.AddTab(q)
+	testutil.WaitFor(t, tt, "the editor's focus", func() bool { return q.Editor.HasFocus })
+	step := func() {
+		tt.Frame()
+		tt.Frame()
+	}
+	tt.Key(ui.Cmd|ui.Alt, ui.KeyDown)
+	step()
+	tt.Key(ui.Cmd|ui.Alt, ui.KeyDown)
+	step()
+	tt.Type("x")
+	step()
+	if q.Editor.Text != "xselect a;\nxselect b;\nxselect c;" {
+		t.Fatalf("typed at the carets: %q", q.Editor.Text)
+	}
+	tt.Key(0, ui.KeyBackspace)
+	step()
+	if q.Editor.Text != "select a;\nselect b;\nselect c;" {
+		t.Fatalf("deleted at the carets: %q", q.Editor.Text)
+	}
+	tt.Key(0, ui.KeyEscape)
+	step()
+	if q.Editor.HasCursors() {
+		t.Fatal("Esc kept the carets")
+	}
+
+	tt.Key(ui.Cmd|ui.Shift, ui.KeyL)
+	step()
+	tt.Type("SELECT")
+	step()
+	if q.Editor.Text != "SELECT a;\nSELECT b;\nSELECT c;" {
+		t.Fatalf("typed over the word: %q", q.Editor.Text)
+	}
+	tt.Key(0, ui.KeyRight)
+	step()
+	tt.Type("_")
+	step()
+	if q.Editor.Text != "SELECT _a;\nSELECT _b;\nSELECT _c;" {
+		t.Fatalf("moved and typed: %q", q.Editor.Text)
+	}
+	testutil.Snapshot(t, tt, "cursors")
+	tt.Key(0, ui.KeyEscape)
+	step()
+	tt.Type("!")
+	step()
+	if strings.Count(q.Editor.Text, "!") != 1 {
+		t.Fatalf("after Esc, typed at %q", q.Editor.Text)
+	}
+}

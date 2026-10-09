@@ -50,6 +50,23 @@ type Editor struct {
 	Problems []Problem
 	// Vim, when set, edits with Vim's keys.
 	Vim *Vim
+	// cursors are carets and selections besides the text area's own, the
+	// primary: what is typed at the primary is typed at each of them
+	// alike. cursorText is the text they are in; another, as the app
+	// made, leaves them.
+	cursors    []span
+	cursorText string
+	// settingSel is the primary given to the text area, which it shows a
+	// frame later; lastSel is the primary the cursors go with, and waiting
+	// is set while a moved primary waits for the text it typed.
+	settingSel *span
+	lastSel    span
+	waiting    bool
+	// pressed is whether the pointer was pressed on the text in the last
+	// frame; wordSearch, whether the primary's selection is a word ⌘D
+	// selected, whose occurrences are only the word whole.
+	pressed    bool
+	wordSearch bool
 	// vimSel is the selection Vim last gave the text area, by which a
 	// caret the pointer moved is told from Vim's own.
 	vimSel [2]int
@@ -190,6 +207,20 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 	// the text typed as keys, where the text area would type it.
 	vim := e.Vim
 	commands := vim != nil && vim.Mode != VimInsert
+	switch {
+	case vim != nil:
+		e.cursors = nil
+	case e.Text != e.cursorText && e.waiting && len(e.cursors) > 0:
+		// The text the text area typed as its caret moved, which it puts
+		// in the bound text between frames: typed at the cursors too.
+		e.replicate(e.cursorText, e.lastSel)
+		e.waiting = false
+	case e.Text != e.cursorText:
+		e.cursors = nil // the app's change, which they are not in
+	}
+	// The text before the text area builds, which puts there what it
+	// typed: the change it makes is typed at the cursors too.
+	was := e.Text
 	box := ui.ScrollBoth(c).TrackScroll(&e.Scroll).Grow(1).Background(pal.EditorBg).Draw(func(p *ui.Painter, r ui.Rect) {
 		e.viewW, e.viewH = r.W, r.H
 		// The gutter's color down the whole height, below short texts too.
@@ -203,6 +234,9 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 		e.drawProblems(p, r, r.X+textX, lh, c.Theme().Danger)
 		if commands && e.HasFocus {
 			e.drawVim(p, r.X+textX-e.Scroll.X, r.Y+8-e.Scroll.Y, lh, c.Theme().Accent)
+		}
+		if len(e.cursors) > 0 {
+			e.drawCursors(p, r.X+textX-e.Scroll.X, r.Y+8-e.Scroll.Y, lh, c.Theme().Text, c.Theme().Selection)
 		}
 	})
 	if vim != nil {
@@ -233,7 +267,7 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 				if ev.Kind != ui.InputKeyDown {
 					return false
 				}
-				if e.KeyHook != nil && e.KeyHook(ev.Mods, ev.Key) {
+				if e.KeyHook != nil && e.KeyHook(ev.Mods, ev.Key) || e.cursorKeys(ev) {
 					return true
 				}
 				// Typing ends at Esc, the text area's one key Vim takes: once
@@ -278,6 +312,9 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 			}
 			e.SelStart, e.SelEnd = area.TextSelection()
 			e.HasFocus = area.Focused() || vim != nil && box.Focused()
+			if vim == nil {
+				e.followCursors(c, area, was)
+			}
 		})
 	})
 	return area

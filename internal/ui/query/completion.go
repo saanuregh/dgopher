@@ -179,14 +179,14 @@ func (q *Tab) accept() {
 		runes := []rune(q.Editor.Text)
 		end := min(q.Editor.SelEnd, len(runes))
 		if end < len(runes) && runes[end] == '(' {
-			q.Editor.Replace(ac.start, end, it.text)
+			q.Editor.TypeAtCarets(ac.start, end, it.text)
 		} else {
-			q.Editor.Replace(ac.start, end, it.text+"()")
+			q.Editor.TypeAtCarets(ac.start, end, it.text+"()")
 			at := ac.start + utf8.RuneCountInString(it.text) + 1
 			q.Editor.PendingSel = &[2]int{at, at}
 		}
 	default:
-		q.Editor.Replace(ac.start, q.Editor.SelEnd, it.text)
+		q.Editor.TypeAtCarets(ac.start, q.Editor.SelEnd, it.text)
 	}
 	ac.lastText = q.Editor.Text
 }

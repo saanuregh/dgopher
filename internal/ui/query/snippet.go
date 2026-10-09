@@ -1,6 +1,7 @@
 package query
 
 import (
+	"dgopher/internal/keymap"
 	"slices"
 	"strconv"
 	"strings"
@@ -211,7 +212,28 @@ func (q *Tab) snippetKey(mods ui.Modifiers, key ui.Key) bool {
 }
 
 // editorKey takes the keys of the completion popup, then of a snippet's
-// fields, before the editor does.
+// fields, then of the carets, before the editor does.
 func (q *Tab) editorKey(mods ui.Modifiers, key ui.Key) bool {
-	return q.completionKey(mods, key) || q.snippetKey(mods, key)
+	return q.completionKey(mods, key) || q.snippetKey(mods, key) || q.caretKey(mods, key)
+}
+
+// caretKey takes the keys adding carets, which the text area would take
+// as its own moves before a shortcut could.
+func (q *Tab) caretKey(mods ui.Modifiers, key ui.Key) bool {
+	e := &q.Editor
+	switch {
+	case e.Vim != nil:
+		return false
+	case keymap.Is(keymap.CursorAbove, mods, key):
+		e.AddCursor(-1)
+	case keymap.Is(keymap.CursorBelow, mods, key):
+		e.AddCursor(1)
+	case keymap.Is(keymap.SelectNext, mods, key):
+		e.SelectNext()
+	case keymap.Is(keymap.SelectAll, mods, key):
+		e.SelectAll()
+	default:
+		return false
+	}
+	return true
 }

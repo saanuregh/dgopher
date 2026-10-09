@@ -36,6 +36,10 @@ const (
 	FindUsages     = "editor.findUsages"
 	QuickFix       = "editor.quickFix"
 	Rename         = "editor.rename"
+	CursorAbove    = "editor.cursorAbove"
+	CursorBelow    = "editor.cursorBelow"
+	SelectNext     = "editor.selectNext"
+	SelectAll      = "editor.selectAll"
 	ToggleResults  = "editor.toggleResults"
 	Save           = "editor.save"
 	SaveAs         = "editor.saveAs"
@@ -119,6 +123,10 @@ var Commands = []Command{
 	command(FindUsages, Editor, "Find the usages of the name at the caret", "Shift+F12"),
 	command(QuickFix, Editor, "Fix the problem at the caret", "Alt+Enter"),
 	command(Rename, Editor, "Rename the name at the caret, where it is used", "F2"),
+	command(CursorAbove, Editor, "Add a caret on the line above", "Cmd+Alt+Up"),
+	command(CursorBelow, Editor, "Add a caret on the line below", "Cmd+Alt+Down"),
+	command(SelectNext, Editor, "Select the word, then the next time it occurs, with a caret at each", "Cmd+D"),
+	command(SelectAll, Editor, "Select every time the word occurs, with a caret at each", "Cmd+Shift+L"),
 	command(ToggleResults, Editor, "Between the editor and its results", "Cmd+J"),
 	command(Save, Editor, "Save the file now (it also saves as you type)", "Cmd+S"),
 	command(SaveAs, Editor, "Save the editor as a file", "Cmd+Shift+S"),
