@@ -25,6 +25,21 @@ a string or a quoted name:
   `transaction_read_only`, ClickHouse `readonly=2`, SQLite `mode=ro` with `query_only`, and
   DuckDB `access_mode=READ_ONLY`.
 
+**A large change asks before it commits.** On staging and production in
+auto-commit, an UPDATE or DELETE runs in a transaction of its own; if it
+changed more rows than the limit (Settings → Large changes, 1,000 by
+default, 0 for none), the app asks whether to commit, and rolls it back
+unless you agree; a stopped run rolls back, the script stops either way,
+and closing the editor while asked says what it rolls back. Manual
+commit leaves the transaction open anyway, its count shown. Not held:
+- DuckDB and in-memory SQLite, whose sessions share one connection and
+  one transaction, which the change would take from the other editors;
+- a MySQL table that keeps no transactions, as MyISAM (a rollback that
+  could not undo such a table's changes says so); MySQL counts the rows
+  matched, changed or not;
+- `EXPLAIN ANALYZE`, `RETURNING` and a `WITH` that changes rows, whose
+  rows are read, not counted.
+
 **On production, a script asks before each write** — Run, Skip, Run All
 or Cancel; a destructive statement asks on its own even after Run All.
 

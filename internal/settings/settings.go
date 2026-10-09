@@ -27,6 +27,11 @@ type Settings struct {
 	// SemicolonOnly ends statements at ';' only; by default a blank line
 	// ends one too, as in DBeaver.
 	SemicolonOnly bool `json:"semicolonOnly,omitempty"`
+	// ChangeLimit is how many rows an UPDATE or DELETE run in auto-commit
+	// on staging or production may change before it asks to commit; 0
+	// for no limit. Kept even at 0, which the default would otherwise
+	// replace.
+	ChangeLimit int `json:"changeLimit"`
 	// ContinueOnError runs a script's next statements after one fails.
 	ContinueOnError bool `json:"continueOnError,omitempty"`
 	// GridFont is the size of the grids' text; 0 for the default.
@@ -62,7 +67,7 @@ type Settings struct {
 
 // Default returns the settings of a first run.
 func Default() Settings {
-	return Settings{Theme: "system", EditorFont: 13, SidebarWidth: 260, ResultsHeight: 320, PageSize: 500, NotifyAfter: 10}
+	return Settings{Theme: "system", EditorFont: 13, SidebarWidth: 260, ResultsHeight: 320, PageSize: 500, NotifyAfter: 10, ChangeLimit: 1000}
 }
 
 // ExportPrefs are the export choices the app keeps from one export to

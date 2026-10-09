@@ -169,3 +169,45 @@ func selectItem(toks []Token) SelectItem {
 	}
 	return it
 }
+
+// ChangedTable returns the one table an UPDATE or DELETE changes, as in
+// UPDATE t SET … or DELETE FROM t WHERE …; ok is false for another
+// statement, or one that changes more than one table, as MySQL's UPDATE
+// a JOIN b or DELETE a FROM a JOIN b.
+func ChangedTable(stmt string, d Dialect) (TableRef, bool) {
+	toks := statementTokens(stmt, d)
+	if len(toks) == 0 {
+		return TableRef{}, false
+	}
+	i := 1
+	switch word(toks[0]) {
+	case "UPDATE":
+	case "DELETE":
+		if i >= len(toks) || word(toks[i]) != "FROM" {
+			return TableRef{}, false // DELETE a FROM a JOIN b
+		}
+		i++
+	default:
+		return TableRef{}, false
+	}
+	for i < len(toks) && (word(toks[i]) == "LOW_PRIORITY" || word(toks[i]) == "IGNORE" || word(toks[i]) == "QUICK" || word(toks[i]) == "ONLY") {
+		i++
+	}
+	ref, next, ok := parseTableRef(toks, i)
+	if !ok {
+		return TableRef{}, false
+	}
+	depth := depths(toks)
+	for j := next; j < len(toks); j++ {
+		if depth[j] != 0 {
+			continue
+		}
+		switch w := word(toks[j]); {
+		case w == "SET" || w == "WHERE" || w == "USING" && word(toks[0]) == "DELETE":
+			return ref, w != "USING"
+		case w == "JOIN" || isPunct(toks[j], ","):
+			return TableRef{}, false
+		}
+	}
+	return ref, true
+}

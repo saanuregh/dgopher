@@ -151,6 +151,16 @@ func (a *App) settingsView(c *ui.Context) {
 						a.SaveSettings()
 					}
 				})
+				limit := float64(a.settings.ChangeLimit)
+				ui.Field(c, "Large changes", func() {
+					ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+						if ui.NumberInput(c, &limit, 0, 1_000_000, 100).Label("Rows a change makes without asking").Changed() {
+							a.settings.ChangeLimit = int(limit)
+							a.SaveSettings()
+						}
+						ui.Text(c, "rows, 0 for no limit").TextColor(pal.Muted)
+					})
+				}).Description("On staging and production in auto-commit, an UPDATE or DELETE that changes more rows than this asks before it commits; until then it is held in a transaction.")
 				ui.Field(c, "Sensitive values", func() {
 					hide := !a.settings.ShowSensitive
 					if ui.Checkbox(c, &hide, "Hide the values of columns that look sensitive").Changed() {

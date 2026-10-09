@@ -136,6 +136,9 @@ type Tab struct {
 	// wasRunning is whether a run went on in the last frame, by which its
 	// end is announced.
 	wasRunning bool
+	// uncommitted counts the rows a change made that wait for the user to
+	// say whether they commit, 0 for none.
+	uncommitted int64
 
 	// named is the connection the file's header names, as namedConnection last
 	// read it from namedText.
@@ -182,6 +185,8 @@ func (q *Tab) CloseReason() string {
 		return fmt.Sprintf("%d changes to %s in the results have not been applied. Closing discards them.", q.pendingCount(), q.pendingTable())
 	case q.Tx != db.TxNone:
 		return "A transaction is open on this editor's session. Closing the editor rolls it back, losing its changes."
+	case q.uncommitted > 0:
+		return fmt.Sprintf("%d changed rows wait to be committed. Closing the editor rolls them back.", q.uncommitted)
 	case q.Running:
 		return "A statement is still running. Closing the editor cancels it."
 	case q.exports > 0:
@@ -648,6 +653,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 	q.resultIdx = firstNew
 	timeout := time.Duration(q.Conn.Config.StatementTimeout) * time.Second
 	continueOnError := q.a.Settings().ContinueOnError
+	changeLimit := q.a.Settings().ChangeLimit
 	manual := q.Conn.Config.ManualCommit()
 	pageSize := q.a.Settings().PageSize
 	cfg := q.Conn.Config
@@ -700,6 +706,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 			var cursor *db.Cursor
 			var first [][]any
 			var done bool
+			var guard *changeGuard
 			start := time.Now()
 			var rows int64
 			// The timeout bounds the statement and its first page, not the
@@ -742,7 +749,13 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 					}
 				}
 			} else {
-				res.affected, err = sess.Exec(sctx, s.SQL, s.Args...)
+				if guarded(cfg, changeLimit, s, sess, dialect) {
+					changed, _ := sqltext.ChangedTable(s.SQL, dialect)
+					guard, err = q.beginGuard(sctx, sess, s, changed, changeLimit, database)
+				}
+				if err == nil {
+					res.affected, err = sess.Exec(sctx, s.SQL, s.Args...)
+				}
 				rows = res.affected
 			}
 			if timer != nil {
@@ -762,6 +775,9 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 				logged += "\n-- parameters: " + s.Shown
 			}
 			q.a.RecordRun(cfg, audit.KindStatement, database, logged, rows, res.elapsed, err)
+			if guard != nil {
+				err = guard.finish(ctx, rows, err)
+			}
 			entry := store.HistoryEntry{Time: start, ConnectionID: cfg.ID, Connection: cfg.Name, Database: database,
 				SQL: redact.Secrets(logged), Duration: res.elapsed, Rows: rows}
 			if err != nil {
@@ -791,7 +807,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 					q.note(fmt.Sprintf("%s · %s · %s", verbLabel(res.verb), affectedLabel(res.affected), widgets.FormatDuration(res.elapsed)), res.sql, false)
 				}
 			})
-			if err != nil && !continueOnError {
+			if err != nil && (!continueOnError || errors.Is(err, errDeclined)) {
 				break
 			}
 		}
@@ -1663,6 +1679,167 @@ func (q *Tab) askStep(ctx context.Context, s safety.Statement, i, n int, runAll 
 		return a
 	case <-ctx.Done():
 		return "cancel"
+	}
+}
+
+// errDeclined is a change the user chose not to commit, which stops a
+// script whatever it does on an error.
+var errDeclined = errors.New("not committed")
+
+// changeGuard holds a statement's changes in a transaction of its own
+// until they are counted: more rows than the limit ask before they
+// commit.
+type changeGuard struct {
+	q        *Tab
+	sess     *db.Session
+	s        safety.Statement
+	limit    int
+	database string
+}
+
+// guarded reports whether a statement's changes are counted before they
+// commit: an UPDATE or DELETE run in auto-commit on staging or
+// production, with a limit set, of an engine whose changes a transaction
+// holds on a connection of its own, as DuckDB's and an in-memory SQLite's,
+// which every session shares, are not. EXPLAIN ANALYZE reports no rows,
+// and RETURNING and a WITH that changes rows read theirs: neither is.
+func guarded(cfg db.Config, limit int, s safety.Statement, sess *db.Session, dialect sqltext.Dialect) bool {
+	verb := strings.ToUpper(s.Analysis.Verb)
+	if limit <= 0 || verb != "UPDATE" && verb != "DELETE" || sess.Tx() != db.TxNone || sess.DB().Single() ||
+		cfg.Env != db.Staging && cfg.Env != db.Production || !cfg.Engine.IsSQL() || cfg.Engine == db.ClickHouse {
+		return false
+	}
+	for _, t := range sqltext.Tokenize(s.SQL, dialect) {
+		if t.Kind != sqltext.Whitespace && t.Kind != sqltext.Comment {
+			return !strings.EqualFold(t.Text, "EXPLAIN")
+		}
+	}
+	return true
+}
+
+// beginGuard opens the guard's transaction, nil when the statement's table
+// keeps none, as a MySQL MyISAM table: its changes cannot wait.
+func (q *Tab) beginGuard(ctx context.Context, sess *db.Session, s safety.Statement, table sqltext.TableRef, limit int, database string) (*changeGuard, error) {
+	cfg := q.Conn.Config
+	if cfg.Engine == db.MySQL && table.Name != "" && !mysqlTransactional(ctx, sess, table) {
+		return nil, nil
+	}
+	err := sess.Begin(ctx)
+	q.a.RecordRun(cfg, audit.KindStatement, database, "BEGIN -- counting the rows a change makes", -1, 0, err)
+	if err != nil {
+		return nil, err
+	}
+	return &changeGuard{q: q, sess: sess, s: s, limit: limit, database: database}, nil
+}
+
+// mysqlTransactional reports whether a MySQL table's engine keeps
+// transactions; true when it cannot be told.
+func mysqlTransactional(ctx context.Context, sess *db.Session, table sqltext.TableRef) bool {
+	cursor, err := sess.Query(ctx, `SELECT e.TRANSACTIONS FROM information_schema.TABLES t
+JOIN information_schema.ENGINES e ON e.ENGINE = t.ENGINE
+WHERE t.TABLE_SCHEMA = COALESCE(NULLIF(?, ''), DATABASE()) AND t.TABLE_NAME = ?`, table.Schema, table.Name)
+	if err != nil {
+		return true
+	}
+	defer cursor.Close()
+	rows, err := cursor.Fetch(1)
+	return err != nil || len(rows) == 0 || !strings.EqualFold(db.Display(rows[0][0]), "NO")
+}
+
+// finish ends the guard's transaction once the statement ran, n rows
+// changed or err: past the limit, the user is asked, and it commits only
+// if they agree. ctx is the run's, which a stop ends; the statement's
+// timeout no longer runs.
+func (g *changeGuard) finish(ctx context.Context, n int64, err error) error {
+	switch {
+	case err != nil:
+		return errors.Join(err, g.end(ctx, false, n))
+	case n > int64(g.limit) && !g.q.askCommit(ctx, g.s, n, g.limit):
+		why := fmt.Errorf("%w: it %s %d rows, more than the %d a change makes without asking", errDeclined, changedWord(g.q.Conn.Config.Engine), n, g.limit)
+		if ctx.Err() != nil {
+			why = fmt.Errorf("%w: the run was stopped while asking", errDeclined)
+		}
+		if rerr := g.end(ctx, false, n); rerr != nil {
+			return rerr
+		}
+		return fmt.Errorf("%w; rolled back", why)
+	}
+	return g.end(ctx, true, n)
+}
+
+// end commits or rolls back the guard's transaction, even when the run
+// was stopped: the session must not stay in a transaction it did not ask
+// for. A MySQL table that keeps no transactions, as a trigger's, keeps
+// its rows changed, which a rollback says.
+func (g *changeGuard) end(ctx context.Context, commit bool, n int64) error {
+	cfg := g.q.Conn.Config
+	ectx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	if commit {
+		err := g.sess.Commit(ectx)
+		g.q.a.RecordRun(cfg, audit.KindStatement, g.database, "COMMIT", -1, 0, err)
+		return err
+	}
+	err := g.sess.Rollback(ectx)
+	g.q.a.RecordRun(cfg, audit.KindStatement, g.database, "ROLLBACK", -1, 0, err)
+	if err != nil {
+		return fmt.Errorf("could not roll back: %w", err)
+	}
+	if cfg.Engine == db.MySQL && mysqlKeptChanges(ectx, g.sess) {
+		return fmt.Errorf("could not roll back all of it: a table it changed keeps no transactions, as MyISAM, and keeps its changes of the %d rows", n)
+	}
+	return nil
+}
+
+// mysqlKeptChanges reports whether MySQL warned that a rollback left
+// changes to a table without transactions (warning 1196).
+func mysqlKeptChanges(ctx context.Context, sess *db.Session) bool {
+	cursor, err := sess.Query(ctx, "SHOW WARNINGS")
+	if err != nil {
+		return false
+	}
+	defer cursor.Close()
+	rows, _ := cursor.Fetch(100)
+	return slices.ContainsFunc(rows, func(r []any) bool { return len(r) > 1 && db.Display(r[1]) == "1196" })
+}
+
+// changedWord is how an engine counts the rows a change makes: MySQL's
+// the rows it matched, changed or not.
+func changedWord(e db.Engine) string {
+	if e == db.MySQL {
+		return "matched"
+	}
+	return "changed"
+}
+
+// askCommit asks whether a change of more rows than the limit commits.
+// A run stopped while asking closes the question, which then answers no.
+func (q *Tab) askCommit(ctx context.Context, s safety.Statement, n int64, limit int) bool {
+	cfg := q.Conn.Config
+	answer := make(chan bool, 1)
+	asked := make(chan *widgets.ConfirmRequest, 1)
+	q.a.Post(func() {
+		q.uncommitted = n
+		v := safety.Verdict{Confirm: true, Reasons: []string{fmt.Sprintf(
+			"It %s %d rows, more than the %d a change makes without asking (Settings). Not committed yet: Cancel rolls it back.",
+			changedWord(cfg.Engine), n, limit)}}
+		r := q.a.AskConfirm(q.Conn, v, fmt.Sprintf("Commit %d changed rows on %s?", n, cfg.Name), "Commit", s.SQL, func() { answer <- true })
+		r.OnCancel = func() { answer <- false }
+		asked <- r
+	})
+	defer q.a.Post(func() { q.uncommitted = 0 })
+	select {
+	case ok := <-answer:
+		return ok
+	case <-ctx.Done():
+		q.a.Post(func() {
+			select {
+			case r := <-asked:
+				r.Open, r.Answered = false, true
+			default:
+			}
+		})
+		return false
 	}
 }
 

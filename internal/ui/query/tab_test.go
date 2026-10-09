@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -517,4 +518,115 @@ func TestFolding(t *testing.T) {
 	if q.Editor.Folded() {
 		t.Fatal("the app's text kept the folds")
 	}
+}
+
+// On staging, an UPDATE changing more rows than the limit holds them in a
+// transaction and asks: Cancel rolls it back, Commit keeps it.
+func TestLargeChangeAsks(t *testing.T) {
+	a := newFakeQueryHost(t)
+	a.Settings().ChangeLimit = 2
+	file := filepath.Join(t.TempDir(), "big.sqlite")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file, Env: db.Staging})
+	tt := ui.NewTester(a.view, 1000, 700)
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	for _, s := range []string{`CREATE TABLE t (id INTEGER PRIMARY KEY, a INTEGER)`, `INSERT INTO t VALUES (1, 0), (2, 0), (3, 0)`} {
+		if _, err := cn.DB.SQL.Exec(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sum := func() int {
+		var n int
+		cn.DB.SQL.QueryRow(`SELECT sum(a) FROM t`).Scan(&n)
+		return n
+	}
+	q := New(a, cn, "", "q", "UPDATE t SET a = 1 WHERE id > 0")
+	a.AddTab(q)
+	tt.Frame()
+	for _, commit := range []bool{false, true} {
+		a.Confirm = nil
+		q.Run(RunStatement)
+		testutil.WaitFor(t, tt, "the question", func() bool { return a.Confirm != nil })
+		if !strings.Contains(strings.Join(a.Confirm.Reasons, " "), "3 rows") {
+			t.Fatalf("asked %+v", a.Confirm)
+		}
+		if commit {
+			a.Confirm.OnConfirm()
+		} else {
+			a.Confirm.OnCancel()
+		}
+		a.Confirm.Open = false
+		testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running })
+		if want := map[bool]int{false: 0, true: 3}[commit]; sum() != want {
+			t.Fatalf("committed %v: sum %d", commit, sum())
+		}
+	}
+
+	// Within the limit, it commits without asking.
+	a.Confirm = nil
+	q.Editor.Text = "UPDATE t SET a = 2 WHERE id = 1"
+	q.Run(RunStatement)
+	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running })
+	if a.Confirm != nil || sum() != 4 {
+		t.Fatalf("a small change asked %v, or did not commit: sum %d", a.Confirm != nil, sum())
+	}
+
+	// One connection every session shares is not guarded: the guard's
+	// transaction would be every tab's.
+	mem := a.AddConn(db.Config{ID: "mem", Name: "mem", Engine: db.SQLite, Database: ":memory:", Env: db.Staging})
+	a.Connect(mem, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return mem.Status == connection.StatusConnected })
+	if _, err := mem.DB.SQL.Exec(`CREATE TABLE t (a INTEGER); INSERT INTO t VALUES (0), (0), (0)`); err != nil {
+		t.Fatal(err)
+	}
+	m := New(a, mem, "", "m", "UPDATE t SET a = 1 WHERE a = 0")
+	a.AddTab(m)
+	m.Run(RunStatement)
+	testutil.WaitFor(t, tt, "the run", func() bool { return !m.Running })
+	if a.Confirm != nil {
+		t.Fatal("a shared connection's change asked")
+	}
+}
+
+// On MySQL, a change to a table that keeps no transactions, as MyISAM's,
+// is not held: it could not roll back; an InnoDB table's is.
+func TestIntegrationLargeChangeMySQL(t *testing.T) {
+	testutil.Integration(t)
+	a := newFakeQueryHost(t)
+	a.Settings().ChangeLimit = 2
+	cn := a.AddConn(db.Config{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher",
+		Database: "shop", Env: db.Staging})
+	tt := ui.NewTester(a.view, 1000, 700)
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	for _, engine := range []string{"MyISAM", "InnoDB"} {
+		for _, s := range []string{`DROP TABLE IF EXISTS it_guard`, `CREATE TABLE it_guard (id INT PRIMARY KEY, a INT) ENGINE=` + engine,
+			`INSERT INTO it_guard VALUES (1, 0), (2, 0), (3, 0)`} {
+			if _, err := cn.DB.SQL.Exec(s); err != nil {
+				t.Fatal(s, err)
+			}
+		}
+		a.Confirm = nil
+		q := New(a, cn, "", "q", "UPDATE it_guard SET a = 1 WHERE id > 0")
+		a.AddTab(q)
+		q.Run(RunStatement)
+		testutil.WaitFor(t, tt, "the run or its question", func() bool { return a.Confirm != nil || len(q.messages) > 0 && !q.Running })
+		if (a.Confirm != nil) != (engine == "InnoDB") {
+			t.Fatalf("%s: asked %v", engine, a.Confirm != nil)
+		}
+		if a.Confirm != nil {
+			a.Confirm.OnCancel()
+			a.Confirm.Open = false
+			testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running })
+		}
+		var sum int
+		cn.DB.SQL.QueryRow(`SELECT sum(a) FROM it_guard`).Scan(&sum)
+		if want := map[string]int{"MyISAM": 3, "InnoDB": 0}[engine]; sum != want {
+			t.Fatalf("%s: sum %d", engine, sum)
+		}
+	}
+	cn.DB.SQL.Exec(`DROP TABLE IF EXISTS it_guard`)
 }

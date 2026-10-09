@@ -90,3 +90,28 @@ func TestSelectItems(t *testing.T) {
 		t.Error("an INSERT has a select list")
 	}
 }
+
+func TestChangedTable(t *testing.T) {
+	for _, c := range []struct {
+		sql, table string
+		ok         bool
+	}{
+		{"UPDATE shop.t SET a = 1 WHERE id = 2", "shop.t", true},
+		{"update `t` set a = 1", "t", true},
+		{"DELETE FROM t WHERE id = 1", "t", true},
+		{"UPDATE LOW_PRIORITY t SET a = 1", "t", true},
+		{"UPDATE a JOIN b ON a.id = b.id SET a.x = 1", "", false},
+		{"DELETE a FROM a JOIN b ON a.id = b.id", "", false},
+		{"DELETE FROM a USING a, b WHERE a.id = b.id", "", false},
+		{"SELECT 1", "", false},
+	} {
+		ref, ok := ChangedTable(c.sql, MySQL)
+		name := ref.Name
+		if ref.Schema != "" {
+			name = ref.Schema + "." + name
+		}
+		if ok != c.ok || ok && name != c.table {
+			t.Errorf("%s: %q %v", c.sql, name, ok)
+		}
+	}
+}
