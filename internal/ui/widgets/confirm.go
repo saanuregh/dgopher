@@ -86,13 +86,7 @@ func ConfirmView(c *ui.Context, r *ConfirmRequest) {
 					r.Open, r.Answered = false, true
 					r.OnRunAll()
 				}
-				run := ui.ButtonBase(c).Padding(6, 14).Radius(t.Radius).Disabled(!ready).Label(r.Action)
-				run.Background(t.Danger)
-				if !ready {
-					run.Opacity(0.5)
-				}
-				run.Children(func() { ui.Text(c, r.Action).TextColor(ui.RGB(255, 255, 255)).Bold() })
-				if run.Clicked() && ready {
+				if DangerButton(c, r.Action, !ready).Clicked() && ready {
 					r.Open, r.Answered = false, true
 					r.OnConfirm()
 				}

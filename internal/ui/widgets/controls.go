@@ -71,6 +71,17 @@ func IconButton(c *ui.Context, ic *ui.SVG, label string) ui.Element {
 	return b
 }
 
+// DangerButton is the main button of what destroys data or trusts a
+// server: red, its label bold.
+func DangerButton(c *ui.Context, label string, disabled bool) ui.Element {
+	b := ui.ButtonBase(c).Padding(6, 14).Radius(c.Theme().Radius).Disabled(disabled).Label(label).Background(c.Theme().Danger)
+	if disabled {
+		b.Opacity(0.5)
+	}
+	b.Children(func() { ui.Text(c, label).TextColor(ui.RGB(255, 255, 255)).Bold() })
+	return b
+}
+
 // Activated reports whether a dialog's main button was clicked, or the
 // key that does what a dialog is for was pressed in it, the button
 // enabled.

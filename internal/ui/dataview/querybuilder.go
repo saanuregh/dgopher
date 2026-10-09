@@ -1,6 +1,7 @@
 package dataview
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -17,8 +18,10 @@ import (
 )
 
 // The aggregates a column of a built query takes, as its select lists
-// them; "" is none.
-var aggregates = []string{"", "count", "count distinct", "sum", "avg", "min", "max"}
+// them; noAggregate, shown for "", is none.
+var aggregates = []string{noAggregate, "count", "count distinct", "sum", "avg", "min", "max"}
+
+const noAggregate = "no aggregate"
 
 // qbTable is a table of a built query, and how it joins the tables
 // before it.
@@ -643,7 +646,13 @@ func (b *queryBuilder) columnsView(c *ui.Context) {
 		col := &b.columns[i]
 		ui.Row(c.Key(b.colKeys.key("qb-col-", i))).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, col.label).Font(widgets.MonoFont).FontSize(12.5).Width(260).SingleLine()
-			ui.Select(c, &col.agg, aggregates).Width(160).Label("Aggregate of " + col.label)
+			agg := cmp.Or(col.agg, noAggregate)
+			if ui.Select(c, &agg, aggregates).Width(160).Label("Aggregate of " + col.label).Changed() {
+				col.agg = agg
+				if agg == noAggregate {
+					col.agg = ""
+				}
+			}
 			if widgets.IconButton(c, widgets.IconX, "Remove "+col.label).Clicked() {
 				remove = i
 			}

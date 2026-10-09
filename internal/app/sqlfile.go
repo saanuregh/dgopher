@@ -219,8 +219,17 @@ func (a *App) sqlFileView(c *ui.Context) {
 				if ui.Button(c, close).Clicked() {
 					x.open = false
 				}
-				if !x.finished && ui.PrimaryButton(c, "Run").Disabled(x.statements == 0 || x.err != "").Clicked() {
-					a.confirmSQLFile(x)
+				if !x.finished {
+					disabled := x.statements == 0 || x.err != ""
+					var run ui.Element
+					if len(x.dangerous) > 0 {
+						run = widgets.DangerButton(c, "Run", disabled)
+					} else {
+						run = ui.PrimaryButton(c, "Run").Disabled(disabled)
+					}
+					if run.Clicked() && !disabled {
+						a.confirmSQLFile(x)
+					}
 				}
 			})
 		})
