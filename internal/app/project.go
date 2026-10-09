@@ -259,6 +259,10 @@ func (a *App) ScanQueries(p *project.Project, now bool) {
 		}
 		sort.Strings(files)
 		return func() {
+			if pl := a.palette; pl != nil && !slices.Equal(p.Files, files) {
+				// Files added since the palette opened are offered too.
+				defer func() { pl.items, pl.shownQ = a.paletteItems(pl.tables), "\x00" }()
+			}
 			p.Files = files
 			p.ScanErr = ""
 			if err != nil {

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"unicode"
@@ -47,11 +48,15 @@ func (a *App) openPalette(tables bool) {
 	p := &paletteState{open: true, tables: tables, shownQ: "\x00"}
 	p.items = a.paletteItems(tables)
 	a.palette = p
+	for _, pr := range a.projects {
+		a.ScanQueries(pr, false)
+	}
 }
 
-// paletteItems lists the commands and the tables of the connections.
+// paletteItems lists the commands, the tables of the connections and the
+// query files of the projects.
 func (a *App) paletteItems(tablesFirst bool) []paletteItem {
-	var cmds, conns, tables []paletteItem
+	var cmds, conns, tables, files []paletteItem
 	active := a.activeConn()
 	// The tab's own commands first: they are the ones at hand.
 	if t, ok := a.ActiveTab().(widgets.Commander); ok {
@@ -158,11 +163,14 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 		for i, name := range names {
 			cmds = append(cmds, paletteItem{title: name, detail: p.Name, group: "Data Model", icon: widgets.IconSchema, run: func() { a.openModel(p, paths[i]) }})
 		}
+		for _, rel := range p.Files {
+			files = append(files, paletteItem{title: rel, detail: p.Name, group: "Query", icon: widgets.IconFile, run: func() { a.openQueryFile(p, rel, nil) }})
+		}
 	}
 	if tablesFirst {
-		return append(append(append(tables, conns...), snippets...), cmds...)
+		return slices.Concat(tables, files, conns, snippets, cmds)
 	}
-	return append(append(append(cmds, snippets...), conns...), tables...)
+	return slices.Concat(cmds, snippets, conns, tables, files)
 }
 
 // fuzzyScore scores how well a query matches a text, -1 for not at all:
@@ -234,7 +242,7 @@ func (a *App) paletteView(c *ui.Context) {
 			ui.Icon(c, widgets.IconSearch).TextColor(pal.Muted).FontSize(15)
 			placeholder := "Search commands, connections and tables"
 			if p.tables {
-				placeholder = "Open a table or a routine"
+				placeholder = "Open a table, a routine or a query file"
 			}
 			in := ui.TextInputBase(c, &p.query).Placeholder(placeholder).AutoFocus().Grow(1).FontSize(15).Label("Search")
 			if widgets.ListKeys(in, &p.index, len(p.shown), &p.list, paletteRows) {

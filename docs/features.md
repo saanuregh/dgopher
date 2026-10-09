@@ -20,8 +20,8 @@
     in an editor, switching its database or schema, moving between its
     results, pinning or closing one;
     refreshing, exporting, fetching, charting and applying rows. Each
-    shows its key. Tables, functions and procedures open by
-    name (⌘P).
+    shows its key. Tables, functions, procedures and query files open
+    by name (⌘P).
   - In manual commit, ⌘⌥⇧↵ commits an editor's or a table's
     transaction. Rolling back has no key until one is
     set, as it loses the transaction's work.
@@ -185,7 +185,8 @@
 - **Navigator:** each project in sections, Connections (open at first),
   Queries, Dashboards and Data Models, each with its count; a connection
   is a lazy tree of databases, schemas, tables, views and columns, with
-  row estimates. It has a filter, context menus, and quick open (⌘P).
+  row estimates. It has context menus, and quick open (⌘P) for tables,
+  routines and query files.
   - Read Catalog, on a schema, sets how much of it is read, for very large
     ones, kept in the project's file: As Needed (tables with their sizes,
     a table's columns once opened or named in an editor), Names Only (no

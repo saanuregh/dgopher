@@ -1,8 +1,11 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
+	"time"
 
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
@@ -59,4 +62,31 @@ func TestPaletteTabCommands(t *testing.T) {
 		t.Fatalf("Show Chart did not show it: %q", titles())
 	}
 	a.palette = nil
+}
+
+// ⌘P offers the projects' query files, those added since the palette
+// opened too, and opens one in its editor.
+func TestPaletteQueryFiles(t *testing.T) {
+	a := newTestApp(t)
+	addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	p := a.projects[0]
+	tt := ui.NewTester(a.view, 1000, 700)
+	if err := os.MkdirAll(p.Queries, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p.Queries, "daily.sql"), []byte("-- connection: lite\nSELECT 1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p.Scanned = time.Time{} // as long after the last scan as a rescan needs
+
+	a.openPalette(true)
+	a.palette.query = "daily"
+	testutil.WaitFor(t, tt, "the file offered", func() bool {
+		return len(a.palette.shown) > 0 && a.palette.shown[0].title == "daily.sql"
+	})
+	tt.Key(0, ui.KeyEnter)
+	testutil.WaitFor(t, tt, "its editor", func() bool {
+		q, ok := a.ActiveTab().(*query.Tab)
+		return ok && q.Path == filepath.Join(p.Queries, "daily.sql")
+	})
 }

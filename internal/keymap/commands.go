@@ -102,7 +102,7 @@ func command(id string, scope Scope, title string, keys ...string) Command {
 // Commands are the commands with keys, in the order lists show them.
 var Commands = []Command{
 	command(Palette, Global, "Command palette: every command, connection, table and snippet", "Cmd+K"),
-	command(OpenTable, Global, "Open a table by name", "Cmd+P"),
+	command(OpenTable, Global, "Open a table or a query file by name", "Cmd+P"),
 	command(NewEditor, Global, "New SQL editor on the current connection", "Cmd+T"),
 	command(NewConnection, Global, "New connection", "Cmd+N"),
 	command(OpenScript, Global, "Open a SQL script", "Cmd+O"),

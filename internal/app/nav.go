@@ -68,9 +68,8 @@ type navNode struct {
 }
 
 type navState struct {
-	tree   ui.OutlineState[navNode]
-	row    int
-	filter string
+	tree ui.OutlineState[navNode]
+	row  int
 	// listed are the projects shown already, whose Connections were
 	// opened as they first showed.
 	listed map[string]bool
@@ -249,27 +248,22 @@ func (a *App) navChildren(n navNode) []navNode {
 		return out
 	case nodeFolder:
 		var out []navNode
-		filter := strings.ToLower(a.nav.filter)
 		key := connection.SchemaKey{Database: n.database, Schema: n.schema}
 		switch n.folder {
 		case folderTables, folderViews:
 			for _, o := range connection.SortedObjects(cn.Objects[key], n.folder == folderViews) {
-				if filter == "" || strings.Contains(strings.ToLower(o.Name), filter) {
-					out = append(out, navNode{kind: nodeObject, conn: n.conn, database: n.database, schema: n.schema, name: o.Name})
-				}
+				out = append(out, navNode{kind: nodeObject, conn: n.conn, database: n.database, schema: n.schema, name: o.Name})
 			}
 		default:
 			for _, it := range cn.Items[key] {
 				if string(it.Kind) != n.folder || n.folder == folderPartitions && it.Table != n.name {
 					continue
 				}
-				if filter == "" || strings.Contains(strings.ToLower(it.Name), filter) {
-					out = append(out, navNode{kind: nodeItem, conn: n.conn, database: n.database, schema: n.schema, name: itemName(it)})
-				}
+				out = append(out, navNode{kind: nodeItem, conn: n.conn, database: n.database, schema: n.schema, name: itemName(it)})
 			}
 		}
 		if out == nil {
-			return info(cn, "No match")
+			return info(cn, "None")
 		}
 		return out
 	case nodeObject:
@@ -385,14 +379,6 @@ func (a *App) sidebar(c *ui.Context) {
 		ui.Row(c).Padding(8, 8, 6, 12).Gap(6).Children(func() {
 			ui.Text(c, "Projects").FontSize(12).Bold().TextColor(pal.Muted).Grow(1)
 			widgets.IconButton(c, widgets.IconPlus, "New…").Menu(a.addMenu)
-		})
-		ui.Row(c).Padding(0, 8, 6, 8).Children(func() {
-			in := widgets.SearchBox(c, &a.nav.filter, "Filter tables", 0)
-			if a.focusWant == "filter" && a.ActiveTab() == nil {
-				if in.Focus().Focused() {
-					a.focusWant = ""
-				}
-			}
 		})
 		if len(a.projects) == 0 {
 			ui.Column(c).Padding(16).Gap(10).Children(func() {

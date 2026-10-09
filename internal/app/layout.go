@@ -198,7 +198,7 @@ func (a *App) shortcuts(c *ui.Context) {
 	case keymap.Pressed(c, keymap.FocusNavigator):
 		a.sidebarHidden = false
 		a.focusWant = "nav"
-	case keymap.Pressed(c, keymap.FocusFilter):
+	case keymap.Pressed(c, keymap.FocusFilter) && a.ActiveTab() != nil:
 		a.focusWant = "filter"
 	case keymap.Pressed(c, keymap.ShortcutsList):
 		a.shortcutsOpen = !a.shortcutsOpen

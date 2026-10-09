@@ -31,7 +31,7 @@ func tourStops() []tourStop {
 		{title: "Welcome to DGopher", text: "A minute on how it works. Esc ends the tour, which the start page and the palette offer again."},
 		{part: tourSidebar, title: "Projects and connections",
 			text: "Every connection belongs to a project: a folder whose dgopher.json the team shares through Git, " +
-				"passwords kept out of it. The navigator lists each connection's schemas and tables, and the filter finds one."},
+				"passwords kept out of it. The navigator lists each connection's schemas and tables; ⌘P opens one, or a query file, by name."},
 		{part: tourWorkspace, title: "Editors and results",
 			text: keymap.Hint("Running", keymap.Run) + " runs the statement at the caret, which blank lines and semicolons end. " +
 				"Its rows show below in a grid: edit cells, then review the SQL before it is applied."},
