@@ -25,9 +25,14 @@ import (
 type nodeKind uint8
 
 const (
-	nodeProject nodeKind = iota
-	nodeQueries          // the query files of a project
+	nodeProject     nodeKind = iota
+	nodeConnections          // the connections of a project
+	nodeQueries              // the query files of a project
 	nodeQueryFile
+	nodeDashboards // the dashboards of a project
+	nodeDashboard  // named by its file's path
+	nodeModels     // the data models of a project
+	nodeModel      // named by its file's path
 	nodeConn
 	nodeDatabase
 	nodeSchema
@@ -50,8 +55,8 @@ const (
 type navNode struct {
 	kind nodeKind
 	// projectDir is the folder of a project's own nodes: the project, its
-	// Queries folder and files, and their notes. The nodes of a
-	// connection are named by its ID alone, unique across projects.
+	// sections, their files, and their notes. The nodes of a connection
+	// are named by its ID alone, unique across projects.
 	projectDir string
 	conn       string
 	database   string
@@ -66,6 +71,9 @@ type navState struct {
 	tree   ui.OutlineState[navNode]
 	row    int
 	filter string
+	// listed are the projects shown already, whose Connections were
+	// opened as they first showed.
+	listed map[string]bool
 }
 
 func (n *navState) init() {
@@ -84,7 +92,8 @@ func (a *App) navRoots() []navNode {
 	return roots
 }
 
-// projectChildren lists a project's connections, then its queries.
+// projectChildren lists a project's sections, its connections, query
+// files, dashboards and data models, and what each holds.
 func (a *App) projectChildren(n navNode) []navNode {
 	p := a.projectByDir(n.projectDir)
 	if p == nil {
@@ -93,7 +102,44 @@ func (a *App) projectChildren(n navNode) []navNode {
 	if p.Err != "" {
 		return []navNode{{kind: nodeInfo, projectDir: p.Dir, name: widgets.FirstLine(p.Err)}}
 	}
-	if n.kind == nodeQueries {
+	note := func(text string) []navNode { return []navNode{{kind: nodeInfo, projectDir: p.Dir, name: text}} }
+	files := func(kind nodeKind, paths []string, none string) []navNode {
+		if len(paths) == 0 {
+			return note(none)
+		}
+		out := make([]navNode, len(paths))
+		for i, path := range paths {
+			out[i] = navNode{kind: kind, projectDir: p.Dir, name: path}
+		}
+		return out
+	}
+	switch n.kind {
+	case nodeProject:
+		conns := navNode{kind: nodeConnections, projectDir: p.Dir}
+		if !a.nav.listed[p.Dir] {
+			if a.nav.listed == nil {
+				a.nav.listed = map[string]bool{}
+			}
+			a.nav.listed[p.Dir] = true
+			a.nav.expand(conns) // what a project is opened for, first
+		}
+		return []navNode{conns, {kind: nodeQueries, projectDir: p.Dir}, {kind: nodeDashboards, projectDir: p.Dir}, {kind: nodeModels, projectDir: p.Dir}}
+	case nodeConnections:
+		var out []navNode
+		for _, cn := range a.projectConns(p) {
+			out = append(out, navNode{kind: nodeConn, conn: cn.Config.ID})
+		}
+		if out == nil {
+			return note("No connections yet")
+		}
+		return out
+	case nodeDashboards:
+		_, paths := a.dashboardNames(p)
+		return files(nodeDashboard, paths, "No dashboards yet")
+	case nodeModels:
+		_, paths := a.modelNames(p)
+		return files(nodeModel, paths, "No data models yet")
+	case nodeQueries:
 		if a.nav.tree.Open.Has(n) {
 			a.ScanQueries(p, false)
 		}
@@ -105,18 +151,11 @@ func (a *App) projectChildren(n navNode) []navNode {
 			out = append(out, navNode{kind: nodeInfo, projectDir: p.Dir, name: widgets.FirstLine(p.ScanErr)})
 		}
 		if out == nil {
-			return []navNode{{kind: nodeInfo, projectDir: p.Dir, name: "No .sql files yet"}}
+			return note("No .sql files yet")
 		}
 		return out
 	}
-	var out []navNode
-	for _, cn := range a.projectConns(p) {
-		out = append(out, navNode{kind: nodeConn, conn: cn.Config.ID})
-	}
-	if out == nil {
-		out = append(out, navNode{kind: nodeInfo, projectDir: p.Dir, name: "No connections yet"})
-	}
-	return append(out, navNode{kind: nodeQueries, projectDir: p.Dir})
+	return nil
 }
 
 func info(cn *connection.Conn, text string) []navNode {
@@ -127,9 +166,9 @@ func info(cn *connection.Conn, text string) []navNode {
 // node is open and they are not known yet.
 func (a *App) navChildren(n navNode) []navNode {
 	switch n.kind {
-	case nodeProject, nodeQueries:
+	case nodeProject, nodeConnections, nodeQueries, nodeDashboards, nodeModels:
 		return a.projectChildren(n)
-	case nodeQueryFile, nodeInfo:
+	case nodeQueryFile, nodeDashboard, nodeModel, nodeInfo:
 		return nil
 	}
 	cn := a.connByID(n.conn)
@@ -441,16 +480,23 @@ func (a *App) renameObject(cn *connection.Conn, database string, obj db.Object) 
 // activate does what a double click on a node does.
 func (a *App) activate(n navNode) {
 	switch n.kind {
-	case nodeProject, nodeQueries:
+	case nodeProject, nodeConnections, nodeQueries, nodeDashboards, nodeModels:
 		if a.nav.tree.Open.Has(n) {
 			a.nav.tree.Open.Remove(n)
 		} else {
 			a.nav.expand(n)
 		}
 		return
-	case nodeQueryFile:
-		if p := a.projectByDir(n.projectDir); p != nil {
+	case nodeQueryFile, nodeDashboard, nodeModel:
+		p := a.projectByDir(n.projectDir)
+		switch {
+		case p == nil:
+		case n.kind == nodeQueryFile:
 			a.openQueryFile(p, n.name, nil)
+		case n.kind == nodeDashboard:
+			a.openDashboard(p, n.name)
+		default:
+			a.openModel(p, n.name)
 		}
 		return
 	}
@@ -970,18 +1016,48 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 				name.TextColor(pal.Muted)
 				ui.Icon(c, widgets.IconAlert).TextColor(c.Theme().Danger).FontSize(12).Tooltip(p.Err)
 			}
-		case nodeQueries:
-			ui.Icon(c, widgets.IconCode).TextColor(pal.Muted).FontSize(13)
-			ui.Text(c, "Queries").SingleLine().Grow(1)
-			ui.Text(c, fmt.Sprint(len(p.Files))).FontSize(11).TextColor(pal.Muted)
+		case nodeConnections, nodeQueries, nodeDashboards, nodeModels:
+			ic, label, count := a.section(p, n.kind)
+			ui.Icon(c, ic).TextColor(pal.Muted).FontSize(13)
+			ui.Text(c, label).SingleLine().Grow(1)
+			ui.Text(c, fmt.Sprint(count)).FontSize(11).TextColor(pal.Muted)
 		case nodeQueryFile:
 			ui.Icon(c, widgets.IconFile).TextColor(pal.Muted).FontSize(12)
 			ui.Text(c, n.name).SingleLine().Shrink(1).Tooltip(filepath.Join(p.Queries, filepath.FromSlash(n.name)))
+		case nodeDashboard, nodeModel:
+			ic, names, paths := widgets.IconLayers, []string(nil), []string(nil)
+			if n.kind == nodeDashboard {
+				names, paths = a.dashboardNames(p)
+			} else {
+				ic = widgets.IconSchema
+				names, paths = a.modelNames(p)
+			}
+			name := filepath.Base(n.name)
+			if i := slices.Index(paths, n.name); i >= 0 {
+				name = names[i]
+			}
+			ui.Icon(c, ic).TextColor(pal.Muted).FontSize(12)
+			ui.Text(c, name).SingleLine().Shrink(1).Tooltip(n.name)
 		case nodeInfo:
 			ui.Text(c, n.name).FontSize(12).TextColor(pal.Muted).Italic().SingleLine()
 		}
 	})
 	row.ContextMenu(func(m *ui.Menu) { a.navMenu(m, n) })
+}
+
+// section is how a project's section shows: its icon, name and count.
+func (a *App) section(p *project.Project, kind nodeKind) (*ui.SVG, string, int) {
+	switch kind {
+	case nodeConnections:
+		return widgets.IconPlug, "Connections", len(a.projectConns(p))
+	case nodeDashboards:
+		names, _ := a.dashboardNames(p)
+		return widgets.IconLayers, "Dashboards", len(names)
+	case nodeModels:
+		names, _ := a.modelNames(p)
+		return widgets.IconSchema, "Data Models", len(names)
+	}
+	return widgets.IconCode, "Queries", len(p.Files)
 }
 
 // projectMenu is the context menu of a project's own nodes.
