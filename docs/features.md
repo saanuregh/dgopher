@@ -192,8 +192,9 @@
   - Each connection has an environment, and can be read-only, with its own
     commit mode and idle-transaction limit: see [Safety model](safety.md).
 - **Navigator:** each project in sections, Connections (open at first),
-  Queries, Dashboards and Data Models, each with its count; a connection
-  is a lazy tree of databases, schemas, tables, views and columns, with
+  Queries, Dashboards and Data Models, each with its count and a + that
+  makes another, shown as the row is pointed at. A connection is a lazy
+  tree of databases, schemas, tables, views and columns, with
   row estimates. It has context menus, and quick open (⌘P) for tables,
   routines and query files. It follows the tab in front, choosing its
   query file, table, dashboard or data model, else its connection, and

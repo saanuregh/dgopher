@@ -1214,3 +1214,36 @@ func TestFieldDescriptionBelowInput(t *testing.T) {
 		t.Fatalf("the description at %v overlaps the input %v", note, input)
 	}
 }
+
+// A section's row makes another of its kind, without its menu and without
+// opening or closing the section.
+func TestSectionNewButtons(t *testing.T) {
+	a := newTestApp(t)
+	addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1000, 700)
+	tt.Frame()
+	if r, ok := tt.Find("Queries"); ok {
+		tt.Move(r.X+r.W/2, r.Y+r.H/2)
+	}
+	tt.Frame()
+	testutil.Snapshot(t, tt, "section-new")
+	dashboards := navNode{kind: nodeDashboards, projectDir: a.projects[0].Dir}
+	if err := tt.Click("New Dashboard…"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.renaming == nil || a.renaming.title != "New Dashboard" || a.nav.tree.Open.Has(dashboards) {
+		t.Fatalf("asked %+v, section open %v", a.renaming, a.nav.tree.Open.Has(dashboards))
+	}
+	tt.Key(0, ui.KeyEscape)
+	if err := tt.Click("New Data Model…"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.newModel == nil || a.newModel.project != a.projects[0] {
+		t.Fatal("no data model asked for")
+	}
+	if !tt.HasText("New SQL Editor") || !tt.HasText("New Connection…") {
+		t.Fatalf("not a button for each section: %q", tt.Texts())
+	}
+}

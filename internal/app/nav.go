@@ -1016,6 +1016,21 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 			ui.Icon(c, ic).TextColor(pal.Muted).FontSize(13)
 			ui.Text(c, label).SingleLine().Grow(1)
 			ui.Text(c, fmt.Sprint(count)).FontSize(11).TextColor(pal.Muted)
+			// Another made from the row, shown as the row is pointed at; a
+			// section that cannot have one keeps the room, for the counts
+			// to line up.
+			var newLabel string
+			var run func()
+			if p.Err == "" {
+				newLabel, run = a.sectionNew(p, n.kind)
+			}
+			add := widgets.IconButton(c, widgets.IconPlus, newLabel).Padding(1).Disabled(run == nil)
+			if run == nil || !row.Hovered() {
+				add.Opacity(0)
+			}
+			if run != nil && add.Clicked() {
+				run()
+			}
 		case nodeQueryFile:
 			ui.Icon(c, widgets.IconFile).TextColor(pal.Muted).FontSize(12)
 			ui.Text(c, n.name).SingleLine().Shrink(1).Tooltip(filepath.Join(p.Queries, filepath.FromSlash(n.name)))
@@ -1055,6 +1070,37 @@ func (a *App) section(p *project.Project, kind nodeKind) (*ui.SVG, string, int) 
 	return widgets.IconCode, "Queries", len(p.Files)
 }
 
+// sectionNew is what makes another of a section's, by its label: "" when
+// the project cannot have one, as an editor without a SQL connection.
+func (a *App) sectionNew(p *project.Project, kind nodeKind) (string, func()) {
+	switch kind {
+	case nodeConnections:
+		return "New Connection…", func() {
+			a.selectProject(p)
+			a.openConnForm(nil)
+			if f := a.connForm; f != nil {
+				f.project, f.projectSel = p, a.projectLabel(p)
+			}
+		}
+	case nodeQueries:
+		cn := a.activeConn()
+		if cn == nil || cn.Project != p || !cn.Config.Engine.IsSQL() {
+			cn = a.firstSQLConn(p)
+		}
+		if cn == nil {
+			return "", nil
+		}
+		return "New SQL Editor", func() { a.NewQueryTab(cn, "", "") }
+	case nodeDashboards:
+		return "New Dashboard…", func() { a.newDashboard(p) }
+	case nodeModels:
+		return "New Data Model…", func() {
+			a.newModel = &newModelForm{open: true, project: p, engine: db.Postgres.Label()}
+		}
+	}
+	return "", nil
+}
+
 // projectMenu is the context menu of a project's own nodes.
 func (a *App) projectMenu(m *ui.Menu, n navNode) {
 	p := a.projectByDir(n.projectDir)
@@ -1062,28 +1108,10 @@ func (a *App) projectMenu(m *ui.Menu, n navNode) {
 		return
 	}
 	if p.Err == "" {
-		if m.Item("New Connection…").Chosen() {
-			a.selectProject(p)
-			a.openConnForm(nil)
-			if f := a.connForm; f != nil {
-				f.project, f.projectSel = p, a.projectLabel(p)
-			}
-		}
-		a.dashboardsMenu(m, p)
-		a.modelsMenu(m, p)
-		if conns := a.projectConns(p); len(conns) > 0 && m.Item("New SQL Editor").Chosen() {
-			cn := a.activeConn()
-			if cn == nil || cn.Project != p || !cn.Config.Engine.IsSQL() {
-				cn = nil
-				for _, c := range conns {
-					if c.Config.Engine.IsSQL() {
-						cn = c
-						break
-					}
-				}
-			}
-			if cn != nil {
-				a.NewQueryTab(cn, "", "")
+		// The sidebar lists what is there: the menu makes more.
+		for _, kind := range []nodeKind{nodeConnections, nodeDashboards, nodeModels, nodeQueries} {
+			if label, run := a.sectionNew(p, kind); label != "" && m.Item(label).Chosen() {
+				run()
 			}
 		}
 		if n.kind == nodeQueryFile {

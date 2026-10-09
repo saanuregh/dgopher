@@ -219,24 +219,6 @@ func (a *App) newDashboard(p *project.Project) {
 	}}
 }
 
-// dashboardsMenu lists a project's dashboards to open, and makes one.
-func (a *App) dashboardsMenu(m *ui.Menu, p *project.Project) {
-	m.Submenu("Dashboards", func(m *ui.Menu) {
-		names, paths := a.dashboardNames(p)
-		for i, name := range names {
-			if m.Item(name).Chosen() {
-				a.openDashboard(p, paths[i])
-			}
-		}
-		if len(names) > 0 {
-			m.Separator()
-		}
-		if m.Item("New Dashboard…").Chosen() {
-			a.newDashboard(p)
-		}
-	})
-}
-
 // dashboardPaths are the files of a project's open dashboards, as the
 // workspace keeps them.
 func (a *App) dashboardPaths(p *project.Project) []string {

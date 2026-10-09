@@ -46,24 +46,6 @@ func (a *App) modelNames(p *project.Project) (names, paths []string) {
 		})
 }
 
-// modelsMenu lists a project's data models to open, and makes one.
-func (a *App) modelsMenu(m *ui.Menu, p *project.Project) {
-	m.Submenu("Data Models", func(m *ui.Menu) {
-		names, paths := a.modelNames(p)
-		for i, name := range names {
-			if m.Item(name).Chosen() {
-				a.openModel(p, paths[i])
-			}
-		}
-		if len(names) > 0 {
-			m.Separator()
-		}
-		if m.Item("New Data Model…").Chosen() {
-			a.newModel = &newModelForm{open: true, project: p, engine: db.Postgres.Label()}
-		}
-	})
-}
-
 // newModelForm asks the name and engine of a data model to design from
 // nothing.
 type newModelForm struct {
