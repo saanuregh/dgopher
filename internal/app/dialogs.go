@@ -1,7 +1,6 @@
 package app
 
 import (
-	"fmt"
 	"slices"
 	"strings"
 
@@ -139,7 +138,7 @@ func (a *App) dialogs(c *ui.Context) {
 		}
 	}
 	if p := a.pending; p != nil {
-		title := fmt.Sprintf("Apply %d pending change%s first?", p.n, widgets.Plural(p.n))
+		title := "Apply " + widgets.Count(p.n, "pending change") + " first?"
 		switch ui.AlertDialog(c, &p.open, title, "Reading the rows again shows them as the database has them: the changes not applied yet are written first, or dropped.", "Cancel", "Discard", "Apply…") {
 		case 0:
 			p.cancel()

@@ -131,7 +131,7 @@ func (a *App) startCopy(x *copyDialog) {
 	run := func() { a.runCopy(x, to, tables) }
 	if v.Confirm {
 		preview := fmt.Sprintf("Copy %s from %s into %s.", strings.Join(tables, ", "), x.from.Config.Name, cfg.Name)
-		a.AskConfirm(to, v, fmt.Sprintf("Copy %d table%s into %s?", len(tables), widgets.Plural(len(tables)), cfg.Name), "Copy", preview, run)
+		a.AskConfirm(to, v, "Copy "+widgets.Count(len(tables), "table")+" into "+cfg.Name+"?", "Copy", preview, run)
 		return
 	}
 	run()

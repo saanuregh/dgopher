@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -232,7 +231,7 @@ func (a *App) saveModelView(c *ui.Context) {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				if f.building {
 					ui.Spinner(c).Size(14, 14)
-					ui.Text(c, fmt.Sprintf("%d table%s read…", f.read, widgets.Plural(f.read))).FontSize(12.5).TextColor(pal.Muted)
+					ui.Text(c, widgets.Count(f.read, "table")+" read…").FontSize(12.5).TextColor(pal.Muted)
 					c.After(200 * time.Millisecond)
 				}
 				ui.Spacer(c)

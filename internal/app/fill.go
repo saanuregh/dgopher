@@ -365,15 +365,20 @@ func (a *App) runFill(x *fillDialog) {
 	}()
 }
 
+// fillKindLabels are the labels of testdata.Kinds, in order.
+var fillKindLabels = func() []string {
+	labels := make([]string, len(testdata.Kinds))
+	for i, k := range testdata.Kinds {
+		labels[i] = k.Label()
+	}
+	return labels
+}()
+
 func (a *App) fillView(c *ui.Context) {
 	x := a.filling
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	_, winH := c.Size()
-	labels := make([]string, len(testdata.Kinds))
-	for i, k := range testdata.Kinds {
-		labels[i] = k.Label()
-	}
 	ui.Modal(c, &x.open, func() {
 		ui.Column(c).Width(980).MaxHeight(winH - 80).Gap(12).Children(func() {
 			ui.Text(c, "Generate Test Data for "+x.obj.Schema+"."+x.obj.Name).FontSize(15).Bold().SingleLine()
@@ -393,7 +398,7 @@ func (a *App) fillView(c *ui.Context) {
 				ui.Scroll(c).MaxHeight(340).Border(1, th.Border).Radius(6).Children(func() {
 					ui.Column(c).Padding(4, 0).Children(func() {
 						for i := range x.cols {
-							a.fillColumnRow(c, x, &x.cols[i], labels)
+							a.fillColumnRow(c, x, &x.cols[i], fillKindLabels)
 						}
 					})
 				})

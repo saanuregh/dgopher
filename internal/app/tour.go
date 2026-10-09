@@ -95,7 +95,7 @@ func (a *App) tourView(c *ui.Context) {
 		ui.Box(c).Absolute().Left(0).Top(0).Size(w, h).
 			HandleInput(func(ui.InputEvent) bool { return true }).
 			Draw(func(p *ui.Painter, r ui.Rect) {
-				dim := ui.RGBA(0, 0, 0, 0.45)
+				dim := widgets.Backdrop
 				if !shown {
 					p.Fill(r, dim, 0)
 					return

@@ -397,10 +397,21 @@ func Conflict(id string, ch Chord) (Command, bool) {
 	return Command{}, false
 }
 
+// commandIndex maps a command's ID to its index in Commands.
+var commandIndex = func() map[string]int {
+	m := make(map[string]int, len(Commands))
+	for i, c := range Commands {
+		if _, dup := m[c.ID]; !dup {
+			m[c.ID] = i
+		}
+	}
+	return m
+}()
+
 // Lookup is a command by its ID.
 func Lookup(id string) (Command, bool) {
-	i := slices.IndexFunc(Commands, func(c Command) bool { return c.ID == id })
-	if i < 0 {
+	i, ok := commandIndex[id]
+	if !ok {
 		return Command{}, false
 	}
 	return Commands[i], true

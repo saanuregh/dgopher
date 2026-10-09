@@ -226,10 +226,10 @@ func (a *App) navChildren(n navNode) []navNode {
 			return navNode{kind: nodeFolder, conn: n.conn, database: n.database, schema: n.schema, folder: name}
 		}
 		var out []navNode
-		if len(connection.SortedObjects(objs, false)) > 0 {
+		if connection.CountObjects(objs, false) > 0 {
 			out = append(out, folder(folderTables))
 		}
-		if len(connection.SortedObjects(objs, true)) > 0 {
+		if connection.CountObjects(objs, true) > 0 {
 			out = append(out, folder(folderViews))
 		}
 		for _, kind := range db.ItemKinds() {
@@ -304,6 +304,9 @@ func (a *App) item(n navNode) (*connection.Conn, db.Item, bool) {
 		return nil, db.Item{}, false
 	}
 	for _, it := range cn.Items[connection.SchemaKey{Database: n.database, Schema: n.schema}] {
+		if k := string(it.Kind); len(n.name) <= len(k) || n.name[len(k)] != 0 || n.name[:len(k)] != k {
+			continue
+		}
 		if itemName(it) == n.name {
 			return cn, it, true
 		}
@@ -587,7 +590,7 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 			var count int
 			switch n.folder {
 			case folderTables, folderViews:
-				label, count = "Tables", len(connection.SortedObjects(cn.Objects[key], n.folder == folderViews))
+				label, count = "Tables", connection.CountObjects(cn.Objects[key], n.folder == folderViews)
 				if n.folder == folderViews {
 					label = "Views"
 				}
