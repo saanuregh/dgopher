@@ -32,8 +32,7 @@ Next or Later are not repeated.
   - Build a query by choosing tables and columns instead of typing SQL.
 - **Data grid:**
 - **Schema:**
-  - Save an ER diagram as PNG or SVG, and change the schema by editing
-    the diagram.
+  - Change the schema by editing the ER diagram.
   - Data models: build a model from a database, generate DDL from a
     model, and compare two models.
 - **Import, export and backup:**

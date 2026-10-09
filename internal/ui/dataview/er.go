@@ -263,6 +263,14 @@ func (e *ERTab) View(c *ui.Context) {
 			}
 			ui.Spacer(c)
 			ui.Text(c, "Drag a table by its name; double-click it to open its data.").FontSize(12).TextColor(pal.Muted)
+			widgets.ToolButton(c, widgets.IconDownload, "Save", "Save the diagram as an image").Disabled(len(e.tables) == 0).Menu(func(m *ui.Menu) {
+				if m.Item("Save as PNG…").Chosen() {
+					e.save(exportPNG)
+				}
+				if m.Item("Save as SVG…").Chosen() {
+					e.save(exportSVG)
+				}
+			})
 			if widgets.ToolButton(c, widgets.IconRefresh, "Arrange", "Lay the tables out again").Clicked() {
 				if e.focus != nil {
 					e.layoutFocus()
@@ -285,19 +293,29 @@ func (e *ERTab) View(c *ui.Context) {
 			ui.Text(c, "No tables in this schema.").TextColor(pal.Muted).Padding(12)
 			return
 		}
-		var w, h float32
-		for _, t := range e.tables {
-			w, h = max(w, t.x+erBoxW+40), max(h, t.y+t.height()+40)
-		}
 		ui.ScrollBoth(c).TrackScroll(&e.scroll).Grow(1).Background(pal.EditorBg).Children(func() {
-			canvas := ui.Box(c).Size(w, h)
-			canvas.Draw(func(p *ui.Painter, r ui.Rect) { e.drawLinks(p, r, c) })
-			canvas.Children(func() {
-				for _, t := range e.tables {
-					e.box(c, a, t)
-				}
-			})
+			e.canvas(c, a)
 		})
+	})
+}
+
+// extent is the size of the diagram: its tables, with a margin.
+func (e *ERTab) extent() (w, h float32) {
+	for _, t := range e.tables {
+		w, h = max(w, t.x+erBoxW+40), max(h, t.y+t.height()+40)
+	}
+	return w, h
+}
+
+// canvas draws the tables where they stand, and their links.
+func (e *ERTab) canvas(c *ui.Context, a Host) {
+	w, h := e.extent()
+	canvas := ui.Box(c).Size(w, h)
+	canvas.Draw(func(p *ui.Painter, r ui.Rect) { e.drawLinks(p, r, c) })
+	canvas.Children(func() {
+		for _, t := range e.tables {
+			e.box(c, a, t)
+		}
 	})
 }
 

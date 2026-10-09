@@ -420,7 +420,8 @@
   foreign-key connectors, laid out so referenced tables sit to the left.
   Drag tables to arrange them: one dropped on another moves to the
   nearest free place, so that no table hides another. Double-click one
-  to open its data.
+  to open its data. Save it as a PNG, drawn as the app draws it at twice
+  its size, or as SVG.
 
 ## Import, snippets and history
 
