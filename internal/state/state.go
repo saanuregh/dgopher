@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"dgopher/internal/redact"
 	"dgopher/internal/store"
 
 	"modernc.org/sqlite"
@@ -189,9 +190,12 @@ func (d *DB) SaveJSON(name string, v any) error {
 	return err
 }
 
-// AppendHistory adds an entry, and trims the history to the newest
-// entries once it grows too large.
+// AppendHistory adds an entry, its secrets redacted, and trims the
+// history to the newest entries once it grows too large. An error may
+// quote the statement it is about.
 func (d *DB) AppendHistory(e store.HistoryEntry) error {
+	e.Error = redact.Error(e.Error, e.SQL)
+	e.SQL = redact.Secrets(e.SQL)
 	d.historyMu.Lock()
 	defer d.historyMu.Unlock()
 	if err := insertHistory(d.sql, e); err != nil {

@@ -596,12 +596,14 @@ func TestProjectFolder(t *testing.T) {
 	a.openConnForm(nil)
 	f := a.connForm
 	f.cfg.Name, f.cfg.Host, f.cfg.PasswordEnv = "Billing (prod)", "db.internal", "DGOPHER_BILLING_PW"
+	f.envChosen = true
 	f.source = passwordSources[sourceEnv]
 	f.env = 2
 	a.saveConnForm(f, false)
 	a.openConnForm(nil)
 	f = a.connForm
 	f.cfg.Name, f.cfg.Host, f.cfg.Password = "Alpha", "h", "s3cret"
+	f.envChosen = true
 	f.engine = db.MySQL.Label()
 	a.saveConnForm(f, false)
 	raw, err := os.ReadFile(filepath.Join(dir, project.File))

@@ -110,6 +110,16 @@ func HexColor(c ui.Color) string {
 	return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B)
 }
 
+// SafetyColor is the color of where a connection's statements run: on
+// staging and production, the environment's whatever the connection's
+// own, which a shared project file may set; elsewhere, EnvColor.
+func SafetyColor(cfg *db.Config) ui.Color {
+	if cfg.Env == db.Staging || cfg.Env == db.Production {
+		return EnvironmentColor(cfg.Env)
+	}
+	return EnvColor(cfg)
+}
+
 func EnvironmentColor(e db.Environment) ui.Color {
 	switch e {
 	case db.Production:

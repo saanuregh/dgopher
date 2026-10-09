@@ -8,7 +8,7 @@ before it reaches the server:
 | Reads | run | run | run |
 | Writes (INSERT, UPDATE, …) | run | run | confirm |
 | Schema changes (CREATE, ALTER, …) | run | confirm | confirm |
-| DROP, TRUNCATE, UPDATE/DELETE without WHERE or with one always true (`WHERE 1=1`, `WHERE TRUE`, `id = id`), Redis FLUSHALL/KEYS/… | confirm | confirm | confirm, by typing the connection's name |
+| DROP, TRUNCATE, replacing a table (`CREATE OR REPLACE TABLE`), UPDATE/DELETE without WHERE or with one always true (`WHERE 1=1`, `WHERE TRUE`, `id = id`, `1=1 AND 2=2`), also inside a `WITH`, ClickHouse ALTERs that lose rows (`CLEAR COLUMN`, `MODIFY TTL`, `REPLACE`/`MOVE`/`DETACH PARTITION`), `ALTER … TRUNCATE PARTITION`, Redis FLUSHALL/KEYS/… | confirm | confirm | confirm, by typing the connection's name |
 | Default commit mode | auto | auto | manual (ClickHouse and Redis: always auto) |
 
 Redis commands that write follow the Writes row. Commands that need a
@@ -26,11 +26,13 @@ a string or a quoted name:
   DuckDB `access_mode=READ_ONLY`.
 
 **A large change asks before it commits.** On staging and production in
-auto-commit, an UPDATE or DELETE runs in a transaction of its own; if it
-changed more rows than the limit (Settings → Large changes, 1,000 by
-default, 0 for none), the app asks whether to commit, and rolls it back
-unless you agree; a stopped run rolls back, the script stops either way,
-and closing the editor while asked says what it rolls back. Manual
+auto-commit, an UPDATE, DELETE, MERGE, REPLACE or upsert (`ON CONFLICT
+DO UPDATE`, `ON DUPLICATE KEY UPDATE`, `INSERT OR REPLACE`) runs in a
+transaction of its own; if it changed more rows than the limit
+(Settings → Large changes, 1,000 by default, 0 for none), the app asks
+whether to commit, and rolls it back unless you agree; a stopped run
+rolls back, the script stops either way, and closing the editor while
+asked says what it rolls back. Manual
 commit leaves the transaction open anyway, its count shown. Not held:
 - DuckDB and in-memory SQLite, whose sessions share one connection and
   one transaction, which the change would take from the other editors;
@@ -39,6 +41,10 @@ commit leaves the transaction open anyway, its count shown. Not held:
   matched, changed or not;
 - `EXPLAIN ANALYZE`, `RETURNING` and a `WITH` that changes rows, whose
   rows are read, not counted.
+
+The count is the server's: an upsert's or a MERGE's includes the rows it
+inserts, and MySQL counts a row that ON DUPLICATE KEY UPDATE changes
+twice.
 
 **On production, a script asks before each write** — Run, Skip, Run All
 or Cancel; a destructive statement asks on its own even after Run All.
@@ -53,6 +59,9 @@ or Cancel; a destructive statement asks on its own even after Run All.
   open.
 - Deleting rows from the grid names the tables whose foreign keys point at
   them.
+- On production, applying grid changes or a row comparison's changes that
+  update or delete more rows already there than the large-change limit
+  asks for the connection's name, as an UPDATE without WHERE does.
 - Reading rows again while changes are not applied yet (refresh, sort,
   filter, fetching more, running the editor again) asks first: Apply,
   Discard or Cancel.
@@ -69,8 +78,16 @@ or Cancel; a destructive statement asks on its own even after Run All.
   that statement would be.
 - A `SELECT` that calls a function with side effects counts as a write, for
   example `pg_terminate_backend`, `setval`, `nextval`, `dblink_exec`,
-  `lo_export`, `pg_advisory_lock`, MySQL `GET_LOCK` and `SLEEP`, and SQLite
+  `lo_export`, the advisory locks, replication slots and origins,
+  `pg_stat_reset`, MySQL `GET_LOCK` and `SLEEP`, and SQLite
   `load_extension`. Quoted and escaped function names are decoded first.
+- A `SELECT … FOR UPDATE` or `FOR SHARE` (MySQL: `LOCK IN SHARE MODE`)
+  counts as a write: it locks its rows for as long as its result is open,
+  or its transaction is.
+- ClickHouse's `MOVE` (of users and roles between storages) counts as a
+  write; PostgreSQL's moves a cursor.
+- History and the audit log keep errors redacted as statements are, and
+  without the statement's secrets wherever an error quotes them.
 - Statements that change the server rather than the session count as
   writes: MySQL `RESET`, `SET GLOBAL`, `SET PERSIST`, `SET PASSWORD`,
   `SET DEFAULT ROLE` and `START REPLICA`, and PostgreSQL `COMMIT PREPARED`

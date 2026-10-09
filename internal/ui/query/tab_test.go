@@ -574,6 +574,25 @@ func TestLargeChangeAsks(t *testing.T) {
 		t.Fatalf("a small change asked %v, or did not commit: sum %d", a.Confirm != nil, sum())
 	}
 
+	// An upsert changes rows already there, and asks; an INSERT only adds.
+	a.Confirm = nil
+	q.Editor.Text = "INSERT INTO t VALUES (1, 5), (2, 5), (3, 5) ON CONFLICT (id) DO UPDATE SET a = excluded.a"
+	q.Run(RunStatement)
+	testutil.WaitFor(t, tt, "the question", func() bool { return a.Confirm != nil })
+	a.Confirm.OnCancel()
+	a.Confirm.Open = false
+	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running })
+	if sum() != 4 {
+		t.Fatalf("the declined upsert committed: sum %d", sum())
+	}
+	a.Confirm = nil
+	q.Editor.Text = "INSERT INTO t VALUES (4, 0), (5, 0), (6, 0)"
+	q.Run(RunStatement)
+	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running })
+	if a.Confirm != nil {
+		t.Fatal("an INSERT asked")
+	}
+
 	// One connection every session shares is not guarded: the guard's
 	// transaction would be every tab's.
 	mem := a.AddConn(db.Config{ID: "mem", Name: "mem", Engine: db.SQLite, Database: ":memory:", Env: db.Staging})

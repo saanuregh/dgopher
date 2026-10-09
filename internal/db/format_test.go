@@ -94,3 +94,10 @@ func TestStatementScript(t *testing.T) {
 		t.Errorf("preview: %q, want %q", got, want)
 	}
 }
+
+func TestExisting(t *testing.T) {
+	stmts := []Statement{{SQL: "UPDATE t SET a = 1 WHERE id = 1"}, {SQL: "INSERT INTO t (a) VALUES (1)"}, {SQL: "DELETE FROM t WHERE id = 2"}}
+	if n := Existing(stmts); n != 2 {
+		t.Fatalf("existing %d", n)
+	}
+}

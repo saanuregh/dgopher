@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -122,5 +123,21 @@ func TestHistoryConcurrent(t *testing.T) {
 	}
 	if len(h) != 200 || len(seen) != 200 {
 		t.Fatalf("got %d entries, %d unique", len(h), len(seen))
+	}
+}
+
+// An error kept in the history may quote the statement's secret.
+func TestHistoryRedactsErrors(t *testing.T) {
+	d := open(t, t.TempDir())
+	err := `Error 1064: You have an error in your SQL syntax near 'IDENTIFIED BY 's3cret' WITH' at line 1`
+	if e := d.AppendHistory(store.HistoryEntry{SQL: "CREATE USER u IDENTIFIED BY 's3cret' WITH", Error: err}); e != nil {
+		t.Fatal(e)
+	}
+	got, e := d.History(1)
+	if e != nil || len(got) != 1 {
+		t.Fatal(got, e)
+	}
+	if strings.Contains(got[0].SQL, "s3cret") || strings.Contains(got[0].Error, "s3cret") {
+		t.Fatalf("the secret was kept: %+v", got[0])
 	}
 }

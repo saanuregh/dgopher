@@ -4,6 +4,7 @@ package redact
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -19,6 +20,9 @@ var redisSecrets = []*regexp.Regexp{
 }
 
 var aclPassword = regexp.MustCompile(`(\s)>\S+`)
+
+// connPassword finds the password of a connection string.
+var connPassword = regexp.MustCompile(`(?i)\b(?:password|pwd)\s*=\s*'?([^\s'";]+)`)
 
 // credentialFunctions take credentials among their arguments: their
 // strings are redacted whole.
@@ -37,13 +41,80 @@ func Secrets(s string) string {
 	} else {
 		// Each lexer reads strings its own way: PostgreSQL's dollar
 		// quotes, MySQL's double quotes.
-		s = redactSQLSecrets(s, sqltext.Postgres)
-		s = redactSQLSecrets(s, sqltext.MySQL)
+		s, _ = redactSQLSecrets(s, sqltext.Postgres)
+		s, _ = redactSQLSecrets(s, sqltext.MySQL)
 	}
 	for _, re := range redisSecrets {
 		s = re.ReplaceAllString(s, "${1}•••")
 	}
-	return aclPassword.ReplaceAllString(s, "${1}>•••")
+	if f := strings.Fields(s); len(f) > 0 && strings.EqualFold(f[0], "ACL") {
+		s = aclPassword.ReplaceAllString(s, "${1}>•••") // in SQL, > is an operator
+	}
+	return s
+}
+
+// Error hides in an error the secrets of the statement it is about, which
+// a server may quote, as MySQL's syntax errors do, cut off where a lexer
+// would not find them; then what Secrets finds.
+func Error(msg, stmt string) string {
+	for _, d := range []sqltext.Dialect{sqltext.Postgres, sqltext.MySQL} {
+		_, found := redactSQLSecrets(stmt, d)
+		for _, text := range found {
+			for _, v := range secretValues(text) {
+				msg = hideValue(msg, v)
+			}
+		}
+	}
+	return Secrets(msg)
+}
+
+// minSecret is the fewest runes of a secret, or of its start, that an
+// error is searched for: fewer would hide ordinary words.
+const minSecret = 6
+
+// hideValue hides a secret in a message, or the longest start of it the
+// message holds, as an error that quotes so many characters of the text
+// cuts it off.
+func hideValue(msg, v string) string {
+	r := []rune(v)
+	if len(r) < minSecret {
+		return strings.ReplaceAll(msg, v, "•••")
+	}
+	for n := len(r); n >= minSecret; n-- {
+		if part := string(r[:n]); strings.Contains(msg, part) {
+			return strings.ReplaceAll(msg, part, "•••")
+		}
+	}
+	return msg
+}
+
+// secretValues are how a server may write a string token's value: as it
+// is written, and with doubled quotes undone. A value too short to tell
+// from other text is left out.
+func secretValues(text string) []string {
+	if i := strings.IndexAny(text, `'"$`); i >= 0 {
+		text = text[i:]
+	}
+	inner := strings.Trim(text, `'"`)
+	if strings.HasPrefix(text, "$") {
+		if j := strings.Index(text[1:], "$"); j >= 0 {
+			tag := text[:j+2]
+			inner = strings.TrimSuffix(strings.TrimPrefix(text, tag), tag)
+		}
+	}
+	values := []string{inner, strings.ReplaceAll(inner, "''", "'"), strings.ReplaceAll(inner, `""`, `"`)}
+	for _, v := range values[1:] {
+		for _, m := range connPassword.FindAllStringSubmatch(v, -1) {
+			values = append(values, m[1]) // an error may name a connection string's password alone
+		}
+	}
+	var out []string
+	for _, v := range values {
+		if len([]rune(v)) >= 3 && !slices.Contains(out, v) {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func isRedisCredentialCommand(s string) bool {
@@ -84,15 +155,21 @@ func redactRedisArgs(s string) string {
 // redactSQLSecrets replaces the strings that carry passwords: after
 // PASSWORD (PASSWORD FOR 'u' = 'x' included) or IDENTIFIED … BY, and the
 // strings among the arguments of credentialFunctions. It reads the tokens,
-// so a string that only mentions a password stays.
-func redactSQLSecrets(s string, d sqltext.Dialect) string {
+// so a string that only mentions a password stays. found are the tokens
+// cut that are secrets for certain, as written.
+func redactSQLSecrets(s string, d sqltext.Dialect) (redacted string, found []string) {
 	toks := sqltext.Tokenize(s, d)
 	runes := []rune(s)
 	var b strings.Builder
 	last := 0
-	cut := func(t sqltext.Token) {
+	// known is a secret for certain: a password, not any argument of a
+	// function that takes credentials among others.
+	cut := func(t sqltext.Token, known bool) {
 		b.WriteString(string(runes[last:t.Start]))
 		b.WriteString("'•••'")
+		if known {
+			found = append(found, string(runes[t.Start:t.End]))
+		}
 		last = t.End
 	}
 	const (
@@ -109,7 +186,7 @@ func redactSQLSecrets(s string, d sqltext.Dialect) string {
 			continue
 		case sqltext.String, sqltext.QuotedIdent:
 			if inFunc && t.Kind == sqltext.String || state == wantSecret || t.Kind == sqltext.String && carriesPassword(t.Text) {
-				cut(t)
+				cut(t, state == wantSecret || carriesPassword(t.Text))
 				if state == wantSecret {
 					state = idle
 				}
@@ -152,7 +229,7 @@ func redactSQLSecrets(s string, d sqltext.Dialect) string {
 		}
 	}
 	b.WriteString(string(runes[last:]))
-	return b.String()
+	return b.String(), found
 }
 
 // redisSecretSettings are the CONFIG SET parameters that hold secrets.

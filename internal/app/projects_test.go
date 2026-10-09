@@ -278,6 +278,7 @@ func TestStorageNotes(t *testing.T) {
 	a.openConnForm(nil)
 	f := a.connForm
 	f.cfg.Name, f.cfg.Host, f.cfg.Password = "Billing", "db", "pw"
+	f.envChosen = true
 	cfg := f.config()
 	note := a.storageNote(f, &cfg)
 	id := a.projects[0].Prefix + "billing"
@@ -314,6 +315,7 @@ func TestOnlyTheChosenSourceIsKept(t *testing.T) {
 	a.openConnForm(nil)
 	f := a.connForm
 	f.cfg.Name, f.cfg.Host, f.cfg.Password = "x", "db", "typed"
+	f.envChosen = true
 	f.source = passwordSources[sourceCommand]
 	f.cfg.PasswordCommand = "printf pw"
 	a.saveConnForm(f, false)
@@ -605,6 +607,7 @@ func TestEditAndDuplicateKeepSecrets(t *testing.T) {
 	a.openConnForm(nil)
 	f := a.connForm
 	f.cfg.Name, f.cfg.Host, f.cfg.PasswordEnv = "env", "db", "DGOPHER_X"
+	f.envChosen = true
 	f.source = passwordSources[sourceEnv]
 	f.cfg.SSH = db.SSHConfig{Enabled: true, Host: "bastion", User: "u", Password: "sshpw"}
 	a.saveConnForm(f, false)
@@ -617,6 +620,7 @@ func TestEditAndDuplicateKeepSecrets(t *testing.T) {
 	a.openConnForm(nil)
 	f = a.connForm
 	f.cfg.Name, f.cfg.Host, f.cfg.Password = "kc", "db2", "s3cret"
+	f.envChosen = true
 	a.saveConnForm(f, false)
 	a.duplicateConn(a.conns[1])
 	dup := a.conns[2]
@@ -698,6 +702,7 @@ func TestRefusedSaveChangesNothing(t *testing.T) {
 	a.openConnForm(nil)
 	f := a.connForm
 	f.cfg.Name, f.cfg.Host, f.cfg.Password = "x", "db", "s3cret"
+	f.envChosen = true
 	trusted := len(a.settings.TrustedShared)
 	a.saveConnForm(f, false)
 	if len(a.conns) != 0 || f.err == "" || len(a.settings.TrustedShared) != trusted {
@@ -1055,6 +1060,7 @@ func TestConnFormSentinel(t *testing.T) {
 		t.Fatalf("sentinel form: %q", tt.Texts())
 	}
 	f.cfg.Name, f.cfg.Host, f.cfg.Redis.Nodes, f.cfg.Redis.Master = "cache", "10.0.0.1", " 10.0.0.2:26379 ", "mymaster"
+	f.envChosen = true
 	f.cfg.Redis.SentinelPassword = "sentinel-secret"
 	if got := f.config(); got.Port != 0 || got.Redis.Nodes != "10.0.0.2:26379" {
 		t.Fatalf("config %+v", got)
@@ -1090,6 +1096,7 @@ func TestCloudIdentityForm(t *testing.T) {
 	f := a.connForm
 	f.engine = db.MySQL.Label()
 	f.cfg.Name, f.cfg.Host, f.cfg.User, f.cfg.Password = "Orders", "orders.rds.amazonaws.com", "app", "typed"
+	f.envChosen = true
 	f.source, f.identity = passwordSources[sourceIdentity], db.IdentityAWS.Label()
 	f.cfg.IdentityRegion = " eu-west-1 "
 	cfg := f.config()
@@ -1114,5 +1121,72 @@ func TestCloudIdentityForm(t *testing.T) {
 	f.engine = db.Redis.Label()
 	if slices.Contains(passwordSourcesOf(db.Redis), passwordSources[sourceIdentity]) || f.config().Identity != "" {
 		t.Fatal("Redis offered a cloud identity")
+	}
+}
+
+// A connection to another machine is not saved as development unless the
+// user chose it: the default asks nothing before a write. An edit that
+// points it elsewhere asks again; a local one never asks.
+func TestConnectionEnvironmentChosen(t *testing.T) {
+	a := newTestApp(t)
+	a.openConnForm(nil)
+	f := a.connForm
+	f.cfg.Name, f.cfg.Host = "orders", "orders.example.com"
+	a.saveConnForm(f, false)
+	if len(a.conns) != 0 || !f.envAsked || !strings.Contains(f.err, "orders.example.com") {
+		t.Fatalf("saved without an environment: conns %d, err %q", len(a.conns), f.err)
+	}
+	tt := ui.NewTester(a.view, 1200, 800)
+	tt.Frame()
+	if err := tt.Click("Development"); err != nil { // the one shown, picked
+		t.Fatal(err)
+	}
+	tt.Frame()
+	a.saveConnForm(f, false)
+	if len(a.conns) != 1 {
+		t.Fatalf("not saved once chosen: %q", f.err)
+	}
+
+	// Editing what does not move it asks nothing; moving it asks again.
+	a.openConnForm(a.conns[0])
+	f = a.connForm
+	f.cfg.Name = "orders 2"
+	a.saveConnForm(f, false)
+	if f.err != "" || a.conns[0].Config.Name != "orders 2" {
+		t.Fatalf("a rename asked: %q", f.err)
+	}
+	a.openConnForm(a.conns[0])
+	f = a.connForm
+	f.cfg.Host = "orders-prod.example.com"
+	a.saveConnForm(f, false)
+	if a.conns[0].Config.Host != "orders.example.com" || !f.envAsked {
+		t.Fatalf("moved without asking: %q", a.conns[0].Config.Host)
+	}
+
+	a.openConnForm(nil)
+	f = a.connForm
+	f.cfg.Name, f.cfg.Host = "local", "127.0.0.1"
+	a.saveConnForm(f, false)
+	if f.err != "" || len(a.conns) != 2 {
+		t.Fatalf("a local connection asked: %q", f.err)
+	}
+}
+
+func TestRemote(t *testing.T) {
+	for _, c := range []struct {
+		cfg  db.Config
+		want bool
+	}{
+		{db.Config{Engine: db.Postgres, Host: "localhost:5432"}, false},
+		{db.Config{Engine: db.Postgres, Host: "[::1]:5432"}, false},
+		{db.Config{Engine: db.Postgres, Host: "/var/run/postgresql"}, false},
+		{db.Config{Engine: db.Postgres, Host: "db.example.com"}, true},
+		{db.Config{Engine: db.Postgres, Host: "localhost", SSH: db.SSHConfig{Enabled: true, Host: "bastion"}}, true},
+		{db.Config{Engine: db.Redis, Host: "localhost", Redis: db.RedisConfig{Nodes: "127.0.0.1:7001, 10.0.0.2:7002"}}, true},
+		{db.Config{Engine: db.SQLite, Database: "/tmp/x.db"}, false},
+	} {
+		if got := remote(&c.cfg); got != c.want {
+			t.Errorf("%+v: remote %v", c.cfg, got)
+		}
 	}
 }

@@ -115,3 +115,32 @@ func TestChangedTable(t *testing.T) {
 		}
 	}
 }
+
+func TestUpserts(t *testing.T) {
+	for sql, want := range map[string]bool{
+		"INSERT INTO t VALUES (1) ON CONFLICT (id) DO UPDATE SET a = 1":  true,
+		"insert into t values (1) on conflict do nothing":                false,
+		"INSERT INTO t VALUES (1) ON DUPLICATE KEY UPDATE a = 1":         true,
+		"INSERT OR REPLACE INTO t VALUES (1)":                            true,
+		"INSERT INTO t SELECT * FROM u JOIN v ON u.id = v.id":            false,
+		"INSERT INTO t VALUES (1)":                                       false,
+		"INSERT INTO t SELECT * FROM a JOIN b ON duplicate = 1":          false,
+		"UPDATE t SET a = 1 WHERE b IN (SELECT 1 ON CONFLICT DO UPDATE)": false,
+	} {
+		if got := Upserts(sql, Postgres); got != want {
+			t.Errorf("%s: %v", sql, got)
+		}
+	}
+}
+
+func TestChangedTableInserts(t *testing.T) {
+	for sql, want := range map[string]string{
+		"INSERT INTO shop.t (a) VALUES (1) ON DUPLICATE KEY UPDATE a = 1": "t",
+		"REPLACE LOW_PRIORITY INTO t VALUES (1)":                          "t",
+		"INSERT IGNORE t VALUES (1)":                                      "t",
+	} {
+		if ref, ok := ChangedTable(sql, MySQL); !ok || ref.Name != want {
+			t.Errorf("%s: %+v %v", sql, ref, ok)
+		}
+	}
+}

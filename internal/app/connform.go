@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -43,6 +44,10 @@ type connForm struct {
 	redisMode int // an index of redisModes
 	proxy     int // an index of proxyKinds
 	proxyPort string
+
+	// envChosen is set once the user picks the environment in the form,
+	// even the one shown; envAsked, once a save asked them to.
+	envChosen, envAsked bool
 
 	project    *project.Project // where a new connection goes
 	projectSel string           // its label in the project choice
@@ -490,6 +495,9 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 			seg.Track.Gap(4).Children(func() {
 				for i, e := range db.Environments() {
 					s := seg.Segment(i).Padding(5, 12).Radius(6).Border(1, t.Border)
+					if s.Clicked() || s.Changed() {
+						f.envChosen = true
+					}
 					col := widgets.EnvironmentColor(e)
 					if i == f.env {
 						s.Background(col).Border(1, col)
@@ -502,7 +510,11 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 					})
 				}
 			})
-			ui.Text(c, envHelp(db.Environments()[f.env])).FontSize(12).TextColor(pal.Muted)
+			if f.envAsked && !f.envChosen {
+				ui.Text(c, "Choose the environment: it sets how carefully statements run on this server.").FontSize(12).TextColor(t.Danger)
+			} else {
+				ui.Text(c, envHelp(db.Environments()[f.env])).FontSize(12).TextColor(pal.Muted)
+			}
 		})
 	})
 	colorField(c, f)
@@ -553,7 +565,7 @@ func colorField(c *ui.Context, f *connForm) {
 				f.cfg.Color = widgets.HexColor(custom)
 			}
 		})
-	}).Description("Marks the connection's tabs, the band above them and the status bar. The status bar names the environment whatever the color.")
+	}).Description("Marks the connection in the navigator and its tabs, and the band above its work. On staging and production, the band and the questions before a write keep the environment's color, and the status bar names it whatever the color.")
 }
 
 // networkPage holds how the app reaches a server: TLS and an SSH tunnel.
@@ -877,6 +889,13 @@ func (a *App) saveConnForm(f *connForm, connect bool) {
 		f.err = err.Error()
 		return
 	}
+	if !f.envChosen && remote(&cfg) && (f.editing == nil || destination(f.loaded) != destination(cfg)) {
+		// A server elsewhere may be production: development, the
+		// default, asks nothing before a write.
+		f.envAsked = true
+		f.err = "Choose the environment of " + destination(cfg) + " on the General page."
+		return
+	}
 	if !a.st.Secrets().Available() && !cfg.Engine.IsFile() && cfg.Password != "" {
 		cfg.AskPassword = true
 	}
@@ -890,6 +909,46 @@ func (a *App) saveConnForm(f *connForm, connect bool) {
 		return
 	}
 	a.finishConnForm(f, cfg, connect)
+}
+
+// destination is where a connection goes: its host and port, and a Redis
+// connection's other nodes, through its SSH server if it tunnels.
+func destination(cfg db.Config) string {
+	at := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
+	if cfg.Engine == db.Redis && strings.TrimSpace(cfg.Redis.Nodes) != "" {
+		at += ", " + strings.TrimSpace(cfg.Redis.Nodes)
+	}
+	if cfg.SSH.Enabled {
+		at += " through " + net.JoinHostPort(cfg.SSH.Host, strconv.Itoa(cfg.SSH.Port))
+	}
+	return at
+}
+
+// remote reports whether a connection goes to another machine than this
+// one: not a file, a socket or the loopback, nor a Redis node elsewhere.
+func remote(cfg *db.Config) bool {
+	local := func(host string) bool {
+		host = strings.TrimSpace(host)
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		if host == "" || host == "localhost" || strings.HasPrefix(host, "/") {
+			return true
+		}
+		ip := net.ParseIP(host)
+		return ip != nil && ip.IsLoopback()
+	}
+	if cfg.Engine.IsFile() {
+		return false
+	}
+	hosts := []string{cfg.Host}
+	if cfg.SSH.Enabled {
+		hosts = append(hosts, cfg.SSH.Host)
+	}
+	if cfg.Engine == db.Redis {
+		hosts = append(hosts, strings.Split(cfg.Redis.Nodes, ",")...)
+	}
+	return slices.ContainsFunc(hosts, func(h string) bool { return !local(h) })
 }
 
 // reconnectNeeded reports whether an edit changes how the app reaches the

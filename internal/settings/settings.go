@@ -27,10 +27,10 @@ type Settings struct {
 	// SemicolonOnly ends statements at ';' only; by default a blank line
 	// ends one too, as in DBeaver.
 	SemicolonOnly bool `json:"semicolonOnly,omitempty"`
-	// ChangeLimit is how many rows an UPDATE or DELETE run in auto-commit
-	// on staging or production may change before it asks to commit; 0
-	// for no limit. Kept even at 0, which the default would otherwise
-	// replace.
+	// ChangeLimit is how many rows an UPDATE, a DELETE, a MERGE or an
+	// upsert run in auto-commit on staging or production may change before
+	// it asks to commit; 0 for no limit. Kept even at 0, which the default
+	// would otherwise replace.
 	ChangeLimit int `json:"changeLimit"`
 	// ContinueOnError runs a script's next statements after one fails.
 	ContinueOnError bool `json:"continueOnError,omitempty"`

@@ -223,6 +223,7 @@ func (a *App) startSync(x *rowCompareDialog) {
 	if !x.result.Complete() {
 		v.Reasons = append(v.Reasons, fmt.Sprintf("Only the first %s differences are changed: compare again for the rest.", widgets.HumanCount(db.DifferenceLimit)))
 	}
+	v.ManyRows(&cfg, db.Existing(stmts), a.settings.ChangeLimit)
 	title := fmt.Sprintf("Apply %s change%s to %s?", widgets.HumanCount(int64(len(stmts))), widgets.Plural(len(stmts)), x.toTable)
 	a.AskConfirm(to, v, title, "Apply", preview, func() { a.runSync(x, stmts, shown) })
 }

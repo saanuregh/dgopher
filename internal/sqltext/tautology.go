@@ -17,23 +17,44 @@ func alwaysTrue(toks []Token) bool {
 	}
 	dep := depths(toks)
 	// One term of an OR at the top always true makes the whole so.
-	start := 0
-	for i := 0; i <= len(toks); i++ {
-		if i == len(toks) || dep[i] == 0 && word(toks[i]) == "OR" {
-			if trueTerm(toks[start:i]) {
-				return true
-			}
-			start = i + 1
+	for _, term := range splitTop(toks, dep, "OR") {
+		if allTrue(term) {
+			return true
 		}
 	}
 	return false
 }
 
-// trueTerm reports whether a condition without a top-level OR always
-// holds: a constant true, or a comparison of a thing with itself.
+// allTrue reports whether every part of a term's top-level AND always
+// holds. A BETWEEN's AND splits it into parts that do not.
+func allTrue(toks []Token) bool {
+	for _, part := range splitTop(toks, depths(toks), "AND") {
+		if !trueTerm(part) {
+			return false
+		}
+	}
+	return true
+}
+
+// splitTop splits tokens at a word outside parentheses.
+func splitTop(toks []Token, dep []int, sep string) [][]Token {
+	var out [][]Token
+	start := 0
+	for i := 0; i <= len(toks); i++ {
+		if i == len(toks) || dep[i] == 0 && word(toks[i]) == sep {
+			out = append(out, toks[start:i])
+			start = i + 1
+		}
+	}
+	return out
+}
+
+// trueTerm reports whether a condition without a top-level OR or AND
+// always holds: a constant true, a comparison of a thing with itself, or
+// a group in parentheses always true.
 func trueTerm(toks []Token) bool {
-	for len(toks) >= 2 && isPunct(toks[0], "(") && isPunct(toks[len(toks)-1], ")") && closes(toks) {
-		toks = toks[1 : len(toks)-1]
+	if len(toks) >= 2 && isPunct(toks[0], "(") && isPunct(toks[len(toks)-1], ")") && closes(toks) {
+		return alwaysTrue(toks[1 : len(toks)-1]) // a group may hold ORs and ANDs
 	}
 	switch {
 	case len(toks) == 1:

@@ -36,7 +36,7 @@ type ConfirmRequest struct {
 func ConfirmView(c *ui.Context, r *ConfirmRequest) {
 	t := c.Theme()
 	pal := PaletteOf(c)
-	envCol := EnvColor(&r.Conn.Config)
+	envCol := SafetyColor(&r.Conn.Config)
 	ui.DialogBase(c, &r.Open, func(backdrop, panel ui.Element) {
 		backdrop.Background(Backdrop)
 		panel.Width(560).MaxHeightPercent(90).Radius(12).Background(t.Background).Border(1, t.Border).Clip().

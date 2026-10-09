@@ -254,7 +254,7 @@ func (a *App) pane(c *ui.Context, t widgets.Tab, split bool) {
 		if cn := t.Connection(); cn != nil {
 			// The environment's color all along the top of the work: the
 			// first thing to see before typing into production.
-			ui.Box(c).FillWidth().Height(3).Background(widgets.EnvColor(&cn.Config))
+			ui.Box(c).FillWidth().Height(3).Background(widgets.SafetyColor(&cn.Config))
 		}
 		if split {
 			band := th.Border
@@ -550,8 +550,7 @@ func (a *App) statusBar(c *ui.Context) {
 			ui.Spacer(c)
 			return
 		}
-		col := widgets.EnvColor(&cn.Config)
-		ui.Row(c).Gap(5).Padding(1, 8).Radius(4).Background(col).Children(func() {
+		ui.Row(c).Gap(5).Padding(1, 8).Radius(4).Background(widgets.EnvironmentColor(cn.Config.Env)).Children(func() {
 			ui.Text(c, cn.Config.Env.Label()).FontSize(11).Bold().TextColor(ui.RGB(255, 255, 255))
 		})
 		ui.Text(c, cn.Config.Name).FontSize(12).Bold()

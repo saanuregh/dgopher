@@ -41,9 +41,19 @@ func init() {
 // sideEffectFunctions lists, per dialect, functions whose call changes
 // state, so a SELECT that calls one is a write. DuckDB uses Postgres.
 var sideEffectFunctions = map[Dialect]map[string]bool{
-	Postgres: setOf("pg_terminate_backend pg_cancel_backend setval nextval dblink_exec dblink lo_import lo_export lo_unlink lo_create lo_from_bytea lo_put lowrite pg_advisory_lock pg_advisory_xact_lock pg_try_advisory_lock pg_reload_conf pg_rotate_logfile pg_notify pg_switch_wal pg_create_restore_point pg_promote set_config pg_file_write pg_logical_emit_message"),
-	MySQL:    setOf("get_lock release_lock release_all_locks sleep benchmark"),
-	SQLite:   setOf("load_extension"),
+	Postgres: setOf("pg_terminate_backend pg_cancel_backend setval nextval dblink_exec dblink lo_import lo_export lo_unlink lo_create lo_from_bytea lo_put lowrite pg_advisory_lock pg_advisory_xact_lock pg_try_advisory_lock pg_reload_conf pg_rotate_logfile pg_notify pg_switch_wal pg_create_restore_point pg_promote set_config pg_file_write pg_logical_emit_message " +
+		"pg_advisory_lock_shared pg_advisory_xact_lock_shared pg_try_advisory_lock_shared pg_try_advisory_xact_lock pg_try_advisory_xact_lock_shared " +
+		"pg_advisory_unlock pg_advisory_unlock_shared pg_advisory_unlock_all " +
+		"pg_create_logical_replication_slot pg_create_physical_replication_slot pg_drop_replication_slot pg_copy_logical_replication_slot " +
+		"pg_copy_physical_replication_slot pg_replication_slot_advance pg_logical_slot_get_changes pg_logical_slot_get_binary_changes " +
+		"pg_replication_origin_create pg_replication_origin_drop pg_replication_origin_advance pg_replication_origin_session_setup " +
+		"pg_replication_origin_session_reset pg_replication_origin_xact_setup pg_replication_origin_xact_reset " +
+		"pg_stat_reset pg_stat_reset_shared pg_stat_reset_single_table_counters pg_stat_reset_single_function_counters pg_stat_reset_slru " +
+		"pg_stat_reset_replication_slot pg_stat_reset_subscription_stats pg_stat_statements_reset " +
+		"lo_truncate lo_truncate64 pg_wal_replay_pause pg_wal_replay_resume pg_backup_start pg_backup_stop pg_start_backup pg_stop_backup " +
+		"pg_import_system_collations"),
+	MySQL:  setOf("get_lock release_lock release_all_locks sleep benchmark"),
+	SQLite: setOf("load_extension"),
 }
 
 // readOnlyPragmas are the SQLite and DuckDB pragmas that only report.
@@ -294,7 +304,17 @@ func classifyVerb(toks []Token, d Dialect) Analysis {
 		if d == ClickHouse || next == "TABLE" {
 			return Analysis{Class: Read, Verb: verb}
 		}
+	case "MOVE":
+		// PostgreSQL's MOVE moves a cursor; ClickHouse's moves access
+		// entities between storages.
+		if d != Postgres {
+			return Analysis{Class: Write, Verb: verb}
+		}
 	case "SELECT", "TABLE", "VALUES":
+		if locks(toks, dep) {
+			// Its rows stay locked while the result is open, as for a write.
+			return Analysis{Class: Write, Verb: verb}
+		}
 		if i := topLevel("INTO"); i >= 0 {
 			// MySQL "INTO @var" only sets a user variable.
 			if i+1 < len(toks) && toks[i+1].Kind == Param {
@@ -364,6 +384,14 @@ func classifyVerb(toks []Token, d Dialect) Analysis {
 			a.Reason = verb + " whose WHERE is always true affects every row"
 		}
 		return a
+	case "CREATE":
+		if next == "OR" && len(toks) > 3 && word(toks[2]) == "REPLACE" && replacesTable(toks[3:]) {
+			return Analysis{Class: DDL, Verb: verb, Dangerous: true, Reason: "CREATE OR REPLACE TABLE replaces the table and its rows"}
+		}
+	case "REPLACE":
+		if next == "TABLE" { // ClickHouse
+			return Analysis{Class: DDL, Verb: verb, Dangerous: true, Reason: "REPLACE TABLE replaces the table and its rows"}
+		}
 	case "DROP":
 		obj := "object"
 		if len(toks) > 1 && word(toks[1]) != "" {
@@ -378,12 +406,20 @@ func classifyVerb(toks []Token, d Dialect) Analysis {
 			a.Dangerous = true
 			a.Reason = "ALTER ... DROP removes a column, constraint or other part of the object and may lose data"
 		}
+		if i := topLevel("TRUNCATE"); i >= 0 && i+1 < len(toks) && word(toks[i+1]) == "PARTITION" {
+			a.Dangerous = true
+			a.Reason = "ALTER ... TRUNCATE PARTITION deletes the partition's rows"
+		}
 		if d == ClickHouse {
 			for _, m := range []string{"DELETE", "UPDATE"} {
 				if topLevel(m) >= 0 {
 					a.Dangerous = true
 					a.Reason = "ALTER TABLE ... " + m + " is a ClickHouse mutation that rewrites table data and cannot be rolled back"
 				}
+			}
+			if why := clickHouseLoses(toks, dep); why != "" {
+				a.Dangerous = true
+				a.Reason = why
 			}
 		}
 		return a
@@ -392,6 +428,67 @@ func classifyVerb(toks []Token, d Dialect) Analysis {
 		return Analysis{Class: c, Verb: verb}
 	}
 	return Analysis{Class: Write, Verb: verb}
+}
+
+// locks reports whether a SELECT locks the rows it reads: FOR UPDATE,
+// FOR NO KEY UPDATE, FOR SHARE, FOR KEY SHARE, or MySQL's LOCK IN SHARE
+// MODE.
+func locks(toks []Token, dep []int) bool {
+	for i := 0; i+1 < len(toks); i++ {
+		if dep[i] > 0 {
+			continue
+		}
+		switch w, next := word(toks[i]), word(toks[i+1]); {
+		case w == "FOR" && (next == "UPDATE" || next == "SHARE" || next == "NO" || next == "KEY"):
+			return true
+		case w == "LOCK" && next == "IN":
+			return true
+		}
+	}
+	return false
+}
+
+// clickHouseLoses says how a ClickHouse ALTER loses rows or values, ""
+// when it does not: clearing a column, a TTL that expires rows, or a
+// partition replaced, moved away or detached.
+func clickHouseLoses(toks []Token, dep []int) string {
+	for i := 1; i+1 < len(toks); i++ {
+		if dep[i] > 0 {
+			continue
+		}
+		switch w, next := word(toks[i]), word(toks[i+1]); {
+		case w == "CLEAR" && next == "COLUMN":
+			return "ALTER TABLE ... CLEAR COLUMN deletes the column's values"
+		case w == "MODIFY" && next == "TTL":
+			return "ALTER TABLE ... MODIFY TTL deletes the rows it expires"
+		case w == "MATERIALIZE" && next == "TTL":
+			return "ALTER TABLE ... MATERIALIZE TTL deletes the rows it expires"
+		case (w == "REPLACE" || w == "DETACH") && (next == "PARTITION" || next == "PART"),
+			w == "MOVE" && (next == "PARTITION" || next == "PART") && toTable(toks[i+2:]):
+			return "ALTER TABLE ... " + w + " " + next + " takes the partition's rows out of the table"
+		}
+	}
+	return ""
+}
+
+// replacesTable reports whether what follows CREATE OR REPLACE is a
+// table, temporary or not.
+func replacesTable(toks []Token) bool {
+	if w := word(toks[0]); (w == "TEMP" || w == "TEMPORARY") && len(toks) > 1 {
+		toks = toks[1:]
+	}
+	return word(toks[0]) == "TABLE"
+}
+
+// toTable reports whether TO TABLE follows: a partition moved to another
+// table, rather than to a disk or a volume.
+func toTable(toks []Token) bool {
+	for i := 0; i+1 < len(toks); i++ {
+		if word(toks[i]) == "TO" {
+			return word(toks[i+1]) == "TABLE"
+		}
+	}
+	return false
 }
 
 // setsServerState reports whether a SET changes more than the session: MySQL
@@ -479,6 +576,7 @@ func classifyWith(toks []Token, d Dialect) Analysis {
 		i++
 	}
 	cteWrites := false
+	var danger Analysis // the first dangerous CTE body's
 	for i < len(toks) {
 		// Skip "name [(cols)] AS [NOT] [MATERIALIZED]" up to the CTE body.
 		for i < len(toks) && !(isPunct(toks[i], "(") && i > 0 && (word(toks[i-1]) == "AS" || word(toks[i-1]) == "MATERIALIZED")) {
@@ -497,6 +595,9 @@ func classifyWith(toks []Token, d Dialect) Analysis {
 			case "INSERT", "UPDATE", "DELETE", "MERGE":
 				cteWrites = true
 			}
+		}
+		if body := classifyTokens(toks[i+1:max(end-1, i+1)], d); body.Dangerous && !danger.Dangerous {
+			danger = body
 		}
 		i = skipSearchCycle(toks, end)
 		if i < len(toks) && isPunct(toks[i], ",") {
@@ -530,6 +631,9 @@ func classifyWith(toks []Token, d Dialect) Analysis {
 	a := classifyTokens(toks[i:], d)
 	if cteWrites && a.Class == Read {
 		a.Class = Write
+	}
+	if danger.Dangerous && !a.Dangerous {
+		a.Dangerous, a.Reason = true, "in a WITH query, "+danger.Reason
 	}
 	return a
 }

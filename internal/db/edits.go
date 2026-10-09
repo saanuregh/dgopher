@@ -182,6 +182,18 @@ func (t *EditTarget) Statements(changes []Change) ([]Statement, error) {
 	return out, nil
 }
 
+// Existing counts the statements, as Statements writes them, that change
+// or delete a row already there, rather than add one.
+func Existing(stmts []Statement) int {
+	n := 0
+	for _, s := range stmts {
+		if strings.HasPrefix(s.SQL, "UPDATE ") || strings.HasPrefix(s.SQL, "DELETE ") {
+			n++
+		}
+	}
+	return n
+}
+
 // Preview writes a statement with its parameters inlined, for the user to
 // read before applying it. It is never executed.
 func (s Statement) Preview() string { return s.inline(previewLiteral) }

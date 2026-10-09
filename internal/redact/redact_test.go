@@ -73,3 +73,45 @@ func TestRedactMoreSQL(t *testing.T) {
 		}
 	}
 }
+
+// A server's error may quote the statement's secret where a lexer would
+// not find it.
+func TestError(t *testing.T) {
+	for _, c := range []struct{ msg, stmt string }{
+		{`Error 1064: You have an error in your SQL syntax near 'IDENTIFIED BY 's3cret' WITH' at line 1`, `CREATE USER u IDENTIFIED BY 's3cret' WITH`},
+		{`syntax error at or near "PASSWORD 'it's me'"`, `ALTER USER u PASSWORD 'it''s me' x`},
+		{`could not connect: password=hunter22 rejected`, `SELECT dblink_connect('host=h password=hunter22')`},
+	} {
+		got := Error(c.msg, c.stmt)
+		for _, secret := range []string{"s3cret", "it's me", "hunter22"} {
+			if strings.Contains(got, secret) {
+				t.Errorf("%q kept %q", got, secret)
+			}
+		}
+	}
+	if got := Error("relation \"t\" does not exist", "SELECT * FROM t"); got != "relation \"t\" does not exist" {
+		t.Errorf("an error without secrets changed: %q", got)
+	}
+	// MySQL quotes 80 characters near the error, cutting a long secret.
+	long := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	msg := "Error 1064: near 'EXIST u IDENTIFIED BY '" + long[:57] + "' at line 1"
+	if got := Error(msg, "CREATE USER IF NOT EXIST u IDENTIFIED BY '"+long+"'"); strings.Contains(got, long[:20]) {
+		t.Errorf("the start of the secret was kept: %q", got)
+	}
+	// A connection string's password, quoted inside the string.
+	if got := Error("password=hunter22 rejected", "SELECT dblink_connect('host=h password=''hunter22''')"); strings.Contains(got, "hunter22") {
+		t.Errorf("kept the password: %q", got)
+	}
+	// The other arguments of a function taking credentials are not secrets.
+	for msg, stmt := range map[string]string{
+		"Table 'shop.orders' doesn't exist":  "SELECT * FROM mysql('db:3306', 'shop', 'orders', 'admin', 'pw')",
+		"Cannot parse input (in CSV format)": "SELECT * FROM url('https://example.com/a.csv', 'CSV')",
+	} {
+		if got := Error(msg, stmt); got != msg {
+			t.Errorf("%q became %q", msg, got)
+		}
+	}
+	if got := Error("value >= 10 failed", "SELECT 1"); got != "value >= 10 failed" {
+		t.Errorf("an operator was taken for an ACL password: %q", got)
+	}
+}

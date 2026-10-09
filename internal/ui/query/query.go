@@ -786,7 +786,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 				if timedOut.Load() {
 					res.errInfo.Message = fmt.Sprintf("Stopped after the connection's statement timeout of %s. %s", timeout, res.errInfo.Message)
 				}
-				entry.Error = res.err
+				entry.Error = redact.Error(res.err, logged)
 			}
 			st.AppendHistory(entry)
 			q.a.Post(func() {
@@ -1704,14 +1704,14 @@ type changeGuard struct {
 }
 
 // guarded reports whether a statement's changes are counted before they
-// commit: an UPDATE or DELETE run in auto-commit on staging or
-// production, with a limit set, of an engine whose changes a transaction
-// holds on a connection of its own, as DuckDB's and an in-memory SQLite's,
+// commit: a change of rows already there (changesRows) run in
+// auto-commit on staging or production, with a limit set, of an engine
+// whose changes a transaction holds on a connection of its own, as
+// DuckDB's and an in-memory SQLite's,
 // which every session shares, are not. EXPLAIN ANALYZE reports no rows,
 // and RETURNING and a WITH that changes rows read theirs: neither is.
 func guarded(cfg db.Config, limit int, s safety.Statement, sess *db.Session, dialect sqltext.Dialect) bool {
-	verb := strings.ToUpper(s.Analysis.Verb)
-	if limit <= 0 || verb != "UPDATE" && verb != "DELETE" || sess.Tx() != db.TxNone || sess.DB().Single() ||
+	if limit <= 0 || !changesRows(s, dialect) || sess.Tx() != db.TxNone || sess.DB().Single() ||
 		cfg.Env != db.Staging && cfg.Env != db.Production || !cfg.Engine.IsSQL() || cfg.Engine == db.ClickHouse {
 		return false
 	}
@@ -1721,6 +1721,18 @@ func guarded(cfg db.Config, limit int, s safety.Statement, sess *db.Session, dia
 		}
 	}
 	return true
+}
+
+// changesRows reports whether a statement changes rows already there:
+// an UPDATE, a DELETE, a MERGE, a REPLACE or an upsert.
+func changesRows(s safety.Statement, dialect sqltext.Dialect) bool {
+	switch strings.ToUpper(s.Analysis.Verb) {
+	case "UPDATE", "DELETE", "MERGE", "REPLACE":
+		return true
+	case "INSERT":
+		return sqltext.Upserts(s.SQL, dialect)
+	}
+	return false
 }
 
 // beginGuard opens the guard's transaction, nil when the statement's table

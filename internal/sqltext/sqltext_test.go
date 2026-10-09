@@ -954,3 +954,58 @@ func TestCompletionPrefixDollar(t *testing.T) {
 		}
 	}
 }
+
+// Statements that lose rows or values without a DROP or a WHERE left out
+// are dangerous too; a SELECT that locks its rows is as a write.
+func TestClassifyLosesData(t *testing.T) {
+	for _, c := range []struct {
+		d         Dialect
+		sql       string
+		class     Class
+		dangerous bool
+	}{
+		{Postgres, "WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d", Write, true},
+		{Postgres, "WITH m AS (DELETE FROM t RETURNING *) INSERT INTO archive SELECT * FROM m", Write, true},
+		{Postgres, "WITH u AS (UPDATE t SET a = 1 WHERE 1 = 1 RETURNING id) SELECT count(*) FROM u", Write, true},
+		{Postgres, "WITH d AS (DELETE FROM t WHERE id = 3 RETURNING *) SELECT * FROM d", Write, false},
+		{Postgres, "WITH x AS (SELECT 1) SELECT * FROM x", Read, false},
+		{Postgres, "CREATE OR REPLACE TABLE t AS SELECT 1", DDL, true},
+		{Postgres, "CREATE OR REPLACE VIEW v AS SELECT 1", DDL, false},
+		{ClickHouse, "CREATE OR REPLACE TABLE t (a Int8) ENGINE = Memory", DDL, true},
+		{ClickHouse, "REPLACE TABLE t (a Int8) ENGINE = Memory", DDL, true},
+		{MySQL, "REPLACE INTO t VALUES (1)", Write, false},
+		{ClickHouse, "ALTER TABLE t CLEAR COLUMN c IN PARTITION 2024", DDL, true},
+		{ClickHouse, "ALTER TABLE t MODIFY TTL d + INTERVAL 1 DAY", DDL, true},
+		{ClickHouse, "ALTER TABLE t REPLACE PARTITION 2024 FROM u", DDL, true},
+		{ClickHouse, "ALTER TABLE t MOVE PARTITION 2024 TO TABLE u", DDL, true},
+		{ClickHouse, "ALTER TABLE t DETACH PARTITION 2024", DDL, true},
+		{ClickHouse, "ALTER TABLE t ADD COLUMN c Int8", DDL, false},
+		{ClickHouse, "ALTER TABLE t FREEZE PARTITION 2024", DDL, false},
+		{MySQL, "ALTER TABLE t TRUNCATE PARTITION p0", DDL, true},
+		{Postgres, "ALTER DEFAULT PRIVILEGES IN SCHEMA s GRANT SELECT, TRUNCATE ON TABLES TO app", DDL, false},
+		{Postgres, "ALTER TABLE t ADD COLUMN truncate int", DDL, false},
+		{ClickHouse, "ALTER TABLE t MOVE PARTITION 2024 TO DISK 'cold'", DDL, false},
+		{ClickHouse, "ALTER TABLE t MOVE PART 'all_1_1_0' TO VOLUME 'slow'", DDL, false},
+		{ClickHouse, "ALTER TABLE t MATERIALIZE TTL", DDL, true},
+		{Postgres, "CREATE OR REPLACE TEMP TABLE t AS SELECT 1", DDL, true},
+		{Postgres, "SELECT * FROM t WHERE id = 1 FOR UPDATE", Write, false},
+		{Postgres, "SELECT * FROM t FOR NO KEY UPDATE SKIP LOCKED", Write, false},
+		{Postgres, "SELECT * FROM t FOR KEY SHARE", Write, false},
+		{MySQL, "SELECT * FROM t FOR SHARE", Write, false},
+		{MySQL, "SELECT * FROM t LOCK IN SHARE MODE", Write, false},
+		{MySQL, "SELECT * FROM t FOR SYSTEM_TIME AS OF NOW()", Read, false},
+		{Postgres, "SELECT * FROM t WHERE id IN (SELECT id FROM u)", Read, false},
+		{Postgres, "MOVE NEXT IN c", Read, false},
+		{ClickHouse, "MOVE USER u TO disk", Write, false},
+	} {
+		a := Classify(c.sql, c.d)
+		if a.Class != c.class || a.Dangerous != c.dangerous {
+			t.Errorf("%s: class %v, dangerous %v (%s)", c.sql, a.Class, a.Dangerous, a.Reason)
+		}
+	}
+	for _, fn := range []string{"pg_try_advisory_xact_lock(1)", "pg_drop_replication_slot('s')", "pg_logical_slot_get_changes('s', NULL, NULL)", "pg_stat_reset()", "lo_truncate(3, 0)"} {
+		if a := Classify("SELECT "+fn, Postgres); a.Class != Write {
+			t.Errorf("%s: class %v", fn, a.Class)
+		}
+	}
+}

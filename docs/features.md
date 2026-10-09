@@ -148,8 +148,15 @@
     and read-only. Options (commit mode, timeouts, auto-connect) and
     Network (TLS, SSH) have pages of their own, marked when they hold a
     choice other than the default.
-  - A connection's colour replaces its environment's in its tabs, the band
-    above them and the status bar, which still names the environment.
+  - A connection's colour replaces its environment's in the navigator, its
+    tabs and the band above its work. On staging and production the band
+    and the questions before a write keep the environment's colour, so a
+    colour from a shared project cannot make production look safe; the
+    status bar names the environment in its own colour.
+  - A connection to another machine saves only once its environment is
+    chosen in the form, Development included, and again when an edit
+    points it elsewhere: the default, Development, asks nothing before a
+    write. Local servers and files keep the default.
   - New… makes an empty SQLite or DuckDB file; a file already there is
     opened as it is, never replaced.
   - Test Connection reports the server version and how long connecting took.

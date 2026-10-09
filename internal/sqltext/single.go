@@ -170,10 +170,10 @@ func selectItem(toks []Token) SelectItem {
 	return it
 }
 
-// ChangedTable returns the one table an UPDATE or DELETE changes, as in
-// UPDATE t SET … or DELETE FROM t WHERE …; ok is false for another
-// statement, or one that changes more than one table, as MySQL's UPDATE
-// a JOIN b or DELETE a FROM a JOIN b.
+// ChangedTable returns the one table an UPDATE, a DELETE, an INSERT or a
+// REPLACE changes, as in UPDATE t SET …, DELETE FROM t WHERE … or INSERT
+// INTO t …; ok is false for another statement, or one that changes more
+// than one table, as MySQL's UPDATE a JOIN b or DELETE a FROM a JOIN b.
 func ChangedTable(stmt string, d Dialect) (TableRef, bool) {
 	toks := statementTokens(stmt, d)
 	if len(toks) == 0 {
@@ -181,6 +181,15 @@ func ChangedTable(stmt string, d Dialect) (TableRef, bool) {
 	}
 	i := 1
 	switch word(toks[0]) {
+	case "INSERT", "REPLACE":
+		for i < len(toks) && (word(toks[i]) == "LOW_PRIORITY" || word(toks[i]) == "DELAYED" || word(toks[i]) == "HIGH_PRIORITY" || word(toks[i]) == "IGNORE") {
+			i++
+		}
+		if i < len(toks) && word(toks[i]) == "INTO" {
+			i++
+		}
+		ref, _, ok := parseTableRef(toks, i)
+		return ref, ok
 	case "UPDATE":
 	case "DELETE":
 		if i >= len(toks) || word(toks[i]) != "FROM" {
@@ -210,4 +219,36 @@ func ChangedTable(stmt string, d Dialect) (TableRef, bool) {
 		}
 	}
 	return ref, true
+}
+
+// Upserts reports whether an INSERT may change rows already there: ON
+// CONFLICT … DO UPDATE, MySQL's ON DUPLICATE KEY UPDATE, or SQLite's
+// INSERT OR REPLACE.
+func Upserts(stmt string, d Dialect) bool {
+	toks := statementTokens(stmt, d)
+	if len(toks) == 0 || word(toks[0]) != "INSERT" {
+		return false
+	}
+	if len(toks) > 2 && word(toks[1]) == "OR" && word(toks[2]) == "REPLACE" {
+		return true
+	}
+	dep := depths(toks)
+	for i := 0; i+1 < len(toks); i++ {
+		if dep[i] != 0 || word(toks[i]) != "ON" {
+			continue
+		}
+		switch word(toks[i+1]) {
+		case "DUPLICATE":
+			if i+2 < len(toks) && word(toks[i+2]) == "KEY" {
+				return true
+			}
+		case "CONFLICT":
+			for j := i + 2; j+1 < len(toks); j++ {
+				if dep[j] == 0 && word(toks[j]) == "DO" && word(toks[j+1]) == "UPDATE" {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

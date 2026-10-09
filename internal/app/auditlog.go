@@ -25,8 +25,8 @@ func (a *App) Record(cfg *db.Config, e audit.Event) {
 			e.Database = cfg.Database
 		}
 	}
+	e.Error = redact.Error(e.Error, e.Statement)
 	e.Statement = redact.Secrets(e.Statement)
-	e.Error = redact.Secrets(e.Error)
 	if err := l.Record(e); err != nil {
 		log.Println("audit:", err)
 	}

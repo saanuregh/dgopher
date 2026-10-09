@@ -167,3 +167,24 @@ func TestOutsideTransaction(t *testing.T) {
 		t.Fatalf("VACUUM on production: %+v", v)
 	}
 }
+
+// Many rows changed a row at a time ask on production for the name, as an
+// UPDATE without WHERE does; within the limit, or elsewhere, they do not.
+func TestManyRows(t *testing.T) {
+	for _, c := range []struct {
+		env         db.Environment
+		rows, limit int
+		typeName    bool
+	}{
+		{db.Production, 1001, 1000, true},
+		{db.Production, 1000, 1000, false},
+		{db.Production, 5000, 0, false},
+		{db.Staging, 5000, 1000, false},
+	} {
+		var v Verdict
+		v.ManyRows(&db.Config{Env: c.env}, c.rows, c.limit)
+		if v.TypeName != c.typeName || v.Confirm != c.typeName {
+			t.Errorf("%+v: %+v", c, v)
+		}
+	}
+}

@@ -859,6 +859,7 @@ func (v *Viewer) reviewChanges() {
 				r.Schema, r.Table, strings.Join(r.Columns, ", "), strings.Join(r.RefColumns, ", ")))
 		}
 	}
+	verdict.ManyRows(&v.source.Conn.Config, db.Existing(stmts), v.a.Settings().ChangeLimit)
 	title := fmt.Sprintf("Apply %d change%s to %s?", len(stmts), widgets.Plural(len(stmts)), v.source.Table.Name)
 	v.a.AskConfirm(v.source.Conn, verdict, title, "Apply", strings.Join(previews, "\n"), func() { v.apply(stmts) })
 }

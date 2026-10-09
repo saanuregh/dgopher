@@ -109,6 +109,18 @@ func ReviewSQL(cfg *db.Config, stmts []Statement) Verdict {
 	return v
 }
 
+// ManyRows makes a change, a row at a time, of more rows already there
+// than the limit ask on production for the connection's name, as what
+// cannot be undone does: so many rows changed are as an UPDATE without
+// WHERE. A limit of 0 is none.
+func (v *Verdict) ManyRows(cfg *db.Config, rows, limit int) {
+	if limit <= 0 || rows <= limit || cfg.Env != db.Production {
+		return
+	}
+	v.Confirm, v.TypeName = true, true
+	v.Reasons = append(v.Reasons, fmt.Sprintf("It changes or deletes %d rows already there, more than the %d a change makes without asking (Settings).", rows, limit))
+}
+
 // Add takes in the verdict of more statements, as one review of them
 // all would have given, for statements reviewed as they are read.
 func (v *Verdict) Add(w Verdict) {
