@@ -1190,3 +1190,27 @@ func TestRemote(t *testing.T) {
 		}
 	}
 }
+
+// A field's description shows below its input, not over it, as a row
+// that grew in the field's column drew it.
+func TestFieldDescriptionBelowInput(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1200, 900)
+	a.openConnForm(nil)
+	f := a.connForm
+	f.page, f.tls = pageNetwork, tlsLabels[db.TLSRequire]
+	tt.Frame()
+	tt.Frame()
+	testutil.Snapshot(t, tt, "connection-form-network")
+	input, ok := tt.Find("Choose the Client Certificate")
+	if !ok {
+		t.Fatalf("no certificate field: %q", tt.Texts())
+	}
+	note, ok := tt.Find("A PEM certificate the server may ask the connection to log in with.")
+	if !ok {
+		t.Fatal("no description")
+	}
+	if note.Y < input.Y+input.H {
+		t.Fatalf("the description at %v overlaps the input %v", note, input)
+	}
+}

@@ -750,7 +750,7 @@ func (a *App) newDatabaseFile(e db.Engine) {
 // fileField is a path typed, or chosen with a button: the dialog starts
 // in the folder of the path there, else in ~/.ssh, and shows hidden files.
 func (a *App) fileField(c *ui.Context, path *string, placeholder, title string) {
-	ui.Row(c).Gap(6).Grow(1).Children(func() {
+	ui.Row(c).Gap(6).Children(func() {
 		ui.TextInput(c, path).Placeholder(placeholder).Grow(1).Label(title)
 		if ui.Button(c, "Choose…").Clicked() {
 			form, start := a.connForm, filepath.Dir(db.ExpandPath(*path))
