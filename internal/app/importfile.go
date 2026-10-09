@@ -338,8 +338,7 @@ func (a *App) runImport(x *importState) {
 			x.open = false
 			if create != "" {
 				// The navigator reads the schema again, the new table in it.
-				clear(cn.Objects)
-				clear(cn.Columns)
+				cn.ForgetCatalog()
 			}
 			a.toast = &pendingToast{text: fmt.Sprintf("Imported %d rows into %s", n, target.Table)}
 			a.Notify(started, "Import finished", fmt.Sprintf("%d rows into %s", n, target.Table), nil)

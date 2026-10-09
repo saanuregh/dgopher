@@ -1574,3 +1574,58 @@ func TestUsersTab(t *testing.T) {
 		t.Fatalf("query files made: %v", files)
 	}
 }
+
+// A schema's routines and the partitions of its tables show in the
+// navigator, and open: a routine's definition in an editor, a
+// partition's rows.
+func TestNavigatorItems(t *testing.T) {
+	testutil.Integration(t)
+	a := newTestApp(t)
+	cn := addConn(a, testutil.PGConfig())
+	tt := ui.NewTester(a.view, 1200, 900)
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	for _, q := range []string{"DROP SCHEMA IF EXISTS it_nav CASCADE", "CREATE SCHEMA it_nav",
+		"CREATE FUNCTION it_nav.twice(a int) RETURNS int LANGUAGE sql AS 'SELECT a * 2'",
+		"CREATE TABLE it_nav.events (id int, at date) PARTITION BY RANGE (at)",
+		"CREATE TABLE it_nav.events_2026 PARTITION OF it_nav.events FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')"} {
+		if _, err := cn.DB.SQL.Exec(q); err != nil {
+			t.Fatal(q, err)
+		}
+	}
+	defer cn.DB.SQL.Exec("DROP SCHEMA IF EXISTS it_nav CASCADE")
+	a.refresh(cn)
+	schema := navNode{kind: nodeSchema, conn: cn.Config.ID, schema: "it_nav"}
+	a.nav.expand(navNode{kind: nodeConn, conn: cn.Config.ID})
+	a.nav.expand(schema)
+	a.nav.expand(navNode{kind: nodeFolder, conn: cn.Config.ID, schema: "it_nav", folder: string(db.ItemFunction)})
+	a.nav.expand(navNode{kind: nodeFolder, conn: cn.Config.ID, schema: "it_nav", folder: folderTables})
+	a.nav.expand(navNode{kind: nodeObject, conn: cn.Config.ID, schema: "it_nav", name: "events"})
+	a.nav.expand(navNode{kind: nodeFolder, conn: cn.Config.ID, schema: "it_nav", name: "events", folder: folderPartitions})
+	testutil.WaitFor(t, tt, "the items", func() bool {
+		return tt.HasText("Functions") && tt.HasText("twice(a integer)") && tt.HasText("Partitions") && tt.HasText("events_2026")
+	})
+	testutil.Snapshot(t, tt, "navigator-items")
+	fn := navNode{kind: nodeItem, conn: cn.Config.ID, schema: "it_nav", name: itemName(db.Item{Kind: db.ItemFunction, Name: "twice", Detail: "a integer"})}
+	a.activate(fn)
+	testutil.WaitFor(t, tt, "the definition", func() bool {
+		q, ok := a.ActiveTab().(*query.Tab)
+		return ok && strings.Contains(q.Editor.Text, "CREATE OR REPLACE FUNCTION it_nav.twice(a integer)")
+	})
+	part := navNode{kind: nodeItem, conn: cn.Config.ID, schema: "it_nav", name: itemName(db.Item{Kind: db.ItemPartition, Name: "events_2026", Table: "events"})}
+	a.activate(part)
+	testutil.WaitFor(t, tt, "the partition's rows", func() bool {
+		tb, ok := a.ActiveTab().(*dataview.TableTab)
+		return ok && tb.Object.Name == "events_2026"
+	})
+}
+
+func TestPartitionTemplate(t *testing.T) {
+	d := db.DialectOf(db.Postgres)
+	for keydef, bounds := range map[string]string{"RANGE (at)": "FROM ('…') TO ('…')", "LIST (region)": "IN ('…')", "HASH (id)": "WITH (MODULUS 4, REMAINDER 0)"} {
+		got := partitionTemplate(d, db.Object{Schema: "s", Name: "events", Partitioning: keydef})
+		if !strings.Contains(got, `CREATE TABLE "s"."events_new"`) || !strings.Contains(got, `PARTITION OF "s"."events"`) || !strings.Contains(got, "FOR VALUES "+bounds) {
+			t.Errorf("%s:\n%s", keydef, got)
+		}
+	}
+}

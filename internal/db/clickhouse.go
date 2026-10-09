@@ -144,3 +144,26 @@ func (d clickhouseDialect) DDL(ctx context.Context, q Querier, schema string, ob
 func (clickhouseDialect) ReferencedBy(context.Context, Querier, string, string) ([]Reference, error) {
 	return nil, nil // ClickHouse has no foreign keys
 }
+
+// Items lists the projections of the database's tables. A server before
+// system.projections, of version 24, lists none.
+func (clickhouseDialect) Items(ctx context.Context, q Querier, schema string) ([]Item, error) {
+	items, err := scanItems(ctx, q, schema, `SELECT 'projection', name, table, lower(toString(type)), '' FROM system.projections
+WHERE database = ? ORDER BY table, name`, schema)
+	if err != nil && strings.Contains(err.Error(), "system.projections") && strings.Contains(err.Error(), "UNKNOWN_TABLE") {
+		return nil, nil
+	}
+	return items, err
+}
+
+// ItemDDL writes the statement adding a projection to its table.
+func (d clickhouseDialect) ItemDDL(ctx context.Context, q Querier, it Item) (string, error) {
+	if it.Kind != ItemProjection {
+		return "", errNoDefinition(it)
+	}
+	query, err := queryString(ctx, q, `SELECT query FROM system.projections WHERE database = ? AND table = ? AND name = ?`, it.Schema, it.Table, it.Name)
+	if err != nil {
+		return "", err
+	}
+	return "ALTER TABLE " + QualifiedName(d, it.Schema, it.Table) + " ADD PROJECTION " + d.Quote(it.Name) + " (" + query + ");\n", nil
+}

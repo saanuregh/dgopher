@@ -973,3 +973,113 @@ func TestIntegrationUsers(t *testing.T) {
 		})
 	}
 }
+
+// Each item a schema lists has a definition that makes it again: dropped,
+// then made from its definition, it is listed as before.
+func TestIntegrationItems(t *testing.T) {
+	integration(t)
+	ctx := context.Background()
+	for _, c := range []struct {
+		cfg    Config
+		schema string
+		setup  []string
+		// drop drops an item for its definition to make it again, by its
+		// label.
+		drop map[string]string
+	}{
+		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dbgopher", Database: "postgres"}, "it_items",
+			[]string{"DROP SCHEMA IF EXISTS it_items CASCADE", "CREATE SCHEMA it_items",
+				"CREATE FUNCTION it_items.twice(a int) RETURNS int LANGUAGE sql AS 'SELECT a * 2'",
+				"CREATE FUNCTION it_items.twice(a text) RETURNS text LANGUAGE sql AS 'SELECT a || a'",
+				"CREATE PROCEDURE it_items.noop() LANGUAGE sql AS 'SELECT 1'",
+				"CREATE TABLE it_items.events (id int, at date) PARTITION BY RANGE (at)",
+				"CREATE TABLE it_items.events_2026 PARTITION OF it_items.events FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')",
+				"CREATE FUNCTION it_items.stamp() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RETURN NEW; END$$",
+				"CREATE TABLE it_items.t (id int)",
+				"CREATE TRIGGER stamped BEFORE INSERT ON it_items.t FOR EACH ROW EXECUTE FUNCTION it_items.stamp()",
+				"CREATE SEQUENCE it_items.counter START 10 INCREMENT 5",
+				"CREATE TYPE it_items.mood AS ENUM ('sad', 'it''s ok')",
+				"CREATE DOMAIN it_items.positive AS int NOT NULL CHECK (VALUE > 0)",
+				"CREATE TYPE it_items.pair AS (a int, b text)",
+				"CREATE TYPE it_items.floats AS RANGE (subtype = float8)",
+			},
+			map[string]string{
+				"twice(a integer)": "DROP FUNCTION it_items.twice(int)", "twice(a text)": "DROP FUNCTION it_items.twice(text)",
+				"noop()": "DROP PROCEDURE it_items.noop()", "events_2026": "DROP TABLE it_items.events_2026",
+				"stamped on t": "DROP TRIGGER stamped ON it_items.t", "counter": "DROP SEQUENCE it_items.counter",
+				"mood": "DROP TYPE it_items.mood", "positive": "DROP DOMAIN it_items.positive",
+				"pair": "DROP TYPE it_items.pair", "floats": "DROP TYPE it_items.floats",
+			}},
+		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"}, "shop",
+			[]string{"DROP TABLE IF EXISTS it_items_t", "CREATE TABLE it_items_t (id int)",
+				"DROP FUNCTION IF EXISTS it_twice", "CREATE FUNCTION it_twice(a int) RETURNS int DETERMINISTIC RETURN a * 2",
+				"DROP PROCEDURE IF EXISTS it_noop", "CREATE PROCEDURE it_noop() BEGIN SELECT 1; END",
+				"CREATE TRIGGER it_stamp BEFORE INSERT ON it_items_t FOR EACH ROW SET NEW.id = NEW.id + 1",
+				"DROP EVENT IF EXISTS it_tick", "CREATE EVENT it_tick ON SCHEDULE EVERY 1 DAY DISABLE DO SELECT 1",
+			},
+			map[string]string{"it_twice()": "DROP FUNCTION it_twice", "it_noop()": "DROP PROCEDURE it_noop",
+				"it_stamp on it_items_t": "DROP TRIGGER it_stamp", "it_tick": "DROP EVENT it_tick"}},
+		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "items.sqlite")}, "main",
+			[]string{"CREATE TABLE t (id int)", "CREATE TRIGGER stamp AFTER INSERT ON t BEGIN UPDATE t SET id = id + 1 WHERE rowid = NEW.rowid; END"},
+			map[string]string{"stamp on t": "DROP TRIGGER stamp"}},
+		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main",
+			[]string{"CREATE MACRO add1(a) AS a + 1", "CREATE MACRO three() AS TABLE SELECT 3 AS x", "CREATE SEQUENCE counter START 5",
+				"CREATE TYPE mood AS ENUM ('sad', 'it''s ok')"},
+			map[string]string{"add1(a)": "DROP MACRO add1", "three()": "DROP MACRO TABLE three", "counter": "DROP SEQUENCE counter", "mood": "DROP TYPE mood"}},
+		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher"}, "default",
+			[]string{"DROP TABLE IF EXISTS it_items_p", "CREATE TABLE it_items_p (id UInt64, v UInt64) ENGINE = MergeTree ORDER BY id",
+				"ALTER TABLE it_items_p ADD PROJECTION by_v (SELECT * ORDER BY v)"},
+			map[string]string{"by_v on it_items_p": "ALTER TABLE it_items_p DROP PROJECTION by_v"}},
+	} {
+		t.Run(string(c.cfg.Engine), func(t *testing.T) {
+			if c.cfg.Engine == SQLite {
+				os.WriteFile(c.cfg.Database, nil, 0o600)
+			}
+			d, err := Open(ctx, c.cfg, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer d.Close()
+			s, err := d.Session(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			for _, q := range c.setup {
+				if _, err := s.Exec(ctx, q); err != nil {
+					t.Fatal(q, err)
+				}
+			}
+			list := func() map[string]Item {
+				items, err := d.Dialect.Items(ctx, d.SQL, c.schema)
+				if err != nil {
+					t.Fatal(err)
+				}
+				out := map[string]Item{}
+				for _, it := range items {
+					out[it.Label()] = it
+				}
+				return out
+			}
+			items := list()
+			for label, drop := range c.drop {
+				it, ok := items[label]
+				if !ok {
+					t.Fatalf("no %s among %v", label, items)
+				}
+				def, err := d.Dialect.ItemDDL(ctx, d.SQL, it)
+				if err != nil {
+					t.Fatalf("%s: %v", label, err)
+				}
+				for _, q := range []string{drop, def} {
+					if _, err := s.Exec(ctx, q); err != nil {
+						t.Fatalf("%s: %s: %v", label, q, err)
+					}
+				}
+				if _, ok := list()[label]; !ok {
+					t.Fatalf("%s is not made again by\n%s", label, def)
+				}
+			}
+		})
+	}
+}

@@ -180,3 +180,51 @@ ORDER BY table_name`, []any{schema, table}, func(scan func(...any) error) error 
 	})
 	return out, err
 }
+
+// Items lists the schema's macros, sequences and enum types.
+func (duckdbDialect) Items(ctx context.Context, q Querier, schema string) ([]Item, error) {
+	return scanItems(ctx, q, schema, `SELECT 'function', function_name, '', array_to_string(parameters, ', '), function_type
+FROM duckdb_functions() WHERE database_name = current_database() AND schema_name = ? AND NOT internal
+  AND function_type IN ('macro', 'table_macro')
+UNION ALL
+SELECT 'sequence', sequence_name, '', '', '' FROM duckdb_sequences()
+WHERE database_name = current_database() AND schema_name = ? AND NOT temporary
+UNION ALL
+SELECT 'type', type_name, '', lower(logical_type), '' FROM duckdb_types()
+WHERE database_name = current_database() AND schema_name = ? AND NOT internal
+ORDER BY 1, 2`, schema, schema, schema)
+}
+
+// ItemDDL writes an item's definition from DuckDB's catalog: a macro's,
+// with its parameters, a sequence's as DuckDB writes it, an enum's labels.
+func (d duckdbDialect) ItemDDL(ctx context.Context, q Querier, it Item) (string, error) {
+	name := QualifiedName(d, it.Schema, it.Name)
+	switch it.Kind {
+	case ItemFunction:
+		def, err := queryString(ctx, q, `SELECT macro_definition FROM duckdb_functions()
+WHERE database_name = current_database() AND schema_name = ? AND function_name = ? AND function_type = ? LIMIT 1`, it.Schema, it.Name, it.ID)
+		if err != nil {
+			return "", err
+		}
+		as := "AS "
+		if it.ID == "table_macro" {
+			as = "AS TABLE "
+		}
+		return "CREATE MACRO " + name + "(" + it.Detail + ") " + as + def + ";\n", nil
+	case ItemSequence:
+		def, err := queryString(ctx, q, `SELECT sql FROM duckdb_sequences()
+WHERE database_name = current_database() AND schema_name = ? AND sequence_name = ?`, it.Schema, it.Name)
+		return def + "\n", err
+	case ItemType:
+		labels, err := queryString(ctx, q, `SELECT array_to_string(list_transform(labels, x -> '''' || replace(x, '''', '''''') || ''''), ', ')
+FROM duckdb_types() WHERE database_name = current_database() AND schema_name = ? AND type_name = ?`, it.Schema, it.Name)
+		if err != nil {
+			return "", err
+		}
+		if labels == "" {
+			return "", errNoDefinition(it)
+		}
+		return "CREATE TYPE " + name + " AS ENUM (" + labels + ");\n", nil
+	}
+	return "", errNoDefinition(it)
+}

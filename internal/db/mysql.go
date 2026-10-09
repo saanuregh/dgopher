@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -116,18 +117,30 @@ ORDER BY CONSTRAINT_NAME`, []any{schema, table}, func(scan func(...any) error) e
 }
 
 func (d mysqlDialect) DDL(ctx context.Context, q Querier, schema string, obj Object) (string, error) {
-	kw := "TABLE"
 	if obj.Kind == KindView {
-		kw = "VIEW"
+		return showCreate(ctx, q, "SHOW CREATE VIEW "+QualifiedName(d, schema, obj.Name), "Create View")
 	}
-	rows, err := q.QueryContext(ctx, "SHOW CREATE "+kw+" "+QualifiedName(d, schema, obj.Name))
+	return showCreate(ctx, q, "SHOW CREATE TABLE "+QualifiedName(d, schema, obj.Name), "Create Table")
+}
+
+// showCreate runs a SHOW CREATE statement and returns the definition in
+// its column of that name.
+func showCreate(ctx context.Context, q Querier, stmt, column string) (string, error) {
+	rows, err := q.QueryContext(ctx, stmt)
 	if err != nil {
 		return "", err
 	}
 	defer rows.Close()
 	cols, _ := rows.Columns()
+	at := slices.Index(cols, column)
+	if at < 0 {
+		return "", fmt.Errorf("%s gave no %s", stmt, column)
+	}
 	if !rows.Next() {
-		return "", fmt.Errorf("no definition for %s", obj.Name)
+		if err := rows.Err(); err != nil {
+			return "", err
+		}
+		return "", fmt.Errorf("%s gave no definition", stmt)
 	}
 	vals := make([]any, len(cols))
 	ptrs := make([]any, len(cols))
@@ -137,11 +150,38 @@ func (d mysqlDialect) DDL(ctx context.Context, q Querier, schema string, obj Obj
 	if err := rows.Scan(ptrs...); err != nil {
 		return "", err
 	}
-	def := vals[1]
-	if b, ok := def.([]byte); ok {
-		return string(b) + ";\n", nil
+	if vals[at] == nil {
+		return "", fmt.Errorf("%s gave no definition: the user may lack the privilege to read it", stmt)
 	}
-	return fmt.Sprint(def) + ";\n", nil
+	return Display(vals[at]) + ";\n", nil
+}
+
+// Items lists routines, triggers and events.
+func (mysqlDialect) Items(ctx context.Context, q Querier, schema string) ([]Item, error) {
+	return scanItems(ctx, q, schema, `SELECT LOWER(ROUTINE_TYPE) AS kind, ROUTINE_NAME AS name, '' AS tbl, '' AS detail, '' AS id
+FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = ?
+UNION ALL
+SELECT 'trigger', TRIGGER_NAME, EVENT_OBJECT_TABLE, CONCAT(ACTION_TIMING, ' ', EVENT_MANIPULATION), ''
+FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = ?
+UNION ALL
+SELECT 'event', EVENT_NAME, '', STATUS, '' FROM information_schema.EVENTS WHERE EVENT_SCHEMA = ?
+ORDER BY kind, name`, schema, schema, schema)
+}
+
+// ItemDDL writes an item's definition as SHOW CREATE gives it.
+func (d mysqlDialect) ItemDDL(ctx context.Context, q Querier, it Item) (string, error) {
+	name := QualifiedName(d, it.Schema, it.Name)
+	switch it.Kind {
+	case ItemFunction:
+		return showCreate(ctx, q, "SHOW CREATE FUNCTION "+name, "Create Function")
+	case ItemProcedure:
+		return showCreate(ctx, q, "SHOW CREATE PROCEDURE "+name, "Create Procedure")
+	case ItemTrigger:
+		return showCreate(ctx, q, "SHOW CREATE TRIGGER "+name, "SQL Original Statement")
+	case ItemEvent:
+		return showCreate(ctx, q, "SHOW CREATE EVENT "+name, "Create Event")
+	}
+	return "", errNoDefinition(it)
 }
 
 func (mysqlDialect) ReferencedBy(ctx context.Context, q Querier, schema, table string) ([]Reference, error) {

@@ -1302,12 +1302,7 @@ func (q *Tab) messagesView(c *ui.Context) {
 func refreshAfterDDL(cn *connection.Conn, stmts []safety.Statement) {
 	for _, s := range stmts {
 		if s.Analysis.Class == sqltext.DDL {
-			for k := range cn.Objects {
-				delete(cn.Objects, k)
-			}
-			for k := range cn.Columns {
-				delete(cn.Columns, k)
-			}
+			cn.ForgetCatalog()
 			return
 		}
 	}

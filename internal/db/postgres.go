@@ -97,13 +97,14 @@ func (postgresDialect) Objects(ctx context.Context, q Querier, schema string) ([
 	err := scanRows(ctx, q, `SELECT c.relname, c.relkind::text,
   GREATEST(c.reltuples, -1)::bigint,
   CASE WHEN c.relkind IN ('r','m','p') THEN pg_total_relation_size(c.oid) ELSE -1 END,
-  COALESCE(obj_description(c.oid, 'pg_class'), '')
+  COALESCE(obj_description(c.oid, 'pg_class'), ''),
+  CASE WHEN c.relkind = 'p' THEN pg_get_partkeydef(c.oid) ELSE '' END
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = $1 AND c.relkind IN ('r','p','v','m','f') AND NOT c.relispartition
 ORDER BY c.relname`, []any{schema}, func(scan func(...any) error) error {
 		o := Object{Schema: schema}
 		var kind string
-		if err := scan(&o.Name, &kind, &o.Rows, &o.Bytes, &o.Comment); err != nil {
+		if err := scan(&o.Name, &kind, &o.Rows, &o.Bytes, &o.Comment, &o.Partitioning); err != nil {
 			return err
 		}
 		switch kind {
@@ -277,4 +278,80 @@ ORDER BY n.nspname, c.relname, con.conname`, []any{schema, table}, func(scan fun
 		return nil
 	})
 	return out, err
+}
+
+// Items lists routines (but those of extensions), triggers, sequences
+// (but identity columns'), types, extensions and partitions.
+func (postgresDialect) Items(ctx context.Context, q Querier, schema string) ([]Item, error) {
+	return scanItems(ctx, q, schema, `SELECT CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END, p.proname, '',
+  pg_get_function_identity_arguments(p.oid), p.oid::text
+FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = $1 AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass AND d.objid = p.oid AND d.deptype = 'e')
+UNION ALL
+SELECT 'trigger', t.tgname, c.relname, '', t.oid::text
+FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = $1 AND NOT t.tgisinternal
+UNION ALL
+SELECT 'sequence', c.relname, '', '', c.oid::text
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = $1 AND c.relkind = 'S'
+  AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'i')
+UNION ALL
+SELECT 'type', t.typname, '', CASE t.typtype WHEN 'e' THEN 'enum' WHEN 'd' THEN 'domain' WHEN 'c' THEN 'composite' ELSE 'range' END, t.oid::text
+FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
+WHERE n.nspname = $1 AND t.typtype IN ('e', 'd', 'c', 'r')
+  AND (t.typtype <> 'c' OR (SELECT c.relkind FROM pg_class c WHERE c.oid = t.typrelid) = 'c')
+  AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_type'::regclass AND d.objid = t.oid AND d.deptype = 'e')
+UNION ALL
+SELECT 'extension', e.extname, '', e.extversion, e.oid::text
+FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace WHERE n.nspname = $1
+UNION ALL
+SELECT 'partition', c.relname, parent.relname, pg_get_expr(c.relpartbound, c.oid), c.oid::text
+FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid JOIN pg_class parent ON parent.oid = i.inhparent
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = $1 AND c.relispartition
+ORDER BY 1, 2, 4`, schema)
+}
+
+// ItemDDL writes an item's definition as PostgreSQL writes it, or, where
+// it writes none, from its catalog.
+func (postgresDialect) ItemDDL(ctx context.Context, q Querier, it Item) (string, error) {
+	var query string
+	switch it.Kind {
+	case ItemFunction, ItemProcedure:
+		query = `SELECT CASE WHEN p.prokind IN ('a', 'w') THEN '-- An aggregate: ' || p.oid::regprocedure::text ELSE pg_get_functiondef(p.oid) END
+FROM pg_proc p WHERE p.oid = $1::oid`
+	case ItemTrigger:
+		query = `SELECT pg_get_triggerdef($1::oid, true) || ';'`
+	case ItemSequence:
+		query = `SELECT format('CREATE SEQUENCE %I.%I AS %s INCREMENT BY %s MINVALUE %s MAXVALUE %s START WITH %s CACHE %s%s;',
+  schemaname, sequencename, data_type, increment_by, min_value, max_value, start_value, cache_size, CASE WHEN cycle THEN ' CYCLE' ELSE '' END)
+FROM pg_sequences s JOIN pg_class c ON c.relname = s.sequencename JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = s.schemaname
+WHERE c.oid = $1::oid`
+	case ItemType:
+		query = `SELECT format('CREATE TYPE %I.%I AS ', n.nspname, t.typname) || CASE t.typtype
+  WHEN 'e' THEN 'ENUM (' || (SELECT string_agg(quote_literal(e.enumlabel), ', ' ORDER BY e.enumsortorder) FROM pg_enum e WHERE e.enumtypid = t.oid) || ');'
+  WHEN 'c' THEN '(' || (SELECT string_agg(quote_ident(a.attname) || ' ' || format_type(a.atttypid, a.atttypmod), ', ' ORDER BY a.attnum)
+    FROM pg_attribute a WHERE a.attrelid = t.typrelid AND a.attnum > 0 AND NOT a.attisdropped) || ');'
+  WHEN 'r' THEN 'RANGE (SUBTYPE = ' || (SELECT format_type(r.rngsubtype, NULL) FROM pg_range r WHERE r.rngtypid = t.oid) || ');'
+  END
+FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE t.oid = $1::oid AND t.typtype <> 'd'
+UNION ALL
+SELECT format('CREATE DOMAIN %I.%I AS %s', n.nspname, t.typname, format_type(t.typbasetype, t.typtypmod))
+  || CASE WHEN t.typnotnull THEN ' NOT NULL' ELSE '' END || coalesce(' DEFAULT ' || t.typdefault, '')
+  -- Since PostgreSQL 17 NOT NULL is a constraint too, which the line above writes.
+  || coalesce((SELECT string_agg(' CONSTRAINT ' || quote_ident(c.conname) || ' ' || pg_get_constraintdef(c.oid), '' ORDER BY c.conname)
+    FROM pg_constraint c WHERE c.contypid = t.oid AND c.contype <> 'n'), '') || ';'
+FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE t.oid = $1::oid AND t.typtype = 'd'`
+	case ItemExtension:
+		query = `SELECT format('CREATE EXTENSION %I WITH SCHEMA %I VERSION %L;', e.extname, n.nspname, e.extversion)
+FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace WHERE e.oid = $1::oid`
+	case ItemPartition:
+		query = `SELECT format('CREATE TABLE %I.%I PARTITION OF %I.%I %s;', n.nspname, c.relname, pn.nspname, parent.relname, pg_get_expr(c.relpartbound, c.oid))
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace JOIN pg_inherits i ON i.inhrelid = c.oid
+JOIN pg_class parent ON parent.oid = i.inhparent JOIN pg_namespace pn ON pn.oid = parent.relnamespace WHERE c.oid = $1::oid`
+	default:
+		return "", errNoDefinition(it)
+	}
+	return queryString(ctx, q, query, it.ID)
 }

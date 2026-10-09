@@ -413,8 +413,7 @@ func (a *App) runSQLFile(x *sqlFileRun) {
 			} else if len(failures) > 0 {
 				title = fmt.Sprintf("SQL file finished with %d errors", len(failures))
 			}
-			clear(cn.Objects)
-			clear(cn.Columns)
+			cn.ForgetCatalog()
 			a.Notify(started, title, filepath.Base(path)+" on "+cfg.Name, nil)
 		}
 	})

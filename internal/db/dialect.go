@@ -33,6 +33,9 @@ type Object struct {
 	Bytes   int64 // on disk, -1 when unknown
 	Engine  string
 	Comment string
+	// Partitioning is a PostgreSQL partitioned table's key, as RANGE
+	// (placed_at), "" for a table of its own rows.
+	Partitioning string
 }
 
 // Column is a column of a table or view.
@@ -98,6 +101,11 @@ type Dialect interface {
 	// this one.
 	ReferencedBy(ctx context.Context, q Querier, schema, table string) ([]Reference, error)
 	DDL(ctx context.Context, q Querier, schema string, obj Object) (string, error)
+	// Items lists a schema's objects besides its tables and views:
+	// routines, triggers, sequences, types and the like.
+	Items(ctx context.Context, q Querier, schema string) ([]Item, error)
+	// ItemDDL writes the statement creating an item.
+	ItemDDL(ctx context.Context, q Querier, it Item) (string, error)
 	// Editable reports whether the app may change a table's rows from
 	// the grid, and why not.
 	Editable() (bool, string)

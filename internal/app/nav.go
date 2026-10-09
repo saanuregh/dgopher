@@ -1,9 +1,12 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
+	"time"
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
@@ -25,10 +28,19 @@ const (
 	nodeConn
 	nodeDatabase
 	nodeSchema
-	nodeFolder // the tables or the views of a schema
+	nodeFolder // the tables, views or items of a kind of a schema, or a table's partitions
 	nodeObject
 	nodeColumn
+	nodeItem // a routine, trigger, sequence, type and the like
 	nodeInfo // loading, an error, or nothing there
+)
+
+// The folders of a schema besides those of its items, by their kind;
+// partitions are a table's.
+const (
+	folderTables     = ""
+	folderViews      = "views"
+	folderPartitions = string(db.ItemPartition)
 )
 
 // navNode is an item of the navigator's tree.
@@ -41,8 +53,10 @@ type navNode struct {
 	conn       string
 	database   string
 	schema     string
-	name       string
-	views      bool // a folder of views rather than tables
+	// name is an object's, a table's for its partitions' folder, or, for
+	// an item, its kind and label (itemName).
+	name   string
+	folder string // a folder's: folderTables, folderViews, or an item kind
 }
 
 type navState struct {
@@ -151,9 +165,10 @@ func (a *App) navChildren(n navNode) []navNode {
 	case nodeDatabase:
 		return a.schemaNodes(cn, n.database, open)
 	case nodeSchema:
-		objs, ok := cn.Objects[connection.SchemaKey{Database: n.database, Schema: n.schema}]
+		key := connection.SchemaKey{Database: n.database, Schema: n.schema}
+		objs, ok := cn.Objects[key]
 		if !ok {
-			if e := cn.LoadErr[connection.SchemaKey{Database: n.database, Schema: n.schema}]; e != "" {
+			if e := cn.LoadErr[key]; e != "" {
 				return info(cn, "Failed: "+widgets.FirstLine(e))
 			}
 			if open {
@@ -161,12 +176,27 @@ func (a *App) navChildren(n navNode) []navNode {
 			}
 			return info(cn, "Loading…")
 		}
+		items, itemsRead := cn.Items[key]
+		if !itemsRead && open && cn.ItemsError(n.database, n.schema) == "" {
+			connection.LoadItems(a, cn, n.database, n.schema)
+		}
+		folder := func(name string) navNode {
+			return navNode{kind: nodeFolder, conn: n.conn, database: n.database, schema: n.schema, folder: name}
+		}
 		var out []navNode
 		if len(connection.SortedObjects(objs, false)) > 0 {
-			out = append(out, navNode{kind: nodeFolder, conn: n.conn, database: n.database, schema: n.schema})
+			out = append(out, folder(folderTables))
 		}
 		if len(connection.SortedObjects(objs, true)) > 0 {
-			out = append(out, navNode{kind: nodeFolder, conn: n.conn, database: n.database, schema: n.schema, views: true})
+			out = append(out, folder(folderViews))
+		}
+		for _, kind := range db.ItemKinds() {
+			if slices.ContainsFunc(items, func(it db.Item) bool { return it.Kind == kind }) {
+				out = append(out, folder(string(kind)))
+			}
+		}
+		if e := cn.ItemsError(n.database, n.schema); e != "" {
+			out = append(out, info(cn, "Could not read the routines and other objects: "+widgets.FirstLine(e))...)
 		}
 		if out == nil {
 			return info(cn, "No tables")
@@ -175,9 +205,22 @@ func (a *App) navChildren(n navNode) []navNode {
 	case nodeFolder:
 		var out []navNode
 		filter := strings.ToLower(a.nav.filter)
-		for _, o := range connection.SortedObjects(cn.Objects[connection.SchemaKey{Database: n.database, Schema: n.schema}], n.views) {
-			if filter == "" || strings.Contains(strings.ToLower(o.Name), filter) {
-				out = append(out, navNode{kind: nodeObject, conn: n.conn, database: n.database, schema: n.schema, name: o.Name})
+		key := connection.SchemaKey{Database: n.database, Schema: n.schema}
+		switch n.folder {
+		case folderTables, folderViews:
+			for _, o := range connection.SortedObjects(cn.Objects[key], n.folder == folderViews) {
+				if filter == "" || strings.Contains(strings.ToLower(o.Name), filter) {
+					out = append(out, navNode{kind: nodeObject, conn: n.conn, database: n.database, schema: n.schema, name: o.Name})
+				}
+			}
+		default:
+			for _, it := range cn.Items[key] {
+				if string(it.Kind) != n.folder || n.folder == folderPartitions && it.Table != n.name {
+					continue
+				}
+				if filter == "" || strings.Contains(strings.ToLower(it.Name), filter) {
+					out = append(out, navNode{kind: nodeItem, conn: n.conn, database: n.database, schema: n.schema, name: itemName(it)})
+				}
 			}
 		}
 		if out == nil {
@@ -193,13 +236,84 @@ func (a *App) navChildren(n navNode) []navNode {
 			}
 			return info(cn, "Loading…")
 		}
-		out := make([]navNode, len(cols))
-		for i, c := range cols {
-			out[i] = navNode{kind: nodeColumn, conn: n.conn, database: n.database, schema: n.schema, name: n.name + "\x00" + c.Name}
+		var out []navNode
+		if _, obj, ok := a.object(n); ok && obj.Partitioning != "" {
+			out = append(out, navNode{kind: nodeFolder, conn: n.conn, database: n.database, schema: n.schema, name: n.name, folder: folderPartitions})
+		}
+		for _, c := range cols {
+			out = append(out, navNode{kind: nodeColumn, conn: n.conn, database: n.database, schema: n.schema, name: n.name + "\x00" + c.Name})
 		}
 		return out
 	}
 	return nil
+}
+
+// itemName names an item's node: by its kind and label, unique in its
+// schema, as overloaded functions' labels hold their arguments.
+func itemName(it db.Item) string { return string(it.Kind) + "\x00" + it.Label() }
+
+// item returns the item a node names.
+func (a *App) item(n navNode) (*connection.Conn, db.Item, bool) {
+	cn := a.connByID(n.conn)
+	if cn == nil {
+		return nil, db.Item{}, false
+	}
+	for _, it := range cn.Items[connection.SchemaKey{Database: n.database, Schema: n.schema}] {
+		if itemName(it) == n.name {
+			return cn, it, true
+		}
+	}
+	return cn, db.Item{}, false
+}
+
+// itemIcon is the icon of an item's kind.
+func itemIcon(k db.ItemKind) *ui.SVG {
+	switch k {
+	case db.ItemFunction, db.ItemProcedure:
+		return widgets.IconCode
+	case db.ItemTrigger:
+		return widgets.IconPlay
+	case db.ItemSequence, db.ItemProjection:
+		return widgets.IconLayers
+	case db.ItemType:
+		return widgets.IconSchema
+	case db.ItemExtension:
+		return widgets.IconPlug
+	case db.ItemEvent:
+		return widgets.IconClock
+	}
+	return widgets.IconTable
+}
+
+// openItem opens an item: a partition's rows, else its definition, in an
+// editor where it can be changed and run.
+func (a *App) openItem(cn *connection.Conn, database string, it db.Item) {
+	if it.Kind == db.ItemPartition {
+		a.OpenTable(cn, database, db.Object{Schema: it.Schema, Name: it.Name, Kind: db.KindTable, Rows: -1}, dataview.PageData)
+		return
+	}
+	a.openItemDefinition(cn, database, it)
+}
+
+// openItemDefinition opens an item's definition in an editor.
+func (a *App) openItemDefinition(cn *connection.Conn, database string, it db.Item) {
+	poolOf := cn.PoolFor(database) // read on the main thread
+	a.Background(func() func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		d, err := poolOf(ctx)
+		var def string
+		if err == nil {
+			def, err = d.Dialect.ItemDDL(ctx, d.SQL, it)
+		}
+		return func() {
+			if err != nil {
+				a.ShowError("Could not read the definition of "+it.Name, err.Error())
+				return
+			}
+			a.NewQueryTab(cn, database, strings.TrimRight(def, "\n")+"\n")
+		}
+	})
 }
 
 func (a *App) schemaNodes(cn *connection.Conn, database string, open bool) []navNode {
@@ -323,6 +437,10 @@ func (a *App) activate(n navNode) {
 		if cn, obj, ok := a.object(n); ok {
 			a.OpenTable(cn, n.database, obj, dataview.PageData)
 		}
+	case nodeItem:
+		if cn, it, ok := a.item(n); ok {
+			a.openItem(cn, n.database, it)
+		}
 	case nodeDatabase, nodeSchema, nodeFolder:
 		if a.nav.tree.Open.Has(n) {
 			a.nav.tree.Open.Remove(n)
@@ -385,13 +503,25 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 			ui.Icon(c, widgets.IconSchema).TextColor(pal.Muted).FontSize(13)
 			ui.Text(c, n.schema).SingleLine()
 		case nodeFolder:
-			objs := connection.SortedObjects(cn.Objects[connection.SchemaKey{Database: n.database, Schema: n.schema}], n.views)
-			label := "Tables"
-			if n.views {
-				label = "Views"
+			key := connection.SchemaKey{Database: n.database, Schema: n.schema}
+			var label string
+			var count int
+			switch n.folder {
+			case folderTables, folderViews:
+				label, count = "Tables", len(connection.SortedObjects(cn.Objects[key], n.folder == folderViews))
+				if n.folder == folderViews {
+					label = "Views"
+				}
+			default:
+				label = db.ItemKind(n.folder).Plural()
+				for _, it := range cn.Items[key] {
+					if string(it.Kind) == n.folder && (n.folder != folderPartitions || it.Table == n.name) {
+						count++
+					}
+				}
 			}
 			ui.Text(c, label).SingleLine()
-			ui.Text(c, fmt.Sprint(len(objs))).FontSize(11).TextColor(pal.Muted)
+			ui.Text(c, fmt.Sprint(count)).FontSize(11).TextColor(pal.Muted)
 		case nodeObject:
 			_, obj, _ := a.object(n)
 			ic := widgets.IconTable
@@ -418,6 +548,17 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 			}
 			ui.Text(c, col).SingleLine()
 			ui.Text(c, column.Type).FontSize(11).TextColor(pal.Muted).SingleLine().Shrink(1)
+		case nodeItem:
+			_, it, _ := a.item(n)
+			ui.Icon(c, itemIcon(it.Kind)).TextColor(pal.Muted).FontSize(12)
+			label := it.Label()
+			if it.Kind == db.ItemPartition {
+				label = it.Name
+			}
+			ui.Text(c, label).SingleLine().Grow(1).Shrink(1).Tooltip(label)
+			if it.Kind != db.ItemFunction && it.Kind != db.ItemProcedure && it.Detail != "" {
+				ui.Text(c, it.Detail).FontSize(11).TextColor(pal.Muted).SingleLine().Shrink(1)
+			}
 		case nodeInfo:
 			ui.Text(c, n.name).FontSize(12).TextColor(pal.Muted).Italic().SingleLine()
 		}
@@ -505,6 +646,9 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			if m.Item("Import Data…").Disabled(cn.Config.ReadOnly).Chosen() {
 				a.openImport(cn, n.database, obj.Schema, &obj)
 			}
+			if obj.Partitioning != "" && m.Item("New Partition…").Disabled(cn.Config.ReadOnly).Chosen() {
+				a.NewQueryTab(cn, n.database, partitionTemplate(cn.DB.Dialect, obj))
+			}
 			if cmds := maintenanceCommands(cn.Config.Engine, quoted); len(cmds) > 0 {
 				m.Submenu("Maintenance", func(m *ui.Menu) {
 					for _, mc := range cmds {
@@ -521,6 +665,26 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			if m.Item("Drop…").Chosen() {
 				a.NewQueryTab(cn, n.database, "DROP TABLE "+quoted+";\n")
 			}
+		}
+	case nodeItem:
+		cn, it, ok := a.item(n)
+		if !ok {
+			return
+		}
+		if it.Kind == db.ItemPartition {
+			if m.Item("Open Data").Chosen() {
+				a.openItem(cn, n.database, it)
+			}
+			if m.Item("Detach…").Disabled(cn.Config.ReadOnly).Chosen() {
+				d := cn.DB.Dialect
+				a.NewQueryTab(cn, n.database, "ALTER TABLE "+db.QualifiedName(d, it.Schema, it.Table)+" DETACH PARTITION "+db.QualifiedName(d, it.Schema, it.Name)+";\n")
+			}
+		}
+		if m.Item("Open Definition").Chosen() {
+			a.openItemDefinition(cn, n.database, it)
+		}
+		if m.Item("Copy Name").Chosen() {
+			a.WriteClipboard(db.QualifiedName(cn.DB.Dialect, it.Schema, it.Name))
 		}
 	case nodeSchema, nodeDatabase, nodeFolder:
 		if n.kind != nodeDatabase && m.Item("View ER Diagram").Chosen() {
@@ -544,9 +708,25 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 				delete(cn.Schemas, n.database)
 			} else {
 				delete(cn.Objects, connection.SchemaKey{Database: n.database, Schema: n.schema})
+				delete(cn.Items, connection.SchemaKey{Database: n.database, Schema: n.schema})
 			}
 		}
 	}
+}
+
+// partitionTemplate is the statement making a new partition of a
+// partitioned table, its bounds left to fill in as the table's strategy
+// writes them.
+func partitionTemplate(d db.Dialect, obj db.Object) string {
+	bounds := "FOR VALUES FROM ('…') TO ('…')"
+	switch strategy, _, _ := strings.Cut(obj.Partitioning, " "); strings.ToUpper(strategy) {
+	case "LIST":
+		bounds = "FOR VALUES IN ('…')"
+	case "HASH":
+		bounds = "FOR VALUES WITH (MODULUS 4, REMAINDER 0)"
+	}
+	return "-- A new partition of " + obj.Name + ", partitioned by " + obj.Partitioning + ": name it and set its bounds, then run it.\n" +
+		"CREATE TABLE " + db.QualifiedName(d, obj.Schema, obj.Name+"_new") + "\n  PARTITION OF " + db.QualifiedName(d, obj.Schema, obj.Name) + "\n  " + bounds + ";\n"
 }
 
 // maintenance is a command that keeps a table in shape.

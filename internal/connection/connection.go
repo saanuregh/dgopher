@@ -47,6 +47,7 @@ type Conn struct {
 	Databases     []string // PostgreSQL's other databases
 	Schemas       map[string][]string
 	Objects       map[SchemaKey][]db.Object
+	Items         map[SchemaKey][]db.Item
 	Columns       map[ObjectKey][]db.Column
 	Loading       map[any]bool
 	LoadErr       map[any]string
@@ -59,11 +60,20 @@ type ObjectKey struct{ Database, Schema, Name string }
 func (cn *Conn) Reset() {
 	cn.Schemas = map[string][]string{}
 	cn.Objects = map[SchemaKey][]db.Object{}
+	cn.Items = map[SchemaKey][]db.Item{}
 	cn.Columns = map[ObjectKey][]db.Column{}
 	cn.Loading = map[any]bool{}
 	cn.LoadErr = map[any]string{}
 	cn.Databases = nil
 	cn.DefaultSchema = ""
+}
+
+// ForgetCatalog forgets the tables, items and columns read, for the
+// navigator to read them again, as after statements that change them.
+func (cn *Conn) ForgetCatalog() {
+	clear(cn.Objects)
+	clear(cn.Items)
+	clear(cn.Columns)
 }
 
 // PoolFor returns how to get the pool of one of the connection's
@@ -158,6 +168,48 @@ func LoadObjects(r Runner, cn *Conn, database, schema string) {
 			cn.Objects[key] = objs
 		}
 	})
+}
+
+// itemsKey is what LoadItems marks a schema's loading and errors by,
+// apart from its tables'.
+type itemsKey SchemaKey
+
+// LoadItems reads the routines, triggers, sequences, types and the like
+// of a schema.
+func LoadItems(r Runner, cn *Conn, database, schema string) {
+	key := SchemaKey{Database: database, Schema: schema}
+	if cn.Loading[itemsKey(key)] {
+		return
+	}
+	cn.Loading[itemsKey(key)] = true
+	delete(cn.LoadErr, itemsKey(key))
+	poolOf := cn.PoolFor(database) // read on the main thread
+	r.Background(func() func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		d, err := poolOf(ctx)
+		var items []db.Item
+		if err == nil {
+			items, err = d.Dialect.Items(ctx, d.SQL, schema)
+		}
+		return func() {
+			delete(cn.Loading, itemsKey(key))
+			if err != nil {
+				cn.LoadErr[itemsKey(key)] = err.Error()
+				return
+			}
+			if items == nil {
+				items = []db.Item{}
+			}
+			cn.Items[key] = items
+		}
+	})
+}
+
+// ItemsError is why a schema's items could not be read, "" when they
+// were or are being.
+func (cn *Conn) ItemsError(database, schema string) string {
+	return cn.LoadErr[itemsKey(SchemaKey{Database: database, Schema: schema})]
 }
 
 // LoadColumns reads the columns of a table, then calls then.

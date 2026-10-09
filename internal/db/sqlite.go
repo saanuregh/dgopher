@@ -172,3 +172,19 @@ ORDER BY m.name, f.id, f.seq`, []any{schema, table}, func(scan func(...any) erro
 	}
 	return out, err
 }
+
+// Items lists the schema's triggers, SQLite's only objects besides tables,
+// views and indexes.
+func (d sqliteDialect) Items(ctx context.Context, q Querier, schema string) ([]Item, error) {
+	return scanItems(ctx, q, schema, `SELECT 'trigger', name, tbl_name, '', '' FROM `+d.Quote(schema)+`.sqlite_master
+WHERE type = 'trigger' ORDER BY name`)
+}
+
+// ItemDDL writes a trigger's definition as SQLite keeps it.
+func (d sqliteDialect) ItemDDL(ctx context.Context, q Querier, it Item) (string, error) {
+	if it.Kind != ItemTrigger {
+		return "", errNoDefinition(it)
+	}
+	def, err := queryString(ctx, q, `SELECT sql FROM `+d.Quote(it.Schema)+`.sqlite_master WHERE type = 'trigger' AND name = ?`, it.Name)
+	return def + ";\n", err
+}

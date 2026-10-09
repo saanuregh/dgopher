@@ -62,9 +62,6 @@ Next or Later are not repeated.
 - **Schema:**
   - Create and change tables in a form, covering columns, indexes, keys
     and constraints, and show the SQL before running it.
-  - Show triggers, functions, procedures, sequences, types, extensions
-    and events in the navigator.
-  - Show and manage PostgreSQL table partitions.
   - Rename a table or column from the navigator.
   - Open functions and procedures by name, and search the names and
     contents of every object in a database.
@@ -105,7 +102,6 @@ Next or Later are not repeated.
   - Import and export keys.
   - Load the rest of a large value. Today only its first part is read.
 - **ClickHouse and DuckDB:**
-  - Show ClickHouse projections in the navigator.
 - **Charts:**
   - More kinds of chart.
   - Dashboards built from saved queries, with parameters and automatic

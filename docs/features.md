@@ -87,6 +87,13 @@
     commit mode and idle-transaction limit: see [Safety model](safety.md).
 - **Navigator:** a lazy tree of databases, schemas, tables, views and columns,
   with row estimates. It has a filter, context menus, and quick open (⌘P).
+  - A schema's other objects, each in a folder of its kind: functions and
+    procedures, triggers, sequences, types and extensions (PostgreSQL),
+    events (MySQL), macros (DuckDB) and projections (ClickHouse). One opens
+    its definition in an editor, where it can be changed and run.
+  - A PostgreSQL partitioned table lists its partitions with their bounds:
+    open one's rows, detach it, or make a new one, its statement written
+    for the table's strategy.
   - Tables: view DDL, copy the name, export data, truncate or drop.
   - Connections: duplicate or delete; on Redis, open the key browser.
   - Projects: rename, show in files, or remove from the sidebar.
