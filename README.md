@@ -24,14 +24,6 @@ Measured on Linux (amd64, Wayland) with version 0.1.0:
 
 ## Features
 
-- **One native binary:** every driver compiled in, and nothing to install
-  beside it.
-- **SQL editor:** highlighting, completion from the catalog, a ▶ on every
-  statement, folding, multiple cursors, Vim keys, find and replace, Go to
-  Definition, problems underlined as you type, and a session per editor.
-- **Results grid:** streams large results, filters (in SQL or with a
-  builder), sorts, edits rows inline, compares, profiles, and exports to
-  CSV, JSON, SQL, Parquet, Excel and more.
 - **Safe with production:**
   - Each connection has an environment, whose colour is shown everywhere.
   - On production, writes ask first, destructive statements need the
@@ -41,29 +33,57 @@ Measured on Linux (amd64, Wayland) with version 0.1.0:
     back.
   - Grid edits are reviewed as SQL and applied in one transaction, one row
     per statement by primary key.
-- **Secure:**
-  - Passwords stay in the system keychain, an environment variable or a
-    command such as a password manager, or are asked every time. Project
-    files hold none.
-  - TLS with a custom CA, SSH tunnels with host keys checked, and Kerberos
-    for PostgreSQL.
-  - Secrets are redacted from history and logs.
+- **Secure:** passwords stay in the system keychain, an environment
+  variable or a command such as a password manager, or are asked every
+  time. Project files hold none, and secrets are redacted from history and
+  logs.
 - **Audit log:** every statement, edit, import, export and confirmation is
   recorded per project in a tamper-evident hash chain. You can verify it
   and export it.
-- **Git-friendly projects:** connections, query files, dashboards and data
-  models live in your repository, without secrets.
-- **Dashboards and charts:** any statement becomes a panel, as a number, a
-  chart or a table, with parameters and refresh.
-- **Schema:** ER diagrams, a table designer, data models that generate
-  migrations, and search across objects and definitions.
+- **Admin:** server activity with running queries to cancel, locks and the
+  slowest statements; users and privileges; and VACUUM, ANALYZE, REINDEX
+  or OPTIMIZE from a table's menu.
+- **Query plans:** Explain and Explain Analyze as a tree of steps or a
+  flame graph, with rows estimated and found, and advice on what makes a
+  query slow: a full scan to keep few rows, a sort spilling to disk, a
+  nested loop rescanning a table.
+- **Every way in:**
+  - PostgreSQL, MySQL, ClickHouse (native or HTTP), SQLite and DuckDB
+    files, and Redis: one server, a cluster, or through Sentinel.
+  - Drop a CSV, Parquet or JSON file on the window to query it in place
+    with DuckDB.
+  - TLS with a custom CA and client certificates, SSH tunnels through jump
+    hosts with host keys checked, and SOCKS5 or HTTP proxies.
+  - Log in without a password through AWS IAM, Google Cloud IAM or
+    Microsoft Entra ID, or Kerberos on PostgreSQL.
 - **Data:** copy tables between databases and engines, compare rows,
   generate test data, import CSV, JSON, Parquet, Excel and XML, back up and
   restore.
+- **Schema:** ER diagrams you edit, a table designer, data models that
+  generate migrations, a query builder, and search across objects and
+  definitions.
+- **SQL editor:** highlighting, completion from the catalog, a ▶ on every
+  statement, `:name` parameters, folding, multiple cursors, Vim keys, find
+  and replace, Go to Definition, problems underlined as you type, and a
+  session per editor.
+- **Results grid:** streams large results, filters (in SQL or with a
+  builder), sorts, edits rows inline, follows foreign keys to the rows they
+  point at and from the rows that point back, profiles every column, and
+  exports to CSV, JSON, SQL, Parquet, Excel and more. Values open in
+  JSON, XML, hex and image viewers.
+- **Git-friendly projects:** connections, query files, snippets,
+  dashboards and data models live in your repository, without secrets.
+- **Dashboards and charts:** any result as a bar, line, area, scatter, pie
+  or histogram chart, and any statement as a dashboard panel, a number, a
+  chart or a table, with parameters and refresh.
 - **Redis:** a key browser, value editors for every type and module, and a
   console.
 - **Keyboard first:** a command palette, quick open for tables and query
-  files, and every shortcut customizable.
+  files, query history and snippets, and every shortcut customizable.
+- **One native binary:** every driver compiled in, and nothing to install
+  beside it.
+- **Your way:** light, dark and custom themes, more windows and tabs side
+  by side, and every control named for screen readers.
 
 See [Features](docs/features.md) for the full list, and the
 [Safety model](docs/safety.md) and [Audit log](docs/audit-log.md) for the
