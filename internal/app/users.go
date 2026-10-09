@@ -2,17 +2,13 @@ package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
-	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
-	"dgopher/internal/redact"
-	"dgopher/internal/safety"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -132,65 +128,18 @@ func (t *usersTab) loadPrivileges() {
 	})
 }
 
-// apply runs statements changing accounts once the user agrees, as the
-// safety policy asks, and always: they change who may do what. The
-// statements show, and are audited, with their passwords hidden; they
-// run on a session of their own, never in an editor, whose file a
-// password would be saved in.
+// apply runs statements changing accounts once the user agrees, always:
+// they change who may do what. They run on a session of their own, never
+// in an editor, whose file a password would be saved in.
 func (t *usersTab) apply(title string, stmts []string) {
-	cn := t.conn
-	cfg := cn.Config
-	v := safety.ReviewSQL(&cfg, safety.Analyze(&cfg, stmts))
-	shown := make([]string, len(stmts))
-	for i, s := range stmts {
-		shown[i] = redact.Secrets(s) + ";"
-	}
-	preview := strings.Join(shown, "\n")
-	if v.Blocked != "" {
-		t.a.RecordBlocked(cn, v.Blocked, preview)
-		t.a.ShowError("Not allowed", v.Blocked)
-		return
-	}
-	v.Confirm = true
-	v.Reasons = append(v.Reasons, "This changes who may do what on "+cfg.Name+".")
-	t.a.AskConfirm(cn, v, title, "Apply", preview, func() {
-		pool := cn.DB
-		t.a.Background(func() func() {
-			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-			defer cancel()
-			err := errors.New("not connected")
-			if pool != nil {
-				err = runAll(ctx, t.a, pool, cfg, stmts)
-			}
-			return func() {
-				if err != nil {
-					t.a.ShowError(title+" failed", err.Error())
-				} else {
-					t.a.toast = &pendingToast{text: "Done: " + title}
-				}
-				t.refresh()
-			}
-		})
-	})
-}
-
-// runAll runs statements one after the other on a session of their own,
-// each audited, up to the first that fails.
-func runAll(ctx context.Context, a *App, pool *db.DB, cfg db.Config, stmts []string) error {
-	sess, err := pool.Session(ctx)
-	if err != nil {
-		return err
-	}
-	defer sess.Close()
-	for _, s := range stmts {
-		start := time.Now()
-		n, err := sess.Exec(ctx, s)
-		a.RecordRun(cfg, audit.KindStatement, "", s, n, time.Since(start), err)
+	t.a.applyStatements(t.conn, "", title, stmts, "This changes who may do what on "+t.conn.Config.Name+".", func(err error) {
 		if err != nil {
-			return fmt.Errorf("%s: %w", redact.Secrets(s), err)
+			t.a.ShowError(title+" failed", err.Error())
+		} else {
+			t.a.toast = &pendingToast{text: "Done: " + title}
 		}
-	}
-	return nil
+		t.refresh()
+	})
 }
 
 func (t *usersTab) View(c *ui.Context) {

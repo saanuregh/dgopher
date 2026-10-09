@@ -529,60 +529,61 @@ func (a *App) newProjectView(c *ui.Context) {
 }
 
 // renameForm asks for a query file's new name.
+// renameForm asks a new name for something: a query file, a table, a
+// column.
 type renameForm struct {
-	open bool
-	p    *project.Project
-	path string
-	name string
-	err  string
+	open  bool
+	title string
+	name  string
+	err   string
+	// rename renames it to name, or says why not, which keeps the form
+	// open.
+	rename func(name string) error
 }
 
 func (a *App) askRename(p *project.Project, path string) {
-	a.renaming = &renameForm{open: true, p: p, path: path, name: filepath.Base(path)}
+	a.renaming = &renameForm{open: true, title: "Rename " + filepath.Base(path), name: filepath.Base(path),
+		rename: func(name string) error { return a.renameQueryFile(p, path, name) }}
 }
 
 // renameQueryFile renames a query file and the editors open on it.
-func (a *App) renameQueryFile(f *renameForm) {
-	name := strings.TrimSpace(f.name)
+func (a *App) renameQueryFile(p *project.Project, path, name string) error {
+	name = strings.TrimSpace(name)
 	if !strings.EqualFold(filepath.Ext(name), ".sql") {
 		name += ".sql"
 	}
 	if name == ".sql" || strings.ContainsAny(name, `/\:*?"<>|`) {
-		f.err = `A name may not be empty, nor hold / \ : * ? " < > or |.`
-		return
+		return errors.New(`A name may not be empty, nor hold / \ : * ? " < > or |.`)
 	}
-	to := filepath.Join(filepath.Dir(f.path), name)
-	if to == f.path {
-		f.open = false
-		return
+	to := filepath.Join(filepath.Dir(path), name)
+	if to == path {
+		return nil
 	}
 	if _, err := os.Lstat(to); err == nil {
-		f.err = name + " exists already."
-		return
+		return errors.New(name + " exists already.")
 	}
 	for _, t := range a.tabs {
-		if q, ok := t.(*query.Tab); ok && q.Path == f.path {
+		if q, ok := t.(*query.Tab); ok && q.Path == path {
 			q.Flush(false)
 		}
 	}
-	if err := os.Rename(f.path, to); err != nil {
-		f.err = err.Error()
-		return
+	if err := os.Rename(path, to); err != nil {
+		return err
 	}
 	for _, t := range a.tabs {
-		if q, ok := t.(*query.Tab); ok && q.Path == f.path {
+		if q, ok := t.(*query.Tab); ok && q.Path == path {
 			q.Path, q.Name, q.Created = to, name, ""
 		}
 	}
-	f.open = false
-	a.ScanQueries(f.p, true)
+	a.ScanQueries(p, true)
+	return nil
 }
 
 func (a *App) renameView(c *ui.Context) {
 	f := a.renaming
 	ui.Modal(c, &f.open, func() {
 		ui.Column(c).Width(420).Gap(10).Children(func() {
-			ui.Text(c, "Rename "+filepath.Base(f.path)).FontSize(15).Bold()
+			ui.Text(c, f.title).FontSize(15).Bold()
 			submit := ui.TextInput(c, &f.name).AutoFocus().Label("Name").Font(widgets.MonoFont).Submitted()
 			if f.err != "" {
 				ui.Text(c, f.err).FontSize(12).TextColor(c.Theme().Danger)
@@ -592,7 +593,11 @@ func (a *App) renameView(c *ui.Context) {
 					f.open = false
 				}
 				if ui.PrimaryButton(c, "Rename").Clicked() || submit {
-					a.renameQueryFile(f)
+					if err := f.rename(f.name); err != nil {
+						f.err = err.Error()
+					} else {
+						f.open = false
+					}
 				}
 			})
 		})

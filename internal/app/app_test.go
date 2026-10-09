@@ -1508,6 +1508,52 @@ func TestMaintenanceOnProduction(t *testing.T) {
 	}
 }
 
+// A table and a column are renamed from the navigator, through the
+// policy: at once in development, once agreed on production.
+func TestRenameInDatabase(t *testing.T) {
+	a := newTestApp(t)
+	file := filepath.Join(t.TempDir(), "x.sqlite")
+	os.WriteFile(file, nil, 0o600)
+	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file, Env: db.Development})
+	tt := ui.NewTester(a.view, 1200, 800)
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	if _, err := cn.DB.SQL.Exec(`CREATE TABLE orders (id INTEGER PRIMARY KEY, total REAL)`); err != nil {
+		t.Fatal(err)
+	}
+	obj := db.Object{Schema: "main", Name: "orders", Kind: db.KindTable}
+	a.askRenameInDatabase(cn, "", "orders", func(name string) (string, error) {
+		return db.RenameObjectSQL(cn.DB.Dialect, obj, name)
+	})
+	if err := a.renaming.rename(" "); err == nil {
+		t.Fatal("an empty name was taken")
+	}
+	if err := a.renaming.rename("sales"); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	testutil.WaitFor(t, tt, "the table renamed", func() bool {
+		return cn.DB.SQL.QueryRow(`SELECT count(*) FROM sales`).Scan(&n) == nil
+	})
+
+	cn.Config.Env = db.Production
+	a.askRenameInDatabase(cn, "", "total", func(name string) (string, error) {
+		return db.RenameColumnSQL(cn.DB.Dialect, "main", "sales", "total", name), nil
+	})
+	if err := a.renaming.rename("amount"); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WaitFor(t, tt, "the confirmation", func() bool { return a.confirm != nil })
+	if !strings.Contains(a.confirm.Preview, `RENAME COLUMN "total" TO "amount"`) {
+		t.Fatalf("confirmation: %q", a.confirm.Preview)
+	}
+	a.confirm.OnConfirm()
+	a.confirm = nil
+	testutil.WaitFor(t, tt, "the column renamed", func() bool {
+		return cn.DB.SQL.QueryRow(`SELECT count(amount) FROM sales`).Scan(&n) == nil
+	})
+}
+
 // Users are made, granted, taken back from and dropped from their tab;
 // a password shows nowhere: not in the confirmation, the audit log or a
 // file.

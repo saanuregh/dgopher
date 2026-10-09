@@ -487,8 +487,9 @@ func TestRenameQueryFile(t *testing.T) {
 	q := a.ActiveTab().(*query.Tab)
 	old := q.Path
 	a.askRename(p, old)
-	a.renaming.name = "monthly report"
-	a.renameQueryFile(a.renaming)
+	if err := a.renaming.rename("monthly report"); err != nil {
+		t.Fatal(err)
+	}
 	want := filepath.Join(p.Queries, "monthly report.sql")
 	if q.Path != want || q.Name != "monthly report.sql" {
 		t.Fatalf("editor at %s named %s", q.Path, q.Name)
@@ -504,9 +505,7 @@ func TestRenameQueryFile(t *testing.T) {
 	// A name in use is refused.
 	os.WriteFile(filepath.Join(p.Queries, "taken.sql"), nil, 0o644)
 	a.askRename(p, want)
-	a.renaming.name = "taken"
-	a.renameQueryFile(a.renaming)
-	if a.renaming.err == "" {
+	if err := a.renaming.rename("taken"); err == nil {
 		t.Fatal("renamed over another file")
 	}
 }

@@ -1,6 +1,7 @@
 package db
 
 import (
+	"errors"
 	"regexp"
 	"strconv"
 	"strings"
@@ -117,4 +118,34 @@ func (t *EditTarget) InsertRows(cols []Column, rows [][]any) Statement {
 	}
 	return Statement{SQL: "INSERT INTO " + QualifiedName(t.Dialect, t.Schema, t.Table) + " (" + strings.Join(names, ", ") + ") VALUES " + strings.Join(tuples, ", "),
 		Args: args, Want: -1}
+}
+
+// RenameObjectSQL writes the statement renaming a table or a view.
+func RenameObjectSQL(d Dialect, obj Object, name string) (string, error) {
+	from := QualifiedName(d, obj.Schema, obj.Name)
+	switch d.Engine() {
+	case MySQL, ClickHouse:
+		// RENAME TABLE renames views too, and may move between databases:
+		// the new name stays in the same one.
+		return "RENAME TABLE " + from + " TO " + QualifiedName(d, obj.Schema, name), nil
+	case SQLite:
+		if obj.Kind != KindTable {
+			return "", errors.New("SQLite cannot rename a view: drop it and create it again under the new name")
+		}
+	}
+	kind := "TABLE"
+	switch obj.Kind {
+	case KindView:
+		kind = "VIEW"
+	case KindMaterializedView:
+		kind = "MATERIALIZED VIEW"
+	case KindForeignTable:
+		kind = "FOREIGN TABLE"
+	}
+	return "ALTER " + kind + " " + from + " RENAME TO " + d.Quote(name), nil
+}
+
+// RenameColumnSQL writes the statement renaming a column of a table.
+func RenameColumnSQL(d Dialect, schema, table, column, name string) string {
+	return "ALTER TABLE " + QualifiedName(d, schema, table) + " RENAME COLUMN " + d.Quote(column) + " TO " + d.Quote(name)
 }

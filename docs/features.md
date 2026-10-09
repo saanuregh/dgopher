@@ -95,6 +95,9 @@
     open one's rows, detach it, or make a new one, its statement written
     for the table's strategy.
   - Tables: view DDL, copy the name, export data, truncate or drop.
+  - Rename a table, a view or a column of a table, through the same
+    safety review as a statement typed in an editor; SQLite cannot rename
+    a view.
   - Connections: duplicate or delete; on Redis, open the key browser.
   - Projects: rename, show in files, or remove from the sidebar.
 

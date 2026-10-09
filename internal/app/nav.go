@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -639,6 +640,11 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		if m.Item("Copy Name").Chosen() {
 			a.WriteClipboard(quoted)
 		}
+		if _, err := db.RenameObjectSQL(cn.DB.Dialect, obj, obj.Name); err == nil && m.Item("Rename…").Disabled(cn.Config.ReadOnly).Chosen() {
+			a.askRenameInDatabase(cn, n.database, obj.Name, func(name string) (string, error) {
+				return db.RenameObjectSQL(cn.DB.Dialect, obj, name)
+			})
+		}
 		if m.Item("Export Data…").Chosen() {
 			dataview.OpenExport(a, dataview.ExportSource{Conn: cn, Database: n.database, Name: obj.Name, SQL: "SELECT * FROM " + quoted})
 		}
@@ -665,6 +671,20 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			if m.Item("Drop…").Chosen() {
 				a.NewQueryTab(cn, n.database, "DROP TABLE "+quoted+";\n")
 			}
+		}
+	case nodeColumn:
+		table, column, _ := strings.Cut(n.name, "\x00")
+		cn, obj, ok := a.object(navNode{conn: n.conn, database: n.database, schema: n.schema, name: table})
+		if !ok {
+			return
+		}
+		if m.Item("Copy Name").Chosen() {
+			a.WriteClipboard(cn.DB.Dialect.Quote(column))
+		}
+		if obj.Kind == db.KindTable && m.Item("Rename…").Disabled(cn.Config.ReadOnly).Chosen() {
+			a.askRenameInDatabase(cn, n.database, column, func(name string) (string, error) {
+				return db.RenameColumnSQL(cn.DB.Dialect, obj.Schema, obj.Name, column, name), nil
+			})
 		}
 	case nodeItem:
 		cn, it, ok := a.item(n)
@@ -712,6 +732,33 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			}
 		}
 	}
+}
+
+// askRenameInDatabase asks for a new name of a table, view or column
+// called current, and renames it by the statement rename writes, which
+// runs as the safety policy says. The navigator then reads the catalog
+// again.
+func (a *App) askRenameInDatabase(cn *connection.Conn, database, current string, rename func(name string) (string, error)) {
+	a.renaming = &renameForm{open: true, title: "Rename " + current, name: current, rename: func(name string) error {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return errors.New("A name may not be empty.")
+		}
+		if name == current {
+			return nil
+		}
+		sql, err := rename(name)
+		if err != nil {
+			return err
+		}
+		a.applyStatements(cn, database, "Rename "+current, []string{sql}, "", func(err error) {
+			cn.ForgetCatalog()
+			if err != nil {
+				a.ShowError("Rename failed", err.Error())
+			}
+		})
+		return nil
+	}}
 }
 
 // partitionTemplate is the statement making a new partition of a

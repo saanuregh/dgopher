@@ -1083,3 +1083,54 @@ func TestIntegrationItems(t *testing.T) {
 		})
 	}
 }
+
+// A table and one of its columns rename on every engine.
+func TestIntegrationRename(t *testing.T) {
+	integration(t)
+	ctx := context.Background()
+	for _, c := range []struct {
+		cfg    Config
+		schema string
+	}{
+		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dbgopher", Database: "postgres"}, "public"},
+		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"}, "shop"},
+		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "r.sqlite")}, "main"},
+		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main"},
+		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher"}, "default"},
+	} {
+		t.Run(string(c.cfg.Engine), func(t *testing.T) {
+			if c.cfg.Engine == SQLite {
+				os.WriteFile(c.cfg.Database, nil, 0o600)
+			}
+			d, err := Open(ctx, c.cfg, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer d.Close()
+			old, renamed := QualifiedName(d.Dialect, c.schema, "it_rename"), QualifiedName(d.Dialect, c.schema, "it_renamed")
+			create := "CREATE TABLE " + old + " (a int)"
+			if c.cfg.Engine == ClickHouse {
+				create += " ENGINE = Memory"
+			}
+			for _, q := range []string{"DROP TABLE IF EXISTS " + old, "DROP TABLE IF EXISTS " + renamed, create} {
+				if _, err := d.SQL.ExecContext(ctx, q); err != nil {
+					t.Fatal(q, err)
+				}
+			}
+			defer d.SQL.ExecContext(ctx, "DROP TABLE IF EXISTS "+renamed)
+			table, err := RenameObjectSQL(d.Dialect, Object{Schema: c.schema, Name: "it_rename", Kind: KindTable}, "it_renamed")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, q := range []string{table, RenameColumnSQL(d.Dialect, c.schema, "it_renamed", "a", "b")} {
+				if _, err := d.SQL.ExecContext(ctx, q); err != nil {
+					t.Fatal(q, err)
+				}
+			}
+			cols, err := d.Dialect.Columns(ctx, d.SQL, c.schema, "it_renamed")
+			if err != nil || len(cols) != 1 || cols[0].Name != "b" {
+				t.Fatalf("columns %+v: %v", cols, err)
+			}
+		})
+	}
+}
