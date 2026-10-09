@@ -47,14 +47,15 @@ func Run(args []string) error {
 	setMenuBar(a)
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
-			Title:         "DGopher",
-			TitleBarStyle: mygo.TitleBarHidden,
-			Width:         1280,
-			Height:        820,
-			MinWidth:      760,
-			MinHeight:     480,
-			StateKey:      "main",
-			Content:       ui.View(a.windowView(a.main)),
+			Title:          "DGopher",
+			TitleBarStyle:  mygo.TitleBarHidden,
+			TitleBarHeight: titleBarHeight,
+			Width:          1280,
+			Height:         820,
+			MinWidth:       760,
+			MinHeight:      480,
+			StateKey:       "main",
+			Content:        ui.View(a.windowView(a.main)),
 		})
 		a.main.native = win
 		a.windowFocused = a.anyFocused
@@ -62,13 +63,14 @@ func Run(args []string) error {
 		win.OnFocus(func() { a.lastFocused = a.main; a.invalidate() })
 		a.makeWindow = func(w *window) {
 			w.native = mygo.NewWindow(mygo.WindowOptions{
-				Title:         "DGopher",
-				TitleBarStyle: mygo.TitleBarHidden,
-				Width:         1000,
-				Height:        720,
-				MinWidth:      560,
-				MinHeight:     360,
-				Content:       ui.View(a.windowView(w)),
+				Title:          "DGopher",
+				TitleBarStyle:  mygo.TitleBarHidden,
+				TitleBarHeight: titleBarHeight,
+				Width:          1000,
+				Height:         720,
+				MinWidth:       560,
+				MinHeight:      360,
+				Content:        ui.View(a.windowView(w)),
 			})
 			w.native.OnFocus(func() { a.lastFocused = w; a.invalidate() })
 			// Closed, its tabs go back to the main window.

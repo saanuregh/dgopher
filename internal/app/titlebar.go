@@ -12,8 +12,13 @@ import (
 // (mygo.TitleBarHidden): the same on every system, and every part of it
 // does something.
 
-// barHeight is the height of the rows the title bar is made of.
-func barHeight(c *ui.Context) float32 { return max(c.TitleBar().Height, 36) }
+// titleBarHeight is the height of the title bar's rows, which the window
+// controls fill on Windows and are centered in on Linux.
+const titleBarHeight = 36
+
+// barHeight is the height of the rows the title bar is made of, never
+// less than the room the window controls take.
+func barHeight(c *ui.Context) float32 { return max(c.TitleBar().Height, titleBarHeight) }
 
 // sidebarBar is the sidebar's top row: adding a project or a connection,
 // and hiding the sidebar.
