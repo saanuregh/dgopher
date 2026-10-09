@@ -72,16 +72,6 @@ func syntaxColor(k sqltext.Kind) themeColor {
 	return func(_ *ui.Theme, p *Palette, c ui.Color) { p.Syntax[k] = c }
 }
 
-// ThemeColors are the names of the colors a theme may set, in order.
-func ThemeColors() []string {
-	names := make([]string, 0, len(themeColors))
-	for n := range themeColors {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	return names
-}
-
 var hexColor = regexp.MustCompile(`^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$`)
 
 // Check says what of a theme is wrong, as a file written by hand.
