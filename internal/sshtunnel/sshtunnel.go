@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,6 +36,26 @@ type Config struct {
 	KeyPath       string // "~/" is expanded
 	KeyPassphrase string
 	UseAgent      bool // use the SSH_AUTH_SOCK agent if set
+	// Jumps are SSH servers reached in turn before Host, as OpenSSH's
+	// ProxyJump, each logging in as Host does and its host key checked.
+	Jumps []Hop
+	// Dial reaches the first server, nil for a direct connection.
+	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
+}
+
+// Hop is an SSH server a tunnel goes through.
+type Hop struct {
+	Host string
+	Port int // 0 means 22
+	User string
+}
+
+func (h Hop) addr() string {
+	port := h.Port
+	if port == 0 {
+		port = 22
+	}
+	return net.JoinHostPort(h.Host, strconv.Itoa(port))
 }
 
 // HostKeyError reports a host key that is unknown or does not match known_hosts.
@@ -55,7 +76,10 @@ func (e *HostKeyError) Error() string {
 }
 
 type Tunnel struct {
-	client    *ssh.Client
+	client *ssh.Client
+	// jumps are the clients of the servers before the last, closed after
+	// it.
+	jumps     []*ssh.Client
 	listener  net.Listener
 	agentConn net.Conn
 	remote    string
@@ -102,11 +126,12 @@ func connect(ctx context.Context, cfg Config, knownHostsFiles []string, listener
 	if cfg.User == "" {
 		return nil, errors.New("sshtunnel: user is required")
 	}
-	port := cfg.Port
-	if port == 0 {
-		port = 22
+	hops := append(slices.Clone(cfg.Jumps), Hop{Host: cfg.Host, Port: cfg.Port, User: cfg.User})
+	for _, h := range hops {
+		if h.Host == "" || h.User == "" {
+			return nil, errors.New("sshtunnel: every jump host needs a host and a user")
+		}
 	}
-	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(port))
 
 	hostKeyCallback, err := hostKeyCallback(knownHostsFiles)
 	if err != nil {
@@ -116,56 +141,48 @@ func connect(ctx context.Context, cfg Config, knownHostsFiles []string, listener
 	if err != nil {
 		return nil, err
 	}
-	closeAgent := func() {
-		if agentConn != nil {
-			agentConn.Close()
-		}
-	}
 
 	if _, ok := ctx.Deadline(); !ok {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, defaultDialTimeout)
 		defer cancel()
 	}
-	var dialer net.Dialer
-	conn, err := dialer.DialContext(ctx, "tcp", addr)
-	if err != nil {
-		closeAgent()
-		return nil, fmt.Errorf("sshtunnel: dial %s: %w", addr, err)
+	dial := cfg.Dial
+	if dial == nil {
+		dial = (&net.Dialer{}).DialContext
 	}
-	if deadline, ok := ctx.Deadline(); ok {
-		conn.SetDeadline(deadline)
+	var clients []*ssh.Client
+	fail := func(err error) (*Tunnel, error) {
+		for i := len(clients) - 1; i >= 0; i-- {
+			clients[i].Close()
+		}
+		if agentConn != nil {
+			agentConn.Close()
+		}
+		return nil, err
 	}
-	stopWatch := context.AfterFunc(ctx, func() { conn.Close() })
-	clientConn, chans, reqs, err := ssh.NewClientConn(conn, addr, &ssh.ClientConfig{
-		User:            cfg.User,
-		Auth:            auth,
-		HostKeyCallback: hostKeyCallback,
-		// Ask for a key of a type known_hosts has for the host: a server
-		// offering another type would read as a changed key.
-		HostKeyAlgorithms: knownAlgorithms(knownHostsFiles, addr, conn.RemoteAddr()),
-	})
-	if !stopWatch() || err != nil {
-		conn.Close()
-		closeAgent()
-		if err == nil {
-			clientConn.Close()
-			err = ctx.Err()
+	for i, h := range hops {
+		addr := h.addr()
+		var conn net.Conn
+		if i == 0 {
+			conn, err = dial(ctx, "tcp", addr)
+		} else {
+			conn, err = clients[i-1].DialContext(ctx, "tcp", addr)
 		}
-		var hostKeyErr *HostKeyError
-		if errors.As(err, &hostKeyErr) {
-			return nil, hostKeyErr
+		if err != nil {
+			return fail(fmt.Errorf("sshtunnel: dial %s: %w", addr, err))
 		}
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, fmt.Errorf("sshtunnel: handshake with %s: %w", addr, ctxErr)
+		client, err := handshake(ctx, conn, addr, h.User, auth, hostKeyCallback, knownHostsFiles)
+		if err != nil {
+			return fail(err)
 		}
-		return nil, fmt.Errorf("sshtunnel: handshake with %s: %w", addr, err)
+		clients = append(clients, client)
 	}
-	conn.SetDeadline(time.Time{})
-	client := ssh.NewClient(clientConn, chans, reqs)
+	client := clients[len(clients)-1]
 
 	t := &Tunnel{
 		client:    client,
+		jumps:     clients[:len(clients)-1],
 		listener:  listener,
 		agentConn: agentConn,
 		remote:    remote,
@@ -182,6 +199,40 @@ func connect(ctx context.Context, cfg Config, knownHostsFiles []string, listener
 		t.stop(fmt.Errorf("sshtunnel: ssh connection closed: %w", err))
 	}()
 	return t, nil
+}
+
+// handshake logs in to the SSH server at the other end of conn, which it
+// closes when the handshake fails or ctx ends first.
+func handshake(ctx context.Context, conn net.Conn, addr, user string, auth []ssh.AuthMethod, hostKeyCallback ssh.HostKeyCallback, knownHostsFiles []string) (*ssh.Client, error) {
+	if deadline, ok := ctx.Deadline(); ok {
+		conn.SetDeadline(deadline)
+	}
+	stopWatch := context.AfterFunc(ctx, func() { conn.Close() })
+	clientConn, chans, reqs, err := ssh.NewClientConn(conn, addr, &ssh.ClientConfig{
+		User:            user,
+		Auth:            auth,
+		HostKeyCallback: hostKeyCallback,
+		// Ask for a key of a type known_hosts has for the host: a server
+		// offering another type would read as a changed key.
+		HostKeyAlgorithms: knownAlgorithms(knownHostsFiles, addr, conn.RemoteAddr()),
+	})
+	if !stopWatch() || err != nil {
+		conn.Close()
+		if err == nil {
+			clientConn.Close()
+			err = ctx.Err()
+		}
+		var hostKeyErr *HostKeyError
+		if errors.As(err, &hostKeyErr) {
+			return nil, hostKeyErr
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, fmt.Errorf("sshtunnel: handshake with %s: %w", addr, ctxErr)
+		}
+		return nil, fmt.Errorf("sshtunnel: handshake with %s: %w", addr, err)
+	}
+	conn.SetDeadline(time.Time{})
+	return ssh.NewClient(clientConn, chans, reqs), nil
 }
 
 // Dial connects to addr as the SSH server would; the connection closes with the tunnel.
@@ -238,6 +289,9 @@ func (t *Tunnel) stop(err error) {
 			t.listener.Close()
 		}
 		t.client.Close()
+		for i := len(t.jumps) - 1; i >= 0; i-- {
+			t.jumps[i].Close()
+		}
 		if t.agentConn != nil {
 			t.agentConn.Close()
 		}

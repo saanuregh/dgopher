@@ -550,6 +550,9 @@ func (a *App) networkPage(c *ui.Context, f *connForm) {
 	ui.Field(c, "SSH user", func() {
 		ui.TextInput(c, &f.cfg.SSH.User).Placeholder("ubuntu")
 	})
+	ui.Field(c, "Jump hosts", func() {
+		ui.TextInput(c, &f.cfg.SSH.Jump).Placeholder("none, or user@jump.example.com, jump2:2222").Grow(1)
+	}).Description("SSH servers reached in turn before the SSH host, as ssh -J does; each logs in as the SSH host does, and its host key is checked.")
 	ui.Field(c, "", func() {
 		ui.Checkbox(c, &f.cfg.SSH.UseAgent, "Use the SSH agent")
 	})

@@ -80,7 +80,9 @@ func openTunnel(ctx context.Context, cfg *Config, knownHosts []string) (endpoint
 // sshConfig is the SSH server a configuration reaches its database
 // through.
 func sshConfig(cfg *Config) sshtunnel.Config {
+	jumps, _ := cfg.SSH.Jumps() // Validate refused them, when they do not read
 	return sshtunnel.Config{
+		Jumps:         jumps,
 		Host:          cfg.SSH.Host,
 		Port:          cfg.SSH.Port,
 		User:          cfg.SSH.User,

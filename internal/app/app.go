@@ -214,6 +214,15 @@ func clientCertWhere(cfg *db.Config) string {
 	return fmt.Sprintf("|cert|%q|%q", cfg.CertFile, cfg.KeyFile)
 }
 
+// jumpWhere is the SSH servers a connection goes through before its SSH
+// host, "" for none, which keeps the fingerprints of connections without.
+func jumpWhere(cfg *db.Config) string {
+	if !cfg.SSH.Enabled || cfg.SSH.Jump == "" {
+		return ""
+	}
+	return fmt.Sprintf("|jump|%q", cfg.SSH.Jump)
+}
+
 // projectEnvPrefix is what the environment variables named by a project
 // file must start with: a cloned repository may not have the app send
 // GITHUB_TOKEN, or any other variable, to a host of its choice.
@@ -701,7 +710,7 @@ func (a *App) requestQuit(quit func()) bool {
 func sharedFingerprint(cfg *db.Config, projectDir string) string {
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%s|%d|%s|%s|%s|%q|%v|%s|%d|%s|%q|%s|%q|%q%s", projectDir, cfg.ID, cfg.Engine, cfg.Host, cfg.Port,
 		cfg.User, cfg.Database, cfg.TLS, cfg.CAFile, cfg.SSH.Enabled, cfg.SSH.Host, cfg.SSH.Port, cfg.SSH.User, cfg.SSH.KeyPath,
-		cfg.PasswordEnv, cfg.PasswordCommand, cfg.SSH.PasswordCommand, redisWhere(cfg)+clientCertWhere(cfg))))
+		cfg.PasswordEnv, cfg.PasswordCommand, cfg.SSH.PasswordCommand, redisWhere(cfg)+clientCertWhere(cfg)+jumpWhere(cfg))))
 	return hex.EncodeToString(sum[:])
 }
 

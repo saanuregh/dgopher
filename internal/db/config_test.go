@@ -40,3 +40,17 @@ func TestValidColor(t *testing.T) {
 		}
 	}
 }
+
+func TestJumps(t *testing.T) {
+	s := SSHConfig{User: "deploy", Jump: " ops@jump1.example.com , jump2:2222,[::1]:22"}
+	hops, err := s.Jumps()
+	if err != nil || len(hops) != 3 || hops[0].User != "ops" || hops[0].Host != "jump1.example.com" ||
+		hops[1].User != "deploy" || hops[1].Port != 2222 || hops[2].Host != "::1" {
+		t.Fatalf("%+v %v", hops, err)
+	}
+	for _, bad := range []string{"jump:99999", "@host", "a b"} {
+		if _, err := (&SSHConfig{User: "u", Jump: bad}).Jumps(); err == nil {
+			t.Errorf("%q read", bad)
+		}
+	}
+}

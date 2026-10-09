@@ -11,6 +11,8 @@ import (
 	"net"
 	"strconv"
 	"strings"
+
+	"dgopher/internal/sshtunnel"
 )
 
 // Engine is the kind of database a connection talks to.
@@ -143,6 +145,38 @@ type SSHConfig struct {
 	KeyPassphrase string `json:"-"`
 	// PasswordCommand prints the SSH password, or the key's passphrase.
 	PasswordCommand string `json:"passwordCommand,omitempty"`
+	// Jump lists SSH servers reached in turn before Host, as OpenSSH's
+	// -J: [user@]host[:port], separated by commas, each logging in as
+	// the tunnel does, as User when it names no user.
+	Jump string `json:"jump,omitempty"`
+}
+
+// Jumps reads the jump hosts of Jump.
+func (s *SSHConfig) Jumps() ([]sshtunnel.Hop, error) {
+	var hops []sshtunnel.Hop
+	for spec := range strings.SplitSeq(s.Jump, ",") {
+		spec = strings.TrimSpace(spec)
+		if spec == "" {
+			continue
+		}
+		hop := sshtunnel.Hop{User: s.User}
+		if user, host, ok := strings.Cut(spec, "@"); ok {
+			hop.User, spec = user, host
+		}
+		hop.Host = spec
+		if host, port, err := net.SplitHostPort(spec); err == nil {
+			p, err := strconv.Atoi(port)
+			if err != nil || p < 1 || p > 65535 {
+				return nil, fmt.Errorf("the jump host %s has no valid port", spec)
+			}
+			hop.Host, hop.Port = host, p
+		}
+		if hop.Host == "" || hop.User == "" || strings.ContainsAny(hop.Host, " /") {
+			return nil, fmt.Errorf("%q is no jump host: write [user@]host[:port]", spec)
+		}
+		hops = append(hops, hop)
+	}
+	return hops, nil
 }
 
 // Config describes a saved connection. Secrets are kept out of its JSON:
@@ -319,6 +353,9 @@ func (c *Config) Validate() error {
 		}
 		if strings.TrimSpace(c.SSH.User) == "" {
 			errs = append(errs, "the SSH user is required")
+		}
+		if _, err := c.SSH.Jumps(); err != nil {
+			errs = append(errs, err.Error())
 		}
 	}
 	sources := 0

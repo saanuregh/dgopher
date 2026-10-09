@@ -71,10 +71,11 @@
     certificate to log in with where the server asks for one. Prefer
     first checks for TLS with a handshake that sends no password; local
     connections skip TLS.
-  - SSH tunnels: agent, key file with passphrase, or password. Host keys are
-    checked against `known_hosts`, and a new host must be trusted explicitly
-    after you compare its fingerprint. A changed host key is refused as a
-    possible attack.
+  - SSH tunnels: agent, key file with passphrase, or password, through
+    jump hosts as `ssh -J` does. Host keys are checked against
+    `known_hosts`, a jump host's too, and a new host must be trusted
+    explicitly after you compare its fingerprint. A changed host key is
+    refused as a possible attack.
   - The connection form puts what most connections need on its General
     page: where the database is, who connects, the environment, a colour
     and read-only. Options (commit mode, timeouts, auto-connect) and

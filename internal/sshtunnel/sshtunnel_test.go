@@ -356,3 +356,33 @@ func TestConnectDials(t *testing.T) {
 		t.Fatal("dialed after Close")
 	}
 }
+
+// A tunnel goes through jump hosts in turn, each host key checked: an
+// unknown jump is named in the error, and once trusted the tunnel opens.
+func TestJumpHosts(t *testing.T) {
+	jump, target := startServer(t, nil), startServer(t, nil)
+	echoHost, echoPort := startEcho(t)
+	known := trustedFile(t, target)
+	cfg := config(target)
+	cfg.Jumps = []Hop{{Host: jump.Host, Port: jump.Port, User: "tester"}}
+	_, err := Open(context.Background(), cfg, echoHost, echoPort, []string{known})
+	var hostKeyErr *HostKeyError
+	if !errors.As(err, &hostKeyErr) || hostKeyErr.Host != jump.Addr {
+		t.Fatalf("an unknown jump host: %v", err)
+	}
+	if err := Trust(known, jump.Addr, jump.HostKey.PublicKey()); err != nil {
+		t.Fatal(err)
+	}
+	tun, err := Open(context.Background(), cfg, echoHost, echoPort, []string{known})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := roundTrip(t, tun.LocalAddr(), "through the jump"); err != nil {
+		t.Fatal(err)
+	}
+	tun.Close()
+	cfg.Jumps[0].User = ""
+	if _, err := Open(context.Background(), cfg, echoHost, echoPort, []string{known}); err == nil {
+		t.Fatal("a jump host without a user")
+	}
+}
