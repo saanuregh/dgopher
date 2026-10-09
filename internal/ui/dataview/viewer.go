@@ -93,6 +93,9 @@ type Viewer struct {
 	menuFilters []tableFilter
 	// builder is the filter builder, while it shows.
 	builder *filterBuilder
+	// maskChosen are the columns whose values the user hid or showed in
+	// this view, by name, over the project's choice and the settings'.
+	maskChosen map[string]bool
 	// refs are the foreign keys of other tables pointing at this one, read
 	// before the first review that deletes rows.
 	refs        []db.Reference
@@ -140,6 +143,7 @@ func NewViewer(a Host, src ViewerSource) *Viewer {
 	// grid filters and counts those read.
 	if src.Reads {
 		v.grid.filterSQL, v.grid.clearSQL = v.addFilter, v.clearFilters
+		v.grid.valuesMenu = v.valuesMenu
 	}
 	if src.Reads {
 		v.grid.distinctOf = v.distinctValues
@@ -968,6 +972,7 @@ func (v *Viewer) View(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	readOnly := v.readOnlyReason()
 	v.grid.readOnly = readOnly
+	v.maskColumns()
 	if v.applying {
 		v.grid.readOnly = "Applying the changes…" // no edit may slip in between
 	}

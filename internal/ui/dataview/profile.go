@@ -305,7 +305,12 @@ func (g *Grid) profileRow(c *ui.Context, src *Source, i int, p columnProfile) {
 					ui.Text(c, fmt.Sprintf("%.0f%% NULL", float64(p.nulls)/float64(p.count)*100)).FontSize(11).TextColor(pal.Muted)
 				}
 			})
-			if len(p.bins) > 0 {
+			masked := g.isMasked(slices.IndexFunc(src.Cols, func(c db.ColumnInfo) bool { return c.Name == p.name }))
+			if masked {
+				// Its figures and frequent values would show what it hides.
+				p.min, p.max, p.avg, p.median, p.top = "", "", "", "", nil
+			}
+			if len(p.bins) > 0 && !masked {
 				drawHistogram(c, p.bins, th.Accent)
 			}
 			figures := []string{fmt.Sprintf("%d values", p.count-p.nulls)}

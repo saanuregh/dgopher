@@ -45,6 +45,9 @@ type Config struct {
 	// VirtualKeys are the columns that tell rows apart in tables without
 	// a key, by "connection/schema.table", as the team agreed on them.
 	VirtualKeys map[string][]string `json:"virtualKeys,omitempty"`
+	// HiddenValues are the columns whose values the grids hide on
+	// screen, by "connection/schema.table", as the team agreed on them.
+	HiddenValues map[string][]string `json:"hiddenValues,omitempty"`
 }
 
 type Project struct {
@@ -58,12 +61,13 @@ type Project struct {
 	// the sidebar, without connections, until it is removed or reloaded.
 	Err string
 	// ScanErr says why the queries could not all be listed.
-	ScanErr     string
-	Snippets    []Snippet
-	VirtualKeys map[string][]string
-	Local       *state.DB  // the .dgopher folder's state file
-	Audit       *audit.Log // nil when it could not be opened, as auditErr says
-	AuditErr    string
+	ScanErr      string
+	Snippets     []Snippet
+	VirtualKeys  map[string][]string
+	HiddenValues map[string][]string
+	Local        *state.DB  // the .dgopher folder's state file
+	Audit        *audit.Log // nil when it could not be opened, as auditErr says
+	AuditErr     string
 	// disk is dgopher.json as last read or written: a file that differs
 	// was changed by someone else, as by a git pull, and is not
 	// overwritten.
@@ -149,7 +153,7 @@ func Load(dir string, create bool) (*Project, Config, error) {
 	} else {
 		p.Audit = l
 	}
-	p.Snippets, p.VirtualKeys = pc.Snippets, pc.VirtualKeys
+	p.Snippets, p.VirtualKeys, p.HiddenValues = pc.Snippets, pc.VirtualKeys, pc.HiddenValues
 	return p, pc, nil
 }
 
@@ -205,7 +209,7 @@ func (p *Project) Save(cfgs []db.Config) error {
 	if err := p.Writable(); err != nil {
 		return err
 	}
-	pc := Config{Connections: []db.Config{}, Snippets: p.Snippets, VirtualKeys: p.VirtualKeys}
+	pc := Config{Connections: []db.Config{}, Snippets: p.Snippets, VirtualKeys: p.VirtualKeys, HiddenValues: p.HiddenValues}
 	if rel, err := filepath.Rel(p.Dir, p.Queries); err == nil && rel != "queries" {
 		pc.Queries = filepath.ToSlash(rel)
 	}

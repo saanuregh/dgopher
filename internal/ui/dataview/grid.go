@@ -101,6 +101,10 @@ type Grid struct {
 	// a table does, to filter on the server.
 	filterSQL func(rowCond)
 	clearSQL  func(col int)
+	// masked are the columns whose values show as maskedText, and
+	// valuesMenu offers to hide or show a column's.
+	masked     []bool
+	valuesMenu func(m *ui.Menu, col int)
 	// hidden and pinned are columns the header menu hid or froze, by index
 	// in the result.
 	hidden, pinned map[int]bool
@@ -505,6 +509,8 @@ func (g *Grid) cell(c *ui.Context, a Host, src *Source, viewRow, data, col int) 
 			txt = ui.Text(c, "DEFAULT").TextColor(pal.Null).Italic()
 		case v == nil:
 			txt = ui.Text(c, a.Settings().ViewFormat.Format(nil)).TextColor(pal.Null).Italic()
+		case g.isMasked(col):
+			txt = ui.Text(c, maskedText).TextColor(pal.Muted)
 		default:
 			if typed, ok := v.(db.Typed); ok {
 				v = string(typed)
@@ -807,3 +813,6 @@ func (g *Grid) moveCol(src *Source, step int) {
 		}
 	}
 }
+
+// isMasked reports whether a column's values are hidden on screen.
+func (g *Grid) isMasked(col int) bool { return col >= 0 && col < len(g.masked) && g.masked[col] }

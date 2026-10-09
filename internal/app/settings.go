@@ -79,6 +79,13 @@ func (a *App) settingsView(c *ui.Context) {
 						a.SaveSettings()
 					}
 				})
+				ui.Field(c, "Sensitive values", func() {
+					hide := !a.settings.ShowSensitive
+					if ui.Checkbox(c, &hide, "Hide the values of columns that look sensitive").Changed() {
+						a.settings.ShowSensitive = !hide
+						a.SaveSettings()
+					}
+				}).Description("Passwords, tokens, keys and card numbers show as •••••• in the grids. Any column's values can be hidden or shown from its header's menu.")
 				ui.Field(c, "Notifications", func() {
 					ui.Row(c).Gap(8).Children(func() {
 						if ui.NumberInput(c, &notifyAfter, 0, 3600, 5).Label("Seconds").Changed() {

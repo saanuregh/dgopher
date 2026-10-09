@@ -138,6 +138,9 @@ func (g *Grid) headerMenu(m *ui.Menu, a Host, src *Source, col int) {
 	if m.Item("Hide Column").Chosen() {
 		g.hide(col)
 	}
+	if g.valuesMenu != nil {
+		g.valuesMenu(m, col)
+	}
 	if m.Item("Hide Columns with No Data").Chosen() {
 		for i := range src.Cols {
 			if g.columnEmpty(src, i) {

@@ -31,6 +31,9 @@ type Settings struct {
 	// by a system notification while the app is in the background; 0 for
 	// never. Kept even at 0, which the default would otherwise replace.
 	NotifyAfter int `json:"notifyAfterSeconds"`
+	// ShowSensitive shows the values of columns that look sensitive, as
+	// passwords and tokens, which the grids otherwise hide.
+	ShowSensitive bool `json:"showSensitiveValues,omitempty"`
 	// Export keeps the export dialog's choices.
 	Export ExportPrefs `json:"export,omitzero"`
 	// AdvancedCopy is the last choice of the Advanced Copy dialog.

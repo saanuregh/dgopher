@@ -236,6 +236,12 @@
   - A table without a primary key becomes editable with a virtual key,
     kept in `dgopher.json` for the team, in its tab and in query results.
 - **Table tab:**
+  - Sensitive values stay off the screen: columns named as passwords,
+    tokens, keys or card numbers show `••••••` in the grid, the value
+    panel and the figures of the profile, calculation and grouping
+    panels. A column's header menu hides or shows any column's values,
+    for the team in `dgopher.json` when the rows are a table's; a setting
+    shows the sensitive ones. Copies and exports keep the real values.
   - Data ordered by primary key by default, with paging.
   - Structure: columns, indexes and foreign keys, with jumps to the
     referenced table.

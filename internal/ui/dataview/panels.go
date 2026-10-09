@@ -95,6 +95,11 @@ func (g *Grid) valuePanel(c *ui.Context, a Host, src *Source, row int) {
 		ui.Text(c, "Choose a cell.").TextColor(pal.Muted).Padding(12)
 		return
 	}
+	if g.isMasked(g.selCol) {
+		ui.Text(c, "The values of "+src.Cols[g.selCol].Name+" are hidden: Show Values, in its header's menu, shows them.").
+			TextColor(pal.Muted).Padding(12)
+		return
+	}
 	v, _ := g.value(src, row, g.selCol)
 	if typed, ok := v.(db.Typed); ok {
 		v = string(typed)
@@ -325,7 +330,7 @@ func (g *Grid) calcPanel(c *ui.Context, src *Source) {
 			line("Count", fmt.Sprint(s.count))
 			line("Distinct", fmt.Sprint(s.distinct))
 			line("NULLs", fmt.Sprint(s.nulls))
-			if s.numeric {
+			if s.numeric && !g.isMasked(g.selCol) {
 				num := func(f float64) string { return settings.GroupDigits(fmt.Sprint(f)) }
 				line("Sum", num(s.sum))
 				line("Average", num(s.avg))
@@ -333,7 +338,7 @@ func (g *Grid) calcPanel(c *ui.Context, src *Source) {
 				line("Maximum", num(s.max))
 				line("Median", num(s.median))
 			}
-			if s.modeCount > 1 {
+			if s.modeCount > 1 && !g.isMasked(g.selCol) {
 				line("Most frequent", fmt.Sprintf("%s (%d)", cellText(s.mode, 40), s.modeCount))
 			}
 			ui.Text(c, "Choose rows with ⇧ or ⌘ and a click.").FontSize(12).TextColor(pal.Muted)
@@ -433,6 +438,9 @@ func (g *Grid) groupingPanel(c *ui.Context, a Host, src *Source) {
 						parts := make([]string, len(gr.vals))
 						for i, v := range gr.vals {
 							parts[i] = cellText(a.Settings().ViewFormat.Format(v), 40)
+							if v != nil && g.isMasked(g.groupCols[i]) {
+								parts[i] = maskedText
+							}
 						}
 						ui.Text(c, strings.Join(parts, " · ")).SingleLine().Grow(1).Shrink(1)
 						ui.Text(c, fmt.Sprint(gr.count)).Font(widgets.MonoFont).FontSize(12).TextColor(pal.Muted)
