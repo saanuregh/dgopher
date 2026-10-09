@@ -67,6 +67,7 @@ type App struct {
 	closing     *closeRequest
 	pending     *pendingAsk
 	importing   *importState
+	sqlFile     *sqlFileRun
 	projects    []*project.Project
 	newProject  *newProjectForm
 	renaming    *renameForm

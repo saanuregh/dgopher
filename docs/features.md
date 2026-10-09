@@ -239,6 +239,20 @@
     It waits for an open transaction on the database to end first.
   - On ClickHouse, which has no transactions, the rows before a failing
     one stay in a table that was there, and the error says how many.
+- **Run SQL File…** runs a file of SQL, as a dump of `pg_dump`,
+  `mysqldump` or `sqlite3`, without opening it in an editor, however large:
+  - It reads the file through first, and says what it holds: how many
+    statements of each kind, and each that destroys data, by line. The
+    safety policy asks once for them all.
+  - Then it runs the file as it reads it again, on a session of its own:
+    in one transaction, all or nothing, where the database can hold one
+    and the file holds none of its own; else statement by statement,
+    stopping at the first error, or going on, as chosen. A file changed
+    in between is not run.
+  - A PostgreSQL dump's `COPY … FROM stdin` rows are loaded, and its
+    `\restrict` lines skipped; other psql commands, as `\connect`, stop
+    it, as only psql runs them. MySQL's `DELIMITER` and executable
+    comments work as in the `mysql` client.
 - **Snippets:** keep the selected SQL under a name, and insert it into any
   editor from the command palette.
 - **History:** every statement and command is recorded, per project, with

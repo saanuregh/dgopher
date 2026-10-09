@@ -80,7 +80,6 @@ Next or Later are not repeated.
   - Generate the DDL of many objects at once.
 - **Import, export and backup:**
   - Export several tables in one go.
-  - Run a large SQL dump file without opening it in an editor.
   - Back up and restore databases with `pg_dump`, `mysqldump` and
     `sqlite3`.
   - Copy tables and rows from one database to another, also between

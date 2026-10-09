@@ -6,6 +6,8 @@ import "strings"
 type Statement struct {
 	Text       string
 	Start, End int
+	// Delimiter is what ends it: ';', or on MySQL the DELIMITER in effect.
+	Delimiter string
 }
 
 // DelimiterMode selects what ends a statement besides ';'.
@@ -17,7 +19,12 @@ const (
 	SemicolonOnly
 )
 
-type SplitOptions struct{ Mode DelimiterMode }
+type SplitOptions struct {
+	Mode DelimiterMode
+	// Delimiter is MySQL's DELIMITER in effect where the text starts, as
+	// in a text read on from the middle of a file; "" for ';'.
+	Delimiter string
+}
 
 // segment is the tokens of one statement, leading whitespace dropped and
 // leading comments kept, so Format can preserve them.
@@ -32,6 +39,9 @@ type segment struct {
 	// bodyEnd is the index in toks of the END that closed the first routine
 	// body, or -1.
 	bodyEnd int
+	// delim is the delimiter in effect for the segment: after it, for a
+	// directive.
+	delim string
 }
 
 func splitSegments(rs []rune, d Dialect, o SplitOptions) []segment {
@@ -51,6 +61,9 @@ func splitTokens(rs []rune, toks []Token, d Dialect, o SplitOptions, bodies bool
 	var out []segment
 	var cur []Token
 	delimiter := []rune(";")
+	if d == MySQL && o.Delimiter != "" {
+		delimiter = []rune(o.Delimiter)
+	}
 	// blocks holds the open blocks: 'B' for a body BEGIN, 'C' for CASE.
 	var blocks []byte
 	openBodies, parens, codeTokens := 0, 0, 0
@@ -63,7 +76,7 @@ func splitTokens(rs []rune, toks []Token, d Dialect, o SplitOptions, bodies bool
 		openBodies, parens, codeTokens, header, skipBlockWord, bodyEnd = 0, 0, 0, 0, -1, -1
 	}
 	closeSegment := func(terminated bool) {
-		out = append(out, segment{toks: cur, terminated: terminated, bodyEnd: bodyEnd})
+		out = append(out, segment{toks: cur, terminated: terminated, bodyEnd: bodyEnd, delim: string(delimiter)})
 		reset()
 	}
 	for i := 0; i < len(toks); i++ {
@@ -77,7 +90,7 @@ func splitTokens(rs []rune, toks []Token, d Dialect, o SplitOptions, bodies bool
 					}
 					line = append(line, lt)
 				}
-				out = append(out, segment{toks: line, directive: true, bodyEnd: -1})
+				out = append(out, segment{toks: line, directive: true, bodyEnd: -1, delim: string(delim)})
 				reset()
 				delimiter = delim
 				toks, i = resumeAt(rs, toks[i:], lineEnd, d), -1
@@ -92,7 +105,7 @@ func splitTokens(rs []rune, toks []Token, d Dialect, o SplitOptions, bodies bool
 				}
 				end := q + len(delimiter)
 				cur = append(cur, Token{Kind: Punct, Start: q, End: end, Text: string(delimiter)})
-				out = append(out, segment{toks: cur, delimited: true, bodyEnd: -1})
+				out = append(out, segment{toks: cur, delimited: true, bodyEnd: -1, delim: string(delimiter)})
 				reset()
 				toks, i = resumeAt(rs, toks[i:], end, d), -1
 				continue
@@ -184,7 +197,9 @@ func splitTokens(rs []rune, toks []Token, d Dialect, o SplitOptions, bodies bool
 	}
 	if len(cur) > 0 {
 		if openBodies > 0 {
-			out = append(out, splitTokens(rs, cur, d, o, false)...)
+			again := o
+			again.Delimiter = string(delimiter)
+			out = append(out, splitTokens(rs, cur, d, again, false)...)
 		} else {
 			closeSegment(false)
 		}
@@ -430,7 +445,7 @@ func Split(src string, d Dialect) []Statement {
 // a "DELIMITER x" line sets what ends a statement and is not a statement
 // itself. Text and Start exclude leading comments; End is the end of the last
 // non-whitespace token, before any ';' or delimiter. Empty and comment-only
-// statements are dropped.
+// statements are dropped, but those of MySQL's executable comments.
 func SplitWith(src string, d Dialect, o SplitOptions) []Statement {
 	rs := []rune(src)
 	var out []Statement
@@ -444,7 +459,7 @@ func SplitWith(src string, d Dialect, o SplitOptions) []Statement {
 		}
 		start := -1
 		for _, t := range toks {
-			if t.Kind != Comment && t.Kind != Whitespace {
+			if t.Kind != Comment && t.Kind != Whitespace || executableComment(t, d) {
 				start = t.Start
 				break
 			}
@@ -458,9 +473,16 @@ func SplitWith(src string, d Dialect, o SplitOptions) []Statement {
 				end = t.End
 			}
 		}
-		out = append(out, Statement{Text: string(rs[start:end]), Start: start, End: end})
+		out = append(out, Statement{Text: string(rs[start:end]), Start: start, End: end, Delimiter: seg.delim})
 	}
 	return out
+}
+
+// executableComment reports whether a token is MySQL's /*! … */, which
+// MySQL runs as the statement it holds, as mysqldump writes triggers and
+// SET statements: a statement of such comments is not empty.
+func executableComment(t Token, d Dialect) bool {
+	return d == MySQL && t.Kind == Comment && strings.HasPrefix(t.Text, "/*!")
 }
 
 // StatementAt is StatementAtWith in BlankLineAndSemicolon mode.

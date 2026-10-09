@@ -7,6 +7,9 @@ palette, or from a project's menu in the sidebar.
 **What it records:**
 - connects and disconnects;
 - every statement run (reads included);
+- a SQL file run without an editor: the file's path and SHA-256, how many
+  statements ran and how many rows they loaded, and each of its
+  statements apart from INSERT and COPY, and each that failed;
 - the SQL generated from grid edits, and their outcome;
 - imports, exports, cancelled queries and ended sessions;
 - Redis commands;

@@ -442,3 +442,26 @@ func TestParamsVarAfterName(t *testing.T) {
 		}
 	}
 }
+
+// A text read on from the middle of a MySQL file starts under the
+// DELIMITER in effect there, and each statement says which ends it.
+func TestSplitFromDelimiter(t *testing.T) {
+	src := "CREATE TRIGGER t BEFORE INSERT ON x FOR EACH ROW BEGIN SET NEW.a = 1; END;;\nDELIMITER ;\nSELECT 1;"
+	got := SplitWith(src, MySQL, SplitOptions{Mode: SemicolonOnly, Delimiter: ";;"})
+	if len(got) != 2 || !strings.HasSuffix(got[0].Text, "END") || got[0].Delimiter != ";;" || got[1].Text != "SELECT 1" || got[1].Delimiter != ";" {
+		t.Fatalf("%+v", got)
+	}
+}
+
+// mysqldump writes SET statements and triggers in executable comments,
+// which MySQL runs: they are statements, not comments to drop.
+func TestSplitKeepsExecutableComments(t *testing.T) {
+	src := "/*!40101 SET NAMES utf8mb4 */;\n-- a comment\n;\n/*!50003 CREATE*/ /*!50003 TRIGGER t BEFORE INSERT ON x FOR EACH ROW SET NEW.a = 1 */;"
+	got := SplitWith(src, MySQL, SplitOptions{Mode: SemicolonOnly})
+	if len(got) != 2 || got[0].Text != "/*!40101 SET NAMES utf8mb4 */" || !strings.HasPrefix(got[1].Text, "/*!50003 CREATE*/") {
+		t.Fatalf("%+v", got)
+	}
+	if got := SplitWith("/* note */;", MySQL, SplitOptions{}); len(got) != 0 {
+		t.Fatalf("a plain comment kept: %+v", got)
+	}
+}

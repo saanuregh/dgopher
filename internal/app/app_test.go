@@ -1267,3 +1267,116 @@ func TestNotifyLongWork(t *testing.T) {
 		t.Fatalf("never became %d seconds", b.settings.NotifyAfter)
 	}
 }
+
+// runFile surveys a file of SQL, then runs it as the dialog's Run does,
+// agreeing to what the policy asks.
+func runFile(t *testing.T, a *App, tt *ui.Tester, cn *connection.Conn, path string, edit func(*sqlFileRun)) *sqlFileRun {
+	t.Helper()
+	a.startSQLFileRun(cn, "", path)
+	x := a.sqlFile
+	testutil.WaitFor(t, tt, "the survey", func() bool { return !x.reading })
+	if edit != nil {
+		edit(x)
+	}
+	a.confirmSQLFile(x)
+	if a.confirm != nil {
+		a.confirm.OnConfirm()
+		a.confirm = nil
+	}
+	testutil.WaitFor(t, tt, "the run", func() bool { return !x.running })
+	return x
+}
+
+// A file of SQL runs without an editor: read through once to say what it
+// holds and ask once, then run as it streams; all or nothing when asked.
+func TestRunSQLFile(t *testing.T) {
+	a := newTestApp(t)
+	file := filepath.Join(t.TempDir(), "x.sqlite")
+	os.WriteFile(file, nil, 0o600)
+	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
+	tt := ui.NewTester(a.view, 1200, 800)
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	var b strings.Builder
+	b.WriteString("CREATE TABLE gone (a int);\nDROP TABLE gone;\nCREATE TABLE t (id integer primary key, note text);\n")
+	for i := range 3000 {
+		fmt.Fprintf(&b, "INSERT INTO t VALUES (%d, 'row; %d');\n", i, i)
+	}
+	path := filepath.Join(t.TempDir(), "dump.sql")
+	os.WriteFile(path, []byte(b.String()), 0o600)
+
+	a.startSQLFileRun(cn, "", path)
+	x := a.sqlFile
+	testutil.WaitFor(t, tt, "the survey", func() bool { return !x.reading })
+	if x.statements != 3003 || x.verbs["INSERT"] != 3000 || len(x.dangerous) != 1 || !strings.HasPrefix(x.dangerous[0], "line 2: DROP TABLE gone") || !x.verdict.Confirm {
+		t.Fatalf("survey: %d statements %v, dangerous %q, verdict %+v", x.statements, x.verbs, x.dangerous, x.verdict)
+	}
+	testutil.Snapshot(t, tt, "run-sql-file")
+	x.open = false
+	tt.Frame()
+
+	x = runFile(t, a, tt, cn, path, nil)
+	var n int
+	cn.DB.SQL.QueryRow(`SELECT count(*) FROM t`).Scan(&n)
+	if x.err != "" || n != 3000 || x.done.Load() != 3003 {
+		t.Fatalf("run: %q, %d rows, %d statements", x.err, n, x.done.Load())
+	}
+	var script, drops int
+	events, err := a.projects[0].Audit.Read(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		if e.Kind == audit.KindScript && strings.Contains(e.Detail, "sha256 "+x.hash) && e.Rows == 3000 {
+			script++
+		}
+		if e.Kind == audit.KindStatement && e.Statement == "DROP TABLE gone" {
+			drops++
+		}
+	}
+	if script != 1 || drops != 1 {
+		t.Fatalf("audited %d scripts, %d drops", script, drops)
+	}
+
+	// All or nothing: a failing row leaves nothing of the file.
+	os.WriteFile(path, []byte("CREATE TABLE u (id integer primary key);\nINSERT INTO u VALUES (1);\nINSERT INTO u VALUES (1);\n"), 0o600)
+	x = runFile(t, a, tt, cn, path, func(x *sqlFileRun) { x.oneTx = true })
+	if !strings.Contains(x.err, "nothing of the file stays") || len(x.failures) != 1 || !strings.HasPrefix(x.failures[0], "Line 3:") {
+		t.Fatalf("all or nothing: %q, %q", x.err, x.failures)
+	}
+	if err := cn.DB.SQL.QueryRow(`SELECT count(*) FROM u`).Scan(&n); err == nil {
+		t.Fatal("the failed file left its table")
+	}
+
+	// A file changed since it was read is not run.
+	a.startSQLFileRun(cn, "", path)
+	x = a.sqlFile
+	testutil.WaitFor(t, tt, "the survey", func() bool { return !x.reading })
+	os.WriteFile(path, []byte("DROP TABLE t;\n"), 0o600)
+	a.runSQLFile(x)
+	if !strings.Contains(x.err, "changed since it was read") || x.running {
+		t.Fatalf("a changed file: %q", x.err)
+	}
+}
+
+// A dump of pg_dump runs: \restrict skipped, COPY's rows loaded.
+func TestRunPostgresDump(t *testing.T) {
+	testutil.Integration(t)
+	a := newTestApp(t)
+	cn := addConn(a, testutil.PGConfig())
+	tt := ui.NewTester(a.view, 1200, 800)
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	cn.DB.SQL.Exec(`DROP TABLE IF EXISTS public.it_dump`)
+	defer cn.DB.SQL.Exec(`DROP TABLE IF EXISTS public.it_dump`)
+	dump := "\\restrict k\n\nSET client_encoding = 'UTF8';\nCREATE TABLE public.it_dump (a integer, b text);\n\nCOPY public.it_dump (a, b) FROM stdin;\n1\tsemi; colon\n2\t\\N\n\\.\n\n\\unrestrict k\n"
+	path := filepath.Join(t.TempDir(), "dump.sql")
+	os.WriteFile(path, []byte(dump), 0o600)
+	x := runFile(t, a, tt, cn, path, nil)
+	var n int
+	var nulls int
+	cn.DB.SQL.QueryRow(`SELECT count(*), count(*) FILTER (WHERE b IS NULL) FROM public.it_dump`).Scan(&n, &nulls)
+	if x.err != "" || n != 2 || nulls != 1 {
+		t.Fatalf("dump: %q %q, %d rows, %d NULL", x.err, x.failures, n, nulls)
+	}
+}

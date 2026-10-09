@@ -58,6 +58,10 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 	)
 	if active != nil {
 		cmds = append(cmds, paletteItem{title: "New SQL Editor", detail: active.Config.Name, group: "Command", icon: widgets.IconCode, run: func() { a.NewQueryTab(active, "", "") }})
+		if active.Config.Engine.IsSQL() {
+			cmds = append(cmds, paletteItem{title: "Run SQL File…", detail: active.Config.Name + ", without opening it", group: "Command", icon: widgets.IconFile,
+				run: func() { a.openSQLFileRun(active, "") }})
+		}
 		if active.Status == connection.StatusConnected {
 			if !active.Config.Engine.IsFile() {
 				cmds = append(cmds, paletteItem{title: "Server Activity", detail: active.Config.Name, group: "Command", icon: widgets.IconClock, run: func() { a.openActivity(active) }})

@@ -74,6 +74,9 @@ func (a *App) view(c *ui.Context) {
 	if a.importing != nil {
 		a.importView(c)
 	}
+	if a.sqlFile != nil {
+		a.sqlFileView(c)
+	}
 	if a.snippetForm != nil {
 		a.snippetFormView(c)
 	}

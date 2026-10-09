@@ -173,6 +173,13 @@ func buildMenu(a *App) *mygo.Menu {
 					a.ShowError("Choose a connection first", "A script opens in an editor of the connection chosen in the navigator.")
 				}
 			})},
+			{Label: "Run SQL File…", Click: do(func() {
+				if cn := a.activeConn(); cn != nil && cn.Config.Engine.IsSQL() {
+					a.openSQLFileRun(cn, "")
+				} else {
+					a.ShowError("Choose a connection first", "A file runs on the connection chosen in the navigator.")
+				}
+			})},
 			mygo.Separator(),
 			{Label: "New Project…", Click: do(func() { a.openNewProject(nil) })},
 			{Label: "Add Existing Folder…", Accelerator: "CmdOrCtrl+Shift+O", Click: do(a.addExistingProject)},

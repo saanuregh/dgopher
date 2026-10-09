@@ -107,6 +107,24 @@ func ReviewSQL(cfg *db.Config, stmts []Statement) Verdict {
 	return v
 }
 
+// Add takes in the verdict of more statements, as one review of them
+// all would have given, for statements reviewed as they are read.
+func (v *Verdict) Add(w Verdict) {
+	if v.Blocked == "" {
+		v.Blocked = w.Blocked
+	}
+	v.Confirm = v.Confirm || w.Confirm
+	v.TypeName = v.TypeName || w.TypeName
+	v.Writes = v.Writes || w.Writes
+	v.Reasons = dedupe(append(v.Reasons, w.Reasons...))
+}
+
+// Covers reports whether agreeing to v agreed to w as well: it confirms
+// no less, and blocks nothing.
+func (v Verdict) Covers(w Verdict) bool {
+	return w.Blocked == "" && (v.Confirm || !w.Confirm) && (v.TypeName || !w.TypeName)
+}
+
 func verbOf(a sqltext.Analysis) string {
 	if a.Verb == "" {
 		return "This statement"

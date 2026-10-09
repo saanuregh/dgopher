@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -36,6 +38,35 @@ func execExtended(ctx context.Context, conn *sql.Conn, query string) (int64, err
 	})
 	if err != nil {
 		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// CopyFrom runs a PostgreSQL COPY … FROM STDIN, sending data, the rows
+// as the COPY's format writes them, as a dump's lines do; it reports how
+// many rows it wrote.
+func (s *Session) CopyFrom(ctx context.Context, query string, data io.Reader) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.ready(ctx); err != nil {
+		return 0, err
+	}
+	if s.db.Config.Engine != Postgres || s.conn == nil {
+		return 0, errors.New("COPY FROM STDIN is PostgreSQL's")
+	}
+	wasTx := s.txState()
+	var tag pgconn.CommandTag
+	err := s.conn.Raw(func(dc any) error {
+		c, ok := dc.(*stdlib.Conn)
+		if !ok {
+			return fmt.Errorf("unexpected PostgreSQL driver connection %T", dc)
+		}
+		var err error
+		tag, err = c.Conn().PgConn().CopyFrom(ctx, data, query)
+		return err
+	})
+	if err != nil {
+		return 0, s.afterError(err, wasTx)
 	}
 	return tag.RowsAffected(), nil
 }

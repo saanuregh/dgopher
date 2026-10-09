@@ -450,8 +450,13 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			if m.Item("Open Key Browser").Chosen() {
 				a.openRedis(cn)
 			}
-		} else if m.Item("New SQL Editor").Shortcut(ui.Cmd, ui.KeyT).Chosen() {
-			a.NewQueryTab(cn, "", "")
+		} else {
+			if m.Item("New SQL Editor").Shortcut(ui.Cmd, ui.KeyT).Chosen() {
+				a.NewQueryTab(cn, "", "")
+			}
+			if m.Item("Run SQL File…").Chosen() {
+				a.openSQLFileRun(cn, "")
+			}
 		}
 		if !cn.Config.Engine.IsFile() && m.Item("Server Activity").Chosen() {
 			a.openActivity(cn)
@@ -510,6 +515,9 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		}
 		if n.kind != nodeDatabase && m.Item("Import File as New Table…").Disabled(cn.Config.ReadOnly).Chosen() {
 			a.openImport(cn, n.database, n.schema, nil)
+		}
+		if n.kind == nodeDatabase && m.Item("Run SQL File…").Chosen() {
+			a.openSQLFileRun(cn, n.database)
 		}
 		if m.Item("New SQL Editor").Chosen() {
 			text := ""

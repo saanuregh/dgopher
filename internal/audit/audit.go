@@ -21,6 +21,7 @@ const (
 	KindStatement  = "statement" // SQL run from an editor
 	KindEdit       = "edit"      // a statement generated from grid changes
 	KindImport     = "import"
+	KindScript     = "script"    // a file of SQL run without an editor
 	KindCommand    = "command"   // a Redis command
 	KindKill       = "kill"      // a query cancelled or a session ended
 	KindConfirm    = "confirm"   // the user confirmed what the safety policy asked about
