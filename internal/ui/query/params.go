@@ -87,4 +87,7 @@ func DialogsView(a Host, c *ui.Context) {
 	if a.QueryDialogs().params != nil {
 		paramsView(a, c)
 	}
+	if a.QueryDialogs().outline != nil {
+		outlineView(a, c)
+	}
 }

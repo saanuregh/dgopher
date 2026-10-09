@@ -930,6 +930,9 @@ func (q *Tab) View(c *ui.Context) {
 	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyF) {
 		q.format()
 	}
+	if c.Shortcut(ui.Cmd|ui.Shift, ui.KeyO) {
+		q.openOutline()
+	}
 	if c.Shortcut(ui.Cmd, ui.KeyE) {
 		q.Run(RunExplain)
 	}
@@ -1630,6 +1633,9 @@ func (q *Tab) editorMenu(m *ui.Menu) {
 	}
 	if m.Item("Replace…").Shortcut(ui.Cmd|ui.Alt, ui.KeyF).Chosen() {
 		q.find.Open, q.find.Replacing, q.find.Shown = true, true, -1
+	}
+	if m.Item("Go to Statement…").Shortcut(ui.Cmd|ui.Shift, ui.KeyO).Chosen() {
+		q.openOutline()
 	}
 	m.Separator()
 	m.Submenu("Format", func(m *ui.Menu) {

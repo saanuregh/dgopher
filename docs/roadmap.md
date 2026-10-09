@@ -32,7 +32,6 @@ Next or Later are not repeated.
   - Mark errors while typing, with suggested fixes.
   - Rename an object everywhere it is used, jump to where an object is
     defined, and list every place it is used.
-  - An outline that lists the statements in a file and jumps to them.
   - Build a query by choosing tables and columns instead of typing SQL.
   - Show the catalog queries the app runs by itself. The audit log
     already records statements, grid edits, imports and commands.

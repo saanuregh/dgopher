@@ -143,6 +143,8 @@
 
 - **SQL editor**, run as DBeaver runs it:
   - Syntax highlighting per dialect, and line numbers.
+  - Go to Statement (⌘⇧O) lists the file's statements, by line, with the
+    comment above each, filtered as you type; Enter goes to one.
   - The editor's toolbar shows the schema it finds names in, and on
     PostgreSQL its database, and switches them: `SET search_path` or `USE`
     on its session, audited, and another database on a session of its

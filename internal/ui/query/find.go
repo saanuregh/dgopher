@@ -48,10 +48,15 @@ func (q *Tab) findView(c *ui.Context, fontSize float32) {
 	}
 	f.Shown = f.Current
 	at := f.Matches[f.Current]
+	q.Editor.PendingSel = &[2]int{at, at + n}
+	q.reveal(at, fontSize)
+}
+
+// reveal scrolls the editor to the line of a rune offset, unless it
+// shows already.
+func (q *Tab) reveal(at int, fontSize float32) {
 	e := &q.Editor
-	e.PendingSel = &[2]int{at, at + n}
-	// Bring the match's line into view.
-	line := strings.Count(string([]rune(e.Text)[:at]), "\n")
+	line := strings.Count(string([]rune(e.Text)[:min(at, utf8.RuneCountInString(e.Text))]), "\n")
 	lh := fontSize * editor.LineHeight
 	y := float32(line) * lh
 	if y < e.Scroll.Y || y > e.Scroll.Y+q.editorH-3*lh {
