@@ -153,8 +153,13 @@
   - Grid, record (Tab) and plain-text views (``⌘` ``).
   - Panels (F7): the value (text, JSON, XML, hex, image; save to or load
     from a file), Calc (count, distinct, sum, average, min, max, median),
-    metadata, grouping, and the rows of other tables that refer to the
-    chosen one.
+    Profile, metadata, grouping, and the rows of other tables that refer
+    to the chosen one.
+  - Profile shows every column at once: its NULLs, distinct values,
+    bounds, average and median, with a histogram of numbers and times, or
+    the most frequent values of text. It profiles the rows read at once,
+    and every row on the server when asked: DuckDB summarizes a table
+    itself (SUMMARIZE); the other engines count in one statement.
   - Formats: thousands, dates, booleans, binary, NULL; row colours by
     value; zoom.
   - Copy, Advanced Copy (⌘⇧C), paste as pending changes (⌘V), and

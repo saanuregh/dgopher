@@ -21,7 +21,7 @@ import (
 )
 
 // The panels beside a grid, as DBeaver's: F7 shows them.
-var panelNames = []string{"Value", "Calc", "Metadata", "Grouping", "References"}
+var panelNames = []string{"Value", "Calc", "Profile", "Metadata", "Grouping", "References"}
 
 // groupRow is a group of rows: its values, and how many rows it holds.
 type groupRow struct {
@@ -75,10 +75,12 @@ func (g *Grid) panelsView(c *ui.Context, a Host, src *Source, order []int) {
 		case 1:
 			g.calcPanel(c, src)
 		case 2:
-			g.metadataPanel(c, src)
+			g.profilePanel(c, a, src)
 		case 3:
-			g.groupingPanel(c, a, src)
+			g.metadataPanel(c, src)
 		case 4:
+			g.groupingPanel(c, a, src)
+		case 5:
 			g.referencesPanel(c, a, row)
 		}
 	})

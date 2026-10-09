@@ -3,8 +3,6 @@
 ## Roadmap
 
 - **Next:**
-  - Use the built-in DuckDB for more work where it is faster than the
-    current code.
   - Make the interface more consistent and easier to learn, quick to
     work in, and beautiful.
   - Tighten safety and security so that no common slip can damage data.
@@ -60,8 +58,6 @@ Next or Later are not repeated.
   - Build a filter by choosing a column, an operator and a value,
     without writing SQL.
   - Compare two results side by side and highlight the differences.
-  - Show a histogram of a column, and statistics for every column at
-    once. The Calc panel already shows statistics for one column.
   - Hide sensitive values on screen.
 - **Schema:**
   - Create and change tables in a form, covering columns, indexes, keys
@@ -117,7 +113,6 @@ Next or Later are not repeated.
   - Show statistics of past ClickHouse queries from `system.query_log`,
     and a dashboard of server metrics.
   - Show ClickHouse projections in the navigator.
-  - Summarise a DuckDB table with a profile of every column.
 - **Charts:**
   - More kinds of chart.
   - Dashboards built from saved queries, with parameters and automatic

@@ -142,6 +142,7 @@ func NewViewer(a Host, src ViewerSource) *Viewer {
 	if src.Reads {
 		v.grid.distinctOf = v.distinctValues
 		v.grid.groupOnServer = v.groupOnServer
+		v.grid.profileOnServer = v.profileOnServer
 	}
 	v.grid.Exported = func(detail string, rows int) {
 		e := audit.Event{Kind: audit.KindExport, Rows: int64(rows), Detail: detail}
@@ -1645,6 +1646,26 @@ func (v *Viewer) queryOnSession(q string, args []any, limit int, then func(cols 
 			then(cols, out, err)
 		})
 	}()
+}
+
+// profileOnServer profiles every column over every row, under the
+// filter, on the server: DuckDB summarizes them, the others count.
+func (v *Viewer) profileOnServer(then func([]columnProfile, error)) {
+	if err := v.checkFilter(v.where); err != nil {
+		then(nil, err)
+		return
+	}
+	cols := v.src.Cols
+	e := v.dialect().Engine()
+	q := profileQuery(v.dialect(), cols, v.from(), strings.TrimSpace(v.where))
+	format := func(x any) string { return cellText(v.a.Settings().ViewFormat.Format(x), 40) }
+	v.queryRows(q, v.source.Args, 10_000, func(names []string, rows [][]any, err error) {
+		if err != nil {
+			then(nil, err)
+			return
+		}
+		then(serverProfiles(e, cols, names, rows, format))
+	})
 }
 
 // groupOnServer counts the rows, under their filter, by the values of

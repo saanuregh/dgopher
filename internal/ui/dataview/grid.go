@@ -122,6 +122,14 @@ type Grid struct {
 	groupServer   bool
 	groupErr      string
 	groupOnServer func(cols []int, then func([]groupRow, error))
+	// The Profile panel's profiles of the rows read, for profileKey's rows;
+	// of every row when profiled on the server, as profileOnServer does.
+	profiles        []columnProfile
+	profileKey      string
+	profileServer   []columnProfile
+	profileErr      string
+	profiling       bool
+	profileOnServer func(then func([]columnProfile, error))
 	// referencesOf reads the rows of other tables that refer to a row,
 	// for a table; refsRow is the row they were read for.
 	referencesOf func(row int, then func([]refRows, error))

@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -192,7 +193,7 @@ func TestReferencesPanel(t *testing.T) {
 	a.OpenTable(cn, "", db.Object{Schema: "shop", Name: "customers", Kind: db.KindTable, Rows: -1}, PageData)
 	tb := a.Tabs[0].(*TableTab)
 	testutil.WaitFor(t, tt, "rows", func() bool { return tb.view.src.Rows != nil && tb.columns != nil && !tb.view.loading })
-	tb.view.grid.SelRow, tb.view.grid.ShowValue, tb.view.grid.panel = 0, true, 4
+	tb.view.grid.SelRow, tb.view.grid.ShowValue, tb.view.grid.panel = 0, true, slices.Index(panelNames, "References")
 	testutil.WaitFor(t, tt, "the references", func() bool { return !tb.view.grid.refsLoading && tb.view.grid.refsRow == tb.view.grid.Order[0] })
 	if tb.view.grid.refsErr != "" || len(tb.view.grid.refsShown) != 1 || tb.view.grid.refsShown[0].title != "shop.orders" || len(tb.view.grid.refsShown[0].rows) == 0 {
 		t.Fatalf("refs %+v %s", tb.view.grid.refsShown, tb.view.grid.refsErr)
