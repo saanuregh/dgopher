@@ -43,8 +43,17 @@ func (a *App) openDropped(paths []string) {
 			})
 		case ".csv", ".tsv", ".parquet", ".json", ".jsonl", ".ndjson":
 			a.queryDataFile(p)
+		case ".xlsx", ".xml":
+			// DuckDB reads neither in place: they become a table.
+			cn := a.activeConn()
+			if cn == nil || !cn.Config.Engine.IsSQL() {
+				a.ShowError("Which connection?", "Choose a connection in the navigator, then drop "+filepath.Base(p)+" again: it is imported into a new table there.")
+				continue
+			}
+			path := p
+			a.Connect(cn, func() { a.openImportOf(cn, "", cn.DefaultSchema, nil, path) })
 		default:
-			a.ShowError("Not a file DGopher opens", filepath.Base(p)+": drop a SQLite or DuckDB database, a .sql script, or a CSV, Parquet or JSON file.")
+			a.ShowError("Not a file DGopher opens", filepath.Base(p)+": drop a SQLite or DuckDB database, a .sql script, a CSV, Parquet or JSON file, or an Excel or XML file to import.")
 		}
 	}
 }
@@ -112,7 +121,7 @@ func (a *App) dropZone(c *ui.Context, root ui.Element) {
 				Children(func() {
 					ui.Icon(c, widgets.IconDownload).FontSize(28).TextColor(t.Accent)
 					ui.Text(c, "Drop to open").FontSize(16).Bold()
-					ui.Text(c, "SQLite or DuckDB databases, .sql scripts, CSV, Parquet or JSON files").TextColor(widgets.PaletteOf(c).Muted)
+					ui.Text(c, "SQLite or DuckDB databases, .sql scripts, CSV, Parquet or JSON files to query, Excel or XML files to import").TextColor(widgets.PaletteOf(c).Muted)
 				})
 		})
 	}

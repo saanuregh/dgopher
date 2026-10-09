@@ -7,8 +7,9 @@
     `redis://…`, `rediss://…`, or a file path) to fill the connection form.
   - Try the built-in sample shop database without a server.
 - **Drag and drop:** drop on the window a SQLite or DuckDB file (opens as
-  a connection), a `.sql` script (opens in an editor), or a CSV, Parquet or
-  JSON file (queried in place by DuckDB).
+  a connection), a `.sql` script (opens in an editor), a CSV, Parquet or
+  JSON file (queried in place by DuckDB), or an Excel or XML file
+  (imported into a new table).
 - **Keyboard first:**
   - Every command is in the palette (⌘K), and tables open by name (⌘P).
   - ⌘1…⌘9 switch tabs (in the results grid, ⌘2 sorts by the chosen
@@ -222,13 +223,22 @@
 
 ## Import, snippets and history
 
-- **CSV import** into a table:
-  - Columns map by name, with a preview; the delimiter is `,` `;` tab or
-    `|` (tab for a `.tsv` file), and empty cells can be NULL.
-  - It runs in one transaction: a failing row imports nothing. It waits
-    for an open transaction on the database to end first.
+- **Import** a CSV, JSON, JSON Lines, Parquet, Excel or XML file into a
+  table, or into a new table made from the file's columns (a schema's
+  menu: Import File as New Table…, or drop an Excel or XML file):
+  - DuckDB reads the file, finding a CSV file's delimiter and header, and
+    every format's column types; the delimiter, the header and the sheet
+    can be changed, every column read as text, and an XML file's rows
+    chosen by their element. Nested JSON values become JSON text, and
+    exact numbers keep their digits.
+  - Into a table there, the file's columns map to the table's by name.
+    Into a new table, each kept column takes a name and a type of the
+    engine, and the CREATE TABLE shows before it runs.
+  - It runs in one transaction, in INSERTs of many rows: a failing row
+    imports nothing, and a table made for the import is not left behind.
+    It waits for an open transaction on the database to end first.
   - On ClickHouse, which has no transactions, the rows before a failing
-    one stay, and the error says how many.
+    one stay in a table that was there, and the error says how many.
 - **Snippets:** keep the selected SQL under a name, and insert it into any
   editor from the command palette.
 - **History:** every statement and command is recorded, per project, with

@@ -13,6 +13,7 @@ import (
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/export"
 	"dgopher/internal/project"
 	"dgopher/internal/store"
 	"dgopher/internal/testutil"
@@ -344,9 +345,9 @@ func TestImportCSV(t *testing.T) {
 	path := t.TempDir() + "/people.csv"
 	os.WriteFile(path, []byte("\uFEFFName,EMAIL,ignored,country\nAda,ada@csv.test,x,GB\n\"Lovelace, A.\",,y,\nGrace,grace@csv.test,z,US\n"), 0o600)
 	obj := db.Object{Schema: "shop", Name: "customers", Kind: db.KindTable}
-	a.startImport(cn, "", obj, path)
+	a.startImport(cn, "", "", &obj, path)
 	x := a.importing
-	testutil.WaitFor(t, tt, "preview", func() bool { return len(x.header) == 4 })
+	testutil.WaitFor(t, tt, "preview", func() bool { return x.file != nil && len(x.mapping) == 4 })
 	if x.mapping[0] != "name" || x.mapping[1] != "email" || x.mapping[2] != skipColumn || x.mapping[3] != "country" {
 		t.Fatalf("mapping %q", x.mapping)
 	}
@@ -362,14 +363,139 @@ func TestImportCSV(t *testing.T) {
 	}
 	// A failing row rolls the whole file back.
 	os.WriteFile(path, []byte("name,email\nOk,ok@csv.test\nDup,ada@csv.test\n"), 0o600)
-	a.startImport(cn, "", obj, path)
+	a.startImport(cn, "", "", &obj, path)
 	x = a.importing
-	testutil.WaitFor(t, tt, "preview", func() bool { return len(x.header) == 2 })
+	testutil.WaitFor(t, tt, "preview", func() bool { return x.file != nil && len(x.mapping) == 2 })
 	a.confirmImport(x)
 	testutil.WaitFor(t, tt, "failed import", func() bool { return !x.running && x.err != "" })
 	cn.DB.SQL.QueryRow(`SELECT count(*) FROM shop.customers WHERE name = 'Ok'`).Scan(&n)
 	if n != 0 {
 		t.Fatalf("a failed import left %d rows", n)
+	}
+}
+
+// importNew imports a file into a new table of cn, and waits for it.
+func importNew(t *testing.T, a *App, tt *ui.Tester, cn *connection.Conn, schema, path string, edit func(*importState)) *importState {
+	t.Helper()
+	a.startImport(cn, "", schema, nil, path)
+	x := a.importing
+	testutil.WaitFor(t, tt, "the file", func() bool { return !x.loading })
+	if x.err != "" {
+		t.Fatal(x.err)
+	}
+	if edit != nil {
+		edit(x)
+	}
+	a.confirmImport(x)
+	if a.confirm != nil {
+		a.confirm.OnConfirm()
+		a.confirm = nil
+	}
+	testutil.WaitFor(t, tt, "the import", func() bool { return !x.running })
+	return x
+}
+
+// Each format becomes a new table, its columns typed as the file's.
+func TestImportNewTables(t *testing.T) {
+	a := newTestApp(t)
+	file := filepath.Join(t.TempDir(), "x.sqlite")
+	os.WriteFile(file, nil, 0o600)
+	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
+	tt := ui.NewTester(a.view, 1200, 800)
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	dir := t.TempDir()
+	csv := filepath.Join(dir, "2024 Sales (EU).csv")
+	os.WriteFile(csv, []byte("id,amount,paid\n1,9.50,true\n2,3.25,false\n"), 0o600)
+	x := importNew(t, a, tt, cn, "main", csv, func(*importState) { testutil.Snapshot(t, tt, "import-new-table") })
+	if x.err != "" || x.table != "imported_2024_sales__eu" {
+		t.Fatalf("import %q into %q", x.err, x.table)
+	}
+	var n, paid int
+	var amount float64
+	cn.DB.SQL.QueryRow(`SELECT count(*), sum(amount), sum(paid) FROM "imported_2024_sales__eu"`).Scan(&n, &amount, &paid)
+	if n != 2 || amount != 12.75 || paid != 1 {
+		t.Fatalf("rows %d, amount %v, paid %d", n, amount, paid)
+	}
+
+	jsonl := filepath.Join(dir, "events.jsonl")
+	os.WriteFile(jsonl, []byte("{\"kind\": \"login\", \"meta\": {\"ip\": \"1.2.3.4\"}}\n{\"kind\": \"logout\", \"meta\": null}\n"), 0o600)
+	x = importNew(t, a, tt, cn, "main", jsonl, func(x *importState) {
+		x.table = "events"
+		x.newCols[0].name = "event"
+	})
+	var kind, meta string
+	cn.DB.SQL.QueryRow(`SELECT event, meta FROM events WHERE event = 'login'`).Scan(&kind, &meta)
+	if x.err != "" || kind != "login" || meta != `{"ip":"1.2.3.4"}` {
+		t.Fatalf("events %q: %q %q", x.err, kind, meta)
+	}
+	// A failing row creates nothing.
+	bad := filepath.Join(dir, "bad.csv")
+	os.WriteFile(bad, []byte("id\n1\n1\n"), 0o600)
+	x = importNew(t, a, tt, cn, "main", bad, func(x *importState) { x.newCols[0].typ = "INTEGER PRIMARY KEY" })
+	if !strings.Contains(x.err, "the table was not created") {
+		t.Fatalf("a failing import: %q", x.err)
+	}
+	if err := cn.DB.SQL.QueryRow(`SELECT count(*) FROM bad`).Scan(&n); err == nil {
+		t.Fatal("a failed import left its table")
+	}
+}
+
+// On every server engine a new table is created from a workbook, and on
+// MySQL, whose CREATE TABLE commits, a failure drops it.
+func TestImportNewTableServers(t *testing.T) {
+	testutil.Integration(t)
+	path := filepath.Join(t.TempDir(), "orders.xlsx")
+	w, err := export.NewFileWriter(path, export.XLSX, []export.Column{{Name: "id", DatabaseType: "int"}, {Name: "total", DatabaseType: "numeric(10,2)"},
+		{Name: "placed", DatabaseType: "timestamp"}, {Name: "paid", DatabaseType: "bool"}, {Name: "note", DatabaseType: "text"}}, export.Options{Header: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2024, 5, 6, 7, 8, 9, 0, time.UTC)
+	w.Write([]any{1, "12.50", at, true, "first"})
+	w.Write([]any{2, "7.25", at.Add(time.Hour), false, nil})
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, cfg := range []db.Config{
+		testutil.PGConfig(),
+		{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"},
+		{ID: "ch", Name: "ch", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher"},
+	} {
+		t.Run(string(cfg.Engine), func(t *testing.T) {
+			a := newTestApp(t)
+			cn := addConn(a, cfg)
+			tt := ui.NewTester(a.view, 1200, 800)
+			a.Connect(cn, nil)
+			testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+			schema := map[db.Engine]string{db.Postgres: "public", db.MySQL: "shop", db.ClickHouse: "default"}[cfg.Engine]
+			table := db.QualifiedName(cn.DB.Dialect, schema, "it_orders")
+			cn.DB.SQL.Exec("DROP TABLE IF EXISTS " + table)
+			defer cn.DB.SQL.Exec("DROP TABLE IF EXISTS " + table)
+			x := importNew(t, a, tt, cn, schema, path, func(x *importState) { x.table = "it_orders" })
+			if x.err != "" {
+				t.Fatal(x.err)
+			}
+			var n int
+			var note string
+			if err := cn.DB.SQL.QueryRow("SELECT count(*), max(note) FROM "+table).Scan(&n, &note); err != nil || n != 2 || note != "first" {
+				t.Fatalf("rows %d, note %q: %v", n, note, err)
+			}
+			if cfg.Engine != db.MySQL {
+				return
+			}
+			cn.DB.SQL.Exec("DROP TABLE " + table)
+			x = importNew(t, a, tt, cn, schema, path, func(x *importState) {
+				x.table = "it_orders"
+				x.newCols[4].typ = "VARCHAR(2)" // "first" does not fit
+			})
+			if !strings.Contains(x.err, "the table was not created") {
+				t.Fatalf("a failing import: %q", x.err)
+			}
+			if err := cn.DB.SQL.QueryRow("SELECT count(*) FROM " + table).Scan(&n); err == nil {
+				t.Fatal("the failed import left its table")
+			}
+		})
 	}
 }
 

@@ -68,6 +68,7 @@ your own.
 | `internal/db` | connections, sessions, cursors, the dialect of each engine, generated edits, and the Redis client |
 | `internal/sqltext` | the SQL lexer: highlighting, splitting statements, classification for the safety policy, completion context, the formatter ([How SQL is read](sql.md)) |
 | `internal/export` | CSV, TSV, JSON, JSON Lines, SQL, Markdown and Excel writers, and Parquet and DuckDB files through DuckDB. Text formats stay in Go, the writers of clipboard copies too, so that a copy and a file of the same rows agree. |
+| `internal/fileimport` | reads files to import: CSV, JSON and Parquet through DuckDB, Excel and XML loaded into it |
 | `internal/store` | private JSON files, keychain secrets, query history |
 | `internal/secretcmd` | runs a password command without a shell |
 | `internal/sshtunnel` | SSH port forwarding, and dialing through SSH, with host key checks; `sshtest` is an SSH server for tests |

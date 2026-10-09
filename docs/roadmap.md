@@ -80,11 +80,6 @@ Next or Later are not repeated.
   - Generate the DDL of many objects at once.
 - **Import, export and backup:**
   - Export several tables in one go.
-  - Import CSV, JSON, JSON Lines, Excel, XML and Parquet files into a table.
-    JSON, JSON Lines and Parquet files dropped on the window can already
-    be queried in DuckDB.
-  - Create the table while importing a file, instead of needing it to
-    exist.
   - Run a large SQL dump file without opening it in an editor.
   - Back up and restore databases with `pg_dump`, `mysqldump` and
     `sqlite3`.

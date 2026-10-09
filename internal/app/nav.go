@@ -493,8 +493,8 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			dataview.OpenExport(a, dataview.ExportSource{Conn: cn, Database: n.database, Name: obj.Name, SQL: "SELECT * FROM " + quoted})
 		}
 		if obj.Kind == db.KindTable {
-			if m.Item("Import CSV…").Disabled(cn.Config.ReadOnly).Chosen() {
-				a.openImport(cn, n.database, obj)
+			if m.Item("Import Data…").Disabled(cn.Config.ReadOnly).Chosen() {
+				a.openImport(cn, n.database, obj.Schema, &obj)
 			}
 			m.Separator()
 			if m.Item("Truncate…").Chosen() {
@@ -507,6 +507,9 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 	case nodeSchema, nodeDatabase, nodeFolder:
 		if n.kind != nodeDatabase && m.Item("View ER Diagram").Chosen() {
 			dataview.OpenER(a, cn, n.database, n.schema)
+		}
+		if n.kind != nodeDatabase && m.Item("Import File as New Table…").Disabled(cn.Config.ReadOnly).Chosen() {
+			a.openImport(cn, n.database, n.schema, nil)
 		}
 		if m.Item("New SQL Editor").Chosen() {
 			text := ""
