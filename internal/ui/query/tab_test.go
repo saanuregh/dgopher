@@ -731,3 +731,26 @@ func TestSwitchSchemaCommand(t *testing.T) {
 	q.Commands()[i].Run()
 	testutil.WaitFor(t, tt, "the switch", func() bool { return !q.Running && q.schema == "s2" })
 }
+
+// The current statement's ▶ in the gutter runs it, the editor keeping
+// the keys.
+func TestGutterRunButton(t *testing.T) {
+	a := newFakeQueryHost(t)
+	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1000, 700)
+	q := newEditor(t, a, tt, cn, "SELECT 1;\n\nSELECT 2 AS two;")
+	testutil.SetCaret(tt, &q.Editor, 12)
+	tt.Frame()
+	tip := keymap.Hint("Run the statement", keymap.Run)
+	if err := tt.Click(tip); err != nil {
+		t.Fatalf("no run button: %v", err)
+	}
+	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running && len(q.results) == 1 })
+	if cols := q.results[0].view.Columns(); len(cols) != 1 || cols[0].Name != "two" {
+		t.Fatalf("ran another statement: %v", cols)
+	}
+	tt.Frame()
+	if !q.Editor.HasFocus {
+		t.Fatal("the editor lost the keys")
+	}
+}

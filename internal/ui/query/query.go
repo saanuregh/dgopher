@@ -451,6 +451,10 @@ func (q *Tab) refuseAnotherConnection() bool {
 	return true
 }
 
+// runStatement runs the statement at the caret, as the editor's run
+// button does.
+func (q *Tab) runStatement() { q.Run(RunStatement) }
+
 // Run runs statements of the editor, through the safety policy, once
 // the results it replaces have no changes pending.
 func (q *Tab) Run(mode RunMode) {
@@ -1116,6 +1120,10 @@ func (q *Tab) View(c *ui.Context) {
 				q.findView(c, a.Settings().EditorFont)
 				_, _, ok := q.currentStatement()
 				q.Editor.HasCurrent = ok && q.Editor.HasFocus
+				q.Editor.Run, q.Editor.RunTip = nil, keymap.Hint("Run the statement", keymap.Run)
+				if ok {
+					q.Editor.Run = q.runStatement
+				}
 				q.checkProblems()
 				q.syncVim()
 				q.Editor.View(c, a.Settings().EditorFont).ContextMenu(q.editorMenu)

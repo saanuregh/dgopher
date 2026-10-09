@@ -46,6 +46,11 @@ type Editor struct {
 	// statement a run would send, shown behind them when hasCurrent.
 	CurrentLines [2]int
 	HasCurrent   bool
+	// Run, when set, runs the statement of CurrentLines, from a button on
+	// its first line in the gutter, shown with or without the focus;
+	// RunTip names it.
+	Run    func()
+	RunTip string
 	// Problems are marked with a wavy line under their text.
 	Problems []Problem
 	// Vim, when set, edits with Vim's keys.
@@ -215,6 +220,17 @@ func (e *Editor) lineNumbers() string {
 	return e.gutter
 }
 
+// currentViewLines are the first and last lines, as the editor shows
+// them, of the current statement.
+func (e *Editor) currentViewLines(folded bool) (int, int) {
+	first, last := e.CurrentLines[0], e.CurrentLines[1]
+	if folded {
+		t := []rune(e.Text)
+		first, last = e.ViewLine(lineAt(t, 0, first)), e.ViewLine(lineAt(t, 0, last))
+	}
+	return first, last
+}
+
 // markersWidth is the width of the gutter's column of fold markers.
 func (e *Editor) markersWidth() float32 { return e.charW + 8 }
 
@@ -264,11 +280,7 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 		p.Fill(ui.Rect{X: r.X, Y: r.Y, W: gutterW, H: r.H}, pal.Gutter, 0)
 		// The statement a run would send, across the whole width.
 		if e.HasCurrent {
-			first, last := e.CurrentLines[0], e.CurrentLines[1]
-			if folded {
-				t := []rune(e.Text)
-				first, last = e.ViewLine(lineAt(t, 0, first)), e.ViewLine(lineAt(t, 0, last))
-			}
+			first, last := e.currentViewLines(folded)
 			top := r.Y + 8 + float32(first)*lh - e.Scroll.Y
 			p.Fill(ui.Rect{X: r.X + gutterW, Y: top, W: r.W - gutterW, H: float32(last-first+1) * lh}, pal.CurrentStatement, 0)
 		}
@@ -381,6 +393,18 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 				e.followCursors(c, area, was)
 			}
 		})
+		if e.Run != nil {
+			// The current statement's run button, on its first line in the
+			// gutter's margin, before the line numbers.
+			first, _ := e.currentViewLines(folded)
+			run := ui.Box(c).Absolute().Left(2).Top(8+float32(first)*lh).Size(14, lh).Center().
+				Label(e.RunTip).Tooltip(e.RunTip).Cursor(ui.CursorPointer)
+			run.Children(func() { ui.Icon(c, widgets.IconPlay).FontSize(fontSize * 0.85).TextColor(c.Theme().Success) })
+			if run.Clicked() {
+				e.Run()
+				e.WantFocus = true
+			}
+		}
 	})
 	return area
 }
