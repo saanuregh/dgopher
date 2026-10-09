@@ -46,6 +46,69 @@ type Editor struct {
 	// statement a run would send, shown behind them when hasCurrent.
 	CurrentLines [2]int
 	HasCurrent   bool
+	// Problems are marked with a wavy line under their text.
+	Problems []Problem
+}
+
+// Problem is a mistake in the text: Message says what; Fix, when set, is
+// the text that replaces its own to mend it.
+type Problem struct {
+	Start, End int // runes
+	Message    string
+	Fix        string
+}
+
+// ProblemAt is the problem whose text holds a rune offset, as the caret.
+func (e *Editor) ProblemAt(at int) (Problem, bool) {
+	for _, p := range e.Problems {
+		if at >= p.Start && at <= p.End {
+			return p, true
+		}
+	}
+	return Problem{}, false
+}
+
+// lineCol is the line and column, 0-based, in runes, of a rune offset.
+func lineCol(text string, at int) (line, col int) {
+	i := 0
+	for _, r := range text {
+		if i == at {
+			break
+		}
+		if r == '\n' {
+			line, col = line+1, 0
+		} else {
+			col++
+		}
+		i++
+	}
+	return line, col
+}
+
+// drawProblems draws a wavy line under the first line of each problem's
+// text: the font is monospaced and lines do not wrap, so a rune's column
+// is where it shows.
+func (e *Editor) drawProblems(p *ui.Painter, r ui.Rect, textX, lh float32, c ui.Color) {
+	for _, pr := range e.Problems {
+		line, col := lineCol(e.Text, pr.Start)
+		endLine, endCol := lineCol(e.Text, max(pr.End, pr.Start+1))
+		if endLine != line {
+			endCol = col + 1
+		}
+		x0 := textX + float32(col)*e.charW - e.Scroll.X
+		x1 := textX + float32(endCol)*e.charW - e.Scroll.X
+		y := r.Y + 8 + float32(line+1)*lh - lh*0.15 - e.Scroll.Y
+		var path ui.Path
+		path.MoveTo(x0, y)
+		for x, up := x0, true; x < x1; x, up = x+2, !up {
+			dy := float32(1.5)
+			if up {
+				dy = -1.5
+			}
+			path.LineTo(min(x+2, x1), y+dy)
+		}
+		p.StrokePath(&path, 1, c)
+	}
 }
 
 const LineHeight = 1.5
@@ -117,6 +180,7 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 			top := r.Y + 8 + float32(first)*lh - e.Scroll.Y
 			p.Fill(ui.Rect{X: r.X + gutterW, Y: top, W: r.W - gutterW, H: float32(last-first+1) * lh}, pal.CurrentStatement, 0)
 		}
+		e.drawProblems(p, r, r.X+gutterW+12, lh, c.Theme().Danger)
 	}).Children(func() {
 		ui.Row(c).AlignItems(ui.Stretch).MinHeightPercent(100).MinWidthPercent(100).Children(func() {
 			ui.Text(c, numbers).Font(widgets.MonoFont).FontSize(fontSize).FixedLineHeight(lh).

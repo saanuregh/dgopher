@@ -143,6 +143,13 @@
 
 - **SQL editor**, run as DBeaver runs it:
   - Syntax highlighting per dialect, and line numbers.
+  - Mistakes are marked as you type, with a wavy line: a string, quoted
+    name or comment left open, a parenthesis that closes nothing or is
+    not closed, and, against the catalog read, a table or a column
+    (`alias.column`) that does not exist. The line under the editor says
+    what is wrong at the caret, with the closest existing name as a fix
+    that ⌥↵ applies. Statements making or dropping tables are not
+    checked for names.
   - Go to Definition (F12 or ⌘B) opens what the name at the caret names:
     a table's or a view's structure, through an alias or a column of it
     too, or a routine's definition. Find Usages (⇧F12) lists where the

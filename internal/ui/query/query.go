@@ -111,7 +111,10 @@ type Tab struct {
 	// schema is the schema the session finds names in, as last read,
 	// "" before it is.
 	schema string
-	find   editor.Find
+	// checkedText and checkedCatalog are what the editor's problems were
+	// found for: its text, and how much of the catalog was read.
+	checkedText, checkedCatalog string
+	find                        editor.Find
 
 	sess      *db.Session
 	sessErr   string
@@ -935,6 +938,8 @@ func (q *Tab) View(c *ui.Context) {
 	}
 	if q.Editor.HasFocus {
 		switch {
+		case c.Shortcut(ui.Alt, ui.KeyEnter):
+			q.fixProblem()
 		case c.Shortcut(0, ui.KeyF12), c.Shortcut(ui.Cmd, ui.KeyB):
 			q.goToDefinition()
 		case c.Shortcut(ui.Shift, ui.KeyF12):
@@ -1026,9 +1031,11 @@ func (q *Tab) View(c *ui.Context) {
 				q.findView(c, a.Settings().EditorFont)
 				_, _, ok := q.currentStatement()
 				q.Editor.HasCurrent = ok && q.Editor.HasFocus
+				q.checkProblems()
 				q.Editor.View(c, a.Settings().EditorFont).ContextMenu(q.editorMenu)
 				q.trackSnippet()
 				q.completionView(c, a)
+				q.problemBar(c)
 			})
 		}, func() {
 			q.resultsView(c, a)

@@ -29,7 +29,6 @@ Next or Later are not repeated.
   - Vim key bindings, shortcuts that can be changed, several cursors at
     once, and folding of code blocks.
   - Two editors side by side, and more than one window.
-  - Mark errors while typing, with suggested fixes.
   - Build a query by choosing tables and columns instead of typing SQL.
   - Show the catalog queries the app runs by itself. The audit log
     already records statements, grid edits, imports and commands.
