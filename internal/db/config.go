@@ -82,6 +82,10 @@ func (e Engine) IsSQL() bool { return e != Redis }
 // computer, opened by path rather than reached over the network.
 func (e Engine) IsFile() bool { return e == SQLite || e == DuckDB }
 
+// TransactionalDDL reports whether the engine's schema changes can run in
+// a transaction, all or none, as PostgreSQL's, SQLite's and DuckDB's can.
+func (e Engine) TransactionalDDL() bool { return e == Postgres || e == SQLite || e == DuckDB }
+
 // Environment says how careful the app must be with a connection.
 type Environment string
 

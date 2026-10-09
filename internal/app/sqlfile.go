@@ -94,7 +94,7 @@ func (a *App) startSQLFileRun(cn *connection.Conn, database, path string) {
 			x.statements, x.verbs, x.dangerous, x.more, x.txControl, x.verdict = sum.statements, sum.verbs, sum.dangerous, sum.more, sum.txControl, sum.verdict
 			// All or nothing where it can be: safer, and on SQLite, which
 			// syncs each statement it commits, far faster.
-			x.oneTx = transactionalDDL(cfg.Engine) && !x.txControl
+			x.oneTx = cfg.Engine.TransactionalDDL() && !x.txControl
 		}
 	})
 }
@@ -165,12 +165,6 @@ func surveySQLFile(ctx context.Context, cfg *db.Config, path string, progress *a
 		return sum, errors.New("the file holds no statements")
 	}
 	return sum, nil
-}
-
-// transactionalDDL reports whether the engine can run a whole file in
-// one transaction, its schema changes included.
-func transactionalDDL(e db.Engine) bool {
-	return e == db.Postgres || e == db.SQLite || e == db.DuckDB
 }
 
 func (a *App) sqlFileView(c *ui.Context) {
@@ -270,7 +264,7 @@ func (a *App) sqlFileSummary(c *ui.Context, x *sqlFileRun) {
 		ui.Checkbox(c, &x.stopOnError, "Stop at the first error").Disabled(x.oneTx || x.running || x.finished)
 		why := ""
 		switch {
-		case !transactionalDDL(x.conn.Config.Engine):
+		case !x.conn.Config.Engine.TransactionalDDL():
 			why = x.conn.Config.Engine.Label() + " cannot hold schema changes in a transaction."
 		case x.txControl:
 			why = "The file begins and ends transactions of its own."

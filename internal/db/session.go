@@ -163,11 +163,7 @@ func (s *Session) txState() TxState {
 
 // Begin opens a transaction.
 func (s *Session) Begin(ctx context.Context) error {
-	q := "BEGIN"
-	if s.db.Config.Engine == MySQL {
-		q = "START TRANSACTION"
-	}
-	_, err := s.Exec(ctx, q)
+	_, err := s.Exec(ctx, beginStatement(s.db.Config.Engine))
 	return err
 }
 

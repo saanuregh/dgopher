@@ -1204,3 +1204,138 @@ func TestIntegrationSearch(t *testing.T) {
 		})
 	}
 }
+
+// A table made from a design reads back as designed, and changes as the
+// design does: columns renamed, retyped, defaulted, commented and added,
+// indexes, keys and checks dropped and added, where the engine can.
+func TestIntegrationTableDesign(t *testing.T) {
+	integration(t)
+	ctx := context.Background()
+	for _, c := range []struct {
+		cfg                 Config
+		schema              string
+		integer, big, text  string
+		keys, indexes, more bool // foreign keys and checks; indexes; changing the key and checks later
+	}{
+		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dbgopher", Database: "postgres"}, "public", "integer", "bigint", "text", true, true, true},
+		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"}, "shop", "int", "bigint", "varchar(50)", true, true, true},
+		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main", "INTEGER", "BIGINT", "VARCHAR", false, true, false},
+		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher"}, "default", "Int32", "Int64", "String", false, false, false},
+	} {
+		t.Run(string(c.cfg.Engine), func(t *testing.T) {
+			d, err := Open(ctx, c.cfg, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer d.Close()
+			parent := QualifiedName(d.Dialect, c.schema, "it_design_customers")
+			drop := []string{"DROP TABLE IF EXISTS " + QualifiedName(d.Dialect, c.schema, "it_design"), "DROP TABLE IF EXISTS " + parent}
+			for _, q := range drop {
+				d.SQL.ExecContext(ctx, q)
+			}
+			defer func() {
+				for _, q := range drop {
+					d.SQL.ExecContext(ctx, q)
+				}
+			}()
+			design := TableDesign{Schema: c.schema, Name: "it_design", Comment: "orders", Columns: []ColumnDesign{
+				{Name: "id", Type: c.integer, PrimaryKey: true},
+				{Name: "customer", Type: c.integer, Nullable: true},
+				{Name: "qty", Type: c.integer, Default: "1"},
+				{Name: "note", Type: c.text, Nullable: true, Comment: "free text"},
+			}}
+			if c.indexes {
+				design.Indexes = []IndexDesign{{Name: "it_design_customer", Columns: []string{"customer"}}}
+			}
+			if c.keys {
+				if _, err := d.SQL.ExecContext(ctx, "CREATE TABLE "+parent+" (id "+c.integer+" PRIMARY KEY)"); err != nil {
+					t.Fatal(err)
+				}
+				design.ForeignKeys = []ForeignKeyDesign{{Name: "it_design_customer_fkey", Columns: []string{"customer"},
+					RefSchema: c.schema, RefTable: "it_design_customers", RefColumns: []string{"id"}, OnDelete: "SET NULL"}}
+				design.Checks = []CheckDesign{{Name: "it_design_qty", Expression: "qty > 0"}}
+			}
+			ch, err := NewTableChange(d.Dialect, design)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ran, err := apply(t, d, ch); err != nil {
+				t.Fatalf("%v:\n%s", err, strings.Join(ran, "\n"))
+			}
+			read := func() TableDesign {
+				t.Helper()
+				objs, err := d.Dialect.Objects(ctx, d.SQL, c.schema)
+				if err != nil {
+					t.Fatal(err)
+				}
+				i := slices.IndexFunc(objs, func(o Object) bool { return o.Name == "it_design" })
+				if i < 0 {
+					t.Fatal("no table")
+				}
+				got, err := ReadTableDesign(ctx, d, objs[i])
+				if err != nil {
+					t.Fatal(err)
+				}
+				return got
+			}
+			was := read()
+			if len(was.Columns) != 4 || !was.Columns[0].PrimaryKey || was.Columns[0].Nullable || !was.Columns[1].Nullable ||
+				!strings.Contains(was.Columns[2].Default, "1") || was.Columns[3].Comment != "free text" || was.Comment != "orders" {
+				t.Fatalf("read %+v", was)
+			}
+			if c.indexes && (len(was.Indexes) != 1 || was.Indexes[0].Name != "it_design_customer") {
+				t.Fatalf("indexes %+v", was.Indexes)
+			}
+			if c.keys && (len(was.ForeignKeys) != 1 || len(was.Checks) != 1 || !strings.Contains(was.Checks[0].Expression, "qty")) {
+				t.Fatalf("keys %+v, checks %+v", was.ForeignKeys, was.Checks)
+			}
+			if again, err := AlterTableChange(d.Dialect, was, clone(was)); err != nil || len(again.Steps) != 0 {
+				t.Fatalf("an unchanged design changes: %v\n%s", err, again.Text())
+			}
+
+			now := clone(was)
+			now.Columns[3].Name, now.Columns[3].Default = "remark", Literal(c.cfg.Engine, "none")
+			now.Columns[2].Type, now.Columns[2].Comment = c.big, "how many"
+			now.Columns[1].Nullable = c.cfg.Engine == MySQL // the others make it NOT NULL
+			if c.cfg.Engine == ClickHouse {
+				now.Columns[1].Default = "0" // which ClickHouse needs to take NULL away
+			}
+			now.Columns = append(now.Columns, ColumnDesign{Name: "placed", Type: c.text, Nullable: true})
+			now.Comment = "the orders"
+			if c.indexes {
+				now.Indexes = []IndexDesign{{Name: "it_design_placed", Columns: []string{"placed"}, Unique: true}}
+			}
+			if c.more {
+				now.ForeignKeys = nil
+				now.Checks = []CheckDesign{{Name: "it_design_qty_small", Expression: "qty < 1000"}}
+				now.Columns[2].PrimaryKey = true
+			}
+			ch, err = AlterTableChange(d.Dialect, was, now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ran, err := apply(t, d, ch); err != nil {
+				t.Fatalf("%v:\n%s", err, strings.Join(ran, "\n"))
+			}
+			after := read()
+			names := make([]string, len(after.Columns))
+			for i, col := range after.Columns {
+				names[i] = col.Name
+			}
+			if !slices.Equal(names, []string{"id", "customer", "qty", "remark", "placed"}) || !strings.EqualFold(after.Columns[2].Type, c.big) ||
+				after.Columns[2].Comment != "how many" || !strings.Contains(after.Columns[3].Default, "none") || after.Comment != "the orders" ||
+				after.Columns[1].Nullable != (c.cfg.Engine == MySQL) {
+				t.Fatalf("after %+v\n%s", after, ch.Text())
+			}
+			if c.indexes && (len(after.Indexes) != 1 || after.Indexes[0].Name != "it_design_placed" || !after.Indexes[0].Unique) {
+				t.Fatalf("indexes %+v", after.Indexes)
+			}
+			if c.more && (len(after.ForeignKeys) != 0 || len(after.Checks) != 1 || !after.Columns[2].PrimaryKey) {
+				t.Fatalf("keys %+v, checks %+v, columns %+v", after.ForeignKeys, after.Checks, after.Columns)
+			}
+			if again, err := AlterTableChange(d.Dialect, after, clone(after)); err != nil || len(again.Steps) != 0 {
+				t.Fatalf("an unchanged design changes: %v\n%s", err, again.Text())
+			}
+		})
+	}
+}
