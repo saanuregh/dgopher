@@ -124,7 +124,8 @@
   - The file is written sorted and stable, so it diffs cleanly. A file
     changed on disk, as by a `git pull`, is never overwritten: reload the
     project from its menu.
-  - Every SQL editor is a file in `queries/`, saved as you type. A
+  - Every SQL editor is a file in `queries/`, saved as you type; its tab
+    shows a dot until the file holds what was typed. A
     `-- connection: <id>` line binds a file to a connection, whose IDs
     complete as you type the line. A file changed on disk while open is
     never overwritten; the editor offers to use the file or keep yours. An

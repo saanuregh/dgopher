@@ -181,6 +181,10 @@ func (q *Tab) Title() string { return q.Name }
 
 func (q *Tab) Connection() *connection.Conn { return q.Conn }
 
+// Unsaved reports text of the editor its file does not hold yet: typed
+// in the last second, or not written for a conflict.
+func (q *Tab) Unsaved() bool { return q.Path != "" && q.Editor.Text != q.Saved }
+
 func (q *Tab) CloseReason() string {
 	switch {
 	case q.Path != "" && q.DiskConflict != "" && q.Editor.Text != q.Saved:

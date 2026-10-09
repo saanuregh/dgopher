@@ -61,3 +61,26 @@ func TestNavigatorFollowsTab(t *testing.T) {
 		t.Fatalf("the status bar does not name the panels' connection: %q", tt.Texts())
 	}
 }
+
+// An editor's tab shows its file is not saved until the text typed is.
+func TestTabShowsUnsaved(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1000, 700)
+	a.openSample()
+	testutil.WaitFor(t, tt, "sample editor", func() bool { return len(a.tabs) == 1 })
+	q := a.tabs[0].(*query.Tab)
+	a.NewQueryTab(q.Conn, "", "")
+	testutil.WaitFor(t, tt, "a second editor", func() bool { return len(a.tabs) == 2 })
+	tt.Key(ui.Cmd, ui.Key1)
+	tt.Frame()
+	if q.Unsaved() {
+		t.Fatal("unsaved before typing")
+	}
+	q.Editor.Text += "\nSELECT 2;"
+	tt.Frame()
+	if !q.Unsaved() {
+		t.Fatal("typed text not shown unsaved")
+	}
+	testutil.Snapshot(t, tt, "tab-unsaved")
+	testutil.WaitFor(t, tt, "the file saved", func() bool { return !q.Unsaved() })
+}

@@ -356,13 +356,26 @@ func (a *App) tabBar(c *ui.Context) {
 							ui.Box(c).Size(6, 6).Radius(3).Background(t.Warning).Tooltip("Unsaved changes or an open transaction")
 						}
 						x := ui.ButtonBase(c).Padding(3).Radius(4).Label("Close " + tb.Title())
-						if !on && !hovered {
+						// A file not saved yet shows a dot where the button
+						// is, the button itself once pointed at.
+						unsaved := false
+						if u, ok := tb.(interface{ Unsaved() bool }); ok && u.Unsaved() && !hovered {
+							unsaved = true
+							x.Tooltip("Not saved yet")
+						}
+						if !on && !hovered && !unsaved {
 							x.Opacity(0)
 						}
 						if x.Hovered() {
 							x.Background(pal.Hover)
 						}
-						x.Children(func() { ui.Icon(c, widgets.IconX).FontSize(11) })
+						x.Children(func() {
+							if unsaved {
+								ui.Box(c).Size(8, 8).Margin(1.5).Radius(4).Background(t.Text)
+							} else {
+								ui.Icon(c, widgets.IconX).FontSize(11)
+							}
+						})
 						if x.Clicked() {
 							closed = i
 						}
