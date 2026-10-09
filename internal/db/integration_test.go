@@ -1485,3 +1485,97 @@ func TestIntegrationCloudIdentity(t *testing.T) {
 		t.Fatal("a token allowed without required TLS")
 	}
 }
+
+// Each engine's EXPLAIN, in the form ExplainPrefix asks for, reads as a
+// plan, and a scan of every row to keep few is advised against.
+func TestIntegrationPlans(t *testing.T) {
+	integration(t)
+	ctx := context.Background()
+	for _, c := range []struct {
+		cfg    Config
+		schema string
+		setup  []string
+		query  string
+		advice string // what the advice holds, "" for none expected
+	}{
+		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dbgopher", Database: "postgres"}, "public",
+			[]string{"CREATE TABLE it_plan AS SELECT i AS id, i % 1000 AS g FROM generate_series(1, 20000) i", "ANALYZE it_plan"},
+			"SELECT * FROM it_plan WHERE g = 5", "an index on (g)"},
+		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"}, "shop",
+			[]string{"CREATE TABLE it_plan (id int, g int)",
+				"INSERT INTO it_plan WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 1000) " +
+					"SELECT r.i * 3 + k.i, r.i % 100 FROM r CROSS JOIN (SELECT 0 AS i UNION ALL SELECT 1 UNION ALL SELECT 2) k", "ANALYZE TABLE it_plan"},
+			"SELECT * FROM it_plan WHERE g = 5", "table scan reads every row of it_plan"},
+		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "p.sqlite")}, "main",
+			[]string{"CREATE TABLE it_plan (id INTEGER, g INTEGER)"},
+			"SELECT * FROM it_plan WHERE g = 5 ORDER BY id", "SCAN reads every row of it_plan"},
+		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main",
+			[]string{"CREATE TABLE it_plan AS SELECT range AS id, range % 1000 AS g FROM range(20000)"},
+			"SELECT g, count(*) FROM it_plan WHERE id > 5 GROUP BY g", ""},
+		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher"}, "default",
+			[]string{"CREATE TABLE it_plan (id UInt64, g UInt64) ENGINE = MergeTree ORDER BY id SETTINGS index_granularity = 1024",
+				"INSERT INTO it_plan SELECT number, number % 1000 FROM numbers(20000)"},
+			"SELECT * FROM it_plan WHERE g = 5", "all 20 granules of"},
+	} {
+		t.Run(string(c.cfg.Engine), func(t *testing.T) {
+			if c.cfg.Engine == SQLite {
+				os.WriteFile(c.cfg.Database, nil, 0o600)
+			}
+			d, err := Open(ctx, c.cfg, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer d.Close()
+			table := QualifiedName(d.Dialect, c.schema, "it_plan")
+			d.SQL.ExecContext(ctx, "DROP TABLE IF EXISTS "+table)
+			defer d.SQL.ExecContext(ctx, "DROP TABLE IF EXISTS "+table)
+			for _, q := range c.setup {
+				if _, err := d.SQL.ExecContext(ctx, q); err != nil {
+					t.Fatal(q, err)
+				}
+			}
+			for _, analyze := range []bool{false, true} {
+				prefix := ExplainPrefix(c.cfg.Engine, analyze)
+				if prefix == "" {
+					continue
+				}
+				rows, err := d.SQL.QueryContext(ctx, prefix+c.query)
+				if err != nil {
+					t.Fatal(prefix, err)
+				}
+				cols, _ := rows.Columns()
+				var all [][]any
+				for rows.Next() {
+					vals := make([]any, len(cols))
+					ptrs := make([]any, len(cols))
+					for i := range vals {
+						ptrs[i] = &vals[i]
+					}
+					rows.Scan(ptrs...)
+					all = append(all, vals)
+				}
+				rows.Close()
+				p, ok := ParsePlan(c.cfg.Engine, cols, all)
+				if !ok || p.Root == nil || p.Analyzed != analyze {
+					t.Fatalf("%s: plan %+v %v from %v", prefix, p, ok, all)
+				}
+				steps := 0
+				p.Root.Walk(func(n *PlanNode, _ int) {
+					steps++
+					if n.Op == "" {
+						t.Errorf("%s: a step without its operation: %+v", prefix, n)
+					}
+				})
+				advice := Advise(c.cfg.Engine, p)
+				var texts []string
+				for _, a := range advice {
+					texts = append(texts, a.Text)
+				}
+				wantAdvice := c.advice != "" && (analyze || c.cfg.Engine != Postgres)
+				if got := strings.Join(texts, "\n"); wantAdvice && !strings.Contains(strings.ToLower(got), strings.ToLower(c.advice)) {
+					t.Errorf("%s: %d steps, advice %q, want %q", prefix, steps, got, c.advice)
+				}
+			}
+		})
+	}
+}
