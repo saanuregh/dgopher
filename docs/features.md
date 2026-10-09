@@ -96,6 +96,17 @@
     open one's rows, detach it, or make a new one, its statement written
     for the table's strategy.
   - Tables: view DDL, copy the name, export data, truncate or drop.
+  - The table form makes a table (New Table…, on a schema) or changes
+    one (Edit Structure, on its Structure page): columns renamed, retyped,
+    made nullable, defaulted, commented, added and dropped; the primary
+    key; indexes, foreign keys with their actions, and checks, dropped or
+    added. Review SQL shows every statement before it runs; they run in
+    one transaction where the engine's DDL allows it, and the
+    confirmation says when it does not. SQLite makes the table again for
+    what ALTER TABLE cannot change, keeping its rows, indexes, triggers
+    and views, and refuses when the table has what the form cannot write
+    again, as a collation. DuckDB and ClickHouse change the columns of a
+    table they made, not its keys.
   - Generate SQL Script and Generate Documentation, on a schema, write
     the objects chosen from it. The script creates them in an order that
     runs: types and functions first, then tables, each after those its

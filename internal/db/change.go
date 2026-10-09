@@ -39,6 +39,19 @@ func (r *Rebuild) rename() string {
 	return "ALTER TABLE " + QualifiedName(sqliteDialect{}, r.Schema, r.Temp) + " RENAME TO " + quoteDouble(r.Table)
 }
 
+// Statements are the statements of the change, a rebuild's included.
+func (ch SchemaChange) Statements() []string {
+	var out []string
+	for _, st := range ch.Steps {
+		if r := st.Rebuild; r != nil {
+			out = append(out, r.Create, r.Copy, r.drop(), r.rename())
+		} else {
+			out = append(out, st.SQL)
+		}
+	}
+	return out
+}
+
 // Text is the change as it is shown before it runs.
 func (ch SchemaChange) Text() string {
 	var parts []string
@@ -55,6 +68,16 @@ func (ch SchemaChange) Text() string {
 		parts = append(parts, "-- Then its indexes and triggers are created again.")
 	}
 	return strings.Join(parts, "\n")
+}
+
+// StatementsChange is a change of statements run one after the other,
+// up to the first that fails.
+func StatementsChange(stmts []string) SchemaChange {
+	ch := SchemaChange{Steps: make([]Step, len(stmts))}
+	for i, s := range stmts {
+		ch.Steps[i] = Step{SQL: s}
+	}
+	return ch
 }
 
 // rebuilds reports whether the change makes a table again.

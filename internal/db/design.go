@@ -76,6 +76,28 @@ type CheckDesign struct {
 	Expression string
 }
 
+// CommonTypes are types of an engine's columns the table form offers;
+// any other may be typed.
+func CommonTypes(e Engine) []string {
+	switch e {
+	case Postgres:
+		return []string{"integer", "bigint", "smallint", "numeric(12,2)", "real", "double precision", "boolean", "text", "varchar(255)",
+			"date", "timestamp", "timestamptz", "time", "interval", "uuid", "jsonb", "bytea"}
+	case MySQL:
+		return []string{"int", "bigint", "smallint", "tinyint(1)", "decimal(12,2)", "float", "double", "varchar(255)", "text",
+			"date", "datetime", "timestamp", "time", "json", "blob"}
+	case SQLite:
+		return []string{"INTEGER", "REAL", "TEXT", "BLOB", "NUMERIC"}
+	case DuckDB:
+		return []string{"INTEGER", "BIGINT", "SMALLINT", "DECIMAL(12,2)", "DOUBLE", "BOOLEAN", "VARCHAR", "DATE", "TIMESTAMP",
+			"TIMESTAMPTZ", "TIME", "INTERVAL", "UUID", "JSON", "BLOB"}
+	case ClickHouse:
+		return []string{"Int32", "Int64", "UInt32", "UInt64", "Float64", "Decimal(12,2)", "Bool", "String", "LowCardinality(String)",
+			"Date", "Date32", "DateTime", "DateTime64(3)", "UUID"}
+	}
+	return nil
+}
+
 // ReferentialActions are what a foreign key may do when the row it
 // points at is deleted or its key changes.
 var ReferentialActions = []string{"NO ACTION", "RESTRICT", "CASCADE", "SET NULL", "SET DEFAULT"}
@@ -89,7 +111,9 @@ func ReadTableDesign(ctx context.Context, d *DB, obj Object) (TableDesign, error
 		return t, err
 	}
 	for _, c := range cols {
-		cd := ColumnDesign{Was: c.Name, Name: c.Name, Type: c.Type, Nullable: c.Nullable, PrimaryKey: c.PrimaryKey,
+		// SQLite says a key column of its own may hold NULL, which only an
+		// old bug of its lets in: a design's key holds none.
+		cd := ColumnDesign{Was: c.Name, Name: c.Name, Type: c.Type, Nullable: c.Nullable && !c.PrimaryKey, PrimaryKey: c.PrimaryKey,
 			AutoIncrement: c.AutoIncrement, Comment: c.Comment}
 		if c.HasDefault {
 			cd.Default = c.Default

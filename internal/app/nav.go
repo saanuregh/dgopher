@@ -710,6 +710,9 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			a.WriteClipboard(db.QualifiedName(cn.DB.Dialect, it.Schema, it.Name))
 		}
 	case nodeSchema, nodeDatabase, nodeFolder:
+		if n.kind != nodeDatabase && m.Item("New Table…").Disabled(cn.Config.ReadOnly).Chosen() {
+			dataview.OpenNewTable(a, cn, n.database, n.schema)
+		}
 		if n.kind != nodeDatabase && m.Item("View ER Diagram").Chosen() {
 			dataview.OpenER(a, cn, n.database, n.schema)
 		}

@@ -47,6 +47,10 @@ type TableTab struct {
 	ddl     string
 	metaErr string
 	metaGen int
+
+	// design is the table form, while the structure is being changed.
+	design        *designer
+	readingDesign bool
 }
 
 func NewTableTab(a Host, cn *connection.Conn, database string, obj db.Object, page int) *TableTab {
@@ -78,6 +82,8 @@ func (t *TableTab) Connection() *connection.Conn { return t.Conn }
 
 func (t *TableTab) CloseReason() string {
 	switch {
+	case t.design != nil && t.design.changed():
+		return "The changes to " + t.Object.Name + "'s structure have not been applied. Closing discards them."
 	case t.view.grid.edits.count() > 0:
 		return fmt.Sprintf("%d changes to %s have not been applied. Closing discards them.", t.view.grid.edits.count(), t.Object.Name)
 	case t.tx != db.TxNone:
@@ -97,6 +103,9 @@ func (t *TableTab) Close() {
 	cancel, sess := t.view.cancel, t.sess
 	if t.view.applyCancel != nil {
 		t.view.applyCancel()
+	}
+	if t.design != nil && t.design.cancel != nil {
+		t.design.cancel()
 	}
 	if t.tx != db.TxNone {
 		t.a.Record(&t.Conn.Config, audit.Event{Kind: audit.KindStatement, Database: t.Database, Statement: "ROLLBACK", Detail: "the tab closed with its transaction open"})
@@ -271,9 +280,27 @@ func (t *TableTab) View(c *ui.Context) {
 func (t *TableTab) structureView(c *ui.Context, a Host) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
+	if t.design != nil {
+		t.design.View(c)
+		return
+	}
 	if t.metaErr != "" {
 		ui.Text(c, t.metaErr).TextColor(th.Danger).Padding(12)
 		return
+	}
+	if t.Object.Kind == db.KindTable {
+		ui.Row(c).Padding(6, 10).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+			why := t.editBlocked()
+			if widgets.ToolButton(c, widgets.IconPencil, "Edit Structure", "Change the columns, keys, indexes and checks").Disabled(why != "").Tooltip(why).Clicked() {
+				t.editStructure()
+			}
+			if t.readingDesign {
+				ui.Spinner(c).Size(12, 12)
+			}
+			if why != "" {
+				ui.Text(c, why).FontSize(12).TextColor(pal.Muted)
+			}
+		})
 	}
 	ui.Scroll(c).Grow(1).Children(func() {
 		ui.Column(c).Padding(12, 16).Gap(16).Children(func() {
@@ -362,4 +389,54 @@ func (t *TableTab) ddlView(c *ui.Context, a Host) {
 		ui.Text(c, t.ddl).Font(widgets.MonoFont).FontSize(a.Settings().EditorFont).FixedLineHeight(a.Settings().EditorFont*editor.LineHeight).
 			Padding(12, 16).Selectable()
 	})
+}
+
+// editBlocked says why the structure cannot be changed now, "" when it
+// can.
+func (t *TableTab) editBlocked() string {
+	switch {
+	case t.Conn.Config.ReadOnly:
+		return "The connection is read-only."
+	case t.view.grid.edits.count() > 0:
+		return "Apply or discard the changes to the rows first."
+	case t.tx != db.TxNone:
+		// The change would wait on the locks the transaction holds.
+		return "End the open transaction first."
+	}
+	return ""
+}
+
+// editStructure reads the table's design and opens the table form on it.
+func (t *TableTab) editStructure() {
+	if t.readingDesign || t.editBlocked() != "" {
+		return
+	}
+	t.readingDesign = true
+	poolOf, obj := t.Conn.PoolFor(t.Database), t.Object
+	t.a.Background(func() func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		d, err := poolOf(ctx)
+		var design db.TableDesign
+		if err == nil {
+			design, err = db.ReadTableDesign(ctx, d, obj)
+		}
+		return func() {
+			t.readingDesign = false
+			if err != nil {
+				t.a.ShowError("Could not read the structure of "+obj.Name, err.Error())
+				return
+			}
+			t.design = newDesigner(t.a, t.Conn, t.Database, &design, design, t.structureChanged)
+		}
+	})
+}
+
+// structureChanged opens the table again as it now is: its rows and
+// structure, under its new name if it has one.
+func (t *TableTab) structureChanged(made db.TableDesign) {
+	obj := t.Object
+	obj.Name, obj.Comment = made.Name, made.Comment
+	t.a.ReplaceTab(t, NewTableTab(t.a, t.Conn, t.Database, obj, PageStructure))
+	t.a.Toast("Changed the structure of "+made.Name, "", nil)
 }

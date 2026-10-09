@@ -60,8 +60,6 @@ Next or Later are not repeated.
   - Compare two results side by side and highlight the differences.
   - Hide sensitive values on screen.
 - **Schema:**
-  - Create and change tables in a form, covering columns, indexes, keys
-    and constraints, and show the SQL before running it.
   - Save an ER diagram as PNG or SVG, and change the schema by editing
     the diagram.
   - Data models: build a model from a database, generate DDL from a

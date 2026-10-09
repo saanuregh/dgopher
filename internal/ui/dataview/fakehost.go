@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -222,6 +223,13 @@ func (h *FakeHost) Connect(cn *connection.Conn, then func()) {
 func (h *FakeHost) AddTab(t widgets.Tab) {
 	h.Tabs = append(h.Tabs, t)
 	h.active = len(h.Tabs) - 1
+}
+
+func (h *FakeHost) ReplaceTab(old, next widgets.Tab) {
+	if i := slices.Index(h.Tabs, old); i >= 0 {
+		h.Tabs[i] = next
+		old.Close()
+	}
 }
 
 func (h *FakeHost) ActiveTab() widgets.Tab {

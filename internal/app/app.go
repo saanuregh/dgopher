@@ -526,6 +526,14 @@ func (a *App) AddTab(t widgets.Tab) {
 	a.active = len(a.tabs) - 1
 }
 
+// ReplaceTab puts a tab in the place of another, which closes.
+func (a *App) ReplaceTab(old, next widgets.Tab) {
+	if i := slices.Index(a.tabs, old); i >= 0 {
+		a.tabs[i] = next
+		old.Close()
+	}
+}
+
 func (a *App) ActiveTab() widgets.Tab {
 	if a.active >= 0 && a.active < len(a.tabs) {
 		return a.tabs[a.active]

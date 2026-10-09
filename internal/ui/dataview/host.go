@@ -34,6 +34,8 @@ type Host interface {
 	FocusWant() *string
 	Connect(cn *connection.Conn, then func())
 	AddTab(t widgets.Tab)
+	// ReplaceTab puts next in the place of old, which closes.
+	ReplaceTab(old, next widgets.Tab)
 	ActiveTab() widgets.Tab
 	// ActivateTab brings forward the first tab match accepts, and reports
 	// whether there was one.
