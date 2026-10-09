@@ -70,6 +70,7 @@ your own.
 | `internal/export` | CSV, TSV, JSON, JSON Lines, SQL, Markdown and Excel writers, and Parquet and DuckDB files through DuckDB. Text formats stay in Go, the writers of clipboard copies too, so that a copy and a file of the same rows agree. |
 | `internal/schemadoc` | the script creating a schema's objects, in an order that runs, and its documentation as HTML or Markdown |
 | `internal/fileimport` | reads files to import: CSV, JSON and Parquet through DuckDB, Excel and XML loaded into it |
+| `internal/decode` | turns values stored compressed or serialized into text: gzip, zlib, zstd, LZ4, Snappy, Brotli, MessagePack, pickle, PHP, Java, Protobuf |
 | `internal/testdata` | makes up the values of generated rows, and suggests each column's generator by its type and name |
 | `internal/sqlfile` | reads the statements of a SQL file as it streams, as a dump, `COPY` rows included |
 | `internal/store` | private JSON files, keychain secrets, query history |

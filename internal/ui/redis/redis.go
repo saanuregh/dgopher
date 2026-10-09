@@ -15,6 +15,7 @@ import (
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/decode"
 	"dgopher/internal/redact"
 	"dgopher/internal/safety"
 	"dgopher/internal/ui/dataview"
@@ -49,6 +50,11 @@ type Tab struct {
 	info       db.KeyInfo
 	value      string
 	whole      bool // value is the whole string, not its start
+	strView    decodeView
+	itemView   decodeView // the chosen item's
+	itemName   string     // the item itemView and itemRaw were made for
+	itemValue  string
+	itemRaw    string // the chosen item's value as stored, as shown
 	fields     []db.Field
 	itemsPos   db.ItemsPos
 	itemsDone  bool
@@ -279,6 +285,7 @@ func (r *Tab) loadKey() {
 			// Whole when shorter than asked: the length read before may
 			// be of another moment.
 			r.info, r.value, r.whole = info, value, len(value) < stringStart
+			r.strView = newDecodeView(value)
 			r.fields, r.itemsPos, r.itemsDone = nil, pos, done
 			r.addItems(fields)
 			r.editValue, r.editDirty = value, false
@@ -650,6 +657,11 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 	switch r.info.Type {
 	case "string":
 		ui.Column(c).Grow(1).Padding(10, 14).Gap(8).Children(func() {
+			// Decoded, a value is read only; shown in part, it is not
+			// decoded, as its start alone does not decode.
+			if r.whole && r.strView.view(c, r.value, "Value", r.a.Background) {
+				return
+			}
 			// A string shown in part is not saved: its rest would go.
 			area := ui.TextArea(c, &r.editValue).Font(widgets.MonoFont).FontSize(12.5).Grow(1).ReadOnly(ro || !r.whole).Label("Value")
 			if area.Changed() {
@@ -657,7 +669,11 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 			}
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				if !r.whole {
-					ui.Text(c, fmt.Sprintf("Showing the first %s of %s.", widgets.HumanBytes(int64(len(r.value))), widgets.HumanBytes(r.info.Length))).FontSize(12).TextColor(pal.Muted)
+					note := fmt.Sprintf("Showing the first %s of %s.", widgets.HumanBytes(int64(len(r.value))), widgets.HumanBytes(r.info.Length))
+					if f := decode.Detect([]byte(r.value)); f != "" {
+						note += " It looks like " + string(f) + ": loaded whole, it shows decoded."
+					}
+					ui.Text(c, note).FontSize(12).TextColor(pal.Muted).Shrink(1)
 					if ui.Button(c, "Load All").Disabled(r.loadingKey).Clicked() {
 						r.loadWhole()
 					}
@@ -737,6 +753,7 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 			}
 		})
 	}
+	r.itemDetail(c)
 	if ro {
 		return
 	}
@@ -807,6 +824,26 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 				args = []string{"ZREM", key, f.Value}
 			}
 			r.write(args, r.loadKey)
+		}
+	})
+}
+
+// itemDetail shows the chosen item's value whole, decoded where its
+// first bytes name a format.
+func (r *Tab) itemDetail(c *ui.Context) {
+	if r.fieldRow < 0 || r.fieldRow >= len(r.fields) {
+		return
+	}
+	f := r.fields[r.fieldRow]
+	// Made once for each item: comparing the strings shared is cheap.
+	if r.itemName != f.Name || r.itemValue != f.Value {
+		r.itemName, r.itemValue = f.Name, f.Value
+		r.itemView, r.itemRaw = newDecodeView(f.Value), shownStart(decode.Text([]byte(f.Value)))
+	}
+	th := c.Theme()
+	ui.Column(c).Height(200).Padding(8, 14).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+		if !r.itemView.view(c, f.Value, "Item", r.a.Background) {
+			ui.TextArea(c, &r.itemRaw).Font(widgets.MonoFont).FontSize(12.5).Grow(1).ReadOnly(true).Label("Item value")
 		}
 	})
 }

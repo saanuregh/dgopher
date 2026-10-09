@@ -327,6 +327,13 @@
     a time, with more on request; a string's first 64 KB, and the rest
     on request: a string shown in part is not editable, as saving it
     would cut it.
+  - Values stored compressed or serialized show decoded, read only: gzip,
+    zlib, zstd, LZ4, Snappy and Brotli, found by their first bytes or
+    chosen; MessagePack, Python's pickle (never running the code it
+    names), PHP's serialize, Java's serialization and Protocol Buffers
+    without their schema, as JSON or as `protoc --decode_raw` shows
+    them, inside the compressions around them. A string decodes whole,
+    and a hash's, list's or set's chosen item below its items.
   - TTL, rename, delete and new keys; on Redis 7.4 and later, each hash
     field's TTL, set or removed field by field.
   - Delete every key matching a pattern: counted and named first, always

@@ -1,6 +1,8 @@
 package redis
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"fmt"
 	"os"
@@ -231,6 +233,28 @@ func TestRedisBrowser(t *testing.T) {
 	testutil.Snapshot(t, tt, "redis-stream-groups")
 	r.groupWrite("XACK", "jobs", "workers", "1-1")
 	testutil.WaitFor(t, tt, "the acknowledgement", func() bool { return !r.stream.loading && len(r.stream.pending) == 0 && r.stream.group == 0 })
+
+	// A value compressed shows decoded; an item, as chosen.
+	var gz bytes.Buffer
+	w := gzip.NewWriter(&gz)
+	w.Write([]byte(`{"user":42}`))
+	w.Close()
+	kv.Do(ctx, []string{"SET", "packed", gz.String()})
+	kv.Do(ctx, []string{"HSET", "packed:h", "f", "\x81\xa1a\x01"})
+	r.open("packed")
+	testutil.WaitFor(t, tt, "the decoded value", func() bool { return !r.loadingKey && r.strView.display != "" })
+	if r.strView.as != viewAuto || r.strView.display != `{"user":42}` {
+		t.Fatalf("gzip shown as %q: %q", r.strView.as, r.strView.display)
+	}
+	r.open("packed:h")
+	testutil.WaitFor(t, tt, "the hash", func() bool { return !r.loadingKey && len(r.fields) == 1 })
+	r.fieldRow = 0
+	tt.Frame()
+	r.itemView.as = "As MessagePack"
+	testutil.WaitFor(t, tt, "the item decoded", func() bool { return r.itemView.asFor == r.itemView.as && !r.itemView.running })
+	if got := strings.Join(strings.Fields(r.itemView.display), ""); got != `{"a":1}` {
+		t.Fatalf("an item as MessagePack: %q", r.itemView.display)
+	}
 
 	// A file running holds the tab: closing it asks, then stops the file.
 	stop, cancel := context.WithCancel(ctx)

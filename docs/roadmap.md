@@ -43,9 +43,6 @@ Next or Later are not repeated.
 - **Redis:**
   - Editors for RedisJSON values, vector sets and arrays.
   - Work with Redis Search indexes, and chart TimeSeries keys.
-  - Decode values stored as MessagePack, Protobuf, PHP or Java
-    serialization, or Pickle, or compressed with gzip, lz4, zstd, snappy
-    or brotli.
 - **ClickHouse and DuckDB:**
 - **Charts:**
   - More kinds of chart.
