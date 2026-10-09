@@ -29,7 +29,6 @@ Next or Later are not repeated.
   - Vim key bindings, shortcuts that can be changed, several cursors at
     once, and folding of code blocks.
   - More than one window.
-  - Build a query by choosing tables and columns instead of typing SQL.
 - **Data grid:**
 - **Schema:**
   - Data models: build a model from a database, generate DDL from a

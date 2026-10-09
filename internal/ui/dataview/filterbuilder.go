@@ -59,14 +59,25 @@ func (b *filterBuilder) add(column string) {
 
 // where writes the conditions as the filter of the rows.
 func (b *filterBuilder) where(v *Viewer) (string, error) {
+	d := v.dialect()
+	return condsSQL(v.source.Conn.Config.Engine, b.any == 1, b.conds, func(column string) (string, bool) {
+		ok := slices.ContainsFunc(v.src.Cols, func(c db.ColumnInfo) bool { return c.Name == column })
+		return d.Quote(column), ok
+	})
+}
+
+// condsSQL writes conditions chosen, each a column, an operator and its
+// values, as SQL, all of them or one at least; expr writes a
+// column as SQL, false for one not known. orJoined joins them with OR.
+func condsSQL(e db.Engine, orJoined bool, conds []builderCond, expr func(column string) (string, bool)) (string, error) {
 	var parts []string
-	for _, bc := range b.conds {
-		col := slices.IndexFunc(v.src.Cols, func(c db.ColumnInfo) bool { return c.Name == bc.column })
+	for _, bc := range conds {
+		col, ok := expr(bc.column)
 		op := builderOps[slices.IndexFunc(builderOps, func(o builderOp) bool { return o.label == bc.op })]
-		if col < 0 {
+		if !ok {
 			return "", errors.New("choose a column")
 		}
-		c := rowCond{col: col, op: op.op}
+		c := rowCond{op: op.op}
 		switch {
 		case op.op == "in":
 			for _, s := range strings.Split(bc.value, ",") {
@@ -82,14 +93,14 @@ func (b *filterBuilder) where(v *Viewer) (string, error) {
 		if op.values > 0 && (strings.TrimSpace(bc.value) == "" || op.values == 2 && strings.TrimSpace(bc.to) == "") {
 			return "", errors.New(bc.column + " " + bc.op + " needs a value")
 		}
-		sql := condSQL(v.dialect(), v.source.Conn.Config.Engine, v.src.Cols[col].Name, c)
-		if b.any == 1 && len(b.conds) > 1 {
+		sql := condExprSQL(e, col, c)
+		if orJoined && len(conds) > 1 {
 			sql = "(" + sql + ")"
 		}
 		parts = append(parts, sql)
 	}
 	join := " AND "
-	if b.any == 1 {
+	if orJoined {
 		join = " OR "
 	}
 	return strings.Join(parts, join), nil

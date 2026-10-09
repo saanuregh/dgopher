@@ -391,6 +391,12 @@
   as series), a hover tooltip, and a colour-blind-safe palette. Stacks
   put positive values above zero and negative below; a NULL breaks a
   line or an area, and counts as zero in a stack.
+- **Query builder:** a table's Build a Query writes a SELECT from choices:
+  the tables it refers to, or that refer to it, joined by their keys
+  (inner or left), or any of its schema joined on columns chosen; the
+  columns, each aggregated or not, the rows grouped by the others; the
+  conditions, with the grid filter's operators; the order and a limit.
+  The SQL shows as it is built, and opens in an editor.
 - **Dashboards:** an editor's statement, Add to Dashboard, becomes a
   panel of a dashboard of its project, shown as a chart, rows or a single
   value; panels of any of the project's connections sit in a grid of four

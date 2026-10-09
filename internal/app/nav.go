@@ -630,6 +630,9 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		if m.Item("New SQL: SELECT").Chosen() {
 			a.NewQueryTab(cn, n.database, "SELECT *\nFROM "+quoted+"\nLIMIT 100;\n")
 		}
+		if m.Item("Build a Query…").Chosen() {
+			dataview.OpenQueryBuilder(a, cn, n.database, obj)
+		}
 		if m.Item("Copy Name").Chosen() {
 			a.WriteClipboard(quoted)
 		}

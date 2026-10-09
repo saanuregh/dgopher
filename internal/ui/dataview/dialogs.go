@@ -32,6 +32,9 @@ func DialogsView(a Host, c *ui.Context) {
 	if d.refPicker != nil {
 		refPickerView(a, c)
 	}
+	if d.builder != nil {
+		queryBuilderView(a, c)
+	}
 }
 
 // ExportOpen reports whether the export dialog is open.
@@ -48,6 +51,7 @@ type Dialogs struct {
 	distinct     *distinctForm
 	keyForm      *keyForm
 	refPicker    *refPicker
+	builder      *queryBuilder
 	// pinned are the rows kept to compare another result with.
 	pinned *rowSnapshot
 }

@@ -91,7 +91,12 @@ func (g *Grid) passes(row []any) bool {
 
 // condSQL writes a filter of a column as SQL of an engine.
 func condSQL(d db.Dialect, e db.Engine, column string, c rowCond) string {
-	col := d.Quote(column)
+	return condExprSQL(e, d.Quote(column), c)
+}
+
+// condExprSQL writes a condition on a column already written as SQL, as
+// a joined table's, alias.column.
+func condExprSQL(e db.Engine, col string, c rowCond) string {
 	lit := func(v any) string { return db.Literal(e, v) }
 	switch c.op {
 	case "null":
