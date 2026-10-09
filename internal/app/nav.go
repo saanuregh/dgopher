@@ -376,10 +376,7 @@ func (a *App) sidebar(c *ui.Context) {
 	side := ui.Column(c).FillHeight().Width(a.settings.SidebarWidth).Background(pal.Sidebar)
 	a.tourPart(tourSidebar, side)
 	side.Children(func() {
-		ui.Row(c).Padding(8, 8, 6, 12).Gap(6).Children(func() {
-			ui.Text(c, "Projects").FontSize(12).Bold().TextColor(pal.Muted).Grow(1)
-			widgets.IconButton(c, widgets.IconPlus, "New…").Menu(a.addMenu)
-		})
+		a.sidebarBar(c)
 		if len(a.projects) == 0 {
 			ui.Column(c).Padding(16).Gap(10).Children(func() {
 				ui.Text(c, "No projects yet. A project is a folder for Git: its connections, without passwords, and its .sql files.").TextColor(pal.Muted)

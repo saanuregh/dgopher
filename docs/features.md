@@ -7,13 +7,19 @@
     `redis://…`, `rediss://…`, or a file path) to fill the connection form.
   - Try the built-in sample shop database without a server.
   - A guided tour, offered on the start page until taken and in the
-    Help menu and the palette always, shows the parts of the window one at a time, dimming
+    title bar's Help menu and the palette always, shows the parts of the window one at a time, dimming
     the rest: projects and connections, editors and results, the palette,
     how production connections are guarded, and the sample database.
 - **Drag and drop:** drop on the window a SQLite or DuckDB file (opens as
   a connection), a `.sql` script (opens in an editor), a CSV, Parquet or
   JSON file (queried in place by DuckDB), or an Excel or XML file
   (imported into a new table).
+- **Title bar:** the same on every system, beside the system's window
+  buttons, with no row of its own: the sidebar's top row adds a project or
+  a connection and hides the sidebar; the tabs' row shows it again, and
+  holds the palette's search and the app's menu (File, View, Help,
+  Settings and Quit). Both rows drag the window. macOS keeps its menu bar
+  too, at the top of the screen.
 - **Keyboard first:**
   - The palette (⌘K) has the app's commands and the current tab's, these
     first: running, explaining, formatting, committing or rolling back
@@ -41,7 +47,8 @@
     the arrows move it, and its menu (⇧F10) adds a foreign key from a
     column, as dragging the column onto another table does.
   - ⌘T opens an editor, ⌘N a connection, ⌘W closes a tab, Ctrl+Tab moves
-    between tabs, and ⌘B shows or hides the sidebar.
+    between tabs, ⌘B shows or hides the sidebar, and F11 enters full
+    screen.
   - ⌘/ lists every shortcut, as they are set, and finds one by its key
     or what it does; ⇧F10 or the menu key opens the menu of what has
     the focus.

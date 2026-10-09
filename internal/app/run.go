@@ -44,16 +44,17 @@ func Run(args []string) error {
 	}
 	a.loadThemes()
 	a.applyTheme()
-	mygo.App.SetMenu(buildMenu(a))
+	setMenuBar(a)
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
-			Title:     "DGopher",
-			Width:     1280,
-			Height:    820,
-			MinWidth:  760,
-			MinHeight: 480,
-			StateKey:  "main",
-			Content:   ui.View(a.windowView(a.main)),
+			Title:         "DGopher",
+			TitleBarStyle: mygo.TitleBarHidden,
+			Width:         1280,
+			Height:        820,
+			MinWidth:      760,
+			MinHeight:     480,
+			StateKey:      "main",
+			Content:       ui.View(a.windowView(a.main)),
 		})
 		a.main.native = win
 		a.windowFocused = a.anyFocused
@@ -61,12 +62,13 @@ func Run(args []string) error {
 		win.OnFocus(func() { a.lastFocused = a.main; a.invalidate() })
 		a.makeWindow = func(w *window) {
 			w.native = mygo.NewWindow(mygo.WindowOptions{
-				Title:     "DGopher",
-				Width:     1000,
-				Height:    720,
-				MinWidth:  560,
-				MinHeight: 360,
-				Content:   ui.View(a.windowView(w)),
+				Title:         "DGopher",
+				TitleBarStyle: mygo.TitleBarHidden,
+				Width:         1000,
+				Height:        720,
+				MinWidth:      560,
+				MinHeight:     360,
+				Content:       ui.View(a.windowView(w)),
 			})
 			w.native.OnFocus(func() { a.lastFocused = w; a.invalidate() })
 			// Closed, its tabs go back to the main window.
@@ -174,16 +176,25 @@ func accelerator(id string) string {
 	return ""
 }
 
-// menuCommands are the commands of the menu bar that have keys: the menu
-// takes the first key of each, the window the others.
+// menuCommands are the commands of the menus that have keys: the system's
+// menu bar takes the first key of each, where there is one, and the window
+// the others.
 var menuCommands = []string{keymap.Settings, keymap.NewConnection, keymap.NewEditor, keymap.OpenScript, keymap.AddFolder,
-	keymap.CloseTab, keymap.Palette, keymap.OpenTable, keymap.History, keymap.AuditLog, keymap.ToggleSidebar}
+	keymap.CloseTab, keymap.Palette, keymap.OpenTable, keymap.History, keymap.AuditLog, keymap.ToggleSidebar, keymap.FullScreen, keymap.Quit}
 
 // menuAction is what a command of the menu bar does.
 func (a *App) menuAction(id string) func() {
 	switch id {
 	case keymap.Settings:
 		return a.openSettings
+	case keymap.FullScreen:
+		return func() {
+			if w := a.window.native; w != nil {
+				w.SetFullScreen(!w.IsFullScreen())
+			}
+		}
+	case keymap.Quit:
+		return mygo.App.Quit // which asks first, in OnBeforeQuit
 	case keymap.NewConnection:
 		return func() { a.openConnForm(nil) }
 	case keymap.NewEditor:
@@ -224,76 +235,113 @@ func (a *App) menuAction(id string) func() {
 	panic("no menu command " + id)
 }
 
-// buildMenu builds the menu bar, whose items act on the window's app: the
-// commands' keys as they are set, built again once they change.
-func buildMenu(a *App) *mygo.Menu {
-	do := func(fn func()) func(*mygo.MenuItem, *mygo.Window) {
-		return func(*mygo.MenuItem, *mygo.Window) { a.Post(fn) }
+// nativeMenuBar is whether the app has the system's menu bar: on macOS,
+// at the top of the screen, where its apps keep one. Elsewhere the menu is
+// the title bar's (titleBar), drawn by the app as on macOS.
+const nativeMenuBar = runtime.GOOS == "darwin"
+
+// setMenuBar gives the app the system's menu bar where it has one, with the
+// commands' keys as they are set.
+func setMenuBar(a *App) {
+	if nativeMenuBar {
+		mygo.App.SetMenu(buildMenu(a))
 	}
-	item := func(label, id string) *mygo.MenuItem {
-		return &mygo.MenuItem{Label: label, Accelerator: accelerator(id), Click: do(a.menuAction(id))}
-	}
-	return mygo.NewMenu([]*mygo.MenuItem{
-		{Role: mygo.RoleAppMenu, Submenu: []*mygo.MenuItem{
-			{Role: mygo.RoleAbout},
-			mygo.Separator(),
-			item("Settings…", keymap.Settings),
-			mygo.Separator(),
-			{Role: mygo.RoleHide},
-			{Role: mygo.RoleHideOthers},
-			{Role: mygo.RoleUnhide},
-			mygo.Separator(),
-			{Role: mygo.RoleQuit},
-		}},
-		{Label: "File", Submenu: []*mygo.MenuItem{
-			item("New Connection…", keymap.NewConnection),
-			item("New SQL Editor", keymap.NewEditor),
-			item("Open SQL Script…", keymap.OpenScript),
-			{Label: "Run SQL File…", Click: do(func() {
+}
+
+// menuGroup is a menu of the app's, which the menu bar and the title
+// bar's menu both show.
+type menuGroup struct {
+	label string
+	items []menuEntry
+}
+
+// menuEntry is an item of a menuGroup; one without a label separates
+// groups of items.
+type menuEntry struct {
+	label string
+	// id is the keymap command it runs, whose key it shows; "" for none.
+	id  string
+	run func()
+}
+
+// appMenus are the app's menus: what File, View and Help hold.
+func (a *App) appMenus() []menuGroup {
+	cmd := func(label, id string) menuEntry { return menuEntry{label: label, id: id, run: a.menuAction(id)} }
+	return []menuGroup{
+		{"File", []menuEntry{
+			cmd("New Connection…", keymap.NewConnection),
+			cmd("New SQL Editor", keymap.NewEditor),
+			cmd("Open SQL Script…", keymap.OpenScript),
+			{label: "Run SQL File…", run: func() {
 				if cn := a.activeConn(); cn != nil && cn.Config.Engine.IsSQL() {
 					a.openSQLFileRun(cn, "")
 				} else {
 					a.ShowError("Choose a connection first", "A file runs on the connection chosen in the navigator.")
 				}
-			})},
-			mygo.Separator(),
-			{Label: "New Project…", Click: do(func() { a.openNewProject(nil) })},
-			item("Add Existing Folder…", keymap.AddFolder),
-			mygo.Separator(),
-			item("Close Tab", keymap.CloseTab),
-			mygo.Separator(),
-			{Label: "Settings…", Hidden: runtime.GOOS == "darwin", Click: do(a.menuAction(keymap.Settings))},
-			{Role: mygo.RoleQuit, Hidden: runtime.GOOS == "darwin"},
+			}},
+			{},
+			{label: "New Project…", run: func() { a.openNewProject(nil) }},
+			cmd("Add Existing Folder…", keymap.AddFolder),
+			{},
+			cmd("Close Tab", keymap.CloseTab),
 		}},
-		{Role: mygo.RoleEditMenu},
-		{Label: "View", Submenu: []*mygo.MenuItem{
-			item("Command Palette", keymap.Palette),
-			item("Open Table…", keymap.OpenTable),
-			item("Query History", keymap.History),
-			item("Audit Log", keymap.AuditLog),
-			item("Toggle Sidebar", keymap.ToggleSidebar),
-			mygo.Separator(),
-			{Role: mygo.RoleToggleFullScreen},
-			{Role: mygo.RoleToggleDevTools},
+		{"View", []menuEntry{
+			cmd("Command Palette", keymap.Palette),
+			cmd("Open Table…", keymap.OpenTable),
+			cmd("Query History", keymap.History),
+			cmd("Audit Log", keymap.AuditLog),
+			cmd("Toggle Sidebar", keymap.ToggleSidebar),
+			{},
+			cmd("Toggle Full Screen", keymap.FullScreen),
 		}},
-		windowMenu(),
-		// The list of keys has no accelerator: its key toggles it, which
-		// the window handles, Escape closing it as well.
-		{Label: "Help", Submenu: []*mygo.MenuItem{
-			{Label: "Keyboard Shortcuts", Click: do(func() { a.shortcutsOpen = true })},
-			{Label: "Customize Keyboard Shortcuts…", Click: do(func() { a.keys = &keysEditor{open: true} })},
-			mygo.Separator(),
-			{Label: "Take the Tour", Click: do(a.startTour)},
+		// The list of keys shows no key: its key toggles it, which the
+		// window handles, Escape closing it as well.
+		{"Help", []menuEntry{
+			{label: "Keyboard Shortcuts", run: func() { a.shortcutsOpen = true }},
+			{label: "Customize Keyboard Shortcuts…", run: func() { a.keys = &keysEditor{open: true} }},
+			{},
+			{label: "Take the Tour", run: a.startTour},
 		}},
-	})
+	}
 }
 
-// windowMenu is the Window menu. Elsewhere than on macOS the default one
-// has Close Window on CmdOrCtrl+W, the key of Close Tab: two items on one
-// key leave the toolkit to choose, and closing the window quits.
-func windowMenu() *mygo.MenuItem {
-	if runtime.GOOS == "darwin" {
-		return &mygo.MenuItem{Role: mygo.RoleWindowMenu}
+// buildMenu builds the system's menu bar of macOS, whose items act on the
+// window's app: the commands' keys as they are set, built again once they
+// change.
+func buildMenu(a *App) *mygo.Menu {
+	native := func(g menuGroup) []*mygo.MenuItem {
+		var out []*mygo.MenuItem
+		for _, e := range g.items {
+			if e.label == "" {
+				out = append(out, mygo.Separator())
+				continue
+			}
+			run := e.run
+			out = append(out, &mygo.MenuItem{Label: e.label, Accelerator: accelerator(e.id),
+				Click: func(*mygo.MenuItem, *mygo.Window) { a.Post(run) }})
+		}
+		return out
 	}
-	return &mygo.MenuItem{Label: "Window", Submenu: []*mygo.MenuItem{{Role: mygo.RoleMinimize}}}
+	menus := a.appMenus()
+	file, view, help := menus[0], menus[1], menus[2]
+	settings := &mygo.MenuItem{Label: "Settings…", Accelerator: accelerator(keymap.Settings),
+		Click: func(*mygo.MenuItem, *mygo.Window) { a.Post(a.openSettings) }}
+	return mygo.NewMenu([]*mygo.MenuItem{
+		{Role: mygo.RoleAppMenu, Submenu: []*mygo.MenuItem{
+			{Role: mygo.RoleAbout},
+			mygo.Separator(),
+			settings,
+			mygo.Separator(),
+			{Role: mygo.RoleHide},
+			{Role: mygo.RoleHideOthers},
+			{Role: mygo.RoleUnhide},
+			mygo.Separator(),
+			{Role: mygo.RoleQuit, Accelerator: accelerator(keymap.Quit)},
+		}},
+		{Label: file.label, Submenu: native(file)},
+		{Role: mygo.RoleEditMenu},
+		{Label: view.label, Submenu: native(view)},
+		{Role: mygo.RoleWindowMenu},
+		{Label: help.label, Submenu: native(help)},
+	})
 }

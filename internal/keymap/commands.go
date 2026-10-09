@@ -14,6 +14,8 @@ const (
 	AuditLog       = "auditLog"
 	Settings       = "settings"
 	ToggleSidebar  = "toggleSidebar"
+	FullScreen     = "fullScreen"
+	Quit           = "quit"
 	FocusNavigator = "focusNavigator"
 	FocusFilter    = "focusFilter"
 	ShortcutsList  = "shortcuts"
@@ -112,6 +114,8 @@ var Commands = []Command{
 	command(AuditLog, Global, "Audit log", "Cmd+Shift+A"),
 	command(Settings, Global, "Settings", "Cmd+,"),
 	command(ToggleSidebar, Global, "Show or hide the sidebar", "Cmd+B"),
+	command(FullScreen, Global, "Enter or leave full screen", "F11"),
+	command(Quit, Global, "Quit DGopher, asking first about what it would lose", "Cmd+Q"),
 	command(FocusNavigator, Global, "Focus the navigator", "Cmd+0"),
 	command(FocusFilter, Global, "Focus the filter of the current view", "Cmd+L"),
 	command(ShortcutsList, Global, "The list of keys", "Cmd+/"),

@@ -178,10 +178,12 @@ func (a *App) titleWindow() {
 
 // shortcuts handles the keys of the whole window.
 func (a *App) shortcuts(c *ui.Context) {
-	// The commands of the menu bar take their first keys there (run.go),
-	// and their others here.
+	pressed := keymap.Pressed
+	if nativeMenuBar {
+		pressed = keymap.LaterPressed // the first keys are the menu bar's
+	}
 	for _, id := range menuCommands {
-		if keymap.LaterPressed(c, id) {
+		if pressed(c, id) {
 			a.menuAction(id)()
 		}
 	}
@@ -220,11 +222,11 @@ func (a *App) workspace(c *ui.Context) {
 	space := ui.Column(c).Fill().Background(t.Background)
 	a.tourPart(tourWorkspace, space)
 	space.Children(func() {
+		a.workspaceBar(c)
 		if len(a.tabs) == 0 {
 			a.welcome(c)
 			return
 		}
-		a.tabBar(c)
 		at, side := a.ActiveTab(), a.sideTab()
 		if side == nil {
 			a.pane(c, at, false)
@@ -300,13 +302,14 @@ func (a *App) tabBar(c *ui.Context) {
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
 	closed := -1
-	ui.ScrollHorizontal(c).FillWidth().Background(pal.Sidebar).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
+	height := barHeight(c)
+	ui.ScrollHorizontal(c).Shrink(1).Children(func() {
 		ui.Row(c).AlignItems(ui.Stretch).Children(func() {
 			for i, tb := range a.tabs {
 				i, tb := i, tb
 				on := i == a.active
 				cn := tb.Connection()
-				item := ui.ButtonBase(c.Key(tabKey(tb))).Padding(0, 6, 0, 12).Height(34).MaxWidth(260).Label(tb.Title())
+				item := ui.ButtonBase(c.Key(tabKey(tb))).Padding(0, 6, 0, 12).Height(height).MaxWidth(260).Label(tb.Title())
 				switch {
 				case on:
 					item.Background(t.Background)

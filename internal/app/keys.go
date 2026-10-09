@@ -7,7 +7,6 @@ import (
 	"dgopher/internal/keymap"
 	"dgopher/internal/ui/widgets"
 
-	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -35,7 +34,7 @@ func (a *App) setKeys(id string, chords []keymap.Chord) {
 	}
 	keymap.Use(a.settings.Keys)
 	a.SaveSettings()
-	mygo.App.SetMenu(buildMenu(a))
+	setMenuBar(a)
 }
 
 // record takes a key pressed for the command being recorded: Esc stops,
