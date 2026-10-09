@@ -89,7 +89,12 @@ func (n *navState) init() {
 // expand opens a node of the tree.
 func (n *navState) expand(node navNode) { n.tree.Open.Add(node) }
 
+// navRoots are the projects; one alone shows its sections, a level less
+// deep, its name above the tree (sidebarBar).
 func (a *App) navRoots() []navNode {
+	if len(a.projects) == 1 {
+		return a.projectChildren(navNode{kind: nodeProject, projectDir: a.projects[0].Dir})
+	}
 	roots := make([]navNode, len(a.projects))
 	for i, p := range a.projects {
 		roots[i] = navNode{kind: nodeProject, projectDir: p.Dir}
@@ -167,6 +172,51 @@ func info(cn *connection.Conn, text string) []navNode {
 	return []navNode{{kind: nodeInfo, conn: cn.Config.ID, name: text}}
 }
 
+// schemaChildren are the folders of a schema, which start to be read
+// when open: that of the schema's node, or of the node it shows in.
+func (a *App) schemaChildren(cn *connection.Conn, n navNode, open bool) []navNode {
+	key := connection.SchemaKey{Database: n.database, Schema: n.schema}
+	objs, ok := cn.Objects[key]
+	if !ok {
+		if e := cn.LoadErr[key]; e != "" {
+			return info(cn, "Failed: "+widgets.FirstLine(e))
+		}
+		if open {
+			connection.LoadObjects(a, cn, n.database, n.schema)
+		}
+		return info(cn, "Loading…")
+	}
+	items, itemsRead := cn.Items[key]
+	if !itemsRead && open && cn.ItemsError(n.database, n.schema) == "" {
+		connection.LoadItems(a, cn, n.database, n.schema)
+	}
+	folder := func(name string) navNode {
+		return navNode{kind: nodeFolder, conn: n.conn, database: n.database, schema: n.schema, folder: name}
+	}
+	var out []navNode
+	if connection.CountObjects(objs, false) > 0 {
+		out = append(out, folder(folderTables))
+	}
+	if connection.CountObjects(objs, true) > 0 {
+		out = append(out, folder(folderViews))
+	}
+	for _, kind := range db.ItemKinds() {
+		if slices.ContainsFunc(items, func(it db.Item) bool { return it.Kind == kind }) {
+			out = append(out, folder(string(kind)))
+		}
+	}
+	if e := cn.ItemsError(n.database, n.schema); e != "" {
+		out = append(out, info(cn, "Could not read the routines and other objects: "+widgets.FirstLine(e))...)
+	}
+	if e := cn.SchemaColumnsError(n.database, n.schema); e != "" {
+		out = append(out, info(cn, "Could not read the columns at once, so each table's are read as needed: "+widgets.FirstLine(e))...)
+	}
+	if out == nil {
+		return info(cn, "No tables")
+	}
+	return out
+}
+
 // navChildren returns a node's children, starting to read them when the
 // node is open and they are not known yet.
 func (a *App) navChildren(n navNode) []navNode {
@@ -212,46 +262,7 @@ func (a *App) navChildren(n navNode) []navNode {
 	case nodeDatabase:
 		return a.schemaNodes(cn, n.database, open)
 	case nodeSchema:
-		key := connection.SchemaKey{Database: n.database, Schema: n.schema}
-		objs, ok := cn.Objects[key]
-		if !ok {
-			if e := cn.LoadErr[key]; e != "" {
-				return info(cn, "Failed: "+widgets.FirstLine(e))
-			}
-			if open {
-				connection.LoadObjects(a, cn, n.database, n.schema)
-			}
-			return info(cn, "Loading…")
-		}
-		items, itemsRead := cn.Items[key]
-		if !itemsRead && open && cn.ItemsError(n.database, n.schema) == "" {
-			connection.LoadItems(a, cn, n.database, n.schema)
-		}
-		folder := func(name string) navNode {
-			return navNode{kind: nodeFolder, conn: n.conn, database: n.database, schema: n.schema, folder: name}
-		}
-		var out []navNode
-		if connection.CountObjects(objs, false) > 0 {
-			out = append(out, folder(folderTables))
-		}
-		if connection.CountObjects(objs, true) > 0 {
-			out = append(out, folder(folderViews))
-		}
-		for _, kind := range db.ItemKinds() {
-			if slices.ContainsFunc(items, func(it db.Item) bool { return it.Kind == kind }) {
-				out = append(out, folder(string(kind)))
-			}
-		}
-		if e := cn.ItemsError(n.database, n.schema); e != "" {
-			out = append(out, info(cn, "Could not read the routines and other objects: "+widgets.FirstLine(e))...)
-		}
-		if e := cn.SchemaColumnsError(n.database, n.schema); e != "" {
-			out = append(out, info(cn, "Could not read the columns at once, so each table's are read as needed: "+widgets.FirstLine(e))...)
-		}
-		if out == nil {
-			return info(cn, "No tables")
-		}
-		return out
+		return a.schemaChildren(cn, n, open)
 	case nodeFolder:
 		var out []navNode
 		key := connection.SchemaKey{Database: n.database, Schema: n.schema}
@@ -343,6 +354,9 @@ func (a *App) openItem(cn *connection.Conn, database string, it db.Item) {
 	dataview.OpenItemDefinition(a, cn, database, it)
 }
 
+// schemaNodes are the schemas of a connection's database; a database of
+// one schema shows its folders instead, the schema named on its row
+// (soleSchema), a level less deep.
 func (a *App) schemaNodes(cn *connection.Conn, database string, open bool) []navNode {
 	schemas, ok := cn.Schemas[database]
 	if !ok {
@@ -354,11 +368,33 @@ func (a *App) schemaNodes(cn *connection.Conn, database string, open bool) []nav
 		}
 		return info(cn, "Loading…")
 	}
+	if s, ok := soleSchema(cn, database); ok {
+		return a.schemaChildren(cn, navNode{kind: nodeSchema, conn: cn.Config.ID, database: database, schema: s}, open)
+	}
 	out := make([]navNode, len(schemas))
 	for i, s := range schemas {
 		out[i] = navNode{kind: nodeSchema, conn: cn.Config.ID, database: database, schema: s}
 	}
 	return out
+}
+
+// soleSchema is the schema of a database that has one alone, which shows
+// in its node.
+func soleSchema(cn *connection.Conn, database string) (string, bool) {
+	if schemas := cn.Schemas[database]; len(schemas) == 1 {
+		return schemas[0], true
+	}
+	return "", false
+}
+
+// schemaOf is the node of the schema a connection or a database shows in
+// place of its sole one.
+func schemaOf(cn *connection.Conn, n navNode) (navNode, bool) {
+	if n.kind == nodeConn && len(cn.Databases) > 1 {
+		return navNode{}, false // its databases show
+	}
+	s, ok := soleSchema(cn, n.database)
+	return navNode{kind: nodeSchema, conn: cn.Config.ID, database: n.database, schema: s}, ok
 }
 
 // object returns the schema object a node names.
@@ -565,7 +601,12 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 		case nodeConn:
 			ui.Box(c).Size(8, 8).Radius(4).Background(widgets.EnvColor(&cn.Config))
 			ui.Icon(c, widgets.IconDatabase).TextColor(widgets.EngineColor(cn.Config.Engine)).FontSize(14)
-			ui.Text(c, cn.Config.Name).SingleLine().Grow(1).Shrink(1)
+			name := ui.Text(c, cn.Config.Name).SingleLine().Shrink(1)
+			if sn, ok := schemaOf(cn, n); ok {
+				ui.Text(c, sn.schema).FontSize(12).TextColor(pal.Muted).SingleLine().Grow(1).Shrink(1).Tooltip("Its schema")
+			} else {
+				name.Grow(1)
+			}
 			switch cn.Status {
 			case connection.StatusConnecting:
 				ui.Spinner(c).Size(12, 12)
@@ -583,7 +624,10 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 				name = cn.Config.Database
 			}
 			ui.Icon(c, widgets.IconDatabase).TextColor(pal.Muted).FontSize(13)
-			ui.Text(c, name).SingleLine()
+			ui.Text(c, name).SingleLine().Shrink(1)
+			if sn, ok := schemaOf(cn, n); ok {
+				ui.Text(c, sn.schema).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1).Tooltip("Its schema")
+			}
 		case nodeSchema:
 			ui.Icon(c, widgets.IconSchema).TextColor(pal.Muted).FontSize(13)
 			ui.Text(c, n.schema).SingleLine()
@@ -705,6 +749,10 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			if m.Item("Restore…").Disabled(cn.Config.ReadOnly).Chosen() {
 				a.Connect(cn, func() { a.openBackup(cn, "", true) })
 			}
+		}
+		if sn, ok := schemaOf(cn, n); ok {
+			m.Separator()
+			m.Submenu("Schema "+sn.schema, func(m *ui.Menu) { a.navMenu(m, sn) })
 		}
 		m.Separator()
 		if m.Item("Edit Connection…").Chosen() {
@@ -872,6 +920,9 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			}
 			a.NewQueryTab(cn, n.database, text)
 		}
+		if sn, ok := schemaOf(cn, n); ok && n.kind == nodeDatabase {
+			m.Submenu("Schema "+sn.schema, func(m *ui.Menu) { a.navMenu(m, sn) })
+		}
 		if m.Item("Refresh").Chosen() {
 			if n.kind == nodeDatabase {
 				delete(cn.Schemas, n.database)
@@ -1012,16 +1063,7 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 	row.Children(func() {
 		switch n.kind {
 		case nodeProject:
-			col := c.Theme().Accent
-			if p.Err != "" {
-				col = pal.Muted
-			}
-			ui.Icon(c, widgets.IconFolder).TextColor(col).FontSize(14)
-			name := ui.Text(c, a.projectLabel(p)).Bold().SingleLine().Grow(1).Shrink(1).Tooltip(p.Dir)
-			if p.Err != "" {
-				name.TextColor(pal.Muted)
-				ui.Icon(c, widgets.IconAlert).TextColor(c.Theme().Danger).FontSize(12).Tooltip(p.Err)
-			}
+			a.projectName(c, p)
 		case nodeConnections, nodeQueries, nodeDashboards, nodeModels:
 			ic, label, count := a.section(p, n.kind)
 			ui.Icon(c, ic).TextColor(pal.Muted).FontSize(13)

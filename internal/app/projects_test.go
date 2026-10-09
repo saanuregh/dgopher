@@ -1247,3 +1247,34 @@ func TestSectionNewButtons(t *testing.T) {
 		t.Fatalf("not a button for each section: %q", tt.Texts())
 	}
 }
+
+// The tree goes no deeper than it needs: one project shows its sections,
+// its name above them, and a database of one schema its folders, the
+// schema named on its row.
+func TestNavigatorShallow(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1000, 700)
+	a.openSample()
+	testutil.WaitFor(t, tt, "sample editor", func() bool { return len(a.tabs) == 1 })
+	cn := a.tabs[0].(*query.Tab).Conn
+	conn := navNode{kind: nodeConn, conn: cn.Config.ID}
+	a.nav.expand(conn)
+	testutil.WaitFor(t, tt, "the schema's folders", func() bool {
+		kids := a.navChildren(conn)
+		return len(kids) > 0 && kids[0].kind == nodeFolder && kids[0].schema == "main"
+	})
+	if roots := a.navRoots(); roots[0].kind != nodeConnections {
+		t.Fatalf("roots %v", roots)
+	}
+	if !tt.HasText("main") || !tt.HasText(a.projectLabel(a.projects[0])) {
+		t.Fatalf("the schema or the project is not named: %q", tt.Texts())
+	}
+	testutil.Snapshot(t, tt, "navigator-shallow")
+
+	if _, err := a.addProject(newProjectDir(t, "second")); err != nil {
+		t.Fatal(err)
+	}
+	if roots := a.navRoots(); len(roots) != 2 || roots[0].kind != nodeProject {
+		t.Fatalf("with two projects, roots %v", roots)
+	}
+}
