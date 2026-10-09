@@ -32,7 +32,8 @@ type auditState struct {
 	checking bool
 }
 
-var auditKinds = []string{"All kinds", audit.KindStatement, audit.KindEdit, audit.KindCommand, audit.KindImport, audit.KindExport,
+var auditKinds = []string{"All kinds", audit.KindStatement, audit.KindEdit, audit.KindCommand, audit.KindScript, audit.KindImport, audit.KindExport,
+	audit.KindBackup, audit.KindRestore,
 	audit.KindKill, audit.KindConfirm, audit.KindBlocked, audit.KindConnect, audit.KindDisconnect, audit.KindTrust, audit.KindConfig}
 
 const auditShown = 5000

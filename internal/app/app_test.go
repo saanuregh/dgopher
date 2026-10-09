@@ -1696,6 +1696,47 @@ func TestSideBySide(t *testing.T) {
 	}
 }
 
+// A SQLite database backs up as a copy, audited; a SQL file restores as
+// Run SQL File runs it.
+func TestBackup(t *testing.T) {
+	a := newTestApp(t)
+	file := filepath.Join(t.TempDir(), "x.sqlite")
+	os.WriteFile(file, nil, 0o600)
+	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
+	tt := ui.NewTester(a.view, 1200, 800)
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	cn.DB.SQL.Exec(`CREATE TABLE t (a INT)`)
+	a.openBackup(cn, "", false)
+	b := a.backup
+	b.path = filepath.Join(t.TempDir(), "copy.sqlite")
+	tt.Frame()
+	testutil.Snapshot(t, tt, "backup")
+	if err := tt.Click("Back Up"); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WaitFor(t, tt, "the backup", func() bool { return b.done || b.err != "" })
+	if b.err != "" {
+		t.Fatal(b.err)
+	}
+	if _, err := os.Stat(b.path); err != nil {
+		t.Fatal(err)
+	}
+	events, _ := cn.Project.Audit.Read(0)
+	if last := events[0]; last.Kind != audit.KindBackup || !strings.Contains(last.Statement, "VACUUM INTO") {
+		t.Fatalf("audited %+v", last)
+	}
+	sql := filepath.Join(t.TempDir(), "rows.sql")
+	os.WriteFile(sql, []byte("INSERT INTO t VALUES (1);\n"), 0o600)
+	a.backup = nil
+	a.openBackup(cn, "", true)
+	a.backup.path = sql
+	a.startBackup(a.backup)
+	if a.sqlFile == nil || a.sqlFile.path != sql {
+		t.Fatalf("the SQL file is not run: %+v", a.sqlFile)
+	}
+}
+
 // Users are made, granted, taken back from and dropped from their tab;
 // a password shows nowhere: not in the confirmation, the audit log or a
 // file.

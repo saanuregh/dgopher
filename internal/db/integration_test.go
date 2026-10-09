@@ -16,6 +16,7 @@ import (
 	"dgopher/internal/netproxy/proxytest"
 	"dgopher/internal/sshtunnel"
 	"dgopher/internal/sshtunnel/sshtest"
+	"dgopher/internal/testutil/serverlock"
 )
 
 // The integration tests run against the servers of `docker ps --filter
@@ -25,6 +26,9 @@ func integration(t *testing.T) {
 	if os.Getenv("DGOPHER_IT") == "" {
 		t.Skip("set DGOPHER_IT=1 to run against the test servers")
 	}
+	// The packages' tests run in parallel processes: one at a time uses
+	// the servers, as testutil.Integration has the others wait.
+	serverlock.Lock(t)
 }
 
 type fixture struct {

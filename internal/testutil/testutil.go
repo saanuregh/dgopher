@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"dgopher/internal/db"
+	"dgopher/internal/testutil/serverlock"
 	"dgopher/internal/ui/editor"
 
 	"github.com/egoist/mygo/ui"
@@ -38,7 +39,7 @@ func Integration(t *testing.T) {
 	}
 	// The packages' tests run in parallel processes, and seed and change
 	// the same schemas: one test at a time uses the servers.
-	lockServers(t)
+	serverlock.Lock(t)
 }
 
 func PGConfig() db.Config {

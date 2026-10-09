@@ -29,6 +29,8 @@ const (
 	KindTrust      = "trust"     // an SSH host key trusted
 	KindConfig     = "config"    // a connection added, changed or deleted
 	KindExport     = "export"    // rows written to a file or copied
+	KindBackup     = "backup"    // a database backed up
+	KindRestore    = "restore"   // a backup restored into a database
 	KindRecovered  = "recovered" // a damaged end of the log set aside
 )
 

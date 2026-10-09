@@ -93,6 +93,9 @@ func (a *App) view(c *ui.Context) {
 	if a.catalogQueries != nil {
 		a.catalogQueriesView(c)
 	}
+	if a.backup != nil {
+		a.backupView(c)
+	}
 	query.DialogsView(a, c)
 	dataview.DialogsView(a, c)
 	a.checkIdleTransactions(c)

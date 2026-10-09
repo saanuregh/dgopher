@@ -591,6 +591,15 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		if cn.Config.Engine.IsSQL() && m.Item("Catalog Queries").Disabled(cn.DB == nil).Chosen() {
 			a.openCatalogQueries(cn)
 		}
+		if backupSupported(cn.Config.Engine) {
+			m.Separator()
+			if m.Item("Back Up…").Chosen() {
+				a.Connect(cn, func() { a.openBackup(cn, "", false) })
+			}
+			if m.Item("Restore…").Disabled(cn.Config.ReadOnly).Chosen() {
+				a.Connect(cn, func() { a.openBackup(cn, "", true) })
+			}
+		}
 		m.Separator()
 		if m.Item("Edit Connection…").Chosen() {
 			a.openConnForm(cn)
@@ -711,6 +720,15 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		}
 		if n.kind == nodeDatabase && m.Item("Run SQL File…").Chosen() {
 			a.openSQLFileRun(cn, n.database)
+		}
+		// A PostgreSQL database, or a MySQL schema, which is its database.
+		if database, ok := backupTarget(cn, n); ok {
+			if m.Item("Back Up…").Chosen() {
+				a.openBackup(cn, database, false)
+			}
+			if m.Item("Restore…").Disabled(cn.Config.ReadOnly).Chosen() {
+				a.openBackup(cn, database, true)
+			}
 		}
 		if m.Item("Search Objects…").Chosen() {
 			a.openSearch(cn, n.database)

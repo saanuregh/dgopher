@@ -361,6 +361,18 @@
 
 ## Import, snippets and history
 
+- **Back up and restore** a database, from its menu or its connection's:
+  PostgreSQL with `pg_dump`, as an archive or SQL, schema, data or both;
+  MySQL with `mysqldump`, in one transaction with its routines, triggers
+  and events; SQLite as a copy (`VACUUM INTO`) while it stays in use;
+  DuckDB as a folder of Parquet files (`EXPORT DATABASE`). The tools reach
+  the server as the connection does, through its tunnel or proxy, their
+  password in their environment or a file of their own, never on their
+  command line; their progress shows as they write. A pg_dump archive
+  restores with `pg_restore` in one transaction, dropping what it makes
+  first if asked; a SQL file restores as Run SQL File runs it. A restore
+  is always confirmed, the connection's name typed on production, and
+  both are audited.
 - **Import** a CSV, JSON, JSON Lines, Parquet, Excel or XML file into a
   table, or into a new table made from the file's columns (a schema's
   menu: Import File as New Table…, or drop an Excel or XML file):
