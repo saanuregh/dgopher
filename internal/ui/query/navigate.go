@@ -238,7 +238,7 @@ func usagesView(a Host, c *ui.Context) {
 		a.OpenQueryFile(u.path, u.at)
 	}
 	ui.DialogBase(c, &d.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(ui.RGBA(0, 0, 0, 0.25)).Justify(ui.Start).PaddingY(80)
+		backdrop.Background(widgets.PickerBackdrop).Justify(ui.Start).PaddingY(80)
 		panel.Width(720).Radius(12).Background(th.Background).Border(1, th.Border).Clip().Label("Usages")
 		ui.Row(c).Padding(12, 16).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Text(c, d.name).Font(widgets.MonoFont).Bold()

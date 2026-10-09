@@ -533,7 +533,7 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 				}
 			}
 			if column.PrimaryKey {
-				ui.Icon(c, widgets.IconKey).TextColor(ui.Hex("#d97706")).FontSize(12)
+				ui.Icon(c, widgets.IconKey).TextColor(c.Theme().Warning).FontSize(12)
 			} else {
 				ui.Icon(c, widgets.IconColumns).TextColor(pal.Muted).FontSize(12)
 			}
@@ -659,7 +659,7 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		if obj.Kind == db.KindTable && m.Item("Copy to Another Database…").Chosen() {
 			a.openCopy(cn, n.database, obj.Schema, []string{obj.Name})
 		}
-		if obj.Kind == db.KindTable && m.Item("Compare Rows With…").Chosen() {
+		if obj.Kind == db.KindTable && m.Item("Compare Rows with…").Chosen() {
 			a.openRowCompare(cn, n.database, obj)
 		}
 		if obj.Kind == db.KindTable {
@@ -960,7 +960,7 @@ func (a *App) projectMenu(m *ui.Menu, n navNode) {
 		}
 		a.dashboardsMenu(m, p)
 		a.modelsMenu(m, p)
-		if conns := a.projectConns(p); len(conns) > 0 && m.Item("New Query").Chosen() {
+		if conns := a.projectConns(p); len(conns) > 0 && m.Item("New SQL Editor").Chosen() {
 			cn := a.activeConn()
 			if cn == nil || cn.Project != p || !cn.Config.Engine.IsSQL() {
 				cn = nil

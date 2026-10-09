@@ -59,7 +59,7 @@ func (a *App) historyView(c *ui.Context) {
 		}
 	}
 	ui.DialogBase(c, &h.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(ui.RGBA(0, 0, 0, 0.35))
+		backdrop.Background(widgets.Backdrop)
 		panel.Width(820).Height(560).Radius(12).Background(t.Background).Border(1, t.Border).Clip().Label("Query history")
 		ui.Row(c).Padding(12, 16).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 			ui.Text(c, "Query History · "+h.project.Name).FontSize(15).Bold().SingleLine().Shrink(1)

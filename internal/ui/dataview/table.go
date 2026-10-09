@@ -318,7 +318,7 @@ func (t *TableTab) structureView(c *ui.Context, a Host) {
 				switch col {
 				case 0:
 					if cl.PrimaryKey {
-						ui.Icon(c, widgets.IconKey).TextColor(ui.Hex("#d97706")).FontSize(12)
+						ui.Icon(c, widgets.IconKey).TextColor(c.Theme().Warning).FontSize(12)
 					}
 				case 1:
 					ui.Text(c, cl.Name).Bold().SingleLine()

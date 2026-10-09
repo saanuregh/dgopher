@@ -1058,7 +1058,7 @@ func (q *Tab) View(c *ui.Context) {
 	ui.Column(c).Grow(1).Children(func() {
 		ui.Toolbar(c, func() {
 			if q.Running {
-				if widgets.ToolButton(c, widgets.IconStop, "Cancel", "Cancel (Esc)").Clicked() && q.cancel != nil {
+				if widgets.ToolButton(c, widgets.IconStop, "Cancel", "Cancel the running statement (Esc)").Clicked() && q.cancel != nil {
 					q.cancel()
 				}
 			} else if widgets.ToolButton(c, widgets.IconPlay, "Run", keymap.Hint("Run statement", keymap.Run)).Clicked() {
@@ -1872,14 +1872,14 @@ func (q *Tab) toggleComment() {
 
 // editorMenu is the editor's context menu: running, editing, formatting.
 func (q *Tab) editorMenu(m *ui.Menu) {
-	m.Submenu("Execute", func(m *ui.Menu) {
-		if keymap.Item(m.Item("Execute Statement"), keymap.Run).Chosen() {
+	m.Submenu("Run", func(m *ui.Menu) {
+		if keymap.Item(m.Item("Run Statement"), keymap.Run).Chosen() {
 			q.Run(RunStatement)
 		}
-		if keymap.Item(m.Item("Execute in New Tab"), keymap.RunInNewTab).Chosen() {
+		if keymap.Item(m.Item("Run in New Tab"), keymap.RunInNewTab).Chosen() {
 			q.Run(RunNewTab)
 		}
-		if keymap.Item(m.Item("Execute Script"), keymap.RunScript).Chosen() {
+		if keymap.Item(m.Item("Run Script"), keymap.RunScript).Chosen() {
 			q.Run(RunScript)
 		}
 		if keymap.Item(m.Item("Explain Plan"), keymap.Explain).Chosen() {
@@ -1889,7 +1889,7 @@ func (q *Tab) editorMenu(m *ui.Menu) {
 			q.Run(RunExplainAnalyze)
 		}
 		m.Separator()
-		if m.Item("Export From Query…").Chosen() {
+		if m.Item("Export from Query…").Chosen() {
 			q.exportFromQuery()
 		}
 	})

@@ -106,7 +106,7 @@ func (a *App) auditViewer(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	shown := v.shown()
 	ui.DialogBase(c, &v.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(ui.RGBA(0, 0, 0, 0.35))
+		backdrop.Background(widgets.Backdrop)
 		w, h := c.Size()
 		panel.Width(min(1100, w-60)).Height(min(760, h-50)).Radius(12).Background(th.Background).Border(1, th.Border).Clip().Label("Audit log")
 		ui.Row(c).Padding(12, 16).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {

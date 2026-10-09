@@ -145,3 +145,10 @@ var MonoFont = DefaultMonoFont
 
 // DefaultMonoFont is the system's monospaced family.
 const DefaultMonoFont = "monospace"
+
+// Backdrop dims the window behind a dialog, as ui.Modal does;
+// PickerBackdrop, behind a picker that drops from the top, less.
+var (
+	Backdrop       = ui.RGBA(0, 0, 0, 0.4)
+	PickerBackdrop = ui.RGBA(0, 0, 0, 0.25)
+)

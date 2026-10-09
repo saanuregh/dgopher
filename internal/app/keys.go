@@ -70,7 +70,7 @@ func (a *App) keysView(c *ui.Context) {
 	ui.Modal(c, &k.open, func() {
 		ui.Column(c).Width(720).Height(600).Gap(10).Children(func() {
 			ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, "Keyboard Shortcuts").FontSize(16).Bold()
+				ui.Text(c, "Customize Keyboard Shortcuts").FontSize(16).Bold()
 				ui.Spacer(c)
 				ui.TextInput(c, &k.filter).Placeholder("Search commands or keys").Width(260).Label("Search commands")
 			})

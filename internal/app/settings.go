@@ -183,7 +183,7 @@ func (a *App) settingsView(c *ui.Context) {
 					}
 				}).Description("Normal, insert and visual modes, motions, operators, text objects, . and :w.")
 				ui.Field(c, "Keys", func() {
-					if ui.Button(c, "Keyboard Shortcuts…").Clicked() {
+					if ui.Button(c, "Customize Keyboard Shortcuts…").Clicked() {
 						open = false
 						a.keys = &keysEditor{open: true}
 					}

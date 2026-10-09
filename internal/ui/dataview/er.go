@@ -270,7 +270,7 @@ func (e *ERTab) View(c *ui.Context) {
 			}
 			ui.Spacer(c)
 			ui.Text(c, "Drag a table by its name; double-click it to open its data.").FontSize(12).TextColor(pal.Muted)
-			widgets.ToolButton(c, widgets.IconDownload, "Save", "Save the diagram as an image").Disabled(len(e.tables) == 0).Menu(func(m *ui.Menu) {
+			widgets.ToolButton(c, widgets.IconDownload, "Save Image", "Save the diagram as a PNG or SVG image").Disabled(len(e.tables) == 0).Menu(func(m *ui.Menu) {
 				if m.Item("Save as PNG…").Chosen() {
 					e.save(exportPNG)
 				}
@@ -427,7 +427,7 @@ func (e *ERTab) box(c *ui.Context, a Host, t *erTable) {
 				row.Children(func() {
 					switch {
 					case col.PrimaryKey:
-						ui.Icon(c, widgets.IconKey).FontSize(10).TextColor(ui.Hex("#d97706")).Width(12)
+						ui.Icon(c, widgets.IconKey).FontSize(10).TextColor(c.Theme().Warning).Width(12)
 					case isFKColumn(t, col.Name):
 						ui.Text(c, "→").FontSize(10).TextColor(th.Accent).Width(12)
 					default:

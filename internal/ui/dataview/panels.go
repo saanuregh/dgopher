@@ -2,6 +2,7 @@ package dataview
 
 import (
 	"bytes"
+	"dgopher/internal/keymap"
 	"encoding/hex"
 	"encoding/xml"
 	"errors"
@@ -61,7 +62,7 @@ func (g *Grid) panelsView(c *ui.Context, a Host, src *Source, order []int) {
 			if widgets.IconButton(c, widgets.IconColumns, label).Clicked() {
 				g.panelMax = !g.panelMax
 			}
-			if widgets.IconButton(c, widgets.IconX, "Close the panels (F7)").Clicked() {
+			if widgets.IconButton(c, widgets.IconX, keymap.Hint("Close the panels", keymap.ValuePanel)).Clicked() {
 				g.ShowValue = false
 			}
 		})
@@ -356,7 +357,7 @@ func (g *Grid) metadataPanel(c *ui.Context, src *Source) {
 					ui.Text(c, col.Name).Bold().SingleLine().Shrink(1)
 					ui.Text(c, col.Type).FontSize(12).TextColor(pal.Muted).SingleLine()
 					if g.keyCols[i] {
-						ui.Icon(c, widgets.IconKey).FontSize(11).TextColor(ui.Hex("#d97706"))
+						ui.Icon(c, widgets.IconKey).FontSize(11).TextColor(c.Theme().Warning)
 					}
 				})
 			}

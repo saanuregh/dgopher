@@ -140,12 +140,12 @@ func sqlDialogView(a Host, c *ui.Context) {
 					a.WriteClipboard(d.text)
 					c.Toast("Copied")
 				}
-				if ui.Button(c, "Open in Editor").Clicked() {
+				if ui.Button(c, "Close").Clicked() {
+					d.open = false
+				}
+				if widgets.Activated(c, ui.PrimaryButton(c, "Open in Editor")) {
 					d.open = false
 					a.NewQueryTab(d.conn, d.database, d.text+"\n")
-				}
-				if widgets.Activated(c, ui.PrimaryButton(c, "Close")) {
-					d.open = false
 				}
 			})
 		})

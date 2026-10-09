@@ -126,7 +126,7 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 			paletteItem{title: "Add to Dashboard…", detail: "the statement at the caret, as a panel", group: "Command", icon: widgets.IconLayers, run: func() { a.openAddToDashboard(q) }})
 	}
 	cmds = append(cmds, paletteItem{title: "Take the Tour", detail: "a minute on how DGopher works", group: "Command", icon: widgets.IconWand, run: a.startTour})
-	cmds = append(cmds, paletteItem{title: "Keyboard Shortcuts…", detail: "change the keys of the commands", group: "Command", icon: widgets.IconSettings,
+	cmds = append(cmds, paletteItem{title: "Customize Keyboard Shortcuts…", detail: "change the keys of the commands", group: "Command", icon: widgets.IconSettings,
 		run: func() { a.keys = &keysEditor{open: true} }})
 	for _, p := range a.projects {
 		names, paths := a.dashboardNames(p)
@@ -206,7 +206,7 @@ func (a *App) paletteView(c *ui.Context) {
 		}
 	}
 	ui.DialogBase(c, &p.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(ui.RGBA(0, 0, 0, 0.25)).Justify(ui.Start).PaddingY(80)
+		backdrop.Background(widgets.PickerBackdrop).Justify(ui.Start).PaddingY(80)
 		panel.Width(600).Radius(12).Background(t.Background).Border(1, t.Border).Clip().
 			Shadow(0, 16, 48, 0, ui.RGBA(0, 0, 0, 0.3)).Label("Command palette")
 		ui.Row(c).Padding(10, 14).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {

@@ -107,7 +107,7 @@ func outlineView(a Host, c *ui.Context) {
 		q.reveal(at, a.Settings().EditorFont)
 	}
 	ui.DialogBase(c, &d.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(ui.RGBA(0, 0, 0, 0.25)).Justify(ui.Start).PaddingY(80)
+		backdrop.Background(widgets.PickerBackdrop).Justify(ui.Start).PaddingY(80)
 		panel.Width(640).Radius(12).Background(th.Background).Border(1, th.Border).Clip().Label("Go to statement")
 		ui.Row(c).Padding(10, 14).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Icon(c, widgets.IconSearch).TextColor(pal.Muted).FontSize(15)

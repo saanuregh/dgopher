@@ -161,7 +161,7 @@ func refPickerView(a Host, c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	ui.DialogBase(c, &p.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(ui.RGBA(0, 0, 0, 0.3))
+		backdrop.Background(widgets.Backdrop)
 		panel.Width(720).Height(520).Radius(12).Background(th.Background).Border(1, th.Border).Clip().Label("Choose a value")
 		ui.Row(c).Padding(12, 16).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Text(c, p.v.src.Cols[p.col].Name+" → "+p.fk.RefTable).FontSize(15).Bold().SingleLine().Shrink(1)

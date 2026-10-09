@@ -7,7 +7,7 @@
     `redis://…`, `rediss://…`, or a file path) to fill the connection form.
   - Try the built-in sample shop database without a server.
   - A guided tour, offered on the start page until taken and in the
-    palette always, shows the parts of the window one at a time, dimming
+    Help menu and the palette always, shows the parts of the window one at a time, dimming
     the rest: projects and connections, editors and results, the palette,
     how production connections are guarded, and the sample database.
 - **Drag and drop:** drop on the window a SQLite or DuckDB file (opens as
@@ -28,8 +28,9 @@
     main button; Esc closes it. A dialog whose button changes data or
     trusts a server (rolling back, dropping, deleting keys, importing,
     copying, restoring, running a file) takes a click.
-  - Every command's keys can be changed: Settings → Keyboard Shortcuts
-    (or the palette's) records a key for it, removes one, or resets it.
+  - Every command's keys can be changed: Customize Keyboard Shortcuts…
+    (in Settings, the Help menu or the palette) records a key for it,
+    removes one, or resets it.
     A key that types needs ⌘, Ctrl or Alt, and one that moves in lists
     a modifier; a key another command has in its section, or anywhere,
     is refused, naming it, as are ⌘1…⌘9 and the grid's F2. An editor's
@@ -563,7 +564,7 @@
   rows replaced. Each table copies in one transaction where the target
   has them, through the target's safety policy, and is audited.
 - **Compare the rows** of a table with another's, in the same database or
-  another, of any engine: a table's Compare Rows With…. Rows match by the
+  another, of any engine: a table's Compare Rows with…. Rows match by the
   target's primary key, over the columns both have, and values compare as
   values: `1.50` and `1.5` are alike, as are `1` and `true`, a time and
   the same time in UTC, and JSON with its keys in another order. It lists

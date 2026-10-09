@@ -286,7 +286,7 @@ func (a *App) connFormView(c *ui.Context) {
 	t := c.Theme()
 	engine := engineByLabel(f.engine)
 	ui.DialogBase(c, &f.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(ui.RGBA(0, 0, 0, 0.45))
+		backdrop.Background(widgets.Backdrop)
 		_, winH := c.Size()
 		panel.Width(680).Height(min(800, winH-40)).Radius(12).Background(t.Background).Border(1, t.Border).
 			Shadow(0, 12, 40, 0, ui.RGBA(0, 0, 0, 0.3)).Role(ui.RoleDialog).Label("Connection")

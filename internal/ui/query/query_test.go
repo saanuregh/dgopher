@@ -287,7 +287,7 @@ func TestEditorMenuActsOnSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	items := strings.Join(tt.Menu(), "|")
-	for _, want := range []string{"Execute", "Cut", "Copy", "Paste", "Format", "Copy Statement", "Save as Snippet…"} {
+	for _, want := range []string{"Run", "Cut", "Copy", "Paste", "Format", "Copy Statement", "Save as Snippet…"} {
 		if !strings.Contains(items, want) {
 			t.Fatalf("menu %q lacks %q", items, want)
 		}

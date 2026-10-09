@@ -39,7 +39,7 @@ func TestWindows(t *testing.T) {
 	a.openSettings()
 	other.Frame()
 	main.Frame()
-	if !other.HasText("Settings") || main.HasText("Keyboard Shortcuts…") {
+	if !other.HasText("Settings") || main.HasText("Customize Keyboard Shortcuts…") {
 		t.Fatal("the settings show in a window not used")
 	}
 	a.settingsOpen = false

@@ -29,7 +29,7 @@ func (a *App) shortcutsView(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	open := a.shortcutsOpen
 	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
-		backdrop.Background(ui.RGBA(0, 0, 0, 0.35))
+		backdrop.Background(widgets.Backdrop)
 		_, h := c.Size()
 		panel.Width(760).Height(min(680, h-60)).Radius(12).Background(th.Background).Border(1, th.Border).Clip().Label("Keyboard shortcuts")
 		ui.Row(c).Padding(14, 20).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {

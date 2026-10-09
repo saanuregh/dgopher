@@ -165,7 +165,7 @@ func (v *Viewer) builderView(c *ui.Context) {
 				ui.Text(c, widgets.Capitalize(err.Error())+".").FontSize(12).TextColor(pal.Muted)
 			}
 			ui.Spacer(c)
-			if ui.Button(c, "Close").Clicked() {
+			if ui.Button(c, "Cancel").Clicked() {
 				v.builder = nil
 			}
 			if ui.PrimaryButton(c, "Apply").Disabled(err != nil).Tooltip(where).Clicked() {

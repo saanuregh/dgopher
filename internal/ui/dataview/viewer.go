@@ -1079,7 +1079,7 @@ func (v *Viewer) View(c *ui.Context) {
 					v.grid.duplicateRow(&v.src, rows[0], v.grid.keyCols)
 				}
 			}
-			if widgets.ToolButton(c, widgets.IconTrash, "Delete", "Mark the chosen rows for deletion (Delete)").Clicked() {
+			if widgets.ToolButton(c, widgets.IconTrash, "Delete", keymap.Hint("Mark the chosen rows for deletion", keymap.DeleteRows)).Clicked() {
 				v.grid.deleteSelected(&v.src)
 			}
 			if widgets.IconButton(c, widgets.IconUndo, keymap.Hint("Undo the last change", keymap.Undo)).Disabled(len(v.grid.undoStack) == 0).Clicked() {

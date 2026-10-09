@@ -277,6 +277,14 @@ func buildMenu(a *App) *mygo.Menu {
 			{Role: mygo.RoleToggleDevTools},
 		}},
 		windowMenu(),
+		// The list of keys has no accelerator: its key toggles it, which
+		// the window handles, Escape closing it as well.
+		{Label: "Help", Submenu: []*mygo.MenuItem{
+			{Label: "Keyboard Shortcuts", Click: do(func() { a.shortcutsOpen = true })},
+			{Label: "Customize Keyboard Shortcuts…", Click: do(func() { a.keys = &keysEditor{open: true} })},
+			mygo.Separator(),
+			{Label: "Take the Tour", Click: do(a.startTour)},
+		}},
 	})
 }
 

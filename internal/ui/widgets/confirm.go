@@ -38,7 +38,7 @@ func ConfirmView(c *ui.Context, r *ConfirmRequest) {
 	pal := PaletteOf(c)
 	envCol := EnvColor(&r.Conn.Config)
 	ui.DialogBase(c, &r.Open, func(backdrop, panel ui.Element) {
-		backdrop.Background(ui.RGBA(0, 0, 0, 0.45))
+		backdrop.Background(Backdrop)
 		panel.Width(560).MaxHeightPercent(90).Radius(12).Background(t.Background).Border(1, t.Border).Clip().
 			Shadow(0, 12, 40, 0, ui.RGBA(0, 0, 0, 0.3)).Role(ui.RoleAlertDialog).Label(r.Title)
 		ui.Row(c).Padding(10, 16).Gap(8).Background(envCol).Children(func() {

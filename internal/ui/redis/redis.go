@@ -460,7 +460,7 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 					r.pattern = r.patternIn
 					r.rescan()
 				}
-				if widgets.IconButton(c, widgets.IconRefresh, "Rescan").Clicked() {
+				if widgets.IconButton(c, widgets.IconRefresh, "Refresh the keys").Clicked() {
 					r.pattern = r.patternIn
 					r.rescan()
 				}
@@ -534,7 +534,7 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 				ui.Spinner(c).Size(12, 12)
 				ui.Text(c, "Scanning…").FontSize(12).TextColor(pal.Muted)
 			case !r.scanDone:
-				if ui.Button(c, "Scan more").Clicked() {
+				if ui.Button(c, "Scan More").Clicked() {
 					r.scan()
 				}
 			default:
@@ -582,11 +582,11 @@ func (r *Tab) keyView(c *ui.Context, a Host) {
 				if widgets.IconButton(c, widgets.IconCopy, "Copy key name").Clicked() {
 					a.WriteClipboard(r.selected)
 				}
-				if widgets.IconButton(c, widgets.IconRefresh, "Reload").Clicked() {
+				if widgets.IconButton(c, widgets.IconRefresh, "Refresh the value").Clicked() {
 					r.loadKey()
 				}
 				if !r.conn.Config.ReadOnly {
-					if widgets.IconButton(c, widgets.IconWand, "Rename").Clicked() {
+					if widgets.IconButton(c, widgets.IconPencil, "Rename").Clicked() {
 						r.renaming, r.renameIn = true, r.selected
 					}
 					if widgets.IconButton(c, widgets.IconTrash, "Delete key").Clicked() {
