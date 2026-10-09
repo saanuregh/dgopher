@@ -12,6 +12,16 @@ and is careful by default with the databases that matter.
 and data model in the navigator, and an editor whose query's result shows
 below it](docs/images/main.png)
 
+## Footprint
+
+Measured on Linux (amd64, Wayland) with version 0.1.0:
+
+| | |
+| --- | --- |
+| Download | 36 MB, as the `.deb` or the `.tar.gz` |
+| Executable | 99 MB, every driver and DuckDB compiled in |
+| Memory at start | 164 MB resident, of which 36 MB is the app's own; the rest is the executable and the GTK and graphics libraries, mapped from disk |
+
 ## Features
 
 - **One native binary:** every driver compiled in, and nothing to install
@@ -68,6 +78,8 @@ details.
 Download the build for your system from the
 [latest release](https://github.com/saanuregh/dgopher/releases/latest):
 Linux (amd64, arm64), macOS (Apple silicon, Intel) and Windows (amd64).
+The builds are not signed yet: macOS asks you to allow the app once, in
+System Settings, Privacy & Security, and Windows SmartScreen warns once.
 
 To build it yourself you need Go and a C compiler; see
 [Development](docs/development.md).
