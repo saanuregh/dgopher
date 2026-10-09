@@ -546,6 +546,10 @@
   dashboard is a file in the project's `dashboards` folder, for its team,
   never written over once it changed on disk, as by a pull, and opens
   again with the workspace.
+
+  ![A dashboard of the sample shop: revenue, orders, customers and
+  products as numbers, revenue by month and customers by country as
+  charts, and best sellers as a table](images/dashboard.png)
 - **Server activity:** sessions and running queries of PostgreSQL, MySQL
   and ClickHouse, with cancel (and, on PostgreSQL and MySQL, terminate),
   and Redis's headline metrics and clients, which can be disconnected (of
@@ -583,6 +587,9 @@
   and the diagram reads the schema again with its tables where they
   stood. Save it as a PNG, drawn as the app draws it at twice its size,
   or as SVG.
+
+  ![The ER diagram of the sample shop: customers, orders, order items and
+  products, joined by their foreign keys](images/er-diagram.png)
 - **Data models:** a schema's Save as Data Model… keeps its tables, with
   their columns, keys, indexes and checks, in a file of the project's
   `models/` folder, for its team; the project's menu and the palette

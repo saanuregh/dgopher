@@ -16,6 +16,9 @@ connection of their own (`SELECT`, `AUTH`, `MULTI`, `SUBSCRIBE`, `MONITOR`
 and similar) are refused everywhere, because the console and key browser
 share a pool of connections.
 
+![On a production connection, a DELETE without WHERE asks for the
+connection's name to be typed before it runs](images/production-confirm.png)
+
 **Read-only connections** refuse writes in two places. The app also
 refuses statements that would switch read-only off: any that contains
 `READ WRITE`, `set_config`, `read_only`, `readonly` or `query_only`, even in

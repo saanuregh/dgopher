@@ -43,6 +43,15 @@ DGOPHER_IT=1 go test ./...                      # also against real servers (bel
 DGOPHER_SNAPSHOTS=/tmp/snaps go test ./...      # write PNGs of the UI as the tests see it
 ```
 
+The README's and the docs' screenshots are drawn by `TestScreenshots`,
+from the sample shop and connections made up around it, in the dark
+theme. After a change to what they show, draw them again; text needs
+Pango's library on the loader's path:
+
+```sh
+DGOPHER_SCREENSHOTS=$PWD/docs/images go test ./internal/app -run TestScreenshots
+```
+
 The integration tests expect these servers, whose ports and passwords
 match `internal/db/integration_test.go` and `internal/testutil/testutil.go`.
 SQLite and DuckDB need no server.
