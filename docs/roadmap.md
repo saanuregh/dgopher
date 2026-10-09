@@ -43,7 +43,6 @@ Next or Later are not repeated.
 - **Redis:**
 - **ClickHouse and DuckDB:**
 - **Charts:**
-  - More kinds of chart.
   - Dashboards built from saved queries, with parameters and automatic
     refresh.
 - **AI:**

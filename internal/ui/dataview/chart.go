@@ -3,6 +3,7 @@ package dataview
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -31,12 +32,25 @@ func seriesColor(c *ui.Context, i int) ui.Color {
 
 const (
 	chartBar = iota
+	chartStackedBar
 	chartLine
+	chartArea
+	chartStackedArea
 	chartScatter
 	chartPie
+	chartHistogram
 )
 
-var chartKinds = []string{"Bar", "Line", "Scatter", "Pie"}
+var chartKinds = []string{"Bar", "Stacked Bar", "Line", "Area", "Stacked Area", "Scatter", "Pie", "Histogram"}
+
+// stacked reports whether a kind draws its series on top of each other.
+func stacked(kind int) bool { return kind == chartStackedBar || kind == chartStackedArea }
+
+// banded reports whether a kind draws a band for each row, whatever the
+// x column holds.
+func banded(kind int) bool {
+	return kind == chartBar || kind == chartStackedBar || kind == chartPie || kind == chartHistogram
+}
 
 // Chart is how a result is charted.
 type Chart struct {
@@ -130,7 +144,7 @@ func (s *Chart) series() []int {
 	switch s.kind {
 	case chartScatter:
 		limit = 3 // the slots that stay apart whatever pair sits together
-	case chartPie:
+	case chartPie, chartHistogram:
 		limit = 1
 	}
 	var out []int
@@ -158,7 +172,7 @@ func (s *Chart) points(src *Source, series []int) (pts []chartPoint, continuous,
 		return nil, false, false
 	}
 	timeAxis = isTimeType(src.Cols[xi].Type)
-	continuous = s.kind != chartBar && s.kind != chartPie && (timeAxis || numericColumn(src, xi))
+	continuous = !banded(s.kind) && (timeAxis || numericColumn(src, xi))
 	for _, row := range src.Rows {
 		if len(pts) == maxChartPoints {
 			break
@@ -293,28 +307,72 @@ func ChartView(c *ui.Context, s *Chart, src *Source) {
 		if len(src.Rows) > maxChartPoints {
 			ui.Text(c, fmt.Sprintf("Charting the first %d rows.", maxChartPoints)).FontSize(12).TextColor(pal.Muted).Padding(4, 16)
 		}
-		if s.kind == chartPie {
+		names := make([]string, len(series))
+		for j, col := range series {
+			names[j] = src.Cols[col].Name
+		}
+		kind := s.kind
+		switch kind {
+		case chartPie:
 			pieView(c, s, src, series[0], pts)
 			return
+		case chartHistogram:
+			if pts = histogramBins(pts); len(pts) == 0 {
+				ui.Text(c, "No values to count.").TextColor(pal.Muted).Padding(16)
+				return
+			}
+			names, kind, continuous, timeAxis = []string{"rows of " + names[0]}, chartBar, false, false
 		}
 		plot := ui.Box(c).Grow(1).Margin(8, 12, 12, 8)
 		px, py, over := plot.PointerPosition()
 		plot.Draw(func(p *ui.Painter, r ui.Rect) {
-			drawXY(c, p, r, s, src, series, pts, continuous, timeAxis, px, py, over)
+			drawXY(c, p, r, kind, names, pts, continuous, timeAxis, px, py, over)
 		})
 	})
 }
 
-func drawXY(c *ui.Context, p *ui.Painter, r ui.Rect, s *Chart, src *Source, series []int, pts []chartPoint, continuous, timeAxis bool, px, py float32, over bool) {
+func drawXY(c *ui.Context, p *ui.Painter, r ui.Rect, kind int, names []string, pts []chartPoint, continuous, timeAxis bool, px, py float32, over bool) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	ink, muted := th.Text, pal.Muted
 	grid := pal.GridLine
-	// The y range, from zero for bars, whose length is their value.
+	// The y range, from zero for bars and areas, whose size is their
+	// value; of the sums for stacks, positive values above zero, negative
+	// below.
+	// A stacked area keeps each series on one side of zero, as its values
+	// mostly are, so that it stays one area; a stacked bar stacks each
+	// value on its own side.
+	below := make([]bool, len(names))
+	if kind == chartStackedArea {
+		for j := range names {
+			sum := 0.0
+			for _, pt := range pts {
+				if pt.ok[j] {
+					sum += pt.ys[j]
+				}
+			}
+			below[j] = sum < 0
+		}
+	}
+	side := func(i, j int) bool {
+		if kind == chartStackedArea {
+			return below[j]
+		}
+		return pts[i].ys[j] < 0
+	}
 	lo, hi := math.Inf(1), math.Inf(-1)
-	for _, pt := range pts {
-		for j := range series {
-			if pt.ok[j] {
+	for i, pt := range pts {
+		up, down := 0.0, 0.0
+		for j := range names {
+			switch {
+			case !pt.ok[j]:
+			case stacked(kind) && !side(i, j):
+				up += pt.ys[j]
+				lo, hi = min(lo, up), max(hi, up)
+			case stacked(kind):
+				down += pt.ys[j]
+				lo, hi = min(lo, down), max(hi, down)
+			default:
 				lo, hi = min(lo, pt.ys[j]), max(hi, pt.ys[j])
 			}
 		}
@@ -322,7 +380,7 @@ func drawXY(c *ui.Context, p *ui.Painter, r ui.Rect, s *Chart, src *Source, seri
 	if math.IsInf(lo, 1) {
 		return
 	}
-	if s.kind == chartBar {
+	if kind != chartLine && kind != chartScatter {
 		lo, hi = min(lo, 0), max(hi, 0)
 	}
 	ticks := niceTicks(lo, hi, 5)
@@ -387,16 +445,96 @@ func drawXY(c *ui.Context, p *ui.Painter, r ui.Rect, s *Chart, src *Source, seri
 			}
 		}
 	}
-	switch s.kind {
+	// Where each series starts in a stack, for each point: the sum of
+	// those before it on its side.
+	base := func(i, j int) float64 {
+		if !stacked(kind) {
+			return 0
+		}
+		sum := 0.0
+		for k := range j {
+			if pts[i].ok[k] && side(i, k) == side(i, j) {
+				sum += pts[i].ys[k]
+			}
+		}
+		return sum
+	}
+	switch kind {
+	case chartStackedBar:
+		w := max(1, min(band*0.7, 64))
+		for i := range pts {
+			for j := range names {
+				if !pts[i].ok[j] || pts[i].ys[j] == 0 {
+					continue
+				}
+				b := base(i, j)
+				y0, y1 := yOf(b), yOf(b+pts[i].ys[j])
+				top, h := min(y0, y1), float32(math.Abs(float64(y1-y0)))
+				col := seriesColor(c, j)
+				if hover >= 0 && hover != i {
+					col = col.Alpha(0.55)
+				}
+				// A line of the surface between the parts of a stack.
+				p.Fill(ui.Rect{X: xOf(i) - w/2, Y: top, W: w, H: max(1, h-1)}, col, 0)
+			}
+		}
+	case chartArea, chartStackedArea:
+		// Each series' area from its base to its values; a NULL is zero
+		// in a stack, a gap otherwise.
+		for j := range names {
+			col := seriesColor(c, j)
+			value := func(i int) (float64, bool) {
+				if !pts[i].ok[j] {
+					return 0, stacked(kind)
+				}
+				return pts[i].ys[j], true
+			}
+			var run []int
+			flush := func() {
+				if len(run) == 0 {
+					return
+				}
+				top, area := new(ui.Path), new(ui.Path)
+				for k, i := range run {
+					v, _ := value(i)
+					x, y := xOf(i), yOf(base(i, j)+v)
+					if k == 0 {
+						top.MoveTo(x, y)
+						area.MoveTo(x, y)
+					} else {
+						top.LineTo(x, y)
+						area.LineTo(x, y)
+					}
+				}
+				for k := len(run) - 1; k >= 0; k-- {
+					area.LineTo(xOf(run[k]), yOf(base(run[k], j)))
+				}
+				alpha := float32(0.3)
+				if stacked(kind) {
+					alpha = 0.7
+				}
+				p.FillPath(area.Close(), col.Alpha(alpha))
+				p.StrokePath(top, 2, col)
+				run = run[:0]
+			}
+			for i := range pts {
+				if _, ok := value(i); !ok {
+					flush()
+					continue
+				}
+				run = append(run, i)
+			}
+			flush()
+		}
 	case chartBar:
-		n := float32(len(series))
+		n := float32(len(names))
 		w := max(1, min(band*0.8/n, 48))
 		gap := float32(2)
 		if w < 6 {
 			gap = 0
 		}
 		for i := range pts {
-			for j := range series {
+			for j := range names {
 				if !pts[i].ok[j] {
 					continue
 				}
@@ -411,9 +549,9 @@ func drawXY(c *ui.Context, p *ui.Painter, r ui.Rect, s *Chart, src *Source, seri
 			}
 		}
 	case chartLine, chartScatter:
-		for j := range series {
+		for j := range names {
 			col := seriesColor(c, j)
-			if s.kind == chartLine {
+			if kind == chartLine {
 				// One path per run of values; a NULL breaks the line.
 				var path *ui.Path
 				for i := range pts {
@@ -440,9 +578,9 @@ func drawXY(c *ui.Context, p *ui.Painter, r ui.Rect, s *Chart, src *Source, seri
 					continue
 				}
 				x, y := xOf(i), yOf(pts[i].ys[j])
-				if s.kind == chartScatter || len(pts) <= 60 {
+				if kind == chartScatter || len(pts) <= 60 {
 					d := float32(8)
-					if s.kind == chartLine {
+					if kind == chartLine {
 						d = 6
 					}
 					p.Fill(ui.Rect{X: x - d/2 - 1, Y: y - d/2 - 1, W: d + 2, H: d + 2}, th.Background, (d+2)/2)
@@ -458,12 +596,14 @@ func drawXY(c *ui.Context, p *ui.Painter, r ui.Rect, s *Chart, src *Source, seri
 	hx := xOf(hover)
 	p.Line(hx, plot.Y, hx, plot.Y+plot.H, 1, muted.Alpha(0.7))
 	lines := []string{pts[hover].label}
-	for j, col := range series {
+	for j, name := range names {
 		v := "NULL"
 		if pts[hover].ok[j] {
 			v = strconv.FormatFloat(pts[hover].ys[j], 'f', -1, 64)
+		} else if stacked(kind) {
+			v = "NULL, stacked as 0"
 		}
-		lines = append(lines, src.Cols[col].Name+": "+v)
+		lines = append(lines, name+": "+v)
 	}
 	tw := float32(0)
 	for _, l := range lines {
@@ -489,6 +629,38 @@ func drawXY(c *ui.Context, p *ui.Painter, r ui.Rect, s *Chart, src *Source, seri
 		}
 		p.Text(x, y, l, 12, ink)
 	}
+}
+
+// histogramBins counts the values of a series in about the square root of
+// their count of bins, at round bounds: a point for each bin.
+func histogramBins(pts []chartPoint) []chartPoint {
+	var values []float64
+	for _, pt := range pts {
+		if pt.ok[0] {
+			values = append(values, pt.ys[0])
+		}
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	lo, hi := slices.Min(values), slices.Max(values)
+	edges := niceTicks(lo, hi, min(max(int(math.Sqrt(float64(len(values)))), 5), 40))
+	if edges[len(edges)-1] <= hi {
+		edges = append(edges, edges[len(edges)-1]+(edges[1]-edges[0]))
+	}
+	out := make([]chartPoint, len(edges)-1)
+	for i := range out {
+		out[i] = chartPoint{label: fmtNumber(edges[i]) + " – " + fmtNumber(edges[i+1]), ys: []float64{0}, ok: []bool{true}}
+	}
+	for _, v := range values {
+		// The bin whose lower bound is the last at or below v.
+		i := sort.SearchFloat64s(edges, v)
+		if i == len(edges) || edges[i] > v {
+			i--
+		}
+		out[min(max(i, 0), len(out)-1)].ys[0]++
+	}
+	return out
 }
 
 // pieView draws the shares of one series, the largest seven slices and

@@ -385,9 +385,12 @@
 
 ## Charts, diagrams and server activity
 
-- **Charts** of any result: bar, line, scatter or pie, with the axes
-  detected (a time or text column along x, numbers as series), a hover
-  tooltip, and a colour-blind-safe palette.
+- **Charts** of any result: bar, stacked bar, line, area, stacked area,
+  scatter, pie, or a histogram of a column's values in bins of round
+  bounds, with the axes detected (a time or text column along x, numbers
+  as series), a hover tooltip, and a colour-blind-safe palette. Stacks
+  put positive values above zero and negative below; a NULL breaks a
+  line or an area, and counts as zero in a stack.
 - **Server activity:** sessions and running queries of PostgreSQL, MySQL
   and ClickHouse, with cancel (and, on PostgreSQL and MySQL, terminate),
   and Redis's headline metrics and clients, which can be disconnected (of

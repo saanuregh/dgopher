@@ -628,6 +628,55 @@ func TestChartDetect(t *testing.T) {
 	}
 }
 
+// A histogram counts each value once, in bins of round bounds.
+func TestHistogramBins(t *testing.T) {
+	var pts []chartPoint
+	for i := range 100 {
+		pts = append(pts, chartPoint{ys: []float64{float64(i)}, ok: []bool{true}})
+	}
+	pts = append(pts, chartPoint{ys: []float64{0}, ok: []bool{false}})
+	bins := histogramBins(pts)
+	total := 0.0
+	for _, b := range bins {
+		total += b.ys[0]
+	}
+	if total != 100 || len(bins) < 5 || bins[0].label != "0 – 10" || bins[0].ys[0] != 10 || bins[len(bins)-1].ys[0] == 0 {
+		t.Fatalf("%d bins of %v values: %+v", len(bins), total, bins)
+	}
+	if one := histogramBins([]chartPoint{{ys: []float64{7}, ok: []bool{true}}}); len(one) == 0 || one[0].ys[0] != 1 {
+		t.Fatalf("a single value: %+v", one)
+	}
+}
+
+// Every kind of chart draws rows of positive and negative values, and
+// NULLs, without failing.
+func TestChartKinds(t *testing.T) {
+	src := &Source{
+		Cols: []db.ColumnInfo{{Name: "day", Type: "DATE"}, {Name: "gain", Type: "INT8"}, {Name: "loss", Type: "INT8"}},
+	}
+	for i := range 30 {
+		var loss any = int64(-i % 7)
+		if i%5 == 0 {
+			loss = nil
+		}
+		src.Rows = append(src.Rows, []any{time.Date(2026, 1, 1+i, 0, 0, 0, 0, time.UTC), int64(i * i % 17), loss})
+	}
+	for kind, name := range chartKinds {
+		s := Chart{}
+		tt := ui.NewTester(func(c *ui.Context) {
+			if s.colsOf == "" {
+				s.detect(src)
+				s.kind = kind
+			}
+			ChartView(c, &s, src)
+		}, 800, 420)
+		tt.Frame()
+		tt.Move(400, 200) // the tooltip too
+		tt.Frame()
+		testutil.Snapshot(t, tt, "chart-"+strings.ReplaceAll(strings.ToLower(name), " ", "-"))
+	}
+}
+
 // The kinds a chart picks hold for the column types and values Postgres
 // returns, not only for the made-up ones above.
 func TestChartDetectPostgres(t *testing.T) {
