@@ -25,6 +25,7 @@ const (
 	panelSlowLog
 	panelMemory
 	panelPubSub
+	panelSearch
 )
 
 const (
@@ -76,7 +77,7 @@ func (r *Tab) panelView(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	ui.Column(c).Fill().Background(pal.EditorBg).Children(func() {
 		ui.Row(c).Padding(4, 10).Gap(8).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Segmented(c, &r.panel, "Console", "Monitor", "Slow Log", "Memory", "Pub/Sub").Label("Panel")
+			ui.Segmented(c, &r.panel, "Console", "Monitor", "Slow Log", "Memory", "Pub/Sub", "Search").Label("Panel")
 			ui.Spacer(c)
 			switch r.panel {
 			case panelConsole:
@@ -89,6 +90,8 @@ func (r *Tab) panelView(c *ui.Context) {
 				r.memoryActions(c)
 			case panelPubSub:
 				r.pubSubActions(c)
+			case panelSearch:
+				r.searchActions(c)
 			}
 		})
 		switch r.panel {
@@ -102,6 +105,8 @@ func (r *Tab) panelView(c *ui.Context) {
 			r.memoryView(c)
 		case panelPubSub:
 			r.pubSubView(c)
+		case panelSearch:
+			r.searchView(c)
 		}
 	})
 }

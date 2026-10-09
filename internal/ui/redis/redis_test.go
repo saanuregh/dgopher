@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -267,4 +268,136 @@ func TestRedisBrowser(t *testing.T) {
 		t.Fatal("closing the tab left the file running")
 	}
 	r.file = nil
+}
+
+// Redis 8's types: a JSON document edited, an array's values set and
+// removed, a vector set's elements added, with their vectors, attributes
+// and the elements most like them.
+func TestRedisModules(t *testing.T) {
+	testutil.Integration(t)
+	a := dataview.NewFakeHost(t)
+	cfg := db.Config{ID: "r8", Name: "Redis 8", Engine: db.Redis, Host: "127.0.0.1", Port: 16385, Env: db.Development}
+	cn := a.AddConn(cfg)
+	ctx := context.Background()
+	kv, err := db.OpenRedis(ctx, cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer kv.Close()
+	for _, cmd := range [][]string{
+		{"FLUSHDB"},
+		{"JSON.SET", "doc", "$", `{"a":1}`},
+		{"ARSET", "arr", "0", "x"}, {"ARSET", "arr", "5", "y"},
+		{"VADD", "vec", "VALUES", "2", "1", "0", "east", "SETATTR", `{"n":1}`},
+		{"VADD", "vec", "VALUES", "2", "0", "1", "north"},
+		{"BF.ADD", "bloom", "x"},
+	} {
+		if _, err := kv.Do(ctx, cmd); err != nil {
+			t.Fatal(cmd, err)
+		}
+	}
+	tt := ui.NewTester(a.View, 1360, 860)
+	a.Connect(cn, func() { a.AddTab(New(a, cn)) })
+	testutil.WaitFor(t, tt, "redis tab", func() bool { return len(a.Tabs) == 1 })
+	r := a.Tabs[0].(*Tab)
+	testutil.WaitFor(t, tt, "keys", func() bool { return len(r.keys) == 4 })
+	loaded := func(what string) {
+		t.Helper()
+		testutil.WaitFor(t, tt, what, func() bool { return !r.loadingKey && r.info.Type != "" })
+	}
+
+	r.open("doc")
+	loaded("the document")
+	if r.editValue != "{\n  \"a\": 1\n}" {
+		t.Fatalf("document shown as %q", r.editValue)
+	}
+	r.editValue, r.editDirty = `{"a": [1, 2]}`, true
+	tt.Frame()
+	if err := tt.Click("Save"); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WaitFor(t, tt, "the save", func() bool { return !r.editDirty })
+	if doc, _ := kv.JSONDocument(ctx, "doc"); doc != `{"a":[1,2]}` {
+		t.Fatalf("saved as %s", doc)
+	}
+
+	r.open("arr")
+	loaded("the array")
+	if len(r.fields) != 2 || r.fields[1].Name != "5" || r.fields[1].Value != "y" {
+		t.Fatalf("array %+v", r.fields)
+	}
+	r.write([]string{"ARSET", "arr", "9", "z"}, r.loadKey)
+	testutil.WaitFor(t, tt, "the set", func() bool { return !r.loadingKey && len(r.fields) == 3 })
+	r.fieldRow = 0
+	tt.Frame()
+	if err := tt.Click("Remove Chosen"); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WaitFor(t, tt, "the removal", func() bool { return !r.loadingKey && len(r.fields) == 2 })
+
+	r.open("vec")
+	loaded("the vector set")
+	r.newName, r.newValue, r.newScore = "west", "-1, 0", `{"n":3}`
+	r.addVector()
+	testutil.WaitFor(t, tt, "the element", func() bool { return !r.loadingKey && len(r.fields) == 3 })
+	r.fieldRow = slices.IndexFunc(r.fields, func(f db.Field) bool { return f.Name == "east" })
+	testutil.WaitFor(t, tt, "the vector", func() bool { return r.vector.element == "east" && !r.vector.loading })
+	if len(r.vector.vector) != 2 || len(r.vector.similar) == 0 || r.vector.similar[0].Name != "north" || r.vector.attrs != `{"n":1}` {
+		t.Fatalf("east: %v, similar %+v, attributes %s", r.vector.vector, r.vector.similar, r.vector.attrs)
+	}
+	r.vector.attrs = `{"n":2}`
+	tt.Frame()
+	if err := tt.Click("Save Attributes"); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WaitFor(t, tt, "the attributes", func() bool {
+		v, _ := kv.Do(ctx, []string{"VGETATTR", "vec", "east"})
+		return v == `{"n":2}`
+	})
+	testutil.Snapshot(t, tt, "redis-vector-set")
+
+	// A time series charts by buckets; a sample adds to it.
+	kv.Do(ctx, []string{"TS.CREATE", "temp", "LABELS", "room", "kitchen"})
+	for i := range 50 {
+		kv.Do(ctx, []string{"TS.ADD", "temp", strconv.Itoa(1000 + i*1000), strconv.Itoa(i)})
+	}
+	r.open("temp")
+	loaded("the series")
+	r.series.span = len(seriesSpans) - 1
+	testutil.WaitFor(t, tt, "the chart", func() bool { return !r.series.loading && r.series.source != nil })
+	if r.series.err != "" || len(r.series.source.Rows) == 0 || r.series.last.UnixMilli() != 50_000 {
+		t.Fatalf("series %q, %d points, last %v", r.series.err, len(r.series.source.Rows), r.series.last)
+	}
+	r.series.newAt, r.series.newValue = "60000", "99"
+	r.addSample()
+	testutil.WaitFor(t, tt, "the sample", func() bool { return !r.series.loading && r.series.last.UnixMilli() == 60_000 })
+	testutil.Snapshot(t, tt, "redis-time-series")
+
+	// The Search panel lists the indexes, describes one, and searches it.
+	kv.Do(ctx, []string{"HSET", "doc:1", "title", "hello world"})
+	kv.Do(ctx, []string{"FT.CREATE", "docs", "ON", "HASH", "PREFIX", "1", "doc:", "SCHEMA", "title", "TEXT"})
+	defer kv.Do(ctx, []string{"FT.DROPINDEX", "docs"})
+	r.panel = panelSearch
+	testutil.WaitFor(t, tt, "the indexes", func() bool { return r.search.asked && !r.search.loading && len(r.search.indexes) > 0 })
+	r.search.index = slices.Index(r.search.indexes, "docs")
+	r.loadIndexes()
+	testutil.WaitFor(t, tt, "the index", func() bool { return !r.search.loading && r.search.info != nil })
+	r.search.query = "hello"
+	testutil.WaitFor(t, tt, "the document indexed", func() bool {
+		if !r.search.loading {
+			r.runSearch()
+		}
+		return r.search.total == 1
+	})
+	r.open(r.search.hits[0].Key)
+	loaded("the document")
+	if r.selected != "doc:1" || r.info.Type != "hash" {
+		t.Fatalf("a hit opened %q, a %s", r.selected, r.info.Type)
+	}
+
+	r.open("bloom")
+	loaded("the Bloom filter")
+	if !tt.HasText("The browser has no viewer for a Bloom filter: read and change it with its commands in the console.") {
+		t.Fatal("a type without a viewer says nothing")
+	}
 }

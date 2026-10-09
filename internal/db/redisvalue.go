@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/redis/rueidis"
 )
 
 // Field is an item of a key: a list's (its index in Name), a hash's, a
@@ -120,6 +122,54 @@ func (k *KV) ReadItems(ctx context.Context, key, typ string, pos ItemsPos, n int
 			pos.lastID = msgs[len(msgs)-1].ID
 		}
 		return out, pos, got < count, nil
+	case "array":
+		// From the index after the last read, to the array's end.
+		end, err := k.Client.Do(ctx, b.Arbitrary("ARLEN").Keys(key).Build()).AsInt64()
+		if err != nil || pos.offset >= end {
+			return nil, pos, true, err
+		}
+		raw, err := k.Client.Do(ctx, b.Arbitrary("ARSCAN").Keys(key).Args(strconv.FormatInt(pos.offset, 10), strconv.FormatInt(end-1, 10), "LIMIT", strconv.FormatInt(n, 10)).Build()).ToArray()
+		if err != nil {
+			return nil, pos, false, err
+		}
+		// Each an index with its value.
+		out := make([]Field, 0, len(raw))
+		for _, pair := range raw {
+			p, err := pair.ToArray()
+			if err != nil || len(p) != 2 {
+				return nil, pos, false, fmt.Errorf("ARSCAN gave %v, not an index with its value", pair)
+			}
+			index, _ := p[0].AsInt64()
+			value, _ := p[1].ToString()
+			out = append(out, Field{Name: strconv.FormatInt(index, 10), Value: value})
+		}
+		if len(out) == 0 {
+			return nil, pos, true, nil
+		}
+		last, _ := strconv.ParseInt(out[len(out)-1].Name, 10, 64)
+		pos.offset = last + 1
+		return out, pos, int64(len(out)) < n || pos.offset >= end, nil
+	case "vectorset":
+		// In the elements' order, each with its attributes.
+		start := "-"
+		if pos.lastID != "" {
+			start = "(" + pos.lastID
+		}
+		elems, err := k.Client.Do(ctx, b.Arbitrary("VRANGE").Keys(key).Args(start, "+", strconv.FormatInt(n, 10)).Build()).AsStrSlice()
+		if err != nil || len(elems) == 0 {
+			return nil, pos, true, err
+		}
+		cmds := make(rueidis.Commands, len(elems))
+		for i, e := range elems {
+			cmds[i] = b.Arbitrary("VGETATTR").Keys(key).Args(e).Build()
+		}
+		out := make([]Field, len(elems))
+		for i, res := range k.Client.DoMulti(ctx, cmds...) {
+			attrs, _ := res.ToString() // none is nil
+			out[i] = Field{Name: elems[i], Value: attrs}
+		}
+		pos.lastID = elems[len(elems)-1]
+		return out, pos, int64(len(elems)) < n, nil
 	}
 	return nil, pos, true, fmt.Errorf("the type %q has no viewer", typ)
 }

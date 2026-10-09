@@ -41,8 +41,6 @@ Next or Later are not repeated.
 - **Test data and automation:**
 - **Admin and monitoring:**
 - **Redis:**
-  - Editors for RedisJSON values, vector sets and arrays.
-  - Work with Redis Search indexes, and chart TimeSeries keys.
 - **ClickHouse and DuckDB:**
 - **Charts:**
   - More kinds of chart.

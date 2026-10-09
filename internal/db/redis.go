@@ -485,6 +485,10 @@ func (k *KV) Info(ctx context.Context, key string) (KeyInfo, error) {
 		cmds = append(cmds, b.Hlen().Key(key).Build())
 	case "stream":
 		cmds = append(cmds, b.Xlen().Key(key).Build())
+	case "vectorset":
+		cmds = append(cmds, b.Arbitrary("VCARD").Keys(key).Build())
+	case "array":
+		cmds = append(cmds, b.Arbitrary("ARCOUNT").Keys(key).Build())
 	}
 	res := k.Client.DoMulti(ctx, cmds...) // each command keeps its own error
 	if ms, err := res[0].AsInt64(); err == nil {

@@ -94,6 +94,9 @@ type Tab struct {
 	memory  memoryState
 	pubsub  pubSubState
 	stream  streamState
+	vector  vectorState
+	series  seriesState
+	search  searchState
 }
 
 type newKeyForm struct {
@@ -104,7 +107,8 @@ type newKeyForm struct {
 	value string
 }
 
-var redisTypes = []string{"All types", "string", "hash", "list", "set", "zset", "stream"}
+// newKeyTypes are the types of the keys the new key form makes.
+var newKeyTypes = []string{"string", "hash", "list", "set", "zset"}
 
 const (
 	// itemsPage is how many items of a key are read at a time.
@@ -115,7 +119,7 @@ const (
 )
 
 func New(a Host, cn *connection.Conn) *Tab {
-	r := &Tab{a: a, conn: cn, typeFilter: redisTypes[0], split: 340, consoleH: 520, treeRow: -1, fieldRow: -1}
+	r := &Tab{a: a, conn: cn, typeFilter: allTypes, split: 340, consoleH: 520, treeRow: -1, fieldRow: -1}
 	r.tree.List.Selected = &r.treeRow
 	r.consoleList.FollowEnd = true
 	r.rescan()
@@ -160,10 +164,7 @@ func (r *Tab) scan() {
 	r.scanning = true
 	kv := r.conn.KV
 	cursor, pattern := r.cursor, r.pattern
-	typ := r.typeFilter
-	if typ == redisTypes[0] {
-		typ = ""
-	}
+	typ := typeOf(r.typeFilter)
 	r.a.Background(func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -245,7 +246,7 @@ func (r *Tab) countUnder(prefix string) int {
 // open shows a key.
 func (r *Tab) open(key string) {
 	r.selected = key
-	r.stream = streamState{}
+	r.stream, r.vector, r.series = streamState{}, vectorState{}, seriesState{}
 	r.loadKey()
 }
 
@@ -270,7 +271,9 @@ func (r *Tab) loadKey() {
 		case err != nil || info.Type == "none":
 		case info.Type == "string":
 			value, err = kv.ReadString(ctx, key, stringStart)
-		default:
+		case info.Type == "ReJSON-RL":
+			value, err = readJSON(ctx, kv, key)
+		case slices.Contains(itemTypes, info.Type):
 			fields, pos, done, err = readPage(ctx, kv, key, info.Type, db.ItemsPos{})
 		}
 		return func() {
@@ -286,9 +289,12 @@ func (r *Tab) loadKey() {
 			// be of another moment.
 			r.info, r.value, r.whole = info, value, len(value) < stringStart
 			r.strView = newDecodeView(value)
+			// An element's vector and attributes, and a series' samples,
+			// are read again too.
+			r.vector, r.series.readFor = vectorState{}, ""
 			r.fields, r.itemsPos, r.itemsDone = nil, pos, done
 			r.addItems(fields)
-			r.editValue, r.editDirty = value, false
+			r.editValue, r.editDirty = shownStart(value), false
 			r.ttlIn = ""
 			if info.TTL > 0 {
 				r.ttlIn = strconv.Itoa(int(info.TTL.Seconds()))
@@ -480,7 +486,7 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 				})
 			})
 			ui.Row(c).Gap(6).Children(func() {
-				if ui.Select(c, &r.typeFilter, redisTypes).Label("Type").Changed() {
+				if ui.Select(c, &r.typeFilter, typeLabels).Label("Type").Changed() {
 					r.rescan()
 				}
 				ui.Spacer(c)
@@ -554,7 +560,7 @@ func (r *Tab) keyView(c *ui.Context, a Host) {
 		ui.Column(c).Padding(10, 14).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Row(c).Gap(8).Children(func() {
 				if r.info.Type != "" {
-					ui.Badge(c, strings.ToUpper(r.info.Type))
+					ui.Badge(c, strings.ToUpper(typeLabel(r.info.Type)))
 				}
 				if r.renaming {
 					in := ui.TextInput(c, &r.renameIn).AutoFocus().Grow(1).Font(widgets.MonoFont).Label("New key name")
@@ -695,7 +701,18 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 			})
 		})
 		return
+	case "ReJSON-RL":
+		r.jsonView(c, ro)
+		return
+	case "TSDB-TYPE":
+		r.seriesView(c, ro)
+		return
 	case "none", "":
+		return
+	}
+	if !slices.Contains(itemTypes, r.info.Type) {
+		ui.Text(c, "The browser has no viewer for a "+typeLabel(r.info.Type)+": read and change it with its commands in the console.").
+			FontSize(12.5).TextColor(pal.Muted).Padding(12, 14)
 		return
 	}
 	if r.info.Type == "stream" {
@@ -724,6 +741,10 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 		cols = []ui.TableColumn{{Title: "Member"}, {Title: "Score", Width: 120, Align: ui.End}}
 	case "stream":
 		cols = []ui.TableColumn{{Title: "ID", Width: 200}, {Title: "Fields"}}
+	case "array":
+		cols = []ui.TableColumn{{Title: "Index", Width: 90, Align: ui.End}, {Title: "Value"}}
+	case "vectorset":
+		cols = []ui.TableColumn{{Title: "Element", Width: 260}, {Title: "Attributes"}}
 	}
 	r.fieldList.Selected = &r.fieldRow
 	ui.Table(c, &r.fieldList, cols, len(r.fields), func(row, col int) {
@@ -799,6 +820,22 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 					r.write([]string{"ZADD", key, r.newScore, r.newValue}, func() { r.newValue, r.newScore = "", ""; r.loadKey() })
 				}
 			}
+		case "array":
+			ui.TextInput(c, &r.newName).Placeholder("Index").Width(100).Font(widgets.MonoFont).Label("Index")
+			ui.TextInput(c, &r.newValue).Placeholder("Value").Grow(1).Label("Value")
+			if ui.Button(c, "Set").Disabled(strings.TrimSpace(r.newName) == "").Clicked() {
+				r.write([]string{"ARSET", key, strings.TrimSpace(r.newName), r.newValue}, func() { r.newName, r.newValue = "", ""; r.loadKey() })
+			}
+			if ui.Button(c, "Insert").Tooltip("At the array's next index").Clicked() {
+				r.write([]string{"ARINSERT", key, r.newValue}, func() { r.newValue = ""; r.loadKey() })
+			}
+		case "vectorset":
+			ui.TextInput(c, &r.newName).Placeholder("Element").Width(140).Font(widgets.MonoFont).Label("Element")
+			ui.TextInput(c, &r.newValue).Placeholder("Vector, e.g. 0.1 0.5 0.2").Grow(1).Font(widgets.MonoFont).Label("Vector")
+			ui.TextInput(c, &r.newScore).Placeholder("Attributes as JSON").Width(180).Font(widgets.MonoFont).Label("Attributes")
+			if ui.Button(c, "Add").Clicked() {
+				r.addVector()
+			}
 		case "stream":
 			ui.TextInput(c, &r.newName).Placeholder("ID, * for the next").Width(140).Font(widgets.MonoFont).Label("Entry ID")
 			ui.TextInput(c, &r.newValue).Placeholder("field value field value").Font(widgets.MonoFont).Grow(1).Label("Entry fields")
@@ -818,6 +855,10 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 				args = []string{"EVAL", removeListItem, "1", key, f.Name, f.Value}
 			case "stream":
 				args = []string{"XDEL", key, f.Name}
+			case "array":
+				args = []string{"ARDEL", key, f.Name}
+			case "vectorset":
+				args = []string{"VREM", key, f.Name}
 			case "set":
 				args = []string{"SREM", key, f.Value}
 			case "zset":
@@ -835,6 +876,10 @@ func (r *Tab) itemDetail(c *ui.Context) {
 		return
 	}
 	f := r.fields[r.fieldRow]
+	if r.info.Type == "vectorset" {
+		r.vectorDetail(c, f)
+		return
+	}
 	// Made once for each item: comparing the strings shared is cheap.
 	if r.itemName != f.Name || r.itemValue != f.Value {
 		r.itemName, r.itemValue = f.Name, f.Value
@@ -885,7 +930,7 @@ func (r *Tab) newKeyView(c *ui.Context) {
 	ui.Modal(c, &f.open, func() {
 		ui.Column(c).Width(420).Gap(10).Children(func() {
 			ui.Text(c, "New Key").FontSize(15).Bold()
-			ui.Select(c, &f.typ, redisTypes[1:6]).Label("Type")
+			ui.Select(c, &f.typ, newKeyTypes).Label("Type")
 			ui.TextInput(c, &f.key).Placeholder("Key name, e.g. user:42").AutoFocus().Label("Key")
 			if f.typ == "hash" {
 				ui.TextInput(c, &f.field).Placeholder("Field").Label("Field")

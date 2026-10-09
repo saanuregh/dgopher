@@ -327,6 +327,20 @@
     a time, with more on request; a string's first 64 KB, and the rest
     on request: a string shown in part is not editable, as saving it
     would cut it.
+  - Redis 8's types: a JSON document edited whole, formatted and checked
+    as JSON before JSON.SET saves it; an array's values read in order of
+    their indexes, set at an index, inserted at its next, and removed;
+    a vector set's elements, read with their attributes, added with
+    their vectors, and removed, the chosen one showing its vector, its
+    attributes to edit, and the elements most like it; a time series
+    charted over its last hour, day, week or month, or all of it, as the
+    averages of about 500 buckets, with its labels, rules and sizes, and
+    samples added to it. Other types, as Bloom filters, say to use the
+    console.
+  - A Search panel: the server's search indexes, each with what it
+    indexes, its fields and its documents; queries run on one, the
+    documents found opening as keys; New Index writes FT.CREATE in the
+    console to complete, and Drop Index drops one, its keys kept.
   - Values stored compressed or serialized show decoded, read only: gzip,
     zlib, zstd, LZ4, Snappy and Brotli, found by their first bytes or
     chosen; MessagePack, Python's pickle (never running the code it

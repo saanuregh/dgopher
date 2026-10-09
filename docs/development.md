@@ -52,6 +52,9 @@ docker run -d --name dbgopher-pg -p 127.0.0.1:15432:5432 -e POSTGRES_PASSWORD=db
 docker run -d --name dbgopher-mysql -p 127.0.0.1:13306:3306 -e MYSQL_ROOT_PASSWORD=dbgopher -e MYSQL_DATABASE=shop mysql:8.4
 docker run -d --name dbgopher-ch -p 127.0.0.1:19000:9000 -p 127.0.0.1:18123:8123 -e CLICKHOUSE_USER=default -e CLICKHOUSE_PASSWORD=dbgopher -e CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1 clickhouse/clickhouse-server:26.3
 docker run -d --name dbgopher-redis -p 127.0.0.1:16379:6379 redis:7
+# Redis 8, with its modules: JSON, Search, TimeSeries and vector sets, and
+# its arrays.
+docker run -d --name dbgopher-redis8 -p 127.0.0.1:16385:6379 redis:8
 # A cluster of three masters, and a master watched by a sentinel. They use the
 # host's network, so that the addresses the nodes announce are reachable.
 docker run -d --name dbgopher-redis-cluster --network host redis:7 sh -c 'for p in 17000 17001 17002; do redis-server --port $p --bind 127.0.0.1 --cluster-enabled yes --cluster-config-file nodes-$p.conf --requirepass dbgopher --masterauth dbgopher --daemonize yes; done; sleep 1; redis-cli -a dbgopher --no-auth-warning --cluster create 127.0.0.1:17000 127.0.0.1:17001 127.0.0.1:17002 --cluster-yes; exec tail -f /dev/null'
