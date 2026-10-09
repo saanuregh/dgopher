@@ -7,6 +7,7 @@ import (
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/widgets"
@@ -52,7 +53,7 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 		paletteItem{title: "Audit Log", detail: "who did what, verifiable", group: "Command", icon: widgets.IconShield, run: a.openAudit},
 		paletteItem{title: "Settings…", group: "Command", icon: widgets.IconSettings, run: func() { a.settingsOpen = true }},
 		paletteItem{title: "Toggle Sidebar", group: "Command", icon: widgets.IconColumns, run: func() { a.sidebarHidden = !a.sidebarHidden }},
-		paletteItem{title: "Keyboard Shortcuts", detail: widgets.KeyLabel("⌘/"), group: "Command", icon: widgets.IconCode, run: func() { a.shortcutsOpen = true }},
+		paletteItem{title: "Keyboard Shortcuts", detail: keymap.First(keymap.ShortcutsList), group: "Command", icon: widgets.IconCode, run: func() { a.shortcutsOpen = true }},
 		paletteItem{title: "New Project…", group: "Command", icon: widgets.IconFolder, run: func() { a.openNewProject(nil) }},
 		paletteItem{title: "Add Existing Folder…", detail: "list a project folder", group: "Command", icon: widgets.IconFolder, run: a.addExistingProject},
 	)

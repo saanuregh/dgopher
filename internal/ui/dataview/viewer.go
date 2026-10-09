@@ -1010,9 +1010,9 @@ func (v *Viewer) View(c *ui.Context) {
 		v.pickRef()
 	}
 	ui.Toolbar(c, func() {
-		refreshTip := "Read the rows again (⌘R)"
+		refreshTip := keymap.Hint("Read the rows again", keymap.Discard)
 		if !v.source.Reads {
-			refreshTip = "Run the statement again, once confirmed (⌘R)"
+			refreshTip = keymap.Hint("Run the statement again, once confirmed", keymap.Discard)
 		}
 		if widgets.ToolButton(c, widgets.IconRefresh, "Refresh", widgets.KeyLabel(refreshTip)).Clicked() {
 			v.RequestReload()
@@ -1074,7 +1074,7 @@ func (v *Viewer) View(c *ui.Context) {
 			if widgets.ToolButton(c, widgets.IconPlus, "Add Row", "Add a row").Clicked() {
 				v.grid.addRow(&v.src)
 			}
-			if widgets.IconButton(c, widgets.IconCopy, "Duplicate the chosen row (⌘⌥Insert)").Clicked() {
+			if widgets.IconButton(c, widgets.IconCopy, keymap.Hint("Duplicate the chosen row", keymap.DuplicateRow)).Clicked() {
 				if rows := v.grid.selectedRows(&v.src); len(rows) > 0 {
 					v.grid.duplicateRow(&v.src, rows[0], v.grid.keyCols)
 				}
@@ -1082,7 +1082,7 @@ func (v *Viewer) View(c *ui.Context) {
 			if widgets.ToolButton(c, widgets.IconTrash, "Delete", "Mark the chosen rows for deletion (Delete)").Clicked() {
 				v.grid.deleteSelected(&v.src)
 			}
-			if widgets.IconButton(c, widgets.IconUndo, widgets.KeyLabel("Undo the last change (⌘Z)")).Disabled(len(v.grid.undoStack) == 0).Clicked() {
+			if widgets.IconButton(c, widgets.IconUndo, keymap.Hint("Undo the last change", keymap.Undo)).Disabled(len(v.grid.undoStack) == 0).Clicked() {
 				v.grid.undo()
 			}
 		}
@@ -1107,10 +1107,10 @@ func (v *Viewer) View(c *ui.Context) {
 		ui.Row(c).Padding(6, 12).Gap(10).Background(pal.Modified).Children(func() {
 			ui.Text(c, fmt.Sprintf("%d pending change%s", n, widgets.Plural(n))).Bold()
 			ui.Text(c, "Nothing is written until you review and apply.").TextColor(pal.Muted).Grow(1)
-			if ui.Button(c, widgets.KeyLabel("Discard (⌘R)")).Clicked() {
+			if ui.Button(c, keymap.Hint("Discard", keymap.Discard)).Clicked() {
 				v.discard()
 			}
-			if ui.PrimaryButton(c, widgets.KeyLabel("Review and Apply (⌘S)")).Disabled(v.applying).Clicked() {
+			if ui.PrimaryButton(c, keymap.Hint("Review and Apply", keymap.Apply)).Disabled(v.applying).Clicked() {
 				v.Review(nil)
 			}
 		})

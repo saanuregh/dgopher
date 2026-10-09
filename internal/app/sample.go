@@ -11,13 +11,20 @@ import (
 	"time"
 
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 	"dgopher/internal/project"
-	"dgopher/internal/ui/widgets"
 )
+
+// sampleQuery is the editor the sample database opens with, naming the
+// keys as they are set.
+func sampleQuery() string {
+	return strings.NewReplacer("{run}", keymap.Hint("Running", keymap.Run), "{apply}", keymap.Hint("applied", keymap.Apply),
+		"{palette}", keymap.Hint("The palette", keymap.Palette)).Replace(sampleText)
+}
 
 // The sample database: a small shop in SQLite, made on this computer, to
 // try the app without a server.
-const sampleQuery = `-- A sample shop, to try DGopher. ⌘↵ runs the statement at the caret.
+const sampleText = `-- A sample shop, to try DGopher. {run} runs the statement at the caret.
 SELECT c.country,
        count(DISTINCT o.id) AS orders,
        round(sum(i.quantity * i.unit_price), 2) AS revenue
@@ -29,7 +36,7 @@ GROUP BY c.country
 ORDER BY revenue DESC;
 
 -- Then: open a table from the navigator, double-click a cell to edit it,
--- and review the SQL before it is applied (⌘S). ⌘K lists every command.
+-- and review the SQL before it is {apply}. {palette} lists every command.
 SELECT * FROM revenue_by_month;
 `
 
@@ -147,7 +154,7 @@ func (a *App) openSampleIn(p *project.Project) {
 		if cn.Config.Engine == db.SQLite && cn.Config.Database == path {
 			a.Connect(cn, func() {
 				a.expandDefaults(cn)
-				a.NewQueryTab(cn, "", widgets.KeyLabel(sampleQuery))
+				a.NewQueryTab(cn, "", sampleQuery())
 			})
 			return
 		}
@@ -172,7 +179,7 @@ func (a *App) openSampleIn(p *project.Project) {
 			}
 			a.Connect(cn, func() {
 				a.expandDefaults(cn)
-				a.NewQueryTab(cn, "", widgets.KeyLabel(sampleQuery))
+				a.NewQueryTab(cn, "", sampleQuery())
 			})
 		}
 	})

@@ -1037,22 +1037,22 @@ func (q *Tab) View(c *ui.Context) {
 				if widgets.ToolButton(c, widgets.IconStop, "Cancel", "Cancel (Esc)").Clicked() && q.cancel != nil {
 					q.cancel()
 				}
-			} else if widgets.ToolButton(c, widgets.IconPlay, "Run", widgets.KeyLabel("Run statement (⌘↵)")).Clicked() {
+			} else if widgets.ToolButton(c, widgets.IconPlay, "Run", keymap.Hint("Run statement", keymap.Run)).Clicked() {
 				q.Run(RunStatement)
 			}
-			if widgets.ToolButton(c, widgets.IconLayers, "Run Script", widgets.KeyLabel("Run all statements (⌘⇧↵)")).Clicked() {
+			if widgets.ToolButton(c, widgets.IconLayers, "Run Script", keymap.Hint("Run all statements", keymap.RunScript)).Clicked() {
 				q.Run(RunScript)
 			}
-			if widgets.ToolButton(c, widgets.IconCode, "Explain", widgets.KeyLabel("Explain plan (⌘E)")).Clicked() {
+			if widgets.ToolButton(c, widgets.IconCode, "Explain", keymap.Hint("Explain plan", keymap.Explain)).Clicked() {
 				q.Run(RunExplain)
 			}
-			if widgets.ToolButton(c, widgets.IconClock, "Analyze", widgets.KeyLabel("Run the statement to measure its plan (⌘⇧E)")).Clicked() {
+			if widgets.ToolButton(c, widgets.IconClock, "Analyze", keymap.Hint("Run the statement to measure its plan", keymap.ExplainAnalyze)).Clicked() {
 				q.Run(RunExplainAnalyze)
 			}
-			if widgets.ToolButton(c, widgets.IconWand, "Format", widgets.KeyLabel("Format SQL (⌘⇧F)")).Clicked() {
+			if widgets.ToolButton(c, widgets.IconWand, "Format", keymap.Hint("Format SQL", keymap.Format)).Clicked() {
 				q.format()
 			}
-			if widgets.ToolButton(c, widgets.IconSave, "Save As", widgets.KeyLabel("Save a copy under another name (⌘⇧S)")).Clicked() {
+			if widgets.ToolButton(c, widgets.IconSave, "Save As", keymap.Hint("Save a copy under another name", keymap.SaveAs)).Clicked() {
 				a.SaveSQLFile(q, true)
 			}
 			ui.Spacer(c)
@@ -1375,7 +1375,7 @@ func (q *Tab) messagesView(c *ui.Context) {
 	ui.Scroll(c).Grow(1).Children(func() {
 		ui.Column(c).Padding(8, 12).Gap(8).Children(func() {
 			if len(q.messages) == 0 {
-				ui.Text(c, widgets.KeyLabel("Run a statement with ⌘↵, or the whole script with ⌘⇧↵.")).TextColor(pal.Muted)
+				ui.Text(c, keymap.Hint("Run a statement", keymap.Run)+", or "+keymap.Hint("the whole script", keymap.RunScript)+".").TextColor(pal.Muted)
 			}
 			for i := len(q.messages) - 1; i >= 0; i-- {
 				m := q.messages[i]

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"dgopher/internal/keymap"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -26,7 +27,7 @@ func (g *Grid) presentationBar(c *ui.Context) {
 			mode  int
 			icon  *ui.SVG
 			label string
-		}{{viewGrid, widgets.IconColumns, "Grid"}, {viewRecord, widgets.IconFile, "Record: the chosen row as fields (Tab)"}, {viewText, widgets.IconCode, "Text: the rows as plain text (⌘`)"}} {
+		}{{viewGrid, widgets.IconColumns, "Grid"}, {viewRecord, widgets.IconFile, "Record: the chosen row as fields (Tab)"}, {viewText, widgets.IconCode, keymap.Hint("Text: the rows as plain text", keymap.NextPresentation)}} {
 			b := widgets.IconButton(c, p.icon, p.label)
 			if g.mode == p.mode {
 				b.Background(th.Accent.Alpha(0.15))

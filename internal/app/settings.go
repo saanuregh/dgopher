@@ -1,6 +1,7 @@
 package app
 
 import (
+	"dgopher/internal/keymap"
 	"dgopher/internal/project"
 	"dgopher/internal/ui/widgets"
 
@@ -68,7 +69,7 @@ func (a *App) settingsView(c *ui.Context) {
 						a.settings.SemicolonOnly = !blank
 						a.SaveSettings()
 					}
-				}).Description("As in DBeaver: ⌘↵ runs the statement around the caret, up to the blank lines around it.")
+				}).Description("As in DBeaver: " + keymap.Hint("running a statement", keymap.Run) + " runs the one around the caret, up to the blank lines around it.")
 				ui.Field(c, "On error in a script", func() {
 					cont := 0
 					if a.settings.ContinueOnError {

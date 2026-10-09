@@ -401,7 +401,7 @@ func (a *App) welcome(c *ui.Context) {
 						onClick()
 					}
 				}
-				card(widgets.IconPlus, "New connection", widgets.KeyLabel("A server or a file (⌘N)"), func() { a.openConnForm(nil) })
+				card(widgets.IconPlus, "New connection", keymap.Hint("A server or a file", keymap.NewConnection), func() { a.openConnForm(nil) })
 				card(widgets.IconPlug, "Paste a URL", "postgres://, mysql://, redis://…", func() {
 					a.openConnForm(nil)
 					if a.connForm != nil {
@@ -409,7 +409,7 @@ func (a *App) welcome(c *ui.Context) {
 					}
 				})
 				card(widgets.IconLayers, "Try the sample", "A small shop in SQLite, to explore", a.openSample)
-				card(widgets.IconFolder, "Add a project folder", widgets.KeyLabel("A Git repository's connections and .sql files (⌘⇧O)"), a.addExistingProject)
+				card(widgets.IconFolder, "Add a project folder", keymap.Hint("A Git repository's connections and .sql files", keymap.AddFolder), a.addExistingProject)
 			})
 			if len(a.conns) > 0 {
 				ui.Column(c).Gap(8).Children(func() {
@@ -447,15 +447,18 @@ func (a *App) welcome(c *ui.Context) {
 			}
 			ui.Row(c).Gap(16).Wrap().Children(func() {
 				tip := func(keys, what string) {
+					if keys == "" {
+						return // its key taken away
+					}
 					ui.Row(c).Gap(6).Children(func() {
-						ui.Text(c, widgets.KeyLabel(keys)).Font(widgets.MonoFont).FontSize(11.5).Padding(2, 6).Radius(4).Background(pal.Hover)
+						ui.Text(c, keys).Font(widgets.MonoFont).FontSize(11.5).Padding(2, 6).Radius(4).Background(pal.Hover)
 						ui.Text(c, what).FontSize(12.5).TextColor(pal.Muted)
 					})
 				}
-				tip("⌘K", "every command")
-				tip("⌘P", "open a table")
-				tip("⌘↵", "run")
-				if ui.Link(c, widgets.KeyLabel("All shortcuts (⌘/)"), "").FontSize(12.5).Clicked() {
+				tip(keymap.First(keymap.Palette), "every command")
+				tip(keymap.First(keymap.OpenTable), "open a table")
+				tip(keymap.First(keymap.Run), "run")
+				if ui.Link(c, keymap.Hint("All shortcuts", keymap.ShortcutsList), "").FontSize(12.5).Clicked() {
 					a.shortcutsOpen = true
 				}
 			})

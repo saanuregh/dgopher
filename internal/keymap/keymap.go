@@ -332,6 +332,23 @@ func LaterPressed(c *ui.Context, id string) bool {
 	return false
 }
 
+// First is a command's first key as the platform shows it, "" for none.
+func First(id string) string {
+	if ch, ok := Primary(id); ok {
+		return ch.Label()
+	}
+	return ""
+}
+
+// Hint is a tooltip or a label with a command's first key after it, as
+// "Format SQL (⌘⇧F)"; the text alone for a command without keys.
+func Hint(text, id string) string {
+	if k := First(id); k != "" {
+		return text + " (" + k + ")"
+	}
+	return text
+}
+
 // Pressed reports whether a key of the command was pressed, as
 // c.Shortcut does for one.
 func Pressed(c *ui.Context, id string) bool {

@@ -8,6 +8,7 @@ import (
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 	"dgopher/internal/sqltext"
 	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
@@ -435,7 +436,7 @@ func (q *Tab) problemBar(c *ui.Context) {
 	ui.Row(c).Padding(4, 12).Gap(8).AlignItems(ui.Center).Background(th.Danger.Alpha(0.10)).Children(func() {
 		ui.Icon(c, widgets.IconAlert).TextColor(th.Danger).FontSize(13)
 		ui.Text(c, p.Message).FontSize(12.5).Grow(1).Shrink(1).SingleLine()
-		if p.Fix != "" && ui.Button(c, widgets.KeyLabel("Fix (⌥↵)")).Clicked() {
+		if p.Fix != "" && ui.Button(c, keymap.Hint("Fix", keymap.QuickFix)).Clicked() {
 			q.fixProblem()
 		}
 	})
