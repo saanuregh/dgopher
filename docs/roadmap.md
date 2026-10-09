@@ -62,8 +62,6 @@ Next or Later are not repeated.
 - **Schema:**
   - Create and change tables in a form, covering columns, indexes, keys
     and constraints, and show the SQL before running it.
-  - Open functions and procedures by name, and search the names and
-    contents of every object in a database.
   - Save an ER diagram as PNG or SVG, and change the schema by editing
     the diagram.
   - Data models: build a model from a database, generate DDL from a

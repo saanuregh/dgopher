@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -1130,6 +1131,75 @@ func TestIntegrationRename(t *testing.T) {
 			cols, err := d.Dialect.Columns(ctx, d.SQL, c.schema, "it_renamed")
 			if err != nil || len(cols) != 1 || cols[0].Name != "b" {
 				t.Fatalf("columns %+v: %v", cols, err)
+			}
+		})
+	}
+}
+
+// A search finds tables, views and columns by name in any schema, and
+// views by their query when definitions are searched.
+func TestIntegrationSearch(t *testing.T) {
+	integration(t)
+	ctx := context.Background()
+	for _, c := range []struct {
+		cfg    Config
+		schema string
+	}{
+		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dbgopher", Database: "postgres"}, "public"},
+		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"}, "shop"},
+		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "s.sqlite")}, "main"},
+		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main"},
+		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher"}, "default"},
+	} {
+		t.Run(string(c.cfg.Engine), func(t *testing.T) {
+			if c.cfg.Engine == SQLite {
+				os.WriteFile(c.cfg.Database, nil, 0o600)
+			}
+			d, err := Open(ctx, c.cfg, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer d.Close()
+			table, view := QualifiedName(d.Dialect, c.schema, "It_Find_Orders"), QualifiedName(d.Dialect, c.schema, "it_find_paid")
+			create := "CREATE TABLE " + table + " (it_find_total int, note varchar(20))"
+			if c.cfg.Engine == ClickHouse {
+				create = "CREATE TABLE " + table + " (it_find_total Int32, note String) ENGINE = Memory"
+			}
+			drop := []string{"DROP VIEW IF EXISTS " + view, "DROP TABLE IF EXISTS " + table}
+			for _, q := range append(drop, create, "CREATE VIEW "+view+" AS SELECT it_find_total FROM "+table+" WHERE note = 'Zebra marker'") {
+				if _, err := d.SQL.ExecContext(ctx, q); err != nil {
+					t.Fatal(q, err)
+				}
+			}
+			defer func() {
+				for _, q := range drop {
+					d.SQL.ExecContext(ctx, q)
+				}
+			}()
+			hits, more, err := Search(ctx, d, "IT_FIND", false)
+			if err != nil || more {
+				t.Fatal(more, err)
+			}
+			var found []string
+			for _, h := range hits {
+				if h.Schema == c.schema {
+					found = append(found, strings.TrimSpace(h.Kind+" "+h.Table+"."+h.Name+" "+string(h.TableKind)+h.Excerpt))
+				}
+			}
+			slices.Sort(found)
+			want := []string{"column It_Find_Orders.it_find_total table", "column it_find_paid.it_find_total view", "table .It_Find_Orders", "view .it_find_paid"}
+			if !slices.Equal(found, want) {
+				t.Fatalf("by name:\n%q\nwant\n%q", found, want)
+			}
+			if hits, _, err := Search(ctx, d, "zebra marker", false); err != nil || len(hits) != 0 {
+				t.Fatalf("names only: %+v %v", hits, err)
+			}
+			hits, _, err = Search(ctx, d, "zebra marker", true)
+			if err != nil || len(hits) != 1 || hits[0].Name != "it_find_paid" || !strings.Contains(hits[0].Excerpt, "Zebra marker") {
+				t.Fatalf("by definition: %+v %v", hits, err)
+			}
+			if hits[0].Object().Kind != KindView {
+				t.Fatalf("object %+v", hits[0].Object())
 			}
 		})
 	}

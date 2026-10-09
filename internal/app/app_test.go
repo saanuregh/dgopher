@@ -1554,6 +1554,45 @@ func TestRenameInDatabase(t *testing.T) {
 	})
 }
 
+// The search of a database finds objects by name, and views by their
+// query, and opens what it found.
+func TestSearchObjects(t *testing.T) {
+	a := newTestApp(t)
+	file := filepath.Join(t.TempDir(), "x.sqlite")
+	os.WriteFile(file, nil, 0o600)
+	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
+	tt := ui.NewTester(a.view, 1200, 800)
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	for _, q := range []string{`CREATE TABLE invoices (id INTEGER PRIMARY KEY, customer TEXT)`,
+		`CREATE VIEW unpaid AS SELECT id FROM invoices WHERE customer = 'acme'`} {
+		if _, err := cn.DB.SQL.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a.openSearch(cn, "")
+	testutil.WaitFor(t, tt, "the search tab", func() bool { _, ok := a.ActiveTab().(*searchTab); return ok })
+	st := a.ActiveTab().(*searchTab)
+	st.query = "custom"
+	st.search()
+	testutil.WaitFor(t, tt, "the hits", func() bool { return !st.searching && tt.HasText("invoices.customer") })
+	if len(st.hits) != 2 || st.hits[1].Name != "unpaid" { // its query names the column
+		t.Fatalf("hits %+v", st.hits)
+	}
+	st.query = "ACME"
+	st.search()
+	testutil.WaitFor(t, tt, "the view", func() bool { return !st.searching && st.searched == "ACME" })
+	if len(st.hits) != 1 || st.hits[0].Name != "unpaid" || !tt.HasText(st.hits[0].Excerpt) {
+		t.Fatalf("hits %+v", st.hits)
+	}
+	testutil.Snapshot(t, tt, "search-objects")
+	st.open(st.hits[0])
+	testutil.WaitFor(t, tt, "the view's definition", func() bool {
+		v, ok := a.ActiveTab().(*dataview.TableTab)
+		return ok && v.Object.Name == "unpaid" && v.Page == dataview.PageDDL
+	})
+}
+
 // Users are made, granted, taken back from and dropped from their tab;
 // a password shows nowhere: not in the confirmation, the audit log or a
 // file.

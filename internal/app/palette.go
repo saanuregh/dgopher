@@ -61,6 +61,8 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 		if active.Config.Engine.IsSQL() {
 			cmds = append(cmds, paletteItem{title: "Run SQL File…", detail: active.Config.Name + ", without opening it", group: "Command", icon: widgets.IconFile,
 				run: func() { a.openSQLFileRun(active, "") }})
+			cmds = append(cmds, paletteItem{title: "Search Objects…", detail: active.Config.Name + ", by name or definition", group: "Command", icon: widgets.IconSearch,
+				run: func() { a.openSearch(active, "") }})
 		}
 		if active.Status == connection.StatusConnected {
 			if !active.Config.Engine.IsFile() {
@@ -96,6 +98,19 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 					ic = widgets.IconView
 				}
 				tables = append(tables, paletteItem{title: o.Name, detail: detail, group: "Table", icon: ic, run: func() { a.OpenTable(cn, key.Database, o, dataview.PageData) }})
+			}
+		}
+		for key, items := range cn.Items {
+			for _, it := range items {
+				if it.Kind != db.ItemFunction && it.Kind != db.ItemProcedure {
+					continue
+				}
+				group := "Function"
+				if it.Kind == db.ItemProcedure {
+					group = "Procedure"
+				}
+				tables = append(tables, paletteItem{title: it.Label(), detail: cn.Config.Name + " · " + it.Schema, group: group, icon: itemIcon(it.Kind),
+					run: func() { a.openItemDefinition(cn, key.Database, it) }})
 			}
 		}
 	}
@@ -179,7 +194,7 @@ func (a *App) paletteView(c *ui.Context) {
 			ui.Icon(c, widgets.IconSearch).TextColor(pal.Muted).FontSize(15)
 			placeholder := "Search commands, connections and tables"
 			if p.tables {
-				placeholder = "Open a table"
+				placeholder = "Open a table or a routine"
 			}
 			in := ui.TextInputBase(c, &p.query).Placeholder(placeholder).AutoFocus().Grow(1).FontSize(15).Label("Search")
 			switch {

@@ -600,6 +600,9 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			if m.Item("Run SQL File…").Chosen() {
 				a.openSQLFileRun(cn, "")
 			}
+			if m.Item("Search Objects…").Chosen() {
+				a.openSearch(cn, "")
+			}
 		}
 		if !cn.Config.Engine.IsFile() && m.Item("Server Activity").Chosen() {
 			a.openActivity(cn)
@@ -715,6 +718,9 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		}
 		if n.kind == nodeDatabase && m.Item("Run SQL File…").Chosen() {
 			a.openSQLFileRun(cn, n.database)
+		}
+		if m.Item("Search Objects…").Chosen() {
+			a.openSearch(cn, n.database)
 		}
 		if m.Item("New SQL Editor").Chosen() {
 			text := ""

@@ -11,7 +11,8 @@
   JSON file (queried in place by DuckDB), or an Excel or XML file
   (imported into a new table).
 - **Keyboard first:**
-  - Every command is in the palette (⌘K), and tables open by name (⌘P).
+  - Every command is in the palette (⌘K), and tables, functions and
+    procedures open by name (⌘P).
   - ⌘1…⌘9 switch tabs (in the results grid, ⌘2 sorts by the chosen
     column instead); ⌘0 focuses the navigator; ⌘L focuses the current
     view's filter; ⌘J moves between the editor and its results; F5 runs or
@@ -95,6 +96,11 @@
     open one's rows, detach it, or make a new one, its statement written
     for the table's strategy.
   - Tables: view DDL, copy the name, export data, truncate or drop.
+  - Search Objects finds the tables, views, columns, routines, triggers,
+    sequences and types of every schema of a database by name, and with
+    In definitions, views by their query and routines and triggers by
+    their body, showing the line that matched. Enter opens what it found:
+    a table's rows, a column's structure, or a definition.
   - Rename a table, a view or a column of a table, through the same
     safety review as a statement typed in an editor; SQLite cannot rename
     a view.
