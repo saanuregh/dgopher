@@ -317,4 +317,6 @@ func HeaderAt(text string, caret int) (start int, typed string, ok bool) {
 type Snippet struct {
 	Name string `json:"name"`
 	SQL  string `json:"sql"`
+	// Keyword is what, typed in an editor, completes to the snippet.
+	Keyword string `json:"keyword,omitempty"`
 }

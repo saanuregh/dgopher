@@ -17,10 +17,10 @@ import (
 
 // suggestion is an item of the completion popup.
 type suggestion struct {
-	text   string // what is inserted
+	text   string // what is inserted: a snippet's SQL, with its fields
 	label  string
 	detail string // its type or kind
-	kind   string // "table", "column", "keyword", "schema"
+	kind   string // "table", "view", "column", "keyword", "schema", "function", "snippet" or "connection"
 }
 
 // completion is the state of the SQL editor's completion popup.
@@ -39,7 +39,9 @@ type completion struct {
 	row    int
 }
 
-func isIdentRune(r rune) bool {
+// IsIdentRune reports whether a rune may be part of a word completion
+// completes, as a name or a snippet's keyword.
+func IsIdentRune(r rune) bool {
 	return r == '_' || r == '$' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
@@ -147,6 +149,10 @@ func kindGlyph(kind string) string {
 		return "S"
 	case "connection":
 		return "C"
+	case "function":
+		return "ƒ"
+	case "snippet":
+		return "≡"
 	}
 	return "k"
 }
@@ -162,9 +168,26 @@ func (q *Tab) accept() {
 		return
 	}
 	it := ac.items[ac.index]
-	q.Editor.Replace(ac.start, q.Editor.SelEnd, it.text)
-	ac.lastText = q.Editor.Text
 	ac.open = false
+	switch it.kind {
+	case "snippet":
+		q.insertSnippetAt(ac.start, q.Editor.SelEnd, it.text)
+		return
+	case "function":
+		// The caret goes between the parentheses, unless they follow.
+		runes := []rune(q.Editor.Text)
+		end := min(q.Editor.SelEnd, len(runes))
+		if end < len(runes) && runes[end] == '(' {
+			q.Editor.Replace(ac.start, end, it.text)
+		} else {
+			q.Editor.Replace(ac.start, end, it.text+"()")
+			at := ac.start + utf8.RuneCountInString(it.text) + 1
+			q.Editor.PendingSel = &[2]int{at, at}
+		}
+	default:
+		q.Editor.Replace(ac.start, q.Editor.SelEnd, it.text)
+	}
+	ac.lastText = q.Editor.Text
 }
 
 // suggest finds what may complete the word at the caret. With force, it
@@ -185,7 +208,7 @@ func (q *Tab) suggest(a Host, force bool) {
 	}
 	ac.header = false
 	if !force {
-		if caret == 0 || !(isIdentRune(runes[caret-1]) || runes[caret-1] == '.') {
+		if caret == 0 || !(IsIdentRune(runes[caret-1]) || runes[caret-1] == '.') {
 			ac.open = false
 			return
 		}
@@ -220,8 +243,9 @@ func filterSuggestions(items []suggestion, typed string) []suggestion {
 	if len(out) > 60 {
 		out = out[:60]
 	}
-	// Nothing to add to a word typed in full.
-	if len(out) == 1 && strings.EqualFold(out[0].label, typed) {
+	// Nothing to add to a word typed in full, unless it is a snippet's
+	// keyword, which completes to more.
+	if len(out) == 1 && strings.EqualFold(out[0].label, typed) && out[0].kind != "snippet" {
 		out = nil
 	}
 	return out
@@ -261,10 +285,15 @@ func (q *Tab) candidates(a Host, cc sqltext.CompletionContext) []suggestion {
 		if tableSchema == "" {
 			tableSchema = schema
 		}
-		cols, ok := cn.Columns[connection.ObjectKey{Database: q.Database, Schema: tableSchema, Name: table}]
+		key := connection.ObjectKey{Database: q.Database, Schema: tableSchema, Name: table}
+		cols, ok := cn.Columns[key]
 		if !ok {
-			connection.LoadColumns(a, cn, q.Database, tableSchema, table, nil)
-			q.ac.retry = true
+			// One that could not be read is not read again at each key:
+			// the navigator's refresh tries again.
+			if cn.LoadErr[key] == "" {
+				connection.LoadColumns(a, cn, q.Database, tableSchema, table, nil)
+				q.ac.retry = true
+			}
 			return
 		}
 		for _, c := range cols {
@@ -272,10 +301,13 @@ func (q *Tab) candidates(a Host, cc sqltext.CompletionContext) []suggestion {
 		}
 	}
 	objectsOf := func(s string) {
-		objs, ok := cn.Objects[connection.SchemaKey{Database: q.Database, Schema: s}]
+		key := connection.SchemaKey{Database: q.Database, Schema: s}
+		objs, ok := cn.Objects[key]
 		if !ok {
-			connection.LoadObjects(a, cn, q.Database, s)
-			q.ac.retry = true
+			if cn.LoadErr[key] == "" {
+				connection.LoadObjects(a, cn, q.Database, s)
+				q.ac.retry = true
+			}
 			return
 		}
 		for _, o := range objs {
@@ -312,8 +344,34 @@ func (q *Tab) candidates(a Host, cc sqltext.CompletionContext) []suggestion {
 		columnsOf(t.Schema, t.Name)
 	}
 	objectsOf(schema)
+	out = append(out, q.snippetSuggestions()...)
+	if items, ok := cn.Items[connection.SchemaKey{Database: q.Database, Schema: schema}]; ok {
+		for _, it := range items {
+			if it.Kind == db.ItemFunction || it.Kind == db.ItemProcedure {
+				out = append(out, suggestion{text: quote(it.Name), label: it.Name, detail: "(" + it.Detail + ")", kind: "function"})
+			}
+		}
+	} else if cn.ItemsError(q.Database, schema) == "" {
+		connection.LoadItems(a, cn, q.Database, schema)
+		q.ac.retry = true
+	}
+	for _, f := range sqltext.Functions(q.Editor.Dialect) {
+		out = append(out, suggestion{text: f, label: f, detail: "function", kind: "function"})
+	}
 	for _, k := range sqltext.Keywords(q.Editor.Dialect) {
 		out = append(out, suggestion{text: k, label: k, kind: "keyword"})
+	}
+	return out
+}
+
+// snippetSuggestions are the snippets a keyword completes to: the
+// project's, then those every editor has.
+func (q *Tab) snippetSuggestions() []suggestion {
+	var out []suggestion
+	for _, s := range append(slices.Clone(q.Conn.Project.Snippets), builtinSnippets...) {
+		if s.Keyword != "" {
+			out = append(out, suggestion{text: s.SQL, label: s.Keyword, detail: s.Name, kind: "snippet"})
+		}
 	}
 	return out
 }
@@ -345,7 +403,7 @@ func (q *Tab) caretInWord() bool {
 		return false
 	}
 	for _, r := range runes[q.ac.start:e.SelEnd] {
-		if q.ac.header && unicode.IsSpace(r) || !q.ac.header && !isIdentRune(r) && r != '.' {
+		if q.ac.header && unicode.IsSpace(r) || !q.ac.header && !IsIdentRune(r) && r != '.' {
 			return false
 		}
 	}

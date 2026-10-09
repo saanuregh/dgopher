@@ -32,8 +32,6 @@ Next or Later are not repeated.
   - Mark errors while typing, with suggested fixes.
   - Rename an object everywhere it is used, jump to where an object is
     defined, and list every place it is used.
-  - Complete function names and snippets while typing.
-  - Snippets with fields to fill in, inserted by typing a short keyword.
   - An outline that lists the statements in a file and jumps to them.
   - Change the editor's database or schema from a list in the editor.
   - Build a query by choosing tables and columns instead of typing SQL.
@@ -99,7 +97,6 @@ Next or Later are not repeated.
 - **Kerberos:** PostgreSQL only; MySQL's Kerberos plugin has no Go
   client. On macOS, `KRB5CCNAME` must name a `FILE:` cache: the
   system's default cache is not a file.
-
 - **DuckDB:** a read-only and a read-write connection to the same file
   cannot be open at once: the driver keeps one database per file.
 - **ClickHouse:** rows are not editable from the grid, because ClickHouse

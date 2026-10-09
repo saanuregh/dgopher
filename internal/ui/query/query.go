@@ -106,6 +106,8 @@ type Tab struct {
 	Editor  editor.Editor
 	editorH float32
 	ac      completion
+	// snippet is the fields of a snippet being filled in, nil for none.
+	snippet *snippetSession
 	find    editor.Find
 
 	sess      *db.Session
@@ -132,7 +134,7 @@ func New(a Host, cn *connection.Conn, database, name, text string) *Tab {
 	q.ac.lastText = text // what the tab opens on was not typed
 	q.Editor.Dialect = safety.Dialect(cn.Config.Engine)
 	q.Editor.WantFocus = true
-	q.Editor.KeyHook = q.completionKey
+	q.Editor.KeyHook = q.editorKey
 	if text != "" {
 		n := len([]rune(text))
 		q.Editor.PendingSel = &[2]int{n, n}
@@ -1000,6 +1002,7 @@ func (q *Tab) View(c *ui.Context) {
 				_, _, ok := q.currentStatement()
 				q.Editor.HasCurrent = ok && q.Editor.HasFocus
 				q.Editor.View(c, a.Settings().EditorFont).ContextMenu(q.editorMenu)
+				q.trackSnippet()
 				q.completionView(c, a)
 			})
 		}, func() {

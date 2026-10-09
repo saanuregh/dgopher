@@ -17,7 +17,9 @@ type snippetForm struct {
 	open    bool
 	project *project.Project
 	name    string
+	keyword string
 	sql     string
+	err     string
 }
 
 // AskSnippet keeps the selection of an editor, or its statement at the
@@ -43,15 +45,24 @@ func (a *App) snippetFormView(c *ui.Context) {
 		ui.Column(c).Width(520).Gap(10).Children(func() {
 			ui.Text(c, "Save as Snippet").FontSize(15).Bold()
 			submit := ui.TextInput(c, &f.name).AutoFocus().Label("Name").Placeholder("Name").Submitted()
+			ui.TextInput(c, &f.keyword).Label("Keyword").Placeholder("Keyword that completes to it, as recent").Font(widgets.MonoFont)
 			ui.Scroll(c).MaxHeight(200).Radius(8).Background(pal.EditorBg).Children(func() {
 				ui.Text(c, f.sql).Font(widgets.MonoFont).FontSize(12).Padding(10)
 			})
-			ui.Text(c, "Saved in "+project.File+" of "+f.project.Name+", to share with the project; inserted from the command palette into any of its editors.").FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, "Saved in "+project.File+" of "+f.project.Name+", to share with the project; inserted from the command palette into any of its editors, or by typing its keyword. Fields to fill in are written ${1:default}, $2, and $0 where the caret ends; Tab goes from one to the next.").FontSize(12).TextColor(pal.Muted)
+			if f.err != "" {
+				ui.Text(c, f.err).FontSize(12).TextColor(c.Theme().Danger)
+			}
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 				if ui.Button(c, "Cancel").Clicked() {
 					f.open = false
 				}
 				if (ui.PrimaryButton(c, "Save").Clicked() || submit) && strings.TrimSpace(f.name) != "" {
+					keyword := strings.TrimSpace(f.keyword)
+					if strings.ContainsFunc(keyword, func(r rune) bool { return !query.IsIdentRune(r) }) {
+						f.err = "A keyword is one word: letters, digits and _."
+						return
+					}
 					if err := f.project.Writable(); err != nil {
 						a.ShowError("Could not save the snippet", err.Error())
 						return
@@ -61,11 +72,11 @@ func (a *App) snippetFormView(c *ui.Context) {
 					p := f.project
 					for i := range p.Snippets {
 						if p.Snippets[i].Name == name {
-							p.Snippets[i].SQL, replaced = f.sql, true
+							p.Snippets[i].SQL, p.Snippets[i].Keyword, replaced = f.sql, keyword, true
 						}
 					}
 					if !replaced {
-						p.Snippets = append(p.Snippets, project.Snippet{Name: name, SQL: f.sql})
+						p.Snippets = append(p.Snippets, project.Snippet{Name: name, SQL: f.sql, Keyword: keyword})
 					}
 					a.saveProject(p)
 					f.open = false
@@ -83,16 +94,14 @@ func (a *App) snippetFormView(c *ui.Context) {
 // or opens an editor with it.
 func (a *App) insertSnippet(s project.Snippet) {
 	if q, ok := a.ActiveTab().(*query.Tab); ok {
-		start, end := min(q.Editor.SelStart, q.Editor.SelEnd), max(q.Editor.SelStart, q.Editor.SelEnd)
-		q.Editor.Replace(start, end, s.SQL)
-		q.Editor.WantFocus = true
+		q.InsertSnippet(s.SQL)
 		return
 	}
 	if cn := a.activeConn(); cn != nil && cn.Config.Engine.IsSQL() {
-		a.NewQueryTab(cn, "", s.SQL)
+		a.newQueryFile(cn, "", "", func(q *query.Tab) { q.InsertSnippet(s.SQL) })
 		return
 	}
-	a.WriteClipboard(s.SQL)
+	a.WriteClipboard(query.SnippetText(s.SQL))
 	a.toast = &pendingToast{text: "Copied " + s.Name + ": no editor is open"}
 }
 

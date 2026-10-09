@@ -143,7 +143,9 @@
 
 - **SQL editor**, run as DBeaver runs it:
   - Syntax highlighting per dialect, and line numbers.
-  - Completion of tables, columns (alias-aware), schemas and keywords.
+  - Completion of tables, columns (alias-aware), schemas, keywords, the
+    engine's common functions and the schema's own, which complete with
+    their parentheses, and snippets by their keyword.
   - A statement ends at `;` or at a blank line, so ⌘↵ runs the statement
     around the caret without selecting it; a band shows which. A setting
     keeps `;` only. A procedure, function or trigger body (`BEGIN … END`,
@@ -352,8 +354,11 @@
     `\restrict` lines skipped; other psql commands, as `\connect`, stop
     it, as only psql runs them. MySQL's `DELIMITER` and executable
     comments work as in the `mysql` client.
-- **Snippets:** keep the selected SQL under a name, and insert it into any
-  editor from the command palette.
+- **Snippets:** keep the selected SQL under a name and a keyword, and
+  insert it into any editor from the command palette or by typing its
+  keyword; `sel`, `ins`, `upd`, `del` and a few more come with every
+  editor. A snippet's fields, written `${1:default}`, `$2` and `$0` for
+  where the caret ends, are filled in one after the other with Tab.
 - **History:** every statement and command is recorded, per project, with
   its timing and error (⌘Y). Open any entry again (↵) in a new editor of
   its connection.
