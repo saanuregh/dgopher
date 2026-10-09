@@ -61,11 +61,23 @@ jobs:
       - name: Upload to the release
         env:
           GH_TOKEN: ${{ github.token }}
+        # Each file is named for its platform: the disk images of both Macs,
+        # for one, are otherwise named alike, and one would replace the other.
         run: |
-          dir="build/$(echo "${{ matrix.platform }}" | tr / -)"
+          platform="$(echo "${{ matrix.platform }}" | tr / -)"
+          dir="build/$platform"
           files=()
-          while IFS= read -r -d '' f; do files+=("$f"); done < <(
-            find "$dir" -maxdepth 1 -type f \( -name '*.dmg' -o -name '*Setup*.exe' -o -name '*.deb' -o -name '*.tar.gz' \) -print0)
+          while IFS= read -r -d '' f; do
+            name="$(basename "$f")"
+            name="${name// /-}"
+            case "$name" in
+              *amd64* | *arm64*) ;;
+              *.tar.gz) name="${name%.tar.gz}-$platform.tar.gz" ;;
+              *) name="${name%.*}-$platform.${name##*.}" ;;
+            esac
+            cp "$f" "$RUNNER_TEMP/$name"
+            files+=("$RUNNER_TEMP/$name")
+          done < <(find "$dir" -maxdepth 1 -type f \( -name '*.dmg' -o -name '*Setup*.exe' -o -name '*.deb' -o -name '*.tar.gz' \) -print0)
           test "${#files[@]}" -gt 0 || { echo "nothing built in $dir"; ls -la "$dir"; exit 1; }
           gh release upload "$GITHUB_REF_NAME" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
 
