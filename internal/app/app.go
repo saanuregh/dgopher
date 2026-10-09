@@ -35,20 +35,29 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// App is the state of the main window.
+// App is the state of the app and its windows.
 type App struct {
-	win interface{ Invalidate() }
-	// windowFocused reports whether the window has the keyboard focus;
-	// notify shows a system notification, whose click runs onClick off
-	// the main thread. Both are the window's, nil without one.
+	// window is the window tabs open in and come forward in: the one
+	// being drawn, and while posted work runs, the one the user last used.
+	*window
+	// drawing is the window a frame is drawing, nil between frames: a tab
+	// brought forward then stays in its window, which comes to the front.
+	drawing     *window
+	main        *window
+	windows     []*window
+	lastFocused *window
+	// makeWindow makes the system's window of a window, nil without the
+	// system's windows, as in tests.
+	makeWindow func(*window)
+	// windowFocused reports whether a window of the app has the keyboard
+	// focus; notify shows a system notification, whose click runs onClick
+	// off the main thread. Both are the system's, nil without its windows.
 	windowFocused func() bool
 	notify        func(title, body string, onClick func())
 	st            *store.Store
 
 	settings settings.Settings
 	conns    []*connection.Conn
-	tabs     []widgets.Tab
-	active   int
 
 	// Work finished on other goroutines, applied as the next frame starts.
 	queueMu sync.Mutex
@@ -93,12 +102,7 @@ type App struct {
 	newModel  *newModelForm
 	// fileLists are the projects' dashboards and models, by folder: a
 	// menu asks for them each frame it shows.
-	fileLists map[string]namedFiles
-	// side is the tab shown beside the active one, nil for none; it shows
-	// left of it when sideLeft is set, and the left pane is splitW wide.
-	side        widgets.Tab
-	sideLeft    bool
-	splitW      float32
+	fileLists   map[string]namedFiles
 	quitting    bool // the user agreed to what quitting loses
 	idleWarn    *idleWarning
 	auditView   *auditState
@@ -108,10 +112,6 @@ type App struct {
 
 	settingsOpen  bool
 	shortcutsOpen bool
-	// focusWant is where a key asked the keyboard focus to go: "nav",
-	// "filter", "editor" or "results". The view that holds that place
-	// takes it, and clears it once it has the focus.
-	focusWant     string
 	sidebarHidden bool
 	settingsDirty bool
 	clipboard     func(string)
@@ -129,6 +129,8 @@ type App struct {
 
 func newApp(st *store.Store) *App {
 	a := &App{st: st, settings: settings.Default()}
+	a.main = &window{}
+	a.window, a.windows = a.main, []*window{a.main}
 	if err := st.LoadJSON("settings.json", &a.settings); err != nil && !errors.Is(err, store.ErrNotFound) {
 		log.Println("settings:", err)
 	}
@@ -163,9 +165,7 @@ func (a *App) Post(fn func()) {
 	a.queueMu.Lock()
 	a.queue = append(a.queue, fn)
 	a.queueMu.Unlock()
-	if a.win != nil {
-		a.win.Invalidate()
-	}
+	a.invalidate()
 }
 
 // drain applies the work posted since the last frame.
@@ -546,9 +546,10 @@ func (a *App) askHostKey(cn *connection.Conn, cfg db.Config, hk *sshtunnel.HostK
 }
 
 func (a *App) disconnect(cn *connection.Conn) {
-	for i := len(a.tabs) - 1; i >= 0; i-- {
-		if a.tabs[i].Connection() == cn {
-			a.closeTabNow(i)
+	for _, t := range a.everyTab() {
+		if t.Connection() == cn {
+			a.removeTab(t)
+			t.Close()
 		}
 	}
 	cn.Generation++
@@ -599,9 +600,12 @@ func (a *App) AddTab(t widgets.Tab) {
 
 // ReplaceTab puts a tab in the place of another, which closes.
 func (a *App) ReplaceTab(old, next widgets.Tab) {
-	if i := slices.Index(a.tabs, old); i >= 0 {
-		a.tabs[i] = next
-		old.Close()
+	for w, t := range a.everyTab() {
+		if t == old {
+			w.tabs[slices.Index(w.tabs, old)] = next
+			old.Close()
+			return
+		}
 	}
 }
 
@@ -609,28 +613,29 @@ func (a *App) ReplaceTab(old, next widgets.Tab) {
 // one, which is the focused pane's when two tabs show side by side.
 func (a *App) KeysTo(t widgets.Tab) bool { return t != nil && t == a.ActiveTab() }
 
-func (a *App) ActiveTab() widgets.Tab {
-	if a.active >= 0 && a.active < len(a.tabs) {
-		return a.tabs[a.active]
-	}
-	return nil
-}
+func (a *App) ActiveTab() widgets.Tab { return a.window.ActiveTab() }
 
 func (a *App) closeTab(i int) {
 	if i < 0 || i >= len(a.tabs) {
 		return
 	}
-	t := a.tabs[i]
-	a.endTab(t, "Close "+t.Title()+"?", func(int) {})
+	a.closeTabOf(a.tabs[i])
+}
+
+// closeTabOf closes a tab of any window, once the user agrees to what
+// closing it loses.
+func (a *App) closeTabOf(t widgets.Tab) {
+	a.endTab(t, "Close "+t.Title()+"?", func(*window, int) {})
 }
 
 // endTab closes a tab once the user agrees to what closing it loses, at
-// once when it loses nothing, then runs then with the place it had.
-func (a *App) endTab(t widgets.Tab, title string, then func(at int)) {
+// once when it loses nothing, then runs then with the window and the
+// place it had.
+func (a *App) endTab(t widgets.Tab, title string, then func(w *window, at int)) {
 	end := func() {
-		if i := slices.Index(a.tabs, t); i >= 0 {
-			a.closeTabNow(i)
-			then(i)
+		if w, i, ok := a.removeTab(t); ok {
+			t.Close()
+			then(w, i)
 		}
 	}
 	reason := t.CloseReason()
@@ -644,16 +649,6 @@ func (a *App) endTab(t widgets.Tab, title string, then func(at int)) {
 	}
 }
 
-func (a *App) closeTabNow(i int) {
-	t := a.tabs[i]
-	a.tabs = slices.Delete(a.tabs, i, i+1)
-	if a.active >= len(a.tabs) || a.active > i {
-		a.active--
-	}
-	a.active = max(0, min(a.active, len(a.tabs)-1))
-	t.Close()
-}
-
 // NewQueryTab opens a SQL editor on a new query file of a connection.
 func (a *App) NewQueryTab(cn *connection.Conn, database, text string) {
 	if cn.Config.Engine == db.Redis {
@@ -665,12 +660,12 @@ func (a *App) NewQueryTab(cn *connection.Conn, database, text string) {
 
 // OpenTable opens a table's data, or brings its tab forward.
 func (a *App) OpenTable(cn *connection.Conn, database string, obj db.Object, page int) {
-	for i, t := range a.tabs {
-		if tt, ok := t.(*dataview.TableTab); ok && tt.Conn == cn && tt.Database == database && tt.Object.Schema == obj.Schema && tt.Object.Name == obj.Name {
-			a.active = i
-			tt.Page = page
-			return
-		}
+	if t, ok := a.findTab(func(t widgets.Tab) bool {
+		tt, ok := t.(*dataview.TableTab)
+		return ok && tt.Conn == cn && tt.Database == database && tt.Object.Schema == obj.Schema && tt.Object.Name == obj.Name
+	}); ok {
+		t.(*dataview.TableTab).Page = page
+		return
 	}
 	a.Connect(cn, func() {
 		a.AddTab(dataview.NewTableTab(a, cn, database, obj, page))
@@ -678,11 +673,8 @@ func (a *App) OpenTable(cn *connection.Conn, database string, obj db.Object, pag
 }
 
 func (a *App) openRedis(cn *connection.Conn) {
-	for i, t := range a.tabs {
-		if rt, ok := t.(*redis.Tab); ok && rt.Connection() == cn {
-			a.active = i
-			return
-		}
+	if a.ActivateTab(func(t widgets.Tab) bool { rt, ok := t.(*redis.Tab); return ok && rt.Connection() == cn }) {
+		return
 	}
 	a.Connect(cn, func() {
 		a.AddTab(redis.New(a, cn))
@@ -721,7 +713,7 @@ type closeRequest struct {
 // unsaved changes, pending edits and open transactions.
 func (a *App) losses(conns ...*connection.Conn) []string {
 	var out []string
-	for _, t := range a.tabs {
+	for _, t := range a.everyTab() {
 		for _, cn := range conns {
 			if t.Connection() == cn {
 				if r := t.CloseReason(); r != "" {

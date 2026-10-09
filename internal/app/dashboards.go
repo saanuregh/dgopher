@@ -23,12 +23,9 @@ func (a *App) ConnByID(id string) *connection.Conn { return a.connByID(id) }
 // openDashboard opens a dashboard's file in a tab, or brings its tab
 // forward, read again.
 func (a *App) openDashboard(p *project.Project, path string) {
-	for i, t := range a.tabs {
-		if d, ok := t.(*dashboard.Tab); ok && d.Path == path {
-			a.active = i
-			d.Reload()
-			return
-		}
+	if t, ok := a.findTab(func(t widgets.Tab) bool { d, ok := t.(*dashboard.Tab); return ok && d.Path == path }); ok {
+		t.(*dashboard.Tab).Reload()
+		return
 	}
 	d, err := dashboard.Open(a, p, path)
 	if err != nil {
@@ -244,7 +241,7 @@ func (a *App) dashboardsMenu(m *ui.Menu, p *project.Project) {
 // workspace keeps them.
 func (a *App) dashboardPaths(p *project.Project) []string {
 	var out []string
-	for _, t := range a.tabs {
+	for _, t := range a.everyTab() {
 		if d, ok := t.(*dashboard.Tab); ok && d.Project == p {
 			out = append(out, filepath.ToSlash(p.StoredPath(d.Path)))
 		}

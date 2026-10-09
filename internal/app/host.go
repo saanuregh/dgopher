@@ -52,13 +52,8 @@ func (a *App) AskPending(n int, apply, discard, cancel func()) {
 }
 
 func (a *App) ActivateTab(match func(widgets.Tab) bool) bool {
-	for i, t := range a.tabs {
-		if match(t) {
-			a.active = i
-			return true
-		}
-	}
-	return false
+	_, ok := a.findTab(match)
+	return ok
 }
 
 func (a *App) QueryDialogs() *query.Dialogs { return &a.queries }

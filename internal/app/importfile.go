@@ -364,7 +364,7 @@ func (a *App) runImport(x *importState) {
 // reloadTableTabs reads again the rows of a table's open tabs, after
 // rows were written into it.
 func (a *App) reloadTableTabs(cn *connection.Conn, schema, table string) {
-	for _, t := range a.tabs {
+	for _, t := range a.everyTab() {
 		if tt, ok := t.(*dataview.TableTab); ok && tt.Conn == cn && tt.Object.Name == table && tt.Object.Schema == schema {
 			tt.RequestReload()
 		}

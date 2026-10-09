@@ -71,11 +71,8 @@ func (a *App) openUsers(cn *connection.Conn) {
 		a.ShowError("No users to manage", cn.Config.Engine.Label()+" has no users DGopher manages.")
 		return
 	}
-	for i, t := range a.tabs {
-		if ut, ok := t.(*usersTab); ok && ut.conn == cn {
-			a.active = i
-			return
-		}
+	if a.ActivateTab(func(t widgets.Tab) bool { ut, ok := t.(*usersTab); return ok && ut.conn == cn }) {
+		return
 	}
 	a.Connect(cn, func() { a.AddTab(newUsersTab(a, cn)) })
 }

@@ -273,14 +273,11 @@ func (a *App) ScanQueries(p *project.Project, now bool) {
 // when set, goes on with the editor.
 func (a *App) openQueryFile(p *project.Project, rel string, then func(*query.Tab)) {
 	path := filepath.Join(p.Queries, filepath.FromSlash(rel))
-	for i, t := range a.tabs {
-		if q, ok := t.(*query.Tab); ok && q.Path == path {
-			a.active = i
-			if then != nil {
-				then(q)
-			}
-			return
+	if t, ok := a.findTab(func(t widgets.Tab) bool { q, ok := t.(*query.Tab); return ok && q.Path == path }); ok {
+		if then != nil {
+			then(t.(*query.Tab))
 		}
+		return
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -359,22 +356,24 @@ func (a *App) SwitchConnection(q *query.Tab, id string) {
 	if cn == nil || !cn.Config.Engine.IsSQL() {
 		return
 	}
-	a.endTab(q, "Switch "+q.Title()+" to "+cn.Config.Name+"?", func(at int) {
+	a.endTab(q, "Switch "+q.Title()+" to "+cn.Config.Name+"?", func(w *window, at int) {
 		// Closing saved the editor's text, unless the user chose to lose
-		// it to the file on disk: the file is what reopens.
+		// it to the file on disk: the file is what reopens, or the text
+		// of an editor whose file was never written.
 		text := q.Editor.Text
 		if q.Path != "" {
-			data, err := os.ReadFile(q.Path)
-			if err != nil {
+			switch data, err := os.ReadFile(q.Path); {
+			case err == nil:
+				text = string(data)
+			case !errors.Is(err, os.ErrNotExist):
 				a.ShowError("Could not open "+q.Name, err.Error())
 				return
 			}
-			text = string(data)
 		}
 		nq := query.New(a, cn, "", q.Name, text)
 		nq.Path, nq.Saved = q.Path, text
-		a.tabs = slices.Insert(a.tabs, at, widgets.Tab(nq))
-		a.active = at
+		w.tabs = slices.Insert(w.tabs, at, widgets.Tab(nq))
+		w.active, a.window = at, w
 	})
 }
 
@@ -586,7 +585,7 @@ func (a *App) renameQueryFile(p *project.Project, path, name string) error {
 	if _, err := os.Lstat(to); err == nil {
 		return errors.New(name + " exists already.")
 	}
-	for _, t := range a.tabs {
+	for _, t := range a.everyTab() {
 		if q, ok := t.(*query.Tab); ok && q.Path == path {
 			q.Flush(false)
 		}
@@ -594,7 +593,7 @@ func (a *App) renameQueryFile(p *project.Project, path, name string) error {
 	if err := os.Rename(path, to); err != nil {
 		return err
 	}
-	for _, t := range a.tabs {
+	for _, t := range a.everyTab() {
 		if q, ok := t.(*query.Tab); ok && q.Path == path {
 			q.Path, q.Name, q.Created = to, name, ""
 		}

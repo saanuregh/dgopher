@@ -54,8 +54,6 @@ func (a *App) view(c *ui.Context) {
 	a.drain()
 	a.now = c.Now()
 	widgets.ApplyTheme(c, strings.TrimSpace(a.settings.UIFontFamily))
-	t := c.Theme()
-	pal := widgets.PaletteOf(c)
 	if a.clipboard == nil {
 		a.clipboard, a.readClip = c.WriteClipboard, c.ReadClipboard
 	}
@@ -63,13 +61,29 @@ func (a *App) view(c *ui.Context) {
 	root := ui.Column(c).Fill()
 	defer a.dropZone(c, root)
 	root.Children(func() {
-		if a.sidebarHidden {
+		// The sidebar is the main window's; the others hold tabs alone.
+		if a.sidebarHidden || a.window != a.main {
 			ui.Column(c).Grow(1).Children(func() { a.workspace(c) })
 		} else if ui.Split(c, &a.settings.SidebarWidth, func() { a.sidebar(c) }, func() { a.workspace(c) }).Grow(1).Changed() {
 			a.settingsDirty = true
 		}
 		a.statusBar(c)
 	})
+	a.titleWindow()
+	a.checkIdleTransactions(c)
+	// The dialogs and toasts show in the window the user uses.
+	if a.window == a.focusedWindow() {
+		a.overlays(c)
+	}
+	a.saveWorkspace(false)
+	if a.settingsDirty && !c.Root().Dragging() {
+		a.settingsDirty = false
+		a.SaveSettings()
+	}
+}
+
+// overlays draws what shows over the window: the dialogs, and a toast.
+func (a *App) overlays(c *ui.Context) {
 	a.dialogs(c)
 	if dataview.ExportOpen(a) {
 		dataview.ExportView(a, c)
@@ -121,7 +135,6 @@ func (a *App) view(c *ui.Context) {
 	}
 	query.DialogsView(a, c)
 	dataview.DialogsView(a, c)
-	a.checkIdleTransactions(c)
 	if a.idleWarn != nil {
 		a.idleWarningView(c)
 	}
@@ -145,12 +158,22 @@ func (a *App) view(c *ui.Context) {
 			c.Toast(tst.text)
 		}
 	}
-	a.saveWorkspace(false)
-	if a.settingsDirty && !c.Root().Dragging() {
-		a.settingsDirty = false
-		a.SaveSettings()
+}
+
+// titleWindow names a window but the main one by its tab in front.
+func (a *App) titleWindow() {
+	w := a.window
+	if w == a.main || w.native == nil {
+		return
 	}
-	_, _ = t, pal
+	title := "DGopher"
+	if t := w.ActiveTab(); t != nil {
+		title = t.Title() + " — DGopher"
+	}
+	if title != w.title {
+		w.title = title
+		w.native.SetTitle(title)
+	}
 }
 
 // shortcuts handles the keys of the whole window.
@@ -348,6 +371,12 @@ func (a *App) tabBar(c *ui.Context) {
 					if q, ok := tb.(*query.Tab); ok && q.Path != "" && m.Item("Rename…").Chosen() {
 						a.askRename(q.Conn.Project, q.Path)
 					}
+					if m.Item("Move to New Window").Disabled(a.window != a.main && len(a.tabs) == 1).Chosen() {
+						a.Post(func() { a.moveToWindow(tb, nil) })
+					}
+					if a.window != a.main && m.Item("Move to Main Window").Chosen() {
+						a.Post(func() { a.moveToWindow(tb, a.main) })
+					}
 					if m.Item("Open to the Side").Disabled(on || tb == a.side).Chosen() {
 						a.openToSide(tb)
 					}
@@ -359,10 +388,11 @@ func (a *App) tabBar(c *ui.Context) {
 						closed = i
 					}
 					if m.Item("Close Others").Chosen() {
+						w := a.window
 						a.Post(func() {
-							for j := len(a.tabs) - 1; j >= 0; j-- {
-								if a.tabs[j] != tb {
-									a.closeTab(j)
+							for _, t := range slices.Backward(slices.Clone(w.tabs)) {
+								if t != tb {
+									a.closeTabOf(t)
 								}
 							}
 						})

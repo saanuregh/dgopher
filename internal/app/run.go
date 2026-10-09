@@ -53,10 +53,30 @@ func Run(args []string) error {
 			MinWidth:  760,
 			MinHeight: 480,
 			StateKey:  "main",
-			Content:   ui.View(a.view),
+			Content:   ui.View(a.windowView(a.main)),
 		})
-		a.win = win
-		a.windowFocused = win.IsFocused
+		a.main.native = win
+		a.windowFocused = a.anyFocused
+		// The dialogs move to the window gaining the focus.
+		win.OnFocus(func() { a.lastFocused = a.main; a.invalidate() })
+		a.makeWindow = func(w *window) {
+			w.native = mygo.NewWindow(mygo.WindowOptions{
+				Title:     "DGopher",
+				Width:     1000,
+				Height:    720,
+				MinWidth:  560,
+				MinHeight: 360,
+				Content:   ui.View(a.windowView(w)),
+			})
+			w.native.OnFocus(func() { a.lastFocused = w; a.invalidate() })
+			// Closed, its tabs go back to the main window.
+			w.native.OnClose(func(*mygo.CloseEvent) {
+				if !a.quitting {
+					w.native = nil // closing already
+					a.closeWindow(w)
+				}
+			})
+		}
 		if mygo.NotificationsSupported() {
 			a.notify = func(title, body string, onClick func()) {
 				n := mygo.NewNotification(mygo.NotificationOptions{Title: title, Body: body})
@@ -97,9 +117,12 @@ func Run(args []string) error {
 				// again.
 				e.PreventDefault()
 				win.Hide()
-			case !a.requestQuit(win.Close):
+			default:
+				// Closing the main window quits, the other windows with it:
+				// quitting asks first about what it would lose, in every
+				// window.
 				e.PreventDefault()
-				win.Invalidate()
+				mygo.App.Quit()
 			}
 		})
 		mygo.App.OnActivate(func(hasVisibleWindows bool) {
@@ -127,7 +150,7 @@ func Run(args []string) error {
 	mygo.App.OnQuit(func() {
 		a.SaveSettings()
 		a.saveWorkspace(true)
-		for _, t := range a.tabs {
+		for _, t := range a.everyTab() {
 			t.Close()
 		}
 		for _, cn := range a.conns {

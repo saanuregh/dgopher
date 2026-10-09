@@ -24,7 +24,6 @@ Next or Later are not repeated.
   - [DEFERRED] Group connections in sub-folders or by tags.
 - **SQL editor:**
   - Several cursors at once, and folding of code blocks.
-  - More than one window.
 - **Data grid:**
 - **Schema:**
 - **Import, export and backup:**

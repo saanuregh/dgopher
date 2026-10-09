@@ -50,12 +50,13 @@ const workspaceFile = "workspace.json"
 // workspaceOf returns the editors of a project to keep.
 func (a *App) workspaceOf(p *project.Project) savedWorkspace {
 	w := savedWorkspace{Editors: []savedEditor{}, Active: -1}
-	for i, t := range a.tabs {
+	// The editors of every window, which come back in the main one.
+	for win, t := range a.everyTab() {
 		q, ok := t.(*query.Tab)
 		if !ok || q.Conn.Project != p || q.Path == "" {
 			continue
 		}
-		if i == a.active {
+		if win == a.main && t == a.main.ActiveTab() {
 			w.Active = len(w.Editors)
 		}
 		e := savedEditor{Connection: strings.TrimPrefix(q.Conn.Config.ID, p.Prefix), Database: q.Database, Path: p.StoredPath(q.Path)}
@@ -131,20 +132,20 @@ func (a *App) restoreWorkspace(p *project.Project) {
 				q.DiskConflict = "was deleted on disk"
 			}
 		}
-		a.tabs = append(a.tabs, q)
+		a.main.tabs = append(a.main.tabs, q)
 		if i == w.Active {
-			a.active = len(a.tabs) - 1
+			a.main.active = len(a.main.tabs) - 1
 		}
 	}
 	for _, path := range w.Dashboards {
 		// A dashboard deleted, or broken, since is left closed.
 		if d, err := dashboard.Open(a, p, p.ResolvePath(path)); err == nil {
-			a.tabs = append(a.tabs, d)
+			a.main.tabs = append(a.main.tabs, d)
 		}
 	}
 	for _, path := range w.Models {
 		if m, err := modelview.Open(a, p, p.ResolvePath(path)); err == nil {
-			a.tabs = append(a.tabs, m)
+			a.main.tabs = append(a.main.tabs, m)
 		}
 	}
 }

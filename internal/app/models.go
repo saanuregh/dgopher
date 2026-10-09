@@ -22,12 +22,9 @@ import (
 // openModel opens a data model's file in a tab, or brings its tab
 // forward, read again.
 func (a *App) openModel(p *project.Project, path string) {
-	for i, t := range a.tabs {
-		if m, ok := t.(*modelview.Tab); ok && m.Path == path {
-			a.active = i
-			m.Reload()
-			return
-		}
+	if t, ok := a.findTab(func(t widgets.Tab) bool { m, ok := t.(*modelview.Tab); return ok && m.Path == path }); ok {
+		t.(*modelview.Tab).Reload()
+		return
 	}
 	m, err := modelview.Open(a, p, path)
 	if err != nil {
@@ -137,7 +134,7 @@ func (a *App) newModelView(c *ui.Context) {
 // workspace keeps them.
 func (a *App) modelPaths(p *project.Project) []string {
 	var out []string
-	for _, t := range a.tabs {
+	for _, t := range a.everyTab() {
 		if m, ok := t.(*modelview.Tab); ok && m.Project == p {
 			out = append(out, filepath.ToSlash(p.StoredPath(m.Path)))
 		}

@@ -44,6 +44,12 @@
 - **Window:** closing the last tab leaves the start page. On macOS,
   closing the window keeps DGopher running with its tabs and connections,
   and its Dock icon shows the window again.
+  - More windows: a tab's Move to New Window puts it in a window of its
+    own, titled by its tab in front, beside the main one's sidebar; tabs
+    move between windows, and one already open comes forward in its
+    window. Dialogs show in the window being used. Closing a window
+    moves its tabs back to the main one, so nothing in them is lost, as
+    an open transaction; the workspace reopens them all there.
 - **Settings:** appearance, editor font size, the editor's and the
   interface's font families, rows per page, where statements end, what a
   script does on an error, and when to notify.

@@ -528,11 +528,8 @@ func (a *App) openActivity(cn *connection.Conn) {
 		a.ShowError("No server activity", cn.Config.Engine.Label()+" runs inside this app: there is no server to watch.")
 		return
 	}
-	for i, t := range a.tabs {
-		if at, ok := t.(*activityTab); ok && at.conn == cn {
-			a.active = i
-			return
-		}
+	if a.ActivateTab(func(t widgets.Tab) bool { at, ok := t.(*activityTab); return ok && at.conn == cn }) {
+		return
 	}
 	a.Connect(cn, func() { a.AddTab(newActivityTab(a, cn)) })
 }

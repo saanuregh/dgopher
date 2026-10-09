@@ -36,7 +36,7 @@ var (
 // given, or of all.
 func (a *App) openTxTabs(conns ...*connection.Conn) []txHolder {
 	var out []txHolder
-	for _, t := range a.tabs {
+	for _, t := range a.everyTab() {
 		h, ok := t.(txHolder)
 		if !ok || !h.OpenTx() {
 			continue
@@ -206,11 +206,7 @@ func (a *App) txIndicator(c *ui.Context) {
 		for _, h := range txs {
 			age := a.now.Sub(h.Times().Opened).Round(time.Second)
 			if m.Item(fmt.Sprintf("%s — %s — open %s", h.Title(), h.Connection().Config.Name, age)).Chosen() {
-				for i, t := range a.tabs {
-					if t == h {
-						a.active = i
-					}
-				}
+				a.ActivateTab(func(t widgets.Tab) bool { return t == h })
 			}
 		}
 	})

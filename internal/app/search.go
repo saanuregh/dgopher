@@ -39,11 +39,11 @@ func (a *App) openSearch(cn *connection.Conn, database string) {
 	if !cn.Config.Engine.IsSQL() {
 		return
 	}
-	for i, t := range a.tabs {
-		if st, ok := t.(*searchTab); ok && st.conn == cn && st.database == database {
-			a.active = i
-			return
-		}
+	if a.ActivateTab(func(t widgets.Tab) bool {
+		st, ok := t.(*searchTab)
+		return ok && st.conn == cn && st.database == database
+	}) {
+		return
 	}
 	a.Connect(cn, func() {
 		t := &searchTab{a: a, conn: cn, database: database, definitions: true, row: -1}
