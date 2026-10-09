@@ -337,7 +337,9 @@ func (a *App) object(n navNode) (*connection.Conn, db.Object, bool) {
 func (a *App) sidebar(c *ui.Context) {
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
-	ui.Column(c).FillHeight().Width(a.settings.SidebarWidth).Background(pal.Sidebar).Children(func() {
+	side := ui.Column(c).FillHeight().Width(a.settings.SidebarWidth).Background(pal.Sidebar)
+	a.tourPart(tourSidebar, side)
+	side.Children(func() {
 		ui.Row(c).Padding(8, 8, 6, 12).Gap(6).Children(func() {
 			ui.Text(c, "Projects").FontSize(12).Bold().TextColor(pal.Muted).Grow(1)
 			widgets.IconButton(c, widgets.IconPlus, "New…").Menu(a.addMenu)

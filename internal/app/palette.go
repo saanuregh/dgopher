@@ -125,6 +125,7 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 		cmds = append(cmds, paletteItem{title: "Save as Snippet…", group: "Command", icon: widgets.IconSave, run: func() { a.AskSnippet(q) }},
 			paletteItem{title: "Add to Dashboard…", detail: "the statement at the caret, as a panel", group: "Command", icon: widgets.IconLayers, run: func() { a.openAddToDashboard(q) }})
 	}
+	cmds = append(cmds, paletteItem{title: "Take the Tour", detail: "a minute on how DGopher works", group: "Command", icon: widgets.IconWand, run: a.startTour})
 	cmds = append(cmds, paletteItem{title: "Keyboard Shortcuts…", detail: "change the keys of the commands", group: "Command", icon: widgets.IconSettings,
 		run: func() { a.keys = &keysEditor{open: true} }})
 	for _, p := range a.projects {

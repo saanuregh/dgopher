@@ -128,6 +128,9 @@ func (a *App) view(c *ui.Context) {
 	if a.shortcutsOpen {
 		a.shortcutsView(c)
 	}
+	if a.touring {
+		a.tourView(c)
+	}
 	if a.keys != nil {
 		a.keysView(c)
 	}
@@ -191,7 +194,9 @@ func (a *App) shortcuts(c *ui.Context) {
 
 func (a *App) workspace(c *ui.Context) {
 	t := c.Theme()
-	ui.Column(c).Fill().Background(t.Background).Children(func() {
+	space := ui.Column(c).Fill().Background(t.Background)
+	a.tourPart(tourWorkspace, space)
+	space.Children(func() {
 		if len(a.tabs) == 0 {
 			a.welcome(c)
 			return
@@ -413,6 +418,15 @@ func (a *App) welcome(c *ui.Context) {
 				card(widgets.IconLayers, "Try the sample", "A small shop in SQLite, to explore", a.openSample)
 				card(widgets.IconFolder, "Add a project folder", keymap.Hint("A Git repository's connections and .sql files", keymap.AddFolder), a.addExistingProject)
 			})
+			if !a.settings.TourDone {
+				ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(10, 14).Radius(10).Background(t.Accent.Alpha(0.10)).Children(func() {
+					ui.Icon(c, widgets.IconWand).TextColor(t.Accent).FontSize(16)
+					ui.Text(c, "New here? A one-minute tour shows how DGopher works.").Grow(1).Shrink(1)
+					if ui.PrimaryButton(c, "Take the Tour").Clicked() {
+						a.startTour()
+					}
+				})
+			}
 			if len(a.conns) > 0 {
 				ui.Column(c).Gap(8).Children(func() {
 					ui.Text(c, "Connections").Bold().TextColor(pal.Muted).FontSize(12)

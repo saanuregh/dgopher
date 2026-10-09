@@ -41,7 +41,6 @@ Next or Later are not repeated.
     before each kind of access.
 - **Interface:**
   - [DEFERRED] Translations: the app is in English only for now.
-  - A guided tour for new users.
 
 ## Known limitations
 

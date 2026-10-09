@@ -6,6 +6,10 @@
   - Paste a connection URL (`postgres://…`, `mysql://…`, `clickhouse://…`,
     `redis://…`, `rediss://…`, or a file path) to fill the connection form.
   - Try the built-in sample shop database without a server.
+  - A guided tour, offered on the start page until taken and in the
+    palette always, shows the parts of the window one at a time, dimming
+    the rest: projects and connections, editors and results, the palette,
+    how production connections are guarded, and the sample database.
 - **Drag and drop:** drop on the window a SQLite or DuckDB file (opens as
   a connection), a `.sql` script (opens in an editor), a CSV, Parquet or
   JSON file (queried in place by DuckDB), or an Excel or XML file

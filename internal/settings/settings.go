@@ -46,6 +46,9 @@ type Settings struct {
 	AdvancedCopy CopyOptions `json:"advancedCopy,omitzero"`
 	// Projects are the project folders in the sidebar, in its order.
 	Projects []string `json:"projects,omitempty"`
+	// TourDone is set once the user took the guided tour, or ended it,
+	// which the start page then stops offering.
+	TourDone bool `json:"tourDone,omitempty"`
 	// Keys are the keys of the commands the user changed, by command, as
 	// "Cmd+Shift+F" (internal/keymap); none for a command they took every
 	// key from.

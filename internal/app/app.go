@@ -31,6 +31,8 @@ import (
 	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/redis"
 	"dgopher/internal/ui/widgets"
+
+	"github.com/egoist/mygo/ui"
 )
 
 // App is the state of the main window.
@@ -83,7 +85,12 @@ type App struct {
 	savingModel    *saveModelForm
 	keys           *keysEditor
 	themes         []widgets.Theme // the built-in and the user's
-	newModel       *newModelForm
+	// The guided tour: whether it shows, its stop, and the bounds of the
+	// parts of the window it shows, as the last frame laid them out.
+	touring   bool
+	tourStop  int
+	tourParts map[string]ui.Rect
+	newModel  *newModelForm
 	// fileLists are the projects' dashboards and models, by folder: a
 	// menu asks for them each frame it shows.
 	fileLists map[string]namedFiles
