@@ -21,7 +21,6 @@ Next or Later are not repeated.
   - Reach a database through one or more intermediate SSH servers
     (jump hosts).
   - Connect through an HTTP or SOCKS proxy.
-  - Log in with a TLS client certificate.
   - Log in with Kerberos, LDAP or PAM.
   - Log in with cloud identities: AWS IAM, Azure Entra ID, single
     sign-on and OAuth.

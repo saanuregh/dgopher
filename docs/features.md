@@ -67,8 +67,9 @@
     replacement after a failover, and logs in to the sentinels with
     credentials of their own. Through an SSH tunnel, every node is reached
     through the SSH server.
-  - TLS: off, prefer, require, or verify with a custom CA. Prefer first
-    checks for TLS with a handshake that sends no password; local
+  - TLS: off, prefer, require, or verify with a custom CA, and a client
+    certificate to log in with where the server asks for one. Prefer
+    first checks for TLS with a handshake that sends no password; local
     connections skip TLS.
   - SSH tunnels: agent, key file with passphrase, or password. Host keys are
     checked against `known_hosts`, and a new host must be trusted explicitly

@@ -163,13 +163,17 @@ type Config struct {
 	AskPassword bool `json:"askPassword,omitempty"`
 	// PasswordCommand runs to print the password, as a password
 	// manager's CLI does; the app asks before it first runs.
-	PasswordCommand string      `json:"passwordCommand,omitempty"`
-	Database        string      `json:"database,omitempty"`
-	TLS             TLSMode     `json:"tls,omitempty"`
-	CAFile          string      `json:"caFile,omitempty"`
-	Env             Environment `json:"environment"`
-	ReadOnly        bool        `json:"readOnly,omitempty"`
-	Commit          CommitMode  `json:"commit,omitempty"`
+	PasswordCommand string  `json:"passwordCommand,omitempty"`
+	Database        string  `json:"database,omitempty"`
+	TLS             TLSMode `json:"tls,omitempty"`
+	CAFile          string  `json:"caFile,omitempty"`
+	// CertFile and KeyFile are the PEM files of a TLS client certificate
+	// and its key, which the server may ask the connection to log in with.
+	CertFile string      `json:"certFile,omitempty"`
+	KeyFile  string      `json:"keyFile,omitempty"`
+	Env      Environment `json:"environment"`
+	ReadOnly bool        `json:"readOnly,omitempty"`
+	Commit   CommitMode  `json:"commit,omitempty"`
 	// StatementTimeout stops a statement after so many seconds; 0 never.
 	StatementTimeout int `json:"statementTimeout,omitempty"`
 	// IdleTxTimeout rolls back a transaction left idle for so many
@@ -280,6 +284,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Port < 0 || c.Port > 65535 {
 		errs = append(errs, "the port must be between 1 and 65535")
+	}
+	if (c.CertFile == "") != (c.KeyFile == "") {
+		errs = append(errs, "a client certificate needs both its file and its key's")
+	}
+	if c.CertFile != "" && (c.TLS == "" || c.TLS == TLSDisable) {
+		errs = append(errs, "a client certificate needs TLS")
 	}
 	if c.Engine == Redis && c.Database != "" {
 		var n int

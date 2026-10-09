@@ -522,8 +522,18 @@ func (a *App) networkPage(c *ui.Context, f *connForm) {
 	})
 	if f.tls == tlsLabels[db.TLSVerifyFull] {
 		ui.Field(c, "CA certificate", func() {
-			ui.TextInput(c, &f.cfg.CAFile).Placeholder("System certificates")
+			a.fileField(c, &f.cfg.CAFile, "System certificates", "Choose the CA Certificate")
 		})
+	}
+	if f.tls != tlsLabels[db.TLSDisable] {
+		ui.Field(c, "Client certificate", func() {
+			a.fileField(c, &f.cfg.CertFile, "none", "Choose the Client Certificate")
+		}).Description("A PEM certificate the server may ask the connection to log in with.")
+		if f.cfg.CertFile != "" {
+			ui.Field(c, "Client key", func() {
+				a.fileField(c, &f.cfg.KeyFile, "the certificate's key, in PEM", "Choose the Client Key")
+			})
+		}
 	}
 	ui.Field(c, "SSH tunnel", func() {
 		ui.Checkbox(c, &f.cfg.SSH.Enabled, "Connect through an SSH server")
@@ -544,12 +554,7 @@ func (a *App) networkPage(c *ui.Context, f *connForm) {
 		ui.Checkbox(c, &f.cfg.SSH.UseAgent, "Use the SSH agent")
 	})
 	ui.Field(c, "Private key", func() {
-		ui.Row(c).Gap(6).Grow(1).Children(func() {
-			ui.TextInput(c, &f.cfg.SSH.KeyPath).Placeholder("~/.ssh/id_ed25519").Grow(1)
-			if ui.Button(c, "Choose…").Clicked() {
-				a.chooseKey()
-			}
-		})
+		a.fileField(c, &f.cfg.SSH.KeyPath, "~/.ssh/id_ed25519", "Choose a Private Key")
 	})
 	a.sshSecretFields(c, f)
 }
@@ -684,19 +689,30 @@ func (a *App) newDatabaseFile(e db.Engine) {
 	}()
 }
 
-func (a *App) chooseKey() {
-	go func() {
-		home, _ := os.UserHomeDir()
-		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "Choose a Private Key", DefaultPath: home + "/.ssh", ShowHiddenFiles: true})
-		if err != nil || len(paths) == 0 {
-			return
-		}
-		a.Post(func() {
-			if a.connForm != nil {
-				a.connForm.cfg.SSH.KeyPath = paths[0]
+// fileField is a path typed, or chosen with a button: the dialog starts
+// in the folder of the path there, else in ~/.ssh, and shows hidden files.
+func (a *App) fileField(c *ui.Context, path *string, placeholder, title string) {
+	ui.Row(c).Gap(6).Grow(1).Children(func() {
+		ui.TextInput(c, path).Placeholder(placeholder).Grow(1).Label(title)
+		if ui.Button(c, "Choose…").Clicked() {
+			form, start := a.connForm, filepath.Dir(db.ExpandPath(*path))
+			if *path == "" {
+				home, _ := os.UserHomeDir()
+				start = filepath.Join(home, ".ssh")
 			}
-		})
-	}()
+			go func() {
+				paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: title, DefaultPath: start, ShowHiddenFiles: true})
+				if err != nil || len(paths) == 0 {
+					return
+				}
+				a.Post(func() {
+					if a.connForm == form {
+						*path = paths[0] // the form's field, while the form is open
+					}
+				})
+			}()
+		}
+	})
 }
 
 func (a *App) testConnection(f *connForm) {

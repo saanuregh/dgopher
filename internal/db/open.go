@@ -91,8 +91,23 @@ func sshConfig(cfg *Config) sshtunnel.Config {
 	}
 }
 
-// tlsConfig returns the TLS settings of a mode, nil for none.
+// tlsConfig returns the TLS settings of a mode, nil for none, with the
+// client certificate when there is one.
 func tlsConfig(cfg *Config, serverName string) (*tls.Config, error) {
+	tc, err := serverTLS(cfg, serverName)
+	if tc == nil || err != nil || cfg.CertFile == "" {
+		return tc, err
+	}
+	cert, err := tls.LoadX509KeyPair(ExpandPath(cfg.CertFile), ExpandPath(cfg.KeyFile))
+	if err != nil {
+		return nil, fmt.Errorf("reading the client certificate: %w", err)
+	}
+	tc.Certificates = []tls.Certificate{cert}
+	return tc, nil
+}
+
+// serverTLS returns how a mode trusts the server, nil for no TLS.
+func serverTLS(cfg *Config, serverName string) (*tls.Config, error) {
 	switch cfg.TLS {
 	case "", TLSDisable:
 		return nil, nil
@@ -102,7 +117,7 @@ func tlsConfig(cfg *Config, serverName string) (*tls.Config, error) {
 	case TLSVerifyFull:
 		tc := &tls.Config{ServerName: serverName, MinVersion: tls.VersionTLS12}
 		if cfg.CAFile != "" {
-			pem, err := os.ReadFile(cfg.CAFile)
+			pem, err := os.ReadFile(ExpandPath(cfg.CAFile))
 			if err != nil {
 				return nil, fmt.Errorf("reading the CA certificate: %w", err)
 			}
@@ -244,12 +259,9 @@ func openMySQL(cfg Config, ep endpoint, tc *tls.Config) (*sql.DB, error) {
 	// Rows matched, not only those changed: an edit must touch exactly
 	// one row, even one already holding the new value.
 	mc.ClientFoundRows = true
-	switch cfg.TLS {
-	case TLSPrefer:
-		mc.TLSConfig = "preferred"
-	default:
-		mc.TLS = tc
-	}
+	// Prefer is the driver's "preferred": unverified TLS when the server
+	// offers it, else plain text; here with the client certificate too.
+	mc.TLS, mc.AllowFallbackToPlaintext = tc, cfg.TLS == TLSPrefer
 	if cfg.ReadOnly {
 		// Sent as SET on every new connection.
 		mc.Params = map[string]string{"transaction_read_only": "1"}
