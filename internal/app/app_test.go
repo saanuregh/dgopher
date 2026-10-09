@@ -1676,8 +1676,9 @@ func TestSideBySide(t *testing.T) {
 	if a.ActiveTab() != left || !a.KeysTo(left) || a.KeysTo(right) || a.sideTab() != right {
 		t.Fatalf("active %v, side %v", a.ActiveTab(), a.side)
 	}
-	right.Editor.WantFocus = true
-	tt.Frame()
+	// A click in the text of the editor beside, on the right pane's first
+	// line at this window's size, puts the focus there.
+	tt.ClickAt(950, 97)
 	tt.Frame()
 	if a.ActiveTab() != right || a.side != left || !a.sideLeft {
 		t.Fatalf("after focusing the side: active %v, side %v, left %v", a.ActiveTab(), a.side, a.sideLeft)

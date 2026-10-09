@@ -1161,7 +1161,13 @@ func (q *Tab) View(c *ui.Context) {
 				q.Editor.RunLines = q.statementLines()
 				q.checkProblems()
 				q.syncVim()
+				// The focus asked while the tab was not in front waits for it
+				// to be: taken from beside the one in front, it would bring
+				// the tab in front.
+				waits := q.Editor.WantFocus && !a.KeysTo(q)
+				q.Editor.WantFocus = q.Editor.WantFocus && !waits
 				q.Editor.View(c, a.Settings().EditorFont).ContextMenu(q.editorMenu)
+				q.Editor.WantFocus = q.Editor.WantFocus || waits
 				q.trackSnippet()
 				q.completionView(c, a)
 				q.problemBar(c)
