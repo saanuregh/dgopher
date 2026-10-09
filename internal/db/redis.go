@@ -32,6 +32,10 @@ type KV struct {
 	// last scan from the start found them.
 	mu      sync.Mutex
 	masters []rueidis.Client
+
+	// docs are the commands' help, read once by CommandDocs.
+	docsMu sync.Mutex
+	docs   map[string]CommandDoc
 }
 
 // OpenRedis connects to a Redis server, a cluster, or the master Sentinel
@@ -591,6 +595,30 @@ func SplitCommand(line string) ([]string, error) {
 		args = append(args, cur.String())
 	}
 	return args, nil
+}
+
+// CommandLine is a command of a file of commands, with its line.
+type CommandLine struct {
+	Line int
+	Args []string
+}
+
+// SplitCommands reads a file of commands, one a line as the console takes
+// them; empty lines and those starting with # are passed over.
+func SplitCommands(text string) ([]CommandLine, error) {
+	var out []CommandLine
+	for i, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		args, err := SplitCommand(line)
+		if err != nil {
+			return nil, fmt.Errorf("line %d: %w", i+1, err)
+		}
+		out = append(out, CommandLine{Line: i + 1, Args: args})
+	}
+	return out, nil
 }
 
 // FormatReply writes a reply as redis-cli shows it.

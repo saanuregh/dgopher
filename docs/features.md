@@ -336,6 +336,13 @@
     groups are not exported.
   - A console with history (↑ ↓), which replies the way `redis-cli` does.
     `KEYS` asks first, as it stalls a large server; the tree uses SCAN.
+    As a command is typed, the commands it may be show, and Tab completes
+    its name; once named, its syntax and summary show, as the server's
+    `COMMAND DOCS` gives them (Redis 7 and later).
+  - Run a file of commands, one a line, `#` starting a comment: each one
+    through the safety policy first, then, when any writes, once
+    confirmed; they run in the console one after the other, audited,
+    stopping at the first that fails.
 
 ## Charts, diagrams and server activity
 

@@ -45,14 +45,12 @@ Next or Later are not repeated.
   - Add entries to streams, and manage consumer groups.
   - Editors for RedisJSON values, vector sets and arrays.
   - Work with Redis Search indexes, and chart TimeSeries keys.
-  - Run the commands in a file.
   - Analyse memory: the largest keys and namespaces, and how many keys
     expire.
   - Show the slow log, and a live feed of commands (MONITOR).
   - Decode values stored as MessagePack, Protobuf, PHP or Java
     serialization, or Pickle, or compressed with gzip, lz4, zstd, snappy
     or brotli.
-  - Show help for each command, and complete commands, in the console.
 - **ClickHouse and DuckDB:**
 - **Charts:**
   - More kinds of chart.

@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"net"
+	"strings"
 	"testing"
 	"time"
 )
@@ -34,5 +35,15 @@ func TestOpenRedisStopsWithContext(t *testing.T) {
 	}
 	if d := time.Since(start); d > 2*time.Second {
 		t.Fatalf("OpenRedis took %v after its context ended", d)
+	}
+}
+
+func TestSplitCommands(t *testing.T) {
+	cmds, err := SplitCommands("# seed\nSET a 1\n\n  HSET h f \"two words\"\r\n")
+	if err != nil || len(cmds) != 2 || cmds[1].Line != 4 || cmds[1].Args[3] != "two words" {
+		t.Fatalf("%+v %v", cmds, err)
+	}
+	if _, err := SplitCommands("SET a 1\nSET \"b 2\n"); err == nil || !strings.Contains(err.Error(), "line 2") {
+		t.Fatalf("unbalanced quotes: %v", err)
 	}
 }

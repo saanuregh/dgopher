@@ -3,6 +3,7 @@ package redis
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -120,4 +121,56 @@ func TestRedisBrowser(t *testing.T) {
 	if v, err := kv.Do(ctx, []string{"HGET", "user:42", "email"}); err != nil || v != "ada@example.com" {
 		t.Fatalf("imported user: %v %v", v, err)
 	}
+
+	// The console completes a command's name, then shows its syntax.
+	r.bulk.open = false
+	testutil.WaitFor(t, tt, "the commands' help", func() bool { return r.docs != nil && r.bulk == nil })
+	if err := tt.Click("Command"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Type("hge")
+	tt.Key(0, ui.KeyTab)
+	tt.Frame()
+	if r.consoleIn != "HGET" {
+		t.Fatalf("hge completed as %q, want HGET", r.consoleIn)
+	}
+	tt.Type(" ")
+	tt.Frame()
+	if !tt.HasText("HGET key field") {
+		t.Fatalf("no help for HGET after %q: %v", r.consoleIn, tt.Texts())
+	}
+	r.consoleIn = ""
+
+	// A file of commands runs, once confirmed, to the first that fails.
+	cmds := filepath.Join(t.TempDir(), "seed.redis")
+	os.WriteFile(cmds, []byte("# seed\nSET seed:a 1\nINCR seed:a\nHSET seed:a f v\nSET seed:b 2\n"), 0o600)
+	before := len(r.consoleLog)
+	r.runCommandFile(cmds)
+	if a.Confirm == nil || !strings.Contains(a.Confirm.Title, "Run 4 commands") {
+		t.Fatalf("a file of writes is not confirmed: %+v", a.Confirm)
+	}
+	a.Confirm.OnConfirm()
+	a.Confirm = nil
+	testutil.WaitFor(t, tt, "the file", func() bool { return r.file == nil && len(r.consoleLog) > before+1 })
+	if v, _ := kv.Do(ctx, []string{"GET", "seed:a"}); v != "2" {
+		t.Fatalf("seed:a is %v, want 2", v)
+	}
+	if v, _ := kv.Do(ctx, []string{"GET", "seed:b"}); v != nil {
+		t.Fatalf("a command after the failing one ran: seed:b is %v", v)
+	}
+	if last := r.consoleLog[len(r.consoleLog)-1]; !last.err || !strings.Contains(last.text, "WRONGTYPE") {
+		t.Fatalf("the failure is not shown last: %+v", last)
+	}
+
+	// A file running holds the tab: closing it asks, then stops the file.
+	stop, cancel := context.WithCancel(ctx)
+	r.file = &fileRun{path: cmds, total: 9, done: 2, cancel: cancel}
+	if why := r.CloseReason(); !strings.Contains(why, "2 of its 9") {
+		t.Fatalf("closing during a file run: %q", why)
+	}
+	r.Close()
+	if stop.Err() == nil {
+		t.Fatal("closing the tab left the file running")
+	}
+	r.file = nil
 }

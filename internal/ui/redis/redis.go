@@ -5,6 +5,7 @@ package redis
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -16,7 +17,6 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/redact"
 	"dgopher/internal/safety"
-	"dgopher/internal/store"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 
@@ -77,12 +77,10 @@ type Tab struct {
 	history     []string
 	histIdx     int
 	consoleList ui.ListState
-}
-
-type consoleLine struct {
-	input bool
-	text  string
-	err   bool
+	docs        map[string]db.CommandDoc // the commands' help; nil before it is read, or without it
+	docsAsked   time.Time                // when the help was asked for; zero before, and after it failed a while
+	caretToEnd  bool                     // the console's caret goes to the end of its line next frame
+	file        *fileRun
 }
 
 type newKeyForm struct {
@@ -115,9 +113,19 @@ func (r *Tab) Title() string { return r.conn.Config.Name + " · keys" }
 
 func (r *Tab) Connection() *connection.Conn { return r.conn }
 
-func (r *Tab) CloseReason() string { return "" }
+// CloseReason says what closing the tab stops: a file of commands running.
+func (r *Tab) CloseReason() string {
+	if r.file != nil {
+		return fmt.Sprintf("%s is running, %d of its %d commands done: closing stops it.", filepath.Base(r.file.path), r.file.done, r.file.total)
+	}
+	return ""
+}
 
-func (r *Tab) Close() {}
+func (r *Tab) Close() {
+	if r.file != nil {
+		r.file.cancel()
+	}
+}
 
 func (r *Tab) rescan() {
 	r.keys, r.keySet, r.cursor, r.scanDone, r.scanErr = nil, map[string]bool{}, db.ScanPos{}, false, ""
@@ -446,6 +454,10 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 					}
 					if m.Item("Import Keys…").Disabled(ro).Chosen() {
 						r.openBulk(bulkImport)
+					}
+					m.Separator()
+					if m.Item("Run Commands File…").Disabled(r.file != nil).Chosen() {
+						r.chooseCommandFile()
 					}
 				})
 			})
@@ -819,109 +831,4 @@ func (r *Tab) newKeyView(c *ui.Context) {
 	if !f.open {
 		r.newKey = nil
 	}
-}
-
-func (r *Tab) consoleView(c *ui.Context, a Host) {
-	th := c.Theme()
-	pal := widgets.PaletteOf(c)
-	ui.Column(c).Fill().Background(pal.EditorBg).Children(func() {
-		ui.Row(c).Padding(4, 10).Gap(6).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Icon(c, widgets.IconTerminal).FontSize(13).TextColor(pal.Muted)
-			ui.Text(c, "Console").FontSize(12).Bold()
-			ui.Spacer(c)
-			if ui.Link(c, "Clear", "").FontSize(12).Clicked() {
-				r.consoleLog = nil
-			}
-		})
-		ui.List(c, &r.consoleList, len(r.consoleLog), func(i int) {
-			l := r.consoleLog[i]
-			txt := ui.Text(c, l.text).Font(widgets.MonoFont).FontSize(12).Padding(1, 12).Selectable()
-			switch {
-			case l.input:
-				txt.TextColor(th.Accent).Bold()
-			case l.err:
-				txt.TextColor(th.Danger)
-			}
-		}).Grow(1).Label("Console output")
-		ui.Row(c).Padding(6, 10).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
-			ui.Text(c, ">").Font(widgets.MonoFont).TextColor(pal.Muted)
-			in := ui.TextInputBase(c, &r.consoleIn).Font(widgets.MonoFont).FontSize(12.5).Grow(1).Placeholder("Type a command, e.g. GET user:1").Label("Command")
-			if in.Shortcut(0, ui.KeyUp) && len(r.history) > 0 {
-				r.histIdx = max(0, r.histIdx-1)
-				r.consoleIn = r.history[r.histIdx]
-			}
-			if in.Shortcut(0, ui.KeyDown) && len(r.history) > 0 {
-				r.histIdx = min(len(r.history), r.histIdx+1)
-				if r.histIdx == len(r.history) {
-					r.consoleIn = ""
-				} else {
-					r.consoleIn = r.history[r.histIdx]
-				}
-			}
-			if in.Submitted() {
-				r.runConsole(strings.TrimSpace(r.consoleIn))
-			}
-		})
-	})
-}
-
-func (r *Tab) runConsole(line string) {
-	if line == "" {
-		return
-	}
-	r.consoleIn = ""
-	r.history = append(r.history, line)
-	r.histIdx = len(r.history)
-	r.consoleLog = append(r.consoleLog, consoleLine{input: true, text: "> " + line})
-	args, err := db.SplitCommand(line)
-	if err != nil {
-		r.consoleLog = append(r.consoleLog, consoleLine{text: "(error) " + err.Error(), err: true})
-		return
-	}
-	v := safety.ReviewRedis(&r.conn.Config, r.conn.KV, args)
-	if v.Blocked != "" {
-		r.a.RecordBlocked(r.conn, v.Blocked, redact.Redis(args))
-		r.consoleLog = append(r.consoleLog, consoleLine{text: "(refused) " + v.Blocked, err: true})
-		return
-	}
-	run := func() {
-		kv := r.conn.KV
-		st, cfg := r.conn.Project.Local, r.conn.Config
-		r.a.Background(func() func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			defer cancel()
-			start := time.Now()
-			out, err := kv.Do(ctx, args)
-			logged := redact.Redis(args)
-			r.a.RecordRun(cfg, audit.KindCommand, cfg.Database, logged, -1, time.Since(start), err)
-			entry := storeHistory(cfg, logged, time.Since(start), err)
-			st.AppendHistory(entry)
-			return func() {
-				if err != nil {
-					r.consoleLog = append(r.consoleLog, consoleLine{text: "(error) " + err.Error(), err: true})
-					return
-				}
-				for _, l := range strings.Split(db.FormatReply(out), "\n") {
-					r.consoleLog = append(r.consoleLog, consoleLine{text: l})
-				}
-				if v.Writes && r.selected != "" {
-					r.loadKey()
-				}
-			}
-		})
-	}
-	if v.Confirm {
-		r.a.AskConfirm(r.conn, v, "Run "+strings.ToUpper(args[0])+" on "+r.conn.Config.Name+"?", "Run", redact.Redis(args), run)
-		return
-	}
-	run()
-}
-
-// storeHistory is a history entry of a statement or command that ran.
-func storeHistory(cfg db.Config, sql string, d time.Duration, err error) store.HistoryEntry {
-	e := store.HistoryEntry{Time: time.Now().Add(-d), ConnectionID: cfg.ID, Connection: cfg.Name, Database: cfg.Database, SQL: redact.Secrets(sql), Duration: d}
-	if err != nil {
-		e.Error = err.Error()
-	}
-	return e
 }
