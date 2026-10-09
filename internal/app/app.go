@@ -71,6 +71,7 @@ type App struct {
 	projects    []*project.Project
 	newProject  *newProjectForm
 	renaming    *renameForm
+	generating  *generateState
 	quitting    bool // the user agreed to what quitting loses
 	idleWarn    *idleWarning
 	auditView   *auditState

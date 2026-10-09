@@ -131,9 +131,11 @@ func (sqliteDialect) ForeignKeys(ctx context.Context, q Querier, schema, table s
 	return out, err
 }
 
+// DDL writes a table's or view's statement and its indexes'; its
+// triggers are items of their own, as on the other engines.
 func (d sqliteDialect) DDL(ctx context.Context, q Querier, schema string, obj Object) (string, error) {
 	defs, err := queryStrings(ctx, q, `SELECT sql FROM `+d.Quote(schema)+`.sqlite_master
-WHERE tbl_name = ? AND sql IS NOT NULL ORDER BY type <> 'table' AND type <> 'view', name`, obj.Name)
+WHERE tbl_name = ? AND type <> 'trigger' AND sql IS NOT NULL ORDER BY type <> 'table' AND type <> 'view', name`, obj.Name)
 	if err != nil {
 		return "", err
 	}

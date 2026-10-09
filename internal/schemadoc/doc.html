@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="DGopher">
+<title>{{.Title}}</title>
+<style>
+:root {
+  --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --border: #d0d7de;
+  --panel: #f6f8fa; --accent: #0969da; --danger: #cf222e;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0d1117; --fg: #e6edf3; --muted: #8d96a0; --border: #30363d; --panel: #161b22; --accent: #4493f8; --danger: #f85149; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, pre { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
+.layout { display: flex; min-height: 100vh; }
+nav { width: 260px; flex: none; position: sticky; top: 0; height: 100vh; overflow: auto; padding: 20px 16px; border-right: 1px solid var(--border); background: var(--panel); }
+nav h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 6px; }
+nav ul { list-style: none; margin: 0; padding: 0; }
+nav li a { display: block; padding: 2px 6px; border-radius: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+nav li a:hover { background: var(--border); text-decoration: none; }
+main { flex: 1; min-width: 0; padding: 24px 32px 64px; max-width: 1100px; }
+h1 { font-size: 24px; margin: 0 0 8px; }
+h2.section { font-size: 18px; margin: 40px 0 0; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+section.object { margin-top: 28px; scroll-margin-top: 16px; }
+section.object h3 { font-size: 16px; margin: 0; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.facts { color: var(--muted); font-size: 12.5px; margin: 2px 0 8px; }
+.comment { margin: 6px 0 10px; }
+.error { color: var(--danger); }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { font-size: 12px; color: var(--muted); font-weight: 600; }
+td.name { font-weight: 600; white-space: nowrap; }
+.list-title { font-size: 12px; color: var(--muted); font-weight: 600; margin: 12px 0 2px; }
+ul.plain { margin: 0; padding-left: 18px; }
+details { margin-top: 8px; }
+summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
+pre { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; overflow-x: auto; }
+@media (max-width: 760px) {
+  .layout { display: block; }
+  nav { position: static; width: auto; height: auto; border-right: 0; border-bottom: 1px solid var(--border); }
+  main { padding: 16px; }
+}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav aria-label="Contents">
+  <strong>{{.Title}}</strong>
+  {{- range .Sections}}
+  <h2>{{.Title}}</h2>
+  <ul>
+    {{- range .Entries}}
+    <li><a href="#{{.Anchor}}" title="{{.Name}}">{{.Name}}</a></li>
+    {{- end}}
+  </ul>
+  {{- end}}
+</nav>
+<main>
+  <h1>{{.Title}}</h1>
+  {{- range .Sections}}
+  <h2 class="section">{{.Title}}</h2>
+  {{- range .Entries}}
+  <section class="object" id="{{.Anchor}}">
+    <h3>{{.Name}}</h3>
+    {{- with .Facts}}
+    <div class="facts">{{range $i, $f := .}}{{if $i}} · {{end}}{{$f}}{{end}}</div>
+    {{- end}}
+    {{- with .Comment}}
+    <p class="comment">{{.}}</p>
+    {{- end}}
+    {{- with .Err}}
+    <p class="error">Could not be read: {{.}}</p>
+    {{- end}}
+    {{- with .Columns}}
+    <div class="table-wrap"><table>
+      <thead><tr><th>Column</th><th>Type</th><th>Null</th><th>Default</th><th>Key</th><th>Comment</th></tr></thead>
+      <tbody>
+      {{- range .}}
+        <tr><td class="name">{{.Name}}</td><td><code>{{.Type}}</code></td><td>{{if .Nullable}}yes{{end}}</td><td>{{with .Default}}<code>{{.}}</code>{{end}}</td><td>{{.Key}}</td><td>{{.Comment}}</td></tr>
+      {{- end}}
+      </tbody>
+    </table></div>
+    {{- end}}
+    {{- with .Indexes}}
+    <div class="list-title">Indexes</div>
+    <ul class="plain">{{range .}}<li>{{.}}</li>{{end}}</ul>
+    {{- end}}
+    {{- with .ForeignKeys}}
+    <div class="list-title">Foreign keys</div>
+    <ul class="plain">{{range .}}<li>{{.}}</li>{{end}}</ul>
+    {{- end}}
+    {{- with .ReferencedBy}}
+    <div class="list-title">Referenced by</div>
+    <ul class="plain">{{range .}}<li>{{.}}</li>{{end}}</ul>
+    {{- end}}
+    {{- with .Definition}}
+    <details><summary>Definition</summary><pre><code>{{.}}</code></pre></details>
+    {{- end}}
+  </section>
+  {{- end}}
+  {{- end}}
+</main>
+</div>
+</body>
+</html>

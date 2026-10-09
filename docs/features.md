@@ -96,6 +96,13 @@
     open one's rows, detach it, or make a new one, its statement written
     for the table's strategy.
   - Tables: view DDL, copy the name, export data, truncate or drop.
+  - Generate SQL Script and Generate Documentation, on a schema, write
+    the objects chosen from it. The script creates them in an order that
+    runs: types and functions first, then tables, each after those its
+    foreign keys point at, views after what they read, and triggers last;
+    it opens in an editor. The documentation, one HTML page or a Markdown
+    file, lists each table's columns, keys, indexes and references, and
+    each object's definition.
   - Search Objects finds the tables, views, columns, routines, triggers,
     sequences and types of every schema of a database by name, and with
     In definitions, views by their query and routines and triggers by

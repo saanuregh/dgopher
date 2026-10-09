@@ -716,6 +716,12 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		if n.kind != nodeDatabase && m.Item("Import File as New Table…").Disabled(cn.Config.ReadOnly).Chosen() {
 			a.openImport(cn, n.database, n.schema, nil)
 		}
+		if n.kind != nodeDatabase && m.Item("Generate SQL Script…").Chosen() {
+			a.openGenerate(cn, n.database, n.schema, generateScript)
+		}
+		if n.kind != nodeDatabase && m.Item("Generate Documentation…").Chosen() {
+			a.openGenerate(cn, n.database, n.schema, generateDocs)
+		}
 		if n.kind == nodeDatabase && m.Item("Run SQL File…").Chosen() {
 			a.openSQLFileRun(cn, n.database)
 		}

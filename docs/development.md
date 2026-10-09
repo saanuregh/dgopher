@@ -68,6 +68,7 @@ your own.
 | `internal/db` | connections, sessions, cursors, the dialect of each engine, generated edits, and the Redis client |
 | `internal/sqltext` | the SQL lexer: highlighting, splitting statements, classification for the safety policy, completion context, the formatter ([How SQL is read](sql.md)) |
 | `internal/export` | CSV, TSV, JSON, JSON Lines, SQL, Markdown and Excel writers, and Parquet and DuckDB files through DuckDB. Text formats stay in Go, the writers of clipboard copies too, so that a copy and a file of the same rows agree. |
+| `internal/schemadoc` | the script creating a schema's objects, in an order that runs, and its documentation as HTML or Markdown |
 | `internal/fileimport` | reads files to import: CSV, JSON and Parquet through DuckDB, Excel and XML loaded into it |
 | `internal/sqlfile` | reads the statements of a SQL file as it streams, as a dump, `COPY` rows included |
 | `internal/store` | private JSON files, keychain secrets, query history |

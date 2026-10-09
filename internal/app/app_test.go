@@ -1593,6 +1593,45 @@ func TestSearchObjects(t *testing.T) {
 	})
 }
 
+// The generate dialog writes the script of the objects chosen into an
+// editor, in an order that runs.
+func TestGenerateScript(t *testing.T) {
+	a := newTestApp(t)
+	file := filepath.Join(t.TempDir(), "x.sqlite")
+	os.WriteFile(file, nil, 0o600)
+	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
+	tt := ui.NewTester(a.view, 1200, 800)
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	for _, q := range []string{`CREATE TABLE lines (order_id INTEGER REFERENCES orders (id))`,
+		`CREATE TABLE orders (id INTEGER PRIMARY KEY)`, `CREATE TABLE scratch (x)`} {
+		if _, err := cn.DB.SQL.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a.openGenerate(cn, "", "main", generateScript)
+	g := a.generating
+	testutil.WaitFor(t, tt, "the objects", func() bool { return !g.loading && tt.HasText("scratch") })
+	testutil.Snapshot(t, tt, "generate-script")
+	g.filter = "scr"
+	tt.Frame()
+	if err := tt.Click("None"); err != nil {
+		t.Fatal(err)
+	}
+	g.filter = ""
+	if err := tt.Click("Open in Editor"); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WaitFor(t, tt, "the script", func() bool { _, ok := a.ActiveTab().(*query.Tab); return ok })
+	text := a.ActiveTab().(*query.Tab).Editor.Text
+	if strings.Contains(text, "scratch") || strings.Index(text, "CREATE TABLE orders") > strings.Index(text, "CREATE TABLE lines") {
+		t.Fatalf("script:\n%s", text)
+	}
+	if a.generating != nil {
+		t.Fatal("the dialog stays open")
+	}
+}
+
 // Users are made, granted, taken back from and dropped from their tab;
 // a password shows nowhere: not in the confirmation, the audit log or a
 // file.
