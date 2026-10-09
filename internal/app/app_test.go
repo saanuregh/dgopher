@@ -1220,7 +1220,7 @@ func TestPendingChangesOfTwoResults(t *testing.T) {
 	q := newAppEditor(t, a, tt, cn, "SELECT * FROM notes")
 	edit := func(cell string) {
 		t.Helper()
-		testutil.WaitFor(t, tt, "an editable result", func() bool { return tt.HasText("Double-click a cell to edit") && tt.HasText(cell) })
+		testutil.WaitFor(t, tt, "an editable result", func() bool { return tt.HasText("Double-click a cell, or press ↵, to edit") && tt.HasText(cell) })
 		r, _ := tt.Find(cell)
 		tt.ClickAt(r.X+r.W/2, r.Y+r.H/2)
 		tt.Key(0, ui.KeyF2)

@@ -1050,6 +1050,12 @@ func (q *Tab) View(c *ui.Context) {
 	if q.pressed(c, keymap.SaveAs) {
 		a.SaveSQLFile(q, true)
 	}
+	if q.pressed(c, keymap.Commit) {
+		q.endOpenTx(true)
+	}
+	if q.pressed(c, keymap.Rollback) {
+		q.endOpenTx(false)
+	}
 	// Editors of a connection set to auto-connect open it as they are
 	// shown; the others wait for Connect or a run.
 	if q.Conn.Status == connection.StatusIdle && q.Conn.Config.AutoConnect {
@@ -1160,11 +1166,11 @@ func (q *Tab) txBar(c *ui.Context) {
 	ui.Row(c).Padding(6, 12).Gap(10).Background(col.Alpha(0.16)).BorderWidth(0, 0, 1, 0).BorderColor(col).Children(func() {
 		ui.Icon(c, widgets.IconAlert).TextColor(col).FontSize(14)
 		ui.Text(c, label).Grow(1).Shrink(1)
-		if q.Tx == db.TxOpen && ui.PrimaryButton(c, "Commit").Disabled(q.Busy()).Clicked() {
-			q.endTx(true)
+		if q.Tx == db.TxOpen && ui.PrimaryButton(c, "Commit").Disabled(q.Busy()).Tooltip(keymap.Hint("Commit the transaction", keymap.Commit)).Clicked() {
+			q.endOpenTx(true)
 		}
-		if ui.Button(c, "Roll Back").Disabled(q.Busy()).Clicked() {
-			q.endTx(false)
+		if ui.Button(c, "Roll Back").Disabled(q.Busy()).Tooltip(keymap.Hint("Roll back the transaction", keymap.Rollback)).Clicked() {
+			q.endOpenTx(false)
 		}
 	})
 }

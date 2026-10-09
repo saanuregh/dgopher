@@ -3,6 +3,7 @@ package redis
 import (
 	"bytes"
 	"context"
+	"dgopher/internal/keymap"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -101,7 +102,7 @@ func (r *Tab) jsonView(c *ui.Context, ro bool) {
 				if ui.Button(c, "Revert").Clicked() {
 					r.editValue, r.editDirty = r.value, false
 				}
-				if ui.PrimaryButton(c, "Save").Disabled(!valid).Clicked() || valid && r.a.KeysTo(r) && c.Shortcut(ui.Cmd, ui.KeyS) {
+				if ui.PrimaryButton(c, "Save").Disabled(!valid).Clicked() || valid && r.a.KeysTo(r) && keymap.Pressed(c, keymap.Save) {
 					var compact bytes.Buffer
 					json.Compact(&compact, []byte(r.editValue))
 					r.write([]string{"JSON.SET", key, "$", compact.String()}, r.loadKey)

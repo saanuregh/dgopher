@@ -630,3 +630,34 @@ func TestIntegrationLargeChangeMySQL(t *testing.T) {
 	}
 	cn.DB.SQL.Exec(`DROP TABLE IF EXISTS it_guard`)
 }
+
+// The commit key commits the open transaction; rolling back has no key
+// until one is set.
+func TestTransactionKeys(t *testing.T) {
+	a := newFakeQueryHost(t)
+	path := filepath.Join(t.TempDir(), "tx.db")
+	if err := os.WriteFile(path, nil, 0o600); err != nil { // an empty SQLite database
+		t.Fatal(err)
+	}
+	cfg := db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: path, Env: db.Production}
+	cn := a.AddConn(cfg)
+	tt := ui.NewTester(a.view, 1000, 700)
+	q := newEditor(t, a, tt, cn, "")
+	run := func(sql string) {
+		q.execute(safety.Analyze(&cn.Config, []string{sql}), true)
+		testutil.WaitFor(t, tt, sql, func() bool { return !q.Running })
+	}
+	run("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+	run("INSERT INTO t VALUES (1)")
+	if q.Tx != db.TxOpen {
+		t.Fatalf("tx %v after the insert", q.Tx)
+	}
+	if keymap.First(keymap.Rollback) != "" {
+		t.Fatal("rolling back has a key by default")
+	}
+	tt.Key(ui.Cmd|ui.Alt|ui.Shift, ui.KeyEnter)
+	testutil.WaitFor(t, tt, "the commit", func() bool { return !q.Running && q.Tx == db.TxNone })
+	if !slices.ContainsFunc(q.messages, func(m message) bool { return strings.Contains(m.text, "ommit") }) {
+		t.Fatalf("messages %+v", q.messages)
+	}
+}

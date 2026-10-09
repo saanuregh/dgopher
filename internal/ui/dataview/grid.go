@@ -738,7 +738,7 @@ func (g *Grid) cellMenu(m *ui.Menu, a Host, src *Source, row, col int) {
 			}
 		}
 		m.Separator()
-		if m.Item("Show Panels").Checked(g.ShowValue).Shortcut(0, ui.KeyF7).Chosen() {
+		if keymap.Item(m.Item("Show Panels").Checked(g.ShowValue), keymap.ValuePanel).Chosen() {
 			g.ShowValue = !g.ShowValue
 		}
 	})

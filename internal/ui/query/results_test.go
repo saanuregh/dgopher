@@ -79,7 +79,7 @@ func editCell(t *testing.T, tt *ui.Tester, text, value string) {
 // waitEditable waits for a result's table to be read, which its edits need.
 func waitEditable(t *testing.T, tt *ui.Tester) {
 	t.Helper()
-	testutil.WaitFor(t, tt, "an editable result", func() bool { return tt.HasText("Double-click a cell to edit") })
+	testutil.WaitFor(t, tt, "an editable result", func() bool { return tt.HasText("Double-click a cell, or press ↵, to edit") })
 }
 
 // A result of one table edits as the table does: ⌘S reviews the change,

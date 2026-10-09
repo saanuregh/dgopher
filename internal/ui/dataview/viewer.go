@@ -1008,6 +1008,8 @@ func (v *Viewer) View(c *ui.Context) {
 		v.followKey()
 	case listed(keymap.PickReference):
 		v.pickRef()
+	case pressed(keymap.ToggleChart):
+		v.showChart = !v.showChart
 	}
 	ui.Toolbar(c, func() {
 		refreshTip := keymap.Hint("Read the rows again", keymap.Discard)
@@ -1071,7 +1073,7 @@ func (v *Viewer) View(c *ui.Context) {
 			*want = ""
 		}
 		if readOnly == "" {
-			if widgets.ToolButton(c, widgets.IconPlus, "Add Row", "Add a row").Clicked() {
+			if widgets.ToolButton(c, widgets.IconPlus, "Add Row", keymap.Hint("Add a row", keymap.AddRow)).Clicked() {
 				v.grid.addRow(&v.src)
 			}
 			if widgets.IconButton(c, widgets.IconCopy, keymap.Hint("Duplicate the chosen row", keymap.DuplicateRow)).Clicked() {
@@ -1086,10 +1088,10 @@ func (v *Viewer) View(c *ui.Context) {
 				v.grid.undo()
 			}
 		}
-		if widgets.Pill(c, "Chart", v.showChart).Clicked() {
+		if widgets.Pill(c, "Chart", v.showChart).Tooltip(keymap.Hint("Show or hide the chart of the rows", keymap.ToggleChart)).Clicked() {
 			v.showChart = !v.showChart
 		}
-		if widgets.IconButton(c, widgets.IconView, "Value viewer").Clicked() {
+		if widgets.IconButton(c, widgets.IconView, keymap.Hint("Value viewer", keymap.ValuePanel)).Clicked() {
 			v.grid.ShowValue = !v.grid.ShowValue
 		}
 		if widgets.IconButton(c, widgets.IconDownload, "Export…").Clicked() {
@@ -1218,9 +1220,9 @@ func (v *Viewer) View(c *ui.Context) {
 				openKeyForm(a, v)
 			}
 		} else {
-			ui.Text(c, "Double-click a cell to edit").FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, "Double-click a cell, or press ↵, to edit").FontSize(12).TextColor(pal.Muted)
 		}
-		if !v.done && !v.loading && ui.Button(c, "Fetch All").Clicked() {
+		if !v.done && !v.loading && ui.Button(c, "Fetch All").Tooltip(keymap.Hint("Fetch every row", keymap.FetchAll)).Clicked() {
 			v.FetchAll()
 		}
 	})

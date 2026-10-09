@@ -15,8 +15,13 @@
   JSON file (queried in place by DuckDB), or an Excel or XML file
   (imported into a new table).
 - **Keyboard first:**
-  - Every command is in the palette (⌘K), and tables, functions and
-    procedures open by name (⌘P).
+  - The palette (⌘K) has the app's commands and the current tab's, these
+    first: running, explaining, formatting, committing or rolling back
+    in an editor; refreshing, exporting, fetching, charting and applying
+    rows. Each shows its key. Tables, functions and procedures open by
+    name (⌘P).
+  - In manual commit, ⌘⌥⇧↵ commits. Rolling back has no key until one is
+    set, as it loses the transaction's work.
   - ⌘1…⌘9 switch tabs (in the results grid, ⌘2 sorts by the chosen
     column instead); ⌘0 focuses the navigator; ⌘L focuses the current
     view's filter; ⌘J moves between the editor and its results; F5 runs or

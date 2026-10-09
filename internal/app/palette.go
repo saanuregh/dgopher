@@ -19,11 +19,17 @@ import (
 type paletteItem struct {
 	title  string
 	detail string
-	group  string
-	icon   *ui.SVG
-	run    func()
-	score  int
+	// key is the keymap command whose keys the row shows, "" for none.
+	key   string
+	group string
+	icon  *ui.SVG
+	run   func()
+	score int
 }
+
+// paletteRows is about the rows the palette shows at once, which Page Up
+// and Page Down move by.
+const paletteRows = 10
 
 type paletteState struct {
 	open   bool
@@ -47,19 +53,27 @@ func (a *App) openPalette(tables bool) {
 func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 	var cmds, conns, tables []paletteItem
 	active := a.activeConn()
+	// The tab's own commands first: they are the ones at hand.
+	if t, ok := a.ActiveTab().(widgets.Commander); ok {
+		for _, cmd := range t.Commands() {
+			cmds = append(cmds, paletteItem{title: cmd.Title, detail: cmd.Detail, key: cmd.Key, group: "Command", icon: cmd.Icon, run: cmd.Run})
+		}
+	}
 	cmds = append(cmds,
-		paletteItem{title: "New Connection…", group: "Command", icon: widgets.IconPlus, run: func() { a.openConnForm(nil) }},
-		paletteItem{title: "Query History", group: "Command", icon: widgets.IconHistory, run: func() { a.openHistory() }},
-		paletteItem{title: "Audit Log", detail: "who did what, verifiable", group: "Command", icon: widgets.IconShield, run: a.openAudit},
-		paletteItem{title: "Settings…", group: "Command", icon: widgets.IconSettings, run: a.openSettings},
-		paletteItem{title: "Toggle Sidebar", group: "Command", icon: widgets.IconColumns, run: func() { a.sidebarHidden = !a.sidebarHidden }},
-		paletteItem{title: "Keyboard Shortcuts", detail: keymap.First(keymap.ShortcutsList), group: "Command", icon: widgets.IconCode, run: func() { a.shortcutsOpen = true }},
+		paletteItem{title: "New Connection…", key: keymap.NewConnection, group: "Command", icon: widgets.IconPlus, run: func() { a.openConnForm(nil) }},
+		paletteItem{title: "Query History", key: keymap.History, group: "Command", icon: widgets.IconHistory, run: func() { a.openHistory() }},
+		paletteItem{title: "Audit Log", detail: "who did what, verifiable", key: keymap.AuditLog, group: "Command", icon: widgets.IconShield, run: a.openAudit},
+		paletteItem{title: "Settings…", key: keymap.Settings, group: "Command", icon: widgets.IconSettings, run: a.openSettings},
+		paletteItem{title: "Toggle Sidebar", key: keymap.ToggleSidebar, group: "Command", icon: widgets.IconColumns, run: func() { a.sidebarHidden = !a.sidebarHidden }},
+		paletteItem{title: "Keyboard Shortcuts", key: keymap.ShortcutsList, group: "Command", icon: widgets.IconCode, run: func() { a.shortcutsOpen = true }},
 		paletteItem{title: "New Project…", group: "Command", icon: widgets.IconFolder, run: func() { a.openNewProject(nil) }},
-		paletteItem{title: "Add Existing Folder…", detail: "list a project folder", group: "Command", icon: widgets.IconFolder, run: a.addExistingProject},
+		paletteItem{title: "Add Existing Folder…", detail: "list a project folder", key: keymap.AddFolder, group: "Command", icon: widgets.IconFolder, run: a.addExistingProject},
 	)
 	if active != nil {
-		cmds = append(cmds, paletteItem{title: "New SQL Editor", detail: active.Config.Name, group: "Command", icon: widgets.IconCode, run: func() { a.NewQueryTab(active, "", "") }})
+		cmds = append(cmds, paletteItem{title: "New SQL Editor", detail: active.Config.Name, key: keymap.NewEditor, group: "Command", icon: widgets.IconCode, run: func() { a.NewQueryTab(active, "", "") }})
 		if active.Config.Engine.IsSQL() {
+			cmds = append(cmds, paletteItem{title: "Open SQL Script…", detail: active.Config.Name, key: keymap.OpenScript, group: "Command", icon: widgets.IconFile,
+				run: func() { a.openSQLFile(active) }})
 			cmds = append(cmds, paletteItem{title: "Run SQL File…", detail: active.Config.Name + ", without opening it", group: "Command", icon: widgets.IconFile,
 				run: func() { a.openSQLFileRun(active, "") }})
 			cmds = append(cmds, paletteItem{title: "Search Objects…", detail: active.Config.Name + ", by name or definition", group: "Command", icon: widgets.IconSearch,
@@ -83,7 +97,7 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 		}
 	}
 	if len(a.tabs) > 0 {
-		cmds = append(cmds, paletteItem{title: "Close Tab", group: "Command", icon: widgets.IconX, run: func() { a.closeTab(a.active) }})
+		cmds = append(cmds, paletteItem{title: "Close Tab", key: keymap.CloseTab, group: "Command", icon: widgets.IconX, run: func() { a.closeTab(a.active) }})
 	}
 	for _, cn := range a.conns {
 		cn := cn
@@ -223,6 +237,12 @@ func (a *App) paletteView(c *ui.Context) {
 			case in.Shortcut(0, ui.KeyUp):
 				p.index = max(p.index-1, 0)
 				p.list.ScrollIntoView(p.index)
+			case in.Shortcut(0, ui.KeyPageDown):
+				p.index = min(p.index+paletteRows, len(p.shown)-1)
+				p.list.ScrollIntoView(p.index)
+			case in.Shortcut(0, ui.KeyPageUp):
+				p.index = max(p.index-paletteRows, 0)
+				p.list.ScrollIntoView(p.index)
 			case in.Submitted():
 				run(p.index)
 			}
@@ -249,6 +269,9 @@ func (a *App) paletteView(c *ui.Context) {
 					title.TextColor(t.AccentText)
 				}
 				ui.Text(c, it.detail).FontSize(12).TextColor(col).SingleLine().Grow(1).Shrink(1)
+				if k := keymap.First(it.key); k != "" {
+					ui.Text(c, k).FontSize(11.5).TextColor(col)
+				}
 				ui.Text(c, it.group).FontSize(11).TextColor(col)
 			})
 			if row.Clicked() {

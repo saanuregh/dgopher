@@ -26,3 +26,12 @@ func (q *Tab) FinishTx(commit bool, then func(error)) {
 		q.endTx(commit)
 	}
 }
+
+// endOpenTx commits or rolls back the open transaction, when one is open
+// that can: a failed one only rolls back, and none ends while busy.
+func (q *Tab) endOpenTx(commit bool) {
+	if q.Tx == db.TxNone || q.Busy() || commit && q.Tx != db.TxOpen {
+		return
+	}
+	q.endTx(commit)
+}

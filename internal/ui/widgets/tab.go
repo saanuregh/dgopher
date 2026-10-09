@@ -16,3 +16,17 @@ type Tab interface {
 	CloseReason() string
 	Close()
 }
+
+// Command is something a tab does, which the command palette offers.
+type Command struct {
+	Title, Detail string
+	// Key is the keymap command whose keys the palette shows, "" for none.
+	Key  string
+	Icon *ui.SVG
+	Run  func()
+}
+
+// Commander is a tab with commands of its own for the palette.
+type Commander interface {
+	Commands() []Command
+}

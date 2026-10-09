@@ -48,6 +48,8 @@ const (
 	ToggleResults  = "editor.toggleResults"
 	Save           = "editor.save"
 	SaveAs         = "editor.saveAs"
+	Commit         = "editor.commit"
+	Rollback       = "editor.rollback"
 
 	Copy             = "grid.copy"
 	AdvancedCopy     = "grid.advancedCopy"
@@ -76,6 +78,7 @@ const (
 	Apply            = "grid.apply"
 	Discard          = "grid.discard"
 	Refresh          = "grid.refresh"
+	ToggleChart      = "grid.toggleChart"
 )
 
 // command makes a command of its keys as the settings write them, which
@@ -141,6 +144,9 @@ var Commands = []Command{
 	command(ToggleResults, Editor, "Between the editor and its results", "Cmd+J"),
 	command(Save, Editor, "Save the file now (it also saves as you type)", "Cmd+S"),
 	command(SaveAs, Editor, "Save the editor as a file", "Cmd+Shift+S"),
+	command(Commit, Editor, "Commit the open transaction", "Cmd+Alt+Shift+Enter"),
+	// Rolling back loses the transaction's work: no key unless one is set.
+	command(Rollback, Editor, "Roll back the open transaction"),
 
 	command(Copy, Grid, "Copy the cell, or the rows chosen", "Cmd+C"),
 	command(AdvancedCopy, Grid, "Advanced Copy: delimiter, column names, quoting, row numbers", "Cmd+Shift+C"),
@@ -160,7 +166,7 @@ var Commands = []Command{
 	command(LastRow, Grid, "Last row", "Cmd+Down"),
 	command(SortColumn, Grid, "Order by the chosen column: ascending, descending, none", "Cmd+2"),
 	command(DistinctValues, Grid, "The chosen column's distinct values, to filter by", "Cmd+F11"),
-	command(NextPresentation, Grid, "Next presentation: grid, record, text, JSON, chart", "Cmd+`"),
+	command(NextPresentation, Grid, "Next presentation: grid, record, text", "Cmd+`"),
 	command(FollowKey, Grid, "Follow the cell's foreign key", "Alt+Space"),
 	command(PickReference, Grid, "Choose the cell's value from the table its foreign key points at", "Alt+Down"),
 	command(ValuePanel, Grid, "Show or hide the value panel", "F7"),
@@ -169,6 +175,7 @@ var Commands = []Command{
 	command(Apply, Grid, "Review and apply the pending changes", "Cmd+S"),
 	command(Discard, Grid, "Discard the pending changes; without any, read the rows again", "Cmd+R"),
 	command(Refresh, Grid, "Read a table's rows again", "F5"),
+	command(ToggleChart, Grid, "Show or hide the chart of the rows"),
 }
 
 // Fixed are keys that are not commands, and cannot be changed: they move
