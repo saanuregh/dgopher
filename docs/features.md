@@ -175,6 +175,10 @@
     its `WHERE`; on a query's result, around the statement
     (`SELECT * FROM (…) q WHERE …`), with its parameter values. The quick
     filter narrows the rows already read without running anything.
+  - The filter builder, beside the `WHERE` box, writes that filter from
+    conditions chosen: a column, an operator (comparisons, contains,
+    starts or ends with, one of a list, between, NULL) and a value, all
+    or any of them; the box then shows the SQL it wrote.
   - Sorting by a column runs on the server while rows remain to be read,
     and in memory once every row is, as DBeaver's default.
   - Refresh, Count (`SELECT COUNT(*)`), and Fetch All in both; a

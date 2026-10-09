@@ -55,8 +55,6 @@ Next or Later are not repeated.
     calendar for dates.
   - When editing a foreign key, pick the value from the rows of the
     referenced table.
-  - Build a filter by choosing a column, an operator and a value,
-    without writing SQL.
   - Compare two results side by side and highlight the differences.
   - Hide sensitive values on screen.
 - **Schema:**

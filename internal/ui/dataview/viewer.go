@@ -91,6 +91,8 @@ type Viewer struct {
 	// Filter menu added to it, by column; where joins them.
 	typedWhere  string
 	menuFilters []tableFilter
+	// builder is the filter builder, while it shows.
+	builder *filterBuilder
 	// refs are the foreign keys of other tables pointing at this one, read
 	// before the first review that deletes rows.
 	refs        []db.Reference
@@ -1040,6 +1042,13 @@ func (v *Viewer) View(c *ui.Context) {
 			if want := a.FocusWant(); *want == "filter" && in.Focus().Focused() {
 				*want = ""
 			}
+			if widgets.IconButton(c, widgets.IconListFilter, "Build a filter from conditions").Disabled(len(v.src.Cols) == 0).Clicked() {
+				if v.builder == nil {
+					v.builder = newFilterBuilder(v.src.Cols[0].Name)
+				} else {
+					v.builder = nil
+				}
+			}
 		})
 		quick := widgets.SearchBox(c, &v.grid.Filter, "Filter rows", 170)
 		if want := a.FocusWant(); *want == "filter" && !v.source.Reads && quick.Focus().Focused() {
@@ -1071,6 +1080,9 @@ func (v *Viewer) View(c *ui.Context) {
 			OpenExport(a, v.exportSource())
 		}
 	}).Label("Data").Padding(4, 8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border)
+	if v.builder != nil && v.source.Reads && len(v.src.Cols) > 0 {
+		v.builderView(c)
+	}
 	if v.source.Bars != nil {
 		v.source.Bars(c)
 	}
