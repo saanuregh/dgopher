@@ -320,8 +320,7 @@ func (a *App) openItemDefinition(cn *connection.Conn, database string, it db.Ite
 func (a *App) schemaNodes(cn *connection.Conn, database string, open bool) []navNode {
 	schemas, ok := cn.Schemas[database]
 	if !ok {
-		key := connection.SchemaKey{Database: database, Schema: "\x00schemas"}
-		if e := cn.LoadErr[key]; e != "" {
+		if e := cn.SchemasError(database); e != "" {
 			return info(cn, "Failed: "+widgets.FirstLine(e))
 		}
 		if open {

@@ -98,10 +98,19 @@ type Runner interface {
 	Background(work func() func())
 }
 
+// schemasKey is what LoadSchemas marks a database's loading and errors by.
+func schemasKey(database string) SchemaKey {
+	return SchemaKey{Database: database, Schema: "\x00schemas"}
+}
+
+// SchemasError is why a database's schemas could not be read, "" when
+// they were or are being.
+func (cn *Conn) SchemasError(database string) string { return cn.LoadErr[schemasKey(database)] }
+
 // LoadSchemas reads the schemas (and PostgreSQL's databases) of a
 // connection's database, then calls then.
 func LoadSchemas(r Runner, cn *Conn, database string, then func()) {
-	key := SchemaKey{Database: database, Schema: "\x00schemas"}
+	key := schemasKey(database)
 	if cn.Loading[key] {
 		return
 	}

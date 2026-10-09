@@ -143,6 +143,11 @@
 
 - **SQL editor**, run as DBeaver runs it:
   - Syntax highlighting per dialect, and line numbers.
+  - The editor's toolbar shows the schema it finds names in, and on
+    PostgreSQL its database, and switches them: `SET search_path` or `USE`
+    on its session, audited, and another database on a session of its
+    own, never with a transaction open. A `SET` or `USE` typed moves it
+    too.
   - Completion of tables, columns (alias-aware), schemas, keywords, the
     engine's common functions and the schema's own, which complete with
     their parentheses, and snippets by their keyword.

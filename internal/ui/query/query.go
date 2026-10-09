@@ -108,7 +108,10 @@ type Tab struct {
 	ac      completion
 	// snippet is the fields of a snippet being filled in, nil for none.
 	snippet *snippetSession
-	find    editor.Find
+	// schema is the schema the session finds names in, as last read,
+	// "" before it is.
+	schema string
+	find   editor.Find
 
 	sess      *db.Session
 	sessErr   string
@@ -732,8 +735,16 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 			}
 		}
 		tx := sess.Tx()
+		// A SET search_path or a USE may have moved where names are found.
+		schema := ""
+		if tx != db.TxFailed && slices.ContainsFunc(stmts, func(s safety.Statement) bool { return s.Analysis.Verb == "SET" || s.Analysis.Verb == "USE" }) {
+			schema, _ = sess.CurrentSchema(ctx)
+		}
 		q.a.Post(func() {
 			q.Running = false
+			if schema != "" {
+				q.schema = schema
+			}
 			q.txs.Set(tx, q.a.Now())
 			q.Tx = tx
 			// A statement's cursor closes as the next one runs: those
@@ -969,6 +980,7 @@ func (q *Tab) View(c *ui.Context) {
 				a.SaveSQLFile(q, true)
 			}
 			ui.Spacer(c)
+			q.switcherView(c)
 			if q.Running {
 				ui.Spinner(c).Size(14, 14)
 				ui.Text(c, widgets.FormatDuration(time.Since(q.StartedAt).Round(100*time.Millisecond))).FontSize(12).TextColor(pal.Muted)
