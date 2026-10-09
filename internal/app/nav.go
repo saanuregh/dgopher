@@ -76,14 +76,46 @@ type navState struct {
 	shown  widgets.Tab
 	reveal *navNode
 	opened map[navNode]bool
+	// chose is the row chosen as the last frame ended, which a choice
+	// moved from.
+	chose int
 	// listed are the projects shown already, whose Connections were
 	// opened as they first showed.
 	listed map[string]bool
 }
 
 func (n *navState) init() {
-	n.row = -1
+	n.row, n.chose = -1, -1
 	n.tree.List.Selected = &n.row
+}
+
+// skipNotes keeps the choice off a note, as "Loading…" or "No tables",
+// which nothing is done with: it goes on to the next row the way it moved,
+// else back where it was; the next frame, asked at once, shows it.
+func (a *App) skipNotes(c *ui.Context) {
+	rows, r, was := a.nav.tree.Rows(), a.nav.row, a.nav.chose
+	if r >= 0 && r < rows && a.nav.tree.Item(r).kind == nodeInfo {
+		step := 1
+		if r < was {
+			step = -1
+		}
+		to := -1
+		if was >= 0 && was < rows && a.nav.tree.Item(was).kind != nodeInfo {
+			to = was
+		}
+		for i := r; i >= 0 && i < rows; i += step {
+			if a.nav.tree.Item(i).kind != nodeInfo {
+				to = i
+				break
+			}
+		}
+		a.nav.row = to
+		if to >= 0 {
+			a.nav.tree.List.ScrollIntoView(to)
+		}
+		c.Invalidate()
+	}
+	a.nav.chose = a.nav.row
 }
 
 // expand opens a node of the tree.
@@ -438,6 +470,7 @@ func (a *App) sidebar(c *ui.Context) {
 			a.navRow(c, n)
 		}).Grow(1).Label("Navigator")
 		a.chooseRevealed(c)
+		a.skipNotes(c)
 		if tree.Submitted() && a.nav.row >= 0 && a.nav.row < a.nav.tree.Rows() {
 			a.activate(a.nav.tree.Item(a.nav.row))
 		}

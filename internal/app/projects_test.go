@@ -1278,3 +1278,40 @@ func TestNavigatorShallow(t *testing.T) {
 		t.Fatalf("with two projects, roots %v", roots)
 	}
 }
+
+// A note of the navigator, as "No connections yet", is never chosen: the
+// choice goes past it the way it moves, and a click on it leaves the
+// choice where it was.
+func TestNavigatorSkipsNotes(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1000, 400)
+	tt.Frame()
+	chosen := func() navNode {
+		if a.nav.row < 0 || a.nav.row >= a.nav.tree.Rows() {
+			return navNode{}
+		}
+		return a.nav.tree.Item(a.nav.row)
+	}
+	dir := a.projects[0].Dir
+	if err := tt.Click("Connections"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	tt.Key(0, ui.KeyDown)
+	tt.Frame()
+	if got := chosen(); got != (navNode{kind: nodeQueries, projectDir: dir}) {
+		t.Fatalf("down from Connections chose %+v", got)
+	}
+	tt.Key(0, ui.KeyUp)
+	tt.Frame()
+	if got := chosen(); got != (navNode{kind: nodeConnections, projectDir: dir}) {
+		t.Fatalf("up from Queries chose %+v", got)
+	}
+	if err := tt.Click("No connections yet"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if got := chosen(); got.kind == nodeInfo {
+		t.Fatalf("a click chose the note")
+	}
+}
