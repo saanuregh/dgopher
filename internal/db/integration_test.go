@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -157,6 +158,25 @@ func TestIntegrationSchema(t *testing.T) {
 			cols, err := d.Dialect.Columns(ctx, d.SQL, f.schema, "customers")
 			if err != nil || len(cols) != 4 {
 				t.Fatalf("columns %+v %v", cols, err)
+			}
+			// Read at once, the schema's names and columns are those read
+			// one at a time.
+			names, err := d.Dialect.ObjectNames(ctx, d.SQL, f.schema)
+			if err != nil || len(names) != len(objs) {
+				t.Fatalf("names %+v %v", names, err)
+			}
+			all, err := d.Dialect.SchemaColumns(ctx, d.SQL, f.schema)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i, o := range objs {
+				if names[i].Name != o.Name || names[i].Kind != o.Kind {
+					t.Fatalf("names %+v, objects %+v", names, objs)
+				}
+				one, err := d.Dialect.Columns(ctx, d.SQL, f.schema, o.Name)
+				if err != nil || !reflect.DeepEqual(all[o.Name], one) {
+					t.Fatalf("%s: at once %+v, alone %+v %v", o.Name, all[o.Name], one, err)
+				}
 			}
 			if f.cfg.Engine != ClickHouse {
 				if !cols[0].PrimaryKey || cols[1].PrimaryKey || cols[1].Nullable || !cols[2].Nullable {

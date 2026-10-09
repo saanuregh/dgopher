@@ -22,9 +22,6 @@ Next or Later are not repeated.
     add them as connections.
   - [DEFERRED] Import saved connections from other database clients.
   - [DEFERRED] Group connections in sub-folders or by tags.
-  - On very large databases, choose for each schema how much of the
-    catalog to read: names only, names and columns, or everything. Today
-    each object is read when it is first opened.
 - **SQL editor:**
   - Vim key bindings, shortcuts that can be changed, several cursors at
     once, and folding of code blocks.

@@ -102,6 +102,13 @@
     commit mode and idle-transaction limit: see [Safety model](safety.md).
 - **Navigator:** a lazy tree of databases, schemas, tables, views and columns,
   with row estimates. It has a filter, context menus, and quick open (⌘P).
+  - Read Catalog, on a schema, sets how much of it is read, for very large
+    ones, kept in the project's file: As Needed (tables with their sizes,
+    a table's columns once opened or named in an editor), Names Only (no
+    sizes, and columns only once a table is opened, never for completion
+    or the editor's checks), Names and Columns (every column of the schema
+    in one query, so completion needs no more), or Everything (also its
+    routines, triggers, sequences and types).
   - A schema's other objects, each in a folder of its kind: functions and
     procedures, triggers, sequences, types and extensions (PostgreSQL),
     events (MySQL), macros (DuckDB) and projections (ClickHouse). One opens

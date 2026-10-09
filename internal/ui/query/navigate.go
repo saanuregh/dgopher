@@ -119,6 +119,7 @@ func (q *Tab) goToDefinition() {
 		}
 		cols, ok := cn.Columns[connection.ObjectKey{Database: q.Database, Schema: schema, Name: t.Name}]
 		if !ok {
+			// Asked for, they are read whatever the catalog's depth.
 			connection.LoadColumns(q.a, cn, q.Database, schema, t.Name, nil)
 			reading = true
 		}

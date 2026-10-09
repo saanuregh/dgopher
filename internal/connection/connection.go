@@ -148,7 +148,9 @@ func LoadSchemas(r Runner, cn *Conn, database string, then func()) {
 	})
 }
 
-// LoadObjects reads the tables and views of a schema.
+// LoadObjects reads the tables and views of a schema, as much of them as
+// the connection reads of its catalog: their names alone, or every
+// column after them, and the schema's items too.
 func LoadObjects(r Runner, cn *Conn, database, schema string) {
 	key := SchemaKey{Database: database, Schema: schema}
 	if cn.Loading[key] {
@@ -156,6 +158,7 @@ func LoadObjects(r Runner, cn *Conn, database, schema string) {
 	}
 	cn.Loading[key] = true
 	delete(cn.LoadErr, key)
+	depth := cn.Config.CatalogOf(database, schema)
 	poolOf := cn.PoolFor(database) // read on the main thread
 	r.Background(func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -163,10 +166,19 @@ func LoadObjects(r Runner, cn *Conn, database, schema string) {
 		d, err := poolOf(ctx)
 		var objs []db.Object
 		if err == nil {
-			objs, err = d.Dialect.Objects(ctx, d.Catalog(), schema)
+			if depth == db.CatalogNames {
+				objs, err = d.Dialect.ObjectNames(ctx, d.Catalog(), schema)
+			} else {
+				objs, err = d.Dialect.Objects(ctx, d.Catalog(), schema)
+			}
 		}
 		return func() {
 			delete(cn.Loading, key)
+			if cn.Config.CatalogOf(database, schema) != depth {
+				// Read as it was set before it changed: read again.
+				LoadObjects(r, cn, database, schema)
+				return
+			}
 			if err != nil {
 				cn.LoadErr[key] = err.Error()
 				return
@@ -175,8 +187,55 @@ func LoadObjects(r Runner, cn *Conn, database, schema string) {
 				objs = []db.Object{}
 			}
 			cn.Objects[key] = objs
+			if depth == db.CatalogColumns || depth == db.CatalogEverything {
+				loadSchemaColumns(r, cn, database, schema)
+			}
+			if depth == db.CatalogEverything {
+				LoadItems(r, cn, database, schema)
+			}
 		}
 	})
+}
+
+// columnsKey is what loadSchemaColumns marks a schema's loading and
+// errors by, apart from its tables'.
+type columnsKey SchemaKey
+
+// loadSchemaColumns reads every column of a schema at once. Not read, the
+// columns are read a table at a time, as needed.
+func loadSchemaColumns(r Runner, cn *Conn, database, schema string) {
+	key := columnsKey{Database: database, Schema: schema}
+	if cn.Loading[key] {
+		return
+	}
+	cn.Loading[key] = true
+	delete(cn.LoadErr, key)
+	poolOf := cn.PoolFor(database)
+	r.Background(func() func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		d, err := poolOf(ctx)
+		var cols map[string][]db.Column
+		if err == nil {
+			cols, err = d.Dialect.SchemaColumns(ctx, d.Catalog(), schema)
+		}
+		return func() {
+			delete(cn.Loading, key)
+			if err != nil {
+				cn.LoadErr[key] = err.Error()
+				return
+			}
+			for name, c := range cols {
+				cn.Columns[ObjectKey{Database: database, Schema: schema, Name: name}] = c
+			}
+		}
+	})
+}
+
+// SchemaColumnsError is why a schema's columns could not be read at once,
+// "" when they were, are being, or are read as needed.
+func (cn *Conn) SchemaColumnsError(database, schema string) string {
+	return cn.LoadErr[columnsKey{Database: database, Schema: schema}]
 }
 
 // itemsKey is what LoadItems marks a schema's loading and errors by,
@@ -255,6 +314,18 @@ func LoadColumns(r Runner, cn *Conn, database, schema, name string, then func([]
 			}
 		}
 	})
+}
+
+// WantColumns reads a table's columns that no one opened the table for,
+// as completion and the editor's checks need them, unless the schema's
+// catalog is read by names alone. It reports whether they are being
+// read, for the caller to wait for them.
+func WantColumns(r Runner, cn *Conn, database, schema, table string) bool {
+	if cn.Config.CatalogOf(database, schema) == db.CatalogNames {
+		return false
+	}
+	LoadColumns(r, cn, database, schema, table, nil)
+	return true
 }
 
 // SortedObjects returns the objects of a schema of the kind asked, by

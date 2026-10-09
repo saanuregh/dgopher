@@ -95,7 +95,13 @@ type Dialect interface {
 	CurrentSchema(ctx context.Context, q Querier) (string, error)
 	Schemas(ctx context.Context, q Querier) ([]string, error)
 	Objects(ctx context.Context, q Querier, schema string) ([]Object, error)
+	// ObjectNames reads a schema's tables and views as Objects does, but
+	// what is slow to read of each on a large schema, as its size.
+	ObjectNames(ctx context.Context, q Querier, schema string) ([]Object, error)
 	Columns(ctx context.Context, q Querier, schema, table string) ([]Column, error)
+	// SchemaColumns reads the columns of every table and view of a
+	// schema at once, by their table.
+	SchemaColumns(ctx context.Context, q Querier, schema string) (map[string][]Column, error)
 	Indexes(ctx context.Context, q Querier, schema, table string) ([]Index, error)
 	ForeignKeys(ctx context.Context, q Querier, schema, table string) ([]ForeignKey, error)
 	// ReferencedBy lists the foreign keys of other tables that point at

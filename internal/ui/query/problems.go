@@ -388,7 +388,7 @@ func (c tabCatalog) columns(schema, table string) ([]db.Column, bool) {
 	cn, key := c.q.Conn, connection.ObjectKey{Database: c.q.Database, Schema: schema, Name: table}
 	cols, ok := cn.Columns[key]
 	if !ok && cn.LoadErr[key] == "" {
-		connection.LoadColumns(c.q.a, cn, c.q.Database, schema, table, nil)
+		connection.WantColumns(c.q.a, cn, c.q.Database, schema, table)
 	}
 	return cols, ok
 }

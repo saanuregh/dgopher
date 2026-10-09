@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"slices"
 	"strconv"
@@ -239,6 +240,63 @@ type Config struct {
 	// KeySeparator splits a Redis connection's key names into folders;
 	// "" for the usual ":".
 	KeySeparator string `json:"keySeparator,omitempty"`
+	// Catalog is how much of a schema's catalog is read, by schema, or
+	// database/schema for another of PostgreSQL's databases; a schema not
+	// named is read as needed.
+	Catalog map[string]CatalogDepth `json:"catalog,omitempty"`
+}
+
+// CatalogDepth is how much of a schema's catalog is read: on a very large
+// schema, less than all at once, or more.
+type CatalogDepth string
+
+const (
+	// CatalogAsNeeded reads the tables with their sizes, and a table's
+	// columns once it is opened or named.
+	CatalogAsNeeded CatalogDepth = ""
+	// CatalogNames reads the tables' names alone, and a table's columns
+	// only once it is opened.
+	CatalogNames CatalogDepth = "names"
+	// CatalogColumns reads the tables with every column at once.
+	CatalogColumns CatalogDepth = "columns"
+	// CatalogEverything reads the columns, and the schema's routines,
+	// triggers, sequences and types with them.
+	CatalogEverything CatalogDepth = "everything"
+)
+
+// CatalogDepths are the depths, in the order a menu offers them.
+var CatalogDepths = []CatalogDepth{CatalogAsNeeded, CatalogNames, CatalogColumns, CatalogEverything}
+
+// catalogKey is what Catalog keeps a schema's depth by.
+func catalogKey(database, schema string) string {
+	if database == "" {
+		return schema
+	}
+	return database + "/" + schema
+}
+
+// CatalogOf is how much of a schema's catalog is read.
+func (c *Config) CatalogOf(database, schema string) CatalogDepth {
+	return c.Catalog[catalogKey(database, schema)]
+}
+
+// SetCatalog sets how much of a schema's catalog is read, in a map of
+// its own: copies of the config made before keep theirs.
+func (c *Config) SetCatalog(database, schema string, d CatalogDepth) {
+	key := catalogKey(database, schema)
+	next := maps.Clone(c.Catalog)
+	if next == nil {
+		next = map[string]CatalogDepth{}
+	}
+	if d == CatalogAsNeeded {
+		delete(next, key)
+	} else {
+		next[key] = d
+	}
+	if len(next) == 0 {
+		next = nil
+	}
+	c.Catalog = next
 }
 
 // DefaultKeySeparator splits Redis key names into folders unless a
@@ -354,6 +412,11 @@ func (c *Config) Validate() error {
 	case Postgres, MySQL, ClickHouse, Redis, SQLite, DuckDB:
 	default:
 		errs = append(errs, fmt.Sprintf("unknown engine %q", c.Engine))
+	}
+	for schema, d := range c.Catalog {
+		if !slices.Contains(CatalogDepths, d) {
+			errs = append(errs, fmt.Sprintf("%q is no depth to read the catalog of %s at", d, schema))
+		}
 	}
 	if c.Engine.IsFile() {
 		if strings.TrimSpace(c.Database) == "" {

@@ -71,23 +71,51 @@ WHERE database_name = current_database() AND schema_name = ? AND table_name = ? 
 }
 
 func (d duckdbDialect) Columns(ctx context.Context, q Querier, schema, table string) ([]Column, error) {
-	pk, err := d.primaryKey(ctx, q, schema, table)
+	cols, err := d.columns(ctx, q, schema, table)
+	return cols[table], err
+}
+
+func (d duckdbDialect) SchemaColumns(ctx context.Context, q Querier, schema string) (map[string][]Column, error) {
+	return d.columns(ctx, q, schema, "")
+}
+
+// columns reads the columns of a table of a schema, or of every table and
+// view of it for "", by their table.
+func (d duckdbDialect) columns(ctx context.Context, q Querier, schema, table string) (map[string][]Column, error) {
+	which, args := "", []any{schema}
+	if table != "" {
+		which, args = " AND table_name = ?", append(args, table)
+	}
+	pk := map[[2]string]bool{}
+	err := scanRows(ctx, q, `SELECT table_name, array_to_string(constraint_column_names, chr(31)) FROM duckdb_constraints()
+WHERE database_name = current_database() AND schema_name = ?`+which+` AND constraint_type = 'PRIMARY KEY'`, args,
+		func(scan func(...any) error) error {
+			var t, cols string
+			if err := scan(&t, &cols); err != nil {
+				return err
+			}
+			for _, c := range splitList(cols) {
+				pk[[2]string{t, c}] = true
+			}
+			return nil
+		})
 	if err != nil {
 		return nil, err
 	}
-	var out []Column
-	err = scanRows(ctx, q, `SELECT column_name, data_type, is_nullable, column_default, COALESCE(comment, '')
-FROM duckdb_columns() WHERE database_name = current_database() AND schema_name = ? AND table_name = ?
-ORDER BY column_index`, []any{schema, table}, func(scan func(...any) error) error {
+	out := map[string][]Column{}
+	err = scanRows(ctx, q, `SELECT table_name, column_name, data_type, is_nullable, column_default, COALESCE(comment, '')
+FROM duckdb_columns() WHERE database_name = current_database() AND schema_name = ?`+which+`
+ORDER BY table_name, column_index`, args, func(scan func(...any) error) error {
+		var t string
 		var c Column
 		var def sql.NullString
-		if err := scan(&c.Name, &c.Type, &c.Nullable, &def, &c.Comment); err != nil {
+		if err := scan(&t, &c.Name, &c.Type, &c.Nullable, &def, &c.Comment); err != nil {
 			return err
 		}
 		c.Default, c.HasDefault = def.String, def.Valid
-		c.PrimaryKey = pk[c.Name]
+		c.PrimaryKey = pk[[2]string{t, c.Name}]
 		c.AutoIncrement = strings.HasPrefix(c.Default, "nextval(")
-		out = append(out, c)
+		out[t] = append(out[t], c)
 		return nil
 	})
 	return out, err
@@ -224,4 +252,9 @@ FROM duckdb_types() WHERE database_name = current_database() AND schema_name = ?
 		return "CREATE TYPE " + name + " AS ENUM (" + labels + ");\n", nil
 	}
 	return "", errNoDefinition(it)
+}
+
+// ObjectNames is Objects: reading those is not slow.
+func (d duckdbDialect) ObjectNames(ctx context.Context, q Querier, schema string) ([]Object, error) {
+	return d.Objects(ctx, q, schema)
 }

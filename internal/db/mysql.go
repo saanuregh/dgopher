@@ -26,9 +26,22 @@ ORDER BY SCHEMA_NAME IN ('information_schema','mysql','performance_schema','sys'
 }
 
 func (mysqlDialect) Objects(ctx context.Context, q Querier, schema string) ([]Object, error) {
+	return mysqlObjects(ctx, q, schema, true)
+}
+
+func (mysqlDialect) ObjectNames(ctx context.Context, q Querier, schema string) ([]Object, error) {
+	return mysqlObjects(ctx, q, schema, false)
+}
+
+// mysqlObjects reads a schema's tables and views; their statistics only
+// when asked, which MySQL may read anew from every table.
+func mysqlObjects(ctx context.Context, q Querier, schema string, sized bool) ([]Object, error) {
+	stats := "-1, -1, '', ''"
+	if sized {
+		stats = "COALESCE(TABLE_ROWS, -1), COALESCE(DATA_LENGTH + INDEX_LENGTH, -1), COALESCE(ENGINE, ''), COALESCE(TABLE_COMMENT, '')"
+	}
 	var out []Object
-	err := scanRows(ctx, q, `SELECT TABLE_NAME, TABLE_TYPE, COALESCE(TABLE_ROWS, -1),
-  COALESCE(DATA_LENGTH + INDEX_LENGTH, -1), COALESCE(ENGINE, ''), COALESCE(TABLE_COMMENT, '')
+	err := scanRows(ctx, q, `SELECT TABLE_NAME, TABLE_TYPE, `+stats+`
 FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME`, []any{schema}, func(scan func(...any) error) error {
 		o := Object{Schema: schema}
 		var typ string
@@ -46,16 +59,32 @@ FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME`, []an
 }
 
 func (mysqlDialect) Columns(ctx context.Context, q Querier, schema, table string) ([]Column, error) {
-	var out []Column
-	err := scanRows(ctx, q, `SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE = 'YES', COALESCE(COLUMN_DEFAULT, ''),
+	cols, err := mysqlColumns(ctx, q, schema, table)
+	return cols[table], err
+}
+
+func (mysqlDialect) SchemaColumns(ctx context.Context, q Querier, schema string) (map[string][]Column, error) {
+	return mysqlColumns(ctx, q, schema, "")
+}
+
+// mysqlColumns reads the columns of a table of a schema, or of every
+// table of it for "", by their table.
+func mysqlColumns(ctx context.Context, q Querier, schema, table string) (map[string][]Column, error) {
+	which, args := "", []any{schema}
+	if table != "" {
+		which, args = " AND TABLE_NAME = ?", append(args, table)
+	}
+	out := map[string][]Column{}
+	err := scanRows(ctx, q, `SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE = 'YES', COALESCE(COLUMN_DEFAULT, ''),
   COLUMN_DEFAULT IS NOT NULL, COLUMN_KEY = 'PRI', EXTRA LIKE '%auto_increment%', COALESCE(COLUMN_COMMENT, '')
-FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
-ORDER BY ORDINAL_POSITION`, []any{schema, table}, func(scan func(...any) error) error {
+FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ?`+which+`
+ORDER BY TABLE_NAME, ORDINAL_POSITION`, args, func(scan func(...any) error) error {
+		var t string
 		var c Column
-		if err := scan(&c.Name, &c.Type, &c.Nullable, &c.Default, &c.HasDefault, &c.PrimaryKey, &c.AutoIncrement, &c.Comment); err != nil {
+		if err := scan(&t, &c.Name, &c.Type, &c.Nullable, &c.Default, &c.HasDefault, &c.PrimaryKey, &c.AutoIncrement, &c.Comment); err != nil {
 			return err
 		}
-		out = append(out, c)
+		out[t] = append(out[t], c)
 		return nil
 	})
 	return out, err

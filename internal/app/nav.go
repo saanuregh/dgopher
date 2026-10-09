@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -198,6 +199,9 @@ func (a *App) navChildren(n navNode) []navNode {
 		}
 		if e := cn.ItemsError(n.database, n.schema); e != "" {
 			out = append(out, info(cn, "Could not read the routines and other objects: "+widgets.FirstLine(e))...)
+		}
+		if e := cn.SchemaColumnsError(n.database, n.schema); e != "" {
+			out = append(out, info(cn, "Could not read the columns at once, so each table's are read as needed: "+widgets.FirstLine(e))...)
 		}
 		if out == nil {
 			return info(cn, "No tables")
@@ -751,6 +755,16 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		if m.Item("Search Objects…").Chosen() {
 			a.openSearch(cn, n.database)
 		}
+		if n.kind == nodeSchema && cn.Config.Engine.IsSQL() {
+			m.Submenu("Read Catalog", func(m *ui.Menu) {
+				now := cn.Config.CatalogOf(n.database, n.schema)
+				for _, d := range db.CatalogDepths {
+					if m.Item(catalogLabel(d)).Checked(d == now).Chosen() && d != now {
+						a.setCatalogDepth(cn, n.database, n.schema, d)
+					}
+				}
+			})
+		}
 		if m.Item("New SQL Editor").Chosen() {
 			text := ""
 			if n.kind == nodeSchema && cn.Config.Engine == db.Postgres {
@@ -1003,4 +1017,34 @@ func (a *App) selectProject(p *project.Project) {
 			return
 		}
 	}
+}
+
+// catalogLabel names how much of a schema's catalog is read, as the
+// navigator's menu offers it.
+func catalogLabel(d db.CatalogDepth) string {
+	switch d {
+	case db.CatalogNames:
+		return "Names Only"
+	case db.CatalogColumns:
+		return "Names and Columns"
+	case db.CatalogEverything:
+		return "Everything"
+	}
+	return "As Needed"
+}
+
+// setCatalogDepth sets how much of a schema's catalog a connection reads,
+// keeps it in the project's file, and reads the schema again so.
+func (a *App) setCatalogDepth(cn *connection.Conn, database, schema string, d db.CatalogDepth) {
+	if err := cn.Project.Writable(); err != nil {
+		a.ShowError("Could not save "+project.File, err.Error())
+		return
+	}
+	cn.Config.SetCatalog(database, schema, d)
+	a.saveProject(cn.Project)
+	key := connection.SchemaKey{Database: database, Schema: schema}
+	delete(cn.Objects, key)
+	delete(cn.Items, key)
+	maps.DeleteFunc(cn.Columns, func(k connection.ObjectKey, _ []db.Column) bool { return k.Database == database && k.Schema == schema })
+	connection.LoadObjects(a, cn, database, schema)
 }

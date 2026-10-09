@@ -39,31 +39,50 @@ WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite\_%' ESCAPE '\' ORDER B
 	return out, err
 }
 
-func (sqliteDialect) Columns(ctx context.Context, q Querier, schema, table string) ([]Column, error) {
-	var out []Column
-	var pks int
-	err := scanRows(ctx, q, `SELECT name, type, "notnull", dflt_value, pk FROM pragma_table_info(?, ?) ORDER BY cid`,
-		[]any{table, schema}, func(scan func(...any) error) error {
-			var c Column
-			var notNull, pk int64
-			var def sql.NullString
-			if err := scan(&c.Name, &c.Type, &notNull, &def, &pk); err != nil {
-				return err
-			}
-			c.Nullable = notNull == 0
-			c.Default, c.HasDefault = def.String, def.Valid
-			c.PrimaryKey = pk > 0
-			if c.PrimaryKey {
-				pks++
-			}
-			out = append(out, c)
-			return nil
-		})
-	if pks == 1 {
-		for i := range out {
+func (d sqliteDialect) Columns(ctx context.Context, q Querier, schema, table string) ([]Column, error) {
+	cols, err := d.columns(ctx, q, schema, table)
+	return cols[table], err
+}
+
+func (d sqliteDialect) SchemaColumns(ctx context.Context, q Querier, schema string) (map[string][]Column, error) {
+	return d.columns(ctx, q, schema, "")
+}
+
+// columns reads the columns of a table of a schema, or of every table and
+// view of it for "", by their table.
+func (d sqliteDialect) columns(ctx context.Context, q Querier, schema, table string) (map[string][]Column, error) {
+	// One table is read by its name as SQLite finds it, in any case, as
+	// sqlite_master too.
+	query, args := `SELECT ?, name, type, "notnull", dflt_value, pk FROM pragma_table_info(?, ?) ORDER BY cid`, []any{table, table, schema}
+	if table == "" {
+		query, args = `SELECT m.name, p.name, p.type, p."notnull", p.dflt_value, p.pk
+FROM `+d.Quote(schema)+`.sqlite_master m JOIN pragma_table_info(m.name, ?) p
+WHERE m.type IN ('table', 'view') AND m.name NOT LIKE 'sqlite\_%' ESCAPE '\' ORDER BY m.name, p.cid`, []any{schema}
+	}
+	out := map[string][]Column{}
+	pks := map[string]int{}
+	err := scanRows(ctx, q, query, args, func(scan func(...any) error) error {
+		var t string
+		var c Column
+		var notNull, pk int64
+		var def sql.NullString
+		if err := scan(&t, &c.Name, &c.Type, &notNull, &def, &pk); err != nil {
+			return err
+		}
+		c.Nullable = notNull == 0
+		c.Default, c.HasDefault = def.String, def.Valid
+		c.PrimaryKey = pk > 0
+		if c.PrimaryKey {
+			pks[t]++
+		}
+		out[t] = append(out[t], c)
+		return nil
+	})
+	for t, cols := range out {
+		for i := range cols {
 			// The one INTEGER PRIMARY KEY is the rowid, numbered on its own.
-			if out[i].PrimaryKey && strings.EqualFold(out[i].Type, "INTEGER") {
-				out[i].AutoIncrement = true
+			if pks[t] == 1 && cols[i].PrimaryKey && strings.EqualFold(cols[i].Type, "INTEGER") {
+				cols[i].AutoIncrement = true
 			}
 		}
 	}
@@ -190,4 +209,9 @@ func (d sqliteDialect) ItemDDL(ctx context.Context, q Querier, it Item) (string,
 	}
 	def, err := queryString(ctx, q, `SELECT sql FROM `+d.Quote(it.Schema)+`.sqlite_master WHERE type = 'trigger' AND name = ?`, it.Name)
 	return def + ";\n", err
+}
+
+// ObjectNames is Objects: reading those is not slow.
+func (d sqliteDialect) ObjectNames(ctx context.Context, q Querier, schema string) ([]Object, error) {
+	return d.Objects(ctx, q, schema)
 }

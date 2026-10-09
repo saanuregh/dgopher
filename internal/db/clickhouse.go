@@ -80,12 +80,27 @@ FROM system.tables WHERE database = ? AND NOT is_temporary ORDER BY name`, []any
 }
 
 func (clickhouseDialect) Columns(ctx context.Context, q Querier, schema, table string) ([]Column, error) {
-	var out []Column
-	err := scanRows(ctx, q, `SELECT name, type, default_kind, default_expression, toBool(is_in_primary_key), comment
-FROM system.columns WHERE database = ? AND table = ? ORDER BY position`, []any{schema, table}, func(scan func(...any) error) error {
+	cols, err := clickhouseColumns(ctx, q, schema, table)
+	return cols[table], err
+}
+
+func (clickhouseDialect) SchemaColumns(ctx context.Context, q Querier, schema string) (map[string][]Column, error) {
+	return clickhouseColumns(ctx, q, schema, "")
+}
+
+// clickhouseColumns reads the columns of a table of a database, or of
+// every table of it for "", by their table.
+func clickhouseColumns(ctx context.Context, q Querier, schema, table string) (map[string][]Column, error) {
+	which, args := "", []any{schema}
+	if table != "" {
+		which, args = " AND table = ?", append(args, table)
+	}
+	out := map[string][]Column{}
+	err := scanRows(ctx, q, `SELECT table, name, type, default_kind, default_expression, toBool(is_in_primary_key), comment
+FROM system.columns WHERE database = ?`+which+` ORDER BY table, position`, args, func(scan func(...any) error) error {
+		var t, kind string
 		var c Column
-		var kind string
-		if err := scan(&c.Name, &c.Type, &kind, &c.Default, &c.PrimaryKey, &c.Comment); err != nil {
+		if err := scan(&t, &c.Name, &c.Type, &kind, &c.Default, &c.PrimaryKey, &c.Comment); err != nil {
 			return err
 		}
 		c.Nullable = strings.HasPrefix(c.Type, "Nullable(")
@@ -93,7 +108,7 @@ FROM system.columns WHERE database = ? AND table = ? ORDER BY position`, []any{s
 		if kind != "" && kind != "DEFAULT" {
 			c.Default = kind + " " + c.Default
 		}
-		out = append(out, c)
+		out[t] = append(out[t], c)
 		return nil
 	})
 	return out, err
@@ -166,4 +181,9 @@ func (d clickhouseDialect) ItemDDL(ctx context.Context, q Querier, it Item) (str
 		return "", err
 	}
 	return "ALTER TABLE " + QualifiedName(d, it.Schema, it.Table) + " ADD PROJECTION " + d.Quote(it.Name) + " (" + query + ");\n", nil
+}
+
+// ObjectNames is Objects: reading those is not slow.
+func (d clickhouseDialect) ObjectNames(ctx context.Context, q Querier, schema string) ([]Object, error) {
+	return d.Objects(ctx, q, schema)
 }

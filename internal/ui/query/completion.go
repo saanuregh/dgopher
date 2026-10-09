@@ -290,8 +290,7 @@ func (q *Tab) candidates(a Host, cc sqltext.CompletionContext) []suggestion {
 		if !ok {
 			// One that could not be read is not read again at each key:
 			// the navigator's refresh tries again.
-			if cn.LoadErr[key] == "" {
-				connection.LoadColumns(a, cn, q.Database, tableSchema, table, nil)
+			if cn.LoadErr[key] == "" && connection.WantColumns(a, cn, q.Database, tableSchema, table) {
 				q.ac.retry = true
 			}
 			return

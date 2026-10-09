@@ -93,11 +93,27 @@ ORDER BY nspname = 'public' DESC, nspname`)
 }
 
 func (postgresDialect) Objects(ctx context.Context, q Querier, schema string) ([]Object, error) {
+	return postgresObjects(ctx, q, schema, true)
+}
+
+func (postgresDialect) ObjectNames(ctx context.Context, q Querier, schema string) ([]Object, error) {
+	return postgresObjects(ctx, q, schema, false)
+}
+
+// postgresObjects reads a schema's tables and views; their sizes and
+// comments only when asked, which read every table's files and a
+// catalog more.
+func postgresObjects(ctx context.Context, q Querier, schema string, sized bool) ([]Object, error) {
+	size, comment := "-1", "''"
+	if sized {
+		size = "CASE WHEN c.relkind IN ('r','m','p') THEN pg_total_relation_size(c.oid) ELSE -1 END"
+		comment = "COALESCE(obj_description(c.oid, 'pg_class'), '')"
+	}
 	var out []Object
 	err := scanRows(ctx, q, `SELECT c.relname, c.relkind::text,
   GREATEST(c.reltuples, -1)::bigint,
-  CASE WHEN c.relkind IN ('r','m','p') THEN pg_total_relation_size(c.oid) ELSE -1 END,
-  COALESCE(obj_description(c.oid, 'pg_class'), ''),
+  `+size+`,
+  `+comment+`,
   CASE WHEN c.relkind = 'p' THEN pg_get_partkeydef(c.oid) ELSE '' END
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = $1 AND c.relkind IN ('r','p','v','m','f') AND NOT c.relispartition
@@ -124,8 +140,23 @@ ORDER BY c.relname`, []any{schema}, func(scan func(...any) error) error {
 }
 
 func (postgresDialect) Columns(ctx context.Context, q Querier, schema, table string) ([]Column, error) {
-	var out []Column
-	err := scanRows(ctx, q, `SELECT a.attname, format_type(a.atttypid, a.atttypmod), NOT a.attnotnull,
+	cols, err := postgresColumns(ctx, q, schema, table)
+	return cols[table], err
+}
+
+func (postgresDialect) SchemaColumns(ctx context.Context, q Querier, schema string) (map[string][]Column, error) {
+	return postgresColumns(ctx, q, schema, "")
+}
+
+// postgresColumns reads the columns of a table of a schema, or of every
+// table and view of it for "", by their table.
+func postgresColumns(ctx context.Context, q Querier, schema, table string) (map[string][]Column, error) {
+	which, args := "c.relkind IN ('r','p','v','m','f') AND NOT c.relispartition", []any{schema}
+	if table != "" {
+		which, args = "c.relname = $2", append(args, table)
+	}
+	out := map[string][]Column{}
+	err := scanRows(ctx, q, `SELECT c.relname, a.attname, format_type(a.atttypid, a.atttypmod), NOT a.attnotnull,
   COALESCE(pg_get_expr(d.adbin, d.adrelid), ''), d.adbin IS NOT NULL,
   EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND i.indisprimary AND a.attnum = ANY(i.indkey)),
   a.attidentity <> '' OR COALESCE(pg_get_expr(d.adbin, d.adrelid), '') LIKE 'nextval(%',
@@ -134,13 +165,14 @@ FROM pg_attribute a
 JOIN pg_class c ON c.oid = a.attrelid
 JOIN pg_namespace n ON n.oid = c.relnamespace
 LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
-WHERE n.nspname = $1 AND c.relname = $2 AND a.attnum > 0 AND NOT a.attisdropped
-ORDER BY a.attnum`, []any{schema, table}, func(scan func(...any) error) error {
+WHERE n.nspname = $1 AND `+which+` AND a.attnum > 0 AND NOT a.attisdropped
+ORDER BY c.relname, a.attnum`, args, func(scan func(...any) error) error {
+		var t string
 		var c Column
-		if err := scan(&c.Name, &c.Type, &c.Nullable, &c.Default, &c.HasDefault, &c.PrimaryKey, &c.AutoIncrement, &c.Comment); err != nil {
+		if err := scan(&t, &c.Name, &c.Type, &c.Nullable, &c.Default, &c.HasDefault, &c.PrimaryKey, &c.AutoIncrement, &c.Comment); err != nil {
 			return err
 		}
-		out = append(out, c)
+		out[t] = append(out[t], c)
 		return nil
 	})
 	return out, err

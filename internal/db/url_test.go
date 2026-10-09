@@ -1,6 +1,9 @@
 package db
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestParseURL(t *testing.T) {
 	cases := []struct {
@@ -17,7 +20,7 @@ func TestParseURL(t *testing.T) {
 	}
 	for _, c := range cases {
 		got, err := ParseURL(c.in)
-		if err != nil || got != c.want {
+		if err != nil || !reflect.DeepEqual(got, c.want) {
 			t.Errorf("ParseURL(%q) = %+v, %v; want %+v", c.in, got, err, c.want)
 		}
 	}

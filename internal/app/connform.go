@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strconv"
@@ -897,10 +898,10 @@ func reconnectNeeded(old, cfg db.Config) bool {
 	strip := func(c db.Config) db.Config {
 		c.Name, c.Color, c.Env, c.Commit = "", "", "", ""
 		c.StatementTimeout, c.IdleTxTimeout = 0, 0
-		c.KeySeparator = ""
+		c.KeySeparator, c.Catalog = "", nil
 		return c
 	}
-	return strip(old) != strip(cfg)
+	return !reflect.DeepEqual(strip(old), strip(cfg))
 }
 
 func (a *App) finishConnForm(f *connForm, cfg db.Config, connect bool) {
