@@ -219,7 +219,20 @@
 - **Server activity:** sessions and running queries of PostgreSQL, MySQL
   and ClickHouse, with cancel (and, on PostgreSQL and MySQL, terminate),
   and Redis's headline metrics and clients, which can be disconnected (of
-  one node, in a cluster). It refreshes every 2 seconds.
+  one node, in a cluster). Sessions refresh every 2 seconds.
+  - Locks (PostgreSQL, MySQL): each lock held or waited for, with the
+    sessions a waiting one waits for; MySQL's metadata locks included.
+  - Statistics: the statements that took the most time, from
+    `pg_stat_statements`, MySQL's `performance_schema`, or ClickHouse's
+    `system.query_log` over the last day, with calls, mean and maximum
+    times, and rows.
+  - Metrics (ClickHouse): queries and merges running, connections,
+    memory, parts and load, and queries and rows per second.
+- **Maintenance** from a table's menu: VACUUM, ANALYZE and REINDEX on
+  PostgreSQL, ANALYZE, OPTIMIZE and CHECK on MySQL, ANALYZE and REINDEX on
+  SQLite, OPTIMIZE on ClickHouse. Each runs in an editor, through the
+  safety policy; manual commit opens no transaction for a statement that
+  cannot run in one, as VACUUM.
 - **ER diagrams** of a schema: tables with their columns and keys, and
   foreign-key connectors, laid out so referenced tables sit to the left.
   Drag tables to arrange them: one dropped on another moves to the

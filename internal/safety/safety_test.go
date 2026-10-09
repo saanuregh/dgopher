@@ -135,3 +135,35 @@ func TestRedisStatefulCommandsRefused(t *testing.T) {
 		}
 	}
 }
+
+// Manual commit opens no transaction for a statement that cannot run in
+// one.
+func TestOutsideTransaction(t *testing.T) {
+	for _, c := range []struct {
+		e   db.Engine
+		sql string
+		out bool
+	}{
+		{db.Postgres, "VACUUM ANALYZE shop.orders", true},
+		{db.Postgres, "/* nightly */ vacuum", true},
+		{db.Postgres, "CREATE INDEX CONCURRENTLY i ON t (a)", true},
+		{db.Postgres, "CREATE INDEX i ON t (a)", false},
+		{db.Postgres, "DROP DATABASE scratch", true},
+		{db.Postgres, "ALTER SYSTEM SET work_mem = '64MB'", true},
+		{db.Postgres, "UPDATE t SET concurrently = 1", false},
+		{db.Postgres, "CREATE TABLE concurrently (a int)", false},
+		{db.Postgres, "CREATE UNIQUE INDEX CONCURRENTLY i ON t (a)", true},
+		{db.Postgres, "DROP INDEX CONCURRENTLY i", true},
+		{db.Postgres, "REINDEX TABLE CONCURRENTLY t", true},
+		{db.SQLite, "VACUUM", true},
+		{db.MySQL, "OPTIMIZE TABLE t", false},
+	} {
+		if got := OutsideTransaction(c.e, c.sql); got != c.out {
+			t.Errorf("%s %q: %v", c.e, c.sql, got)
+		}
+	}
+	cfg := db.Config{Engine: db.Postgres, Env: db.Production}
+	if v := ReviewSQL(&cfg, Analyze(&cfg, []string{"VACUUM t"})); v.Writes || !v.Confirm {
+		t.Fatalf("VACUUM on production: %+v", v)
+	}
+}

@@ -5,6 +5,7 @@ package safety
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"dgopher/internal/db"
@@ -22,7 +23,8 @@ type Verdict struct {
 	// cannot be undone on production.
 	TypeName bool
 	// Writes reports statements that change data or schema, which open a
-	// transaction first in manual-commit mode.
+	// transaction first in manual-commit mode; those that cannot run in
+	// one, as VACUUM, do not count.
 	Writes bool
 }
 
@@ -73,7 +75,7 @@ func ReviewSQL(cfg *db.Config, stmts []Statement) Verdict {
 	for _, s := range stmts {
 		cls := s.Analysis.Class
 		mutates := cls == sqltext.Write || cls == sqltext.DDL
-		if mutates {
+		if mutates && !OutsideTransaction(cfg.Engine, s.SQL) {
 			v.Writes = true
 		}
 		if cfg.ReadOnly {
@@ -123,6 +125,45 @@ func (v *Verdict) Add(w Verdict) {
 // no less, and blocks nothing.
 func (v Verdict) Covers(w Verdict) bool {
 	return w.Blocked == "" && (v.Confirm || !w.Confirm) && (v.TypeName || !w.TypeName)
+}
+
+// OutsideTransaction reports whether a statement cannot run in a
+// transaction, which manual commit must then not open for it:
+// PostgreSQL's VACUUM, CREATE and DROP of a DATABASE or a TABLESPACE,
+// ALTER SYSTEM and the CONCURRENTLY forms of index commands, and the
+// VACUUM of SQLite and DuckDB.
+func OutsideTransaction(e db.Engine, sql string) bool {
+	var words []string
+	for _, t := range sqltext.Tokenize(sql, Dialect(e)) {
+		if t.Kind == sqltext.Keyword || t.Kind == sqltext.Identifier {
+			words = append(words, strings.ToUpper(t.Text))
+		}
+	}
+	if len(words) == 0 {
+		return false
+	}
+	switch e {
+	case db.SQLite, db.DuckDB:
+		return words[0] == "VACUUM"
+	case db.Postgres:
+		switch words[0] {
+		case "VACUUM":
+			return true
+		case "ALTER":
+			return len(words) > 1 && words[1] == "SYSTEM"
+		case "REINDEX":
+			return slices.Contains(words, "CONCURRENTLY")
+		case "CREATE", "DROP":
+			if len(words) > 1 && (words[1] == "DATABASE" || words[1] == "TABLESPACE") {
+				return true
+			}
+			// CREATE [UNIQUE] INDEX CONCURRENTLY, DROP INDEX CONCURRENTLY:
+			// the word only there, never a table of that name.
+			i := slices.Index(words[:min(3, len(words))], "INDEX")
+			return i > 0 && i+1 < len(words) && words[i+1] == "CONCURRENTLY"
+		}
+	}
+	return false
 }
 
 func verbOf(a sqltext.Analysis) string {

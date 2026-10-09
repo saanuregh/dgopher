@@ -9,6 +9,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/project"
 	"dgopher/internal/ui/dataview"
+	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo"
@@ -501,6 +502,15 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			if m.Item("Import Data…").Disabled(cn.Config.ReadOnly).Chosen() {
 				a.openImport(cn, n.database, obj.Schema, &obj)
 			}
+			if cmds := maintenanceCommands(cn.Config.Engine, quoted); len(cmds) > 0 {
+				m.Submenu("Maintenance", func(m *ui.Menu) {
+					for _, mc := range cmds {
+						if m.Item(mc.label).Disabled(cn.Config.ReadOnly).Chosen() {
+							a.runInEditor(cn, n.database, mc.sql)
+						}
+					}
+				})
+			}
 			m.Separator()
 			if m.Item("Truncate…").Chosen() {
 				a.NewQueryTab(cn, n.database, "TRUNCATE TABLE "+quoted+";\n")
@@ -534,6 +544,49 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			}
 		}
 	}
+}
+
+// maintenance is a command that keeps a table in shape.
+type maintenance struct {
+	label, sql string
+}
+
+// maintenanceCommands are the commands of an engine that keep a table,
+// named as quoted, in shape; a label says what the command locks.
+func maintenanceCommands(e db.Engine, quoted string) []maintenance {
+	switch e {
+	case db.Postgres:
+		return []maintenance{
+			{"Vacuum", "VACUUM " + quoted},
+			{"Vacuum and Analyze", "VACUUM ANALYZE " + quoted},
+			{"Analyze", "ANALYZE " + quoted},
+			{"Reindex (locks writes)", "REINDEX TABLE " + quoted},
+			{"Vacuum Full (locks reads and writes)", "VACUUM FULL " + quoted},
+		}
+	case db.MySQL:
+		return []maintenance{
+			{"Analyze", "ANALYZE TABLE " + quoted},
+			{"Optimize (rebuilds the table)", "OPTIMIZE TABLE " + quoted},
+			{"Check", "CHECK TABLE " + quoted},
+		}
+	case db.SQLite:
+		return []maintenance{
+			{"Analyze", "ANALYZE " + quoted},
+			{"Reindex", "REINDEX " + quoted},
+		}
+	case db.ClickHouse:
+		return []maintenance{
+			{"Optimize", "OPTIMIZE TABLE " + quoted},
+			{"Optimize Final (merges every part)", "OPTIMIZE TABLE " + quoted + " FINAL"},
+		}
+	}
+	return nil
+}
+
+// runInEditor opens an editor on a statement and runs it there, through
+// the safety policy, with its result and audit as any run's.
+func (a *App) runInEditor(cn *connection.Conn, database, sql string) {
+	a.newQueryFile(cn, database, sql+";\n", func(q *query.Tab) { q.Run(query.RunScript) })
 }
 
 // projectRow shows a project, its Queries folder, a query file, or a note.

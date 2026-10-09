@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -552,13 +553,38 @@ func TestServerActivity(t *testing.T) {
 		a.openActivity(cn)
 		testutil.WaitFor(t, tt, cfg.Name+" activity", func() bool {
 			at, ok := a.ActiveTab().(*activityTab)
-			return ok && at.conn == cn && !at.loading && (at.src.Cols != nil || at.err != "")
+			return ok && at.conn == cn
 		})
 		at := a.ActiveTab().(*activityTab)
-		if at.err != "" {
-			t.Fatalf("%s: %s", cfg.Name, at.err)
+		// Every page reads; one may fail only to say what the server lacks.
+		for i, page := range at.pages {
+			if i > 0 {
+				at.showPage(i)
+			}
+			testutil.WaitFor(t, tt, cfg.Name+" "+page.name, func() bool {
+				return !at.loading && (at.src.Cols != nil || at.metrics != nil || at.err != "")
+			})
+			if at.err != "" && (page.hint == "" || !strings.Contains(at.err, page.hint)) {
+				t.Fatalf("%s %s: %s", cfg.Name, page.name, at.err)
+			}
+			testutil.Snapshot(t, tt, "activity-"+string(cfg.Engine)+"-"+strings.ToLower(page.name))
 		}
-		testutil.Snapshot(t, tt, "activity-"+string(cfg.Engine))
+	}
+}
+
+// A Metrics page reads twice for its rates.
+func TestClickHouseMetrics(t *testing.T) {
+	testutil.Integration(t)
+	a := newTestApp(t)
+	cn := addConn(a, db.Config{ID: "ch", Name: "ch", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dbgopher"})
+	tt := ui.NewTester(a.view, 1360, 760)
+	a.openActivity(cn)
+	testutil.WaitFor(t, tt, "the activity", func() bool { _, ok := a.ActiveTab().(*activityTab); return ok })
+	at := a.ActiveTab().(*activityTab)
+	at.showPage(slices.IndexFunc(at.pages, func(p activityPage) bool { return p.metrics }))
+	testutil.WaitFor(t, tt, "two reads", func() bool { return at.before != nil })
+	if at.err != "" || at.metrics["uptime"] <= 0 || !tt.HasText("Queries per second") || !at.metricsAt.After(at.beforeAt) {
+		t.Fatalf("metrics %v: %q", at.metrics, at.err)
 	}
 }
 
@@ -1378,5 +1404,106 @@ func TestRunPostgresDump(t *testing.T) {
 	cn.DB.SQL.QueryRow(`SELECT count(*), count(*) FILTER (WHERE b IS NULL) FROM public.it_dump`).Scan(&n, &nulls)
 	if x.err != "" || n != 2 || nulls != 1 {
 		t.Fatalf("dump: %q %q, %d rows, %d NULL", x.err, x.failures, n, nulls)
+	}
+}
+
+// The Locks page shows a session waiting for a lock, and the session it
+// waits for.
+func TestLocksShowWhoWaits(t *testing.T) {
+	testutil.Integration(t)
+	testutil.SeedPostgres(t)
+	for _, c := range []struct {
+		cfg               db.Config
+		setup, hold, wait []string
+	}{
+		{cfg: testutil.PGConfig(),
+			hold: []string{"BEGIN", "LOCK TABLE shop.customers IN ACCESS EXCLUSIVE MODE"},
+			wait: []string{"SELECT count(*) FROM shop.customers"}},
+		{cfg: db.Config{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dbgopher", Database: "shop"},
+			setup: []string{"DROP TABLE IF EXISTS it_locks", "CREATE TABLE it_locks (id int primary key, n int)", "INSERT INTO it_locks VALUES (1, 0)"},
+			hold:  []string{"START TRANSACTION", "SELECT * FROM it_locks WHERE id = 1 FOR UPDATE"},
+			wait:  []string{"UPDATE it_locks SET n = 1 WHERE id = 1"}},
+	} {
+		t.Run(string(c.cfg.Engine), func(t *testing.T) {
+			ctx := context.Background()
+			d, err := db.Open(ctx, c.cfg, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer d.Close()
+			for _, q := range c.setup {
+				if _, err := d.SQL.ExecContext(ctx, q); err != nil {
+					t.Fatal(q, err)
+				}
+			}
+			holder, _ := d.SQL.Conn(ctx)
+			waiter, _ := d.SQL.Conn(ctx)
+			for _, q := range c.hold {
+				if _, err := holder.ExecContext(ctx, q); err != nil {
+					t.Fatal(q, err)
+				}
+			}
+			waited := make(chan error, 1)
+			go func() {
+				_, err := waiter.ExecContext(ctx, c.wait[0])
+				waited <- err
+			}()
+			defer func() {
+				holder.ExecContext(ctx, "ROLLBACK")
+				<-waited
+				holder.Close()
+				waiter.Close()
+			}()
+			a := newTestApp(t)
+			cn := addConn(a, c.cfg)
+			tt := ui.NewTester(a.view, 1360, 760)
+			a.openActivity(cn)
+			testutil.WaitFor(t, tt, "the activity", func() bool { _, ok := a.ActiveTab().(*activityTab); return ok })
+			at := a.ActiveTab().(*activityTab)
+			at.showPage(slices.IndexFunc(at.pages, func(p activityPage) bool { return p.name == "Locks" }))
+			waitsFor := -1
+			testutil.WaitFor(t, tt, "a lock waited for", func() bool {
+				if at.loading || at.src.Cols == nil {
+					return false
+				}
+				waitsFor = slices.IndexFunc(at.src.Cols, func(col db.ColumnInfo) bool { return col.Name == "waits_for" })
+				for _, r := range at.src.Rows {
+					if r[waitsFor] != nil && db.Display(r[waitsFor]) != "" {
+						return true
+					}
+				}
+				at.refresh()
+				return false
+			})
+			if at.err != "" {
+				t.Fatal(at.err)
+			}
+		})
+	}
+}
+
+// A table's maintenance runs in an editor, through the policy: on
+// production, where manual commit opens a transaction before a write,
+// VACUUM, which no transaction may hold, runs without one.
+func TestMaintenanceOnProduction(t *testing.T) {
+	testutil.Integration(t)
+	testutil.SeedPostgres(t)
+	a := newTestApp(t)
+	cfg := testutil.PGConfig()
+	cfg.Env = db.Production
+	cn := addConn(a, cfg)
+	tt := ui.NewTester(a.view, 1200, 800)
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	cmds := maintenanceCommands(db.Postgres, db.QualifiedName(cn.DB.Dialect, "shop", "orders"))
+	vacuum := cmds[slices.IndexFunc(cmds, func(m maintenance) bool { return m.label == "Vacuum and Analyze" })]
+	a.runInEditor(cn, "", vacuum.sql)
+	testutil.WaitFor(t, tt, "the confirmation", func() bool { return a.confirm != nil })
+	a.confirm.OnConfirm()
+	a.confirm = nil
+	q := a.ActiveTab().(*query.Tab)
+	testutil.WaitFor(t, tt, "the vacuum", func() bool { return !q.Running && testutil.HasTextContaining(tt, "VACUUM ·") })
+	if testutil.HasTextContaining(tt, "transaction block") || q.Tx != db.TxNone {
+		t.Fatalf("vacuum: transaction %v, %q", q.Tx, tt.Texts())
 	}
 }
