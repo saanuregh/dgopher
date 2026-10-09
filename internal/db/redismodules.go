@@ -25,12 +25,7 @@ func (k *KV) VectorSetInfo(ctx context.Context, key string) ([]Property, error) 
 	var out []Property
 	for i := 0; i+1 < len(raw); i += 2 {
 		name, _ := raw[i].ToString()
-		value, err := raw[i+1].ToString()
-		if err != nil {
-			n, _ := raw[i+1].AsInt64()
-			value = strconv.FormatInt(n, 10)
-		}
-		out = append(out, Property{Name: name, Value: value})
+		out = append(out, Property{Name: name, Value: messageText(raw[i+1])})
 	}
 	return out, nil
 }

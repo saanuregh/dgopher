@@ -21,13 +21,7 @@ func EnumValues(ctx context.Context, d *DB, typ string) ([]string, error) {
 	case Postgres:
 		return queryStrings(ctx, d.Catalog(), `SELECT enumlabel FROM pg_enum WHERE enumtypid = to_regtype($1) ORDER BY enumsortorder`, typ)
 	case ClickHouse:
-		for {
-			m := wrapped.FindStringSubmatch(typ)
-			if m == nil {
-				break
-			}
-			typ = strings.TrimSpace(m[2])
-		}
+		typ = clickhouseInnerType(typ)
 		if m := clickhouseEnum.FindStringSubmatch(typ); m != nil {
 			return quotedValues(m[2], true), nil
 		}
@@ -37,6 +31,18 @@ func EnumValues(ctx context.Context, d *DB, typ string) ([]string, error) {
 		}
 	}
 	return nil, nil
+}
+
+// clickhouseInnerType unwraps ClickHouse's Nullable(…) and
+// LowCardinality(…), however nested, to the type they hold.
+func clickhouseInnerType(typ string) string {
+	for {
+		m := wrapped.FindStringSubmatch(typ)
+		if m == nil {
+			return typ
+		}
+		typ = strings.TrimSpace(m[2])
+	}
 }
 
 // quotedValues reads the quoted strings of a list, a quote inside one

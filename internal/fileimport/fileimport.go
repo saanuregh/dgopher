@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"dgopher/internal/db"
 )
 
 // Format is a kind of file an import reads.
@@ -338,4 +340,4 @@ func exact(t string) bool {
 
 func quoteString(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
 
-func quoteIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
+var quoteIdent = db.DialectOf(db.DuckDB).Quote

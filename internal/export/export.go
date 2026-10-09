@@ -503,14 +503,10 @@ type sqlWriter struct {
 	inBatch int
 }
 
-func defaultQuote(ident string) string {
-	return `"` + strings.ReplaceAll(ident, `"`, `""`) + `"`
-}
-
 func newSQLWriter(base baseWriter) *sqlWriter {
 	quote := base.opt.Quote
 	if quote == nil {
-		quote = defaultQuote
+		quote = quoteDuckIdent
 	}
 	table := base.opt.Table
 	if table == "" {

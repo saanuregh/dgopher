@@ -291,11 +291,22 @@ func (d *KeyDump) decode() error {
 	if d.Key == "" {
 		return errors.New("a key without a name")
 	}
-	empty := map[string]bool{"string": d.String == nil, "list": len(d.Items) == 0, "set": len(d.Items) == 0,
-		"hash": len(d.Fields) == 0, "zset": len(d.Members) == 0, "stream": len(d.Entries) == 0}
-	if e, known := empty[d.Type]; !known {
+	var empty bool
+	switch d.Type {
+	case "string":
+		empty = d.String == nil
+	case "list", "set":
+		empty = len(d.Items) == 0
+	case "hash":
+		empty = len(d.Fields) == 0
+	case "zset":
+		empty = len(d.Members) == 0
+	case "stream":
+		empty = len(d.Entries) == 0
+	default:
 		return fmt.Errorf("%s is of the type %q, which is not imported", d.Key, d.Type)
-	} else if e {
+	}
+	if empty {
 		return fmt.Errorf("%s has no value of its type %s", d.Key, d.Type)
 	}
 	// What the server could refuse once a key's commands are under way,

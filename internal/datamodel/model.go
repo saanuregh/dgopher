@@ -7,13 +7,10 @@ package datamodel
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 
 	"dgopher/internal/db"
@@ -47,21 +44,7 @@ func File(p *project.Project, name string) string {
 
 // List names a project's models, by their files, in order.
 func List(p *project.Project) ([]string, error) {
-	entries, err := os.ReadDir(filepath.Join(p.Dir, Folder))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".json") {
-			out = append(out, filepath.Join(p.Dir, Folder, e.Name()))
-		}
-	}
-	sort.Strings(out)
-	return out, nil
+	return project.ListFiles(p, Folder)
 }
 
 // Load reads a model's file.
@@ -73,18 +56,7 @@ func Load(path string) (*Model, error) {
 // LoadFile reads a model's file, with its bytes, which a save checks the
 // file still holds.
 func LoadFile(path string) (*Model, []byte, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	var m Model
-	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, nil, fmt.Errorf("%s: %w", filepath.Base(path), err)
-	}
-	if err := m.Check(); err != nil {
-		return nil, nil, fmt.Errorf("%s: %w", filepath.Base(path), err)
-	}
-	return &m, data, nil
+	return project.LoadJSON(path, (*Model).Check)
 }
 
 // Check refuses a model its file holds wrong, as edited by hand.
@@ -135,15 +107,7 @@ func (m *Model) Save(path string, was []byte) ([]byte, error) {
 	slices.SortFunc(m.Tables, func(a, b db.TableDesign) int {
 		return cmp.Or(cmp.Compare(a.Schema, b.Schema), cmp.Compare(a.Name, b.Name))
 	})
-	data, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	data = append(data, '\n')
-	if err := project.SaveShared(path, was, data); err != nil {
-		return nil, err
-	}
-	return data, nil
+	return project.SaveJSON(path, was, m)
 }
 
 // Build reads tables of a schema into a model's: those named, or every

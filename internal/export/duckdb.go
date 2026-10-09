@@ -20,6 +20,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/duckdb/duckdb-go/v2"
+
+	"dgopher/internal/db"
 )
 
 // Column describes one result column; DatabaseType picks the Parquet or DuckDB column type.
@@ -198,7 +200,7 @@ type duckWriter struct {
 	err       error
 }
 
-func quoteDuckIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
+var quoteDuckIdent = db.DialectOf(db.DuckDB).Quote
 
 func newDuckWriter(path string, f Format, cols []Column, opt Options) (*duckWriter, error) {
 	dsn := ""

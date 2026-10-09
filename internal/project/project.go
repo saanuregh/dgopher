@@ -286,6 +286,57 @@ func SaveShared(path string, was, data []byte) error {
 	return err
 }
 
+// ListFiles lists the JSON files of a project's folder, in order; none
+// when the folder is missing.
+func ListFiles(p *Project, folder string) ([]string, error) {
+	entries, err := os.ReadDir(filepath.Join(p.Dir, folder))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".json") {
+			out = append(out, filepath.Join(p.Dir, folder, e.Name()))
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// LoadJSON reads a shared file into a T that check accepts, with the
+// file's bytes, which a save checks the file still holds.
+func LoadJSON[T any](path string, check func(*T) error) (*T, []byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	var v T
+	if err := json.Unmarshal(data, &v); err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", filepath.Base(path), err)
+	}
+	if err := check(&v); err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", filepath.Base(path), err)
+	}
+	return &v, data, nil
+}
+
+// SaveJSON writes v, indented, to a shared file as SaveShared does, and
+// returns what it wrote.
+func SaveJSON(path string, was []byte, v any) ([]byte, error) {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	data = append(data, '\n')
+	if err := SaveShared(path, was, data); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
 // writeProjectFile replaces the file at once.
 func writeProjectFile(path string, data []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".dgopher-*.json")

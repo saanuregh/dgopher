@@ -8,7 +8,6 @@ import (
 var (
 	sizedDecimal = regexp.MustCompile(`(?i)^(?:numeric|decimal|dec)\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)`)
 	typeArgs     = regexp.MustCompile(`\([^)]*\)`)
-	wrapperType  = regexp.MustCompile(`^(?:Nullable|LowCardinality)\((.*)\)$`)
 )
 
 // CanonicalType is an engine's column type as the type of DuckDB that
@@ -90,9 +89,7 @@ func sqliteCanonical(name string) string {
 }
 
 func clickhouseCanonical(t string) string {
-	for m := wrapperType.FindStringSubmatch(t); m != nil; m = wrapperType.FindStringSubmatch(t) {
-		t = m[1]
-	}
+	t = clickhouseInnerType(t)
 	if m := sizedDecimal.FindStringSubmatch(t); m != nil {
 		return "DECIMAL(" + m[1] + "," + m[2] + ")"
 	}

@@ -4,13 +4,10 @@
 package dashboard
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 
 	"dgopher/internal/project"
@@ -65,21 +62,7 @@ func File(p *project.Project, name string) string {
 
 // List names a project's dashboards, by their files, in order.
 func List(p *project.Project) ([]string, error) {
-	entries, err := os.ReadDir(filepath.Join(p.Dir, Folder))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".json") {
-			out = append(out, filepath.Join(p.Dir, Folder, e.Name()))
-		}
-	}
-	sort.Strings(out)
-	return out, nil
+	return project.ListFiles(p, Folder)
 }
 
 // Load reads a dashboard's file.
@@ -91,18 +74,7 @@ func Load(path string) (*Dashboard, error) {
 // LoadFile reads a dashboard's file, with its bytes, which a save checks
 // the file still holds.
 func LoadFile(path string) (*Dashboard, []byte, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	var d Dashboard
-	if err := json.Unmarshal(data, &d); err != nil {
-		return nil, nil, fmt.Errorf("%s: %w", filepath.Base(path), err)
-	}
-	if err := d.check(); err != nil {
-		return nil, nil, fmt.Errorf("%s: %w", filepath.Base(path), err)
-	}
-	return &d, data, nil
+	return project.LoadJSON(path, (*Dashboard).check)
 }
 
 // check refuses a dashboard its file holds wrong, as edited by hand.
@@ -131,13 +103,5 @@ func (d *Dashboard) check() error {
 // Save writes a dashboard's file, whole or not at all, when it still holds
 // was, as read; a new one, when there is none. It returns what it wrote.
 func (d *Dashboard) Save(path string, was []byte) ([]byte, error) {
-	data, err := json.MarshalIndent(d, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	data = append(data, '\n')
-	if err := project.SaveShared(path, was, data); err != nil {
-		return nil, err
-	}
-	return data, nil
+	return project.SaveJSON(path, was, d)
 }

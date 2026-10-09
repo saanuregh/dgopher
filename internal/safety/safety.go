@@ -75,7 +75,7 @@ func ReviewSQL(cfg *db.Config, stmts []Statement) Verdict {
 	for _, s := range stmts {
 		cls := s.Analysis.Class
 		mutates := cls == sqltext.Write || cls == sqltext.DDL
-		if mutates && !OutsideTransaction(cfg.Engine, s.SQL) {
+		if mutates && !v.Writes && !OutsideTransaction(cfg.Engine, s.SQL) {
 			v.Writes = true
 		}
 		if cfg.ReadOnly {
@@ -145,6 +145,9 @@ func (v Verdict) Covers(w Verdict) bool {
 // ALTER SYSTEM and the CONCURRENTLY forms of index commands, and the
 // VACUUM of SQLite and DuckDB.
 func OutsideTransaction(e db.Engine, sql string) bool {
+	if e != db.Postgres && e != db.SQLite && e != db.DuckDB {
+		return false
+	}
 	var words []string
 	for _, t := range sqltext.Tokenize(sql, Dialect(e)) {
 		if t.Kind == sqltext.Keyword || t.Kind == sqltext.Identifier {
