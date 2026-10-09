@@ -69,11 +69,12 @@ func (a *App) catalogQueriesView(c *ui.Context) {
 			FontSize(12).TextColor(pal.Muted).Padding(8, 16)
 		ui.List(c, &v.list, len(shown), func(i int) {
 			e := shown[i]
+			muted, danger := widgets.RowColor(c, pal.Muted, i == v.sel), widgets.RowColor(c, th.Danger, i == v.sel)
 			ui.Row(c).Padding(5, 16).Gap(10).Children(func() {
-				ui.Text(c, e.At.Format("15:04:05.000")).Font(widgets.MonoFont).FontSize(11.5).TextColor(pal.Muted)
-				ui.Text(c, widgets.FormatDuration(e.Took)).FontSize(11.5).TextColor(pal.Muted).Width(56).TextAlign(ui.End)
+				ui.Text(c, e.At.Format("15:04:05.000")).Font(widgets.MonoFont).FontSize(11.5).TextColor(muted)
+				ui.Text(c, widgets.FormatDuration(e.Took)).FontSize(11.5).TextColor(muted).Width(56).TextAlign(ui.End)
 				if e.Err != "" {
-					ui.Text(c, "failed").FontSize(11.5).TextColor(th.Danger).Tooltip(e.Err)
+					ui.Text(c, "failed").FontSize(11.5).TextColor(danger).Tooltip(e.Err)
 				}
 				ui.Text(c, widgets.OneLine(redact.Secrets(e.SQL), 200)).Font(widgets.MonoFont).FontSize(12).SingleLine().Grow(1).Shrink(1)
 			})

@@ -87,6 +87,20 @@ func (v *auditState) shown() []audit.Event {
 	return out
 }
 
+// auditCount says how many of the entries read show: the newest
+// auditShown are read, of what may be more.
+func auditCount(shown, read int) string {
+	switch {
+	case shown < read:
+		return fmt.Sprintf("%d of the newest %d entries", shown, read)
+	case read == auditShown:
+		return fmt.Sprintf("The newest %d entries", read)
+	case read == 1:
+		return "1 entry"
+	}
+	return fmt.Sprintf("%d entries", read)
+}
+
 func kindColor(c *ui.Context, kind string) ui.Color {
 	th := c.Theme()
 	switch kind {
@@ -116,7 +130,7 @@ func (a *App) auditViewer(c *ui.Context) {
 			ui.Select(c, &v.kind, auditKinds).Label("Kind")
 		})
 		ui.Row(c).Padding(8, 16).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Text(c, fmt.Sprintf("%d of the newest %d entries", len(shown), len(v.events))).FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, auditCount(len(shown), len(v.events))).FontSize(12).TextColor(pal.Muted)
 			ui.Spacer(c)
 			switch {
 			case v.checking:
@@ -166,11 +180,12 @@ func (a *App) auditViewer(c *ui.Context) {
 		c.SetTheme(&dense)
 		ui.Table(c, &v.list, cols, len(shown), func(r, col int) {
 			e := shown[r]
+			chosen := r == v.row
 			switch col {
 			case 0:
 				ui.Text(c, e.Time.Local().Format("Jan 02 15:04:05")).FontSize(12).Font(widgets.MonoFont).SingleLine()
 			case 1:
-				ui.Text(c, e.Kind).FontSize(12).Bold().TextColor(kindColor(c, e.Kind)).SingleLine()
+				ui.Text(c, e.Kind).FontSize(12).Bold().TextColor(widgets.RowColor(c, kindColor(c, e.Kind), chosen)).SingleLine()
 			case 2:
 				ui.Row(c).Gap(6).Children(func() {
 					if e.Environment != "" {
@@ -185,7 +200,7 @@ func (a *App) auditViewer(c *ui.Context) {
 				}
 				txt := ui.Text(c, widgets.OneLine(what, 200)).FontSize(12).Font(widgets.MonoFont).SingleLine()
 				if e.Error != "" {
-					txt.TextColor(th.Danger)
+					txt.TextColor(widgets.RowColor(c, th.Danger, chosen))
 				}
 			case 4:
 				if e.Rows > 0 {

@@ -151,7 +151,7 @@ func (t *searchTab) View(c *ui.Context) {
 			ui.Text(c, t.err).TextColor(th.Danger).Padding(10, 12).Selectable()
 		}
 		list := ui.List(c, &t.list, len(t.hits), func(i int) {
-			t.hitRow(c, t.hits[i])
+			t.hitRow(c, t.hits[i], i == t.row)
 		}).Grow(1).Label("Objects found").Dividers(1, th.Border)
 		if list.Submitted() && t.row >= 0 && t.row < len(t.hits) {
 			t.open(t.hits[t.row])
@@ -176,11 +176,12 @@ func (t *searchTab) status() string {
 	return fmt.Sprintf("%d object%s matching %q in %s.", len(t.hits), widgets.Plural(len(t.hits)), t.searched, where)
 }
 
-func (t *searchTab) hitRow(c *ui.Context, h db.SearchHit) {
-	pal := widgets.PaletteOf(c)
+// hitRow is a hit of the search, on the selection's color when chosen.
+func (t *searchTab) hitRow(c *ui.Context, h db.SearchHit, chosen bool) {
+	muted := widgets.RowColor(c, widgets.PaletteOf(c).Muted, chosen)
 	ui.Column(c).Padding(6, 12).Gap(2).Children(func() {
 		ui.Row(c).Gap(8).Children(func() {
-			ui.Icon(c, searchIcon(h)).TextColor(pal.Muted).FontSize(13)
+			ui.Icon(c, searchIcon(h)).TextColor(muted).FontSize(13)
 			name := h.Name
 			switch {
 			case h.Kind == db.KindColumn:
@@ -190,14 +191,14 @@ func (t *searchTab) hitRow(c *ui.Context, h db.SearchHit) {
 			}
 			ui.Text(c, name).SingleLine().Shrink(1)
 			if h.Kind == db.KindColumn {
-				ui.Text(c, h.Detail).FontSize(11).TextColor(pal.Muted).SingleLine().Shrink(1)
+				ui.Text(c, h.Detail).FontSize(11).TextColor(muted).SingleLine().Shrink(1)
 			}
 			ui.Spacer(c)
-			ui.Text(c, h.Kind).FontSize(11).TextColor(pal.Muted)
-			ui.Text(c, h.Schema).FontSize(11).TextColor(pal.Muted).SingleLine()
+			ui.Text(c, h.Kind).FontSize(11).TextColor(muted)
+			ui.Text(c, h.Schema).FontSize(11).TextColor(muted).SingleLine()
 		})
 		if h.Excerpt != "" {
-			ui.Text(c, h.Excerpt).Font(widgets.MonoFont).FontSize(12).TextColor(pal.Muted).SingleLine().PaddingX(21)
+			ui.Text(c, h.Excerpt).Font(widgets.MonoFont).FontSize(12).TextColor(muted).SingleLine().PaddingX(21)
 		}
 	})
 }

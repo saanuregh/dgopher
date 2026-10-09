@@ -82,13 +82,14 @@ func (a *App) historyView(c *ui.Context) {
 		}
 		list := ui.List(c, &h.list, len(shown), func(i int) {
 			e := shown[i]
+			muted, danger := widgets.RowColor(c, pal.Muted, i == h.row), widgets.RowColor(c, t.Danger, i == h.row)
 			ui.Column(c).Padding(8, 16).Gap(3).Children(func() {
 				ui.Row(c).Gap(8).Children(func() {
-					ui.Text(c, e.Time.Format("Jan 2 15:04:05")).FontSize(11).TextColor(pal.Muted)
+					ui.Text(c, e.Time.Format("Jan 2 15:04:05")).FontSize(11).TextColor(muted)
 					ui.Text(c, e.Connection).FontSize(11).Bold()
-					ui.Text(c, widgets.FormatDuration(e.Duration)).FontSize(11).TextColor(pal.Muted)
+					ui.Text(c, widgets.FormatDuration(e.Duration)).FontSize(11).TextColor(muted)
 					if e.Error != "" {
-						ui.Text(c, "failed").FontSize(11).TextColor(t.Danger).Tooltip(e.Error)
+						ui.Text(c, "failed").FontSize(11).TextColor(danger).Tooltip(e.Error)
 					}
 				})
 				ui.Text(c, widgets.OneLine(e.SQL, 220)).Font(widgets.MonoFont).FontSize(12).SingleLine()

@@ -130,12 +130,13 @@ func outlineView(a Host, c *ui.Context) {
 			if i == d.sel {
 				row.Background(th.Accent.Alpha(0.15))
 			}
+			muted := widgets.RowColor(c, pal.Muted, i == d.sel)
 			row.Children(func() {
-				ui.Text(c, fmt.Sprint(e.line)).Font(widgets.MonoFont).FontSize(11.5).TextColor(pal.Muted).Width(40).TextAlign(ui.End)
+				ui.Text(c, fmt.Sprint(e.line)).Font(widgets.MonoFont).FontSize(11.5).TextColor(muted).Width(40).TextAlign(ui.End)
 				ui.Column(c).Gap(1).Grow(1).Shrink(1).Children(func() {
 					ui.Text(c, e.text).Font(widgets.MonoFont).FontSize(12.5).SingleLine()
 					if e.comment != "" {
-						ui.Text(c, e.comment).FontSize(11.5).TextColor(pal.Muted).SingleLine()
+						ui.Text(c, e.comment).FontSize(11.5).TextColor(muted).SingleLine()
 					}
 				})
 			})

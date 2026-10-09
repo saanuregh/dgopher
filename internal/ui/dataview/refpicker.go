@@ -211,7 +211,7 @@ func refPickerView(a Host, c *ui.Context) {
 					if j == 0 {
 						t.Font(widgets.MonoFont).Width(140)
 					} else {
-						t.Grow(1).Shrink(1).TextColor(pal.Muted)
+						t.Grow(1).Shrink(1).TextColor(widgets.RowColor(c, pal.Muted, i == p.sel))
 					}
 				}
 			})

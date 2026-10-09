@@ -110,6 +110,16 @@ func HexColor(c ui.Color) string {
 	return fmt.Sprintf("#%02x%02x%02x", c.R, c.G, c.B)
 }
 
+// RowColor is a text's color in a row of a list: its own, or on the
+// chosen row, which the accent fills, the accent's text, which reads
+// there.
+func RowColor(c *ui.Context, col ui.Color, chosen bool) ui.Color {
+	if chosen {
+		return c.Theme().AccentText
+	}
+	return col
+}
+
 // SafetyColor is the color of where a connection's statements run: on
 // staging and production, the environment's whatever the connection's
 // own, which a shared project file may set; elsewhere, EnvColor.

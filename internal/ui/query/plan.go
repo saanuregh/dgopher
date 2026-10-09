@@ -141,7 +141,7 @@ func (q *Tab) treeView(c *ui.Context, r *result) {
 			ui.Row(c).Gap(10).AlignItems(ui.Center).FillWidth().Children(func() {
 				ui.Row(c).Gap(6).Grow(1).Shrink(1).PaddingX(float32(depth) * 16).Children(func() {
 					ui.Text(c, n.Op).Font(widgets.MonoFont).FontSize(12.5).Bold().SingleLine().Shrink(0)
-					if n.Target != "" {
+					if n.Target != "" && !strings.Contains(n.Op, n.Target) {
 						ui.Text(c, n.Target).FontSize(12.5).SingleLine().Shrink(1)
 					}
 					if n.Detail != "" {
@@ -162,6 +162,15 @@ func (q *Tab) treeView(c *ui.Context, r *result) {
 			r.planSel = n
 		}
 	})
+}
+
+// stepTitle is a step's operation and what it reads, once: SQLite's
+// operation names its table already.
+func stepTitle(n *db.PlanNode) string {
+	if n.Target == "" || strings.Contains(n.Op, n.Target) {
+		return n.Op
+	}
+	return n.Op + " " + n.Target
 }
 
 // rowsLabel is a step's rows: estimated, and found when it ran.
@@ -236,7 +245,7 @@ func (q *Tab) flameView(c *ui.Context, r *result) {
 					}
 					box := ui.ButtonBase(c.Key(fmt.Sprintf("flame-%p", n))).Absolute().
 						LeftPercent(float32(from)).RightPercent(float32(100-to)).Top(float32(d*rowH)).Height(rowH-2).
-						Radius(3).Padding(0, 6).Label(n.Op).Tooltip(n.Op + " " + n.Target).ClipX()
+						Radius(3).Padding(0, 6).Label(n.Op).Tooltip(stepTitle(n)).ClipX()
 					col := shareColor(th, max(self, 0)/max(metric(r.plan.Root), 1e-9))
 					if n == r.planSel {
 						box.Background(col).Border(1, th.Text)
@@ -244,7 +253,7 @@ func (q *Tab) flameView(c *ui.Context, r *result) {
 						box.Background(col.Alpha(0.55))
 					}
 					box.Children(func() {
-						ui.Text(c, strings.TrimSpace(n.Op+" "+n.Target)).FontSize(11.5).SingleLine()
+						ui.Text(c, stepTitle(n)).FontSize(11.5).SingleLine()
 					})
 					if box.Clicked() {
 						r.planSel = n

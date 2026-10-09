@@ -262,7 +262,7 @@ func (t *Tab) tablesView(c *ui.Context) {
 			list := ui.List(c, &t.tables, len(t.m.Tables), func(i int) {
 				tb := t.m.Tables[i]
 				ui.Row(c).Gap(6).Padding(3, 10).AlignItems(ui.Center).Children(func() {
-					ui.Icon(c, widgets.IconTable).FontSize(12).TextColor(pal.Muted)
+					ui.Icon(c, widgets.IconTable).FontSize(12).TextColor(widgets.RowColor(c, pal.Muted, i == t.table))
 					ui.Text(c, tb.Name).Font(widgets.MonoFont).FontSize(12.5).SingleLine()
 				})
 			}).Grow(1).Label("Tables")
