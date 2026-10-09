@@ -301,11 +301,9 @@ func (q *Tab) candidates(a Host, cc sqltext.CompletionContext) []suggestion {
 		}
 	}
 	objectsOf := func(s string) {
-		key := connection.SchemaKey{Database: q.Database, Schema: s}
-		objs, ok := cn.Objects[key]
+		objs, ok := connection.ObjectsOf(a, cn, q.Database, s)
 		if !ok {
-			if cn.LoadErr[key] == "" {
-				connection.LoadObjects(a, cn, q.Database, s)
+			if cn.LoadErr[connection.SchemaKey{Database: q.Database, Schema: s}] == "" {
 				q.ac.retry = true
 			}
 			return

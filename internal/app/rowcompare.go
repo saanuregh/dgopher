@@ -295,10 +295,9 @@ func (a *App) rowCompareView(c *ui.Context) {
 					x.result = nil // of another table than the one chosen now
 				}
 				if to != nil && x.target.schema != "" {
-					key := connection.SchemaKey{Database: x.target.database, Schema: x.target.schema}
-					objs, ok := to.Objects[key]
-					if !ok && to.Status == connection.StatusConnected && !to.Loading[key] && to.LoadErr[key] == "" {
-						connection.LoadObjects(a, to, x.target.database, x.target.schema)
+					objs, ok := to.Objects[connection.SchemaKey{Database: x.target.database, Schema: x.target.schema}]
+					if to.Status == connection.StatusConnected {
+						objs, ok = connection.ObjectsOf(a, to, x.target.database, x.target.schema)
 					}
 					var tables []string
 					for _, o := range objs {

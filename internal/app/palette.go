@@ -237,20 +237,7 @@ func (a *App) paletteView(c *ui.Context) {
 				placeholder = "Open a table or a routine"
 			}
 			in := ui.TextInputBase(c, &p.query).Placeholder(placeholder).AutoFocus().Grow(1).FontSize(15).Label("Search")
-			switch {
-			case in.Shortcut(0, ui.KeyDown):
-				p.index = min(p.index+1, len(p.shown)-1)
-				p.list.ScrollIntoView(p.index)
-			case in.Shortcut(0, ui.KeyUp):
-				p.index = max(p.index-1, 0)
-				p.list.ScrollIntoView(p.index)
-			case in.Shortcut(0, ui.KeyPageDown):
-				p.index = min(p.index+paletteRows, len(p.shown)-1)
-				p.list.ScrollIntoView(p.index)
-			case in.Shortcut(0, ui.KeyPageUp):
-				p.index = max(p.index-paletteRows, 0)
-				p.list.ScrollIntoView(p.index)
-			case in.Submitted():
+			if widgets.ListKeys(in, &p.index, len(p.shown), &p.list, paletteRows) {
 				run(p.index)
 			}
 		})

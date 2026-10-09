@@ -153,7 +153,25 @@ func wantTable(before []Token) bool {
 	return false
 }
 
-func isName(t Token) bool { return t.Kind == Identifier || t.Kind == QuotedIdent }
+// IsName reports whether a token may name a table, column or alias.
+func IsName(t Token) bool { return t.Kind == Identifier || t.Kind == QuotedIdent }
+
+// MatchingParen is the index of the ")" closing the "(" at open, or -1 if
+// none closes it.
+func MatchingParen(toks []Token, open int) int {
+	depth := 0
+	for i := open; i < len(toks); i++ {
+		switch toks[i].Text {
+		case "(":
+			depth++
+		case ")":
+			if depth--; depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
 
 // tableRefs collects tables after FROM/JOIN/UPDATE/INTO and comma-continued FROM lists,
 // skipping the reference being typed at typingStart.
@@ -189,12 +207,12 @@ func tableRefs(toks []Token, typingStart int) []TableRef {
 }
 
 func parseTableRef(toks []Token, i int) (TableRef, int, bool) {
-	if i >= len(toks) || !isName(toks[i]) {
+	if i >= len(toks) || !IsName(toks[i]) {
 		return TableRef{}, i, false
 	}
 	parts := []Token{toks[i]}
 	i++
-	for i+1 < len(toks) && isPunct(toks[i], ".") && isName(toks[i+1]) {
+	for i+1 < len(toks) && isPunct(toks[i], ".") && IsName(toks[i+1]) {
 		parts = append(parts, toks[i+1])
 		i += 2
 	}
@@ -207,7 +225,7 @@ func parseTableRef(toks []Token, i int) (TableRef, int, bool) {
 	if i < len(toks) && word(toks[i]) == "AS" {
 		i++
 	}
-	if i < len(toks) && isName(toks[i]) {
+	if i < len(toks) && IsName(toks[i]) {
 		ref.Alias = unquote(toks[i])
 		i++
 	}

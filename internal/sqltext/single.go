@@ -150,14 +150,14 @@ func selectItem(toks []Token) SelectItem {
 	var it SelectItem
 	body := toks
 	switch n := len(toks); {
-	case n >= 3 && word(toks[n-2]) == "AS" && isName(last):
+	case n >= 3 && word(toks[n-2]) == "AS" && IsName(last):
 		it.Name, body = unquote(last), toks[:n-2]
-	case n >= 2 && isName(last) && !isPunct(toks[n-2], "."):
+	case n >= 2 && IsName(last) && !isPunct(toks[n-2], "."):
 		it.Name, body = unquote(last), toks[:n-1]
 	}
 	plain := len(body)%2 == 1
 	for i, t := range body {
-		if i%2 == 0 && !isName(t) || i%2 == 1 && !isPunct(t, ".") {
+		if i%2 == 0 && !IsName(t) || i%2 == 1 && !isPunct(t, ".") {
 			plain = false
 		}
 	}

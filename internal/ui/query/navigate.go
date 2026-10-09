@@ -99,10 +99,8 @@ func (q *Tab) goToDefinition() {
 		if schema == "" {
 			schema = q.currentSchema()
 		}
-		key := connection.SchemaKey{Database: q.Database, Schema: schema}
-		objs, ok := cn.Objects[key]
-		if !ok && cn.LoadErr[key] == "" {
-			connection.LoadObjects(q.a, cn, q.Database, schema)
+		objs, ok := connection.ObjectsOf(q.a, cn, q.Database, schema)
+		if !ok && cn.LoadErr[connection.SchemaKey{Database: q.Database, Schema: schema}] == "" {
 			reading = true
 		}
 		i := slices.IndexFunc(objs, func(o db.Object) bool { return strings.EqualFold(o.Name, name) })
@@ -252,13 +250,9 @@ func usagesView(a Host, c *ui.Context) {
 		list := ui.List(c, &d.list, len(d.usages), func(i int) {
 			u := d.usages[i]
 			row := ui.Row(c).Padding(6, 16).Gap(10)
-			if i == d.sel {
-				row.Background(th.Accent.Alpha(0.15))
-			}
 			row.Children(func() {
 				ui.Text(c, fmt.Sprintf("%s:%d", u.file, u.line)).FontSize(11.5).TextColor(pal.Muted).Width(180).SingleLine()
-				runes := []rune(u.text)
-				ui.Text(c, string(runes)).Font(widgets.MonoFont).FontSize(12.5).SingleLine().Grow(1).Shrink(1).
+				ui.Text(c, u.text).Font(widgets.MonoFont).FontSize(12.5).SingleLine().Grow(1).Shrink(1).
 					TextRanges(ui.TextRange{Start: u.match[0], End: u.match[1], Color: th.Accent, Weight: 700})
 			})
 		}).MaxHeight(440).Children(func() {

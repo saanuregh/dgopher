@@ -2,7 +2,6 @@ package app
 
 import (
 	"dgopher/internal/connection"
-	"dgopher/internal/db"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -56,7 +55,7 @@ func (p *targetPicker) fields(c *ui.Context, a *App, label string, disabled bool
 	if cn == nil {
 		return nil
 	}
-	if cn.Config.Engine == db.Postgres && len(cn.Databases) > 1 {
+	if cn.SwitchesDatabase() {
 		ui.Field(c, "Database", func() {
 			ui.Select(c, &p.database, cn.Databases).Label("Database").Disabled(disabled)
 		})

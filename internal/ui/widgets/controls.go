@@ -31,6 +31,30 @@ func SearchBox(c *ui.Context, query *string, placeholder string, width float32) 
 	return in
 }
 
+// ListKeys lets the search box in steer a list of n rows: Down and Up move
+// *sel by one, PageDown and PageUp by page rows when page > 0, and the list
+// scrolls to it. It reports whether Enter was pressed.
+func ListKeys(in ui.Element, sel *int, n int, list *ui.ListState, page int) (submitted bool) {
+	step := 0
+	switch {
+	case in.Shortcut(0, ui.KeyDown):
+		step = 1
+	case in.Shortcut(0, ui.KeyUp):
+		step = -1
+	case page > 0 && in.Shortcut(0, ui.KeyPageDown):
+		step = page
+	case page > 0 && in.Shortcut(0, ui.KeyPageUp):
+		step = -page
+	case in.Submitted():
+		return true
+	}
+	if step != 0 && n > 0 {
+		*sel = max(0, min(*sel+step, n-1))
+		list.ScrollIntoView(*sel)
+	}
+	return false
+}
+
 // Pill is a small tab of the results.
 func Pill(c *ui.Context, label string, on bool) ui.Element {
 	t := c.Theme()

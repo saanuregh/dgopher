@@ -45,7 +45,7 @@ func (q *Tab) switcherView(c *ui.Context) {
 	if cn.Status != connection.StatusConnected || cn.DB == nil {
 		return
 	}
-	if cn.Config.Engine == db.Postgres && len(cn.Databases) > 1 {
+	if cn.SwitchesDatabase() {
 		database := q.currentDatabase()
 		ui.MenuButton(c, database, func(m *ui.Menu) {
 			for _, name := range cn.Databases {

@@ -166,14 +166,7 @@ func refPickerView(a Host, c *ui.Context) {
 		ui.Row(c).Padding(12, 16).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Text(c, p.v.src.Cols[p.col].Name+" → "+p.fk.RefTable).FontSize(15).Bold().SingleLine().Shrink(1)
 			in := widgets.SearchBox(c, &p.search, "Search the key or the text, then Enter", 0).AutoFocus().Grow(1)
-			switch {
-			case in.Shortcut(0, ui.KeyDown):
-				p.sel = min(p.sel+1, len(p.rows)-1)
-				p.list.ScrollIntoView(p.sel)
-			case in.Shortcut(0, ui.KeyUp):
-				p.sel = max(p.sel-1, 0)
-				p.list.ScrollIntoView(p.sel)
-			case in.Submitted():
+			if widgets.ListKeys(in, &p.sel, len(p.rows), &p.list, 0) {
 				if strings.TrimSpace(p.search) != p.searched {
 					p.query()
 				} else {

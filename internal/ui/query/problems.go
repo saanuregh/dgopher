@@ -163,11 +163,6 @@ type tableRef struct {
 	start, end          int // the name's runes
 }
 
-// isName reports whether a token may name a table, column or alias.
-func isName(t sqltext.Token) bool {
-	return t.Kind == sqltext.Identifier || t.Kind == sqltext.QuotedIdent
-}
-
 // clauseWords end a table's place in FROM: what follows them is no alias.
 var clauseWords = map[string]bool{"WHERE": true, "JOIN": true, "INNER": true, "LEFT": true, "RIGHT": true, "FULL": true,
 	"CROSS": true, "NATURAL": true, "ON": true, "USING": true, "GROUP": true, "ORDER": true, "LIMIT": true, "HAVING": true,
@@ -186,7 +181,7 @@ func tableRefs(stmt []sqltext.Token, d sqltext.Dialect) (refs []tableRef, ctes m
 	}
 	for i := 0; i+2 < len(stmt); i++ {
 		// name AS ( defines a common table expression.
-		if isName(stmt[i]) && word(i+1) == "AS" && stmt[i+2].Text == "(" {
+		if sqltext.IsName(stmt[i]) && word(i+1) == "AS" && stmt[i+2].Text == "(" {
 			ctes[strings.ToLower(tokenName(stmt[i], d))] = true
 		}
 	}
@@ -204,11 +199,11 @@ func tableRefs(stmt []sqltext.Token, d sqltext.Dialect) (refs []tableRef, ctes m
 			// A subquery or a table function names no table: its
 			// parentheses are passed over, and its alias.
 			var ref tableRef
-			named := isName(stmt[j])
+			named := sqltext.IsName(stmt[j])
 			if named {
 				ref = tableRef{name: tokenName(stmt[j], d), quoted: stmt[j].Kind == sqltext.QuotedIdent, start: stmt[j].Start, end: stmt[j].End}
 				j++
-				for j+1 < len(stmt) && stmt[j].Text == "." && isName(stmt[j+1]) {
+				for j+1 < len(stmt) && stmt[j].Text == "." && sqltext.IsName(stmt[j+1]) {
 					ref.schema, ref.name = ref.name, tokenName(stmt[j+1], d)
 					ref.quoted, ref.start, ref.end = stmt[j+1].Kind == sqltext.QuotedIdent, stmt[j+1].Start, stmt[j+1].End
 					j += 2
@@ -227,7 +222,7 @@ func tableRefs(stmt []sqltext.Token, d sqltext.Dialect) (refs []tableRef, ctes m
 			if word(j) == "AS" {
 				j++
 			}
-			if j < len(stmt) && isName(stmt[j]) && !clauseWords[strings.ToUpper(stmt[j].Text)] {
+			if j < len(stmt) && sqltext.IsName(stmt[j]) && !clauseWords[strings.ToUpper(stmt[j].Text)] {
 				ref.alias = tokenName(stmt[j], d)
 				j++
 			}
@@ -246,16 +241,8 @@ func tableRefs(stmt []sqltext.Token, d sqltext.Dialect) (refs []tableRef, ctes m
 // pastParentheses is the index of the token after the ")" closing the
 // "(" at open, or the end.
 func pastParentheses(stmt []sqltext.Token, open int) int {
-	depth := 0
-	for i := open; i < len(stmt); i++ {
-		switch stmt[i].Text {
-		case "(":
-			depth++
-		case ")":
-			if depth--; depth == 0 {
-				return i + 1
-			}
-		}
+	if i := sqltext.MatchingParen(stmt, open); i >= 0 {
+		return i + 1
 	}
 	return len(stmt)
 }
@@ -297,7 +284,7 @@ func unknownNames(stmt []sqltext.Token, d sqltext.Dialect, cat catalog) []editor
 	}
 	for i := 0; i+2 < len(stmt); i++ {
 		// table.column, not table.column( nor table.*.
-		if !isName(stmt[i]) || stmt[i+1].Text != "." || !isName(stmt[i+2]) || i+3 < len(stmt) && (stmt[i+3].Text == "(" || stmt[i+3].Text == ".") {
+		if !sqltext.IsName(stmt[i]) || stmt[i+1].Text != "." || !sqltext.IsName(stmt[i+2]) || i+3 < len(stmt) && (stmt[i+3].Text == "(" || stmt[i+3].Text == ".") {
 			continue
 		}
 		ref, ok := known[strings.ToLower(tokenName(stmt[i], d))]
@@ -377,12 +364,7 @@ func distance(a, b string) int {
 type tabCatalog struct{ q *Tab }
 
 func (c tabCatalog) objects(schema string) ([]db.Object, bool) {
-	cn, key := c.q.Conn, connection.SchemaKey{Database: c.q.Database, Schema: schema}
-	objs, ok := cn.Objects[key]
-	if !ok && cn.LoadErr[key] == "" {
-		connection.LoadObjects(c.q.a, cn, c.q.Database, schema)
-	}
-	return objs, ok
+	return connection.ObjectsOf(c.q.a, c.q.Conn, c.q.Database, schema)
 }
 
 func (c tabCatalog) columns(schema, table string) ([]db.Column, bool) {

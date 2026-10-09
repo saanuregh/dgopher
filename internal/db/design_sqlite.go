@@ -135,16 +135,8 @@ func parseSQLiteTable(create string) sqliteTable {
 // matchingParen is the index of the ")" closing the "(" at open, or the
 // last token.
 func matchingParen(toks []sqltext.Token, open int) int {
-	depth := 0
-	for i := open; i < len(toks); i++ {
-		switch toks[i].Text {
-		case "(":
-			depth++
-		case ")":
-			if depth--; depth == 0 {
-				return i
-			}
-		}
+	if i := sqltext.MatchingParen(toks, open); i >= 0 {
+		return i
 	}
 	return len(toks) - 1
 }

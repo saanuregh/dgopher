@@ -119,14 +119,7 @@ func (t *searchTab) View(c *ui.Context) {
 			ui.Icon(c, widgets.IconSearch).TextColor(pal.Muted).FontSize(14)
 			in := ui.TextInput(c, &t.query).Placeholder("Find tables, columns, routines… by name or definition").
 				AutoFocus().Grow(1).Label("Search")
-			switch {
-			case in.Shortcut(0, ui.KeyDown) && len(t.hits) > 0:
-				t.row = min(t.row+1, len(t.hits)-1)
-				t.list.ScrollIntoView(t.row)
-			case in.Shortcut(0, ui.KeyUp) && len(t.hits) > 0:
-				t.row = max(t.row-1, 0)
-				t.list.ScrollIntoView(t.row)
-			case in.Submitted():
+			if widgets.ListKeys(in, &t.row, len(t.hits), &t.list, 0) {
 				// Enter searches a new query, and opens the hit chosen
 				// among those of the query searched.
 				if strings.TrimSpace(t.query) == t.searched && t.row >= 0 && t.row < len(t.hits) {
@@ -173,7 +166,7 @@ func (t *searchTab) status() string {
 	case len(t.hits) == 0:
 		return fmt.Sprintf("Nothing matches %q in %s.", t.searched, where)
 	}
-	return fmt.Sprintf("%d object%s matching %q in %s.", len(t.hits), widgets.Plural(len(t.hits)), t.searched, where)
+	return widgets.Count(len(t.hits), "object") + fmt.Sprintf(" matching %q in %s.", t.searched, where)
 }
 
 // hitRow is a hit of the search, on the selection's color when chosen.

@@ -45,7 +45,7 @@ func (q *Tab) switchCommands() []widgets.Command {
 		return nil
 	}
 	var cmds []widgets.Command
-	if cn.Config.Engine == db.Postgres && len(cn.Databases) > 1 {
+	if cn.SwitchesDatabase() {
 		current := q.currentDatabase()
 		for _, name := range cn.Databases {
 			if name != current {

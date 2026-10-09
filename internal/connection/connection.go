@@ -53,6 +53,12 @@ type Conn struct {
 	LoadErr       map[any]string
 }
 
+// SwitchesDatabase reports whether a tab of the connection can switch
+// to another of its databases.
+func (cn *Conn) SwitchesDatabase() bool {
+	return cn.Config.Engine == db.Postgres && len(cn.Databases) > 1
+}
+
 type SchemaKey struct{ Database, Schema string }
 
 type ObjectKey struct{ Database, Schema, Name string }
@@ -146,6 +152,18 @@ func LoadSchemas(r Runner, cn *Conn, database string, then func()) {
 			}
 		}
 	})
+}
+
+// ObjectsOf is the tables and views of a schema as read so far, and whether
+// they are read; when they are not and no reading of them failed, it starts
+// reading them.
+func ObjectsOf(r Runner, cn *Conn, database, schema string) ([]db.Object, bool) {
+	key := SchemaKey{Database: database, Schema: schema}
+	objs, ok := cn.Objects[key]
+	if !ok && cn.LoadErr[key] == "" {
+		LoadObjects(r, cn, database, schema)
+	}
+	return objs, ok
 }
 
 // LoadObjects reads the tables and views of a schema, as much of them as
@@ -333,14 +351,27 @@ func WantColumns(r Runner, cn *Conn, database, schema, table string) bool {
 func SortedObjects(objs []db.Object, views bool) []db.Object {
 	var out []db.Object
 	for _, o := range objs {
-		isView := o.Kind == db.KindView || o.Kind == db.KindMaterializedView
-		if isView == views {
+		if isView(o) == views {
 			out = append(out, o)
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
 	return out
 }
+
+// CountObjects is how many of objs SortedObjects would return, without
+// sorting them.
+func CountObjects(objs []db.Object, views bool) int {
+	n := 0
+	for _, o := range objs {
+		if isView(o) == views {
+			n++
+		}
+	}
+	return n
+}
+
+func isView(o db.Object) bool { return o.Kind == db.KindView || o.Kind == db.KindMaterializedView }
 
 // DefaultIdleTx is how long a transaction may stay idle on an
 // environment before it is rolled back: DBeaver's defaults.
