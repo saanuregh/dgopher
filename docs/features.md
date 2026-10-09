@@ -420,8 +420,14 @@
   foreign-key connectors, laid out so referenced tables sit to the left.
   Drag tables to arrange them: one dropped on another moves to the
   nearest free place, so that no table hides another. Double-click one
-  to open its data. Save it as a PNG, drawn as the app draws it at twice
-  its size, or as SVG.
+  to open its data. Change the schema from it: drag a column onto a
+  table to make it refer to the table's primary key; a table's menu
+  drops one of its foreign keys, or the table; New Table designs one.
+  Each change is written as the engine needs it (SQLite's tables made
+  again, their rows kept), always confirmed, through the safety policy,
+  and the diagram reads the schema again with its tables where they
+  stood. Save it as a PNG, drawn as the app draws it at twice its size,
+  or as SVG.
 
 ## Import, snippets and history
 

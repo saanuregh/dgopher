@@ -42,6 +42,10 @@ type ERTab struct {
 	// dragged is the table being dragged by its name, which settles where
 	// it hides no other once dropped.
 	dragged *erTable
+	// linking is a column being dragged onto a table to refer to it.
+	linking *erLink
+	// kept are where the tables stood before a reload, which they keep.
+	kept map[string][2]float32
 }
 
 const (
@@ -122,9 +126,12 @@ func (e *ERTab) load() {
 			for _, t := range tables {
 				e.byName[erKey(t.schema, t.obj.Name)] = t
 			}
-			if e.focus != nil {
+			switch {
+			case e.kept != nil:
+				e.place()
+			case e.focus != nil:
 				e.layoutFocus()
-			} else {
+			default:
 				e.layout()
 			}
 		}
@@ -271,7 +278,13 @@ func (e *ERTab) View(c *ui.Context) {
 					e.save(exportSVG)
 				}
 			})
-			if widgets.ToolButton(c, widgets.IconRefresh, "Arrange", "Lay the tables out again").Clicked() {
+			if e.editable() == "" && widgets.ToolButton(c, widgets.IconPlus, "New Table", "Design a new table in "+e.schema).Clicked() {
+				OpenNewTable(a, e.conn, e.database, e.schema)
+			}
+			if widgets.ToolButton(c, widgets.IconRefresh, "Refresh", "Read the schema again, the tables staying where they are").Clicked() {
+				e.reload()
+			}
+			if widgets.ToolButton(c, widgets.IconLayers, "Arrange", "Lay the tables out again").Clicked() {
 				if e.focus != nil {
 					e.layoutFocus()
 				} else {
@@ -311,7 +324,10 @@ func (e *ERTab) extent() (w, h float32) {
 func (e *ERTab) canvas(c *ui.Context, a Host) {
 	w, h := e.extent()
 	canvas := ui.Box(c).Size(w, h)
-	canvas.Draw(func(p *ui.Painter, r ui.Rect) { e.drawLinks(p, r, c) })
+	canvas.Draw(func(p *ui.Painter, r ui.Rect) {
+		e.drawLinks(p, r, c)
+		e.drawLinking(p, r, c)
+	})
 	canvas.Children(func() {
 		for _, t := range e.tables {
 			e.box(c, a, t)
@@ -370,6 +386,7 @@ func (e *ERTab) box(c *ui.Context, a Host, t *erTable) {
 	box := ui.Column(c.Key("er-"+t.schema+"."+t.obj.Name)).Absolute().Left(t.x).Top(t.y).Width(erBoxW).Label("Table "+t.obj.Name).
 		Radius(8).Background(th.Background).Border(1, th.Border).Clip().
 		Shadow(0, 2, 8, 0, ui.RGBA(0, 0, 0, 0.08))
+	box.ContextMenu(func(m *ui.Menu) { e.tableMenu(m, t) })
 	box.Children(func() {
 		header := ui.Row(c).Height(erHeaderH).Padding(0, 10).Gap(6).Background(pal.GridHeader).
 			BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Cursor(ui.CursorMove)
@@ -402,7 +419,12 @@ func (e *ERTab) box(c *ui.Context, a Host, t *erTable) {
 					ui.Text(c, fmt.Sprintf("+ %d more", len(t.cols)-erMaxCols)).FontSize(11).TextColor(pal.Muted).Height(erRowH).Padding(3, 10)
 					break
 				}
-				ui.Row(c).Height(erRowH).Padding(0, 10).Gap(6).Children(func() {
+				row := ui.Row(c).Height(erRowH).Padding(0, 10).Gap(6)
+				if e.editable() == "" {
+					row.Cursor(ui.CursorPointer).Tooltip("Drag onto another table to refer to it")
+				}
+				e.dragColumn(t, col.Name, row)
+				row.Children(func() {
 					switch {
 					case col.PrimaryKey:
 						ui.Icon(c, widgets.IconKey).FontSize(10).TextColor(ui.Hex("#d97706")).Width(12)
