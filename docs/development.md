@@ -35,6 +35,21 @@ window needs and `CGO_ENABLED=1`. Elsewhere on Linux the window needs GTK
 - **Other platforms:** with cgo, building for macOS or Windows needs a C
   toolchain for that platform, as `zig cc` or a machine of that system.
 
+## Releases
+
+`.github/workflows/release.yml` builds and publishes a release when a tag
+`v<version>` is pushed, the version of `mygo.json`, which it checks: each
+platform builds on a runner of its own system, as DuckDB needs cgo, and
+uploads its installers (the macOS disk image, the Windows installer, and
+the Linux Debian package and archive) to the release, published once every
+platform's are there. `.github/workflows/ci.yml` runs gofmt, vet and the
+tests on every push and pull request.
+
+```sh
+# set "version" in mygo.json, commit, then
+git tag v0.2.0 && git push origin main v0.2.0
+```
+
 ## Tests
 
 ```sh
