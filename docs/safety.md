@@ -8,7 +8,7 @@ before it reaches the server:
 | Reads | run | run | run |
 | Writes (INSERT, UPDATE, …) | run | run | confirm |
 | Schema changes (CREATE, ALTER, …) | run | confirm | confirm |
-| DROP, TRUNCATE, replacing a table (`CREATE OR REPLACE TABLE`), UPDATE/DELETE without WHERE or with one always true (`WHERE 1=1`, `WHERE TRUE`, `id = id`, `1=1 AND 2=2`), also inside a `WITH`, ClickHouse ALTERs that lose rows (`CLEAR COLUMN`, `MODIFY TTL`, `REPLACE`/`MOVE`/`DETACH PARTITION`), `ALTER … TRUNCATE PARTITION`, Redis FLUSHALL/KEYS/… | confirm | confirm | confirm, by typing the connection's name |
+| DROP, TRUNCATE, replacing a table (`CREATE OR REPLACE TABLE`), UPDATE/DELETE without WHERE or with one always true (`WHERE 1=1`, `WHERE TRUE`, `id = id`, `1=1 AND 2=2`, MySQL's `&&` too), also inside a `WITH`, ClickHouse ALTERs that lose rows (`CLEAR COLUMN`, `MODIFY TTL`, `REPLACE`/`MOVE`/`DETACH PARTITION`), `ALTER … TRUNCATE PARTITION`, Redis FLUSHALL/KEYS/… | confirm | confirm | confirm, by typing the connection's name |
 | Default commit mode | auto | auto | manual (ClickHouse and Redis: always auto) |
 
 Redis commands that write follow the Writes row. Commands that need a
@@ -81,9 +81,9 @@ or Cancel; a destructive statement asks on its own even after Run All.
   `lo_export`, the advisory locks, replication slots and origins,
   `pg_stat_reset`, MySQL `GET_LOCK` and `SLEEP`, and SQLite
   `load_extension`. Quoted and escaped function names are decoded first.
-- A `SELECT … FOR UPDATE` or `FOR SHARE` (MySQL: `LOCK IN SHARE MODE`)
-  counts as a write: it locks its rows for as long as its result is open,
-  or its transaction is.
+- A `SELECT … FOR UPDATE` or `FOR SHARE` (MySQL: `LOCK IN SHARE MODE`),
+  in a subquery or a `WITH` too, counts as a write: it locks its rows for
+  as long as its result is open, or its transaction is.
 - ClickHouse's `MOVE` (of users and roles between storages) counts as a
   write; PostgreSQL's moves a cursor.
 - History and the audit log keep errors redacted as statements are, and

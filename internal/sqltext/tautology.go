@@ -36,12 +36,13 @@ func allTrue(toks []Token) bool {
 	return true
 }
 
-// splitTop splits tokens at a word outside parentheses.
+// splitTop splits tokens at a word outside parentheses; at AND, at
+// MySQL's && as well, which no other engine reads as a condition's.
 func splitTop(toks []Token, dep []int, sep string) [][]Token {
 	var out [][]Token
 	start := 0
 	for i := 0; i <= len(toks); i++ {
-		if i == len(toks) || dep[i] == 0 && word(toks[i]) == sep {
+		if i == len(toks) || dep[i] == 0 && (word(toks[i]) == sep || sep == "AND" && isOperator(toks[i], "&&")) {
 			out = append(out, toks[start:i])
 			start = i + 1
 		}
@@ -79,6 +80,8 @@ func trueTerm(toks []Token) bool {
 	}
 	return false
 }
+
+func isOperator(t Token, s string) bool { return t.Kind == Operator && t.Text == s }
 
 // closes reports whether the first token's parenthesis closes at the
 // last token.

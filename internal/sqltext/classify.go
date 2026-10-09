@@ -311,7 +311,7 @@ func classifyVerb(toks []Token, d Dialect) Analysis {
 			return Analysis{Class: Write, Verb: verb}
 		}
 	case "SELECT", "TABLE", "VALUES":
-		if locks(toks, dep) {
+		if locks(toks) {
 			// Its rows stay locked while the result is open, as for a write.
 			return Analysis{Class: Write, Verb: verb}
 		}
@@ -430,14 +430,11 @@ func classifyVerb(toks []Token, d Dialect) Analysis {
 	return Analysis{Class: Write, Verb: verb}
 }
 
-// locks reports whether a SELECT locks the rows it reads: FOR UPDATE,
-// FOR NO KEY UPDATE, FOR SHARE, FOR KEY SHARE, or MySQL's LOCK IN SHARE
-// MODE.
-func locks(toks []Token, dep []int) bool {
+// locks reports whether a SELECT locks the rows it reads, in a subquery
+// too: FOR UPDATE, FOR NO KEY UPDATE, FOR SHARE, FOR KEY SHARE, or
+// MySQL's LOCK IN SHARE MODE.
+func locks(toks []Token) bool {
 	for i := 0; i+1 < len(toks); i++ {
-		if dep[i] > 0 {
-			continue
-		}
 		switch w, next := word(toks[i]), word(toks[i+1]); {
 		case w == "FOR" && (next == "UPDATE" || next == "SHARE" || next == "NO" || next == "KEY"):
 			return true
@@ -596,7 +593,11 @@ func classifyWith(toks []Token, d Dialect) Analysis {
 				cteWrites = true
 			}
 		}
-		if body := classifyTokens(toks[i+1:max(end-1, i+1)], d); body.Dangerous && !danger.Dangerous {
+		body := classifyTokens(toks[i+1:max(end-1, i+1)], d)
+		if body.Class == Write {
+			cteWrites = true // as a body that locks its rows
+		}
+		if body.Dangerous && !danger.Dangerous {
 			danger = body
 		}
 		i = skipSearchCycle(toks, end)

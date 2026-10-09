@@ -28,6 +28,8 @@ func TestAlwaysTrueWhere(t *testing.T) {
 		{"delete from t where (1 = 1 and true) or id = 4", true},
 		{"delete from t where id = 4 and (1 = 1 or id = 5)", false},
 		{"delete from t where 1 between 0 and 2", false},
+		{"delete from t where 1 = 1 && 2 = 2", true},
+		{"delete from t where id = 4 && 1 = 1", false},
 		{"delete from t where id between 1 and 1 = 1", false},
 	} {
 		a := Classify(c.sql, Postgres)

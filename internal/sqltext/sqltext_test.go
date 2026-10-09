@@ -995,6 +995,9 @@ func TestClassifyLosesData(t *testing.T) {
 		{MySQL, "SELECT * FROM t LOCK IN SHARE MODE", Write, false},
 		{MySQL, "SELECT * FROM t FOR SYSTEM_TIME AS OF NOW()", Read, false},
 		{Postgres, "SELECT * FROM t WHERE id IN (SELECT id FROM u)", Read, false},
+		{Postgres, "SELECT * FROM t WHERE id IN (SELECT id FROM u FOR UPDATE)", Write, false},
+		{Postgres, "WITH l AS (SELECT id FROM u FOR UPDATE) SELECT * FROM l", Write, false},
+		{Postgres, "SELECT substring(name FROM 1 FOR 2) FROM t", Read, false},
 		{Postgres, "MOVE NEXT IN c", Read, false},
 		{ClickHouse, "MOVE USER u TO disk", Write, false},
 	} {
