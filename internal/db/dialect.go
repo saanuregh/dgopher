@@ -70,12 +70,13 @@ type Reference struct {
 }
 
 type ForeignKey struct {
-	Name       string
-	Columns    []string
-	RefSchema  string
-	RefTable   string
-	RefColumns []string
-	Definition string
+	Name               string
+	Columns            []string
+	RefSchema          string
+	RefTable           string
+	RefColumns         []string
+	OnDelete, OnUpdate string // a referential action, "" for the default
+	Definition         string
 }
 
 // Dialect is what differs between SQL engines: quoting, placeholders and

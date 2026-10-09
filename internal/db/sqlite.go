@@ -106,18 +106,18 @@ func (d sqliteDialect) Indexes(ctx context.Context, q Querier, schema, table str
 func (sqliteDialect) ForeignKeys(ctx context.Context, q Querier, schema, table string) ([]ForeignKey, error) {
 	var out []ForeignKey
 	byID := map[int64]int{}
-	err := scanRows(ctx, q, `SELECT id, "table", "from", COALESCE("to", '') FROM pragma_foreign_key_list(?, ?) ORDER BY id, seq`,
+	err := scanRows(ctx, q, `SELECT id, "table", "from", COALESCE("to", ''), on_delete, on_update FROM pragma_foreign_key_list(?, ?) ORDER BY id, seq`,
 		[]any{table, schema}, func(scan func(...any) error) error {
 			var id int64
-			var ref, from, to string
-			if err := scan(&id, &ref, &from, &to); err != nil {
+			var ref, from, to, onDelete, onUpdate string
+			if err := scan(&id, &ref, &from, &to, &onDelete, &onUpdate); err != nil {
 				return err
 			}
 			i, ok := byID[id]
 			if !ok {
 				i = len(out)
 				byID[id] = i
-				out = append(out, ForeignKey{RefSchema: schema, RefTable: ref})
+				out = append(out, ForeignKey{RefSchema: schema, RefTable: ref, OnDelete: action(onDelete), OnUpdate: action(onUpdate)})
 			}
 			out[i].Columns = append(out[i].Columns, from)
 			out[i].RefColumns = append(out[i].RefColumns, to)
@@ -126,7 +126,8 @@ func (sqliteDialect) ForeignKeys(ctx context.Context, q Querier, schema, table s
 	for i := range out {
 		fk := &out[i]
 		fk.Name = "fk_" + strings.Join(fk.Columns, "_")
-		fk.Definition = "FOREIGN KEY (" + strings.Join(fk.Columns, ", ") + ") REFERENCES " + fk.RefTable + " (" + strings.Join(fk.RefColumns, ", ") + ")"
+		fk.Definition = "FOREIGN KEY (" + strings.Join(fk.Columns, ", ") + ") REFERENCES " + fk.RefTable + " (" + strings.Join(fk.RefColumns, ", ") + ")" +
+			actionsSQL(fk.OnDelete, fk.OnUpdate)
 	}
 	return out, err
 }

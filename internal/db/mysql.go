@@ -95,21 +95,24 @@ GROUP BY INDEX_NAME ORDER BY INDEX_NAME = 'PRIMARY' DESC, INDEX_NAME`, []any{sch
 
 func (mysqlDialect) ForeignKeys(ctx context.Context, q Querier, schema, table string) ([]ForeignKey, error) {
 	var out []ForeignKey
-	err := scanRows(ctx, q, `SELECT CONSTRAINT_NAME, REFERENCED_TABLE_SCHEMA, REFERENCED_TABLE_NAME,
-  GROUP_CONCAT(COLUMN_NAME ORDER BY ORDINAL_POSITION SEPARATOR 0x1f),
-  GROUP_CONCAT(REFERENCED_COLUMN_NAME ORDER BY ORDINAL_POSITION SEPARATOR 0x1f)
-FROM information_schema.KEY_COLUMN_USAGE
-WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND REFERENCED_TABLE_NAME IS NOT NULL
-GROUP BY CONSTRAINT_NAME, REFERENCED_TABLE_SCHEMA, REFERENCED_TABLE_NAME
-ORDER BY CONSTRAINT_NAME`, []any{schema, table}, func(scan func(...any) error) error {
+	err := scanRows(ctx, q, `SELECT k.CONSTRAINT_NAME, k.REFERENCED_TABLE_SCHEMA, k.REFERENCED_TABLE_NAME, rc.DELETE_RULE, rc.UPDATE_RULE,
+  GROUP_CONCAT(k.COLUMN_NAME ORDER BY k.ORDINAL_POSITION SEPARATOR 0x1f),
+  GROUP_CONCAT(k.REFERENCED_COLUMN_NAME ORDER BY k.ORDINAL_POSITION SEPARATOR 0x1f)
+FROM information_schema.KEY_COLUMN_USAGE k
+JOIN information_schema.REFERENTIAL_CONSTRAINTS rc
+  ON rc.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA AND rc.CONSTRAINT_NAME = k.CONSTRAINT_NAME AND rc.TABLE_NAME = k.TABLE_NAME
+WHERE k.TABLE_SCHEMA = ? AND k.TABLE_NAME = ? AND k.REFERENCED_TABLE_NAME IS NOT NULL
+GROUP BY k.CONSTRAINT_NAME, k.REFERENCED_TABLE_SCHEMA, k.REFERENCED_TABLE_NAME, rc.DELETE_RULE, rc.UPDATE_RULE
+ORDER BY k.CONSTRAINT_NAME`, []any{schema, table}, func(scan func(...any) error) error {
 		var fk ForeignKey
-		var cols, refCols string
-		if err := scan(&fk.Name, &fk.RefSchema, &fk.RefTable, &cols, &refCols); err != nil {
+		var cols, refCols, onDelete, onUpdate string
+		if err := scan(&fk.Name, &fk.RefSchema, &fk.RefTable, &onDelete, &onUpdate, &cols, &refCols); err != nil {
 			return err
 		}
 		fk.Columns, fk.RefColumns = splitList(cols), splitList(refCols)
+		fk.OnDelete, fk.OnUpdate = action(onDelete), action(onUpdate)
 		fk.Definition = fmt.Sprintf("FOREIGN KEY (%s) REFERENCES %s.%s (%s)",
-			strings.Join(fk.Columns, ", "), fk.RefSchema, fk.RefTable, strings.Join(fk.RefColumns, ", "))
+			strings.Join(fk.Columns, ", "), fk.RefSchema, fk.RefTable, strings.Join(fk.RefColumns, ", ")) + actionsSQL(fk.OnDelete, fk.OnUpdate)
 		out = append(out, fk)
 		return nil
 	})

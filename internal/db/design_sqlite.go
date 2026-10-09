@@ -12,7 +12,7 @@ import (
 
 // readSQLiteDesign reads what pragmas do not tell of a SQLite table, from
 // its CREATE TABLE: its checks, which column is AUTOINCREMENT, and what a
-// rebuild could not keep; and its foreign keys' actions.
+// rebuild could not keep.
 func readSQLiteDesign(ctx context.Context, d *DB, t *TableDesign) error {
 	create, err := queryString(ctx, d.Catalog(), `SELECT sql FROM `+d.Dialect.Quote(t.Schema)+`.sqlite_master WHERE type = 'table' AND name = ?`, t.Name)
 	if err != nil {
@@ -30,32 +30,7 @@ func readSQLiteDesign(ctx context.Context, d *DB, t *TableDesign) error {
 		// An index SQLite made for a UNIQUE constraint has no statement.
 		t.Indexes[i].Constraint = t.Indexes[i].Definition == ""
 	}
-	i := -1
-	last := int64(-1)
-	return scanRows(ctx, d.Catalog(), `SELECT id, on_update, on_delete FROM pragma_foreign_key_list(?, ?) ORDER BY id, seq`, []any{t.Name, t.Schema},
-		func(scan func(...any) error) error {
-			var id int64
-			var onUpdate, onDelete string
-			if err := scan(&id, &onUpdate, &onDelete); err != nil {
-				return err
-			}
-			if id != last {
-				last, i = id, i+1
-			}
-			if i < len(t.ForeignKeys) {
-				t.ForeignKeys[i].OnUpdate, t.ForeignKeys[i].OnDelete = action(onUpdate), action(onDelete)
-			}
-			return nil
-		})
-}
-
-// action is a foreign key's action as a design keeps it: "" for the
-// default.
-func action(a string) string {
-	if a == "NO ACTION" {
-		return ""
-	}
-	return a
+	return nil
 }
 
 // sqliteTable is what a SQLite CREATE TABLE says that pragmas do not.

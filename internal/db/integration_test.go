@@ -1338,7 +1338,8 @@ func TestIntegrationTableDesign(t *testing.T) {
 			if c.indexes && (len(was.Indexes) != 1 || was.Indexes[0].Name != "it_design_customer") {
 				t.Fatalf("indexes %+v", was.Indexes)
 			}
-			if c.keys && (len(was.ForeignKeys) != 1 || len(was.Checks) != 1 || !strings.Contains(was.Checks[0].Expression, "qty")) {
+			if c.keys && (len(was.ForeignKeys) != 1 || was.ForeignKeys[0].OnDelete != "SET NULL" || was.ForeignKeys[0].OnUpdate != "" ||
+				len(was.Checks) != 1 || !strings.Contains(was.Checks[0].Expression, "qty")) {
 				t.Fatalf("keys %+v, checks %+v", was.ForeignKeys, was.Checks)
 			}
 			if again, err := AlterTableChange(d.Dialect, was, clone(was)); err != nil || len(again.Steps) != 0 {

@@ -400,14 +400,8 @@ func foreignKeySQL(d Dialect, fk ForeignKeyDesign) string {
 	if d.Engine() == SQLite {
 		ref = d.Quote(fk.RefTable) // SQLite's keys point within their schema
 	}
-	s += "FOREIGN KEY (" + quoteNames(d, fk.Columns) + ") REFERENCES " + ref + " (" + quoteNames(d, fk.RefColumns) + ")"
-	if fk.OnDelete != "" {
-		s += " ON DELETE " + fk.OnDelete
-	}
-	if fk.OnUpdate != "" {
-		s += " ON UPDATE " + fk.OnUpdate
-	}
-	return s
+	return s + "FOREIGN KEY (" + quoteNames(d, fk.Columns) + ") REFERENCES " + ref + " (" + quoteNames(d, fk.RefColumns) + ")" +
+		actionsSQL(fk.OnDelete, fk.OnUpdate)
 }
 
 func checkSQL(d Dialect, ch CheckDesign) string {

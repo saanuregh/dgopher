@@ -102,6 +102,27 @@ func CommonTypes(e Engine) []string {
 // points at is deleted or its key changes.
 var ReferentialActions = []string{"NO ACTION", "RESTRICT", "CASCADE", "SET NULL", "SET DEFAULT"}
 
+// action is a foreign key's action as a design keeps it: "" for the
+// default.
+func action(a string) string {
+	if a == "NO ACTION" {
+		return ""
+	}
+	return a
+}
+
+// actionsSQL writes a foreign key's actions after its REFERENCES.
+func actionsSQL(onDelete, onUpdate string) string {
+	s := ""
+	if onDelete != "" {
+		s += " ON DELETE " + onDelete
+	}
+	if onUpdate != "" {
+		s += " ON UPDATE " + onUpdate
+	}
+	return s
+}
+
 // ReadTableDesign reads a table as the table form changes it.
 func ReadTableDesign(ctx context.Context, d *DB, obj Object) (TableDesign, error) {
 	t := TableDesign{Schema: obj.Schema, Name: obj.Name, Comment: obj.Comment}
@@ -142,7 +163,8 @@ func ReadTableDesign(ctx context.Context, d *DB, obj Object) (TableDesign, error
 	}
 	for _, fk := range fks {
 		t.ForeignKeys = append(t.ForeignKeys, ForeignKeyDesign{Read: true, Name: fk.Name, Columns: fk.Columns,
-			RefSchema: fk.RefSchema, RefTable: fk.RefTable, RefColumns: fk.RefColumns, Definition: fk.Definition})
+			RefSchema: fk.RefSchema, RefTable: fk.RefTable, RefColumns: fk.RefColumns, OnDelete: fk.OnDelete, OnUpdate: fk.OnUpdate,
+			Definition: fk.Definition})
 	}
 	switch dl.Engine() {
 	case Postgres:

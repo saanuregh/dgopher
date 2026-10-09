@@ -169,9 +169,13 @@ ORDER BY ix.indisprimary DESC, i.relname`, []any{schema, table}, func(scan func(
 	return out, err
 }
 
+// postgresAction is a foreign key's action by pg_constraint's letter for
+// it: NO ACTION, the default, is "".
+var postgresAction = map[string]string{"r": "RESTRICT", "c": "CASCADE", "n": "SET NULL", "d": "SET DEFAULT"}
+
 func (postgresDialect) ForeignKeys(ctx context.Context, q Querier, schema, table string) ([]ForeignKey, error) {
 	var out []ForeignKey
-	err := scanRows(ctx, q, `SELECT con.conname, pg_get_constraintdef(con.oid), nf.nspname, cf.relname,
+	err := scanRows(ctx, q, `SELECT con.conname, pg_get_constraintdef(con.oid), nf.nspname, cf.relname, con.confdeltype, con.confupdtype,
   array_to_string(ARRAY(SELECT a.attname FROM unnest(con.conkey) WITH ORDINALITY k(n, o)
     JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.n ORDER BY k.o), chr(31)),
   array_to_string(ARRAY(SELECT a.attname FROM unnest(con.confkey) WITH ORDINALITY k(n, o)
@@ -184,11 +188,12 @@ JOIN pg_namespace nf ON nf.oid = cf.relnamespace
 WHERE con.contype = 'f' AND n.nspname = $1 AND c.relname = $2
 ORDER BY con.conname`, []any{schema, table}, func(scan func(...any) error) error {
 		var fk ForeignKey
-		var cols, refCols string
-		if err := scan(&fk.Name, &fk.Definition, &fk.RefSchema, &fk.RefTable, &cols, &refCols); err != nil {
+		var cols, refCols, onDelete, onUpdate string
+		if err := scan(&fk.Name, &fk.Definition, &fk.RefSchema, &fk.RefTable, &onDelete, &onUpdate, &cols, &refCols); err != nil {
 			return err
 		}
 		fk.Columns, fk.RefColumns = splitList(cols), splitList(refCols)
+		fk.OnDelete, fk.OnUpdate = postgresAction[onDelete], postgresAction[onUpdate]
 		out = append(out, fk)
 		return nil
 	})
