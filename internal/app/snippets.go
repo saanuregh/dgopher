@@ -57,7 +57,7 @@ func (a *App) snippetFormView(c *ui.Context) {
 				if ui.Button(c, "Cancel").Clicked() {
 					f.open = false
 				}
-				if (ui.PrimaryButton(c, "Save").Clicked() || submit) && strings.TrimSpace(f.name) != "" {
+				if (widgets.Activated(c, ui.PrimaryButton(c, "Save")) || submit) && strings.TrimSpace(f.name) != "" {
 					keyword := strings.TrimSpace(f.keyword)
 					if strings.ContainsFunc(keyword, func(r rune) bool { return !query.IsIdentRune(r) }) {
 						f.err = "A keyword is one word: letters, digits and _."

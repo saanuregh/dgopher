@@ -328,7 +328,7 @@ func ExportView(a Host, c *ui.Context) {
 						x.open = false
 					}
 				}
-				if ui.PrimaryButton(c, "Export").Disabled(x.running || len(chosen) == 0 || !x.all && x.src.RowsRead == nil).Clicked() {
+				if widgets.Activated(c, ui.PrimaryButton(c, "Export").Disabled(x.running || len(chosen) == 0 || !x.all && x.src.RowsRead == nil)) {
 					runExport(a, x)
 				}
 			})

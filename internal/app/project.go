@@ -537,7 +537,7 @@ func (a *App) newProjectView(c *ui.Context) {
 				if ui.Button(c, "Cancel").Clicked() {
 					f.open = false
 				}
-				if ui.PrimaryButton(c, "Create Project").Clicked() || submit {
+				if widgets.Activated(c, ui.PrimaryButton(c, "Create Project")) || submit {
 					a.createProject(f)
 				}
 			})
@@ -619,7 +619,7 @@ func (a *App) renameView(c *ui.Context) {
 				if action == "" {
 					action = "Rename"
 				}
-				if ui.PrimaryButton(c, action).Clicked() || submit {
+				if widgets.Activated(c, ui.PrimaryButton(c, action)) || submit {
 					if err := f.rename(f.name); err != nil {
 						f.err = err.Error()
 					} else {

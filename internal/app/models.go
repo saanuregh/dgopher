@@ -103,7 +103,7 @@ func (a *App) newModelView(c *ui.Context) {
 				if ui.Button(c, "Cancel").Clicked() {
 					f.open = false
 				}
-				if ui.PrimaryButton(c, "Create").Clicked() {
+				if widgets.Activated(c, ui.PrimaryButton(c, "Create")) {
 					name := strings.TrimSpace(f.name)
 					path := datamodel.File(f.project, name)
 					names, _ := a.modelNames(f.project)
@@ -239,7 +239,7 @@ func (a *App) saveModelView(c *ui.Context) {
 				if ui.Button(c, "Cancel").Clicked() {
 					f.open = false
 				}
-				if ui.PrimaryButton(c, "Save").Disabled(f.building).Clicked() {
+				if widgets.Activated(c, ui.PrimaryButton(c, "Save").Disabled(f.building)) {
 					a.buildModel(f)
 				}
 			})

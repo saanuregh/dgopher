@@ -374,7 +374,7 @@ func filterPromptView(a Host, c *ui.Context) {
 				if ui.Button(c, "Cancel").Clicked() {
 					f.open = false
 				}
-				if ui.PrimaryButton(c, "Filter").Clicked() || submit {
+				if widgets.Activated(c, ui.PrimaryButton(c, "Filter")) || submit {
 					f.open = false
 					f.apply(f.value)
 				}
@@ -497,7 +497,7 @@ func distinctView(a Host, c *ui.Context) {
 						chosen = append(chosen, v.v)
 					}
 				}
-				if ui.PrimaryButton(c, "Filter").Disabled(len(chosen) == 0).Clicked() {
+				if widgets.Activated(c, ui.PrimaryButton(c, "Filter").Disabled(len(chosen) == 0)) {
 					f.open = false
 					f.apply(rowCond{col: f.col, op: "in", vals: chosen})
 				}

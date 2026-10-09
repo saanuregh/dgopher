@@ -134,7 +134,7 @@ func (t *Tab) compareView(c *ui.Context) {
 					f.open = false
 				}
 				ready := f.with == withDatabase && f.chosenConn() != nil || f.with == withModel && len(f.models) > 0
-				if ui.PrimaryButton(c, "Compare").Disabled(!ready || f.running).Clicked() {
+				if widgets.Activated(c, ui.PrimaryButton(c, "Compare").Disabled(!ready || f.running)) {
 					t.runCompare(f)
 				}
 			})

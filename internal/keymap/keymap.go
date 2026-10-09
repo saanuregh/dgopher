@@ -21,10 +21,11 @@ const (
 	Editor    Scope = "SQL editor"
 	Grid      Scope = "Results and table data"
 	Navigator Scope = "Navigator"
+	Dialog    Scope = "Dialogs"
 )
 
 // Scopes are the scopes in the order lists show them.
-var Scopes = []Scope{Global, Navigator, Editor, Grid}
+var Scopes = []Scope{Global, Navigator, Editor, Grid, Dialog}
 
 // overlaps reports whether keys of two scopes can be pressed in one
 // place: a scope's own, and the window's anywhere.

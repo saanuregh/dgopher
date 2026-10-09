@@ -251,7 +251,7 @@ func valueEditorView(a Host, c *ui.Context) {
 				if ui.Button(c, "Cancel").Clicked() {
 					e.open = false
 				}
-				if e.editable && ui.PrimaryButton(c, "Save").Clicked() {
+				if e.editable && widgets.Activated(c, ui.PrimaryButton(c, "Save")) {
 					e.open = false
 					e.g.checkpoint()
 					e.g.setValue(e.src, e.row, e.col, db.Typed(e.text))

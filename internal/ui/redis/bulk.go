@@ -345,14 +345,14 @@ func (r *Tab) bulkView(c *ui.Context) {
 				switch b.kind {
 				case bulkDelete:
 					if b.counted != b.pattern || b.counted == "" {
-						if ui.PrimaryButton(c, "Count Keys").Disabled(strings.TrimSpace(b.pattern) == "").Clicked() {
+						if widgets.Activated(c, ui.PrimaryButton(c, "Count Keys").Disabled(strings.TrimSpace(b.pattern) == "")) {
 							r.countKeys(b)
 						}
 					} else if ui.PrimaryButton(c, "Delete "+widgets.HumanCount(b.count)+" Keys…").Disabled(ro || b.count == 0).Clicked() {
 						r.deleteKeys(b)
 					}
 				case bulkExport:
-					if ui.PrimaryButton(c, "Export…").Disabled(strings.TrimSpace(b.pattern) == "").Clicked() {
+					if widgets.Activated(c, ui.PrimaryButton(c, "Export…").Disabled(strings.TrimSpace(b.pattern) == "")) {
 						r.chooseExport(b)
 					}
 				case bulkImport:

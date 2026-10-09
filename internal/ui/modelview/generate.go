@@ -107,7 +107,7 @@ func (t *Tab) generateView(c *ui.Context) {
 					t.h.Toast("The script is copied.", "", nil)
 					f.open = false
 				}
-				if i := slices.Index(names, f.conn); len(conns) > 0 && ui.PrimaryButton(c, "Open in Editor").Clicked() && i >= 0 {
+				if i := slices.Index(names, f.conn); len(conns) > 0 && widgets.Activated(c, ui.PrimaryButton(c, "Open in Editor")) && i >= 0 {
 					cn := conns[i]
 					t.h.NewQueryTab(cn, cn.Config.Database, text)
 					f.open = false

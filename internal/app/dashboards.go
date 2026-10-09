@@ -189,7 +189,7 @@ func (a *App) addToDashboardView(c *ui.Context) {
 				if ui.Button(c, "Cancel").Clicked() {
 					x.open = false
 				}
-				if ui.PrimaryButton(c, "Add").Clicked() {
+				if widgets.Activated(c, ui.PrimaryButton(c, "Add")) {
 					a.addPanel(x)
 				}
 			})

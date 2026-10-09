@@ -206,7 +206,7 @@ func (a *App) settingsView(c *ui.Context) {
 				})
 			})
 			ui.Row(c).Justify(ui.End).Children(func() {
-				if ui.PrimaryButton(c, "Done").Clicked() {
+				if widgets.Activated(c, ui.PrimaryButton(c, "Done")) {
 					open = false
 				}
 			})

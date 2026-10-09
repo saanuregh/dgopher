@@ -264,7 +264,7 @@ func clipView(a Host, c *ui.Context) {
 				if f.paste {
 					label = "Paste"
 				}
-				if ui.PrimaryButton(c, label).Clicked() {
+				if widgets.Activated(c, ui.PrimaryButton(c, label)) {
 					f.open = false
 					if f.paste {
 						f.pasteOpts.Delimiter = delimiterRunes[f.delim]

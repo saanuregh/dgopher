@@ -328,7 +328,7 @@ func renameView(a Host, c *ui.Context) {
 				if ui.Button(c, "Cancel").Clicked() {
 					f.open = false
 				}
-				if ui.PrimaryButton(c, "Rename").Clicked() || submit {
+				if widgets.Activated(c, ui.PrimaryButton(c, "Rename")) || submit {
 					name := strings.TrimSpace(f.name)
 					if name == "" {
 						f.err = "A name may not be empty."

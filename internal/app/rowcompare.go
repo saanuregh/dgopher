@@ -340,7 +340,7 @@ func (a *App) rowCompareView(c *ui.Context) {
 					x.open = false
 				}
 				if x.result == nil {
-					if ui.PrimaryButton(c, "Compare").Clicked() {
+					if widgets.Activated(c, ui.PrimaryButton(c, "Compare")) {
 						a.startCompare(x)
 					}
 					return

@@ -45,3 +45,32 @@ func TestKeysEditor(t *testing.T) {
 		t.Fatalf("format not reset: %q", a.settings.Keys)
 	}
 }
+
+// A dialog does what it is for with its key from any of its fields, and
+// the key changed in the settings does it in its place.
+func TestDialogKey(t *testing.T) {
+	a := newTestApp(t)
+	defer keymap.Use(nil)
+	tt := ui.NewTester(a.view, 1000, 700)
+	var renamed []string
+	ask := func() {
+		a.renaming = &renameForm{open: true, title: "Rename", name: "new", rename: func(n string) error { renamed = append(renamed, n); return nil }}
+		tt.Frame()
+		tt.Frame()
+	}
+	ask()
+	tt.Key(ui.Cmd, ui.KeyEnter)
+	tt.Frame()
+	if len(renamed) != 1 || renamed[0] != "new" {
+		t.Fatalf("renamed %q", renamed)
+	}
+	keymap.Use(map[string][]string{keymap.ConfirmDialog: {"Alt+Enter"}})
+	ask()
+	tt.Key(ui.Cmd, ui.KeyEnter)
+	tt.Frame()
+	tt.Key(ui.Alt, ui.KeyEnter)
+	tt.Frame()
+	if len(renamed) != 2 {
+		t.Fatalf("with the key changed, renamed %q", renamed)
+	}
+}

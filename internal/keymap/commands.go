@@ -3,6 +3,7 @@ package keymap
 // The commands with keys, by their IDs, which the settings keep.
 const (
 	Palette        = "palette"
+	ConfirmDialog  = "dialog.confirm"
 	OpenTable      = "openTable"
 	NewEditor      = "newEditor"
 	NewConnection  = "newConnection"
@@ -109,6 +110,8 @@ var Commands = []Command{
 	command(ShortcutsList, Global, "The list of keys", "Cmd+/"),
 	command(NextTab, Global, "Next tab", "Ctrl+Tab"),
 	command(PreviousTab, Global, "Previous tab", "Ctrl+Shift+Tab"),
+
+	command(ConfirmDialog, Dialog, "Do what a dialog is for: its main button, from any of its fields", "Cmd+Enter"),
 
 	command(NavigatorSelect, Navigator, "New editor with SELECT * of the table", "Cmd+Enter"),
 	command(NavigatorRefresh, Navigator, "Read the schema again", "Cmd+R"),

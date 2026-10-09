@@ -99,7 +99,7 @@ func (a *App) dialogs(c *ui.Context) {
 					if ui.Button(c, "Cancel").Clicked() {
 						p.open = false
 					}
-					if ui.PrimaryButton(c, p.action).Clicked() || submit {
+					if widgets.Activated(c, ui.PrimaryButton(c, p.action)) || submit {
 						p.open, p.answered = false, true
 						p.onSubmit(p.password)
 					}
@@ -183,7 +183,7 @@ func (a *App) dialogs(c *ui.Context) {
 					if ui.Button(c, "Copy").Clicked() {
 						a.WriteClipboard(al.message)
 					}
-					if ui.PrimaryButton(c, "OK").Clicked() || c.Shortcut(0, ui.KeyEnter) {
+					if widgets.Activated(c, ui.PrimaryButton(c, "OK")) || c.Shortcut(0, ui.KeyEnter) {
 						al.open = false
 					}
 				})

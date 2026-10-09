@@ -61,7 +61,7 @@ func paramsView(a Host, c *ui.Context) {
 				if ui.Button(c, "Cancel").Clicked() {
 					f.open = false
 				}
-				if ui.PrimaryButton(c, "Run").Clicked() || submit {
+				if widgets.Activated(c, ui.PrimaryButton(c, "Run")) || submit {
 					f.submit()
 				}
 			})

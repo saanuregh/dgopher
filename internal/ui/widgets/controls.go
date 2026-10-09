@@ -1,6 +1,8 @@
 package widgets
 
 import (
+	"dgopher/internal/keymap"
+
 	"github.com/egoist/mygo/ui"
 )
 
@@ -67,4 +69,11 @@ func IconButton(c *ui.Context, ic *ui.SVG, label string) ui.Element {
 	}
 	b.Children(func() { ui.Icon(c, ic).FontSize(14).TextColor(c.Theme().Text) })
 	return b
+}
+
+// Activated reports whether a dialog's main button was clicked, or the
+// key that does what a dialog is for was pressed in it, the button
+// enabled.
+func Activated(c *ui.Context, b ui.Element) bool {
+	return b.Clicked() || !b.IsDisabled() && keymap.Pressed(c, keymap.ConfirmDialog)
 }

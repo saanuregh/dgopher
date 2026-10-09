@@ -528,7 +528,7 @@ func queryBuilderView(a Host, c *ui.Context) {
 				if ui.Button(c, "Copy SQL").Disabled(err != nil).Clicked() {
 					a.WriteClipboard(sql)
 				}
-				if ui.PrimaryButton(c, "Open in Editor").Disabled(err != nil).Clicked() {
+				if widgets.Activated(c, ui.PrimaryButton(c, "Open in Editor").Disabled(err != nil)) {
 					a.NewQueryTab(b.conn, b.database, sql+";\n")
 					b.open = false
 				}

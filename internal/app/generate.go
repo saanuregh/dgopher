@@ -277,7 +277,7 @@ func (a *App) generateView(c *ui.Context) {
 				if g.output == generateDocs {
 					action = "Save…"
 				}
-				if ui.PrimaryButton(c, action).Disabled(g.running || g.loading || chosen == 0).Clicked() {
+				if widgets.Activated(c, ui.PrimaryButton(c, action).Disabled(g.running || g.loading || chosen == 0)) {
 					a.generate(g)
 				}
 			})

@@ -144,7 +144,7 @@ func sqlDialogView(a Host, c *ui.Context) {
 					d.open = false
 					a.NewQueryTab(d.conn, d.database, d.text+"\n")
 				}
-				if ui.PrimaryButton(c, "Close").Clicked() {
+				if widgets.Activated(c, ui.PrimaryButton(c, "Close")) {
 					d.open = false
 				}
 			})

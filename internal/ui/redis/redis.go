@@ -943,7 +943,7 @@ func (r *Tab) newKeyView(c *ui.Context) {
 				if ui.Button(c, "Cancel").Clicked() {
 					f.open = false
 				}
-				if ui.PrimaryButton(c, "Create").Clicked() && f.key != "" {
+				if widgets.Activated(c, ui.PrimaryButton(c, "Create")) && f.key != "" {
 					var args []string
 					switch f.typ {
 					case "string":

@@ -241,7 +241,7 @@ func (t *Tab) confirmUpdateView(c *ui.Context) {
 				if ui.Button(c, "Cancel").Clicked() {
 					t.confirmUpdate = false
 				}
-				if ui.PrimaryButton(c, "Update").Clicked() {
+				if widgets.Activated(c, ui.PrimaryButton(c, "Update")) {
 					t.confirmUpdate = false
 					t.update()
 				}

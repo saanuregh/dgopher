@@ -24,6 +24,10 @@
   - ⌘T opens an editor, ⌘N a connection, ⌘W closes a tab, Ctrl+Tab moves
     between tabs, and ⌘B shows or hides the sidebar.
   - ⌘/ lists every shortcut, as they are set.
+  - In a dialog, ⌘↵ does what it is for from any of its fields, as its
+    main button; Esc closes it. A dialog whose button changes data or
+    trusts a server (rolling back, dropping, deleting keys, importing,
+    copying, restoring, running a file) takes a click.
   - Every command's keys can be changed: Settings → Keyboard Shortcuts
     (or the palette's) records a key for it, removes one, or resets it.
     A key that types needs ⌘, Ctrl or Alt, and one that moves in lists
