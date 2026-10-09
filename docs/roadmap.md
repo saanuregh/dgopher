@@ -18,7 +18,6 @@ comparison in October 2026. Not ordered by priority; items already in
 Next or Later are not repeated.
 
 - **Connections:**
-  - Log in with Kerberos, LDAP or PAM.
   - [DEFERRED] List the databases in an AWS, GCP or Azure account and
     add them as connections.
   - [DEFERRED] Import saved connections from other database clients.
@@ -96,6 +95,10 @@ Next or Later are not repeated.
   - A guided tour for new users.
 
 ## Known limitations
+
+- **Kerberos:** PostgreSQL only; MySQL's Kerberos plugin has no Go
+  client. On macOS, `KRB5CCNAME` must name a `FILE:` cache: the
+  system's default cache is not a file.
 
 - **DuckDB:** a read-only and a read-write connection to the same file
   cannot be open at once: the driver keeps one database per file.

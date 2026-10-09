@@ -78,7 +78,11 @@
     printed by the cloud's own tool (`aws`, `gcloud`, `az`) after its
     single sign-on, made again for new connections as it ages, and sent
     only over TLS. MySQL can send the password as clear text, over TLS,
-    as LDAP and PAM logins need.
+    as LDAP and PAM logins need; PostgreSQL's LDAP and PAM logins take the
+    password as any other.
+  - Kerberos: a PostgreSQL server asking for it gets the ticket of your
+    `kinit`, from the credentials cache of `KRB5CCNAME` as `krb5.conf`
+    (or `KRB5_CONFIG`) sets up; on Windows, your login's credentials.
   - SSH tunnels: agent, key file with passphrase, or password, through
     jump hosts as `ssh -J` does. Host keys are checked against
     `known_hosts`, a jump host's too, and a new host must be trusted

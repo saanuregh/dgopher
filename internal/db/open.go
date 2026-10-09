@@ -26,6 +26,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgconn/ctxwatch"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/otan/gopgkrb5"
 	_ "modernc.org/sqlite"
 )
 
@@ -219,6 +220,19 @@ func openWith(ctx context.Context, cfg Config, ep endpoint, r route) (*DB, error
 		return nil, redact(err, cfg)
 	}
 	return &DB{Config: cfg, Dialect: DialectOf(cfg.Engine), SQL: sqldb, route: r, single: single}, nil
+}
+
+func init() {
+	// A server asking for Kerberos gets the ticket of the user's kinit:
+	// the credentials cache of KRB5CCNAME, as /etc/krb5.conf or
+	// KRB5_CONFIG configure; on Windows, the user's own credentials.
+	pgconn.RegisterGSSProvider(func() (pgconn.GSS, error) {
+		gss, err := gopgkrb5.NewGSS()
+		if err != nil {
+			return nil, fmt.Errorf("Kerberos: %w", err)
+		}
+		return gss, nil
+	})
 }
 
 func openPostgres(cfg Config, ep endpoint, tc *tls.Config) (*sql.DB, error) {
