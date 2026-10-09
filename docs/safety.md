@@ -8,7 +8,7 @@ before it reaches the server:
 | Reads | run | run | run |
 | Writes (INSERT, UPDATE, …) | run | run | confirm |
 | Schema changes (CREATE, ALTER, …) | run | confirm | confirm |
-| DROP, TRUNCATE, UPDATE/DELETE without WHERE, Redis FLUSHALL/KEYS/… | confirm | confirm | confirm, by typing the connection's name |
+| DROP, TRUNCATE, UPDATE/DELETE without WHERE or with one always true (`WHERE 1=1`, `WHERE TRUE`, `id = id`), Redis FLUSHALL/KEYS/… | confirm | confirm | confirm, by typing the connection's name |
 | Default commit mode | auto | auto | manual (ClickHouse and Redis: always auto) |
 
 Redis commands that write follow the Writes row. Commands that need a

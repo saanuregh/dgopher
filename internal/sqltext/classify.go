@@ -347,9 +347,21 @@ func classifyVerb(toks []Token, d Dialect) Analysis {
 		return Analysis{Class: Session, Verb: verb}
 	case "UPDATE", "DELETE":
 		a := Analysis{Class: Write, Verb: verb}
-		if topLevel("WHERE") < 0 {
+		where := topLevel("WHERE")
+		if where < 0 {
 			a.Dangerous = true
 			a.Reason = verb + " without WHERE affects every row"
+			return a
+		}
+		end := len(toks)
+		for _, w := range whereEnds {
+			if i := topLevel(w); i > where {
+				end = min(end, i)
+			}
+		}
+		if alwaysTrue(toks[where+1 : end]) {
+			a.Dangerous = true
+			a.Reason = verb + " whose WHERE is always true affects every row"
 		}
 		return a
 	case "DROP":
