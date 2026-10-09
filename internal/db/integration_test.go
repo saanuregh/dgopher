@@ -413,7 +413,7 @@ func TestIntegrationRedis(t *testing.T) {
 		t.Fatalf("info %+v %v", info, err)
 	}
 	for key, typ := range map[string]string{"user:1": "hash", "queue:jobs": "list", "tags": "set", "scores": "zset", "events": "stream"} {
-		_, items, err := k.Value(ctx, key, typ, 100)
+		items, _, _, err := k.ReadItems(ctx, key, typ, ItemsPos{}, 100)
 		if err != nil || len(items) == 0 {
 			t.Errorf("value of %s: %v %v", key, items, err)
 		}
@@ -438,13 +438,59 @@ func TestIntegrationRedis(t *testing.T) {
 	if v, err := k.Do(ctx, []string{"GET", "missing"}); err != nil || FormatReply(v) != "(nil)" {
 		t.Fatalf("missing key %q %v", FormatReply(v), err)
 	}
-	_, items, err := k.Value(ctx, "events", "stream", 10)
+	items, _, _, err := k.ReadItems(ctx, "events", "stream", ItemsPos{}, 10)
 	if err != nil || len(items) != 1 || items[0].Value != "kind=login" {
 		t.Fatalf("stream %+v %v", items, err)
 	}
-	_, items, err = k.Value(ctx, "scores", "zset", 10)
+	items, _, _, err = k.ReadItems(ctx, "scores", "zset", ItemsPos{}, 10)
 	if err != nil || len(items) != 2 || items[1].Value != "grace" || items[1].Score != 2 {
 		t.Fatalf("zset %+v %v", items, err)
+	}
+
+	// Every type reads page by page to its end.
+	for i := range 25 {
+		n := strconv.Itoa(i)
+		for _, cmd := range [][]string{{"RPUSH", "big:list", n}, {"HSET", "big:hash", "f" + n, n}, {"SADD", "big:set", n},
+			{"ZADD", "big:zset", n, "m" + n}, {"XADD", "big:stream", "*", "n", n}} {
+			if _, err := k.Do(ctx, cmd); err != nil {
+				t.Fatal(cmd, err)
+			}
+		}
+	}
+	for key, typ := range map[string]string{"big:list": "list", "big:hash": "hash", "big:set": "set", "big:zset": "zset", "big:stream": "stream"} {
+		seen := map[string]bool{}
+		var pos ItemsPos
+		for pages := 0; ; pages++ {
+			if pages > 30 {
+				t.Fatalf("%s: no end", typ)
+			}
+			items, next, done, err := k.ReadItems(ctx, key, typ, pos, 10)
+			if err != nil {
+				t.Fatal(typ, err)
+			}
+			for _, it := range items {
+				seen[it.Name+"="+it.Value] = true
+			}
+			if pos = next; done {
+				break
+			}
+		}
+		if len(seen) != 25 {
+			t.Errorf("%s: %d items read page by page, want 25", typ, len(seen))
+		}
+	}
+	if s, err := k.ReadString(ctx, "user:1:name", 2); err != nil || s != "Ad" {
+		t.Fatalf("a string's start: %q %v", s, err)
+	}
+	if !k.FieldExpiry() {
+		t.Fatal("Redis 7.4 keeps hash fields' expiry")
+	}
+	if _, err := k.Do(ctx, []string{"HEXPIRE", "big:hash", "100", "FIELDS", "1", "f1"}); err != nil {
+		t.Fatal(err)
+	}
+	ttls, err := k.FieldTTLs(ctx, "big:hash", []string{"f1", "f2", "gone"})
+	if err != nil || ttls[0] <= 90*time.Second || ttls[1] != -1 || ttls[2] != -1 {
+		t.Fatalf("field TTLs %v %v", ttls, err)
 	}
 }
 

@@ -45,20 +45,14 @@ Next or Later are not repeated.
   - Add entries to streams, and manage consumer groups.
   - Editors for RedisJSON values, vector sets and arrays.
   - Work with Redis Search indexes, and chart TimeSeries keys.
-  - Set an expiry time on single hash fields.
-  - Delete every key that matches a pattern, and run the commands in a
-    file.
+  - Run the commands in a file.
   - Analyse memory: the largest keys and namespaces, and how many keys
     expire.
   - Show the slow log, and a live feed of commands (MONITOR).
   - Decode values stored as MessagePack, Protobuf, PHP or Java
     serialization, or Pickle, or compressed with gzip, lz4, zstd, snappy
     or brotli.
-  - Choose the character that splits key names into folders. Today it is
-    always `:`.
   - Show help for each command, and complete commands, in the console.
-  - Import and export keys.
-  - Load the rest of a large value. Today only its first part is read.
 - **ClickHouse and DuckDB:**
 - **Charts:**
   - More kinds of chart.

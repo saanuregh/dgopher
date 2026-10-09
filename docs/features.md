@@ -316,12 +316,26 @@
 ## Redis
 
 - **Redis:**
-  - A SCAN-based key tree grouped by `:`, with pattern and type filters.
+  - A SCAN-based key tree grouped into folders by `:`, or the separator
+    the connection sets, with pattern and type filters.
   - Viewers and editors for strings (JSON formatting), hashes, lists, sets
-    and sorted sets; streams are view-only.
-  - TTL, rename, delete and new keys.
+    and sorted sets; streams are view-only. A key's items are read 500 at
+    a time, with more on request; a string's first 64 KB, and the rest
+    on request: a string shown in part is not editable, as saving it
+    would cut it.
+  - TTL, rename, delete and new keys; on Redis 7.4 and later, each hash
+    field's TTL, set or removed field by field.
+  - Delete every key matching a pattern: counted and named first, always
+    confirmed (with the connection's name typed on production), unlinked
+    in batches as a scan finds them, and audited.
+  - Export the keys matching a pattern to a file of JSON lines, each key
+    with its type, its TTL and its value (base64 where it is not text),
+    and import such a file: each key written in one transaction, keys
+    there already left as they are or replaced, through the safety
+    policy, audited. A hash field's own TTL and a stream's consumer
+    groups are not exported.
   - A console with history (↑ ↓), which replies the way `redis-cli` does.
-    `KEYS` is refused in favour of the SCAN-based tree.
+    `KEYS` asks first, as it stalls a large server; the tree uses SCAN.
 
 ## Charts, diagrams and server activity
 

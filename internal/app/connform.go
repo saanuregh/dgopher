@@ -257,6 +257,9 @@ func (f *connForm) config() db.Config {
 	}
 	cfg.Redis.Mode = redisModes[f.redisMode]
 	cfg.Redis.Nodes, cfg.Redis.Master = strings.TrimSpace(cfg.Redis.Nodes), strings.TrimSpace(cfg.Redis.Master)
+	if cfg.Engine != db.Redis || cfg.KeySeparator == db.DefaultKeySeparator {
+		cfg.KeySeparator = ""
+	}
 	switch {
 	case cfg.Engine != db.Redis:
 		cfg.Redis = db.RedisConfig{}
@@ -473,6 +476,11 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 		}
 		if mode == db.RedisSentinel {
 			a.sentinelFields(c, f)
+		}
+		if engine == db.Redis {
+			ui.Field(c, "Key separator", func() {
+				ui.TextInput(c, &f.cfg.KeySeparator).Placeholder(db.DefaultKeySeparator).Font(widgets.MonoFont).Width(80).Label("Key separator")
+			}).Description("Splits key names into folders in the key browser.")
 		}
 	}
 	ui.Field(c, "Environment", func() {
@@ -889,6 +897,7 @@ func reconnectNeeded(old, cfg db.Config) bool {
 	strip := func(c db.Config) db.Config {
 		c.Name, c.Color, c.Env, c.Commit = "", "", "", ""
 		c.StatementTimeout, c.IdleTxTimeout = 0, 0
+		c.KeySeparator = ""
 		return c
 	}
 	return strip(old) != strip(cfg)

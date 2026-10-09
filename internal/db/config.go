@@ -236,6 +236,21 @@ type Config struct {
 	// Redis says how a Redis connection reaches its data, when not on the
 	// one server of Host and Port.
 	Redis RedisConfig `json:"redis,omitzero"`
+	// KeySeparator splits a Redis connection's key names into folders;
+	// "" for the usual ":".
+	KeySeparator string `json:"keySeparator,omitempty"`
+}
+
+// DefaultKeySeparator splits Redis key names into folders unless a
+// connection says otherwise.
+const DefaultKeySeparator = ":"
+
+// Separator is the string a Redis connection's key names split at.
+func (c *Config) Separator() string {
+	if c.KeySeparator == "" {
+		return DefaultKeySeparator
+	}
+	return c.KeySeparator
 }
 
 // ProxyConfig is a proxy a connection goes through, none without a Kind.

@@ -5,6 +5,7 @@ package redis
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -42,11 +43,15 @@ type Tab struct {
 	treeRow  int
 	children map[string][]string // prefix → its children, folders ending in the separator
 	treeKey  int                 // len(keys) the tree was built for
+	treeSep  string              // the separator it was built with
 
 	selected   string
 	info       db.KeyInfo
 	value      string
+	whole      bool // value is the whole string, not its start
 	fields     []db.Field
+	itemsPos   db.ItemsPos
+	itemsDone  bool
 	loadingKey bool
 	keyErr     string
 	valueGen   int
@@ -59,9 +64,11 @@ type Tab struct {
 	newValue  string
 	newScore  string
 	ttlIn     string
+	fieldTTL  string // seconds, for the chosen hash field
 	renameIn  string
 	renaming  bool
 	newKey    *newKeyForm
+	bulk      *bulkDialog
 
 	split       float32
 	consoleH    float32
@@ -86,9 +93,15 @@ type newKeyForm struct {
 	value string
 }
 
-const keySep = ":"
-
 var redisTypes = []string{"All types", "string", "hash", "list", "set", "zset", "stream"}
+
+const (
+	// itemsPage is how many items of a key are read at a time.
+	itemsPage = 500
+	// stringStart is how much of a string is read and shown before it is
+	// asked for whole: the editor lays a larger text out slowly.
+	stringStart = 64 << 10
+)
 
 func New(a Host, cn *connection.Conn) *Tab {
 	r := &Tab{a: a, conn: cn, typeFilter: redisTypes[0], split: 340, consoleH: 520, treeRow: -1, fieldRow: -1}
@@ -161,10 +174,11 @@ func (r *Tab) scan() {
 
 // buildTree groups the keys by their separator.
 func (r *Tab) buildTree() {
-	if r.treeKey == len(r.keys) && r.children != nil {
+	sep := r.conn.Config.Separator()
+	if r.treeKey == len(r.keys) && r.treeSep == sep && r.children != nil {
 		return
 	}
-	r.treeKey = len(r.keys)
+	r.treeKey, r.treeSep = len(r.keys), sep
 	r.children = map[string][]string{}
 	seen := map[string]bool{}
 	sorted := append([]string(nil), r.keys...)
@@ -173,23 +187,23 @@ func (r *Tab) buildTree() {
 		parent := ""
 		rest := k
 		for {
-			i := strings.Index(rest, keySep)
-			if i < 0 || i == len(rest)-1 {
+			i := strings.Index(rest, sep)
+			if i < 0 || i == len(rest)-len(sep) {
 				break
 			}
-			folder := parent + rest[:i+1]
+			folder := parent + rest[:i+len(sep)]
 			if !seen[folder] {
 				seen[folder] = true
 				r.children[parent] = append(r.children[parent], folder)
 			}
-			parent, rest = folder, rest[i+1:]
+			parent, rest = folder, rest[i+len(sep):]
 		}
 		r.children[parent] = append(r.children[parent], k)
 	}
 }
 
 func isFolder(node string, r *Tab) bool {
-	return strings.HasSuffix(node, keySep) && !r.keySet[node]
+	return strings.HasSuffix(node, r.treeSep) && !r.keySet[node]
 }
 
 func (r *Tab) countUnder(prefix string) int {
@@ -223,8 +237,14 @@ func (r *Tab) loadKey() {
 		info, err := kv.Info(ctx, key)
 		var value string
 		var fields []db.Field
-		if err == nil && info.Type != "none" {
-			value, fields, err = kv.Value(ctx, key, info.Type, 1000)
+		var pos db.ItemsPos
+		done := true
+		switch {
+		case err != nil || info.Type == "none":
+		case info.Type == "string":
+			value, err = kv.ReadString(ctx, key, stringStart)
+		default:
+			fields, pos, done, err = readPage(ctx, kv, key, info.Type, db.ItemsPos{})
 		}
 		return func() {
 			if gen != r.valueGen {
@@ -235,12 +255,115 @@ func (r *Tab) loadKey() {
 				r.keyErr = err.Error()
 				return
 			}
-			r.info, r.value, r.fields = info, value, fields
+			// Whole when shorter than asked: the length read before may
+			// be of another moment.
+			r.info, r.value, r.whole = info, value, len(value) < stringStart
+			r.fields, r.itemsPos, r.itemsDone = nil, pos, done
+			r.addItems(fields)
 			r.editValue, r.editDirty = value, false
 			r.ttlIn = ""
 			if info.TTL > 0 {
 				r.ttlIn = strconv.Itoa(int(info.TTL.Seconds()))
 			}
+		}
+	})
+}
+
+// readPage reads a page of a key's items, a hash's fields with their
+// times to live where the server keeps them.
+func readPage(ctx context.Context, kv *db.KV, key, typ string, pos db.ItemsPos) ([]db.Field, db.ItemsPos, bool, error) {
+	fields, next, done, err := kv.ReadItems(ctx, key, typ, pos, itemsPage)
+	if err != nil || typ != "hash" || !kv.FieldExpiry() {
+		return fields, next, done, err
+	}
+	names := make([]string, len(fields))
+	for i, f := range fields {
+		names[i] = f.Name
+	}
+	ttls, err := kv.FieldTTLs(ctx, key, names)
+	for i := range ttls {
+		fields[i].TTL = ttls[i]
+	}
+	return fields, next, done, err
+}
+
+// addItems adds read items to those shown, but for those a scan gave
+// again; a hash's in the order of their names, a set's of their values.
+func (r *Tab) addItems(fields []db.Field) {
+	seen := make(map[string]bool, len(r.fields))
+	for _, f := range r.fields {
+		seen[f.Name+"\x00"+f.Value] = true
+	}
+	for _, f := range fields {
+		if id := f.Name + "\x00" + f.Value; !seen[id] {
+			seen[id] = true
+			r.fields = append(r.fields, f)
+		}
+	}
+	// The chosen item stays chosen where the sort moves it: actions on
+	// it go by its row.
+	var chosen *db.Field
+	if r.fieldRow >= 0 && r.fieldRow < len(r.fields) {
+		f := r.fields[r.fieldRow]
+		chosen = &f
+	}
+	switch r.info.Type {
+	case "hash":
+		sort.SliceStable(r.fields, func(i, j int) bool { return r.fields[i].Name < r.fields[j].Name })
+	case "set":
+		sort.SliceStable(r.fields, func(i, j int) bool { return r.fields[i].Value < r.fields[j].Value })
+	}
+	if chosen != nil {
+		r.fieldRow = slices.IndexFunc(r.fields, func(f db.Field) bool { return f.Name == chosen.Name && f.Value == chosen.Value })
+	}
+}
+
+// loadMore reads the next page of the key's items.
+func (r *Tab) loadMore() {
+	if r.loadingKey || r.itemsDone {
+		return
+	}
+	r.loadingKey = true
+	gen := r.valueGen
+	kv, key, typ, pos := r.conn.KV, r.selected, r.info.Type, r.itemsPos
+	r.a.Background(func() func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		fields, next, done, err := readPage(ctx, kv, key, typ, pos)
+		return func() {
+			if gen != r.valueGen {
+				return
+			}
+			r.loadingKey = false
+			if err != nil {
+				r.keyErr = err.Error()
+				return
+			}
+			r.itemsPos, r.itemsDone = next, done
+			r.addItems(fields)
+		}
+	})
+}
+
+// loadWhole reads all of a string shown in part.
+func (r *Tab) loadWhole() {
+	r.loadingKey = true
+	gen := r.valueGen
+	kv, key := r.conn.KV, r.selected
+	r.a.Background(func() func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		value, err := kv.ReadString(ctx, key, 0)
+		return func() {
+			if gen != r.valueGen {
+				return
+			}
+			r.loadingKey = false
+			if err != nil {
+				r.keyErr = err.Error()
+				return
+			}
+			r.value, r.whole, r.editValue, r.editDirty = value, true, value, false
 		}
 	})
 }
@@ -312,6 +435,19 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 				if widgets.IconButton(c, widgets.IconPlus, "New key").Clicked() {
 					r.newKey = &newKeyForm{open: true, typ: "string"}
 				}
+				widgets.IconButton(c, widgets.IconMore, "More").Menu(func(m *ui.Menu) {
+					ro := r.conn.Config.ReadOnly
+					if m.Item("Delete Keys Matching…").Disabled(ro).Chosen() {
+						r.openBulk(bulkDelete)
+					}
+					m.Separator()
+					if m.Item("Export Keys…").Chosen() {
+						r.openBulk(bulkExport)
+					}
+					if m.Item("Import Keys…").Disabled(ro).Chosen() {
+						r.openBulk(bulkImport)
+					}
+				})
 			})
 			ui.Row(c).Gap(6).Children(func() {
 				if ui.Select(c, &r.typeFilter, redisTypes).Label("Type").Changed() {
@@ -332,10 +468,11 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 			return nil
 		}, func(n string) {
 			ui.Row(c).Gap(6).Grow(1).Children(func() {
+				sep := r.treeSep
 				if isFolder(n, r) {
-					parent := n[:len(n)-1]
-					if i := strings.LastIndex(parent, keySep); i >= 0 {
-						parent = parent[i+1:]
+					parent := strings.TrimSuffix(n, sep)
+					if i := strings.LastIndex(parent, sep); i >= 0 {
+						parent = parent[i+len(sep):]
 					}
 					ui.Icon(c, widgets.IconSchema).TextColor(pal.Muted).FontSize(12)
 					ui.Text(c, parent).SingleLine().Grow(1).Shrink(1)
@@ -343,8 +480,8 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 					return
 				}
 				name := n
-				if i := strings.LastIndex(strings.TrimSuffix(n, keySep), keySep); i >= 0 {
-					name = n[i+1:]
+				if i := strings.LastIndex(strings.TrimSuffix(n, sep), sep); i >= 0 {
+					name = n[i+len(sep):]
 				}
 				ui.Icon(c, widgets.IconKey).TextColor(pal.Muted).FontSize(12)
 				ui.Text(c, name).SingleLine().Grow(1).Shrink(1).Tooltip(n)
@@ -370,6 +507,7 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 		})
 	})
 	r.newKeyView(c)
+	r.bulkView(c)
 }
 
 func (r *Tab) keyView(c *ui.Context, a Host) {
@@ -489,17 +627,24 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 	switch r.info.Type {
 	case "string":
 		ui.Column(c).Grow(1).Padding(10, 14).Gap(8).Children(func() {
-			area := ui.TextArea(c, &r.editValue).Font(widgets.MonoFont).FontSize(12.5).Grow(1).ReadOnly(ro).Label("Value")
+			// A string shown in part is not saved: its rest would go.
+			area := ui.TextArea(c, &r.editValue).Font(widgets.MonoFont).FontSize(12.5).Grow(1).ReadOnly(ro || !r.whole).Label("Value")
 			if area.Changed() {
 				r.editDirty = r.editValue != r.value
 			}
-			ui.Row(c).Gap(8).Children(func() {
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				if !r.whole {
+					ui.Text(c, fmt.Sprintf("Showing the first %s of %s.", widgets.HumanBytes(int64(len(r.value))), widgets.HumanBytes(r.info.Length))).FontSize(12).TextColor(pal.Muted)
+					if ui.Button(c, "Load All").Disabled(r.loadingKey).Clicked() {
+						r.loadWhole()
+					}
+				}
 				if pretty := dataview.PrettyValue(r.editValue); pretty != r.editValue && ui.Button(c, "Format JSON").Clicked() {
 					r.editValue = pretty
 					r.editDirty = r.editValue != r.value
 				}
 				ui.Spacer(c)
-				if r.editDirty && !ro {
+				if r.editDirty && !ro && r.whole {
 					if ui.Button(c, "Revert").Clicked() {
 						r.editValue, r.editDirty = r.value, false
 					}
@@ -518,6 +663,9 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 	switch r.info.Type {
 	case "hash":
 		cols = []ui.TableColumn{{Title: "Field", Width: 220}, {Title: "Value"}}
+		if r.conn.KV.FieldExpiry() {
+			cols = append(cols, ui.TableColumn{Title: "TTL", Width: 90, Align: ui.End})
+		}
 	case "list":
 		cols = []ui.TableColumn{{Title: "Index", Width: 70, Align: ui.End}, {Title: "Value"}}
 	case "set":
@@ -534,6 +682,10 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 		switch {
 		case r.info.Type == "zset" && col == 1:
 			text = strconv.FormatFloat(f.Score, 'g', -1, 64)
+		case r.info.Type == "hash" && col == 2:
+			if f.TTL > 0 {
+				text = f.TTL.Round(time.Second).String()
+			}
 		case r.info.Type == "set" || r.info.Type == "zset":
 			text = f.Value
 		case col == 0:
@@ -543,8 +695,13 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 		}
 		ui.Text(c, widgets.OneLine(text, 300)).Font(widgets.MonoFont).FontSize(12).SingleLine()
 	}).Grow(1).Label("Items")
-	if int64(len(r.fields)) < r.info.Length {
-		ui.Text(c, fmt.Sprintf("Showing the first %d of %d items.", len(r.fields), r.info.Length)).FontSize(12).TextColor(pal.Muted).Padding(4, 14)
+	if !r.itemsDone {
+		ui.Row(c).Padding(4, 14).Gap(8).AlignItems(ui.Center).Children(func() {
+			ui.Text(c, fmt.Sprintf("Showing %d of %d items.", len(r.fields), r.info.Length)).FontSize(12).TextColor(pal.Muted)
+			if ui.Button(c, "Load More").Disabled(r.loadingKey).Clicked() {
+				r.loadMore()
+			}
+		})
 	}
 	if ro || r.info.Type == "stream" {
 		return
@@ -557,6 +714,18 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 			ui.TextInput(c, &r.newValue).Placeholder("Value").Grow(1).Label("Value")
 			if ui.Button(c, "Set").Clicked() && r.newName != "" {
 				r.write([]string{"HSET", key, r.newName, r.newValue}, func() { r.newName, r.newValue = "", ""; r.loadKey() })
+			}
+			if r.fieldRow >= 0 && r.fieldRow < len(r.fields) && r.conn.KV.FieldExpiry() {
+				field := r.fields[r.fieldRow].Name
+				ui.TextInput(c, &r.fieldTTL).Placeholder("TTL seconds").Width(100).Label("Field TTL in seconds")
+				if ui.Button(c, "Expire Field").Clicked() {
+					if secs, err := strconv.Atoi(strings.TrimSpace(r.fieldTTL)); err == nil && secs > 0 {
+						r.write([]string{"HEXPIRE", key, strconv.Itoa(secs), "FIELDS", "1", field}, func() { r.fieldTTL = ""; r.loadKey() })
+					}
+				}
+				if r.fields[r.fieldRow].TTL > 0 && ui.Button(c, "Persist Field").Clicked() {
+					r.write([]string{"HPERSIST", key, "FIELDS", "1", field}, r.loadKey)
+				}
 			}
 		case "list":
 			ui.TextInput(c, &r.newValue).Placeholder("Value").Grow(1).Label("Value")
