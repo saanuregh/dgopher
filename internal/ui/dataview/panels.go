@@ -439,7 +439,7 @@ func (g *Grid) groupingPanel(c *ui.Context, a Host, src *Source) {
 						for i, v := range gr.vals {
 							parts[i] = cellText(a.Settings().ViewFormat.Format(v), 40)
 							if v != nil && g.isMasked(g.groupCols[i]) {
-								parts[i] = maskedText
+								parts[i] = MaskedText
 							}
 						}
 						ui.Text(c, strings.Join(parts, " · ")).SingleLine().Grow(1).Shrink(1)

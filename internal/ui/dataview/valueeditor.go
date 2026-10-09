@@ -65,7 +65,7 @@ func openValueEditor(a Host, g *Grid, src *Source, row, col int) {
 		editable: g.edits != nil && g.columnReadOnly(col) == "" && !g.isMasked(col),
 		info:     columnInfo{Type: src.Cols[col].Type}, jsonOpen: map[string]*bool{}}
 	if g.isMasked(col) {
-		e.text = maskedText
+		e.text = MaskedText
 	}
 	if g.columnInfo != nil {
 		e.info = g.columnInfo(col)
@@ -89,7 +89,7 @@ func (e *valueEditor) offerForms() {
 	typ := strings.ToLower(e.info.Type)
 	e.form = formText
 	switch {
-	case e.text == maskedText:
+	case e.text == MaskedText:
 	case typ == "bool" || typ == "boolean" || typ == "tinyint(1)":
 		e.form = formSwitch
 		if t := strings.ToLower(e.text); t == "false" || t == "0" || t == "f" {
@@ -240,7 +240,7 @@ func valueEditorView(a Host, c *ui.Context) {
 				}
 			})
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				if ui.Button(c, "Copy").Disabled(e.text == maskedText).Clicked() {
+				if ui.Button(c, "Copy").Disabled(e.text == MaskedText).Clicked() {
 					a.WriteClipboard(e.text)
 				}
 				if e.editable && ui.Button(c, "Set to NULL").Clicked() {

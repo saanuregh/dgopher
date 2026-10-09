@@ -189,28 +189,6 @@ func TestXML(t *testing.T) {
 	}
 }
 
-func TestText(t *testing.T) {
-	at := time.Date(2024, 3, 1, 9, 30, 15, 120000000, time.FixedZone("x", 3600))
-	for _, c := range []struct {
-		v    any
-		typ  string
-		want any
-	}{
-		{at, "DATE", "2024-03-01"},
-		{at, "TIMESTAMP", "2024-03-01 09:30:15.12"},
-		{at, "TIMESTAMP WITH TIME ZONE", "2024-03-01 09:30:15.12+01:00"},
-		{at, "TIME", "09:30:15.12"},
-		{true, "BOOLEAN", "true"},
-		{[]any{"a", 1.0}, "JSON", `["a",1]`},
-		{nil, "VARCHAR", nil},
-		{1.5, "DOUBLE", "1.5"},
-	} {
-		if got := Text(c.v, c.typ); !reflect.DeepEqual(got, c.want) {
-			t.Errorf("%v as %s: %v, want %v", c.v, c.typ, got, c.want)
-		}
-	}
-}
-
 // A decimal of more digits than a float keeps arrives as its digits, and
 // sniffing never rounds a number to an integer nor cuts a time to a date.
 func TestExactValues(t *testing.T) {

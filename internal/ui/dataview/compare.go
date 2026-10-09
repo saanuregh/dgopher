@@ -330,7 +330,7 @@ func (t *CompareTab) View(c *ui.Context) {
 				case v == nil:
 					ui.Text(c, "NULL").TextColor(pal.Null).Italic()
 				case masked:
-					ui.Text(c, maskedText).TextColor(pal.Muted)
+					ui.Text(c, MaskedText).TextColor(pal.Muted)
 				default:
 					ui.Text(c, cellText(db.Display(v), 120)).SingleLine()
 				}

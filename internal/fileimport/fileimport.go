@@ -6,16 +6,11 @@ package fileimport
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
-
-	"github.com/duckdb/duckdb-go/v2"
 )
 
 // Format is a kind of file an import reads.
@@ -339,48 +334,6 @@ func nested(t string) bool {
 // round: decimals, and integers past 64 bits.
 func exact(t string) bool {
 	return strings.HasPrefix(t, "DECIMAL") || t == "HUGEINT" || t == "UHUGEINT" || t == "UBIGINT"
-}
-
-// Text writes a value of a column of the file as text a database reads
-// back as the same value, for the statement to cast to the column it
-// fills; bytes stay bytes.
-func Text(v any, colType string) any {
-	switch x := v.(type) {
-	case nil:
-		return nil
-	case []byte:
-		return x
-	case string:
-		return x
-	case bool:
-		if x {
-			return "true"
-		}
-		return "false"
-	case time.Time:
-		switch {
-		case colType == "DATE":
-			return x.Format(time.DateOnly)
-		case strings.HasPrefix(colType, "TIME") && !strings.HasPrefix(colType, "TIMESTAMP"):
-			return x.Format("15:04:05.999999")
-		case strings.HasSuffix(colType, "WITH TIME ZONE") || colType == "TIMESTAMPTZ":
-			return x.Format("2006-01-02 15:04:05.999999-07:00")
-		}
-		return x.Format("2006-01-02 15:04:05.999999")
-	case duckdb.Decimal:
-		return x.String()
-	case duckdb.UUID:
-		return x.String()
-	case *big.Int:
-		return x.String()
-	case float32, float64:
-		return fmt.Sprint(x)
-	case map[string]any, []any:
-		if out, err := json.Marshal(x); err == nil {
-			return string(out)
-		}
-	}
-	return fmt.Sprint(v)
 }
 
 func quoteString(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }

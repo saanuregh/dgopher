@@ -38,7 +38,6 @@ Next or Later are not repeated.
     model, and compare two models.
 - **Import, export and backup:**
 - **Compare and migrate:**
-  - Compare the rows of two tables and copy the differences across.
 - **Test data and automation:**
   - Fill tables with generated test data.
 - **Admin and monitoring:**

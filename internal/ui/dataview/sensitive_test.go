@@ -28,7 +28,7 @@ func TestHiddenValues(t *testing.T) {
 	a.OpenTable(cn, "", db.Object{Schema: "main", Name: "items", Kind: db.KindTable, Rows: -1}, PageData)
 	v := a.Tabs[0].(*TableTab).view
 	testutil.WaitFor(t, tt, "the rows", func() bool { return len(v.src.Rows) == 2 })
-	if testutil.HasTextContaining(tt, "tok-secret") || !tt.HasText(maskedText) {
+	if testutil.HasTextContaining(tt, "tok-secret") || !tt.HasText(MaskedText) {
 		t.Fatalf("the token shows: %q", tt.Texts())
 	}
 	label := slices.IndexFunc(v.src.Cols, func(c db.ColumnInfo) bool { return c.Name == "label" })

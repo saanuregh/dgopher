@@ -32,11 +32,8 @@ type copyDialog struct {
 	fromDB, fromSchema string
 	tables             []copyTable
 
-	to             string // the target connection's name, as its select shows it
-	toDB, toSchema string
-	mode           int
-	// chosen is the target the database and schema were chosen for.
-	chosen *connection.Conn
+	target targetPicker
+	mode   int
 
 	running bool
 	cancel  context.CancelFunc
@@ -83,21 +80,6 @@ func (a *App) openCopy(cn *connection.Conn, database, schema string, tables []st
 	})
 }
 
-// target is the connection the tables are copied into, nil before one is
-// chosen.
-func (a *App) copyTarget(x *copyDialog) *connection.Conn {
-	for _, cn := range a.conns {
-		if copyTargetLabel(cn) == x.to {
-			return cn
-		}
-	}
-	return nil
-}
-
-func copyTargetLabel(cn *connection.Conn) string {
-	return cn.Config.Name + " · " + cn.Config.Engine.Label() + " · " + cn.Project.Name
-}
-
 // copyStatements are a sample of what a copy runs on its target, for the
 // safety policy to weigh.
 func copyStatements(to *connection.Conn, schema string, mode int, tables []string) []string {
@@ -115,7 +97,7 @@ func copyStatements(to *connection.Conn, schema string, mode int, tables []strin
 
 // startCopy copies the chosen tables, once the target's policy agrees.
 func (a *App) startCopy(x *copyDialog) {
-	to := a.copyTarget(x)
+	to := x.target.conn(a)
 	var tables []string
 	for _, t := range x.tables {
 		if t.chosen {
@@ -132,7 +114,7 @@ func (a *App) startCopy(x *copyDialog) {
 	case to.Config.ReadOnly:
 		x.err = to.Config.Name + " is read-only."
 		return
-	case to == x.from && x.toDB == x.fromDB && x.toSchema == x.fromSchema:
+	case to == x.from && x.target.database == x.fromDB && x.target.schema == x.fromSchema:
 		x.err = "The tables would be copied onto themselves: choose another schema."
 		return
 	case to == x.from && to.DB != nil && to.DB.Single():
@@ -140,7 +122,7 @@ func (a *App) startCopy(x *copyDialog) {
 		return
 	}
 	cfg := to.Config
-	v := safety.ReviewSQL(&cfg, safety.Analyze(&cfg, copyStatements(to, x.toSchema, x.mode, tables)))
+	v := safety.ReviewSQL(&cfg, safety.Analyze(&cfg, copyStatements(to, x.target.schema, x.mode, tables)))
 	if v.Blocked != "" {
 		a.RecordBlocked(to, v.Blocked, "copy of "+strings.Join(tables, ", "))
 		x.err = v.Blocked
@@ -163,7 +145,7 @@ func (a *App) runCopy(x *copyDialog, to *connection.Conn, tables []string) {
 	for i := range x.tables {
 		x.tables[i].status = ""
 	}
-	from, fromDB, fromSchema, toDB, toSchema, mode := x.from, x.fromDB, x.fromSchema, x.toDB, x.toSchema, x.mode
+	from, fromDB, fromSchema, toDB, toSchema, mode := x.from, x.fromDB, x.fromSchema, x.target.database, x.target.schema, x.mode
 	fromPool, toPool := from.PoolFor(fromDB), to.PoolFor(toDB)
 	status := func(table, s string) {
 		a.Post(func() {
@@ -302,7 +284,7 @@ func (a *App) copyTable(ctx context.Context, from *connection.Conn, fromPool fun
 				}
 				for _, row := range rows {
 					for i, v := range row {
-						row[i] = importValue(toEngine, v, canonical[i])
+						row[i] = db.InsertValue(toEngine, v, canonical[i])
 					}
 				}
 				if err := emit(rows); err != nil {
@@ -317,23 +299,6 @@ func (a *App) copyView(c *ui.Context) {
 	x := a.copying
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	var labels []string
-	for _, cn := range a.conns {
-		if cn.Config.Engine.IsSQL() {
-			labels = append(labels, copyTargetLabel(cn))
-		}
-	}
-	to := a.copyTarget(x)
-	if to != x.chosen {
-		// Another target: its own database, and its default schema.
-		x.chosen, x.toDB, x.toSchema = to, "", ""
-		if to != nil {
-			x.toDB = to.Config.Database
-		}
-	}
-	if to != nil && to.Status == connection.StatusIdle {
-		a.Connect(to, nil)
-	}
 	ui.Modal(c, &x.open, func() {
 		ui.Column(c).Width(640).Gap(12).Children(func() {
 			ui.Text(c, "Copy Tables of "+x.fromSchema+" · "+x.from.Config.Name).FontSize(15).Bold().SingleLine()
@@ -349,26 +314,7 @@ func (a *App) copyView(c *ui.Context) {
 				})
 			})
 			ui.Form(c, func() {
-				ui.Field(c, "Into", func() {
-					ui.Select(c, &x.to, labels).Label("Into").Disabled(x.running)
-				})
-				if to != nil && to.Config.Engine == db.Postgres && len(to.Databases) > 1 {
-					ui.Field(c, "Database", func() {
-						ui.Select(c, &x.toDB, to.Databases).Label("Database").Disabled(x.running)
-					})
-				}
-				if to != nil {
-					schemas, ok := to.Schemas[x.toDB]
-					if !ok && to.Status == connection.StatusConnected && to.SchemasError(x.toDB) == "" {
-						connection.LoadSchemas(a, to, x.toDB, nil)
-					}
-					if x.toSchema == "" && ok {
-						x.toSchema = to.DefaultSchema
-					}
-					ui.Field(c, "Schema", func() {
-						ui.Select(c, &x.toSchema, schemas).Label("Schema").Disabled(x.running)
-					})
-				}
+				x.target.fields(c, a, "Into", x.running)
 				ui.Field(c, "A table there", func() {
 					ui.Segmented(c, &x.mode, "Stops the Copy", "Gets the Rows Added", "Has Its Rows Replaced").Label("A table there").Disabled(x.running)
 				}).Description("A table not there is made, its columns typed as the target holds their values. Each table copies in one transaction where the target has them.")

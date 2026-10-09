@@ -3,6 +3,7 @@ package db
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -183,30 +184,52 @@ func (t *EditTarget) Statements(changes []Change) ([]Statement, error) {
 
 // Preview writes a statement with its parameters inlined, for the user to
 // read before applying it. It is never executed.
-func (s Statement) Preview() string {
-	sql := s.SQL
-	// Replace from the last, so that $1 does not match the start of $10.
-	for i := len(s.Args); i >= 1; i-- {
-		lit := previewLiteral(s.Args[i-1])
-		if strings.Contains(sql, fmt.Sprintf("$%d", i)) {
-			sql = strings.Replace(sql, fmt.Sprintf("$%d", i), lit, 1)
+func (s Statement) Preview() string { return s.inline(previewLiteral) }
+
+// Script writes a statement with its parameters as literals of an engine,
+// for the user to read, edit and run as SQL.
+func (s Statement) Script(e Engine) string {
+	return s.inline(func(v any) string {
+		if t, ok := v.(Typed); ok {
+			v = string(t)
 		}
-	}
-	// Positional ? placeholders, left to right.
-	if strings.Contains(sql, "?") {
-		var b strings.Builder
-		n := 0
-		for _, r := range sql {
-			if r == '?' && n < len(s.Args) {
-				b.WriteString(previewLiteral(s.Args[n]))
-				n++
+		return Literal(e, v)
+	})
+}
+
+// inline writes the statement with each of its placeholders, $n or ?,
+// written by lit; those inside quotes are names, left as they are.
+func (s Statement) inline(lit func(any) string) string {
+	var b strings.Builder
+	var quote rune
+	next := 0
+	for i := 0; i < len(s.SQL); i++ {
+		c := rune(s.SQL[i])
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '"' || c == '`' || c == '\'':
+			quote = c
+		case c == '?' && next < len(s.Args):
+			b.WriteString(lit(s.Args[next]))
+			next++
+			continue
+		case c == '$':
+			j := i + 1
+			for j < len(s.SQL) && s.SQL[j] >= '0' && s.SQL[j] <= '9' {
+				j++
+			}
+			if n, err := strconv.Atoi(s.SQL[i+1 : j]); err == nil && n >= 1 && n <= len(s.Args) {
+				b.WriteString(lit(s.Args[n-1]))
+				i = j - 1
 				continue
 			}
-			b.WriteRune(r)
 		}
-		sql = b.String()
+		b.WriteByte(s.SQL[i])
 	}
-	return sql + ";"
+	return b.String() + ";"
 }
 
 func previewLiteral(v any) string {

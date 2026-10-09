@@ -78,3 +78,19 @@ func TestLiteralOfBytes(t *testing.T) {
 		}
 	}
 }
+
+// TestStatementScript checks a statement's parameters are written as
+// literals of its engine, and placeholders inside quoted names are not.
+func TestStatementScript(t *testing.T) {
+	pg := Statement{SQL: `UPDATE "t" SET "a$1" = $2::text::numeric WHERE "id" = $1`, Args: []any{int64(7), Typed("1.5")}}
+	if got, want := pg.Script(Postgres), `UPDATE "t" SET "a$1" = '1.5'::text::numeric WHERE "id" = 7;`; got != want {
+		t.Errorf("PostgreSQL: %s, want %s", got, want)
+	}
+	my := Statement{SQL: "INSERT INTO `t` (`a?`, `b`, `c`) VALUES (?, ?, ?)", Args: []any{`it's \ here`, nil, []byte{1}}}
+	if got, want := my.Script(MySQL), "INSERT INTO `t` (`a?`, `b`, `c`) VALUES ('it''s \\\\ here', NULL, X'01');"; got != want {
+		t.Errorf("MySQL: %s, want %s", got, want)
+	}
+	if got, want := my.Preview(), "INSERT INTO `t` (`a?`, `b`, `c`) VALUES ('it''s \\ here', NULL, '\x01');"; got != want {
+		t.Errorf("preview: %q, want %q", got, want)
+	}
+}

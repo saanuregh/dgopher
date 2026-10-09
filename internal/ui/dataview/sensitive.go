@@ -7,12 +7,14 @@ import (
 	"strings"
 
 	"dgopher/internal/audit"
+	"dgopher/internal/connection"
+	"dgopher/internal/db"
 
 	"github.com/egoist/mygo/ui"
 )
 
-// maskedText is what a grid shows of a hidden value.
-const maskedText = "••••••"
+// MaskedText is what a grid shows of a hidden value.
+const MaskedText = "••••••"
 
 var (
 	// sensitiveName matches the words of column names whose values are
@@ -44,6 +46,18 @@ func (v *Viewer) maskColumns() {
 		}
 		v.grid.masked[i] = masked
 	}
+}
+
+// MaskedColumns says which columns of a table hide their values, as its
+// grid first hides them: those the project hides for the table, and those
+// that look sensitive unless the settings show them.
+func MaskedColumns(cn *connection.Conn, schema, table string, cols []string, showSensitive bool) []bool {
+	hidden := cn.Project.HiddenValues[tableHistoryKey(cn, db.Object{Schema: schema, Name: table})]
+	masked := make([]bool, len(cols))
+	for i, c := range cols {
+		masked[i] = slices.Contains(hidden, c) || !showSensitive && looksSensitive(c)
+	}
+	return masked
 }
 
 // valuesMenu offers to hide a column's values, or show them: for the

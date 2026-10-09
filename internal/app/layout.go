@@ -99,6 +99,9 @@ func (a *App) view(c *ui.Context) {
 	if a.copying != nil {
 		a.copyView(c)
 	}
+	if a.rowCompare != nil {
+		a.rowCompareView(c)
+	}
 	query.DialogsView(a, c)
 	dataview.DialogsView(a, c)
 	a.checkIdleTransactions(c)

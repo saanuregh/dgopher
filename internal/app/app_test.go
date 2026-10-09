@@ -1743,9 +1743,9 @@ func copyTables(t *testing.T, a *App, tt *ui.Tester, from *connection.Conn, sche
 	t.Helper()
 	a.openCopy(from, "", schema, tables)
 	x := a.copying
-	x.to = copyTargetLabel(to)
+	x.target.label = targetLabel(to)
 	tt.Frame()
-	x.toSchema, x.mode = toSchema, mode
+	x.target.schema, x.mode = toSchema, mode
 	tt.Frame()
 	a.startCopy(x)
 	if a.confirm != nil {
@@ -1967,5 +1967,86 @@ func TestPartitionTemplate(t *testing.T) {
 		if !strings.Contains(got, `CREATE TABLE "s"."events_new"`) || !strings.Contains(got, `PARTITION OF "s"."events"`) || !strings.Contains(got, "FOR VALUES "+bounds) {
 			t.Errorf("%s:\n%s", keydef, got)
 		}
+	}
+}
+
+// A table's rows compare with another engine's table, and the other's are
+// made as the first's, in one transaction, or open as SQL.
+func TestCompareRows(t *testing.T) {
+	a := newTestApp(t)
+	file := filepath.Join(t.TempDir(), "x.sqlite")
+	os.WriteFile(file, nil, 0o600)
+	lite := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
+	duck := addConn(a, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1200, 800)
+	for _, cn := range []*connection.Conn{lite, duck} {
+		a.Connect(cn, nil)
+		testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	}
+	for _, q := range []string{`CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, secret_token TEXT)`,
+		`INSERT INTO items VALUES (1, 'pen', 'a'), (2, 'ink', 'b'), (3, 'pad', 'c')`} {
+		if _, err := lite.DB.SQL.Exec(q); err != nil {
+			t.Fatal(q, err)
+		}
+	}
+	for _, q := range []string{`CREATE TABLE items (id INTEGER PRIMARY KEY, name VARCHAR, secret_token VARCHAR)`,
+		`INSERT INTO items VALUES (1, 'pen', 'a'), (2, 'quill', 'z'), (4, 'nib', 'd')`} {
+		if _, err := duck.DB.SQL.Exec(q); err != nil {
+			t.Fatal(q, err)
+		}
+	}
+	a.openRowCompare(lite, "", db.Object{Schema: "main", Name: "items", Kind: db.KindTable})
+	x := a.rowCompare
+	x.target.label = targetLabel(duck)
+	testutil.WaitFor(t, tt, "the table chosen", func() bool { return x.table == "items" })
+	a.startCompare(x)
+	testutil.WaitFor(t, tt, "the comparison", func() bool { return !x.running })
+	testutil.Snapshot(t, tt, "compare-rows")
+	r := x.result
+	if x.err != "" || r.Same != 1 || r.Changed != 1 || r.OnlyInSource != 1 || r.OnlyInTarget != 1 {
+		t.Fatalf("%q: %+v", x.err, r)
+	}
+	if secret := slices.Index(r.Columns, "secret_token"); !x.masked[secret] || x.valueText("z", secret) != dataview.MaskedText {
+		t.Fatal("a sensitive column's values show")
+	}
+
+	if a.openSyncSQL(x); !strings.Contains(x.err, "hides") {
+		t.Fatalf("hidden values went into an editor: %q", x.err)
+	}
+	x.err = ""
+	a.startSync(x)
+	if a.confirm == nil {
+		t.Fatal("the sync is not confirmed")
+	}
+	if p := a.confirm.Preview; strings.Contains(p, "'b'") || !strings.Contains(p, dataview.MaskedText) {
+		t.Fatalf("a hidden value shows in the preview: %s", p)
+	}
+	a.confirm.OnConfirm()
+	a.confirm = nil
+	testutil.WaitFor(t, tt, "the sync", func() bool { return !x.running && x.applied != "" })
+	var names []string
+	rows, err := duck.DB.SQL.Query(`SELECT name FROM items ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var n string
+		rows.Scan(&n)
+		names = append(names, n)
+	}
+	rows.Close()
+	// The row only in the target stays: deleting it was not chosen.
+	if want := []string{"pen", "ink", "pad", "nib"}; !slices.Equal(names, want) {
+		t.Fatalf("synced to %v, want %v", names, want)
+	}
+	if r := x.result; r.Same != 3 || r.OnlyInTarget != 1 || r.Changed+r.OnlyInSource != 0 {
+		t.Fatalf("compared again: %+v", r)
+	}
+
+	x.remove = true
+	a.openSyncSQL(x)
+	q, ok := a.ActiveTab().(*query.Tab)
+	if !ok || !strings.Contains(q.Editor.Text, `DELETE FROM "main"."items" WHERE "id" = 4;`) {
+		t.Fatalf("the sync's SQL: %v", a.ActiveTab())
 	}
 }

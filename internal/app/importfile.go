@@ -327,7 +327,7 @@ func (a *App) runImport(x *importState) {
 					for r, row := range rows {
 						vals := make([]any, len(cols))
 						for i, j := range idx {
-							vals[i] = importValue(cfg.Engine, row[j], fileCols[j].Type)
+							vals[i] = db.InsertValue(cfg.Engine, row[j], fileCols[j].Type)
 						}
 						values[r] = vals
 					}
@@ -484,33 +484,6 @@ func writeRows(ctx context.Context, a *App, pool *db.DB, cfg db.Config, database
 		}
 	}
 	return n, nil
-}
-
-// importValue is a file's value as the INSERT gives it: text the
-// statement casts to its column, bytes as they are, or nil for NULL.
-// MySQL and SQLite keep a boolean as 1 or 0, where true would be text.
-func importValue(e db.Engine, v any, fileType string) any {
-	if at, ok := v.(time.Time); ok && e == db.ClickHouse && (fileType == "TIMESTAMPTZ" || strings.HasSuffix(fileType, "WITH TIME ZONE")) {
-		// ClickHouse reads a time with an offset as NULL, without a word:
-		// its column keeps UTC, which the time is written in.
-		v, fileType = at.UTC(), "TIMESTAMP"
-	}
-	t := fileimport.Text(v, fileType)
-	switch x := t.(type) {
-	case nil:
-		return nil
-	case []byte:
-		return x
-	case string:
-		if fileType == "BOOLEAN" && (e == db.MySQL || e == db.SQLite) {
-			if x == "true" {
-				return db.Typed("1")
-			}
-			return db.Typed("0")
-		}
-		return db.Typed(x)
-	}
-	return t
 }
 
 func (a *App) importView(c *ui.Context) {
@@ -675,7 +648,7 @@ func (a *App) importColumns(c *ui.Context, x *importState) {
 					for _, row := range x.preview {
 						v := "NULL"
 						if row[i] != nil {
-							v = fmt.Sprint(fileimport.Text(row[i], fc.Type))
+							v = fmt.Sprint(db.ValueText(row[i], fc.Type))
 						}
 						ui.Text(c, widgets.OneLine(v, 40)).Font(widgets.MonoFont).FontSize(11).TextColor(pal.Muted).SingleLine()
 					}

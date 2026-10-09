@@ -111,13 +111,11 @@ func (p *refPicker) query() {
 	if schema == "" {
 		schema = v.source.Table.Schema
 	}
-	hidden := v.source.Conn.Project.HiddenValues[tableHistoryKey(v.source.Conn, db.Object{Schema: schema, Name: p.fk.RefTable})]
 	quoted := make([]string, len(p.cols))
-	p.masked = make([]bool, len(p.cols))
 	for i, c := range p.cols {
 		quoted[i] = d.Quote(c)
-		p.masked[i] = slices.Contains(hidden, c) || !v.a.Settings().ShowSensitive && looksSensitive(c)
 	}
+	p.masked = MaskedColumns(v.source.Conn, schema, p.fk.RefTable, p.cols, v.a.Settings().ShowSensitive)
 	q := "SELECT " + strings.Join(quoted, ", ") + " FROM " + db.QualifiedName(d, schema, p.fk.RefTable)
 	search := strings.TrimSpace(p.search)
 	if search != "" {
@@ -207,7 +205,7 @@ func refPickerView(a Host, c *ui.Context) {
 					case v == nil:
 						text = "NULL"
 					case p.masked[j]:
-						text = maskedText
+						text = MaskedText
 					}
 					t := ui.Text(c, text).SingleLine()
 					if j == 0 {

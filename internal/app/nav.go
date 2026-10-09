@@ -644,6 +644,9 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		if obj.Kind == db.KindTable && m.Item("Copy to Another Database…").Chosen() {
 			a.openCopy(cn, n.database, obj.Schema, []string{obj.Name})
 		}
+		if obj.Kind == db.KindTable && m.Item("Compare Rows With…").Chosen() {
+			a.openRowCompare(cn, n.database, obj)
+		}
 		if obj.Kind == db.KindTable {
 			if m.Item("Import Data…").Disabled(cn.Config.ReadOnly).Chosen() {
 				a.openImport(cn, n.database, obj.Schema, &obj)

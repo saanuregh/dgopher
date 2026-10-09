@@ -368,6 +368,17 @@
   they were); one there stops the copy, gets the rows added, or has its
   rows replaced. Each table copies in one transaction where the target
   has them, through the target's safety policy, and is audited.
+- **Compare the rows** of a table with another's, in the same database or
+  another, of any engine: a table's Compare Rows With…. Rows match by the
+  target's primary key, over the columns both have, and values compare as
+  values: `1.50` and `1.5` are alike, as are `1` and `true`, a time and
+  the same time in UTC, and JSON with its keys in another order. It lists
+  the rows only in either table and the columns changed, hiding the
+  values the grid hides, then makes the target's rows as the source's:
+  adding, updating, and only when asked deleting, in one transaction
+  through the target's safety policy, each statement changing exactly one
+  row, audited with the hidden values masked. Changes without hidden
+  values also open as SQL, to read or edit first.
 - **Back up and restore** a database, from its menu or its connection's:
   PostgreSQL with `pg_dump`, as an archive or SQL, schema, data or both;
   MySQL with `mysqldump`, in one transaction with its routines, triggers

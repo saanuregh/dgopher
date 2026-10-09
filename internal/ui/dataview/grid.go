@@ -104,7 +104,7 @@ type Grid struct {
 	// a table does, to filter on the server.
 	filterSQL func(rowCond)
 	clearSQL  func(col int)
-	// masked are the columns whose values show as maskedText, and
+	// masked are the columns whose values show as MaskedText, and
 	// valuesMenu offers to hide or show a column's.
 	masked     []bool
 	valuesMenu func(m *ui.Menu, col int)
@@ -517,7 +517,7 @@ func (g *Grid) cell(c *ui.Context, a Host, src *Source, viewRow, data, col int) 
 		case v == nil:
 			txt = ui.Text(c, a.Settings().ViewFormat.Format(nil)).TextColor(pal.Null).Italic()
 		case g.isMasked(col):
-			txt = ui.Text(c, maskedText).TextColor(pal.Muted)
+			txt = ui.Text(c, MaskedText).TextColor(pal.Muted)
 		default:
 			if typed, ok := v.(db.Typed); ok {
 				v = string(typed)
