@@ -318,8 +318,12 @@
 - **Redis:**
   - A SCAN-based key tree grouped into folders by `:`, or the separator
     the connection sets, with pattern and type filters.
-  - Viewers and editors for strings (JSON formatting), hashes, lists, sets
-    and sorted sets; streams are view-only. A key's items are read 500 at
+  - Viewers and editors for strings (JSON formatting), hashes, lists, sets,
+    sorted sets and streams: entries added and deleted, and consumer
+    groups created and destroyed, with each group's consumers and the
+    entries pending with them, acknowledged or claimed for another
+    consumer. A list's item is removed at its own index, never another
+    of the same value. A key's items are read 500 at
     a time, with more on request; a string's first 64 KB, and the rest
     on request: a string shown in part is not editable, as saving it
     would cut it.
@@ -348,6 +352,11 @@
     as SCAN finds them, summed into the largest keys, the namespaces
     before the key separator, the types, and when keys expire. Monitored
     commands show as the console's do, their secrets hidden.
+  - Pub/Sub, beside them: listen to channels and patterns, the messages
+    showing as they come; publish to a channel, through the safety
+    policy; and the channels clients listen to, with how many listen, of
+    every node of a cluster. Sharded channels (SSUBSCRIBE) are not
+    listened to.
   - Run a file of commands, one a line, `#` starting a comment: each one
     through the safety policy first, then, when any writes, once
     confirmed; they run in the console one after the other, audited,

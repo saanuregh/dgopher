@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"dgopher/internal/audit"
@@ -25,13 +24,12 @@ const (
 	panelMonitor
 	panelSlowLog
 	panelMemory
+	panelPubSub
 )
 
 const (
 	// monitorKeep is how many commands the monitor keeps, the latest.
 	monitorKeep = 5000
-	// monitorFlush is how often the commands monitored reach the view.
-	monitorFlush = 150 * time.Millisecond
 	// slowLogRead is how many of the latest slow commands are read of
 	// each server.
 	slowLogRead = 128
@@ -78,7 +76,7 @@ func (r *Tab) panelView(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	ui.Column(c).Fill().Background(pal.EditorBg).Children(func() {
 		ui.Row(c).Padding(4, 10).Gap(8).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Segmented(c, &r.panel, "Console", "Monitor", "Slow Log", "Memory").Label("Panel")
+			ui.Segmented(c, &r.panel, "Console", "Monitor", "Slow Log", "Memory", "Pub/Sub").Label("Panel")
 			ui.Spacer(c)
 			switch r.panel {
 			case panelConsole:
@@ -89,6 +87,8 @@ func (r *Tab) panelView(c *ui.Context) {
 				r.slowLogActions(c)
 			case panelMemory:
 				r.memoryActions(c)
+			case panelPubSub:
+				r.pubSubActions(c)
 			}
 		})
 		switch r.panel {
@@ -100,6 +100,8 @@ func (r *Tab) panelView(c *ui.Context) {
 			r.slowLogView(c)
 		case panelMemory:
 			r.memoryView(c)
+		case panelPubSub:
+			r.pubSubView(c)
 		}
 	})
 }
@@ -124,56 +126,22 @@ func (r *Tab) runMonitor() {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel, m.err, m.started = cancel, "", time.Now()
 	kv, cfg := r.conn.KV, r.conn.Config
-	// The commands come faster than frames: they reach the view in
-	// batches.
-	var mu sync.Mutex
-	var pending []db.MonitorLine
-	flush := func() {
-		mu.Lock()
-		batch := pending
-		pending = nil
-		mu.Unlock()
-		// Shown through the redaction the console's commands go through:
-		// older servers tell CONFIG SET requirepass as it was sent.
-		for i := range batch {
-			if args, err := db.SplitCommand(batch[i].Command); err == nil && len(args) > 0 {
-				batch[i].Command = redact.Redis(args)
-			}
-		}
-		if len(batch) > 0 {
-			r.a.Post(func() {
-				m.lines = append(m.lines, batch...)
-				if over := len(m.lines) - monitorKeep; over > 0 {
-					m.lines = append(m.lines[:0:0], m.lines[over:]...)
-				}
-			})
-		}
-	}
+	lines := feed[db.MonitorLine]{keep: monitorKeep}
 	go func() {
 		defer cancel()
 		done := make(chan struct{})
-		go func() {
-			tick := time.NewTicker(monitorFlush)
-			defer tick.Stop()
-			for {
-				select {
-				case <-tick.C:
-					flush()
-				case <-done:
-					flush()
-					return
+		go lines.run(done, func(batch []db.MonitorLine) {
+			// Shown through the redaction the console's commands go
+			// through: older servers tell CONFIG SET requirepass as sent.
+			for i := range batch {
+				if args, err := db.SplitCommand(batch[i].Command); err == nil && len(args) > 0 {
+					batch[i].Command = redact.Redis(args)
 				}
 			}
-		}()
-		start := time.Now()
-		err := kv.Monitor(ctx, func(l db.MonitorLine) {
-			mu.Lock()
-			pending = append(pending, l)
-			if over := len(pending) - monitorKeep; over > 0 {
-				pending = pending[over:]
-			}
-			mu.Unlock()
+			r.a.Post(func() { m.lines = keepLatest(m.lines, batch, monitorKeep) })
 		})
+		start := time.Now()
+		err := kv.Monitor(ctx, lines.add)
 		close(done)
 		r.a.RecordRun(cfg, audit.KindCommand, cfg.Database, "MONITOR", -1, time.Since(start), err)
 		r.a.Post(func() {

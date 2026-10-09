@@ -86,6 +86,8 @@ type Tab struct {
 	monitor monitorState
 	slow    slowLogState
 	memory  memoryState
+	pubsub  pubSubState
+	stream  streamState
 }
 
 type newKeyForm struct {
@@ -130,7 +132,7 @@ func (r *Tab) Close() {
 	if r.file != nil {
 		r.file.cancel()
 	}
-	for _, cancel := range []context.CancelFunc{r.monitor.cancel, r.memory.cancel} {
+	for _, cancel := range []context.CancelFunc{r.monitor.cancel, r.memory.cancel, r.pubsub.cancel} {
 		if cancel != nil {
 			cancel()
 		}
@@ -237,6 +239,7 @@ func (r *Tab) countUnder(prefix string) int {
 // open shows a key.
 func (r *Tab) open(key string) {
 	r.selected = key
+	r.stream = streamState{}
 	r.loadKey()
 }
 
@@ -679,6 +682,17 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 	case "none", "":
 		return
 	}
+	if r.info.Type == "stream" {
+		ui.Row(c).Padding(6, 14).Children(func() {
+			if ui.Segmented(c, &r.stream.panel, "Entries", "Consumer Groups").Label("Stream view").Changed() && r.stream.panel == streamGroups {
+				r.loadGroups()
+			}
+		})
+		if r.stream.panel == streamGroups {
+			r.groupsView(c)
+			return
+		}
+	}
 	var cols []ui.TableColumn
 	switch r.info.Type {
 	case "hash":
@@ -723,7 +737,7 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 			}
 		})
 	}
-	if ro || r.info.Type == "stream" {
+	if ro {
 		return
 	}
 	// Add, change and remove items.
@@ -768,6 +782,12 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 					r.write([]string{"ZADD", key, r.newScore, r.newValue}, func() { r.newValue, r.newScore = "", ""; r.loadKey() })
 				}
 			}
+		case "stream":
+			ui.TextInput(c, &r.newName).Placeholder("ID, * for the next").Width(140).Font(widgets.MonoFont).Label("Entry ID")
+			ui.TextInput(c, &r.newValue).Placeholder("field value field value").Font(widgets.MonoFont).Grow(1).Label("Entry fields")
+			if ui.Button(c, "Add Entry").Clicked() {
+				r.addEntry()
+			}
 		}
 		if r.fieldRow >= 0 && r.fieldRow < len(r.fields) && ui.Button(c, "Remove Chosen").Clicked() {
 			f := r.fields[r.fieldRow]
@@ -776,7 +796,11 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 			case "hash":
 				args = []string{"HDEL", key, f.Name}
 			case "list":
-				args = []string{"LREM", key, "1", f.Value}
+				// The item at its index, not the first of the same value;
+				// none when the list changed meanwhile.
+				args = []string{"EVAL", removeListItem, "1", key, f.Name, f.Value}
+			case "stream":
+				args = []string{"XDEL", key, f.Name}
 			case "set":
 				args = []string{"SREM", key, f.Value}
 			case "zset":
@@ -785,6 +809,35 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 			r.write(args, r.loadKey)
 		}
 	})
+}
+
+// removeListItem removes the item of a list at an index, when it still
+// holds the value shown: it marks it with a value no list holds, then
+// removes the mark, atomically. Without TIME, which Redis before 5 does
+// not let a script write after.
+const removeListItem = `local v = redis.call('LINDEX', KEYS[1], ARGV[1])
+if v ~= ARGV[2] then return redis.error_reply('the list changed: reload it') end
+local mark = '\0dgopher-removed\0'
+redis.call('LSET', KEYS[1], ARGV[1], mark)
+return redis.call('LREM', KEYS[1], 1, mark)`
+
+// addEntry adds an entry to the stream shown: its fields typed as the
+// console takes arguments, by pairs.
+func (r *Tab) addEntry() {
+	fields, err := db.SplitCommand(r.newValue)
+	switch {
+	case err != nil:
+		r.a.ShowError("Not added", err.Error())
+		return
+	case len(fields) == 0 || len(fields)%2 != 0:
+		r.a.ShowError("Not added", "An entry's fields go by pairs: a field, then its value.")
+		return
+	}
+	id := strings.TrimSpace(r.newName)
+	if id == "" {
+		id = "*"
+	}
+	r.write(append([]string{"XADD", r.selected, id}, fields...), func() { r.newName, r.newValue = "", ""; r.loadKey() })
 }
 
 func (r *Tab) newKeyView(c *ui.Context) {

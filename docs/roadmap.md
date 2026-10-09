@@ -41,8 +41,6 @@ Next or Later are not repeated.
 - **Test data and automation:**
 - **Admin and monitoring:**
 - **Redis:**
-  - Publish and subscribe to channels.
-  - Add entries to streams, and manage consumer groups.
   - Editors for RedisJSON values, vector sets and arrays.
   - Work with Redis Search indexes, and chart TimeSeries keys.
   - Decode values stored as MessagePack, Protobuf, PHP or Java

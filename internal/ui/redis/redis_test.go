@@ -189,6 +189,49 @@ func TestRedisBrowser(t *testing.T) {
 	}
 	testutil.Snapshot(t, tt, "redis-memory")
 
+	// Messages published to a channel listened to show as they come.
+	r.panel = panelPubSub
+	r.pubsub.listenIn = "news orders.*"
+	r.listen()
+	testutil.WaitFor(t, tt, "a message", func() bool {
+		kv.Do(ctx, []string{"PUBLISH", "orders.eu", "42"})
+		return slices.ContainsFunc(r.pubsub.messages, func(m db.PubSubMessage) bool { return m.Pattern == "orders.*" && m.Message == "42" })
+	})
+	r.pubsub.cancel()
+	testutil.WaitFor(t, tt, "the subscription to end", func() bool { return r.pubsub.cancel == nil })
+
+	// A list's item is removed at its index, not the first of its value.
+	kv.Do(ctx, []string{"RPUSH", "dup:list", "a", "b", "a"})
+	r.open("dup:list")
+	testutil.WaitFor(t, tt, "the list", func() bool { return !r.loadingKey && len(r.fields) == 3 })
+	r.write([]string{"EVAL", removeListItem, "1", "dup:list", "2", "a"}, r.loadKey)
+	testutil.WaitFor(t, tt, "the removal", func() bool { return !r.loadingKey && len(r.fields) == 2 })
+	if v, _ := kv.Do(ctx, []string{"LRANGE", "dup:list", "0", "-1"}); fmt.Sprint(v) != "[a b]" {
+		t.Fatalf("removing index 2 left %v", v)
+	}
+
+	// A stream's groups, with a group's consumers and pending entries.
+	for _, cmd := range [][]string{{"XADD", "jobs", "1-1", "n", "1"}, {"XGROUP", "CREATE", "jobs", "workers", "0"},
+		{"XREADGROUP", "GROUP", "workers", "w1", "COUNT", "1", "STREAMS", "jobs", ">"}} {
+		if _, err := kv.Do(ctx, cmd); err != nil {
+			t.Fatal(cmd, err)
+		}
+	}
+	r.open("jobs")
+	testutil.WaitFor(t, tt, "the stream", func() bool { return !r.loadingKey && r.info.Type == "stream" })
+	r.stream.panel = streamGroups
+	r.loadGroups()
+	testutil.WaitFor(t, tt, "the groups", func() bool { return !r.stream.loading && len(r.stream.groups) == 1 })
+	r.stream.group = 0
+	r.loadGroups()
+	testutil.WaitFor(t, tt, "the group's consumers", func() bool { return !r.stream.loading && len(r.stream.pending) == 1 })
+	if r.stream.consumers[0].Name != "w1" || r.stream.pending[0].ID != "1-1" {
+		t.Fatalf("consumers %+v, pending %+v", r.stream.consumers, r.stream.pending)
+	}
+	testutil.Snapshot(t, tt, "redis-stream-groups")
+	r.groupWrite("XACK", "jobs", "workers", "1-1")
+	testutil.WaitFor(t, tt, "the acknowledgement", func() bool { return !r.stream.loading && len(r.stream.pending) == 0 && r.stream.group == 0 })
+
 	// A file running holds the tab: closing it asks, then stops the file.
 	stop, cancel := context.WithCancel(ctx)
 	r.file = &fileRun{path: cmds, total: 9, done: 2, cancel: cancel}
