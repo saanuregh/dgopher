@@ -384,6 +384,7 @@ func (a *App) sidebar(c *ui.Context) {
 				a.refresh(cn)
 			}
 		}
+		a.objectKeys(c)
 		// On a table: a new editor with its rows, the quickest look.
 		if keymap.ListPressed(c, &a.nav.tree.List, keymap.NavigatorSelect) && a.nav.row >= 0 && a.nav.row < a.nav.tree.Rows() {
 			if n := a.nav.tree.Item(a.nav.row); n.kind == nodeObject {
@@ -393,6 +394,47 @@ func (a *App) sidebar(c *ui.Context) {
 			}
 		}
 		_ = t
+	})
+}
+
+// objectKeys handles the keys of the table chosen in the navigator, as
+// its menu's items.
+func (a *App) objectKeys(c *ui.Context) {
+	l := &a.nav.tree.List
+	if a.nav.row < 0 || a.nav.row >= a.nav.tree.Rows() {
+		return
+	}
+	n := a.nav.tree.Item(a.nav.row)
+	if n.kind != nodeObject {
+		return
+	}
+	cn, obj, ok := a.object(n)
+	if !ok {
+		return
+	}
+	quoted := db.QualifiedName(cn.DB.Dialect, obj.Schema, obj.Name)
+	switch {
+	case keymap.ListPressed(c, l, keymap.NavigatorCopyName):
+		a.WriteClipboard(quoted)
+	case keymap.ListPressed(c, l, keymap.NavigatorRename) && renamable(cn, obj) && !cn.Config.ReadOnly:
+		a.renameObject(cn, n.database, obj)
+	case keymap.ListPressed(c, l, keymap.NavigatorStructure):
+		a.OpenTable(cn, n.database, obj, dataview.PageStructure)
+	case keymap.ListPressed(c, l, keymap.NavigatorDrop) && obj.Kind == db.KindTable:
+		a.NewQueryTab(cn, n.database, "DROP TABLE "+quoted+";\n")
+	}
+}
+
+// renamable reports whether the app can rename an object on its engine.
+func renamable(cn *connection.Conn, obj db.Object) bool {
+	_, err := db.RenameObjectSQL(cn.DB.Dialect, obj, obj.Name)
+	return err == nil
+}
+
+// renameObject asks for an object's new name, and renames it.
+func (a *App) renameObject(cn *connection.Conn, database string, obj db.Object) {
+	a.askRenameInDatabase(cn, database, obj.Name, func(name string) (string, error) {
+		return db.RenameObjectSQL(cn.DB.Dialect, obj, name)
 	})
 }
 
@@ -631,7 +673,7 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		if m.Item("Open Data").Chosen() {
 			a.OpenTable(cn, n.database, obj, dataview.PageData)
 		}
-		if m.Item("View Structure").Chosen() {
+		if keymap.Item(m.Item("View Structure"), keymap.NavigatorStructure).Chosen() {
 			a.OpenTable(cn, n.database, obj, dataview.PageStructure)
 		}
 		if m.Item("View DDL").Chosen() {
@@ -645,13 +687,11 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		if m.Item("Build a Query…").Chosen() {
 			dataview.OpenQueryBuilder(a, cn, n.database, obj)
 		}
-		if m.Item("Copy Name").Chosen() {
+		if keymap.Item(m.Item("Copy Name"), keymap.NavigatorCopyName).Chosen() {
 			a.WriteClipboard(quoted)
 		}
-		if _, err := db.RenameObjectSQL(cn.DB.Dialect, obj, obj.Name); err == nil && m.Item("Rename…").Disabled(cn.Config.ReadOnly).Chosen() {
-			a.askRenameInDatabase(cn, n.database, obj.Name, func(name string) (string, error) {
-				return db.RenameObjectSQL(cn.DB.Dialect, obj, name)
-			})
+		if renamable(cn, obj) && keymap.Item(m.Item("Rename…"), keymap.NavigatorRename).Disabled(cn.Config.ReadOnly).Chosen() {
+			a.renameObject(cn, n.database, obj)
 		}
 		if m.Item("Export Data…").Chosen() {
 			dataview.OpenExport(a, dataview.ExportSource{Conn: cn, Database: n.database, Name: obj.Name, SQL: "SELECT * FROM " + quoted})
@@ -685,7 +725,7 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			if m.Item("Truncate…").Chosen() {
 				a.NewQueryTab(cn, n.database, "TRUNCATE TABLE "+quoted+";\n")
 			}
-			if m.Item("Drop…").Chosen() {
+			if keymap.Item(m.Item("Drop…"), keymap.NavigatorDrop).Chosen() {
 				a.NewQueryTab(cn, n.database, "DROP TABLE "+quoted+";\n")
 			}
 		}

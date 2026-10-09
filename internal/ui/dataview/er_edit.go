@@ -219,6 +219,19 @@ func (e *ERTab) tableMenu(m *ui.Menu, t *erTable) {
 		return
 	}
 	m.Separator()
+	// Refer to another table from a column, as a column dragged onto it
+	// does, from the keyboard.
+	m.Submenu("Add Foreign Key", func(m *ui.Menu) {
+		for _, col := range t.cols {
+			m.Submenu(col.Name, func(m *ui.Menu) {
+				for _, to := range e.tables {
+					if to != t && m.Item("To "+to.obj.Name).Chosen() {
+						e.proposeForeignKey(t, col.Name, to)
+					}
+				}
+			})
+		}
+	})
 	if len(t.fks) > 0 {
 		m.Submenu("Drop Foreign Key", func(m *ui.Menu) {
 			for _, fk := range t.fks {

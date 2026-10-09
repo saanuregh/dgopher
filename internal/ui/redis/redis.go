@@ -4,7 +4,6 @@ package redis
 
 import (
 	"context"
-	"dgopher/internal/keymap"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -17,6 +16,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/decode"
+	"dgopher/internal/keymap"
 	"dgopher/internal/redact"
 	"dgopher/internal/safety"
 	"dgopher/internal/ui/dataview"
@@ -457,11 +457,15 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 	ui.Column(c).Fill().Children(func() {
 		ui.Column(c).Padding(8).Gap(6).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Row(c).Gap(6).Children(func() {
-				if widgets.SearchBox(c, &r.patternIn, "Pattern, e.g. user:*", 0).Submitted() {
+				search := widgets.SearchBox(c, &r.patternIn, "Pattern, e.g. user:*", 0)
+				if search.Submitted() {
 					r.pattern = r.patternIn
 					r.rescan()
 				}
-				if widgets.IconButton(c, widgets.IconRefresh, "Refresh the keys").Clicked() {
+				if want := a.FocusWant(); *want == "filter" && a.KeysTo(r) && search.Focus().Focused() {
+					*want = ""
+				}
+				if widgets.IconButton(c, widgets.IconRefresh, keymap.Hint("Refresh the keys", keymap.Refresh)).Clicked() || keymap.ListPressed(c, &r.tree.List, keymap.Refresh) {
 					r.pattern = r.patternIn
 					r.rescan()
 				}
@@ -524,6 +528,12 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 				ui.Text(c, name).SingleLine().Grow(1).Shrink(1).Tooltip(n)
 			})
 		}).Grow(1).Label("Keys")
+		if want := a.FocusWant(); *want == "editor" && a.KeysTo(r) && r.tree.List.Focus(c) {
+			*want = "" // the tab chosen by its key takes the keys
+		}
+		if keymap.ListPressed(c, &r.tree.List, keymap.DeleteRows) && !r.conn.Config.ReadOnly && r.selected != "" && r.treeRow >= 0 && r.treeRow < r.tree.Rows() && r.tree.Item(r.treeRow) == r.selected {
+			r.askDelete(r.selected)
+		}
 		if tree.Changed() && r.treeRow >= 0 && r.treeRow < r.tree.Rows() {
 			if n := r.tree.Item(r.treeRow); !isFolder(n, r) {
 				r.open(n)
@@ -545,6 +555,23 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 	})
 	r.newKeyView(c)
 	r.bulkView(c)
+}
+
+// askDelete deletes a key once the user agrees.
+func (r *Tab) askDelete(key string) {
+	r.a.AskDiscard("Delete "+key+"?", "The key and its value are removed from "+r.conn.Config.Name+".", func() {
+		r.write([]string{"DEL", key}, func() {
+			delete(r.keySet, key)
+			for i, k := range r.keys {
+				if k == key {
+					r.keys = append(r.keys[:i], r.keys[i+1:]...)
+					break
+				}
+			}
+			r.treeKey = -1
+			r.selected = ""
+		})
+	})
 }
 
 func (r *Tab) keyView(c *ui.Context, a Host) {
@@ -590,21 +617,8 @@ func (r *Tab) keyView(c *ui.Context, a Host) {
 					if widgets.IconButton(c, widgets.IconPencil, "Rename").Clicked() {
 						r.renaming, r.renameIn = true, r.selected
 					}
-					if widgets.IconButton(c, widgets.IconTrash, "Delete key").Clicked() {
-						key := r.selected
-						a.AskDiscard("Delete "+key+"?", "The key and its value are removed from "+r.conn.Config.Name+".", func() {
-							r.write([]string{"DEL", key}, func() {
-								delete(r.keySet, key)
-								for i, k := range r.keys {
-									if k == key {
-										r.keys = append(r.keys[:i], r.keys[i+1:]...)
-										break
-									}
-								}
-								r.treeKey = -1
-								r.selected = ""
-							})
-						})
+					if widgets.IconButton(c, widgets.IconTrash, keymap.Hint("Delete key", keymap.DeleteRows)).Clicked() {
+						r.askDelete(r.selected)
 					}
 				}
 			})

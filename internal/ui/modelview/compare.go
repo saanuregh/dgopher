@@ -75,7 +75,7 @@ func (t *Tab) compareView(c *ui.Context) {
 	ui.Modal(c, &f.open, func() {
 		ui.Column(c).Width(480).Gap(12).Children(func() {
 			ui.Text(c, "Compare "+t.m.Name).FontSize(15).Bold()
-			ui.Segmented(c, &f.with, "A Database", "Another Model").Label("Compare with")
+			ui.Segmented(c, &f.with, "A Database", "Another Model").Label("Compare with").AutoFocus()
 			ui.Form(c, func() {
 				// One slot each, whichever shows, so that focus keeps its
 				// place.

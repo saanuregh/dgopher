@@ -112,7 +112,7 @@ func (a *App) auditViewer(c *ui.Context) {
 		ui.Row(c).Padding(12, 16).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Icon(c, widgets.IconShield).FontSize(16).TextColor(th.Accent)
 			ui.Text(c, "Audit Log · "+v.project).FontSize(15).Bold().SingleLine().Shrink(1)
-			widgets.SearchBox(c, &v.filter, "Filter by statement, connection, user or error", 0)
+			widgets.SearchBox(c, &v.filter, "Filter by statement, connection, user or error", 0).AutoFocus()
 			ui.Select(c, &v.kind, auditKinds).Label("Kind")
 		})
 		ui.Row(c).Padding(8, 16).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {

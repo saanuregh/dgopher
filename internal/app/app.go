@@ -112,6 +112,8 @@ type App struct {
 
 	settingsOpen  bool
 	shortcutsOpen bool
+	// shortcutsFind filters the list of keys.
+	shortcutsFind string
 	sidebarHidden bool
 	settingsDirty bool
 	clipboard     func(string)

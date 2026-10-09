@@ -386,7 +386,7 @@ func (a *App) fillView(c *ui.Context) {
 			if len(x.cols) > 0 {
 				ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
 					ui.Text(c, "Rows to add")
-					ui.TextInput(c, &x.count).Width(120).Label("Rows to add").Disabled(x.running)
+					ui.TextInput(c, &x.count).Width(120).Label("Rows to add").Disabled(x.running).AutoFocus()
 					ui.Text(c, "Keys continue from the highest; a column referring to another table takes the values it holds.").
 						FontSize(12).TextColor(pal.Muted).Shrink(1)
 				})

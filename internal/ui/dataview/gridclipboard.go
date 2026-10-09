@@ -239,7 +239,7 @@ func clipView(a Host, c *ui.Context) {
 			ui.Text(c, title).FontSize(15).Bold()
 			ui.Form(c, func() {
 				ui.Field(c, "Delimiter", func() {
-					ui.Segmented(c, &f.delim, delimiterLabels...).Label("Delimiter")
+					ui.Segmented(c, &f.delim, delimiterLabels...).Label("Delimiter").AutoFocus()
 				})
 				if f.paste {
 					ui.Field(c, "", func() { ui.Checkbox(c, &f.pasteOpts.Header, "The first row names the columns") })

@@ -72,7 +72,7 @@ func (a *App) keysView(c *ui.Context) {
 			ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, "Customize Keyboard Shortcuts").FontSize(16).Bold()
 				ui.Spacer(c)
-				ui.TextInput(c, &k.filter).Placeholder("Search commands or keys").Width(260).Label("Search commands")
+				ui.TextInput(c, &k.filter).Placeholder("Search commands or keys").Width(260).Label("Search commands").AutoFocus()
 			})
 			if k.err != "" {
 				ui.Text(c, k.err).TextColor(th.Danger).FontSize(12.5)

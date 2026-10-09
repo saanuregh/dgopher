@@ -1,6 +1,8 @@
 package query
 
 import (
+	"slices"
+
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
 	"dgopher/internal/ui/widgets"
@@ -26,8 +28,54 @@ func (q *Tab) Commands() []widgets.Command {
 		}
 		cmds = append(cmds, widgets.Command{Title: "Roll Back", Detail: "the open transaction", Key: keymap.Rollback, Icon: widgets.IconUndo, Run: func() { q.endOpenTx(false) }})
 	}
+	cmds = append(cmds, q.resultCommands()...)
 	if r := q.current(); r != nil && r.view != nil {
 		cmds = append(cmds, r.view.Commands()...)
+	}
+	return cmds
+}
+
+// resultCommands move between the result tabs, and pin or close the one
+// shown, as their pills do.
+func (q *Tab) resultCommands() []widgets.Command {
+	var shown []int // the results with a pill
+	for i, r := range q.results {
+		if r.rowsMode || r.err != "" {
+			shown = append(shown, i)
+		}
+	}
+	var cmds []widgets.Command
+	if len(shown) > 1 {
+		step := func(by int) func() {
+			return func() {
+				n := len(shown)
+				switch at := slices.Index(shown, q.resultIdx); {
+				case at >= 0:
+					q.resultIdx = shown[(at+by+n)%n]
+				case by > 0: // from the messages
+					q.resultIdx = shown[0]
+				default:
+					q.resultIdx = shown[n-1]
+				}
+			}
+		}
+		cmds = append(cmds,
+			widgets.Command{Title: "Next Result", Icon: widgets.IconNext, Run: step(1)},
+			widgets.Command{Title: "Previous Result", Icon: widgets.IconPrev, Run: step(-1)})
+	}
+	r := q.current()
+	if r == nil {
+		return cmds
+	}
+	pin := "Pin Result"
+	if r.pinned {
+		pin = "Unpin Result"
+	}
+	cmds = append(cmds, widgets.Command{Title: pin, Icon: widgets.IconLock, Run: func() { r.pinned = !r.pinned }})
+	if !q.Running && (r.view == nil || !r.view.Applying() && !r.view.Counting()) {
+		cmds = append(cmds, widgets.Command{Title: "Close Result", Icon: widgets.IconX, Run: func() {
+			q.a.Post(func() { q.settlePending([]*result{r}, func() { q.closeResult(r) }) })
+		}})
 	}
 	return cmds
 }

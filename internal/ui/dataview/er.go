@@ -58,6 +58,8 @@ const (
 	erGapY      = 36
 	// erClear is the least room between two tables a drop leaves.
 	erClear = 16
+	// erStep is how far an arrow key moves a table.
+	erStep = 20
 )
 
 // erKey names a table across schemas.
@@ -380,6 +382,12 @@ func (e *ERTab) drawLinks(p *ui.Painter, r ui.Rect, c *ui.Context) {
 	}
 }
 
+// erMoves are how the arrow keys move a table.
+var erMoves = []struct {
+	key    ui.Key
+	dx, dy float32
+}{{ui.KeyLeft, -erStep, 0}, {ui.KeyRight, erStep, 0}, {ui.KeyUp, 0, -erStep}, {ui.KeyDown, 0, erStep}}
+
 func (e *ERTab) box(c *ui.Context, a Host, t *erTable) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
@@ -388,11 +396,23 @@ func (e *ERTab) box(c *ui.Context, a Host, t *erTable) {
 		Shadow(0, 2, 8, 0, ui.RGBA(0, 0, 0, 0.08))
 	box.ContextMenu(func(m *ui.Menu) { e.tableMenu(m, t) })
 	box.Children(func() {
+		// The header takes the keys: ↵ opens the data, the arrows move
+		// the table, and the menu key opens its menu.
 		header := ui.Row(c).Height(erHeaderH).Padding(0, 10).Gap(6).Background(pal.GridHeader).
-			BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Cursor(ui.CursorMove)
+			BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Cursor(ui.CursorMove).
+			Focusable().Label("Table " + t.obj.Name + ": ↵ opens its data, the arrows move it")
 		focused := e.focus != nil && t.schema == e.focus.Schema && t.obj.Name == e.focus.Name
-		if focused {
+		if focused || header.Focused() {
 			header.Background(th.Accent.Alpha(0.18))
+		}
+		if header.Shortcut(0, ui.KeyEnter) {
+			a.OpenTable(e.conn, e.database, t.obj, PageData)
+		}
+		for _, m := range erMoves {
+			if header.Shortcut(0, m.key) {
+				t.x, t.y = max(0, t.x+m.dx), max(0, t.y+m.dy)
+				e.settle(t)
+			}
 		}
 		header.Children(func() {
 			ui.Icon(c, widgets.IconTable).FontSize(12).TextColor(widgets.EngineColor(e.conn.Config.Engine))

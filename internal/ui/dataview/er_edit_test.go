@@ -85,3 +85,32 @@ func TestEREditsSchema(t *testing.T) {
 	a.Confirm = nil
 	testutil.WaitFor(t, tt, "the table dropped", func() bool { return !e.loading && len(e.tables) == 1 })
 }
+
+// A table's header takes the keys: the arrows move the table, ↵ opens its
+// data.
+func TestERKeyboard(t *testing.T) {
+	a := NewFakeHost(t)
+	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.View, 1360, 760)
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	if _, err := cn.DB.SQL.Exec(`CREATE TABLE orders (id INTEGER PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+	OpenER(a, cn, "", "main")
+	testutil.WaitFor(t, tt, "the diagram", func() bool { return len(a.Tabs) == 1 && !a.Tabs[0].(*ERTab).loading })
+	orders := a.Tabs[0].(*ERTab).byName[erKey("main", "orders")]
+	tt.Frame()
+	if err := tt.Click("orders"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	x := orders.x
+	tt.Key(0, ui.KeyRight)
+	tt.Frame()
+	if orders.x != x+erStep {
+		t.Fatalf("→ moved the table from %v to %v", x, orders.x)
+	}
+	tt.Key(0, ui.KeyEnter)
+	testutil.WaitFor(t, tt, "the data", func() bool { return len(a.Tabs) == 2 })
+}

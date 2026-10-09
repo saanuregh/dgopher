@@ -96,6 +96,13 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 				}})
 		}
 	}
+	if tab := a.ActiveTab(); tab != nil && len(a.tabs) > 1 {
+		w := a.window
+		cmds = append(cmds, paletteItem{title: "Close Other Tabs", group: "Command", icon: widgets.IconX, run: func() { a.closeOthers(w, tab) }})
+	}
+	if tab := a.ActiveTab(); tab != nil && (a.window == a.main || len(a.tabs) > 1) {
+		cmds = append(cmds, paletteItem{title: "Move Tab to New Window", group: "Command", icon: widgets.IconLayers, run: func() { a.Post(func() { a.moveToWindow(tab, nil) }) }})
+	}
 	if len(a.tabs) > 0 {
 		cmds = append(cmds, paletteItem{title: "Close Tab", key: keymap.CloseTab, group: "Command", icon: widgets.IconX, run: func() { a.closeTab(a.active) }})
 	}

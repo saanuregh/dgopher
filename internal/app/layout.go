@@ -388,14 +388,7 @@ func (a *App) tabBar(c *ui.Context) {
 						closed = i
 					}
 					if m.Item("Close Others").Chosen() {
-						w := a.window
-						a.Post(func() {
-							for _, t := range slices.Backward(slices.Clone(w.tabs)) {
-								if t != tb {
-									a.closeTabOf(t)
-								}
-							}
-						})
+						a.closeOthers(a.window, tb)
 					}
 				})
 			}
@@ -404,6 +397,18 @@ func (a *App) tabBar(c *ui.Context) {
 	if closed >= 0 {
 		a.closeTab(closed)
 	}
+}
+
+// closeOthers closes a window's tabs but one, each once the user agrees
+// to what closing it loses.
+func (a *App) closeOthers(w *window, keep widgets.Tab) {
+	a.Post(func() {
+		for _, t := range slices.Backward(slices.Clone(w.tabs)) {
+			if t != keep {
+				a.closeTabOf(t)
+			}
+		}
+	})
 }
 
 func (a *App) welcome(c *ui.Context) {

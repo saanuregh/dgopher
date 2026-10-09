@@ -613,7 +613,7 @@ func (b *queryBuilder) tablesView(a Host, c *ui.Context) {
 		b.add = labels[0]
 	}
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-		ui.Select(c, &b.add, labels).Width(520).Label("Table to join")
+		ui.Select(c, &b.add, labels).Width(520).Label("Table to join").AutoFocus()
 		if ui.Button(c, "Join").Clicked() {
 			cand := cands[slices.Index(labels, b.add)]
 			b.addTable(a, cand.schema, cand.name, cand.on)

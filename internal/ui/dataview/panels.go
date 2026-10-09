@@ -2,7 +2,6 @@ package dataview
 
 import (
 	"bytes"
-	"dgopher/internal/keymap"
 	"encoding/hex"
 	"encoding/xml"
 	"errors"
@@ -14,6 +13,7 @@ import (
 	"strings"
 
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 	"dgopher/internal/settings"
 	"dgopher/internal/ui/widgets"
 

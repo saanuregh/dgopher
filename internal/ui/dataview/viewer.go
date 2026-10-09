@@ -1141,6 +1141,9 @@ func (v *Viewer) View(c *ui.Context) {
 	v.grid.serverSort = (!v.done || v.truncated) && v.source.Reads
 	if v.showChart {
 		ChartView(c, &v.chart, &v.src)
+		if *a.FocusWant() == "results" && keys {
+			*a.FocusWant() = "" // no grid to take it: the chart has no keys
+		}
 	} else {
 		v.grid.View(c, a, &v.src)
 		if *a.FocusWant() == "results" && keys {

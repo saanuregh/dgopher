@@ -3,7 +3,6 @@ package redis
 import (
 	"bytes"
 	"context"
-	"dgopher/internal/keymap"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 

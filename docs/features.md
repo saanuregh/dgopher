@@ -17,18 +17,31 @@
 - **Keyboard first:**
   - The palette (⌘K) has the app's commands and the current tab's, these
     first: running, explaining, formatting, committing or rolling back
-    in an editor; refreshing, exporting, fetching, charting and applying
-    rows. Each shows its key. Tables, functions and procedures open by
+    in an editor, moving between its results, pinning or closing one;
+    refreshing, exporting, fetching, charting and applying rows. Each
+    shows its key. Tables, functions and procedures open by
     name (⌘P).
   - In manual commit, ⌘⌥⇧↵ commits. Rolling back has no key until one is
     set, as it loses the transaction's work.
   - ⌘1…⌘9 switch tabs (in the results grid, ⌘2 sorts by the chosen
-    column instead); ⌘0 focuses the navigator; ⌘L focuses the current
-    view's filter; ⌘J moves between the editor and its results; F5 runs or
-    refreshes.
+    column instead), the keys going on in the tab chosen: an editor's
+    text, a table's rows, the Redis keys. ⌘0 focuses the navigator; ⌘L
+    focuses the current view's filter; ⌘J moves between the editor and
+    its results; F5 runs or refreshes, a dashboard too.
+  - On a table in the navigator, ⌘C copies its name, F2 renames it, F4
+    shows its structure, and Delete opens a DROP of it in a new editor
+    to review and run.
+  - In the Redis key browser, F5 scans again and Delete deletes the key
+    chosen, once agreed.
+  - Dialogs put the keys in their first field.
+  - In the ER diagram, a table's header takes the keys: ↵ opens its data,
+    the arrows move it, and its menu (⇧F10) adds a foreign key from a
+    column, as dragging the column onto another table does.
   - ⌘T opens an editor, ⌘N a connection, ⌘W closes a tab, Ctrl+Tab moves
     between tabs, and ⌘B shows or hides the sidebar.
-  - ⌘/ lists every shortcut, as they are set.
+  - ⌘/ lists every shortcut, as they are set, and finds one by its key
+    or what it does; ⇧F10 or the menu key opens the menu of what has
+    the focus.
   - In a dialog, ⌘↵ does what it is for from any of its fields, as its
     main button; Esc closes it. A dialog whose button changes data or
     trusts a server (rolling back, dropping, deleting keys, importing,
@@ -156,7 +169,8 @@
   - A connection to another machine saves only once its environment is
     chosen in the form, Development included, and again when an edit
     points it elsewhere: the default, Development, asks nothing before a
-    write. Local servers and files keep the default.
+    write. Local servers and files keep the default. Connections imported
+    or written in the project file keep the environment they say.
   - New… makes an empty SQLite or DuckDB file; a file already there is
     opened as it is, never replaced.
   - Test Connection reports the server version and how long connecting took.

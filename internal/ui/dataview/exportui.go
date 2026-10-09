@@ -229,7 +229,7 @@ func ExportView(a Host, c *ui.Context) {
 			}
 			ui.Form(c, func() {
 				ui.Field(c, "Format", func() {
-					if ui.Select(c, &label, labels).Label("Format").Changed() {
+					if ui.Select(c, &label, labels).Label("Format").AutoFocus().Changed() {
 						x.format = string(formats[slices.Index(labels, label)])
 					}
 				})

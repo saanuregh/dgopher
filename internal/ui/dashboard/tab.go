@@ -11,6 +11,7 @@ import (
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 	"dgopher/internal/params"
 	"dgopher/internal/project"
 	"dgopher/internal/safety"
@@ -30,6 +31,8 @@ type Host interface {
 	Toast(text, action string, run func())
 	RecordRun(cfg db.Config, kind, database, stmt string, rows int64, d time.Duration, err error)
 	NewQueryTab(cn *connection.Conn, database, text string)
+	// KeysTo reports whether a tab takes the shortcuts pressed.
+	KeysTo(t widgets.Tab) bool
 }
 
 const (
@@ -366,7 +369,8 @@ func (t *Tab) View(c *ui.Context) {
 				t.d.Refresh = Refreshes[max(slices.Index(labels, t.refresh), 0)]
 				t.save()
 			}
-			if widgets.ToolButton(c, widgets.IconRefresh, "Refresh", "Run every panel again").Clicked() {
+			if widgets.ToolButton(c, widgets.IconRefresh, "Refresh", keymap.Hint("Run every panel again", keymap.Refresh)).Clicked() ||
+				!t.editing && t.h.KeysTo(t) && keymap.Pressed(c, keymap.Refresh) {
 				t.refreshAll(true)
 			}
 			label := "Edit"

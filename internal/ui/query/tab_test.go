@@ -15,6 +15,7 @@ import (
 	"dgopher/internal/safety"
 	"dgopher/internal/testutil"
 	"dgopher/internal/ui/editor"
+	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -679,4 +680,34 @@ func TestTransactionKeys(t *testing.T) {
 	if !slices.ContainsFunc(q.messages, func(m message) bool { return strings.Contains(m.text, "ommit") }) {
 		t.Fatalf("messages %+v", q.messages)
 	}
+}
+
+// The palette moves between the result tabs, and closes the one shown.
+func TestResultCommands(t *testing.T) {
+	a := newFakeQueryHost(t)
+	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1000, 700)
+	q := newEditor(t, a, tt, cn, "SELECT 1;\nSELECT 2;")
+	q.Run(RunScript)
+	testutil.WaitFor(t, tt, "two results", func() bool { return !q.Running && len(q.results) == 2 })
+	run := func(title string) {
+		t.Helper()
+		i := slices.IndexFunc(q.Commands(), func(c widgets.Command) bool { return c.Title == title })
+		if i < 0 {
+			t.Fatalf("no %s", title)
+		}
+		q.Commands()[i].Run()
+		tt.Frame()
+	}
+	from := q.resultIdx
+	run("Next Result")
+	if q.resultIdx == from {
+		t.Fatalf("Next Result stayed on %d", from)
+	}
+	run("Next Result")
+	if q.resultIdx != from {
+		t.Fatalf("Next Result did not come round to %d: %d", from, q.resultIdx)
+	}
+	run("Close Result")
+	testutil.WaitFor(t, tt, "one result", func() bool { return len(q.results) == 1 })
 }

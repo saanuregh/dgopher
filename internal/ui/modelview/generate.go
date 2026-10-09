@@ -81,7 +81,7 @@ func (t *Tab) generateView(c *ui.Context) {
 			ui.Text(c, "Generate DDL").FontSize(15).Bold()
 			ui.Row(c).Gap(12).Children(func() {
 				ui.Field(c, "Engine", func() {
-					ui.Select(c, &f.engine, f.engines).Label("Engine").Width(180)
+					ui.Select(c, &f.engine, f.engines).Label("Engine").Width(180).AutoFocus()
 				})
 				ui.Field(c, "Schema", func() {
 					ui.TextInput(c, &f.schema).Placeholder("none: the editor's own").Font(widgets.MonoFont).Width(220).Label("Schema")

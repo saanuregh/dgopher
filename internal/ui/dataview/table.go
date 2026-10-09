@@ -248,6 +248,9 @@ func (t *TableTab) View(c *ui.Context) {
 	a := t.a
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
+	if want := a.FocusWant(); *want == "editor" && t.Page == PageData && a.KeysTo(t) {
+		*want = "results" // the tab chosen by its key: its rows take the keys
+	}
 	ui.Column(c).Grow(1).Children(func() {
 		ui.Row(c).Padding(6, 10).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ic := widgets.IconTable

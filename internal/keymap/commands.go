@@ -20,8 +20,12 @@ const (
 	NextTab        = "nextTab"
 	PreviousTab    = "previousTab"
 
-	NavigatorSelect  = "navigator.select"
-	NavigatorRefresh = "navigator.refresh"
+	NavigatorSelect    = "navigator.select"
+	NavigatorRefresh   = "navigator.refresh"
+	NavigatorCopyName  = "navigator.copyName"
+	NavigatorRename    = "navigator.rename"
+	NavigatorStructure = "navigator.structure"
+	NavigatorDrop      = "navigator.drop"
 
 	Run            = "editor.run"
 	RunInNewTab    = "editor.runInNewTab"
@@ -118,6 +122,10 @@ var Commands = []Command{
 
 	command(NavigatorSelect, Navigator, "New editor with SELECT * of the table", "Cmd+Enter"),
 	command(NavigatorRefresh, Navigator, "Read the schema again", "Cmd+R"),
+	command(NavigatorCopyName, Navigator, "Copy the table's name, quoted", "Cmd+C"),
+	command(NavigatorRename, Navigator, "Rename the table", "F2"),
+	command(NavigatorStructure, Navigator, "The table's structure", "F4"),
+	command(NavigatorDrop, Navigator, "A DROP of the table, in a new editor to review and run", "Delete"),
 
 	command(Run, Editor, "Run the statement at the caret (blank lines and ; end it), or the selection", "Cmd+Enter", "F5"),
 	command(RunInNewTab, Editor, "Run it into a new result tab, keeping the results shown", "Cmd+\\"),
@@ -153,7 +161,7 @@ var Commands = []Command{
 	command(Paste, Grid, "Paste cells over the chosen one, as pending changes", "Cmd+V"),
 	command(AdvancedPaste, Grid, "Advanced Paste: delimiter, header row, as new rows", "Cmd+Shift+V"),
 	command(EditValue, Grid, "Open the value editor", "Shift+Enter"),
-	command(DeleteRows, Grid, "Mark the chosen rows for deletion", "Delete", "Cmd+Backspace", "Alt+Delete"),
+	command(DeleteRows, Grid, "Mark the chosen rows for deletion; in the Redis key tree, delete the key", "Delete", "Cmd+Backspace", "Alt+Delete"),
 	command(AddRow, Grid, "Add a row", "Alt+Insert"),
 	command(DuplicateRow, Grid, "Duplicate the chosen row", "Cmd+Alt+Insert"),
 	command(CopyAbove, Grid, "Copy the value of the row above", "Cmd+D"),
@@ -174,7 +182,7 @@ var Commands = []Command{
 	command(FetchAll, Grid, "Fetch every row", "Cmd+Shift+="),
 	command(Apply, Grid, "Review and apply the pending changes", "Cmd+S"),
 	command(Discard, Grid, "Discard the pending changes; without any, read the rows again", "Cmd+R"),
-	command(Refresh, Grid, "Read a table's rows again", "F5"),
+	command(Refresh, Grid, "Read a table's rows again; scan the Redis keys, or run a dashboard's panels, again", "F5"),
 	command(ToggleChart, Grid, "Show or hide the chart of the rows"),
 }
 
@@ -185,6 +193,8 @@ var Fixed = []struct {
 	Keys, Does string
 }{
 	{Global, "⌘1 … ⌘9", "Go to tab 1 … 9 (⌘9: the last)"},
+	{Global, "⇧F10  or  Menu", "Open the menu of what has the focus"},
+	{Dialog, "Esc", "Close the dialog"},
 	{Navigator, "↑ ↓", "Move; type a name's first letters to jump to it"},
 	{Navigator, "→ ←", "Open or close"},
 	{Navigator, "↵", "Connect, or open a table's data"},
