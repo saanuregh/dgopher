@@ -557,6 +557,9 @@ type renameForm struct {
 	title string
 	name  string
 	err   string
+	// action is the button's, "" for Rename: the form names what is new
+	// too.
+	action string
 	// rename renames it to name, or says why not, which keeps the form
 	// open.
 	rename func(name string) error
@@ -613,7 +616,11 @@ func (a *App) renameView(c *ui.Context) {
 				if ui.Button(c, "Cancel").Clicked() {
 					f.open = false
 				}
-				if ui.PrimaryButton(c, "Rename").Clicked() || submit {
+				action := f.action
+				if action == "" {
+					action = "Rename"
+				}
+				if ui.PrimaryButton(c, action).Clicked() || submit {
 					if err := f.rename(f.name); err != nil {
 						f.err = err.Error()
 					} else {

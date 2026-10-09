@@ -391,6 +391,21 @@
   as series), a hover tooltip, and a colour-blind-safe palette. Stacks
   put positive values above zero and negative below; a NULL breaks a
   line or an area, and counts as zero in a stack.
+- **Dashboards:** an editor's statement, Add to Dashboard, becomes a
+  panel of a dashboard of its project, shown as a chart, rows or a single
+  value; panels of any of the project's connections sit in a grid of four
+  columns, each one to four wide. Panels share their parameters, edited
+  in a bar above them, their values each user's own, kept apart from the
+  file; the dashboard refreshes by hand or every 1, 5 or 15 minutes or
+  hour, while it shows, connecting a connection that failed again only
+  when asked. A panel runs one read only, its
+  statement through the safety policy, refused when it writes or would be
+  asked about; on PostgreSQL and MySQL, in a read-only transaction, which
+  the server enforces. Each run is audited as an editor's. Edit arranges,
+  resizes, retitles and changes the panels, their queries and charts; a
+  dashboard is a file in the project's `dashboards` folder, for its team,
+  never written over once it changed on disk, as by a pull, and opens
+  again with the workspace.
 - **Server activity:** sessions and running queries of PostgreSQL, MySQL
   and ClickHouse, with cancel (and, on PostgreSQL and MySQL, terminate),
   and Redis's headline metrics and clients, which can be disconnected (of

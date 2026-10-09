@@ -930,6 +930,7 @@ func (a *App) projectMenu(m *ui.Menu, n navNode) {
 				f.project, f.projectSel = p, a.projectLabel(p)
 			}
 		}
+		a.dashboardsMenu(m, p)
 		if conns := a.projectConns(p); len(conns) > 0 && m.Item("New Query").Chosen() {
 			cn := a.activeConn()
 			if cn == nil || cn.Project != p || !cn.Config.Engine.IsSQL() {

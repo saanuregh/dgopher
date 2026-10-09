@@ -260,6 +260,15 @@ func fmtAxisTime(ms float64, span float64) string {
 
 // ChartView builds a chart of a result, with its controls.
 func ChartView(c *ui.Context, s *Chart, src *Source) {
+	ui.Column(c).Grow(1).Children(func() {
+		ChartControls(c, s, src)
+		ChartPlot(c, s, src)
+	})
+}
+
+// ChartControls draws the choice of a chart's kind, its x column and its
+// series.
+func ChartControls(c *ui.Context, s *Chart, src *Source) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	if s.colsOf != columnsKey(src.Cols) {
@@ -269,22 +278,31 @@ func ChartView(c *ui.Context, s *Chart, src *Source) {
 	for i, col := range src.Cols {
 		names[i] = col.Name
 	}
+	ui.Row(c).Padding(6, 10).Gap(10).Wrap().BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		if ui.Segmented(c, &s.kind, chartKinds...).Label("Chart type").Changed() {
+			s.hover = -1
+		}
+		ui.Text(c, "X").FontSize(12).TextColor(pal.Muted)
+		ui.Select(c, &s.x, names).Label("X axis")
+		ui.Text(c, "Series").FontSize(12).TextColor(pal.Muted)
+		for i, col := range src.Cols {
+			if col.Name == s.x || !numericColumn(src, i) {
+				continue
+			}
+			ui.Checkbox(c, &s.ys[i], col.Name)
+		}
+	})
+}
+
+// ChartPlot draws a chart of a result, with its legend and tooltip, as
+// its settings say.
+func ChartPlot(c *ui.Context, s *Chart, src *Source) {
+	pal := widgets.PaletteOf(c)
+	if s.colsOf != columnsKey(src.Cols) {
+		s.detect(src)
+	}
 	series := s.series()
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Row(c).Padding(6, 10).Gap(10).Wrap().BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			if ui.Segmented(c, &s.kind, chartKinds...).Label("Chart type").Changed() {
-				s.hover = -1
-			}
-			ui.Text(c, "X").FontSize(12).TextColor(pal.Muted)
-			ui.Select(c, &s.x, names).Label("X axis")
-			ui.Text(c, "Series").FontSize(12).TextColor(pal.Muted)
-			for i, col := range src.Cols {
-				if col.Name == s.x || !numericColumn(src, i) {
-					continue
-				}
-				ui.Checkbox(c, &s.ys[i], col.Name)
-			}
-		})
 		if len(series) == 0 {
 			ui.Text(c, "Choose a numeric column as a series.").TextColor(pal.Muted).Padding(16)
 			return
@@ -730,4 +748,38 @@ func pieView(c *ui.Context, s *Chart, src *Source, col int, pts []chartPoint) {
 			}
 		})
 	})
+}
+
+// ChartSettings is how a chart is drawn, as a dashboard keeps it: its
+// kind and columns by name, which a result of other rows charts alike.
+type ChartSettings struct {
+	Kind   string   `json:"kind"`
+	X      string   `json:"x,omitempty"`
+	Series []string `json:"series,omitempty"`
+}
+
+// Settings is how the chart draws a result now.
+func (s *Chart) Settings(src *Source) ChartSettings {
+	out := ChartSettings{Kind: chartKinds[s.kind], X: s.x}
+	for _, i := range s.series() {
+		out.Series = append(out.Series, src.Cols[i].Name)
+	}
+	return out
+}
+
+// Use draws a result as settings say, as far as its columns allow: the
+// chart otherwise chooses as it does for any result.
+func (s *Chart) Use(settings ChartSettings, src *Source) {
+	s.detect(src)
+	if k := slices.Index(chartKinds, settings.Kind); k >= 0 {
+		s.kind = k
+	}
+	if slices.ContainsFunc(src.Cols, func(c db.ColumnInfo) bool { return c.Name == settings.X }) {
+		s.x = settings.X
+	}
+	if len(settings.Series) > 0 {
+		for i, c := range src.Cols {
+			s.ys[i] = slices.Contains(settings.Series, c.Name) && c.Name != s.x
+		}
+	}
 }

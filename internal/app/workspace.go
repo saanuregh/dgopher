@@ -13,6 +13,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/project"
 	"dgopher/internal/store"
+	"dgopher/internal/ui/dashboard"
 	"dgopher/internal/ui/query"
 
 	"github.com/egoist/mygo"
@@ -36,6 +37,9 @@ type savedWorkspace struct {
 	// Active is the editor in front, -1 when the tab in front was not one
 	// of the project's.
 	Active int `json:"active"`
+	// Dashboards are the files of the dashboards open, relative to the
+	// project.
+	Dashboards []string `json:"dashboards,omitempty"`
 }
 
 const workspaceFile = "workspace.json"
@@ -57,6 +61,7 @@ func (a *App) workspaceOf(p *project.Project) savedWorkspace {
 		}
 		w.Editors = append(w.Editors, e)
 	}
+	w.Dashboards = a.dashboardPaths(p)
 	return w
 }
 
@@ -125,6 +130,12 @@ func (a *App) restoreWorkspace(p *project.Project) {
 		a.tabs = append(a.tabs, q)
 		if i == w.Active {
 			a.active = len(a.tabs) - 1
+		}
+	}
+	for _, path := range w.Dashboards {
+		// A dashboard deleted, or broken, since is left closed.
+		if d, err := dashboard.Open(a, p, p.ResolvePath(path)); err == nil {
+			a.tabs = append(a.tabs, d)
 		}
 	}
 }

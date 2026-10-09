@@ -7,6 +7,7 @@ import (
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/ui/dashboard"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/redis"
@@ -104,6 +105,9 @@ func (a *App) view(c *ui.Context) {
 	}
 	if a.filling != nil {
 		a.fillView(c)
+	}
+	if a.addingPanel != nil {
+		a.addToDashboardView(c)
 	}
 	query.DialogsView(a, c)
 	dataview.DialogsView(a, c)
@@ -283,6 +287,8 @@ func (a *App) tabBar(c *ui.Context) {
 							ic = widgets.IconClock
 						case *usersTab:
 							ic = widgets.IconUsers
+						case *dashboard.Tab:
+							ic = widgets.IconLayers
 						}
 						ui.Icon(c, ic).FontSize(12).TextColor(pal.Muted)
 						txt := ui.Text(c, tb.Title()).SingleLine().Shrink(1).FontSize(12.5)

@@ -371,6 +371,16 @@ func (q *Tab) statements(mode RunMode) ([]string, []int) {
 
 func explaining(mode RunMode) bool { return mode == RunExplain || mode == RunExplainAnalyze }
 
+// StatementToRun is the statement a run would send: the one selected, or
+// the one at the caret; an error when that is not one statement.
+func (q *Tab) StatementToRun() (string, error) {
+	stmts, _ := q.statements(RunStatement)
+	if len(stmts) != 1 {
+		return "", fmt.Errorf("choose one statement, by the caret or a selection: %d are", len(stmts))
+	}
+	return stmts[0], nil
+}
+
 // analyzeRefusal says why a statement's plan cannot be measured by
 // running it, "" when it can: the engine explains without running, or
 // the statement changes the database.

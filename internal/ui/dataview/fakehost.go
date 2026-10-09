@@ -296,6 +296,16 @@ func (h *FakeHost) RecordRun(cfg db.Config, kind, database, stmt string, rows in
 	h.Events = append(h.Events, e)
 }
 
+// ConnByID finds a connection of the host by its ID, as the app does.
+func (h *FakeHost) ConnByID(id string) *connection.Conn {
+	for _, cn := range h.Conns {
+		if cn.Config.ID == id {
+			return cn
+		}
+	}
+	return nil
+}
+
 func (h *FakeHost) ProjectConfigs(p *project.Project) []db.Config {
 	var out []db.Config
 	for _, cn := range h.Conns {

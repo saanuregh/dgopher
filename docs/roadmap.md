@@ -41,8 +41,6 @@ Next or Later are not repeated.
 - **Redis:**
 - **ClickHouse and DuckDB:**
 - **Charts:**
-  - Dashboards built from saved queries, with parameters and automatic
-    refresh.
 - **AI:**
   - [DEFERRED] Write SQL from a description, explain a query, fix an error, and
     convert SQL from one engine's dialect to another's.

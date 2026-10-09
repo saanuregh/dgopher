@@ -121,7 +121,14 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 	sort.SliceStable(tables, func(i, j int) bool { return tables[i].title < tables[j].title })
 	snippets := a.snippetItems()
 	if q, ok := a.ActiveTab().(*query.Tab); ok {
-		cmds = append(cmds, paletteItem{title: "Save as Snippet…", group: "Command", icon: widgets.IconSave, run: func() { a.AskSnippet(q) }})
+		cmds = append(cmds, paletteItem{title: "Save as Snippet…", group: "Command", icon: widgets.IconSave, run: func() { a.AskSnippet(q) }},
+			paletteItem{title: "Add to Dashboard…", detail: "the statement at the caret, as a panel", group: "Command", icon: widgets.IconLayers, run: func() { a.openAddToDashboard(q) }})
+	}
+	for _, p := range a.projects {
+		names, paths := a.dashboardNames(p)
+		for i, name := range names {
+			cmds = append(cmds, paletteItem{title: name, detail: p.Name, group: "Dashboard", icon: widgets.IconLayers, run: func() { a.openDashboard(p, paths[i]) }})
+		}
 	}
 	if tablesFirst {
 		return append(append(append(tables, conns...), snippets...), cmds...)

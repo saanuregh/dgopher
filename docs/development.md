@@ -91,6 +91,7 @@ your own.
 | `internal/ui/editor` | the SQL editor |
 | `internal/ui/dataview` | the result grid and its panels, table tabs, export, charts and the ER diagram |
 | `internal/ui/query` | SQL editor tabs: running statements, scripts, plans and parameters |
+| `internal/ui/dashboard` | dashboard tabs: panels of reads as charts, rows or values, their parameters and refresh, kept in a project's file |
 | `internal/ui/redis` | Redis tabs: the key tree, values and their editing, and the command console |
 | `internal/app` | the window: navigator, tabs, menus, palette, dialogs and the quit flow |
 | `internal/testutil` | shared test helpers: screenshots, waiting, the integration servers |
