@@ -924,6 +924,9 @@ func (v *Viewer) apply(stmts []db.Statement) {
 			}
 			v.source.AdoptSession(sess)
 		}
+		// MySQL's autocommit off, set on the session, holds its writes for
+		// COMMIT as manual commit does: the edits' transaction stays open.
+		manual := manual || sess.AutocommitOff()
 		// In a transaction of our own, or, inside the user's, behind a
 		// savepoint: a failed batch then leaves nothing behind either way.
 		const savepoint = "dgopher_edits"

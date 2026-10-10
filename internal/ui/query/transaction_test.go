@@ -890,3 +890,57 @@ func TestAutocommitOffNote(t *testing.T) {
 		t.Fatalf("after the commit: tx %v; texts %q", q.Tx, tt.Texts())
 	}
 }
+
+// With autocommit off, writes wait for COMMIT: a statement that would
+// commit them implicitly asks first, and grid edits stay in the
+// transaction they open rather than commit it.
+func TestAutocommitOffHoldsWrites(t *testing.T) {
+	testutil.Integration(t)
+	cfg := mysqlConfig()
+	d := mysqlTable(t, cfg, "rv_acheld")
+	if _, err := d.SQL.Exec("INSERT INTO shop.rv_acheld VALUES (1, 10)"); err != nil {
+		t.Fatal(err)
+	}
+	committed := func() string {
+		var v string
+		d.SQL.QueryRow("SELECT v FROM shop.rv_acheld WHERE id = 1").Scan(&v)
+		return v
+	}
+	a := newFakeQueryHost(t)
+	cn := a.AddConn(cfg)
+	tt := ui.NewTester(a.view, 1200, 760)
+	q := newEditor(t, a, tt, cn, "SET autocommit = 0;\nCOMMIT;")
+	t.Cleanup(func() { q.sess.Close() })
+	runWith(t, tt, q, "SET", RunScript)
+
+	q.Editor.Text = "INSERT INTO rv_acheld VALUES (2, 20);\nCREATE INDEX rv_acheld_v ON rv_acheld (v);"
+	runWith(t, tt, q, "INSERT", RunScript)
+	if a.Confirm == nil || !slices.ContainsFunc(a.Confirm.Reasons, func(r string) bool { return strings.Contains(r, "autocommit off holds") }) {
+		t.Fatalf("no warning: %+v", a.Confirm)
+	}
+	a.Confirm.Open = false
+	a.Confirm.OnConfirm()
+	a.Confirm = nil
+	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running })
+
+	q.Editor.Text = "SELECT * FROM rv_acheld ORDER BY id"
+	runWith(t, tt, q, "SELECT", RunStatement)
+	q.endTx(true) // the read opened a transaction; none is open for the edit
+	testutil.WaitFor(t, tt, "the commit", func() bool { return !q.Running && q.Tx == db.TxNone })
+	waitEditable(t, tt)
+	editCell(t, tt, "10", "11")
+	tt.Key(ui.Cmd, ui.KeyS)
+	testutil.WaitFor(t, tt, "the review", func() bool { return a.Confirm != nil })
+	a.Confirm.OnConfirm()
+	a.Confirm = nil
+	r := q.results[0]
+	testutil.WaitFor(t, tt, "the apply", func() bool { return !r.view.Applying() })
+	if got := committed(); got != "10" || q.sess.Tx() != db.TxOpen {
+		t.Fatalf("after the apply: committed %q, session tx %v", got, q.sess.Tx())
+	}
+	q.endTx(true)
+	testutil.WaitFor(t, tt, "the commit", func() bool { return !q.Running && q.Tx == db.TxNone })
+	if got := committed(); got != "11" {
+		t.Fatalf("after COMMIT: %q", got)
+	}
+}

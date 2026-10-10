@@ -79,7 +79,9 @@ and the run fails naming the line that began it.
   leave it open, and a deadlock or an implicit commit ends it. MySQL's
   `SET autocommit = 0` opens none: the next statement that reads or writes
   a table does. Until then the editor's bar says autocommit is off, and
-  closing or quitting asks nothing.
+  closing or quitting asks nothing. Its writes wait for COMMIT as manual
+  commit's do: a statement in the run that would commit them implicitly
+  asks first, and grid edits stay in the transaction they open.
 - In manual commit, every write runs in a transaction: a run begins one
   before its first statement when none is open, and again after a
   statement that committed it implicitly, saying so.

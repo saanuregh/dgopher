@@ -308,6 +308,19 @@ func CommitsImplicitly(e Engine, sql string) bool {
 	return commitsImplicitly(e, sql, leadingWords(e, sql))
 }
 
+// SetsAutocommit reads a MySQL SET of the session's autocommit: on, and
+// whether the statement assigns it at all; false on other engines.
+func SetsAutocommit(e Engine, sql string) (on, ok bool) {
+	if e != MySQL {
+		return false, false
+	}
+	words := leadingWords(e, sql)
+	if wordAt(words, 0) != "SET" {
+		return false, false
+	}
+	return setsAutocommit(allWords(e, sql, words))
+}
+
 // commitsImplicitly is CommitsImplicitly given the statement's leading
 // words, read on to its end only by the rules that scan that far.
 func commitsImplicitly(e Engine, sql string, words []string) bool {

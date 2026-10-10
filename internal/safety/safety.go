@@ -140,32 +140,42 @@ func (v *Verdict) EndsTransaction(cfg *db.Config, stmts []Statement, open bool) 
 // EndsRunTransaction is EndsTransaction for statements run with no
 // transaction open. It follows the transaction they run in: under manual
 // commit, the app opens one before they write and again after a statement
-// commits it; otherwise only a typed BEGIN or START TRANSACTION opens one,
-// which holds the statements after it until the transaction ends. A
+// commits it; under MySQL's autocommit off, the session's as the run
+// begins (autocommitOff) or as a SET in the run leaves it, the server
+// opens one at the first write; otherwise only a typed BEGIN or START
+// TRANSACTION opens one, which holds the statements after it until the
+// transaction ends. A
 // statement that commits implicitly asks only after a write it commits,
 // for before one the transaction holds nothing.
-func (v *Verdict) EndsRunTransaction(cfg *db.Config, stmts []Statement, manual bool) {
+func (v *Verdict) EndsRunTransaction(cfg *db.Config, stmts []Statement, manual, autocommitOff bool) {
 	held := false // a write waits in the transaction
 	begun := ""   // the typed statement that began the open transaction
+	off := autocommitOff && cfg.Engine == db.MySQL
 	for _, s := range stmts {
 		switch {
 		case CommitsImplicitly(cfg.Engine, s):
 			if held {
 				v.Confirm = true
-				if manual {
+				switch {
+				case manual:
 					v.Reasons = append(v.Reasons, verbOf(s.Analysis)+" commits the writes before it, which manual commit holds in a transaction: Roll Back will not undo them")
-				} else {
+				case begun != "":
 					v.Reasons = append(v.Reasons, verbOf(s.Analysis)+" commits the writes since "+begun+": rolling back after it will not undo them")
+				default:
+					v.Reasons = append(v.Reasons, verbOf(s.Analysis)+" commits the writes before it, which autocommit off holds in a transaction: rolling back after it will not undo them")
 				}
 			}
 			held, begun = false, ""
 		case CommitsOrRollsBack(cfg.Engine, s):
 			held, begun = false, ""
 		case WritesInTransaction(cfg.Engine, s):
-			held = manual || begun != ""
+			held = manual || begun != "" || off
 		}
 		if BeginsTransaction(s) {
 			begun = BeginStatement(s.Analysis.Verb)
+		}
+		if on, ok := db.SetsAutocommit(cfg.Engine, s.SQL); ok {
+			off = !on
 		}
 	}
 	v.Reasons = dedupe(v.Reasons)

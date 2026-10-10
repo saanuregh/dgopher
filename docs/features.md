@@ -445,9 +445,10 @@
     subquery in `FROM`) and its columns include the table's key; computed
     and renamed columns stay read-only. The status line says why a result
     cannot be edited. Its edits apply on the editor's session, so with
-    manual commit they join its open transaction (on DuckDB, which has no
-    savepoints, they wait until it ends), and ⌘S reviews them, then saves
-    the file.
+    manual commit, or MySQL's autocommit off, they join its open
+    transaction, or open one and leave it open (on DuckDB, which has no
+    savepoints, they wait until an open one ends), and ⌘S reviews them,
+    then saves the file.
   - Compare two results: pin a result's rows, then compare another with
     them, from the grid's compare button. The comparison matches rows by
     the table's key, a column of both or their position, and shows the

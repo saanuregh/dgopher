@@ -153,6 +153,6 @@ func (q *Tab) warnImplicitCommits(v *safety.Verdict, stmts []safety.Statement) {
 	case q.InTx():
 		v.EndsTransaction(cfg, stmts, true)
 	default:
-		v.EndsRunTransaction(cfg, stmts, cfg.ManualCommit())
+		v.EndsRunTransaction(cfg, stmts, cfg.ManualCommit(), q.autocommitOff)
 	}
 }

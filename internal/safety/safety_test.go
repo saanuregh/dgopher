@@ -273,7 +273,7 @@ func TestEndsTransactionWarns(t *testing.T) {
 		stmts := Analyze(c.cfg, strings.Split(c.sql, ";"))
 		v := ReviewSQL(c.cfg, stmts)
 		if c.opens {
-			v.EndsRunTransaction(c.cfg, stmts, true)
+			v.EndsRunTransaction(c.cfg, stmts, true, false)
 		} else {
 			v.EndsTransaction(c.cfg, stmts, c.open)
 		}
@@ -290,7 +290,7 @@ func TestEndsTransactionWarns(t *testing.T) {
 	// other writes, in the transaction opened again, is.
 	stmts := Analyze(my, strings.Split("INSERT INTO t VALUES (1); CREATE INDEX i ON t (a); CREATE INDEX j ON t (b); INSERT INTO t VALUES (2); DROP INDEX i ON t", ";"))
 	var v Verdict
-	v.EndsRunTransaction(my, stmts, true)
+	v.EndsRunTransaction(my, stmts, true, false)
 	if len(v.Reasons) != 2 || !strings.HasPrefix(v.Reasons[0], "CREATE ") || !strings.HasPrefix(v.Reasons[1], "DROP ") {
 		t.Fatalf("reasons %q", v.Reasons)
 	}
@@ -312,15 +312,42 @@ func TestEndsTransactionWarns(t *testing.T) {
 	} {
 		stmts := Analyze(my, strings.Split(sql, ";"))
 		var v Verdict
-		v.EndsRunTransaction(my, stmts, false)
+		v.EndsRunTransaction(my, stmts, false, false)
 		if want == "" && (v.Confirm || len(v.Reasons) > 0) || want != "" && (!v.Confirm || len(v.Reasons) != 1 || !strings.HasPrefix(v.Reasons[0], want)) {
 			t.Errorf("%q: %+v", sql, v)
 		}
 	}
 	pgStmts := Analyze(pg, strings.Split("BEGIN; INSERT INTO t VALUES (1); CREATE INDEX i ON t (a)", ";"))
 	var pv Verdict
-	if pv.EndsRunTransaction(pg, pgStmts, false); pv.Confirm || len(pv.Reasons) > 0 {
+	if pv.EndsRunTransaction(pg, pgStmts, false, false); pv.Confirm || len(pv.Reasons) > 0 {
 		t.Errorf("PostgreSQL's DDL commits nothing: %+v", pv)
+	}
+}
+
+// With MySQL's autocommit off, as the session had it or as the run turns
+// it off, every write waits for COMMIT: a statement that commits them
+// implicitly asks first.
+func TestEndsRunTransactionAutocommitOff(t *testing.T) {
+	my := &db.Config{Name: "my", Engine: db.MySQL, Env: db.Development}
+	for _, c := range []struct {
+		sql  string
+		off  bool
+		want string
+	}{
+		{"INSERT INTO t VALUES (1); CREATE INDEX i ON t (a)", true, "CREATE commits the writes before it, which autocommit off holds"},
+		{"CREATE INDEX i ON t (a)", true, ""},
+		{"SELECT 1; CREATE INDEX i ON t (a)", true, ""},
+		{"INSERT INTO t VALUES (1); COMMIT; CREATE INDEX i ON t (a)", true, ""},
+		{"SET autocommit = 0; INSERT INTO t VALUES (1); CREATE INDEX i ON t (a)", false, "CREATE commits the writes before it, which autocommit off holds"},
+		{"SET autocommit = 0; INSERT INTO t VALUES (1); SET autocommit = 1", false, "SET commits the writes before it, which autocommit off holds"},
+		{"SET autocommit = 1; INSERT INTO t VALUES (1); CREATE INDEX i ON t (a)", true, ""},
+		{"INSERT INTO t VALUES (1); CREATE INDEX i ON t (a)", false, ""},
+	} {
+		var v Verdict
+		v.EndsRunTransaction(my, Analyze(my, strings.Split(c.sql, ";")), false, c.off)
+		if c.want == "" && (v.Confirm || len(v.Reasons) > 0) || c.want != "" && (!v.Confirm || len(v.Reasons) != 1 || !strings.HasPrefix(v.Reasons[0], c.want)) {
+			t.Errorf("%q, autocommit off %v: %+v", c.sql, c.off, v)
+		}
 	}
 }
 
