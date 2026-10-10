@@ -81,8 +81,32 @@ func NewFakeHost(t TB) *FakeHost {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { p.Close() })
-	return &FakeHost{tb: t, settings: settings.Default(), layout: widgets.DefaultLayout(), Project: p}
+	h := &FakeHost{tb: t, settings: settings.Default(), layout: widgets.DefaultLayout(), Project: p}
+	// As the app quits: the work posted since the last frame first, as it
+	// may hand a tab its session, then the tabs, as their sessions hold a
+	// connection of the pools, then the pools, then the project's state.
+	t.Cleanup(func() {
+		h.mu.Lock()
+		queue := h.queue
+		h.queue = nil
+		h.mu.Unlock()
+		for _, fn := range queue {
+			fn()
+		}
+		for _, tab := range h.Tabs {
+			tab.Close()
+		}
+		for _, cn := range h.Conns {
+			if cn.DB != nil {
+				cn.DB.Close()
+			}
+			if cn.KV != nil {
+				cn.KV.Close()
+			}
+		}
+		p.Close()
+	})
+	return h
 }
 
 // AddConn adds a connection of the host's project, not yet connected.
@@ -91,14 +115,6 @@ func (h *FakeHost) AddConn(cfg db.Config) *connection.Conn {
 	cn := &connection.Conn{Config: cfg, Project: h.Project}
 	cn.Reset()
 	h.Conns = append(h.Conns, cn)
-	h.tb.Cleanup(func() {
-		if cn.DB != nil {
-			cn.DB.Close()
-		}
-		if cn.KV != nil {
-			cn.KV.Close()
-		}
-	})
 	return cn
 }
 

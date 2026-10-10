@@ -168,7 +168,7 @@ func Run(args []string) error {
 // shutdown ends what the app holds as it quits, once the user agreed to
 // what quitting loses: it saves the settings and the workspace, closes the
 // tabs, stops the work running and waits for it to roll back what it left
-// open, then closes the connections.
+// open, then closes the connections and the projects' state files.
 func (a *App) shutdown() {
 	a.SaveSettings()
 	a.saveWorkspace(true)
@@ -183,6 +183,9 @@ func (a *App) shutdown() {
 		if cn.KV != nil {
 			cn.KV.Close()
 		}
+	}
+	for _, p := range a.projects {
+		p.Close()
 	}
 }
 

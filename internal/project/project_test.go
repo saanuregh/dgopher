@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -19,6 +20,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer p.Close()
 	cfg := db.Config{ID: p.Prefix + "pg", Name: "Shop", Engine: db.Postgres, Host: "localhost", Password: "hunter2"}
 	cfg.SSH.Password, cfg.SSH.KeyPassphrase = "ssh-secret", "key-secret"
 	if err := p.Save([]db.Config{cfg}); err != nil {
@@ -33,10 +35,11 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 			t.Errorf("%s holds %q:\n%s", File, secret, data)
 		}
 	}
-	_, pc, err := Load(dir, false)
+	again, pc, err := Load(dir, false)
 	if err != nil {
 		t.Fatal(err)
 	}
+	again.Close()
 	if len(pc.Connections) != 1 || pc.Connections[0].ID != "pg" || pc.Connections[0].Host != "localhost" {
 		t.Fatalf("read back %+v", pc.Connections)
 	}
@@ -117,9 +120,11 @@ func TestMoveJSON(t *testing.T) {
 // ignoring everything; a .dgopher that is a symlink is refused.
 func TestGitignoreRewritten(t *testing.T) {
 	dir := t.TempDir()
-	if _, _, err := Load(dir, true); err != nil {
+	created, _, err := Load(dir, true)
+	if err != nil {
 		t.Fatal(err)
 	}
+	created.Close()
 	ignore := filepath.Join(dir, LocalDir, ".gitignore")
 	os.WriteFile(ignore, nil, 0o644)
 	p, _, err := Load(dir, false)
@@ -132,9 +137,11 @@ func TestGitignoreRewritten(t *testing.T) {
 	}
 
 	linked := t.TempDir()
-	if _, _, err := Load(linked, true); err != nil {
+	first, _, err := Load(linked, true)
+	if err != nil {
 		t.Fatal(err)
 	}
+	first.Close()
 	os.RemoveAll(filepath.Join(linked, LocalDir))
 	target := t.TempDir()
 	os.Symlink(target, filepath.Join(linked, LocalDir))
@@ -153,11 +160,15 @@ func TestContains(t *testing.T) {
 	os.MkdirAll(filepath.Join(dir, "q"), 0o755)
 	os.Symlink(root, filepath.Join(dir, "out"))
 	os.Symlink(filepath.Join(dir, "q"), filepath.Join(dir, "in"))
-	for path, want := range map[string]bool{
+	cases := map[string]bool{
 		"q/a.sql": true, filepath.Join(dir, "q", "new.sql"): true, "in/a.sql": true, "a/b/c.sql": true,
-		"../x": false, "/etc/passwd": false, "out/x": false, "q/../../x": false, "~/x": false, "": false,
+		"../x": false, filepath.Join(root, "x"): false, "out/x": false, "q/../../x": false, "~/x": false, "": false,
 		".git/config": false, ".dgopher/x": false, "q/.git": true, ".GIT/config": false,
-	} {
+	}
+	if runtime.GOOS != "windows" { // not absolute there: a file in the project's volume
+		cases["/etc/passwd"] = false
+	}
+	for path, want := range cases {
 		if got := Contains(dir, path); got != want {
 			t.Errorf("Contains(%q) = %v", path, got)
 		}

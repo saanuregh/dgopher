@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -222,7 +223,7 @@ func TestExportFilesArePrivate(t *testing.T) {
 			t.Fatalf("%s: %v", f, err)
 		}
 		info, err := os.Stat(path)
-		if err != nil || info.Mode().Perm() != 0o600 {
+		if err != nil || runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 { // Windows has no Unix modes
 			t.Errorf("%s: mode %v %v", f, info.Mode().Perm(), err)
 		}
 	}

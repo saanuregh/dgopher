@@ -271,6 +271,7 @@ func TestVirtualKeyMakesTableEditable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer p.Close()
 	if got := p.VirtualKeys["lite/main.log"]; len(got) != 1 || got[0] != "code" {
 		t.Fatalf("virtual keys after reopening: %v", p.VirtualKeys)
 	}

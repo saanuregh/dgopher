@@ -64,10 +64,16 @@ func openWorkbook(ctx context.Context, p string) (*workbook, error) {
 		return nil, fmt.Errorf("%s is not an Excel workbook: %w", path.Base(p), err)
 	}
 	wb := &workbook{zip: z, parts: map[string]string{}, dates: map[int]bool{}}
+	read := false
+	defer func() {
+		if !read { // an error, or a panic Open recovers from
+			z.Close()
+		}
+	}()
 	if err := wb.readParts(ctx); err != nil {
-		z.Close()
 		return nil, err
 	}
+	read = true
 	return wb, nil
 }
 

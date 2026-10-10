@@ -173,8 +173,9 @@ func TestDefaultDataDir(t *testing.T) {
 			t.Errorf("%s: %s, %v; want %s", goos, d, err, want)
 		}
 	}
-	t.Setenv("XDG_DATA_HOME", "/xdg")
-	if d, _ := userDataDir("linux"); d != "/xdg" {
+	xdg := filepath.Join(home, "xdg") // absolute on this system, as "/xdg" is not on Windows
+	t.Setenv("XDG_DATA_HOME", xdg)
+	if d, _ := userDataDir("linux"); d != xdg {
 		t.Errorf("with XDG_DATA_HOME: %s", d)
 	}
 }

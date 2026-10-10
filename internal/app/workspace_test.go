@@ -14,7 +14,7 @@ import (
 // .git and .dgopher: none comes back as an editor.
 func TestRestoreSkipsOutsidePaths(t *testing.T) {
 	st, _ := store.Open(t.TempDir(), store.MemorySecrets())
-	a := newApp(st)
+	a := startApp(t, st)
 	root := t.TempDir()
 	projDir := filepath.Join(root, "proj")
 	os.MkdirAll(filepath.Join(projDir, "queries"), 0o755)

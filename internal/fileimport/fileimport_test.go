@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 
@@ -73,7 +74,11 @@ func TestCSV(t *testing.T) {
 // DuckDB reads *, ? and [ in a path as a pattern: such a name is read
 // as it is.
 func TestGlobCharactersInName(t *testing.T) {
-	path := write(t, "data[1]*.csv", "a\n1\n")
+	name := "data[1]*.csv"
+	if runtime.GOOS == "windows" { // a Windows name cannot hold * or ?
+		name = "data[1].csv"
+	}
+	path := write(t, name, "a\n1\n")
 	f := open(t, path, Options{}, Column{"a", "BIGINT"})
 	if got := rows(t, f); len(got) != 1 {
 		t.Fatalf("rows %v", got)

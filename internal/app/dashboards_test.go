@@ -21,7 +21,7 @@ import (
 // with the workspace.
 func TestAddToDashboard(t *testing.T) {
 	st, _ := store.Open(t.TempDir(), store.MemorySecrets())
-	a := newApp(st)
+	a := startApp(t, st)
 	if _, err := a.addProject(newProjectDir(t, "p")); err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestAddToDashboard(t *testing.T) {
 	testutil.Snapshot(t, tt, "dashboard")
 
 	a.saveWorkspace(true) // as on quit
-	b := newApp(st)
+	b := startApp(t, st)
 	for _, tab := range b.tabs {
 		if d, ok := tab.(*dashboard.Tab); ok && d.Path == path {
 			return

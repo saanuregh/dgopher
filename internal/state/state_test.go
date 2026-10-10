@@ -28,7 +28,7 @@ func TestOpenCreatesPrivateFile(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), ".dgopher")
 	d := open(t, dir)
 	info, err := os.Stat(d.Path())
-	if err != nil || info.Mode().Perm() != 0o600 || filepath.Dir(d.Path()) != dir || d.Dir() != dir {
+	if err != nil || runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 || filepath.Dir(d.Path()) != dir || d.Dir() != dir {
 		t.Fatalf("file %v %v", info, err)
 	}
 	var mode string

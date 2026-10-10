@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -41,7 +42,13 @@ func TestKerberosProvider(t *testing.T) {
 	}
 	defer sqldb.Close()
 	err = sqldb.PingContext(context.Background())
-	if err == nil || strings.Contains(err.Error(), "no GSSAPI provider") || !strings.Contains(err.Error(), "Kerberos") {
+	// The Unix provider fails to load its Kerberos library here; Windows's
+	// SSPI provider loads, then fails the GSS exchange itself.
+	want := "Kerberos"
+	if runtime.GOOS == "windows" {
+		want = "GSS"
+	}
+	if err == nil || strings.Contains(err.Error(), "no GSSAPI provider") || !strings.Contains(err.Error(), want) {
 		t.Fatalf("the server's Kerberos request: %v", err)
 	}
 }

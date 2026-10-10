@@ -43,7 +43,7 @@ func newProjectDir(t *testing.T, name string) string {
 func TestProjectsLoadAndPersist(t *testing.T) {
 	cfgDir := t.TempDir()
 	st, _ := store.Open(cfgDir, store.MemorySecrets())
-	a := newApp(st)
+	a := startApp(t, st)
 	one, two := newProjectDir(t, "one"), newProjectDir(t, "two")
 	p1, err := a.addProject(one)
 	if err != nil {
@@ -60,7 +60,7 @@ func TestProjectsLoadAndPersist(t *testing.T) {
 		t.Fatalf("listed twice: %d projects", len(a.projects))
 	}
 
-	b := newApp(st)
+	b := startApp(t, st)
 	if len(b.projects) != 2 || b.projects[0].Dir != one || b.projects[1].Dir != two {
 		t.Fatalf("projects after a restart: %+v", b.settings.Projects)
 	}
@@ -136,7 +136,8 @@ func TestRelativeFilePaths(t *testing.T) {
 	a.addConn(p, db.Config{Name: "in", Engine: db.SQLite, Database: inside})
 	a.addConn(p, db.Config{Name: "out", Engine: db.SQLite, Database: outside})
 	raw, _ := os.ReadFile(filepath.Join(p.Dir, project.File))
-	if !strings.Contains(string(raw), `"database": "data/app.db"`) || !strings.Contains(string(raw), outside) {
+	outsideJSON, _ := json.Marshal(outside) // as written there: Windows's backslashes escaped
+	if !strings.Contains(string(raw), `"database": "data/app.db"`) || !strings.Contains(string(raw), string(outsideJSON)) {
 		t.Fatalf("paths in %s:\n%s", project.File, raw)
 	}
 	b := newBareApp(t)
@@ -157,13 +158,13 @@ func TestRelativeFilePaths(t *testing.T) {
 func TestMissingProjectStaysListed(t *testing.T) {
 	cfgDir := t.TempDir()
 	st, _ := store.Open(cfgDir, store.MemorySecrets())
-	a := newApp(st)
+	a := startApp(t, st)
 	dir := newProjectDir(t, "gone")
 	if _, err := a.addProject(dir); err != nil {
 		t.Fatal(err)
 	}
 	os.RemoveAll(dir)
-	b := newApp(st)
+	b := startApp(t, st)
 	if len(b.projects) != 1 || b.projects[0].Err == "" {
 		t.Fatalf("projects %+v", b.projects)
 	}
@@ -636,7 +637,7 @@ func TestEditAndDuplicateKeepSecrets(t *testing.T) {
 func TestConflictedTextSurvivesRestart(t *testing.T) {
 	cfgDir := t.TempDir()
 	st, _ := store.Open(cfgDir, store.MemorySecrets())
-	a := newApp(st)
+	a := startApp(t, st)
 	if _, err := a.addProject(newProjectDir(t, "p")); err != nil {
 		t.Fatal(err)
 	}
@@ -650,7 +651,7 @@ func TestConflictedTextSurvivesRestart(t *testing.T) {
 	q.Editor.Text = "SELECT 'mine';"
 	testutil.WaitFor(t, tt, "the conflict", func() bool { return q.DiskConflict != "" })
 	a.saveWorkspace(true) // as on quit
-	b := newApp(st)
+	b := startApp(t, st)
 	r := b.tabs[0].(*query.Tab)
 	if r.Editor.Text != "SELECT 'mine';" || r.Saved != "SELECT 'pulled';" || r.DiskConflict == "" {
 		t.Fatalf("restored %q over %q, conflict %q", r.Editor.Text, r.Saved, r.DiskConflict)
@@ -659,6 +660,9 @@ func TestConflictedTextSurvivesRestart(t *testing.T) {
 
 // A folder of queries that cannot be read does not break the project.
 func TestScanErrorKeepsProjectUsable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("a folder's mode does not stop reading it on Windows, so chmod cannot make the scan fail")
+	}
 	if os.Geteuid() == 0 {
 		t.Skip("root reads everything")
 	}
@@ -774,7 +778,7 @@ func TestConnFormSteppersDoNotOverlap(t *testing.T) {
 // at start stays unconnected, says so, and Run connects it first.
 func TestRestoredEditorWaitsToConnect(t *testing.T) {
 	st, _ := store.Open(t.TempDir(), store.MemorySecrets())
-	a := newApp(st)
+	a := startApp(t, st)
 	if _, err := a.addProject(newProjectDir(t, "p")); err != nil {
 		t.Fatal(err)
 	}
@@ -787,7 +791,7 @@ func TestRestoredEditorWaitsToConnect(t *testing.T) {
 	testutil.WaitFor(t, tt, "the editor", func() bool { _, ok := a.ActiveTab().(*query.Tab); return ok })
 	a.saveWorkspace(true)
 
-	b := newApp(st)
+	b := startApp(t, st)
 	tt = ui.NewTester(b.view, 1000, 700)
 	for range 5 {
 		tt.Frame()
@@ -805,7 +809,7 @@ func TestRestoredEditorWaitsToConnect(t *testing.T) {
 // pull that changed the header, not on the one it last had.
 func TestRestoredEditorFollowsItsHeader(t *testing.T) {
 	st, _ := store.Open(t.TempDir(), store.MemorySecrets())
-	a := newApp(st)
+	a := startApp(t, st)
 	if _, err := a.addProject(newProjectDir(t, "p")); err != nil {
 		t.Fatal(err)
 	}
@@ -819,7 +823,7 @@ func TestRestoredEditorFollowsItsHeader(t *testing.T) {
 	a.saveWorkspace(true)
 	os.WriteFile(q.Path, []byte("-- connection: beta\n\nSELECT 1;"), 0o644)
 
-	b := newApp(st)
+	b := startApp(t, st)
 	if len(b.tabs) != 1 || b.tabs[0].Connection().Config.ID != b.projects[0].Prefix+"beta" {
 		t.Fatalf("restored %v", b.tabs)
 	}
@@ -828,7 +832,7 @@ func TestRestoredEditorFollowsItsHeader(t *testing.T) {
 // On, a connection opens as DGopher starts, with nothing shown.
 func TestAutoConnectAtStart(t *testing.T) {
 	st, _ := store.Open(t.TempDir(), store.MemorySecrets())
-	a := newApp(st)
+	a := startApp(t, st)
 	if _, err := a.addProject(newProjectDir(t, "p")); err != nil {
 		t.Fatal(err)
 	}
@@ -839,7 +843,7 @@ func TestAutoConnectAtStart(t *testing.T) {
 	addConn(a, db.Config{ID: "lazy", Name: "lazy", Engine: db.SQLite, Database: filepath.Join(dir, "y.sqlite")})
 	a.saveProject(a.projects[0])
 
-	b := newApp(st)
+	b := startApp(t, st)
 	tt := ui.NewTester(b.view, 1000, 700)
 	auto, lazy := b.connByID(b.projects[0].Prefix+"lite"), b.connByID(b.projects[0].Prefix+"lazy")
 	testutil.WaitFor(t, tt, "the auto-connect", func() bool { return auto.Status == connection.StatusConnected })
@@ -956,7 +960,7 @@ func (s slowSecrets) Get(key string) (string, error) {
 // drawing while it answers.
 func TestConnectLoadsSecretsInBackground(t *testing.T) {
 	st, _ := store.Open(t.TempDir(), slowSecrets{store.MemorySecrets()})
-	a := newApp(st)
+	a := startApp(t, st)
 	if _, err := a.addProject(newProjectDir(t, "p")); err != nil {
 		t.Fatal(err)
 	}

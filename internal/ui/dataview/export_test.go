@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -101,7 +102,7 @@ func TestExportReRunsFullQuery(t *testing.T) {
 		t.Fatalf("%d lines, want a header and 1,200 rows", lines)
 	}
 	info, _ := os.Stat(path)
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 { // Windows has no Unix modes
 		t.Fatalf("mode %v", info.Mode().Perm())
 	}
 	// Only the rows read, when asked.

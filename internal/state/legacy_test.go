@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -148,9 +149,24 @@ func TestLegacyImportSkipsOutsidePaths(t *testing.T) {
 	dir := filepath.Join(root, ".dgopher")
 	os.MkdirAll(dir, 0o700)
 	os.Symlink(root+"/..", filepath.Join(root, "up"))
-	ws := `{"editors": [{"path": "../x"}, {"path": "/etc/passwd"}, {"path": ".git/config"}, {"path": ".dgopher/x"}, {"path": "up/x"}, {"path": "q/a.sql", "connection": "c"}],
-		"active": 5, "dashboards": ["../d.json", "d.json"], "models": ["/m.json", "m.json"], "files": ["../f.sql", "f.sql"]}`
-	os.WriteFile(filepath.Join(dir, "workspace.json"), []byte(ws), 0o600)
+	// Absolute paths outside the project; /etc/passwd is not absolute on
+	// Windows, where it names a file in the project's volume.
+	outside := []string{filepath.Join(t.TempDir(), "passwd")}
+	if runtime.GOOS != "windows" {
+		outside = append(outside, "/etc/passwd")
+	}
+	editors := []map[string]string{{"path": "../x"}, {"path": ".git/config"}, {"path": ".dgopher/x"}, {"path": "up/x"}}
+	for _, path := range outside {
+		editors = append(editors, map[string]string{"path": path})
+	}
+	editors = append(editors, map[string]string{"path": "q/a.sql", "connection": "c"})
+	models := []string{filepath.Join(t.TempDir(), "m.json"), "m.json"}
+	if runtime.GOOS != "windows" {
+		models = append([]string{"/m.json"}, models...)
+	}
+	ws, _ := json.Marshal(map[string]any{"editors": editors, "active": len(editors) - 1,
+		"dashboards": []string{"../d.json", "d.json"}, "models": models, "files": []string{"../f.sql", "f.sql"}})
+	os.WriteFile(filepath.Join(dir, "workspace.json"), ws, 0o600)
 	d := open(t, dir)
 	var got map[string]any
 	if err := d.LoadJSON("workspace.json", &got); err != nil {

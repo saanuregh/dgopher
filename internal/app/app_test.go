@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -45,7 +46,16 @@ func newBareApp(t *testing.T) *App {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return newApp(st)
+	return startApp(t, st)
+}
+
+// startApp makes an app on st that quits, as on shutdown, when the test
+// ends: before the test's folders are removed, as Windows cannot remove
+// a file still open.
+func startApp(t *testing.T, st *store.Store) *App {
+	a := newApp(st)
+	t.Cleanup(a.shutdown)
+	return a
 }
 
 func TestWelcome(t *testing.T) {
@@ -288,7 +298,7 @@ func TestEnginesSmoke(t *testing.T) {
 func TestWorkspaceRestore(t *testing.T) {
 	cfgDir := t.TempDir()
 	st, _ := store.Open(cfgDir, store.MemorySecrets())
-	a := newApp(st)
+	a := startApp(t, st)
 	projDir := filepath.Join(t.TempDir(), "proj")
 	os.MkdirAll(projDir, 0o755)
 	p, err := a.addProject(projDir)
@@ -315,7 +325,7 @@ func TestWorkspaceRestore(t *testing.T) {
 	}
 
 	st2, _ := store.Open(cfgDir, store.MemorySecrets())
-	b := newApp(st2)
+	b := startApp(t, st2)
 	if len(b.projects) != 1 || len(b.tabs) != 1 {
 		t.Fatalf("restored %d projects, %d tabs", len(b.projects), len(b.tabs))
 	}
@@ -816,6 +826,9 @@ func TestDropFiles(t *testing.T) {
 		t.Fatalf("editor %q %q", q.Path, q.Editor.Text)
 	}
 	csv := dir + "/people's data\nDROP TABLE x;.csv" // a quote and a newline in the name
+	if runtime.GOOS == "windows" {                   // a Windows name cannot hold a newline
+		csv = dir + "/people's data DROP TABLE x;.csv"
+	}
 	os.WriteFile(csv, []byte("name,age\nAda,36\nGrace,85\n"), 0o600)
 	a.openDropped([]string{csv})
 	testutil.WaitFor(t, tt, "the csv's 2 rows", func() bool {
@@ -1299,7 +1312,7 @@ func TestNotifyLongWork(t *testing.T) {
 
 	a.settings.NotifyAfter = 0
 	a.SaveSettings()
-	b := newApp(a.st)
+	b := startApp(t, a.st)
 	if b.settings.NotifyAfter != 0 {
 		t.Fatalf("never became %d seconds", b.settings.NotifyAfter)
 	}

@@ -27,7 +27,7 @@ func TestLayoutPersists(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { db.Close() })
-		a := newApp(st)
+		a := startApp(t, st)
 		a.useUIState(db)
 		return a, ui.NewTester(a.view, 1000, 600)
 	}

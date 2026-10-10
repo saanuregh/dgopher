@@ -13,6 +13,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -113,10 +114,10 @@ func TestUnknownHostThenTrust(t *testing.T) {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0o600 {
+	if err != nil || runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 { // Windows has no Unix modes
 		t.Fatalf("known_hosts mode: %v %v", info, err)
 	}
-	if dirInfo, _ := os.Stat(filepath.Dir(path)); dirInfo.Mode().Perm() != 0o700 {
+	if dirInfo, _ := os.Stat(filepath.Dir(path)); runtime.GOOS != "windows" && dirInfo.Mode().Perm() != 0o700 {
 		t.Fatalf("dir mode %v", dirInfo.Mode().Perm())
 	}
 

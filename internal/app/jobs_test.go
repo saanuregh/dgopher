@@ -13,6 +13,7 @@ import (
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/project"
 	"dgopher/internal/testutil"
 	"dgopher/internal/ui/dataview"
 
@@ -321,8 +322,20 @@ func TestQuitListsRunningJobs(t *testing.T) {
 	if !strings.Contains(x.err, "BEGIN at line 2 was never committed; its changes were rolled back") {
 		t.Fatalf("the file: %q", x.err)
 	}
-	if e := rollbackAudited(t, a, "line 2"); e == nil || e.Error != "" {
-		t.Fatalf("the rollback: %+v", e)
+	// The quit closed the project's state: read its audit log again.
+	p, _, err := project.Load(a.projects[0].Dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	events, err := p.Audit.Read(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i := slices.IndexFunc(events, func(e audit.Event) bool {
+		return e.Kind == audit.KindStatement && e.Statement == "ROLLBACK" && strings.Contains(e.Detail, "line 2")
+	}); i < 0 || events[i].Error != "" {
+		t.Fatalf("the rollback in %+v", events)
 	}
 	if rowsIn(t, file) != "0" {
 		t.Fatal("the file's transaction was not rolled back")
