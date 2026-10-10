@@ -14,7 +14,7 @@ jobs:
   draft-release:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Check the tag against the version
         run: test "$GITHUB_REF_NAME" = "v$(jq -r .version mygo.json)"
       - name: Create the draft release
@@ -45,14 +45,14 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       # mygo build downloads NSIS for the Windows installer; go.sum pins it.
       - name: Cache NSIS
         if: runner.os == 'Windows'
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~\AppData\Local\mygo\nsis-*
           key: nsis-${{ hashFiles('go.sum') }}
@@ -85,6 +85,15 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
+      - name: Upload the checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dir="$RUNNER_TEMP/assets"
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --dir "$dir"
+          rm -f "$dir/SHA256SUMS"
+          (cd "$dir" && sha256sum -- * > "$RUNNER_TEMP/SHA256SUMS")
+          gh release upload "$GITHUB_REF_NAME" "$RUNNER_TEMP/SHA256SUMS" --repo "$GITHUB_REPOSITORY" --clobber
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}

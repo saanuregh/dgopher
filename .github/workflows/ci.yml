@@ -10,15 +10,31 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-24.04
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # The app ships for Windows, where these tests have not passed yet: until
+    # they do, a failure there shows without failing the run.
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
     env:
       CGO_ENABLED: "1" # DuckDB
+    defaults:
+      run:
+        shell: bash
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      # Files keep their LF line ends, as gofmt and the tests expect.
+      - name: Keep line ends
+        if: runner.os == 'Windows'
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       - name: Format
+        if: runner.os == 'Linux'
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - name: Vet
         run: go vet ./...

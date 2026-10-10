@@ -2,7 +2,7 @@
 
 ## Build and run
 
-You need Go 1.27.1 or later, which `go` downloads automatically, and a C
+You need Go 1.27.2 or later, which `go` downloads automatically, and a C
 compiler: DuckDB is built in through the cgo driver
 [duckdb-go](https://github.com/duckdb/duckdb-go), which links it
 statically.
@@ -33,7 +33,11 @@ window needs and `CGO_ENABLED=1`. Elsewhere on Linux the window needs GTK
   (egoist/mygo#153). To update it, rebase that branch onto a new MyGo release and run
   `go mod edit -replace=github.com/egoist/mygo=github.com/saanuregh/mygo@<commit> && go mod tidy`.
 - **Other platforms:** with cgo, building for macOS or Windows needs a C
-  toolchain for that platform, as `zig cc` or a machine of that system.
+  toolchain for that platform, or a machine of that system. For Windows,
+  `zig cc` is enough to vet
+  (`GOOS=windows GOARCH=amd64 CC="zig cc -target x86_64-windows-gnu" go vet ./...`)
+  but not to link DuckDB, whose Windows library wants MinGW's C++ library:
+  build on Windows.
 
 ## Releases
 
@@ -42,8 +46,10 @@ window needs and `CGO_ENABLED=1`. Elsewhere on Linux the window needs GTK
 platform builds on a runner of its own system, as DuckDB needs cgo, and
 uploads its installers (the macOS disk image, the Windows installer, and
 the Linux Debian package and archive) to the release, published once every
-platform's are there. `.github/workflows/ci.yml` runs gofmt, vet and the
-tests on every push and pull request.
+platform's are there, with a `SHA256SUMS` of them. `.github/workflows/ci.yml`
+runs gofmt, vet and the tests on every push and pull request, on Linux and
+Windows; a failure on Windows does not fail the run until the tests have
+passed there once.
 
 ```sh
 # set "version" in mygo.json, commit, then
