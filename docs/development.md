@@ -48,8 +48,8 @@ uploads its installers (the macOS disk image, the Windows installer, and
 the Linux Debian package and archive) to the release, published once every
 platform's are there, with a `SHA256SUMS` of them. `.github/workflows/ci.yml`
 runs gofmt, vet and the tests on every push and pull request, on Linux and
-Windows; a failure on Windows does not fail the run until the tests have
-passed there once.
+Windows. On Linux, a package whose tests leave a file open in a test's
+temporary folder fails, as Windows cannot remove it.
 
 ```sh
 # set "version" in mygo.json, commit, then

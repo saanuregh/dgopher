@@ -12,9 +12,6 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # The app ships for Windows, where these tests have not passed yet: until
-    # they do, a failure there shows without failing the run.
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:
