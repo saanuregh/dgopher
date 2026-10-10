@@ -137,9 +137,10 @@ func Load(dir string, create bool) (*Project, Config, error) {
 		return p, pc, fmt.Errorf("the queries folder %q is outside the project", pc.Queries)
 	}
 	// A cloned .dgopher that is a symlink would put the state, and its
-	// history, wherever it points.
-	if fi, err := os.Lstat(filepath.Join(dir, LocalDir)); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
-		return p, pc, fmt.Errorf("the project's %s folder is a symbolic link: replace it with a folder to open the project", LocalDir)
+	// history, wherever it points; so would a Windows junction, which Go
+	// reports as irregular, not as a symlink.
+	if fi, err := os.Lstat(filepath.Join(dir, LocalDir)); err == nil && fi.Mode().Type() != fs.ModeDir {
+		return p, pc, fmt.Errorf("the project's %s folder is a symbolic link, or not a folder: replace it with a folder to open the project", LocalDir)
 	}
 	local, err := state.Open(filepath.Join(dir, LocalDir))
 	if err != nil {

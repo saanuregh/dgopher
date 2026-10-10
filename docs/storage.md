@@ -39,10 +39,10 @@ absolute paths and symbolic links are resolved; a link whose target is
 missing counts as outside), or under its `.git/` or `.dgopher/`, are
 skipped, so a cloned repository that ships its own `.dgopher/` cannot open
 your other files. An editor you opened on a script outside the project does
-not come back after a restart. A `.dgopher` that is a symbolic link stops
-the project from opening. Keeping your text over a changed file outside the
-project, or a link to one, asks first, showing its full path and where the
-link points.
+not come back after a restart. A `.dgopher` that is a symbolic link, or a
+Windows junction, stops the project from opening. Keeping your text over a
+changed file outside the project, or a link to one, asks first, showing its
+full path and where the link points.
 
 **The app's config directory** holds only what is about the app, not a
 project: `~/.config/dgopher` on Linux, `~/Library/Application
