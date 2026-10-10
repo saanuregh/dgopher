@@ -167,7 +167,7 @@ func (r *Tab) scan() {
 	kv := r.conn.KV
 	cursor, pattern := r.cursor, r.pattern
 	typ := typeOf(r.typeFilter)
-	r.a.Background(func() func() {
+	dataview.BackgroundResetOnPanic(r.a, func() { r.scanning = false }, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		var found []string
@@ -261,7 +261,11 @@ func (r *Tab) loadKey() {
 	r.valueGen++
 	gen := r.valueGen
 	kv := r.conn.KV
-	r.a.Background(func() func() {
+	dataview.BackgroundResetOnPanic(r.a, func() {
+		if gen == r.valueGen {
+			r.loadingKey = false
+		}
+	}, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		info, err := kv.Info(ctx, key)
@@ -362,7 +366,11 @@ func (r *Tab) loadMore() {
 	r.loadingKey = true
 	gen := r.valueGen
 	kv, key, typ, pos := r.conn.KV, r.selected, r.info.Type, r.itemsPos
-	r.a.Background(func() func() {
+	dataview.BackgroundResetOnPanic(r.a, func() {
+		if gen == r.valueGen {
+			r.loadingKey = false
+		}
+	}, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		fields, next, done, err := readPage(ctx, kv, key, typ, pos)
@@ -386,7 +394,11 @@ func (r *Tab) loadWhole() {
 	r.loadingKey = true
 	gen := r.valueGen
 	kv, key := r.conn.KV, r.selected
-	r.a.Background(func() func() {
+	dataview.BackgroundResetOnPanic(r.a, func() {
+		if gen == r.valueGen {
+			r.loadingKey = false
+		}
+	}, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 		value, err := kv.ReadString(ctx, key, 0)

@@ -12,6 +12,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/safety"
+	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -155,7 +156,19 @@ func (a *App) runCopy(x *copyDialog, to *connection.Conn, tables []string) {
 		})
 	}
 	started := time.Now()
-	go func() {
+	loss := "stopping it keeps the tables copied so far, and rolls back the one it is copying."
+	if !to.Config.Engine.Transactions() {
+		loss = "stopping it keeps what was copied so far."
+	}
+	job := fmt.Sprintf("Copying %s from %s into %s: %s", widgets.Count(len(tables), "table"), from.Config.Name, to.Config.Name, loss)
+	// The source's pool closing stops it too.
+	finishFrom := func() {}
+	if from != to {
+		finishFrom = a.StartJob(from, job, cancel)
+	}
+	stopped := func() { x.running, x.cancel, x.err = false, nil, "The copy stopped on an internal error." }
+	dataview.RunJob(a, to, job, cancel, stopped, func() func() {
+		defer finishFrom()
 		defer cancel()
 		var err error
 		for _, table := range tables {
@@ -166,7 +179,7 @@ func (a *App) runCopy(x *copyDialog, to *connection.Conn, tables []string) {
 			ev := audit.Event{Kind: audit.KindImport, Database: toDB, Rows: n, Statement: "INSERT INTO " + table,
 				Detail: fmt.Sprintf("copied from %s, %s.%s", from.Config.Name, fromSchema, table)}
 			if err != nil {
-				ev.Error = err.Error()
+				ev.Err = err
 				status(table, "failed")
 			} else {
 				status(table, widgets.Count(n, "row")+" copied")
@@ -176,7 +189,7 @@ func (a *App) runCopy(x *copyDialog, to *connection.Conn, tables []string) {
 				break
 			}
 		}
-		a.Post(func() {
+		return func() {
 			x.running, x.cancel = false, nil
 			to.ForgetCatalog()
 			if err != nil {
@@ -186,8 +199,8 @@ func (a *App) runCopy(x *copyDialog, to *connection.Conn, tables []string) {
 			}
 			x.done = true
 			a.Notify(started, "Copy finished", widgets.Count(len(tables), "table")+" into "+to.Config.Name, nil)
-		})
-	}()
+		}
+	})
 }
 
 // copyTable copies a table's rows into the target's schema, making the

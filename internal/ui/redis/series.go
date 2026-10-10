@@ -51,7 +51,11 @@ func (r *Tab) loadSeries() {
 	s.reads++
 	kv, key, span, read := r.conn.KV, r.selected, seriesSpans[s.span].span, s.reads
 	s.readFor = key + "\x00" + seriesSpans[s.span].label
-	r.a.Background(func() func() {
+	dataview.BackgroundResetOnPanic(r.a, func() {
+		if read == s.reads {
+			s.loading = false
+		}
+	}, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		first, last, props, err := kv.SeriesInfo(ctx, key)

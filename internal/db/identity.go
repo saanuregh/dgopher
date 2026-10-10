@@ -37,9 +37,11 @@ func (i Identity) Label() string {
 	return string(i)
 }
 
-// identityCommand is the command printing a connection's token, run
-// without a shell; the values of the connection are words of their own.
-func identityCommand(cfg *Config) []string {
+// IdentityCommand is the command a connection's cloud identity runs to
+// print its token, word for word, as the app asks the user to agree to it;
+// nil without an identity. It runs without a shell; the values of the
+// connection are words of their own.
+func IdentityCommand(cfg *Config) []string {
 	switch cfg.Identity {
 	case IdentityAWS:
 		argv := []string{"aws", "rds", "generate-db-auth-token", "--hostname", cfg.Host, "--port", strconv.Itoa(cfg.port()), "--username", cfg.User}
@@ -75,7 +77,7 @@ type token struct {
 // identityToken is the token a connection logs in with, made again once
 // it is old: each new connection of a pool asks, long after the first.
 func identityToken(ctx context.Context, cfg Config) (string, error) {
-	argv := identityCommand(&cfg)
+	argv := IdentityCommand(&cfg)
 	key := strings.Join(argv, "\x00")
 	tokens.Lock()
 	t, ok := tokens.byCommand[key]

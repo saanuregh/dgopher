@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/export"
 	"dgopher/internal/settings"
@@ -216,7 +217,7 @@ func TestFilterMenuBuildsWhere(t *testing.T) {
 		{db.Postgres, rowCond{col: 0, op: "notnull"}, `"name" IS NOT NULL`},
 		{db.Postgres, rowCond{col: 0, op: "in", vals: []any{int64(1), int64(2)}}, `"name" IN (1, 2)`},
 		{db.Postgres, rowCond{col: 0, op: "contains", vals: []any{"ab"}}, `CAST("name" AS TEXT) ILIKE '%ab%'`},
-		{db.Postgres, rowCond{col: 0, op: "contains", vals: []any{`50%_\x`}}, `CAST("name" AS TEXT) ILIKE '%50\%\_\\x%'`},
+		{db.Postgres, rowCond{col: 0, op: "contains", vals: []any{`50%_\x`}}, `CAST("name" AS TEXT) ILIKE E'%50\\%\\_\\\\x%'`},
 		{db.SQLite, rowCond{col: 0, op: "contains", vals: []any{"5%"}}, `CAST("name" AS TEXT) LIKE '%5\%%' ESCAPE '\'`},
 		{db.MySQL, rowCond{col: 0, op: "contains", vals: []any{"5%"}}, "CAST(`name` AS CHAR) LIKE '%5\\\\%%'"},
 		{db.MySQL, rowCond{col: 0, op: "contains", vals: []any{"ab"}}, "CAST(`name` AS CHAR) LIKE '%ab%'"},
@@ -738,5 +739,17 @@ func TestEnterEditsCell(t *testing.T) {
 				t.Errorf("key %v, mode %d: no edit started", key, mode)
 			}
 		}
+	}
+}
+
+// Copy as SQL quotes the raw schema and table once.
+func TestCopyAsSQLNotDoubleQuoted(t *testing.T) {
+	g, src := editableGrid()
+	g.selection.Add(0)
+	cn := &connection.Conn{Config: db.Config{Engine: db.MySQL}, DB: &db.DB{Dialect: db.DialectOf(db.MySQL)}}
+	g.SQLOpts = SQLOptionsFor(cn, "s", "t")
+	got := g.copySelection(src, export.SQL, false)
+	if !strings.HasPrefix(got, "INSERT INTO `s`.`t` (`id`") {
+		t.Fatalf("got %q", got)
 	}
 }

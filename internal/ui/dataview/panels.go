@@ -159,6 +159,7 @@ func (g *Grid) valuePanel(c *ui.Context, a Host, src *Source, row int) {
 				}
 				name := src.Cols[g.selCol].Name
 				go func() {
+					defer RecoverBackground(a.Post, a.ShowError, nil)
 					path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{Title: "Save the Value", DefaultPath: name})
 					if err != nil || path == "" {
 						return
@@ -174,6 +175,7 @@ func (g *Grid) valuePanel(c *ui.Context, a Host, src *Source, row int) {
 			if g.edits != nil && g.columnReadOnly(g.selCol) == "" && ui.Button(c, "Load from File…").Clicked() {
 				col, gen := g.selCol, g.gen
 				go func() {
+					defer RecoverBackground(a.Post, a.ShowError, nil)
 					paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "Load the Value"})
 					if err != nil || len(paths) == 0 {
 						return

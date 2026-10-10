@@ -604,6 +604,9 @@ func (a *App) statusBar(c *ui.Context) {
 			if cn.Version != "" {
 				status += " " + widgets.FirstLine(cn.Version)
 			}
+			if s := tlsStateOf(cn.DB, cn.KV); s != "" {
+				status += ", " + s
+			}
 		case connection.StatusConnecting:
 			status = "connecting…"
 		case connection.StatusFailed:
@@ -658,4 +661,16 @@ type pendingToast struct {
 	text   string
 	action string
 	run    func()
+}
+
+// tlsStateOf is whether an open connection uses TLS, as the server
+// negotiated it: "TLS", "no TLS", or "" for a file.
+func tlsStateOf(sqldb *db.DB, kv *db.KV) string {
+	switch {
+	case sqldb != nil:
+		return sqldb.TLSState()
+	case kv != nil:
+		return kv.TLSState()
+	}
+	return ""
 }

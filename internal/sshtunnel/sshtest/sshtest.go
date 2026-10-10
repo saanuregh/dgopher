@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"slices"
 	"strconv"
 	"sync"
 	"testing"
@@ -24,9 +25,17 @@ type Server struct {
 	Port    int
 	HostKey ssh.Signer // its ed25519 key
 
-	listener net.Listener
-	mu       sync.Mutex
-	conns    []net.Conn
+	listener  net.Listener
+	mu        sync.Mutex
+	conns     []net.Conn
+	passwords []string
+}
+
+// Passwords are the passwords clients tried, in order.
+func (s *Server) Passwords() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.passwords)
 }
 
 // NewSigner returns a new ed25519 key.
@@ -49,8 +58,12 @@ func NewSigner(t testing.TB) (ssh.Signer, ed25519.PrivateKey) {
 func Start(t testing.TB, password string, clientKey ssh.PublicKey, extraHostKeys ...ssh.Signer) *Server {
 	t.Helper()
 	hostKey, _ := NewSigner(t)
+	s := &Server{HostKey: hostKey}
 	config := &ssh.ServerConfig{
 		PasswordCallback: func(_ ssh.ConnMetadata, pw []byte) (*ssh.Permissions, error) {
+			s.mu.Lock()
+			s.passwords = append(s.passwords, string(pw))
+			s.mu.Unlock()
 			if string(pw) == password {
 				return nil, nil
 			}
@@ -71,7 +84,7 @@ func Start(t testing.TB, password string, clientKey ssh.PublicKey, extraHostKeys
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &Server{Addr: l.Addr().String(), HostKey: hostKey, listener: l}
+	s.Addr, s.listener = l.Addr().String(), l
 	host, port, _ := net.SplitHostPort(s.Addr)
 	s.Host = host
 	s.Port, _ = strconv.Atoi(port)

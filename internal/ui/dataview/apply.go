@@ -2,7 +2,9 @@ package dataview
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"dgopher/internal/audit"
@@ -18,6 +20,8 @@ import (
 // always is set. The change shows, and is audited, with its secrets
 // hidden. running, when set, hears how to cancel it once it runs, else
 // it gives up after a minute; done hears how it ended, on the main thread.
+// A change in a transaction of its own is refused while one is open on a
+// connection every session shares, as it cannot begin inside it.
 func ApplyChange(a Host, cn *connection.Conn, database, title string, ch db.SchemaChange, always string, running func(cancel func()), done func(error)) {
 	cfg := cn.Config
 	stmts := ch.Statements()
@@ -27,6 +31,12 @@ func ApplyChange(a Host, cn *connection.Conn, database, title string, ch db.Sche
 		a.RecordBlocked(cn, v.Blocked, preview)
 		a.ShowError("Not allowed", v.Blocked)
 		return
+	}
+	if ch.Atomic && cn.DB != nil {
+		if state, _ := cn.DB.SharedTx(); state != db.TxNone {
+			a.ShowError("Not applied", openTxRefusal(cfg.Name))
+			return
+		}
 	}
 	if !ch.Atomic && len(stmts) > 1 {
 		v.Reasons = append(v.Reasons, cfg.Engine.Label()+" commits each statement as it runs: if one fails, those before it stay.")
@@ -42,17 +52,27 @@ func ApplyChange(a Host, cn *connection.Conn, database, title string, ch db.Sche
 			ctx, cancel = context.WithTimeout(context.Background(), time.Minute)
 		}
 		pool := cn.DB
-		a.Background(func() func() {
+		job := strings.TrimSuffix(title, "?") + " on " + cfg.Name + ": stopping it keeps what ran so far."
+		if ch.Atomic {
+			job = strings.TrimSuffix(title, "?") + " on " + cfg.Name + ": stopping it rolls it back, and nothing of it stays."
+		}
+		stopped := func() { done(errors.New("it stopped on an internal error")) }
+		RunJob(a, cn, job, cancel, stopped, func() func() {
 			defer cancel()
 			var failed string
 			sess, err := connection.OpenSession(ctx, pool, database)
 			if err == nil {
-				err = sess.Apply(ctx, ch, func(stmt string, rows int64, took time.Duration, err error) {
-					a.RecordRun(cfg, audit.KindStatement, database, stmt, rows, took, err)
-					if err != nil && failed == "" {
-						failed = stmt
-					}
-				})
+				if ch.Atomic && sess.DB().Single() && sess.Tx() != db.TxNone {
+					// Begun while the change was being agreed to.
+					err = errors.New(openTxRefusal(cfg.Name))
+				} else {
+					err = sess.Apply(ctx, ch, func(stmt string, rows int64, took time.Duration, err error) {
+						a.RecordRun(cfg, audit.KindStatement, database, stmt, rows, took, err)
+						if err != nil && failed == "" {
+							failed = stmt
+						}
+					})
+				}
 				sess.Close()
 			}
 			if err != nil && failed != "" {
@@ -70,4 +90,11 @@ func ApplyChange(a Host, cn *connection.Conn, database, title string, ch db.Sche
 		return
 	}
 	a.AskConfirm(cn, v, title, "Apply", preview, run)
+}
+
+// openTxRefusal says why a change that runs in a transaction of its own is
+// not applied while one is open on a connection every session shares:
+// its BEGIN would fail there, and on DuckDB abort the open transaction.
+func openTxRefusal(conn string) string {
+	return "A transaction is open on " + conn + ", whose tabs share one connection: commit or roll it back first. The change runs in a transaction of its own, which cannot begin inside it."
 }

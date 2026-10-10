@@ -8,6 +8,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/project"
+	"dgopher/internal/sqltext"
 	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/widgets"
 
@@ -97,13 +98,7 @@ func (a *App) queryDataFileIn(p *project.Project, path string) {
 	lit := db.Literal(db.DuckDB, path)
 	// The name goes in a comment: a newline in it would end the comment
 	// and run what follows, as this editor runs at once.
-	name := strings.Map(func(r rune) rune {
-		if r < ' ' || r == 0x7f || r == '\u2028' || r == '\u2029' {
-			return ' '
-		}
-		return r
-	}, filepath.Base(path))
-	text := "-- " + name + ", read in place by DuckDB\nSELECT *\nFROM " + lit + "\nLIMIT 1000;\n"
+	text := sqltext.LineComment(filepath.Base(path)+", read in place by DuckDB") + "\nSELECT *\nFROM " + lit + "\nLIMIT 1000;\n"
 	a.newQueryFile(cn, "", text, func(q *query.Tab) { q.Run(query.RunScript) })
 }
 

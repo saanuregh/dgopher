@@ -2,6 +2,8 @@ package secretcmd
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"reflect"
 	"runtime"
 	"strings"
@@ -64,6 +66,27 @@ func TestRunErrorHidesStdout(t *testing.T) {
 	msg := err.Error()
 	if !strings.Contains(msg, "oops") || !strings.Contains(msg, "3") || strings.Contains(msg, "secret") {
 		t.Fatalf("error = %q", msg)
+	}
+}
+
+// What a failing command printed to stderr is in its error, for the user
+// to see, and out of the text the audit log keeps.
+func TestCommandErrorAuditText(t *testing.T) {
+	skipWindows(t)
+	_, err := Run(context.Background(), `sh -c 'echo refused hunter2 >&2; exit 3'`)
+	var ce *CommandError
+	if !errors.As(err, &ce) || ce.Status != 3 || !strings.Contains(ce.Stderr, "hunter2") || !strings.Contains(err.Error(), "hunter2") {
+		t.Fatalf("error %#v", err)
+	}
+	for wrapped, want := range map[error]string{
+		fmt.Errorf("the password command failed: %w", err): "the password command failed (exit 3)",
+		fmt.Errorf("AWS IAM (RDS, Aurora): %w", err):       "AWS IAM (RDS, Aurora): sh failed (exit 3)",
+		err:                        "sh failed (exit 3)",
+		errors.New("no such host"): "no such host",
+	} {
+		if got := AuditText(wrapped); got != want {
+			t.Errorf("AuditText(%q) = %q, want %q", wrapped, got, want)
+		}
 	}
 }
 

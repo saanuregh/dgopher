@@ -153,7 +153,7 @@ func (t *Tab) update() {
 			return
 		}
 		pool := cn.PoolFor(src.Database)
-		t.h.Background(func() func() {
+		dataview.BackgroundResetOnPanic(t.h, func() { t.updating = false }, func() func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
 			var tables []db.TableDesign

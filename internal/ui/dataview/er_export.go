@@ -37,6 +37,7 @@ func (e *ERTab) save(form string) {
 	}
 	snapshot := e.snapshot()
 	go func() {
+		defer RecoverBackground(e.a.Post, e.a.ShowError, nil)
 		path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{Title: "Save the Diagram", DefaultPath: name})
 		if err != nil || path == "" {
 			return

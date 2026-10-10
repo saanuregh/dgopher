@@ -3,14 +3,21 @@ package db
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/duckdb/duckdb-go/v2"
 )
 
 // BackupFormat is the form a backup is written in.
@@ -80,8 +87,8 @@ type BackupOptions struct {
 	Path     string // the file, or DuckDB's folder
 }
 
-// ToolRun is how a backup or a restore runs: a tool's command, or a
-// statement on the connection.
+// ToolRun is how a backup or a restore runs: a tool's command, a
+// statement on the connection, or a DuckDB restore (RestoreDuckDB).
 type ToolRun struct {
 	Argv []string
 	// Env is added to the tool's environment: passwords go there, or in
@@ -91,11 +98,20 @@ type ToolRun struct {
 	// written for it alone.
 	MySQLDefaults string
 	Statement     string
+	// Import is a DuckDB backup folder, which RestoreDuckDB imports into
+	// Stage, a database of its own, before Statements copy what it made
+	// into the connection's.
+	Import     string
+	Stage      string
+	Statements []string
 }
 
 // Shown is the run as the app shows and audits it, without its secrets.
 func (r ToolRun) Shown() string {
-	if r.Statement != "" {
+	switch {
+	case len(r.Statements) > 0:
+		return strings.Join(r.Statements, ";\n")
+	case r.Statement != "":
 		return r.Statement
 	}
 	return strings.Join(r.Argv, " ")
@@ -159,7 +175,9 @@ func PlanBackup(ctx context.Context, d *DB, o BackupOptions) (ToolRun, error) {
 		}
 		run.Argv = append(run.Argv, "--single-transaction", "--routines", "--triggers", "--events", "--verbose", "--result-file="+o.Path)
 		run.Argv = append(run.Argv, contentFlag(o.Content, "--no-data", "--no-create-info")...)
-		run.Argv = append(run.Argv, "--databases", database)
+		// After --, a schema named as an option, as -Ar/tmp/x.sql, is a
+		// name.
+		run.Argv = append(run.Argv, "--databases", "--", database)
 		return run, nil
 	}
 	return ToolRun{}, fmt.Errorf("%s backs up on its server: use BACKUP there", cfg.Engine.Label())
@@ -176,13 +194,13 @@ func contentFlag(c BackupContent, schemaOnly, dataOnly string) []string {
 }
 
 // PlanRestore is how a backup restores into a database of a connection:
-// a pg_dump archive with pg_restore, DuckDB's folder with IMPORT
-// DATABASE. clean drops what the archive makes before making it. A SQL
-// file restores with Run SQL File instead.
+// a pg_dump archive with pg_restore, DuckDB's folder with RestoreDuckDB.
+// clean drops what the archive makes before making it. A SQL file
+// restores with Run SQL File instead.
 func PlanRestore(ctx context.Context, d *DB, database, path string, clean bool) (ToolRun, error) {
 	switch d.Config.Engine {
 	case DuckDB:
-		return ToolRun{Statement: "IMPORT DATABASE " + Literal(DuckDB, path)}, nil
+		return planDuckDBRestore(ctx, d, path)
 	case Postgres:
 		run, err := postgresTool(ctx, d, "pg_restore", database)
 		if err != nil {
@@ -192,10 +210,141 @@ func PlanRestore(ctx context.Context, d *DB, database, path string, clean bool) 
 		if clean {
 			run.Argv = append(run.Argv, "--clean", "--if-exists")
 		}
-		run.Argv = append(run.Argv, path)
+		// After --, an archive named as an option is the archive.
+		run.Argv = append(run.Argv, "--", path)
 		return run, nil
 	}
 	return ToolRun{}, fmt.Errorf("%s restores a SQL file with Run SQL File", d.Config.Engine.Label())
+}
+
+// ErrRestoreInTransaction refuses a DuckDB restore while a transaction is
+// open on the connection, which all its editors share: the restore would
+// run inside it, to be committed or rolled back with their work.
+var ErrRestoreInTransaction = errors.New("a transaction is open on the connection, which its editors share: commit it or roll it back, then restore")
+
+// planDuckDBRestore plans the restore of a DuckDB backup folder. IMPORT
+// DATABASE runs the folder's schema.sql as it is, and a folder from
+// elsewhere may hold COPY … TO or ATTACH, which write any file the user
+// can: so RestoreDuckDB imports the folder into a database of its own,
+// which reaches no file outside the folder, and the connection then
+// copies what that made into its current database.
+func planDuckDBRestore(ctx context.Context, d *DB, folder string) (ToolRun, error) {
+	if d.sharedTxOpen() {
+		return ToolRun{}, ErrRestoreInTransaction
+	}
+	if strings.TrimSpace(folder) == "" {
+		return ToolRun{}, errors.New("choose the backup's folder")
+	}
+	folder, err := filepath.Abs(ExpandPath(folder))
+	if err != nil {
+		return ToolRun{}, err
+	}
+	var target string
+	if err := d.SQL.QueryRowContext(ctx, "SELECT current_database()").Scan(&target); err != nil {
+		return ToolRun{}, err
+	}
+	token := make([]byte, 8)
+	rand.Read(token)
+	name := "dgopher_restore_" + hex.EncodeToString(token)
+	stage := filepath.Join(os.TempDir(), name, "stage.duckdb")
+	q := DialectOf(DuckDB).Quote
+	return ToolRun{Import: folder, Stage: stage, Statements: []string{
+		"ATTACH " + Literal(DuckDB, stage) + " AS " + q(name) + " (READ_ONLY)",
+		"COPY FROM DATABASE " + q(name) + " TO " + q(target),
+		"DETACH " + q(name),
+	}}, nil
+}
+
+// sharedTxOpen reports whether a transaction is open on a pool of one
+// connection, as the sessions sharing it last saw.
+func (d *DB) sharedTxOpen() bool {
+	state, _ := d.SharedTx()
+	return state != TxNone
+}
+
+// RestoreDuckDB runs a DuckDB restore PlanRestore planned: it imports the
+// backup folder into run.Stage, in a DuckDB of its own that reaches no file
+// outside the folder, then runs run.Statements on the connection, which
+// attach the stage, copy what it holds and detach it. The stage is removed
+// however the restore ends.
+func RestoreDuckDB(ctx context.Context, d *DB, run ToolRun) error {
+	if run.Import == "" || run.Stage == "" || len(run.Statements) != 3 {
+		return errors.New("not a planned DuckDB restore")
+	}
+	if d.sharedTxOpen() {
+		return ErrRestoreInTransaction
+	}
+	dir := filepath.Dir(run.Stage)
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	if err := importSandboxed(ctx, run.Import, run.Stage); err != nil {
+		return err
+	}
+	// Holding the one connection, no editor's statement comes between
+	// the check and the copy. The copy attaches outside any transaction:
+	// inside one, COPY FROM DATABASE copies nothing.
+	conn, err := d.SQL.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if state, ok := readTxState(ctx, conn); d.sharedTxOpen() || ok && state != TxNone {
+		return ErrRestoreInTransaction
+	}
+	attach, copyAll, detach := run.Statements[0], run.Statements[1], run.Statements[2]
+	if _, err := conn.ExecContext(ctx, attach); err != nil {
+		return err
+	}
+	_, err = conn.ExecContext(ctx, copyAll)
+	// Detached however the copy ended, even cancelled, for the stage to
+	// be removed.
+	detachCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, derr := conn.ExecContext(detachCtx, detach); err == nil {
+		err = derr
+	}
+	return err
+}
+
+// importSandboxed imports a DuckDB backup folder into a new database at
+// stage, in a DuckDB that reaches only the folder: its schema.sql runs as
+// it is.
+func importSandboxed(ctx context.Context, folder, stage string) error {
+	sandbox, err := sql.Open("duckdb", stage)
+	if err != nil {
+		return err
+	}
+	defer sandbox.Close()
+	conn, err := sandbox.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	// In this order: the allowed directories are set while external access
+	// is on, and the locked configuration keeps schema.sql from changing
+	// either.
+	for _, q := range []string{
+		"SET allowed_directories = [" + Literal(DuckDB, folder) + "]",
+		"SET enable_external_access = false",
+		"SET lock_configuration = true",
+	} {
+		if _, err := conn.ExecContext(ctx, q); err != nil {
+			return err
+		}
+	}
+	if _, err := conn.ExecContext(ctx, "IMPORT DATABASE "+Literal(DuckDB, folder)); err != nil {
+		var de *duckdb.Error
+		if errors.As(err, &de) && de.Type == duckdb.ErrorTypePermission {
+			return fmt.Errorf("the backup's schema.sql reaches a file outside its folder, which a restore does not allow; a view reading a file elsewhere cannot be restored: remove the view from schema.sql, restore, then make it again (%w)", err)
+		}
+		return err
+	}
+	// Closed before the connection attaches the stage: one file open in
+	// two DuckDBs of one process is not safe.
+	conn.Close()
+	return sandbox.Close()
 }
 
 // IsArchive reports whether a file is a pg_dump archive, which pg_restore
@@ -211,6 +360,10 @@ func IsArchive(path string) bool {
 	return string(head[:n]) == "PGDMP"
 }
 
+// pgSystemRoots is the first PostgreSQL whose libpq reads
+// sslrootcert=system as the system's certificate authorities.
+const pgSystemRoots = 16
+
 // postgresTool is a PostgreSQL tool's command reaching a database of the
 // connection as the app does: through its tunnel or proxy, by libpq's
 // hostaddr, while TLS checks the server's own name.
@@ -219,13 +372,30 @@ func postgresTool(ctx context.Context, d *DB, tool, database string) (ToolRun, e
 	if database == "" {
 		database = cfg.Database
 	}
+	roots := ""
+	switch {
+	case cfg.CAFile != "":
+		roots = ExpandPath(cfg.CAFile)
+	case cfg.TLS == TLSVerifyFull:
+		// The system's authorities, as the app trusts, rather than
+		// whatever ~/.postgresql/root.crt holds.
+		if major, ok := pgToolVersion(ctx, tool); ok && major < pgSystemRoots {
+			return ToolRun{}, fmt.Errorf("%s %d cannot check the server's certificate against the system's certificate authorities, as verify-full without a CA file needs: set the connection's CA file, or install %s %d or later", tool, major, tool, pgSystemRoots)
+		}
+		roots = "system"
+	}
 	pw, err := password(ctx, cfg)
 	if err != nil {
 		return ToolRun{}, err
 	}
 	host, port := d.Address()
-	run := ToolRun{Argv: []string{tool, "--host", cfg.Host, "--port", strconv.Itoa(port), "--username", cfg.User, "--dbname", database, "--no-password"}}
-	run.Env = append(run.Env, "PGAPPNAME="+appName)
+	// The name is a value of a connection string, quoted: a bare --dbname
+	// holding = or starting postgresql:// is read as a connection string
+	// of its own, which can name another server.
+	conninfo := "dbname='" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(database) + "'"
+	run := ToolRun{Argv: []string{tool, "--host", cfg.Host, "--port", strconv.Itoa(port), "--username", cfg.User, "--dbname", conninfo, "--no-password"}}
+	// The connection's password alone, never one ~/.pgpass holds.
+	run.Env = append(run.Env, "PGAPPNAME="+appName, "PGPASSFILE="+os.DevNull)
 	if host != cfg.Host {
 		run.Env = append(run.Env, "PGHOSTADDR="+host)
 	}
@@ -234,8 +404,8 @@ func postgresTool(ctx context.Context, d *DB, tool, database string) (ToolRun, e
 	}
 	mode := map[TLSMode]string{"": "disable", TLSDisable: "disable", TLSPrefer: "prefer", TLSRequire: "require", TLSVerifyFull: "verify-full"}[cfg.TLS]
 	run.Env = append(run.Env, "PGSSLMODE="+mode)
-	if cfg.CAFile != "" {
-		run.Env = append(run.Env, "PGSSLROOTCERT="+ExpandPath(cfg.CAFile))
+	if roots != "" {
+		run.Env = append(run.Env, "PGSSLROOTCERT="+roots)
 	}
 	if cfg.CertFile != "" {
 		run.Env = append(run.Env, "PGSSLCERT="+ExpandPath(cfg.CertFile), "PGSSLKEY="+ExpandPath(cfg.KeyFile))
@@ -243,17 +413,54 @@ func postgresTool(ctx context.Context, d *DB, tool, database string) (ToolRun, e
 	return run, nil
 }
 
+var pgVersionPattern = regexp.MustCompile(`\(PostgreSQL\) (\d+)`)
+
+// pgToolVersion is the major version of an installed PostgreSQL tool, as
+// its --version says; ok is false when it is not installed or does not
+// say.
+func pgToolVersion(ctx context.Context, tool string) (major int, ok bool) {
+	path, err := exec.LookPath(tool)
+	if err != nil {
+		return 0, false
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, path, "--version").Output()
+	if err != nil {
+		return 0, false
+	}
+	m := pgVersionPattern.FindSubmatch(out)
+	if m == nil {
+		return 0, false
+	}
+	major, err = strconv.Atoi(string(m[1]))
+	return major, err == nil
+}
+
+// MysqldumpChecksCAOnly reports whether mysqldump, under verify-full,
+// checks the server's certificate against the CA file alone: through an
+// SSH tunnel or a proxy the address it dials is not the server's name,
+// and it has no option to name the server.
+func MysqldumpChecksCAOnly(d *DB) bool {
+	host, _ := d.Address()
+	return d.Config.Engine == MySQL && d.Config.TLS == TLSVerifyFull && host != d.Config.Host
+}
+
 // mysqlTool is a MySQL tool's command reaching the connection's server as
 // the app does; its password goes in an option file for it alone.
 func mysqlTool(ctx context.Context, d *DB, tool string) (ToolRun, error) {
 	cfg := d.Config
+	if cfg.TLS == TLSVerifyFull && cfg.CAFile == "" {
+		// VERIFY_CA and VERIFY_IDENTITY need --ssl-ca: the MySQL tools
+		// never trust the system's authorities.
+		return ToolRun{}, fmt.Errorf("%s checks the server's certificate only against a CA file, and the connection names none: set its CA file to back up under verify-full", tool)
+	}
 	pw, err := password(ctx, cfg)
 	if err != nil {
 		return ToolRun{}, err
 	}
 	host, port := d.Address()
 	run := ToolRun{Argv: []string{tool, "--host=" + host, "--port=" + strconv.Itoa(port), "--protocol=TCP", "--user=" + cfg.User}}
-	tunneled := host != cfg.Host
 	switch cfg.TLS {
 	case "", TLSDisable:
 		run.Argv = append(run.Argv, "--ssl-mode=DISABLED")
@@ -262,9 +469,7 @@ func mysqlTool(ctx context.Context, d *DB, tool string) (ToolRun, error) {
 	case TLSRequire:
 		run.Argv = append(run.Argv, "--ssl-mode=REQUIRED")
 	case TLSVerifyFull:
-		// Through a tunnel the server's name is not the address dialed:
-		// its certificate is checked against the CA only.
-		if tunneled {
+		if MysqldumpChecksCAOnly(d) {
 			run.Argv = append(run.Argv, "--ssl-mode=VERIFY_CA")
 		} else {
 			run.Argv = append(run.Argv, "--ssl-mode=VERIFY_IDENTITY")
@@ -285,6 +490,16 @@ func mysqlTool(ctx context.Context, d *DB, tool string) (ToolRun, error) {
 		run.MySQLDefaults = "[client]\npassword=\"" + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(pw) + "\"\n"
 	}
 	return run, nil
+}
+
+// toolEnv is the environment a tool runs in: the app's, without the
+// variables the PostgreSQL and MySQL clients read, which would choose
+// where it connects and what it sends there, as PGPASSWORD, PGSERVICE or
+// MYSQL_PWD; the tool's own are added after.
+func toolEnv(environ []string) []string {
+	return slices.DeleteFunc(slices.Clone(environ), func(kv string) bool {
+		return strings.HasPrefix(kv, "PG") || strings.HasPrefix(kv, "MYSQL_") || strings.HasPrefix(kv, "LIBMYSQL_")
+	})
 }
 
 // RunTool runs a tool's command, telling each line it writes to its
@@ -313,11 +528,14 @@ func RunTool(ctx context.Context, run ToolRun, line func(string)) error {
 		if err != nil {
 			return err
 		}
-		// MySQL reads it only as the first option.
-		args = append([]string{"--defaults-extra-file=" + f.Name()}, args...)
+		// MySQL reads it only as the first option; it alone, not the
+		// user's ~/.my.cnf, whose password is for some other server.
+		args = append([]string{"--defaults-file=" + f.Name()}, args...)
+	} else if strings.HasPrefix(filepath.Base(run.Argv[0]), "mysql") {
+		args = append([]string{"--no-defaults"}, args...)
 	}
 	cmd := exec.CommandContext(ctx, path, args...)
-	cmd.Env = append(os.Environ(), run.Env...)
+	cmd.Env = append(toolEnv(os.Environ()), run.Env...)
 	cmd.WaitDelay = 5 * time.Second
 	stderr, err := cmd.StderrPipe()
 	if err != nil {

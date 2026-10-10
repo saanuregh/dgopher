@@ -127,16 +127,41 @@ func Tokenize(src string, d Dialect) []Token {
 	return tokenizeRunes([]rune(src), d)
 }
 
+// TokenizeFirst is Tokenize up to and including the nth token that is
+// neither whitespace nor a comment, all of them when n is 0: a reader of a
+// statement's first words is not slowed by a large statement's others.
+func TokenizeFirst(src string, d Dialect, n int) []Token {
+	text := ""
+	if utf8.ValidString(src) {
+		text = src // as string([]rune(src)), without encoding it again
+	}
+	return tokenizeRunesUpTo([]rune(src), text, d, n)
+}
+
 func tokenizeRunes(rs []rune, d Dialect) []Token {
+	return tokenizeRunesUpTo(rs, "", d, 0)
+}
+
+// tokenizeRunesUpTo tokenizes rs, whose text is text or, when that is "",
+// string(rs); it stops after limit significant tokens when limit is above
+// 0.
+func tokenizeRunesUpTo(rs []rune, text string, d Dialect, limit int) []Token {
 	keywords := keywordSet(d)
 	n := len(rs)
 	if n == 0 {
 		return nil
 	}
-	toks := make([]Token, 0, n/4+1)
+	capacity := n/4 + 1
+	if limit > 0 {
+		capacity = min(capacity, 2*limit+1)
+	}
+	toks := make([]Token, 0, capacity)
+	significantSeen := 0
 	// Every Text is a substring of one string built from rs, so a token costs
 	// no allocation of its own.
-	text := string(rs)
+	if text == "" {
+		text = string(rs)
+	}
 	textPos := 0
 	var upper [64]byte
 	at := func(i int) rune {
@@ -275,6 +300,11 @@ func tokenizeRunes(rs []rune, d Dialect) []Token {
 		}
 		toks = append(toks, Token{Kind: kind, Start: start, End: i, Text: text[textPos : textPos+width]})
 		textPos += width
+		if limit > 0 && kind != Whitespace && kind != Comment {
+			if significantSeen++; significantSeen == limit {
+				break
+			}
+		}
 	}
 	return toks
 }

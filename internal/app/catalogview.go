@@ -23,6 +23,22 @@ type catalogView struct {
 	read    time.Time // when entries were taken from the log
 	sel     int
 	list    ui.ListState
+	// redacted is each entry's SQL with its secrets hidden, kept for the
+	// entries last read so a frame does not redact every row again.
+	redacted map[string]string
+}
+
+// redactedSQL is sql with its secrets hidden.
+func (v *catalogView) redactedSQL(sql string) string {
+	if s, ok := v.redacted[sql]; ok {
+		return s
+	}
+	if v.redacted == nil {
+		v.redacted = map[string]string{}
+	}
+	s := redact.Secrets(sql)
+	v.redacted[sql] = s
+	return s
 }
 
 func (a *App) openCatalogQueries(cn *connection.Conn) {
@@ -53,6 +69,13 @@ func (a *App) catalogQueriesView(c *ui.Context) {
 	// The log grows as the app reads: taken again every second.
 	if pool := v.conn.DB; pool != nil && time.Since(v.read) >= time.Second {
 		v.entries, v.read = pool.CatalogQueries(), time.Now()
+		kept := make(map[string]string, len(v.entries))
+		for _, e := range v.entries {
+			if s, ok := v.redacted[e.SQL]; ok {
+				kept[e.SQL] = s
+			}
+		}
+		v.redacted = kept
 	}
 	c.After(time.Second)
 	shown := v.shown()
@@ -76,7 +99,7 @@ func (a *App) catalogQueriesView(c *ui.Context) {
 				if e.Err != "" {
 					ui.Text(c, "failed").FontSize(11.5).TextColor(danger).Tooltip(e.Err)
 				}
-				ui.Text(c, widgets.OneLine(redact.Secrets(e.SQL), 200)).Font(widgets.MonoFont).FontSize(12).SingleLine().Grow(1).Shrink(1)
+				ui.Text(c, widgets.OneLine(v.redactedSQL(e.SQL), 200)).Font(widgets.MonoFont).FontSize(12).SingleLine().Grow(1).Shrink(1)
 			})
 		}).Grow(1).Label("Catalog queries").Dividers(1, th.Border).Children(func() {
 			if len(shown) == 0 {
@@ -85,7 +108,7 @@ func (a *App) catalogQueriesView(c *ui.Context) {
 		})
 		if v.sel < len(shown) {
 			e := shown[v.sel]
-			text := redact.Secrets(e.SQL)
+			text := v.redactedSQL(e.SQL)
 			if len(e.Args) > 0 {
 				args := make([]string, len(e.Args))
 				for i, arg := range e.Args {

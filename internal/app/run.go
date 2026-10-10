@@ -161,22 +161,29 @@ func Run(args []string) error {
 			}
 		})
 	})
-	mygo.App.OnQuit(func() {
-		a.SaveSettings()
-		a.saveWorkspace(true)
-		for _, t := range a.everyTab() {
-			t.Close()
-		}
-		for _, cn := range a.conns {
-			if cn.DB != nil {
-				cn.DB.Close()
-			}
-			if cn.KV != nil {
-				cn.KV.Close()
-			}
-		}
-	})
+	mygo.App.OnQuit(a.shutdown)
 	return mygo.App.Run()
+}
+
+// shutdown ends what the app holds as it quits, once the user agreed to
+// what quitting loses: it saves the settings and the workspace, closes the
+// tabs, stops the work running and waits for it to roll back what it left
+// open, then closes the connections.
+func (a *App) shutdown() {
+	a.SaveSettings()
+	a.saveWorkspace(true)
+	for _, t := range a.everyTab() {
+		t.Close()
+	}
+	stopJobs(a.runningJobs())
+	for _, cn := range a.conns {
+		if cn.DB != nil {
+			cn.DB.Close()
+		}
+		if cn.KV != nil {
+			cn.KV.Close()
+		}
+	}
 }
 
 // accelerator is a command's first key as the menu bar takes it, "" for

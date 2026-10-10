@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"dgopher/internal/sqltext"
 )
 
 // SchemaChange is the statements changing a table, and how they run.
@@ -61,7 +63,7 @@ func (ch SchemaChange) Text() string {
 			continue
 		}
 		r := st.Rebuild
-		parts = append(parts, "-- SQLite cannot make this change in place: "+r.Table+" is made again.")
+		parts = append(parts, sqltext.LineComment("SQLite cannot make this change in place: "+r.Table+" is made again."))
 		for _, s := range []string{r.Create, r.Copy, r.drop(), r.rename()} {
 			parts = append(parts, s+";")
 		}
@@ -95,12 +97,14 @@ func (ch SchemaChange) rebuilds() bool {
 // with SQLite's foreign key checks off, as the copy of the rows needs,
 // and checks the keys before committing.
 func (s *Session) Apply(ctx context.Context, ch SchemaChange, each func(stmt string, rows int64, took time.Duration, err error)) (err error) {
-	exec := func(ctx context.Context, stmt string) error {
+	// check, when set, refuses the statement as Session.exec's does.
+	execChecked := func(ctx context.Context, stmt string, check func() error) error {
 		start := time.Now()
-		n, err := s.Exec(ctx, stmt)
+		n, err := s.exec(ctx, stmt, check)
 		each(stmt, n, time.Since(start), err)
 		return err
 	}
+	exec := func(ctx context.Context, stmt string) error { return execChecked(ctx, stmt, nil) }
 	if ch.rebuilds() {
 		if err := exec(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
 			return err
@@ -115,7 +119,7 @@ func (s *Session) Apply(ctx context.Context, ch SchemaChange, each func(stmt str
 		}()
 	}
 	if ch.Atomic {
-		if err := exec(ctx, beginStatement(s.db.Config.Engine)); err != nil {
+		if err := execChecked(ctx, beginStatement(s.db.Config.Engine), s.mayControlSharedTx); err != nil {
 			return err
 		}
 		defer func() {

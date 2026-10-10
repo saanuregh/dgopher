@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"dgopher/internal/db"
+	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -50,7 +51,11 @@ func (r *Tab) loadIndexes() {
 	s.asked, s.loading, s.err = true, true, ""
 	s.reads++
 	kv, chosen, read := r.conn.KV, s.chosen(), s.reads
-	r.a.Background(func() func() {
+	dataview.BackgroundResetOnPanic(r.a, func() {
+		if read == s.reads {
+			s.loading = false
+		}
+	}, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		indexes, err := kv.SearchIndexes(ctx)
@@ -94,7 +99,11 @@ func (r *Tab) runSearch() {
 	s.loading, s.err = true, ""
 	s.reads++
 	kv, query, read := r.conn.KV, strings.TrimSpace(s.query), s.reads
-	r.a.Background(func() func() {
+	dataview.BackgroundResetOnPanic(r.a, func() {
+		if read == s.reads {
+			s.loading = false
+		}
+	}, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		total, hits, err := kv.Search(ctx, index, query, searchHits)

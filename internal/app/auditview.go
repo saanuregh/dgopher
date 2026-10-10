@@ -10,6 +10,7 @@ import (
 	"dgopher/internal/audit"
 	"dgopher/internal/db"
 	"dgopher/internal/project"
+	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo"
@@ -144,7 +145,7 @@ func (a *App) auditViewer(c *ui.Context) {
 			if v.log != nil && ui.Button(c, "Verify Integrity").Disabled(v.checking).Clicked() {
 				v.checking = true
 				l := v.log
-				a.Background(func() func() {
+				dataview.BackgroundResetOnPanic(a, func() { v.checking = false }, func() func() {
 					res, err := l.Verify()
 					return func() {
 						v.checking = false
@@ -250,6 +251,7 @@ func (a *App) auditViewer(c *ui.Context) {
 // the user chooses.
 func (a *App) exportAudit(l *audit.Log) {
 	go func() {
+		defer dataview.RecoverBackground(a.Post, a.ShowError, nil)
 		path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{Title: "Export the Audit Log",
 			DefaultPath: "dgopher-audit-" + time.Now().Format("20060102") + ".jsonl"})
 		if err != nil || path == "" {

@@ -11,6 +11,7 @@ import (
 
 	"dgopher/internal/db"
 	"dgopher/internal/project"
+	"dgopher/internal/sqltext"
 )
 
 // Status is where a connection is in its life.
@@ -398,7 +399,7 @@ func IdleTxLimit(cfg *db.Config) time.Duration {
 
 // HeaderLine is what starts a query file of a connection.
 func HeaderLine(cn *Conn) string {
-	return "-- connection: " + strings.TrimPrefix(cn.Config.ID, cn.Project.Prefix) + "\n\n"
+	return sqltext.LineComment("connection: "+strings.TrimPrefix(cn.Config.ID, cn.Project.Prefix)) + "\n\n"
 }
 
 // CloseThenCancel closes cursors before cancelling their context: a

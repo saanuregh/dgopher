@@ -5,11 +5,14 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -17,6 +20,7 @@ import (
 	"time"
 
 	"dgopher/internal/netproxy"
+	"dgopher/internal/secretcmd"
 	"dgopher/internal/sshtunnel"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -46,14 +50,28 @@ type DB struct {
 	route     route
 	ownsRoute bool
 	// single is set when the pool holds exactly one connection, which
-	// every session shares: DuckDB, whose driver opens the file anew for
-	// each connection, and in-memory SQLite, private to its connection.
+	// every session shares: in-memory SQLite, private to its connection,
+	// and DuckDB. DuckDB's driver opens one database per connector, which
+	// all its connections share, but how their concurrent writes conflict
+	// is unchecked.
 	single bool
 	// sharedTx is the transaction of that one connection, which all its
 	// sessions see.
 	txMu     sync.Mutex
 	sharedTx TxState
 	txOwner  *Session // the session that began sharedTx
+	// lastTxID is DuckDB's transaction id as read after the last statement
+	// on that connection (duckTxState).
+	lastTxID int64
+
+	// tlsState is whether the connection opened over TLS, as TLSState
+	// says it.
+	tlsState string
+
+	// mysqlConnector makes the MySQL pool's connections, and those outside
+	// it that cancel a statement (killQuery), the same way: through the
+	// tunnel or proxy, with the TLS and identity token of the pool's.
+	mysqlConnector driver.Connector
 
 	mu        sync.Mutex
 	databases map[string]*DB // other databases of a PostgreSQL server
@@ -186,12 +204,13 @@ func openWith(ctx context.Context, cfg Config, ep endpoint, r route) (*DB, error
 		return nil, err
 	}
 	var sqldb *sql.DB
+	var mysqlConnector driver.Connector
 	single := false
 	switch cfg.Engine {
 	case Postgres:
 		sqldb, err = openPostgres(cfg, ep, tc)
 	case MySQL:
-		sqldb, err = openMySQL(cfg, ep, tc)
+		sqldb, mysqlConnector, err = openMySQL(cfg, ep, tc)
 	case ClickHouse:
 		if cfg.TLS == TLSPrefer && !speaksTLS(ctx, ep, tc) {
 			tc = nil
@@ -221,7 +240,54 @@ func openWith(ctx context.Context, cfg Config, ep endpoint, r route) (*DB, error
 		sqldb.Close()
 		return nil, redact(err, cfg)
 	}
-	return &DB{Config: cfg, Dialect: DialectOf(cfg.Engine), SQL: sqldb, route: r, single: single}, nil
+	d := &DB{Config: cfg, Dialect: DialectOf(cfg.Engine), SQL: sqldb, route: r, single: single, mysqlConnector: mysqlConnector}
+	switch {
+	case cfg.Engine == Postgres, cfg.Engine == MySQL && cfg.TLS == TLSPrefer:
+		d.tlsState = negotiatedTLS(pingCtx, sqldb, cfg.Engine)
+	case cfg.Engine == MySQL, cfg.Engine == ClickHouse:
+		// Without prefer's fallback to plain text, the connection uses
+		// TLS exactly when it was asked for.
+		d.tlsState = tlsWord(tc != nil)
+	}
+	return d, nil
+}
+
+// TLSState says whether the connection opened over TLS, "TLS" or
+// "no TLS", as the server negotiated it: under prefer either may be. ""
+// for a file, or when it could not be read.
+func (d *DB) TLSState() string { return d.tlsState }
+
+func tlsWord(on bool) string {
+	if on {
+		return "TLS"
+	}
+	return "no TLS"
+}
+
+// negotiatedTLS reads whether a connection of the pool uses TLS: for
+// PostgreSQL from pgx's connection, for MySQL from the session's cipher.
+func negotiatedTLS(ctx context.Context, sqldb *sql.DB, e Engine) string {
+	if e == MySQL {
+		var name, cipher string
+		if err := sqldb.QueryRowContext(ctx, "SHOW SESSION STATUS LIKE 'Ssl_cipher'").Scan(&name, &cipher); err != nil {
+			return ""
+		}
+		return tlsWord(cipher != "")
+	}
+	conn, err := sqldb.Conn(ctx)
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	state := ""
+	conn.Raw(func(dc any) error {
+		if c, ok := dc.(*stdlib.Conn); ok {
+			_, on := c.Conn().PgConn().Conn().(*tls.Conn)
+			state = tlsWord(on)
+		}
+		return nil
+	})
+	return state
 }
 
 func init() {
@@ -238,6 +304,27 @@ func init() {
 }
 
 func openPostgres(cfg Config, ep endpoint, tc *tls.Config) (*sql.DB, error) {
+	pc, err := postgresConfig(cfg, ep, tc)
+	if err != nil {
+		return nil, err
+	}
+	var opts []stdlib.OptionOpenDB
+	if cfg.Identity != "" {
+		opts = append(opts, stdlib.OptionBeforeConnect(func(ctx context.Context, cc *pgx.ConnConfig) error {
+			token, err := identityToken(ctx, cfg)
+			cc.Password = token
+			return err
+		}))
+	}
+	return stdlib.OpenDB(*pc, opts...), nil
+}
+
+// postgresConfig is the pgx configuration of a connection, made of the
+// connection's settings alone. pgx, as libpq, also reads the PG*
+// environment variables, ~/.pgpass, the service file and the files under
+// ~/.postgresql: every setting they could give is set here, so that none
+// of them changes where the connection goes, as whom, or how it uses TLS.
+func postgresConfig(cfg Config, ep endpoint, tc *tls.Config) (*pgx.ConnConfig, error) {
 	u := url.URL{
 		Scheme: "postgres",
 		User:   url.UserPassword(cfg.User, cfg.Password),
@@ -254,13 +341,38 @@ func openPostgres(cfg Config, ep endpoint, tc *tls.Config) (*sql.DB, error) {
 	default:
 		q.Set("sslmode", "require")
 	}
+	// Empty, they hide what the environment and the home directory hold:
+	// PGSSLROOTCERT=system alone would turn prefer into verify-full.
+	for _, k := range []string{"sslrootcert", "sslcert", "sslkey", "sslpassword", "passfile", "require_auth",
+		"min_protocol_version", "max_protocol_version"} {
+		q.Set(k, "")
+	}
+	q.Set("sslnegotiation", "postgres")
+	q.Set("sslsni", "1")
+	q.Set("target_session_attrs", "any")
+	q.Set("channel_binding", "prefer")
 	u.RawQuery = q.Encode()
 	pc, err := pgx.ParseConfig(u.String())
 	if err != nil {
 		return nil, redact(err, cfg)
 	}
-	// Set here rather than in the URL, whose query writes a space as +.
-	pc.RuntimeParams["application_name"] = appName
+	// The URL leaves out what is empty, which pgx then fills from the
+	// environment, the operating system's user, or ~/.pgpass.
+	pc.Database, pc.Password = cfg.Database, cfg.Password
+	pc.User = cfg.User
+	if pc.User == "" {
+		pc.User = osUserName()
+	}
+	pc.KerberosSrvName, pc.KerberosSpn = "", ""
+	// Only the app's parameters: PGOPTIONS, PGTZ, PGAPPNAME and a service
+	// file's would land here too. Set here rather than in the URL, whose
+	// query writes a space as +.
+	pc.RuntimeParams = map[string]string{"application_name": appName}
+	if cfg.TLS == TLSPrefer {
+		// A server, or whoever sits in the middle, that declines TLS
+		// would otherwise be sent the password as it is.
+		pc.RequireAuth = "!password"
+	}
 	// A cancelled query asks the server to stop it, and keeps the
 	// connection, its session settings and its transaction; pgx would
 	// otherwise close the connection.
@@ -281,18 +393,26 @@ func openPostgres(cfg Config, ep endpoint, tc *tls.Config) (*sql.DB, error) {
 		// The server refuses writes in every transaction of the session.
 		pc.RuntimeParams["default_transaction_read_only"] = "on"
 	}
-	var opts []stdlib.OptionOpenDB
-	if cfg.Identity != "" {
-		opts = append(opts, stdlib.OptionBeforeConnect(func(ctx context.Context, cc *pgx.ConnConfig) error {
-			token, err := identityToken(ctx, cfg)
-			cc.Password = token
-			return err
-		}))
-	}
-	return stdlib.OpenDB(*pc, opts...), nil
+	return pc, nil
 }
 
-func openMySQL(cfg Config, ep endpoint, tc *tls.Config) (*sql.DB, error) {
+// osUserName is the user PostgreSQL's clients log in as when none is
+// given: the operating system's, without a Windows domain.
+func osUserName() string {
+	u, err := user.Current()
+	if err != nil {
+		return ""
+	}
+	name := u.Username
+	if i := strings.LastIndex(name, `\`); i >= 0 {
+		name = name[i+1:]
+	}
+	return name
+}
+
+// openMySQL returns the pool of a MySQL server, and the connector that
+// makes its connections.
+func openMySQL(cfg Config, ep endpoint, tc *tls.Config) (*sql.DB, driver.Connector, error) {
 	mc := mysql.NewConfig()
 	mc.User = cfg.User
 	mc.Passwd = cfg.Password
@@ -310,14 +430,20 @@ func openMySQL(cfg Config, ep endpoint, tc *tls.Config) (*sql.DB, error) {
 	// LDAP, PAM and the clouds' identities take the password, or the
 	// token, as it is; Validate keeps that to TLS.
 	mc.AllowCleartextPasswords = cfg.ClearTextPassword || cfg.Identity != ""
+	// With a BeforeConnect the driver gives each connection a copy of the
+	// configuration; without, prefer's fallback to plain text clears the
+	// TLS of the one configuration every later connection of the pool
+	// shares, which then never asks for TLS again.
+	beforeConnect := func(context.Context, *mysql.Config) error { return nil }
 	if cfg.Identity != "" {
-		if err := mc.Apply(mysql.BeforeConnect(func(ctx context.Context, c *mysql.Config) error {
+		beforeConnect = func(ctx context.Context, c *mysql.Config) error {
 			token, err := identityToken(ctx, cfg)
 			c.Passwd = token
 			return err
-		})); err != nil {
-			return nil, err
 		}
+	}
+	if err := mc.Apply(mysql.BeforeConnect(beforeConnect)); err != nil {
+		return nil, nil, err
 	}
 	if cfg.ReadOnly {
 		// Sent as SET on every new connection.
@@ -325,9 +451,9 @@ func openMySQL(cfg Config, ep endpoint, tc *tls.Config) (*sql.DB, error) {
 	}
 	conn, err := mysql.NewConnector(mc)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return sql.OpenDB(conn), nil
+	return sql.OpenDB(conn), conn, nil
 }
 
 func openClickHouse(cfg Config, ep endpoint, tc *tls.Config) *sql.DB {
@@ -346,12 +472,40 @@ func openClickHouse(cfg Config, ep endpoint, tc *tls.Config) *sql.DB {
 	opt.TLS = tc
 	if p := cfg.port(); p == 8123 || p == 8443 {
 		opt.Protocol = clickhouse.HTTP
+		opt.TransportFunc = clickhouseTransport(opt.Addr[0])
 	}
 	if cfg.ReadOnly {
 		// 2: reads, and changes of settings, which the driver makes.
 		opt.Settings = clickhouse.Settings{"readonly": 2}
 	}
 	return clickhouse.OpenDB(opt)
+}
+
+// clickhouseTransport makes ClickHouse's HTTP transport go only to addr,
+// directly. Its requests carry the password in X-ClickHouse-Key, which Go
+// copies to wherever a redirect points; and the proxy of HTTP_PROXY or
+// HTTPS_PROXY, which Go would use, is not the connection's.
+func clickhouseTransport(addr string) func(*http.Transport) (http.RoundTripper, error) {
+	return func(t *http.Transport) (http.RoundTripper, error) {
+		t.Proxy = nil
+		return onlyHost{addr: addr, next: t}, nil
+	}
+}
+
+// onlyHost refuses requests to any address but addr.
+type onlyHost struct {
+	addr string
+	next http.RoundTripper
+}
+
+func (o onlyHost) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.URL.Host != o.addr {
+		if r.Body != nil {
+			r.Body.Close()
+		}
+		return nil, fmt.Errorf("the ClickHouse server sent the request on to %s: refused, it would carry the password", r.URL.Host)
+	}
+	return o.next.RoundTrip(r)
 }
 
 // Database returns a pool for another database of the same PostgreSQL
@@ -406,11 +560,11 @@ func (d *DB) Close() error {
 	return err
 }
 
-// Ping checks that the server still answers.
 // Single reports whether the pool is one connection every session shares,
 // as DuckDB's and an in-memory SQLite database's.
 func (d *DB) Single() bool { return d.single }
 
+// Ping checks that the server still answers.
 func (d *DB) Ping(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
@@ -561,15 +715,43 @@ func redact(err error, cfg Config) error {
 	if err == nil {
 		return nil
 	}
-	msg := err.Error()
-	for _, secret := range []string{cfg.Password, cfg.SSH.Password, cfg.SSH.KeyPassphrase, cfg.Redis.SentinelPassword, cfg.Proxy.Password,
-		url.QueryEscape(cfg.Password), url.PathEscape(cfg.Password)} {
-		if len(secret) >= 3 {
-			msg = strings.ReplaceAll(msg, secret, "•••")
-		}
-	}
+	msg := redactText(err.Error(), cfg)
 	if msg == err.Error() {
 		return err
 	}
-	return errors.New(msg)
+	re := &redactedError{msg: msg}
+	var ce *secretcmd.CommandError
+	var hk *sshtunnel.HostKeyError
+	switch {
+	case errors.As(err, &ce):
+		kept := *ce
+		kept.Command, kept.Stderr = redactText(kept.Command, cfg), redactText(kept.Stderr, cfg)
+		re.kept = &kept
+	case errors.As(err, &hk):
+		re.kept = hk
+	}
+	return re
 }
+
+func redactText(s string, cfg Config) string {
+	for _, secret := range []string{cfg.Password, cfg.SSH.Password, cfg.SSH.KeyPassphrase, cfg.Redis.SentinelPassword, cfg.Proxy.Password,
+		url.QueryEscape(cfg.Password), url.PathEscape(cfg.Password)} {
+		if len(secret) >= 3 {
+			s = strings.ReplaceAll(s, secret, "•••")
+		}
+	}
+	return s
+}
+
+// redactedError is an error with the connection's secrets taken out of its
+// message. It still unwraps to what callers look for in it: a command's
+// failure, its own text redacted too, for the audit log to leave out what
+// the command printed; an unknown SSH host key, for the app to ask about.
+// Nothing else of the original is reachable, as it may quote a secret.
+type redactedError struct {
+	msg  string
+	kept error
+}
+
+func (e *redactedError) Error() string { return e.msg }
+func (e *redactedError) Unwrap() error { return e.kept }

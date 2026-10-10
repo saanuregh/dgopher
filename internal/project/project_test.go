@@ -112,3 +112,54 @@ func TestMoveJSON(t *testing.T) {
 		t.Fatalf("the new file holds %s", disk)
 	}
 }
+
+// A committed .dgopher/.gitignore that ignores nothing is put back to
+// ignoring everything; a .dgopher that is a symlink is refused.
+func TestGitignoreRewritten(t *testing.T) {
+	dir := t.TempDir()
+	if _, _, err := Load(dir, true); err != nil {
+		t.Fatal(err)
+	}
+	ignore := filepath.Join(dir, LocalDir, ".gitignore")
+	os.WriteFile(ignore, nil, 0o644)
+	p, _, err := Load(dir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Close()
+	if b, _ := os.ReadFile(ignore); string(b) != "*\n" {
+		t.Fatalf(".gitignore %q", b)
+	}
+
+	linked := t.TempDir()
+	if _, _, err := Load(linked, true); err != nil {
+		t.Fatal(err)
+	}
+	os.RemoveAll(filepath.Join(linked, LocalDir))
+	target := t.TempDir()
+	os.Symlink(target, filepath.Join(linked, LocalDir))
+	if p, _, err := Load(linked, false); err == nil {
+		p.Close()
+		t.Fatal("a symlinked .dgopher was opened")
+	}
+	if entries, _ := os.ReadDir(target); len(entries) != 0 {
+		t.Fatalf("wrote through the symlink: %v", entries)
+	}
+}
+
+func TestContains(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "p")
+	os.MkdirAll(filepath.Join(dir, "q"), 0o755)
+	os.Symlink(root, filepath.Join(dir, "out"))
+	os.Symlink(filepath.Join(dir, "q"), filepath.Join(dir, "in"))
+	for path, want := range map[string]bool{
+		"q/a.sql": true, filepath.Join(dir, "q", "new.sql"): true, "in/a.sql": true, "a/b/c.sql": true,
+		"../x": false, "/etc/passwd": false, "out/x": false, "q/../../x": false, "~/x": false, "": false,
+		".git/config": false, ".dgopher/x": false, "q/.git": true, ".GIT/config": false,
+	} {
+		if got := Contains(dir, path); got != want {
+			t.Errorf("Contains(%q) = %v", path, got)
+		}
+	}
+}

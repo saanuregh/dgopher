@@ -10,6 +10,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
+	"dgopher/internal/sqltext"
 	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
 
@@ -38,9 +39,8 @@ type TableTab struct {
 	ending bool
 	// diagram is the Diagram page, read when first shown.
 	diagram *ERTab
-	tx      db.TxState
-	txs     connection.TxTimes
-	closed  bool
+	SessionTxState
+	closed bool
 
 	columns []db.Column
 	indexes []db.Index
@@ -65,13 +65,11 @@ func NewTableTab(a Host, cn *connection.Conn, database string, obj db.Object, pa
 		Table:        &t.Object,
 		Session:      func() *db.Session { return t.sess },
 		AdoptSession: t.adoptSession,
-		TxChanged: func(tx db.TxState) {
-			t.tx = tx
-			t.txs.Set(tx, t.a.Now())
-		},
-		HistoryKey: t.historyKey(),
-		Bars:       t.txBar,
-		ShowDDL:    func() { t.Page = PageDDL },
+		TxChanged:    t.setTx,
+		TxOwner:      t.TxOwner,
+		HistoryKey:   t.historyKey(),
+		Bars:         t.txBar,
+		ShowDDL:      func() { t.Page = PageDDL },
 	})
 	// The rows wait for the columns, to be ordered by the primary key.
 	t.loadMeta(t.view.reload)
@@ -88,7 +86,7 @@ func (t *TableTab) CloseReason() string {
 		return "The changes to " + t.Object.Name + "'s structure have not been applied. Closing discards them."
 	case t.view.grid.edits.count() > 0:
 		return fmt.Sprintf("%s to %s not applied. Closing discards them.", widgets.Count(t.view.grid.edits.count(), "change"), t.Object.Name)
-	case t.tx != db.TxNone:
+	case t.Tx != db.TxNone:
 		return "A transaction is open on this table's session. Closing rolls it back."
 	}
 	return ""
@@ -109,10 +107,11 @@ func (t *TableTab) Close() {
 	if t.design != nil && t.design.cancel != nil {
 		t.design.cancel()
 	}
-	if t.tx != db.TxNone {
+	if t.Tx != db.TxNone {
 		t.a.Record(&t.Conn.Config, audit.Event{Kind: audit.KindStatement, Database: t.Database, Statement: "ROLLBACK", Detail: "the tab closed with its transaction open"})
 	}
 	go func() {
+		defer RecoverBackground(t.a.Post, t.a.ShowError, nil)
 		connection.CloseThenCancel(cursors, cancel)
 		if sess != nil {
 			sess.Close()
@@ -155,7 +154,7 @@ func (t *TableTab) loadMeta(then func()) {
 			var derr error
 			ddl, derr = d.Dialect.DDL(ctx, d.Catalog(), obj.Schema, obj)
 			if derr != nil {
-				ddl = "-- " + derr.Error()
+				ddl = sqltext.LineComment(derr.Error())
 			}
 		}
 		return func() {
@@ -177,10 +176,13 @@ func (t *TableTab) loadMeta(then func()) {
 }
 
 // endOpenTx commits or rolls back the open transaction, when one is open
-// that can: a failed one only rolls back, and none ends while changes
-// are being applied.
+// that can: a failed one only rolls back, none ends while changes are
+// being applied, and another session's is refused.
 func (t *TableTab) endOpenTx(commit bool) {
-	if t.tx == db.TxNone || t.view.applying || commit && t.tx != db.TxOpen {
+	if t.RefuseEndInside(t.a, commit) {
+		return
+	}
+	if t.Tx == db.TxNone || t.view.applying || commit && t.Tx != db.TxOpen {
 		return
 	}
 	t.endTx(commit)
@@ -193,6 +195,7 @@ func (t *TableTab) endTx(commit bool) {
 	}
 	t.ending = true
 	go func() {
+		defer RecoverBackground(t.a.Post, t.a.ShowError, t.endTxStopped)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		var err error
@@ -204,24 +207,78 @@ func (t *TableTab) endTx(commit bool) {
 			stmt = "ROLLBACK"
 			err = sess.Rollback(ctx)
 		}
-		t.a.RecordRun(cfg, audit.KindStatement, database, stmt, -1, time.Since(start), err)
-		tx := sess.Tx()
+		// A stale tab's COMMIT or ROLLBACK the connection refused was never
+		// sent: it is said, not audited.
+		title, notEnded, refused := NotEnded(err, commit)
+		if !refused {
+			t.a.RecordRun(cfg, audit.KindStatement, database, stmt, -1, time.Since(start), err)
+		}
+		own, inside := SessionTx(sess)
 		t.a.Post(func() {
-			t.tx, t.ending = tx, false
-			t.txs.Set(tx, t.a.Now())
-			if f := t.txs.Then; f != nil {
-				t.txs.Then = nil
-				f(err)
+			t.ending = false
+			t.setTx(own, inside)
+			if t.TellFinishTx(err) {
 				if err != nil {
 					t.RequestReload()
 					return
 				}
+			} else if refused {
+				t.a.ShowError(title, notEnded)
 			} else if err != nil {
 				t.a.ShowError("Could not end the transaction", err.Error())
 			}
 			t.RequestReload()
 		})
 	}()
+}
+
+// InsideTxLabel says, on a tab's bar, that its statements run inside a
+// transaction another session began on the connection every tab of conn
+// shares; owner names the tab that began it, "" when unknown.
+func InsideTxLabel(owner, conn string, tx db.TxState) string {
+	who := txOwnerName(owner)
+	if tx == db.TxFailed {
+		return fmt.Sprintf("Inside %s's transaction, which failed: %s must roll it back.", who, who)
+	}
+	return fmt.Sprintf("Inside %s's transaction: every tab of %s shares one connection, so this tab's changes commit or roll back with it.", who, conn)
+}
+
+// InsideTxEndText says why a tab does not run a statement, typed as verb,
+// that would end the transaction its statements run inside: another
+// session began it, as SessionTxState.RefuseEndInside says of the tab's
+// buttons.
+func InsideTxEndText(owner, verb string) string {
+	return insideTxText(owner, "commit or roll it back there, not with "+verb+" here")
+}
+
+// InsideTxBeginText is why a tab inside owner's transaction is refused a
+// statement beginning one, verb: it cannot begin one inside it.
+func InsideTxBeginText(owner, verb string) string {
+	return insideTxText(owner, verb+" here cannot begin another inside it; commit or roll it back there first")
+}
+
+// insideTxText says that the transaction a tab's statements run inside is
+// owner's, then what the tab is to do, then that its changes are in it.
+func insideTxText(owner, todo string) string {
+	return fmt.Sprintf("The transaction is %s's, which began it: %s. This tab's changes are in it too.", txOwnerName(owner), todo)
+}
+
+// noSavepointsText says why changes are not applied in an open
+// transaction on an engine without savepoints: a failed one would abort
+// the whole transaction, the tab's own or, when inside is set, owner's.
+func noSavepointsText(engine, owner string, inside bool) string {
+	why := engine + " has no savepoints, so a failed change could not be undone on its own and would abort the whole transaction"
+	if inside {
+		return fmt.Sprintf("%s, which is %s's: commit or roll it back there first.", why, txOwnerName(owner))
+	}
+	return why + ": commit or roll back this tab's transaction first."
+}
+
+func txOwnerName(owner string) string {
+	if owner == "" {
+		return "another session"
+	}
+	return owner
 }
 
 // RequestReload reads the Data page's rows again, once the user agrees to
@@ -238,13 +295,18 @@ func tableHistoryKey(cn *connection.Conn, obj db.Object) string {
 	return strings.TrimPrefix(cn.Config.ID, cn.Project.Prefix) + "/" + obj.Schema + "." + obj.Name
 }
 
-// txBar offers to end the transaction the session holds open.
+// txBar offers to end the transaction the session holds open, or says
+// whose transaction its statements run inside.
 func (t *TableTab) txBar(c *ui.Context) {
 	th := c.Theme()
-	if t.tx != db.TxNone {
+	label := "Changes applied in an open transaction (manual commit)."
+	if t.InsideTx != db.TxNone {
+		label = InsideTxLabel(t.owner, t.Conn.Config.Name, t.InsideTx)
+	}
+	if t.InTx() {
 		ui.Row(c).Padding(6, 12).Gap(10).Background(th.Warning.Alpha(0.16)).Children(func() {
 			ui.Icon(c, widgets.IconAlert).TextColor(th.Warning).FontSize(14)
-			ui.Text(c, "Changes applied in an open transaction (manual commit).").Grow(1)
+			ui.Text(c, label).Grow(1)
 			if ui.PrimaryButton(c, "Commit").Disabled(t.view.applying).Tooltip(keymap.Hint("Commit the transaction", keymap.Commit)).Clicked() {
 				t.endOpenTx(true)
 			}
@@ -420,7 +482,7 @@ func (t *TableTab) editBlocked() string {
 		return "The connection is read-only."
 	case t.view.grid.edits.count() > 0:
 		return "Apply or discard the changes to the rows first."
-	case t.tx != db.TxNone:
+	case t.InTx():
 		// The change would wait on the locks the transaction holds.
 		return "End the open transaction first."
 	}
@@ -434,7 +496,7 @@ func (t *TableTab) editStructure() {
 	}
 	t.readingDesign = true
 	poolOf, obj := t.Conn.PoolFor(t.Database), t.Object
-	t.a.Background(func() func() {
+	BackgroundResetOnPanic(t.a, func() { t.readingDesign = false }, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		d, err := poolOf(ctx)

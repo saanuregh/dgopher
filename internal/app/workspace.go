@@ -14,6 +14,7 @@ import (
 	"dgopher/internal/project"
 	"dgopher/internal/store"
 	"dgopher/internal/ui/dashboard"
+	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/modelview"
 	"dgopher/internal/ui/query"
 
@@ -107,7 +108,12 @@ func (a *App) restoreWorkspace(p *project.Project) {
 		return
 	}
 	p.Workspace, _ = json.Marshal(w)
+	// The workspace may come from a clone: only the project's own files
+	// come back, never one outside it or under its .git or .dgopher.
 	for i, e := range w.Editors {
+		if !project.Contains(p.Dir, e.Path) {
+			continue
+		}
 		path := p.ResolvePath(e.Path)
 		data, err := os.ReadFile(path)
 		if err != nil && e.Unsaved == "" {
@@ -139,11 +145,17 @@ func (a *App) restoreWorkspace(p *project.Project) {
 	}
 	for _, path := range w.Dashboards {
 		// A dashboard deleted, or broken, since is left closed.
+		if !project.Contains(p.Dir, path) {
+			continue
+		}
 		if d, err := dashboard.Open(a, p, p.ResolvePath(path)); err == nil {
 			a.main.tabs = append(a.main.tabs, d)
 		}
 	}
 	for _, path := range w.Models {
+		if !project.Contains(p.Dir, path) {
+			continue
+		}
 		if m, err := modelview.Open(a, p, p.ResolvePath(path)); err == nil {
 			a.main.tabs = append(a.main.tabs, m)
 		}
@@ -153,6 +165,7 @@ func (a *App) restoreWorkspace(p *project.Project) {
 // openSQLFile opens a file of SQL in an editor of a connection.
 func (a *App) openSQLFile(cn *connection.Conn) {
 	go func() {
+		defer dataview.RecoverBackground(a.Post, a.ShowError, nil)
 		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "Open SQL Script",
 			Filters: []mygo.FileFilter{{Name: "SQL scripts", Extensions: []string{"sql"}}, {Name: "All files", Extensions: []string{"*"}}}})
 		if err != nil || len(paths) == 0 {
@@ -198,6 +211,7 @@ func (a *App) SaveSQLFile(q *query.Tab, saveAs bool) {
 		return
 	}
 	go func() {
+		defer dataview.RecoverBackground(a.Post, a.ShowError, nil)
 		path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{Title: "Save SQL Script", DefaultPath: "query.sql",
 			Filters: []mygo.FileFilter{{Name: "SQL scripts", Extensions: []string{"sql"}}}})
 		if err != nil || path == "" {

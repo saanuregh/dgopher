@@ -25,6 +25,9 @@ const (
 	xlsxMaxCellText = 32_767
 )
 
+// ExcelMaxColumns is how many columns an Excel sheet holds: A to XFD.
+const ExcelMaxColumns = xlsxMaxColumns
+
 // ExcelMaxRows is how many rows an Excel sheet holds below its header.
 const ExcelMaxRows = xlsxMaxRows - 1
 

@@ -19,8 +19,8 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/netproxy"
 	"dgopher/internal/project"
-	"dgopher/internal/safety"
 	"dgopher/internal/secretcmd"
+	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo"
@@ -607,7 +607,7 @@ func (a *App) networkPage(c *ui.Context, f *connForm) {
 	})
 	ui.Field(c, "Jump hosts", func() {
 		ui.TextInput(c, &f.cfg.SSH.Jump).Placeholder("none, or user@jump.example.com, jump2:2222").Grow(1)
-	}).Description("SSH servers reached in turn before the SSH host, as ssh -J does; each logs in as the SSH host does, and its host key is checked.")
+	}).Description("SSH servers reached in turn before the SSH host, as ssh -J does; each logs in with the private key or the SSH agent, never the SSH password, and its host key is checked.")
 	ui.Field(c, "", func() {
 		ui.Checkbox(c, &f.cfg.SSH.UseAgent, "Use the SSH agent")
 	})
@@ -625,7 +625,7 @@ func optionsPage(c *ui.Context, f *connForm, engine db.Engine) {
 	ui.Field(c, "Auto-connect", func() {
 		ui.Checkbox(c, &f.cfg.AutoConnect, "Connect as DGopher starts, and when its editors are shown")
 	}).Description("Off, the connection opens when you open it, or run a statement in one of its editors.")
-	if engine != db.ClickHouse && engine != db.Redis {
+	if engine.Transactions() {
 		ui.Field(c, "Commit", func() {
 			ui.Select(c, &f.commit, commitLabels).Label("Commit mode")
 		})
@@ -729,6 +729,7 @@ func (a *App) newDatabaseFile(e db.Engine) {
 		name = "database.duckdb"
 	}
 	go func() {
+		defer dataview.RecoverBackground(a.Post, a.ShowError, nil)
 		path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{Title: "New " + e.Label() + " Database", DefaultPath: name})
 		if err != nil || path == "" {
 			return
@@ -782,15 +783,16 @@ func (a *App) testConnection(f *connForm) {
 		f.testResult, f.testOK = err.Error(), false
 		return
 	}
-	if f.editing != nil && !a.trusted(f.editing) && !reconnectNeeded(f.loaded, cfg) {
-		// Its destination and commands came in the file, not from this
-		// form: they need the same agreement as a connect.
-		a.AskConfirm(f.editing, safety.Verdict{Reasons: []string{sharedDestination(&cfg, f.project.Name)}},
-			"Test "+cfg.Name+"?", "Test", "", func() {
+	if f.editing != nil && !reconnectNeeded(f.loaded, cfg) {
+		if ask, details := a.trustCheck(f.editing); ask {
+			// Its destination and commands came in the file, not from
+			// this form: they need the same agreement as a connect.
+			a.askTrust(f.editing, &cfg, details, "Test "+cfg.Name+"?", "Test", func() {
 				a.trust(f.editing)
 				a.testConnection(f)
 			})
-		return
+			return
+		}
 	}
 	if cfg.Password == "" && cfg.PasswordEnv != "" {
 		cfg.Password = os.Getenv(cfg.PasswordEnv)
@@ -811,7 +813,7 @@ func (a *App) testConnection(f *connForm) {
 func (a *App) runTest(f *connForm, cfg db.Config) {
 	f.testing, f.testResult = true, ""
 	known := a.knownHosts()
-	a.Background(func() func() {
+	dataview.BackgroundResetOnPanic(a, func() { f.testing = false }, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second+secretcmd.Timeout)
 		defer cancel()
 		start := time.Now()

@@ -319,3 +319,84 @@ func TestIntegrationLexingConformance(t *testing.T) {
 		})
 	})
 }
+
+// TestIntegrationLexingClickHouseNames checks names holding backslashes and
+// backticks round-trip through CREATE, SELECT, Maintenance's OPTIMIZE and
+// DROP, each of which stays one statement for the server and our lexer.
+func TestIntegrationLexingClickHouseNames(t *testing.T) {
+	testutil.Integration(t)
+	ctx := context.Background()
+	d := openFor(t, db.Config{Name: "ch", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher", Database: "default"})
+	dialect := db.DialectOf(db.ClickHouse)
+	run := func(t *testing.T, query string) {
+		t.Helper()
+		if n := len(sqltext.Split(query+";\n", sqltext.ClickHouse)); n != 1 {
+			t.Fatalf("%q splits into %d statements", query, n)
+		}
+		if _, err := d.SQL.ExecContext(ctx, query); err != nil {
+			t.Fatalf("%q: %v", query, err)
+		}
+	}
+	const database = `zz_task8_db\`
+	run(t, "CREATE DATABASE "+dialect.Quote(database))
+	t.Cleanup(func() { d.SQL.ExecContext(context.Background(), "DROP DATABASE IF EXISTS "+dialect.Quote(database)) })
+
+	names := []string{"zz_task8_`", `zz_task8_\`, `zz_task8_x\`, `zz_task8_a\\b`, "zz_task8_\n", "zz_task8_\x00", "zz_task8_\t",
+		`zz_task8_"`, "zz_task8_'", "zz_task8_ü", "zz_task8_x\\`; SELECT 1; --"}
+	for _, name := range names {
+		t.Run(fmt.Sprintf("%q", name), func(t *testing.T) {
+			table := db.QualifiedName(dialect, database, name)
+			run(t, "CREATE TABLE "+table+" (id UInt8) ENGINE = MergeTree ORDER BY id")
+			run(t, "INSERT INTO "+table+" VALUES (7)")
+			var got string
+			if err := d.SQL.QueryRowContext(ctx, "SELECT name FROM system.tables WHERE database = "+db.Literal(db.ClickHouse, database)+
+				" AND name = "+db.Literal(db.ClickHouse, name)).Scan(&got); err != nil || got != name {
+				t.Fatalf("server stored %q (%v), want %q", got, err, name)
+			}
+			var id int
+			if err := d.SQL.QueryRowContext(ctx, "SELECT id FROM "+table).Scan(&id); err != nil || id != 7 {
+				t.Fatalf("SELECT gave %d (%v)", id, err)
+			}
+			// As maintenanceCommands (internal/app/nav.go) builds them.
+			run(t, "OPTIMIZE TABLE "+table)
+			run(t, "OPTIMIZE TABLE "+table+" FINAL")
+			run(t, "DROP TABLE "+table)
+		})
+	}
+	var left int
+	if err := d.SQL.QueryRowContext(ctx, "SELECT count() FROM system.tables WHERE database = "+db.Literal(db.ClickHouse, database)).Scan(&left); err != nil || left != 0 {
+		t.Errorf("%d tables left (%v)", left, err)
+	}
+}
+
+// TestIntegrationLiteralWithoutStandardStrings checks PostgreSQL literals
+// read back as written in a session that turned standard_conforming_strings
+// off, which any statement may do.
+func TestIntegrationLiteralWithoutStandardStrings(t *testing.T) {
+	testutil.Integration(t)
+	ctx := context.Background()
+	d := openFor(t, testutil.PGConfig())
+	conn, err := d.SQL.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "SET standard_conforming_strings = off"); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{`it's`, `back\slash`, `\' OR TRUE --`, `trailing\`, `\\`, `''`, `\x41`, "new\nline"} {
+		var got string
+		if err := conn.QueryRowContext(ctx, "SELECT "+db.Literal(db.Postgres, s)).Scan(&got); err != nil || got != s {
+			t.Errorf("%q came back as %q (%v)", s, got, err)
+		}
+		var matches int
+		if err := conn.QueryRowContext(ctx, "SELECT count(*) FROM (VALUES ('a'), ('b')) v(x) WHERE x = "+db.Literal(db.Postgres, s)).Scan(&matches); err != nil || matches != 0 {
+			t.Errorf("filter on %q matched %d rows (%v)", s, matches, err)
+		}
+	}
+	b := []byte{0x00, 'A', '\\', 0xff, '\''}
+	var got []byte
+	if err := conn.QueryRowContext(ctx, "SELECT "+db.Literal(db.Postgres, b)).Scan(&got); err != nil || string(got) != string(b) {
+		t.Errorf("% x came back as % x (%v)", b, got, err)
+	}
+}

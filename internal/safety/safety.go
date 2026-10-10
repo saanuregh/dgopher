@@ -56,7 +56,7 @@ func Analyze(cfg *db.Config, stmts []string) []Statement {
 // run, MySQL's executable comments included.
 func PolicyText(e db.Engine, sql string) string {
 	if e == db.MySQL {
-		return unwrapExecutable(sql)
+		return sqltext.UnwrapExecutable(sql)
 	}
 	return sql
 }
@@ -75,7 +75,7 @@ func ReviewSQL(cfg *db.Config, stmts []Statement) Verdict {
 	for _, s := range stmts {
 		cls := s.Analysis.Class
 		mutates := cls == sqltext.Write || cls == sqltext.DDL
-		if mutates && !v.Writes && !OutsideTransaction(cfg.Engine, s.SQL) {
+		if !v.Writes && WritesInTransaction(cfg.Engine, s) {
 			v.Writes = true
 		}
 		if cfg.ReadOnly {
@@ -119,6 +119,107 @@ func (v *Verdict) ManyRows(cfg *db.Config, rows, limit int) {
 	}
 	v.Confirm, v.TypeName = true, true
 	v.Reasons = append(v.Reasons, fmt.Sprintf("It changes or deletes %d rows already there, more than the %d a change makes without asking (Settings).", rows, limit))
+}
+
+// EndsTransaction makes statements that commit the transaction open, as
+// MySQL's DDL does without being asked, ask first: Roll Back then cannot
+// undo what ran in it before them.
+func (v *Verdict) EndsTransaction(cfg *db.Config, stmts []Statement, open bool) {
+	if !open {
+		return
+	}
+	for _, s := range stmts {
+		if CommitsImplicitly(cfg.Engine, s) {
+			v.Confirm = true
+			v.Reasons = append(v.Reasons, verbOf(s.Analysis)+" commits the open transaction: Roll Back will not undo what ran before it")
+		}
+	}
+	v.Reasons = dedupe(v.Reasons)
+}
+
+// EndsRunTransaction is EndsTransaction for statements run with no
+// transaction open. It follows the transaction they run in: under manual
+// commit, the app opens one before they write and again after a statement
+// commits it; otherwise only a typed BEGIN or START TRANSACTION opens one,
+// which holds the statements after it until the transaction ends. A
+// statement that commits implicitly asks only after a write it commits,
+// for before one the transaction holds nothing.
+func (v *Verdict) EndsRunTransaction(cfg *db.Config, stmts []Statement, manual bool) {
+	held := false // a write waits in the transaction
+	begun := ""   // the typed statement that began the open transaction
+	for _, s := range stmts {
+		switch {
+		case CommitsImplicitly(cfg.Engine, s):
+			if held {
+				v.Confirm = true
+				if manual {
+					v.Reasons = append(v.Reasons, verbOf(s.Analysis)+" commits the writes before it, which manual commit holds in a transaction: Roll Back will not undo them")
+				} else {
+					v.Reasons = append(v.Reasons, verbOf(s.Analysis)+" commits the writes since "+begun+": rolling back after it will not undo them")
+				}
+			}
+			held, begun = false, ""
+		case CommitsOrRollsBack(cfg.Engine, s):
+			held, begun = false, ""
+		case WritesInTransaction(cfg.Engine, s):
+			held = manual || begun != ""
+		}
+		if BeginsTransaction(s) {
+			begun = BeginStatement(s.Analysis.Verb)
+		}
+	}
+	v.Reasons = dedupe(v.Reasons)
+}
+
+// WritesInTransaction reports whether a statement changes data or schema
+// in the transaction manual commit opens for it (Verdict.Writes): not one
+// that cannot run in a transaction, as VACUUM.
+func WritesInTransaction(e db.Engine, s Statement) bool {
+	cls := s.Analysis.Class
+	return (cls == sqltext.Write || cls == sqltext.DDL) && !OutsideTransaction(e, s.SQL)
+}
+
+// CommitsOrRollsBack reports whether a statement ends the open transaction
+// as asked to: COMMIT, END, ROLLBACK or ABORT, AND CHAIN too, but not
+// ROLLBACK TO a savepoint, after which the transaction goes on.
+func CommitsOrRollsBack(e db.Engine, s Statement) bool {
+	if s.Analysis.Class != sqltext.Transaction {
+		return false
+	}
+	ends, _ := db.EndsTransaction(e, PolicyText(e, s.SQL))
+	return ends
+}
+
+// CommitsImplicitly reports whether a statement commits the open
+// transaction without being asked, as MySQL's DDL does
+// (db.CommitsImplicitly), its executable comments read.
+func CommitsImplicitly(e db.Engine, s Statement) bool {
+	return db.CommitsImplicitly(e, PolicyText(e, s.SQL))
+}
+
+// BeginsTransaction reports whether a statement begins a transaction, as
+// the classifier reads it: BEGIN or START TRANSACTION.
+func BeginsTransaction(s Statement) bool {
+	return s.Analysis.Class == sqltext.Transaction && (s.Analysis.Verb == "BEGIN" || s.Analysis.Verb == "START")
+}
+
+// ControlsTransaction reports whether a statement begins a transaction or
+// ends the open one as asked to (BeginsTransaction, CommitsOrRollsBack).
+func ControlsTransaction(e db.Engine, s Statement) bool {
+	return CommitsOrRollsBack(e, s) || BeginsTransaction(s)
+}
+
+// BeginStatement names the statement a transaction's beginning verb, as
+// the classifier reads it, stands for: "BEGIN", "START TRANSACTION", or ""
+// for another verb.
+func BeginStatement(verb string) string {
+	switch verb {
+	case "BEGIN":
+		return "BEGIN"
+	case "START":
+		return "START TRANSACTION"
+	}
+	return ""
 }
 
 // Add takes in the verdict of more statements, as one review of them
@@ -189,9 +290,10 @@ func verbOf(a sqltext.Analysis) string {
 }
 
 // disablesReadOnly reports whether a statement could turn the session's
-// read-only mode off: SET and BEGIN … READ WRITE, set_config(), and the
-// settings that hold the mode. It reads the tokens, so that comments and
-// spacing between the words hide nothing.
+// read-only mode off: SET and BEGIN … READ WRITE, set_config(), the
+// settings that hold the mode, DuckDB's access_mode among them, and an
+// ATTACH's READ_WRITE. It reads the tokens, so that comments and spacing
+// between the words hide nothing.
 func disablesReadOnly(sql string, d sqltext.Dialect) bool {
 	var words []string
 	for _, t := range sqltext.Tokenize(sql, d) {
@@ -209,6 +311,7 @@ func disablesReadOnly(sql string, d sqltext.Dialect) bool {
 		// A custom escape character is not decoded: the name could be anything.
 		case w == "uescape",
 			strings.Contains(w, "read_only"), strings.Contains(w, "readonly"), strings.Contains(w, "query_only"),
+			strings.Contains(w, "access_mode"), strings.Contains(w, "read_write"),
 			w == "set_config", w == "read" && i+1 < len(words) && words[i+1] == "write":
 			return true
 		}
@@ -262,88 +365,5 @@ func dedupe(xs []string) []string {
 	return out
 }
 
-// unwrapExecutable turns MySQL's executable comments, /*! … */, /*!80000
-// … */ and MariaDB's /*M! … */, into the code they hold, which the server
-// runs: classified as comments, they would hide a DELETE or an INTO
-// OUTFILE from the policy. Strings and ordinary comments are copied as
-// they are, so a quote inside them misleads nothing.
-func unwrapExecutable(sql string) string {
-	if !strings.Contains(sql, "/*!") && !strings.Contains(sql, "/*M!") {
-		return sql
-	}
-	var b strings.Builder
-	r := []rune(sql)
-	inExec := false
-	at := func(i int, s string) bool { return strings.HasPrefix(string(r[i:min(len(r), i+len(s))]), s) }
-	for i := 0; i < len(r); i++ {
-		c := r[i]
-		switch {
-		case c == '\'' || c == '"' || c == '`':
-			// A string, or a quoted name, to its end.
-			b.WriteRune(c)
-			for i++; i < len(r); i++ {
-				b.WriteRune(r[i])
-				if r[i] == '\\' && c != '`' && i+1 < len(r) {
-					i++
-					b.WriteRune(r[i])
-					continue
-				}
-				if r[i] == c {
-					break
-				}
-			}
-			continue
-		case at(i, "/*!") || at(i, "/*M!"):
-			inExec = true
-			b.WriteRune(' ')
-			i += 2
-			if r[i] == 'M' {
-				i++
-			}
-			for i+1 < len(r) && r[i+1] >= '0' && r[i+1] <= '9' {
-				i++ // the version it needs
-			}
-			continue
-		case inExec && at(i, "*/"):
-			inExec = false
-			b.WriteRune(' ')
-			i++
-			continue
-		case !inExec && at(i, "/*"):
-			end := strings.Index(string(r[i+2:]), "*/")
-			if end < 0 {
-				b.WriteString(string(r[i:]))
-				return b.String()
-			}
-			n := len([]rune(string(r[i+2:])[:end]))
-			b.WriteString(string(r[i : i+2+n+2]))
-			i += 2 + n + 1
-			continue
-		case at(i, "-- ") || at(i, "--\t") || at(i, "--\n") || c == '#':
-			for ; i < len(r) && r[i] != '\n'; i++ {
-				b.WriteRune(r[i])
-			}
-			if i < len(r) {
-				b.WriteRune('\n')
-			}
-			continue
-		}
-		b.WriteRune(c)
-	}
-	return b.String()
-}
-
 // Dialect maps an engine to the lexer's dialect.
-func Dialect(e db.Engine) sqltext.Dialect {
-	switch e {
-	case db.Postgres, db.DuckDB:
-		return sqltext.Postgres
-	case db.MySQL:
-		return sqltext.MySQL
-	case db.ClickHouse:
-		return sqltext.ClickHouse
-	case db.SQLite:
-		return sqltext.SQLite
-	}
-	return sqltext.Generic
-}
+func Dialect(e db.Engine) sqltext.Dialect { return db.LexDialect(e) }

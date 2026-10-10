@@ -52,6 +52,11 @@ type Event struct {
 	Detail       string    `json:"detail,omitempty"`
 	Prev         string    `json:"prev"`
 	Hash         string    `json:"hash"`
+
+	// Err is the error of what was done, which the sink writes into Error
+	// as secretcmd.AuditText does, without what a command printed to
+	// stderr. It is never stored or hashed.
+	Err error `json:"-"`
 }
 
 // hashOf is the hash of an event: of its JSON without the hash itself,

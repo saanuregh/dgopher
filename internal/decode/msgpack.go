@@ -17,6 +17,8 @@ const maxDepth = 1000
 type reader struct {
 	b   []byte
 	pos int
+	// names makes the keys and names of what is read.
+	names names
 }
 
 func (r *reader) take(n int) ([]byte, error) {
@@ -181,7 +183,7 @@ func (r *reader) msgpackMap(n, depth int) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		m.set(keyString(k), v)
+		m.set(r.names.keyString(k), v)
 	}
 	return m, nil
 }

@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"dgopher/internal/db"
+	"dgopher/internal/export"
 )
 
 // Format is a kind of file an import reads.
@@ -111,7 +112,16 @@ type File struct {
 }
 
 // Open reads what a file holds: its columns, and how to read its rows.
-func Open(ctx context.Context, path string, opt Options) (*File, error) {
+func Open(ctx context.Context, path string, opt Options) (file *File, err error) {
+	var f *File
+	defer func() {
+		if p := recover(); p != nil {
+			if f != nil {
+				f.Close()
+			}
+			file, err = nil, fmt.Errorf("%s could not be read: %v", filepath.Base(path), p)
+		}
+	}()
 	format, ok := FormatOf(path)
 	if !ok {
 		return nil, fmt.Errorf("%s: DGopher imports CSV, JSON, Parquet, Excel and XML files", filepath.Base(path))
@@ -125,7 +135,7 @@ func Open(ctx context.Context, path string, opt Options) (*File, error) {
 	}
 	// One connection, for the source view to stay where it was made.
 	sqldb.SetMaxOpenConns(1)
-	f := &File{Path: path, Format: format, db: sqldb}
+	f = &File{Path: path, Format: format, db: sqldb}
 	if err := f.load(ctx, opt); err != nil {
 		f.Close()
 		return nil, err
@@ -160,6 +170,9 @@ func (f *File) load(ctx context.Context, opt Options) error {
 	cols, err := describe(ctx, f.db, "SELECT * FROM "+from)
 	if err != nil {
 		return err
+	}
+	if len(cols) > export.ExcelMaxColumns {
+		return fmt.Errorf("%s has %d columns; an import takes at most %d", filepath.Base(f.Path), len(cols), export.ExcelMaxColumns)
 	}
 	// Nested values, as a JSON object in a column, go as JSON text; exact
 	// numbers, which the driver would read as floats, as their digits.
@@ -258,10 +271,14 @@ func (f *File) Preview(ctx context.Context, n int) ([][]any, error) {
 
 // Read hands every row to each, batch rows at a time, and returns how
 // many there were.
-func (f *File) Read(ctx context.Context, batch int, each func(rows [][]any) error) (int64, error) {
-	var n int64
+func (f *File) Read(ctx context.Context, batch int, each func(rows [][]any) error) (n int64, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("%s could not be read: %v", filepath.Base(f.Path), p)
+		}
+	}()
 	rows := make([][]any, 0, batch)
-	err := f.query(ctx, "SELECT * FROM src", func(row []any) error {
+	err = f.query(ctx, "SELECT * FROM src", func(row []any) error {
 		rows = append(rows, row)
 		if len(rows) < batch {
 			return nil

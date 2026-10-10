@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"dgopher/internal/db"
+	"dgopher/internal/sqltext"
 )
 
 // open opens a new SQLite file, with statements run.
@@ -350,5 +351,29 @@ func TestMigrationLeavesTablesItCannotChange(t *testing.T) {
 	ch, notes, err := Migration(a, b, "public", true)
 	if err != nil || len(ch.Steps) != 0 || len(notes) != 1 || !strings.Contains(notes[0], "x is not changed") {
 		t.Fatalf("%v %q\n%s", err, notes, ch.Text())
+	}
+}
+
+func TestScriptNotesStayComments(t *testing.T) {
+	for _, end := range []string{"\n", "\r"} {
+		m := &Model{Name: "shop", Engine: db.MySQL, Tables: []db.TableDesign{{
+			Name: "orders",
+			Columns: []db.ColumnDesign{
+				{Name: "id", Type: "INT", PrimaryKey: true},
+				{Name: "code", Type: "VARCHAR(12)", Default: "x()" + end + "DROP TABLE victims;"},
+			},
+		}}}
+		for _, to := range []struct {
+			engine  db.Engine
+			dialect sqltext.Dialect
+		}{{db.SQLite, sqltext.SQLite}, {db.Postgres, sqltext.Postgres}} {
+			ch, notes := Script(m, to.engine, "main")
+			text := ScriptText(m, to.engine, ch, notes)
+			for _, st := range sqltext.Split(text, to.dialect) {
+				if strings.Contains(st.Text, "DROP TABLE victims") {
+					t.Errorf("%q to %s: the default runs as %q", end, to.engine.Label(), st.Text)
+				}
+			}
+		}
 	}
 }

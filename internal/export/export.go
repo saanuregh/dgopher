@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"dgopher/internal/db"
 )
 
 type Format string
@@ -68,28 +70,26 @@ func (f Format) Label() string {
 	return string(f)
 }
 
-// Literal selects the SQL literal style for Format SQL.
-type Literal int
-
-const (
-	LiteralStandard Literal = iota
-	LiteralPostgres
-	LiteralMySQL
-	LiteralClickHouse
-)
-
 // Options' zero value gives the default output of each format.
 type Options struct {
 	Header   bool
 	NullText string
-	Table    string
-	Quote    func(ident string) string
-	Literal  Literal
+	// Schema and Table are raw names; the SQL writer quotes them with Quote.
+	Schema string
+	Table  string
+	Quote  func(ident string) string
+	// Engine selects the literals of Format SQL. PostgreSQL, MySQL,
+	// ClickHouse and DuckDB get their own; any other engine, or none, gets
+	// standard SQL as SQLite reads it.
+	Engine db.Engine
 	// Delimiter and QuoteChar apply to CSV only; 0 means ',' and '"'.
 	Delimiter   rune
 	QuoteChar   rune
 	QuoteAlways bool
 	BOM         bool
+	// FormulaGuard prefixes ' to CSV and TSV text a spreadsheet would read
+	// as a formula.
+	FormulaGuard bool
 	// RowsPerInsert above 1 groups rows into multi-row INSERT statements.
 	RowsPerInsert int
 }
@@ -418,9 +418,29 @@ func (d *delimitedWriter) Write(row []any) error {
 			fields[i] = d.opt.NullText
 		} else {
 			fields[i] = text(v)
+			if d.opt.FormulaGuard && isText(v) && startsFormula(fields[i]) {
+				fields[i] = "'" + fields[i]
+			}
 		}
 	}
 	return d.writeFields(fields)
+}
+
+// isText reports whether a value is text, which alone the formula guard
+// changes: a negative number stays a number.
+func isText(v any) bool {
+	switch t := deref(v).(type) {
+	case string:
+		return true
+	case []byte:
+		return utf8.Valid(t)
+	}
+	return false
+}
+
+func startsFormula(s string) bool {
+	r, _ := utf8.DecodeRuneInString(s)
+	return s != "" && strings.ContainsRune("=+-@\t\r\n＝＋－＠", r)
 }
 
 func (d *delimitedWriter) Close() error {
@@ -508,9 +528,13 @@ func newSQLWriter(base baseWriter) *sqlWriter {
 	if quote == nil {
 		quote = quoteDuckIdent
 	}
-	table := base.opt.Table
-	if table == "" {
-		table = "exported"
+	name := base.opt.Table
+	if name == "" {
+		name = "exported"
+	}
+	table := quote(name)
+	if base.opt.Schema != "" {
+		table = quote(base.opt.Schema) + "." + table
 	}
 	cols := make([]string, len(base.columns))
 	for i, c := range base.columns {
@@ -519,40 +543,24 @@ func newSQLWriter(base baseWriter) *sqlWriter {
 	return &sqlWriter{baseWriter: base, prefix: "INSERT INTO " + table + " (" + strings.Join(cols, ", ") + ") VALUES"}
 }
 
-var (
-	mysqlEscaper      = strings.NewReplacer(`\`, `\\`, `'`, `\'`, "\x00", `\0`, "\n", `\n`, "\r", `\r`, "\x1a", `\Z`)
-	clickHouseEscaper = strings.NewReplacer(`\`, `\\`, `'`, `''`)
-	standardEscaper   = strings.NewReplacer(`'`, `''`)
-)
-
-func quoteString(s string, style Literal) string {
-	switch style {
-	case LiteralMySQL:
-		return "'" + mysqlEscaper.Replace(s) + "'"
-	case LiteralClickHouse:
-		return "'" + clickHouseEscaper.Replace(s) + "'"
-	}
-	return "'" + standardEscaper.Replace(s) + "'"
-}
-
-func sqlLiteral(v any, style Literal) string {
+func sqlLiteral(v any, e db.Engine) string {
 	if isNil(v) {
 		return "NULL"
+	}
+	switch e {
+	case db.Postgres, db.MySQL, db.ClickHouse, db.DuckDB:
+	default:
+		// Standard SQL has no escape for NUL; SQLite, whose literals are
+		// otherwise standard, joins it in with char(0).
+		e = db.SQLite
 	}
 	v = deref(v)
 	switch x := v.(type) {
 	case []byte:
-		if utf8.Valid(x) {
-			return quoteString(string(x), style)
-		}
-		h := hex.EncodeToString(x)
-		switch style {
-		case LiteralPostgres:
-			return `'\x` + h + `'::bytea`
-		case LiteralClickHouse:
-			return "unhex('" + h + "')"
-		}
-		return "X'" + h + "'"
+		// The cursor turns text columns into strings, so bytes come from a
+		// binary column, or are not UTF-8: as text they would load as other
+		// bytes, since PostgreSQL reads '\x41' into a bytea as "A".
+		return db.Literal(e, x)
 	case bool:
 		if x {
 			return "TRUE"
@@ -560,19 +568,19 @@ func sqlLiteral(v any, style Literal) string {
 		return "FALSE"
 	case float32:
 		if f := float64(x); math.IsNaN(f) || math.IsInf(f, 0) {
-			return quoteString(floatText(f, 32), style)
+			return db.Literal(e, floatText(f, 32))
 		}
 	case float64:
 		if math.IsNaN(x) || math.IsInf(x, 0) {
-			return quoteString(floatText(x, 64), style)
+			return db.Literal(e, floatText(x, 64))
 		}
 	case string, time.Time:
-		return quoteString(text(x), style)
+		return db.Literal(e, text(x))
 	}
 	if s, ok := scalarText(v); ok {
 		return s
 	}
-	return quoteString(text(v), style)
+	return db.Literal(e, text(v))
 }
 
 func (s *sqlWriter) Write(row []any) error {
@@ -592,7 +600,7 @@ func (s *sqlWriter) Write(row []any) error {
 		if i > 0 {
 			s.put(", ")
 		}
-		s.put(sqlLiteral(v, s.opt.Literal))
+		s.put(sqlLiteral(v, s.opt.Engine))
 	}
 	s.put(")")
 	s.inBatch++
@@ -614,7 +622,7 @@ func (s *sqlWriter) Close() error {
 
 type markdownWriter struct{ baseWriter }
 
-var markdownEscaper = strings.NewReplacer(`|`, `\|`, "\r\n", "<br>", "\n", "<br>", "\r", "<br>")
+var markdownEscaper = strings.NewReplacer(`\`, `\\`, "&", "&amp;", "<", "&lt;", `|`, `\|`, "\r\n", "<br>", "\n", "<br>", "\r", "<br>")
 
 func (m *markdownWriter) line(cells []string) {
 	m.put("|")

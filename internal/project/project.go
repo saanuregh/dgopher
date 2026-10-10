@@ -136,13 +136,22 @@ func Load(dir string, create bool) (*Project, Config, error) {
 	if rel, err := filepath.Rel(dir, p.Queries); err != nil || isOutside(rel) {
 		return p, pc, fmt.Errorf("the queries folder %q is outside the project", pc.Queries)
 	}
+	// A cloned .dgopher that is a symlink would put the state, and its
+	// history, wherever it points.
+	if fi, err := os.Lstat(filepath.Join(dir, LocalDir)); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+		return p, pc, fmt.Errorf("the project's %s folder is a symbolic link: replace it with a folder to open the project", LocalDir)
+	}
 	local, err := state.Open(filepath.Join(dir, LocalDir))
 	if err != nil {
 		return p, pc, err
 	}
+	// Rewritten whenever it differs, so a committed one cannot expose the
+	// state file; removed first, so a committed symlink is not followed.
 	ignore := filepath.Join(local.Dir(), ".gitignore")
-	if _, err := os.Stat(ignore); errors.Is(err, fs.ErrNotExist) {
+	if fi, err := os.Lstat(ignore); err != nil || !fi.Mode().IsRegular() || !ignoresAll(ignore) {
+		os.Remove(ignore)
 		if err := os.WriteFile(ignore, []byte("*\n"), 0o644); err != nil {
+			local.Close()
 			return p, pc, err
 		}
 	}
@@ -155,6 +164,11 @@ func Load(dir string, create bool) (*Project, Config, error) {
 	}
 	p.Snippets, p.VirtualKeys, p.HiddenValues = pc.Snippets, pc.VirtualKeys, pc.HiddenValues
 	return p, pc, nil
+}
+
+func ignoresAll(path string) bool {
+	data, err := os.ReadFile(path)
+	return err == nil && string(data) == "*\n"
 }
 
 func isOutside(rel string) bool {
@@ -177,6 +191,13 @@ func (p *Project) ResolvePath(path string) string {
 	}
 	return filepath.Join(p.Dir, filepath.FromSlash(path))
 }
+
+// Contains says whether a path from the project's workspace, relative to
+// the project folder dir or absolute, is a file inside it, and not under
+// its .git or .dgopher, once "..", and symlinks, are resolved. Unlike
+// ResolvePath it restricts: file connections may live anywhere, restored
+// editors may not.
+func Contains(dir, path string) bool { return state.Contains(dir, path) }
 
 // StoredPath is resolvePath's reverse, for files inside the project.
 func (p *Project) StoredPath(path string) string {

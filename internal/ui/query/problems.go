@@ -64,7 +64,7 @@ func checkText(text string, d sqltext.Dialect, o sqltext.SplitOptions, cat catal
 		for _, p := range parentheses(stmt) {
 			add(p)
 		}
-		if cat != nil && checksNames(st.Text, d) {
+		if cat != nil && checksNames(stmt, st.Text, d) {
 			for _, p := range unknownNames(stmt, d, cat) {
 				add(p)
 			}
@@ -147,9 +147,22 @@ func parentheses(stmt []sqltext.Token) []editor.Problem {
 }
 
 // checksNames reports whether a statement's table names must exist: not
-// a statement making, changing or dropping them.
-func checksNames(stmt string, d sqltext.Dialect) bool {
-	switch sqltext.Classify(stmt, d).Verb {
+// a statement making, changing or dropping them. Its verb is the first
+// word of its code past opening parentheses, as sqltext.Classify reads
+// it; only a WITH, whose verb is its main statement's, is classified in
+// full, which is slow on a long routine checked as it is typed.
+func checksNames(code []sqltext.Token, text string, d sqltext.Dialect) bool {
+	for len(code) > 0 && code[0].Kind == sqltext.Punct && code[0].Text == "(" {
+		code = code[1:]
+	}
+	if len(code) == 0 || code[0].Kind != sqltext.Keyword && code[0].Kind != sqltext.Identifier {
+		return false
+	}
+	verb := strings.ToUpper(code[0].Text)
+	if verb == "WITH" {
+		verb = sqltext.Classify(text, d).Verb
+	}
+	switch verb {
 	case "SELECT", "WITH", "INSERT", "UPDATE", "DELETE", "MERGE", "TABLE", "VALUES":
 		return true
 	}

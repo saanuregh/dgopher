@@ -21,6 +21,7 @@ import (
 	"dgopher/internal/safety"
 	"dgopher/internal/sqlfile"
 	"dgopher/internal/sqltext"
+	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo"
@@ -37,6 +38,8 @@ type sqlFileRun struct {
 	path     string
 	size     int64
 	modTime  time.Time
+	// restore is what a restore writes into, "" for a plain run.
+	restore string
 
 	// What the first reading found.
 	reading    bool
@@ -71,17 +74,20 @@ func (a *App) openSQLFileRun(cn *connection.Conn, database string) {
 		if err != nil || len(paths) == 0 {
 			return
 		}
-		a.Post(func() { a.Connect(cn, func() { a.startSQLFileRun(cn, database, paths[0]) }) })
+		a.Post(func() { a.Connect(cn, func() { a.startSQLFileRun(cn, database, paths[0], "") }) })
 	}()
 }
 
-func (a *App) startSQLFileRun(cn *connection.Conn, database, path string) {
-	x := &sqlFileRun{open: true, conn: cn, database: database, path: path, stopOnError: true, reading: true, verbs: map[string]int{}}
+// startSQLFileRun reads a file of SQL through, then shows what it holds
+// and asks to run it; restore, when set, is what a restore writes into,
+// and the run is asked for as that restore is.
+func (a *App) startSQLFileRun(cn *connection.Conn, database, path, restore string) {
+	x := &sqlFileRun{open: true, conn: cn, database: database, path: path, restore: restore, stopOnError: true, reading: true, verbs: map[string]int{}}
 	a.sqlFile = x
 	ctx, cancel := context.WithCancel(context.Background())
 	x.cancel = cancel
 	cfg := cn.Config
-	a.Background(func() func() {
+	dataview.BackgroundResetOnPanic(a, func() { x.reading, x.cancel = false, nil }, func() func() {
 		defer cancel()
 		sum, err := surveySQLFile(ctx, &cfg, path, &x.progress)
 		return func() {
@@ -128,6 +134,12 @@ func surveySQLFile(ctx context.Context, cfg *db.Config, path string, progress *a
 	sum.size, sum.modTime = info.Size(), info.ModTime()
 	h := sha256.New()
 	r := sqlfile.NewReader(io.TeeReader(f, h), safety.Dialect(cfg.Engine))
+	// begun is the line of the BEGIN of the transaction the file holds
+	// open, 0 for none; commits counts the statements that commit it
+	// implicitly, as MySQL's DDL does, which the prompt names up to
+	// maxImplicitCommits of.
+	begun, commits := 0, 0
+	const maxImplicitCommits = 5
 	for {
 		st, err := r.Next()
 		progress.Store(r.Read())
@@ -159,6 +171,22 @@ func surveySQLFile(ctx context.Context, cfg *db.Config, path string, progress *a
 		if sum.verdict.Blocked != "" {
 			return sum, fmt.Errorf("line %d: %s", st.Line, sum.verdict.Blocked)
 		}
+		if begun > 0 && safety.CommitsImplicitly(cfg.Engine, an[0]) {
+			sum.verdict.Confirm = true
+			if commits++; commits <= maxImplicitCommits {
+				sum.verdict.Reasons = append(sum.verdict.Reasons, fmt.Sprintf("line %d: %s commits the transaction begun at line %d: if the file fails later, what ran up to it stays", st.Line, verb, begun))
+			}
+			begun = 0
+		}
+		switch {
+		case safety.BeginsTransaction(an[0]):
+			begun = st.Line
+		case safety.CommitsOrRollsBack(cfg.Engine, an[0]):
+			begun = 0
+		}
+	}
+	if commits > maxImplicitCommits {
+		sum.verdict.Reasons = append(sum.verdict.Reasons, fmt.Sprintf("%d more statements commit a transaction the file began", commits-maxImplicitCommits))
 	}
 	sum.hash = hex.EncodeToString(h.Sum(nil))
 	if sum.statements == 0 {
@@ -289,18 +317,31 @@ func (a *App) sqlFileSummary(c *ui.Context, x *sqlFileRun) {
 }
 
 // confirmSQLFile asks what the safety policy asked of the file's
-// statements, once for them all, then runs it.
+// statements, once for them all, then runs it. On production, where the
+// policy asks only of what writes, a file that writes asks for the
+// connection's name: it then runs without asking again, however many
+// writes it holds. The verdict each statement is checked against as it
+// runs stays the survey's.
 func (a *App) confirmSQLFile(x *sqlFileRun) {
 	v := x.verdict
+	title, action := "Run "+filepath.Base(x.path)+"?", "Run"
+	if x.restore != "" {
+		rv := restoreVerdict(x.conn, x.restore)
+		v.Confirm, v.Reasons = true, append(rv.Reasons, v.Reasons...)
+		title, action = "Restore into "+x.restore+"?", "Restore"
+	}
 	if !v.Confirm {
 		a.runSQLFile(x)
 		return
+	}
+	if x.conn.Config.Env == db.Production {
+		v.TypeName = true
 	}
 	preview := fmt.Sprintf("%s of %s", widgets.Count(x.statements, "statement"), filepath.Base(x.path))
 	if len(x.dangerous) > 0 {
 		preview += ", among them:\n" + strings.Join(x.dangerous, "\n")
 	}
-	a.AskConfirm(x.conn, v, "Run "+filepath.Base(x.path)+"?", "Run", preview, func() { a.runSQLFile(x) })
+	a.AskConfirm(x.conn, v, title, action, preview, func() { a.runSQLFile(x) })
 }
 
 // runSQLFile runs the file's statements as it reads them again, on a
@@ -320,11 +361,18 @@ func (a *App) runSQLFile(x *sqlFileRun) {
 	path, hash := x.path, x.hash
 	started := time.Now()
 	pool := cn.DB
-	a.Background(func() func() {
+	job := fmt.Sprintf("Running %s on %s: stopping it keeps what ran so far, and rolls back a transaction the file left open.", filepath.Base(path), cfg.Name)
+	if oneTx {
+		job = fmt.Sprintf("Running %s on %s in one transaction: stopping it rolls it back, and nothing of the file stays.", filepath.Base(path), cfg.Name)
+	}
+	stopped := func() {
+		x.running, x.finished, x.cancel, x.err = false, true, nil, "The file stopped on an internal error."
+	}
+	dataview.RunJob(a, cn, job, cancel, stopped, func() func() {
 		defer cancel()
 		var failures []string
 		loaded := map[string]int64{}
-		err := func() error {
+		err := func() (err error) {
 			f, err := os.Open(path)
 			if err != nil {
 				return err
@@ -338,6 +386,17 @@ func (a *App) runSQLFile(x *sqlFileRun) {
 			if sess.Tx() != db.TxNone {
 				return errors.New("a transaction is open on this database: commit or roll it back first")
 			}
+			// The statement that began the transaction the file holds open,
+			// by its line, 0 for none.
+			var begun int
+			var opener string
+			// However the file ends, a transaction it leaves open is rolled
+			// back here, said and audited, not by closing the session.
+			defer func() {
+				if sess.OwnsTx() {
+					err = a.rollBackFile(sess, cfg, database, path, begun, opener, err)
+				}
+			}()
 			if oneTx {
 				if err := sess.Begin(ctx); err != nil {
 					return err
@@ -365,6 +424,14 @@ func (a *App) runSQLFile(x *sqlFileRun) {
 					n, err = sess.Exec(ctx, st.SQL)
 				}
 				verb := an[0].Analysis.Verb
+				if !oneTx {
+					switch open := sess.OwnsTx(); {
+					case !open:
+						begun = 0
+					case begun == 0:
+						begun, opener = st.Line, verb
+					}
+				}
 				// The rows a dump loads are counted below; what else ran is
 				// recorded as from an editor.
 				if verb == "INSERT" || verb == "COPY" {
@@ -385,6 +452,9 @@ func (a *App) runSQLFile(x *sqlFileRun) {
 					if stopOnError {
 						return errors.New("stopped at the first error")
 					}
+					if errors.Is(err, db.ErrSessionReset) || errors.Is(err, db.ErrTxLost) {
+						return errors.New("stopped where the connection was lost: the rest of the file would run on a new connection, without what the file had set on the lost one or the transaction it had open")
+					}
 					continue
 				}
 				x.done.Add(1)
@@ -402,9 +472,7 @@ func (a *App) runSQLFile(x *sqlFileRun) {
 		}
 		ev := audit.Event{Kind: audit.KindScript, Database: database, Statement: path, Rows: loaded["INSERT"] + loaded["COPY"],
 			Detail: fmt.Sprintf("ran the file %s (sha256 %s): %d statements, %d failed", path, hash, x.done.Load(), len(failures))}
-		if err != nil {
-			ev.Error = err.Error()
-		}
+		ev.Err = err
 		a.Record(&cfg, ev)
 		return func() {
 			x.running, x.finished, x.cancel = false, true, nil
@@ -420,4 +488,43 @@ func (a *App) runSQLFile(x *sqlFileRun) {
 			a.Notify(started, title, filepath.Base(path)+" on "+cfg.Name, nil)
 		}
 	})
+}
+
+// rollBackFile rolls back, and audits, the transaction a file of SQL left
+// open on its session: one the file began at line begun with the verb
+// opener, or, with begun 0, the one transaction the app ran the file in.
+// It returns the run's error, err, with what became of a transaction the
+// file began, which fails a file that ended without committing it.
+func (a *App) rollBackFile(sess *db.Session, cfg db.Config, database, path string, begun int, opener string, err error) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	start := time.Now()
+	rerr := sess.Rollback(ctx)
+	ev := audit.Event{Kind: audit.KindStatement, Database: database, Statement: "ROLLBACK", DurationMS: time.Since(start).Milliseconds(),
+		Detail: "Run SQL File: " + path + " did not finish its one transaction"}
+	if begun > 0 {
+		ev.Detail = fmt.Sprintf("Run SQL File: %s left the transaction begun at line %d open", path, begun)
+	}
+	ev.Err = rerr
+	a.Record(&cfg, ev)
+	if begun == 0 {
+		// The caller says the one transaction was rolled back: closing the
+		// session ends it, should this ROLLBACK have failed.
+		if err == nil {
+			err = errors.New("the transaction did not commit")
+		}
+		return err
+	}
+	what := "the transaction begun"
+	if begin := safety.BeginStatement(opener); begin != "" {
+		what = begin
+	}
+	msg := fmt.Sprintf("%s at line %d was never committed; its changes were rolled back", what, begun)
+	if rerr != nil {
+		msg = fmt.Sprintf("%s at line %d was never committed, and rolling it back failed (%v): closing the file's session ends it", what, begun, rerr)
+	}
+	if err == nil {
+		return errors.New(msg)
+	}
+	return fmt.Errorf("%w: %s", err, msg)
 }

@@ -97,7 +97,8 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 
 // Run runs the command line directly (no shell) with ctx, a Timeout deadline if ctx has none
 // sooner, and returns stdout with one trailing "\n" or "\r\n" removed. The error never contains
-// stdout; it carries the exit status and at most 300 bytes of stderr.
+// stdout; a command that fails is a *CommandError, with the exit status and at most 300 bytes of
+// stderr.
 func Run(ctx context.Context, line string) (string, error) {
 	argv, err := Split(line)
 	if err != nil {
@@ -139,10 +140,7 @@ func RunArgv(ctx context.Context, argv []string) (string, error) {
 		if errors.As(err, &exitErr) {
 			msg := stderr.data[:min(len(stderr.data), stderrShown)]
 			detail := maskTokens(strings.TrimSpace(strings.ToValidUTF8(string(msg), "")))
-			if detail == "" {
-				return "", fmt.Errorf("%s exited with status %d", argv[0], exitErr.ExitCode())
-			}
-			return "", fmt.Errorf("%s exited with status %d: %s", argv[0], exitErr.ExitCode(), detail)
+			return "", &CommandError{Command: argv[0], Status: exitErr.ExitCode(), Stderr: detail}
 		}
 		return "", fmt.Errorf("running %s: %w", argv[0], err)
 	}
@@ -159,6 +157,50 @@ func RunArgv(ctx context.Context, argv []string) (string, error) {
 		return "", errors.New("the command printed nothing")
 	}
 	return out, nil
+}
+
+// CommandError is a command that exited with a status other than 0. Its
+// Error shows what the command printed to stderr, for the user to see why
+// it failed; long runs that look like tokens are masked, but a short
+// secret may remain, so the audit log keeps AuditText instead.
+type CommandError struct {
+	Command string // the program, argv[0]
+	Status  int
+	Stderr  string
+}
+
+func (e *CommandError) Error() string {
+	if e.Stderr == "" {
+		return fmt.Sprintf("%s exited with status %d", e.Command, e.Status)
+	}
+	return fmt.Sprintf("%s exited with status %d: %s", e.Command, e.Status, e.Stderr)
+}
+
+// AuditText is what the audit log keeps of an error: a command's failure
+// without what it printed to stderr, as "the password command failed (exit
+// 2)" when the caller wrapped it as "the password command failed: %w", else
+// what the caller wrapped it with followed by "sh failed (exit 2)"; any other
+// error as it is.
+func AuditText(err error) string {
+	var ce *CommandError
+	if !errors.As(err, &ce) {
+		return err.Error()
+	}
+	failed := fmt.Sprintf("%s failed (exit %d)", ce.Command, ce.Status)
+	before, after, found := strings.Cut(err.Error(), ce.Error())
+	if !found {
+		// A wrapper that rewrote the text may hold the stderr anywhere.
+		return failed
+	}
+	before = strings.TrimSuffix(before, ": ")
+	after = strings.ReplaceAll(after, ce.Error(), failed)
+	switch {
+	case before == "":
+		return failed + after
+	case strings.HasSuffix(before, "failed"):
+		return before + fmt.Sprintf(" (exit %d)", ce.Status) + after
+	}
+	return before + ": " + failed + after
 }
 
 var tokenRe = regexp.MustCompile(`[A-Za-z0-9_\-+/=.:]{20,}`)

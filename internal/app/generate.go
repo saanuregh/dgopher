@@ -12,6 +12,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/schemadoc"
+	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo"
@@ -74,7 +75,7 @@ func (a *App) openGenerate(cn *connection.Conn, database, schema string, output 
 	g := &generateState{open: true, conn: cn, database: database, schema: schema, output: output, loading: true}
 	a.generating = g
 	poolOf := cn.PoolFor(database)
-	a.Background(func() func() {
+	dataview.BackgroundResetOnPanic(a, func() { g.loading = false }, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 		d, err := poolOf(ctx)
@@ -143,7 +144,12 @@ func (a *App) generate(g *generateState) {
 	g.done.Store(0)
 	g.total.Store(int64(len(objs) + len(items)))
 	poolOf, output, format, title := g.conn.PoolFor(g.database), g.output, g.format, g.title()
-	a.Background(func() func() {
+	job := "Reading " + title + " for its script: stopping it changes nothing, and writes no script."
+	if output == generateDocs {
+		job = "Reading " + title + " for its documentation: stopping it changes nothing, and writes no documentation."
+	}
+	stopped := func() { g.running, g.err = false, "It stopped on an internal error." }
+	dataview.RunJob(a, g.conn, job, cancel, stopped, func() func() {
 		defer cancel()
 		d, err := poolOf(ctx)
 		var s *schemadoc.Schema
@@ -187,6 +193,7 @@ func (a *App) saveDocs(schema string, format int, text string) {
 		ext = ".md"
 	}
 	go func() {
+		defer dataview.RecoverBackground(a.Post, a.ShowError, nil)
 		path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{Title: "Save the Documentation", DefaultPath: schema + ext})
 		if err != nil || path == "" {
 			return

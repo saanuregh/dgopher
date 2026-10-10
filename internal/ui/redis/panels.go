@@ -13,6 +13,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/redact"
 	"dgopher/internal/safety"
+	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -134,6 +135,7 @@ func (r *Tab) runMonitor() {
 	kv, cfg := r.conn.KV, r.conn.Config
 	lines := feed[db.MonitorLine]{keep: monitorKeep}
 	go func() {
+		defer dataview.RecoverBackground(r.a.Post, r.a.ShowError, func() { m.cancel = nil })
 		defer cancel()
 		done := make(chan struct{})
 		go lines.run(done, func(batch []db.MonitorLine) {
@@ -225,7 +227,7 @@ func (r *Tab) loadSlowLog() {
 	s := &r.slow
 	s.asked, s.loading, s.err = true, true, ""
 	kv := r.conn.KV
-	r.a.Background(func() func() {
+	dataview.BackgroundResetOnPanic(r.a, func() { s.loading = false }, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		entries, err := kv.SlowLog(ctx, slowLogRead)
@@ -342,7 +344,7 @@ func (r *Tab) analyseMemory() {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel, m.read, m.err, m.row = cancel, 0, "", -1
 	kv, sep, limit := r.conn.KV, r.conn.Config.Separator(), memoryLimits[m.limit]
-	r.a.Background(func() func() {
+	dataview.BackgroundResetOnPanic(r.a, func() { m.cancel = nil }, func() func() {
 		defer cancel()
 		report, err := kv.AnalyseMemory(ctx, sep, limit, largestKeys, func(n int64) { r.a.Post(func() { m.read = n }) })
 		if ctx.Err() != nil {

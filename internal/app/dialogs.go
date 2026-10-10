@@ -59,6 +59,9 @@ type passwordPrompt struct {
 	onSubmit func(string)
 	onCancel func()
 	answered bool
+	// offerKeep offers to keep the password in the keychain, as keep
+	// says to.
+	offerKeep, keep bool
 }
 
 type hostKeyRequest struct {
@@ -94,7 +97,13 @@ func (a *App) dialogs(c *ui.Context) {
 			ui.Column(c).Width(360).Gap(12).Children(func() {
 				ui.Text(c, "Password for "+p.name).FontSize(15).Bold()
 				ui.Text(c, p.where).TextColor(pal.Muted)
+				if p.offerKeep {
+					ui.Text(c, "Its password is kept for its server alone, without the proxy, client certificate, jump hosts or identity it now has: type it again to send it with them.").FontSize(12).TextColor(pal.Muted)
+				}
 				submit := ui.TextInput(c, &p.password).Password().AutoFocus().Label("Password").Submitted()
+				if p.offerKeep {
+					ui.Checkbox(c, &p.keep, "Keep it in the keychain")
+				}
 				ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 					if ui.Button(c, "Cancel").Clicked() {
 						p.open = false
@@ -205,7 +214,7 @@ func (a *App) dialogs(c *ui.Context) {
 func (a *App) askDeleteConn(cn *connection.Conn) {
 	reason := "The connection's settings and saved passwords are removed. Its database is not touched."
 	if lost := a.losses(cn); len(lost) > 0 {
-		reason += "\n\nIts tabs close, losing:\n" + strings.Join(lost, "\n")
+		reason += "\n\nIts tabs close and the work running on it stops, losing:\n" + strings.Join(lost, "\n")
 	}
 	a.closing = &closeRequest{open: true, title: "Delete " + cn.Config.Name + "?",
 		reason: reason, action: "Delete",

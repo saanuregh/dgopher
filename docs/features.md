@@ -4,7 +4,14 @@
 
 - **First run:**
   - Paste a connection URL (`postgres://…`, `mysql://…`, `clickhouse://…`,
-    `redis://…`, `rediss://…`, or a file path) to fill the connection form.
+    `redis://…`, `rediss://…`, or a file path) to fill the connection form,
+    its TLS too, each value as its own driver reads it: PostgreSQL's
+    `sslmode` (`verify-ca` and `verify-full` as verify-full), MySQL's
+    `ssl-mode` or `tls` (`tls=true` as verify-full), ClickHouse's `secure`
+    and `rediss://` as verify-full, or as require (encrypted, unverified)
+    with `skip_verify`. A value the app does not know, two that disagree,
+    or a `tls_server_name` (the app checks the certificate against the
+    URL's host) is shown as an error rather than taken as prefer.
   - Try the built-in sample shop database without a server.
   - A guided tour, offered on the start page until taken and in the
     title bar's Help menu and the palette always, shows the parts of the window one at a time, dimming
@@ -149,24 +156,33 @@
     replacement after a failover, and logs in to the sentinels with
     credentials of their own. Through an SSH tunnel, every node is reached
     through the SSH server.
-  - TLS: off, prefer, require, or verify with a custom CA, and a client
-    certificate to log in with where the server asks for one. Prefer
-    first checks for TLS with a handshake that sends no password; local
-    connections skip TLS.
+  - TLS: off, prefer, require, or verify (certificate and host name) with
+    a custom CA, and a client certificate to log in with where the server
+    asks for one. Prefer uses TLS where the server offers it, each
+    connection on its own, and on PostgreSQL refuses a server that then
+    asks for the password in clear text; prefer and require do not check
+    who the server is. Whether TLS was used shows after the server's
+    version ("TLS" or "no TLS") and in the connect's audit entry.
+    ClickHouse over HTTP ignores `HTTP_PROXY` and refuses redirects to
+    another host, so its password stays with the server.
   - Proxies: SOCKS5 or HTTP CONNECT, with a user and a password kept in
     the keychain, to the server or to the SSH host.
   - Cloud identities log in to PostgreSQL and MySQL without a password:
     a token of your AWS IAM, Google Cloud IAM or Microsoft Entra ID login,
     printed by the cloud's own tool (`aws`, `gcloud`, `az`) after its
     single sign-on, made again for new connections as it ages, and sent
-    only over TLS. MySQL can send the password as clear text, over TLS,
-    as LDAP and PAM logins need; PostgreSQL's LDAP and PAM logins take the
-    password as any other.
+    only over verified TLS (verify-full, with the server's CA file unless
+    the system trusts it: AWS's RDS CA bundle, Cloud SQL's server CA).
+    MySQL can send the password as clear text, over verified TLS too, as
+    LDAP and PAM logins need; PostgreSQL's LDAP and PAM logins take the
+    password as any other, under require or verify-full.
   - Kerberos: a PostgreSQL server asking for it gets the ticket of your
     `kinit`, from the credentials cache of `KRB5CCNAME` as `krb5.conf`
     (or `KRB5_CONFIG`) sets up; on Windows, your login's credentials.
   - SSH tunnels: agent, key file with passphrase, or password, through
-    jump hosts as `ssh -J` does. Host keys are checked against
+    jump hosts as `ssh -J` does; a jump host logs in with the key file or
+    the agent, and the password goes only to the SSH host, so a tunnel
+    through jump hosts needs a key or the agent. Host keys are checked against
     `known_hosts`, a jump host's too, and a new host must be trusted
     explicitly after you compare its fingerprint. A changed host key is
     refused as a possible attack.
@@ -225,7 +241,8 @@
     key; indexes, foreign keys with their actions, and checks, dropped or
     added. Review SQL shows every statement before it runs; they run in
     one transaction where the engine's DDL allows it, and the
-    confirmation says when it does not. SQLite makes the table again for
+    confirmation says when it does not. On DuckDB and in-memory SQLite,
+    whose tabs share one transaction, they wait until an open one ends. SQLite makes the table again for
     what ALTER TABLE cannot change, keeping its rows, indexes, triggers
     and views, and refuses when the table has what the form cannot write
     again, as a collation. DuckDB and ClickHouse change the columns of a
@@ -402,10 +419,19 @@
     on a session of its own. Reaching the limit is said, never silent.
     Files are named from a pattern (`${table}`, `${connection}`,
     `${timestamp}`, `${date}`); text formats can go to the clipboard
-    instead. CSV can start with a byte order mark, for Excel.
+    instead. CSV can start with a byte order mark, for Excel, and CSV and
+    TSV can guard against spreadsheet formulas (off at first, then as last
+    chosen): text starting with `=`, `+`, `-`, `@`, a tab or a line break
+    (or their full-width forms) gets a leading `'`, so that a spreadsheet
+    shows it rather than runs it; numbers are never changed, nor are
+    clipboard copies. A SQL export names its table in the dialog's Table
+    and Schema fields, quoted as the engine quotes names: the schema (a
+    MySQL or ClickHouse database) is filled in from a table and left empty
+    for a query's rows, and an empty one writes the table's name alone.
+    Markdown escapes `|`, `\`, `&` and `<`.
   - Export Tables, on a schema, writes the tables and views chosen, each
     to a file of its own named by the pattern, with the same formats and a
-    limit for each.
+    limit for each; its SQL INSERTs name each table with its schema.
   - The Excel workbook keeps numbers, dates and booleans as such, with
     a bold header that stays in view. A number past the 15 digits Excel
     keeps, such as a large ID, stays text, so that it is never rounded;
@@ -413,13 +439,15 @@
     write a file Excel would repair.
   - Inline editing: change cells, add, duplicate and delete rows, set NULL
     or DEFAULT, revert, undo and redo (⌘Z), with DBeaver's keys.
-  - A query's result is editable when its statement reads one table (no
+  - A query's result is editable when its statement only reads (not one
+    calling a function such as `nextval`, nor `FOR UPDATE`), reads one table (no
     join, grouping, aggregate, `DISTINCT`, `UNION`, window function or
     subquery in `FROM`) and its columns include the table's key; computed
     and renamed columns stay read-only. The status line says why a result
     cannot be edited. Its edits apply on the editor's session, so with
-    manual commit they join its open transaction, and ⌘S reviews them,
-    then saves the file.
+    manual commit they join its open transaction (on DuckDB, which has no
+    savepoints, they wait until it ends), and ⌘S reviews them, then saves
+    the file.
   - Compare two results: pin a result's rows, then compare another with
     them, from the grid's compare button. The comparison matches rows by
     the table's key, a column of both or their position, and shows the
@@ -648,18 +676,34 @@
   fills' too; text fits its column; a nullable column can take a share of
   NULLs. A sample shows first. The rows are added in one transaction
   where the engine has them, through the safety policy, audited.
- from its menu or its connection's:
+- **Back up and restore** a database, from its menu or its connection's:
   PostgreSQL with `pg_dump`, as an archive or SQL, schema, data or both;
   MySQL with `mysqldump`, in one transaction with its routines, triggers
   and events; SQLite as a copy (`VACUUM INTO`) while it stays in use;
   DuckDB as a folder of Parquet files (`EXPORT DATABASE`). The tools reach
   the server as the connection does, through its tunnel or proxy, their
   password in their environment or a file of their own, never on their
-  command line; their progress shows as they write. A pg_dump archive
-  restores with `pg_restore` in one transaction, dropping what it makes
-  first if asked; a SQL file restores as Run SQL File runs it. A restore
-  is always confirmed, the connection's name typed on production, and
-  both are audited.
+  command line; their progress shows as they write.
+  - The tools take nothing from your environment: a database's name is
+    only a name (one holding `=` or a URL changes nothing), pg_dump and
+    pg_restore never read `~/.pgpass` or `PG*` variables, and mysqldump
+    reads no option file but the app's.
+  - Under verify-full without a CA file, the PostgreSQL tools trust the
+    system's roots (they need version 16 or later); mysqldump needs the
+    connection's CA file. Through a tunnel or proxy, mysqldump checks the
+    certificate against the CA but not the server's name, and the dialog
+    says so.
+  - A pg_dump archive restores with `pg_restore` in one transaction,
+    dropping what it makes first if asked; a SQL file restores as Run SQL
+    File runs it.
+  - A DuckDB folder is imported into a separate DuckDB that can reach only
+    that folder, then copied into the database: tables, views, macros,
+    types, sequences, indexes and keys, all or nothing. A view that reads a
+    file outside the folder cannot be restored, and the restore waits for an
+    open transaction on the database to end.
+  - A restore is always confirmed, once, the connection's name typed on
+    production (a SQL file's once it has been read through), and both are
+    audited.
 - **Import** a CSV, JSON, JSON Lines, Parquet, Excel or XML file into a
   table, or into a new table made from the file's columns (a schema's
   menu: Import File as New Table…, or drop an Excel or XML file):
@@ -676,16 +720,39 @@
     It waits for an open transaction on the database to end first.
   - On ClickHouse, which has no transactions, the rows before a failing
     one stay in a table that was there, and the error says how many.
+  - A file holds at most 16,384 columns (Excel's A to XFD); an Excel sheet
+    at most Excel's 1,048,576 rows, a cell at most 1 MB of text, each part
+    of the workbook but its sheets at most 64 MB unpacked, and its shared
+    strings at most 4,194,304 items and 128 MB of text. In a workbook and an
+    XML file, elements nest at most 10,000 deep, with at most 10,000 name
+    spaces declared by those open at once; a tag (or a comment, CDATA
+    section or other markup) holds at most 1 MB and 16,384 attributes, and
+    a run of text between them at most 1 MB, refused before it is read
+    whole. An XML file is read twice,
+    its columns and then its rows, so that its rows are not all held at
+    once. A file past a limit, or one that cannot be read, says so; it does
+    not stop the app.
 - **Run SQL File…** runs a file of SQL, as a dump of `pg_dump`,
-  `mysqldump` or `sqlite3`, without opening it in an editor, however large:
+  `mysqldump` or `sqlite3`, without opening it in an editor, however large,
+  each statement up to 64 MB and each `COPY` row up to 1 GB:
   - It reads the file through first, and says what it holds: how many
-    statements of each kind, and each that destroys data, by line. The
-    safety policy asks once for them all.
+    statements of each kind, and each that destroys data, by line, and
+    each that commits a transaction the file began (MySQL's DDL), as what
+    ran before it stays if the file fails later. The safety policy asks
+    once for them all; on production, a file that writes asks for the
+    connection's name. Restoring a backup that is a SQL file runs it so,
+    asked once as a restore.
   - Then it runs the file as it reads it again, on a session of its own:
     in one transaction, all or nothing, where the database can hold one
     and the file holds none of its own; else statement by statement,
-    stopping at the first error, or going on, as chosen. A file changed
-    in between is not run.
+    stopping at the first error, or going on, as chosen; a lost connection
+    always stops it, as the rest would run without what the file had set.
+    A file changed in between is not run.
+  - A file that ends, stops or fails with a transaction it began still
+    open is rolled back, the rollback audited, and the run fails: "BEGIN at
+    line N was never committed; its changes were rolled back". On MySQL the
+    server says whether one is open, so a dump that turns autocommit off and
+    commits ends well.
   - A PostgreSQL dump's `COPY … FROM stdin` rows are loaded, and its
     `\restrict` lines skipped; other psql commands, as `\connect`, stop
     it, as only psql runs them. MySQL's `DELIMITER` and executable

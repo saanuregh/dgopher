@@ -70,7 +70,7 @@ func (a *App) startCompare(x *rowCompareDialog) {
 	source := db.CompareTable{Schema: x.fromSchema, Table: x.fromTable}
 	target := db.CompareTable{Schema: toSchema, Table: toTable}
 	show := a.Settings().ShowSensitive
-	a.Background(func() func() {
+	dataview.BackgroundResetOnPanic(a, func() { x.running, x.cancel = false, nil }, func() func() {
 		defer cancel()
 		var r *db.RowComparison
 		var err error
@@ -237,7 +237,9 @@ func (a *App) runSync(x *rowCompareDialog, stmts, shown []db.Statement) {
 	to, toSchema, toTable := x.to, x.toSchema, x.toTable
 	detail := fmt.Sprintf("%s making %s's rows as %s's of %s ", widgets.Count(len(stmts), "change"), x.toTable, x.fromTable, x.from.Config.Name)
 	started := time.Now()
-	a.Background(func() func() {
+	job := fmt.Sprintf("Applying %s to %s on %s: stopping it rolls them back, and nothing of it stays.", widgets.Count(len(stmts), "change"), toTable, cfg.Name)
+	stopped := func() { x.running, x.cancel, x.err = false, nil, "The sync stopped on an internal error." }
+	dataview.RunJob(a, to, job, cancel, stopped, func() func() {
 		defer cancel()
 		d, err := pool(ctx)
 		var sess *db.Session
@@ -256,7 +258,7 @@ func (a *App) runSync(x *rowCompareDialog, stmts, shown []db.Statement) {
 		ev := audit.Event{Kind: audit.KindEdit, Database: database, Rows: int64(len(stmts)), DurationMS: time.Since(started).Milliseconds(), Detail: detail}
 		if err != nil {
 			ev.Detail += "rolled back"
-			ev.Error = err.Error()
+			ev.Err = err
 		} else {
 			ev.Detail += "committed"
 		}

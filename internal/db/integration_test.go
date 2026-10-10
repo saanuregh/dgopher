@@ -579,7 +579,8 @@ func TestIntegrationTLSPreferFallsBack(t *testing.T) {
 }
 
 // A transaction lost while reading rows is reported, never replaced by a
-// new connection on which a COMMIT would "succeed".
+// new connection on which a COMMIT would "succeed". On MySQL, whose cancel
+// keeps the connection when its KILL QUERY works, the KILL is made to fail.
 func TestIntegrationLostTransactionIsReported(t *testing.T) {
 	integration(t)
 	for _, f := range fixtures(t) {
@@ -594,6 +595,7 @@ func TestIntegrationLostTransactionIsReported(t *testing.T) {
 			table := QualifiedName(d.Dialect, f.schema, "customers")
 			if f.cfg.Engine == MySQL {
 				s.Exec(bg, "SET SESSION cte_max_recursion_depth = 3000000")
+				s.mysqlID = 1 << 40 // no such connection
 			}
 			if err := s.Begin(bg); err != nil {
 				t.Fatal(err)
@@ -609,6 +611,12 @@ func TestIntegrationLostTransactionIsReported(t *testing.T) {
 			}
 			c.Fetch(10)
 			cancel() // Esc while the rows come
+			if f.cfg.Engine == MySQL {
+				// The KILL failed, and the driver's context ended, which
+				// drops the connection; the rows read on would otherwise
+				// end first.
+				<-c.watch.exited
+			}
 			c.Fetch(1000)
 			err = s.Commit(bg)
 			if err == nil {
@@ -1516,8 +1524,14 @@ func TestIntegrationCloudIdentity(t *testing.T) {
 	integration(t)
 	ctx := context.Background()
 	runs := fakeCLI(t, "aws", "dgopher")
+	// The token needs verify-full, which the test server's certificate
+	// cannot pass: made by MySQL for itself, it names no host. Its
+	// connections are opened as Open would, over unverified TLS.
 	my := Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Database: "shop", TLS: TLSRequire, Identity: IdentityAWS}
-	d, err := Open(ctx, my, nil)
+	if err := my.Validate(); err == nil || !strings.Contains(err.Error(), "verify-full") {
+		t.Fatalf("a token allowed over unverified TLS: %v", err)
+	}
+	d, err := openWith(ctx, my, endpoint{host: my.Host, port: my.Port, serverName: my.Host}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1552,8 +1566,10 @@ func TestIntegrationCloudIdentity(t *testing.T) {
 	if err := sqldb.PingContext(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := (&Config{Name: "x", Engine: Postgres, Host: "h", Identity: IdentityAWS, TLS: TLSPrefer}).Validate(); err == nil {
-		t.Fatal("a token allowed without required TLS")
+	for _, mode := range []TLSMode{TLSPrefer, TLSRequire} {
+		if err := (&Config{Name: "x", Engine: Postgres, Host: "h", User: "u", Identity: IdentityAWS, TLS: mode}).Validate(); err == nil {
+			t.Fatalf("a token allowed under %s", mode)
+		}
 	}
 }
 
@@ -1646,6 +1662,410 @@ func TestIntegrationPlans(t *testing.T) {
 				if got := strings.Join(texts, "\n"); wantAdvice && !strings.Contains(strings.ToLower(got), strings.ToLower(c.advice)) {
 					t.Errorf("%s: %d steps, advice %q, want %q", prefix, steps, got, c.advice)
 				}
+			}
+		})
+	}
+}
+
+// fixtureOf returns the fixture of an engine.
+func fixtureOf(t *testing.T, e Engine) fixture {
+	t.Helper()
+	for _, f := range fixtures(t) {
+		if f.cfg.Engine == e {
+			return f
+		}
+	}
+	t.Fatalf("no %s fixture", e)
+	return fixture{}
+}
+
+// The session shows the transaction the server has, whatever the
+// statement's first word: comments, AND CHAIN, savepoints, XA, autocommit,
+// procedures, implicit commits and aborted transactions.
+func TestIntegrationUntrackedTransactionsAreSeen(t *testing.T) {
+	integration(t)
+	ctx := context.Background()
+	type step struct {
+		sql   string
+		want  TxState
+		fails bool
+	}
+	steps := map[Engine][]step{
+		MySQL: {
+			{sql: "/* why */ START TRANSACTION", want: TxOpen},
+			{sql: "COMMIT AND CHAIN", want: TxOpen},
+			{sql: "SAVEPOINT s", want: TxOpen},
+			{sql: "ROLLBACK TO SAVEPOINT s", want: TxOpen},
+			{sql: "SELEC 1", want: TxOpen, fails: true},
+			{sql: "ROLLBACK", want: TxNone},
+			{sql: "-- why\nBEGIN", want: TxOpen},
+			{sql: "CREATE TABLE untracked_commit (a INT)", want: TxNone},
+			{sql: "START REPLICA", want: TxNone, fails: true},
+			// Autocommit off: a transaction from the first statement that
+			// reads or writes a table, to COMMIT or autocommit on.
+			{sql: "SET autocommit = 0", want: TxNone},
+			{sql: "SELECT 1", want: TxNone},
+			{sql: "UPDATE customers SET name = name WHERE id = 1", want: TxOpen},
+			{sql: "COMMIT", want: TxNone},
+			{sql: "UPDATE customers SET name = name WHERE id = 1", want: TxOpen},
+			{sql: "SET autocommit = 1", want: TxNone},
+			{sql: "XA START 'untracked'", want: TxOpen},
+			{sql: "XA END 'untracked'", want: TxOpen},
+			{sql: "XA ROLLBACK 'untracked'", want: TxNone},
+			{sql: "CALL untracked_begin()", want: TxOpen},
+			{sql: "ROLLBACK", want: TxNone},
+			// A CREATE TABLE that fails still commits what came before it.
+			{sql: "BEGIN", want: TxOpen},
+			{sql: "INSERT INTO customers (id, name) VALUES (99, 'committed')", want: TxOpen},
+			{sql: "CREATE TABLE customers (a INT)", want: TxNone, fails: true},
+			{sql: "DELETE FROM customers WHERE id = 99", want: TxNone},
+		},
+		SQLite: {
+			{sql: "/* why */ BEGIN IMMEDIATE", want: TxOpen},
+			{sql: "SAVEPOINT s", want: TxOpen},
+			{sql: "ROLLBACK TO SAVEPOINT s", want: TxOpen},
+			{sql: "END", want: TxNone},
+			{sql: "SAVEPOINT outermost", want: TxOpen},
+			{sql: "RELEASE outermost", want: TxNone},
+			{sql: "-- why\nBEGIN", want: TxOpen},
+			{sql: "INSERT INTO customers (id, name) VALUES (99, 'x')", want: TxOpen},
+			{sql: "ROLLBACK", want: TxNone},
+		},
+		DuckDB: {
+			{sql: "/* why */ BEGIN", want: TxOpen},
+			{sql: "SELEC 1", want: TxOpen, fails: true}, // a parse error leaves it usable
+			{sql: "INSERT INTO customers (id, name) VALUES (1, 'duplicate')", want: TxFailed, fails: true},
+			{sql: "ROLLBACK", want: TxNone},
+			{sql: "-- why\nSTART TRANSACTION", want: TxOpen},
+			{sql: "COMMIT", want: TxNone},
+		},
+	}
+	for _, e := range []Engine{MySQL, SQLite, DuckDB} {
+		t.Run(string(e), func(t *testing.T) {
+			d := open(t, fixtureOf(t, e))
+			if e == MySQL {
+				for _, q := range []string{"DROP TABLE IF EXISTS untracked_commit", "DROP PROCEDURE IF EXISTS untracked_begin",
+					"CREATE PROCEDURE untracked_begin() START TRANSACTION"} {
+					if _, err := d.SQL.Exec(q); err != nil {
+						t.Fatalf("%s: %v", q, err)
+					}
+				}
+				t.Cleanup(func() {
+					d.SQL.Exec("DROP TABLE IF EXISTS untracked_commit")
+					d.SQL.Exec("DROP PROCEDURE IF EXISTS untracked_begin")
+				})
+			}
+			s, err := d.Session(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			for _, st := range steps[e] {
+				if _, err := s.Exec(ctx, st.sql); (err != nil) != st.fails {
+					t.Fatalf("%s: %v", st.sql, err)
+				}
+				if got := s.Tx(); got != st.want {
+					t.Fatalf("after %q: %v, want %v", st.sql, got, st.want)
+				}
+			}
+			if e == DuckDB {
+				s.Begin(ctx)
+				s.Exec(ctx, "INSERT INTO customers (id, name) VALUES (98, 'aborted')")
+				s.Exec(ctx, "INSERT INTO customers (id, name) VALUES (1, 'duplicate')")
+				if err := s.Commit(ctx); !errors.Is(err, ErrTxFailed) {
+					t.Fatalf("commit of an aborted transaction: %v", err)
+				}
+				var n int
+				d.SQL.QueryRow("SELECT count(*) FROM customers WHERE id = 98").Scan(&n)
+				if n != 0 {
+					t.Fatal("the aborted transaction's row was committed")
+				}
+			}
+		})
+	}
+}
+
+// A closed session's connection is closed, not pooled: the next session
+// inherits none of its schema, role, settings, variables, locks,
+// temporary tables or transaction.
+func TestIntegrationCloseLeaksNothing(t *testing.T) {
+	integration(t)
+	ctx := context.Background()
+	type check struct {
+		query, want string
+	}
+	cases := []struct {
+		e      Engine
+		leak   []string
+		checks []check
+	}{
+		{
+			e: Postgres,
+			leak: []string{"SET search_path TO it", "SET statement_timeout = 4321", "CREATE TEMP TABLE close_leak (a int)",
+				"SELECT pg_advisory_lock(424242)", "SET ROLE pg_monitor", "BEGIN", "SELECT 1"},
+			checks: []check{
+				{"SELECT current_setting('search_path')", `"$user", public`},
+				{"SELECT current_user", "postgres"},
+				{"SELECT current_setting('statement_timeout')", "0"},
+				{"SELECT to_regclass('pg_temp.close_leak') IS NULL", "true"},
+			},
+		},
+		{
+			e:    MySQL,
+			leak: []string{"USE information_schema", "SET @close_leak = 1", "SET SESSION sql_mode = 'ANSI_QUOTES'", "SET autocommit = 0"},
+			checks: []check{
+				{"SELECT DATABASE()", "shop"},
+				{"SELECT @close_leak IS NULL", "1"},
+				{"SELECT @@autocommit", "1"},
+				{"SELECT @@session.sql_mode LIKE '%ANSI_QUOTES%'", "0"},
+			},
+		},
+		{
+			e:    SQLite,
+			leak: []string{"PRAGMA foreign_keys = 0", "/* why */ BEGIN", "INSERT INTO customers (id, name) VALUES (99, 'leak')"},
+			checks: []check{
+				{"PRAGMA foreign_keys", "1"},
+				{"SELECT count(*) FROM customers WHERE id = 99", "0"},
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(string(c.e), func(t *testing.T) {
+			d := open(t, fixtureOf(t, c.e))
+			s1, err := d.Session(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, q := range c.leak {
+				if _, err := s1.Exec(ctx, q); err != nil {
+					t.Fatalf("%s: %v", q, err)
+				}
+			}
+			s1.Close()
+			s2, err := d.Session(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s2.Close()
+			for _, ch := range c.checks {
+				cur, err := s2.Query(ctx, ch.query)
+				if err != nil {
+					t.Fatalf("%s: %v", ch.query, err)
+				}
+				rows, err := cur.Fetch(1)
+				cur.Close()
+				if err != nil || len(rows) != 1 || Display(rows[0][0]) != ch.want {
+					t.Errorf("%s in the next session: %v %v, want %s", ch.query, rows, err, ch.want)
+				}
+			}
+			if c.e == Postgres {
+				// The server lets the lock go as the closed backend exits.
+				deadline := time.Now().Add(5 * time.Second)
+				for {
+					var held int
+					d.SQL.QueryRow("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND objid = 424242").Scan(&held)
+					if held == 0 {
+						break
+					}
+					if time.Now().After(deadline) {
+						t.Fatal("the closed session's advisory lock is still held")
+					}
+					time.Sleep(50 * time.Millisecond)
+				}
+			}
+		})
+	}
+}
+
+// MySQL rolls a deadlock's victim back whole: its session shows no
+// transaction, while the other's stays open. A lock wait timeout rolls
+// back only its statement unless innodb_rollback_on_timeout is on.
+func TestIntegrationDeadlockVictimIsNotOpen(t *testing.T) {
+	integration(t)
+	ctx := context.Background()
+	d := open(t, fixtureOf(t, MySQL))
+	a, _ := d.Session(ctx)
+	defer a.Close()
+	b, _ := d.Session(ctx)
+	defer b.Close()
+	for _, st := range []struct {
+		s   *Session
+		sql string
+	}{
+		{a, "START TRANSACTION"}, {a, "UPDATE customers SET name = 'a' WHERE id = 1"},
+		{b, "START TRANSACTION"}, {b, "UPDATE customers SET name = 'b' WHERE id = 2"},
+	} {
+		if _, err := st.s.Exec(ctx, st.sql); err != nil {
+			t.Fatalf("%s: %v", st.sql, err)
+		}
+	}
+	errs := make(chan error, 2)
+	go func() { _, err := a.Exec(ctx, "UPDATE customers SET name = 'a' WHERE id = 2"); errs <- err }()
+	time.Sleep(200 * time.Millisecond)
+	go func() { _, err := b.Exec(ctx, "UPDATE customers SET name = 'b' WHERE id = 1"); errs <- err }()
+	var victims int
+	for range 2 {
+		if err := <-errs; mysqlErrorNumber(err) == 1213 {
+			victims++
+		} else if err != nil {
+			t.Fatalf("not a deadlock: %v", err)
+		}
+	}
+	if victims != 1 {
+		t.Fatalf("%d deadlock victims", victims)
+	}
+	if states := []TxState{a.Tx(), b.Tx()}; !slices.Contains(states, TxNone) || !slices.Contains(states, TxOpen) {
+		t.Fatalf("after the deadlock: a %v, b %v; want one rolled back, one open", states[0], states[1])
+	}
+	a.Rollback(ctx)
+	b.Rollback(ctx)
+
+	var rollsBack bool
+	d.SQL.QueryRow("SELECT @@innodb_rollback_on_timeout").Scan(&rollsBack)
+	for _, st := range []struct {
+		s   *Session
+		sql string
+	}{
+		{a, "START TRANSACTION"}, {a, "UPDATE customers SET name = 'a' WHERE id = 1"},
+		{b, "SET SESSION innodb_lock_wait_timeout = 1"}, {b, "START TRANSACTION"}, {b, "UPDATE customers SET name = 'b' WHERE id = 3"},
+	} {
+		if _, err := st.s.Exec(ctx, st.sql); err != nil {
+			t.Fatalf("%s: %v", st.sql, err)
+		}
+	}
+	if _, err := b.Exec(ctx, "UPDATE customers SET name = 'b' WHERE id = 1"); mysqlErrorNumber(err) != 1205 {
+		t.Fatalf("not a lock wait timeout: %v", err)
+	}
+	want := TxOpen
+	if rollsBack {
+		want = TxNone
+	}
+	if b.Tx() != want {
+		t.Fatalf("after a lock wait timeout (innodb_rollback_on_timeout %v): %v, want %v", rollsBack, b.Tx(), want)
+	}
+	a.Rollback(ctx)
+	b.Rollback(ctx)
+}
+
+// After a lost connection, the next statement that would run on a new one
+// is refused once, as the new connection lacks what the session had set;
+// a session that had run nothing reconnects without a word. A cancelled
+// statement keeps the connection: PostgreSQL's driver cancels it on the
+// server, and MySQL's is stopped by KILL QUERY.
+func TestIntegrationReconnectRefusesOnce(t *testing.T) {
+	integration(t)
+	ctx := context.Background()
+	type engineCase struct {
+		e            Engine
+		set, before  string // a statement setting the schema, and that schema
+		after, table string // the schema of a new connection, and a table in it
+		lose         func(t *testing.T, d *DB, s *Session)
+		sleep        string
+	}
+	pgLose := func(t *testing.T, d *DB, s *Session) {
+		c, err := s.Query(ctx, "SELECT pg_backend_pid()")
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows, _ := c.Fetch(1)
+		c.Close()
+		if _, err := d.SQL.Exec("SELECT pg_terminate_backend($1)", fmt.Sprint(rows[0][0])); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	mysqlLose := func(t *testing.T, d *DB, s *Session) {
+		if _, err := d.SQL.Exec(fmt.Sprintf("KILL %d", s.mysqlID)); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
+	cases := []engineCase{
+		{e: Postgres, set: "SET search_path TO it", before: "it", after: "public", table: "it.customers",
+			lose: pgLose, sleep: "SELECT pg_sleep(10)"},
+		{e: MySQL, set: "USE information_schema", before: "information_schema", after: "shop", table: "shop.customers",
+			lose: mysqlLose, sleep: "SELECT SLEEP(10)"},
+	}
+	// untilRun runs a statement until it runs, and returns the errors before.
+	untilRun := func(t *testing.T, s *Session, q string) []error {
+		t.Helper()
+		var errs []error
+		for range 4 {
+			_, err := s.Exec(ctx, q)
+			if err == nil {
+				return errs
+			}
+			errs = append(errs, err)
+		}
+		t.Fatalf("%s never ran: %v", q, errs)
+		return nil
+	}
+	refusals := func(errs []error) int {
+		n := 0
+		for _, err := range errs {
+			if errors.Is(err, ErrSessionReset) {
+				n++
+			}
+		}
+		return n
+	}
+	for _, c := range cases {
+		t.Run(string(c.e), func(t *testing.T) {
+			d := open(t, fixtureOf(t, c.e))
+			s, err := d.Session(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			if _, err := s.Exec(ctx, c.set); err != nil {
+				t.Fatal(err)
+			}
+			if schema, _ := s.CurrentSchema(ctx); schema != c.before {
+				t.Fatalf("schema %q after %s", schema, c.set)
+			}
+			c.lose(t, d, s)
+			insert := "INSERT INTO " + c.table + " (id, name) VALUES (77, 'after the loss')"
+			errs := untilRun(t, s, insert)
+			if refusals(errs) != 1 || !errors.Is(errs[len(errs)-1], ErrSessionReset) {
+				t.Fatalf("errors before the statement ran on the new connection: %v; want one ErrSessionReset, last", errs)
+			}
+			var n int
+			d.SQL.QueryRow("SELECT count(*) FROM " + c.table + " WHERE id = 77").Scan(&n)
+			if n != 1 {
+				t.Fatalf("%d rows: the refused statement ran too, or the last did not", n)
+			}
+			if schema, _ := s.CurrentSchema(ctx); schema != c.after {
+				t.Fatalf("schema %q on the new connection, want %q", schema, c.after)
+			}
+			if _, err := s.Exec(ctx, "SELECT 1"); err != nil {
+				t.Fatalf("a second refusal: %v", err)
+			}
+
+			// A session that had run nothing reconnects without refusing.
+			if c.e == MySQL {
+				fresh, err := d.Session(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer fresh.Close()
+				c.lose(t, d, fresh)
+				if errs := untilRun(t, fresh, "SELECT 1"); refusals(errs) != 0 {
+					t.Fatalf("a session that had run nothing was refused: %v", errs)
+				}
+			}
+
+			// A cancelled statement keeps the session.
+			if _, err := s.Exec(ctx, c.set); err != nil {
+				t.Fatal(err)
+			}
+			cctx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+			if c, err := s.Query(cctx, c.sleep); err == nil {
+				c.Fetch(1)
+			}
+			cancel()
+			errs = untilRun(t, s, "SELECT 1")
+			if schema, _ := s.CurrentSchema(ctx); len(errs) != 0 || schema != c.before {
+				t.Fatalf("after a cancel: errors %v, schema %q; want none, %q", errs, schema, c.before)
 			}
 		})
 	}

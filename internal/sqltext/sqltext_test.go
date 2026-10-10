@@ -2,8 +2,10 @@ package sqltext
 
 import (
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func kinds(toks []Token) []Kind {
@@ -1010,5 +1012,213 @@ func TestClassifyLosesData(t *testing.T) {
 		if a := Classify("SELECT "+fn, Postgres); a.Class != Write {
 			t.Errorf("%s: class %v", fn, a.Class)
 		}
+	}
+}
+
+// Code quoted as a string, a DO block's or a routine's body, keeps the
+// danger of the statements it holds, and of the strings it EXECUTEs.
+func TestClassifyDollarBodies(t *testing.T) {
+	for _, c := range []struct {
+		d         Dialect
+		sql       string
+		class     Class
+		verb      string
+		dangerous bool
+	}{
+		{Postgres, "DO $$ BEGIN DROP TABLE t; END $$", Write, "DO", true},
+		{Postgres, "DO $x$ BEGIN TRUNCATE t; END $x$", Write, "DO", true},
+		{Postgres, "DO 'BEGIN DELETE FROM t; END'", Write, "DO", true},
+		{Postgres, "DO E'BEGIN DELETE FROM t; END'", Write, "DO", true},
+		{Postgres, "DO LANGUAGE plpgsql $$ BEGIN UPDATE t SET a = 1; END $$", Write, "DO", true},
+		{Postgres, "DO $$ BEGIN DROP TABLE t; END $$ LANGUAGE plpgsql", Write, "DO", true},
+		{Postgres, "DO $$ DECLARE r record; BEGIN FOR r IN SELECT 1 LOOP DELETE FROM t; END LOOP; END $$", Write, "DO", true},
+		{Postgres, "CREATE FUNCTION f() RETURNS void AS $$ BEGIN DELETE FROM t; END $$ LANGUAGE plpgsql", DDL, "CREATE", true},
+		{Postgres, "CREATE OR REPLACE PROCEDURE p() LANGUAGE sql AS 'TRUNCATE t'", DDL, "CREATE", true},
+		{Postgres, "CREATE FUNCTION f() RETURNS void LANGUAGE sql AS $f$ DELETE FROM t WHERE true $f$", DDL, "CREATE", true},
+		{Postgres, "DO $$ BEGIN EXECUTE 'DROP TABLE t'; END $$", Write, "DO", true},
+		{Postgres, "DO $$ BEGIN IF x THEN EXECUTE 'DROP TABLE ' || quote_ident(t); END IF; END $$", Write, "DO", true},
+		{Postgres, "CREATE FUNCTION f() RETURNS trigger AS $$ BEGIN EXECUTE 'TRUNCATE t' USING x; RETURN NULL; END $$ LANGUAGE plpgsql", DDL, "CREATE", true},
+		{Postgres, "DO $a$ BEGIN EXECUTE $b$ DROP TABLE t $b$; END $a$", Write, "DO", true},
+		{Postgres, "DO $a$ BEGIN DO $b$ BEGIN DELETE FROM t; END $b$; END $a$", Write, "DO", true},
+		{Postgres, "DO $a$ BEGIN CREATE FUNCTION g() RETURNS void AS $g$ BEGIN DROP TABLE t; END $g$ LANGUAGE plpgsql; END $a$", Write, "DO", true},
+		{Postgres, "DO $$ BEGIN END $$", Write, "DO", false},
+		{Postgres, "DO $$ BEGIN DELETE FROM t WHERE id = 1; END $$", Write, "DO", false},
+		{Postgres, "DO $$ BEGIN RAISE NOTICE 'DROP TABLE t'; END $$", Write, "DO", false},
+		{Postgres, "DO $$ BEGIN EXECUTE 'DELETE FROM ' || quote_ident(t) || ' WHERE id = $1' USING 1; END $$", Write, "DO", false},
+		{Postgres, "CREATE FUNCTION f() RETURNS int AS $$ BEGIN RETURN 1; END $$ LANGUAGE plpgsql", DDL, "CREATE", false},
+		{Postgres, "CREATE FUNCTION f() RETURNS void AS $$ BEGIN INSERT INTO t VALUES (1) ON CONFLICT (id) DO UPDATE SET a = 1; END $$ LANGUAGE plpgsql", DDL, "CREATE", false},
+		{Postgres, "CREATE FUNCTION f(a text DEFAULT 'drop table t') RETURNS text AS 'SELECT a' LANGUAGE sql", DDL, "CREATE", false},
+		// Code in another language is not SQL: Perl's delete empties no table.
+		{Postgres, "CREATE FUNCTION f() RETURNS void AS $$ my %h; delete $h{x}; $$ LANGUAGE plperl", DDL, "CREATE", false},
+		{Postgres, "DO LANGUAGE plv8 $$ delete obj.x $$", Write, "DO", false},
+		// MySQL's DO evaluates expressions: a string is only a value.
+		{MySQL, "DO 'DROP TABLE t'", Write, "DO", false},
+	} {
+		a := Classify(c.sql, c.d)
+		if a.Class != c.class || a.Verb != c.verb || a.Dangerous != c.dangerous {
+			t.Errorf("%s: got %+v, want class %v verb %s dangerous %v", c.sql, a, c.class, c.verb, c.dangerous)
+		}
+		if a.Dangerous && a.Reason == "" {
+			t.Errorf("%s: dangerous without a reason", c.sql)
+		}
+	}
+
+	// nest wraps inner in levels of DO blocks, each quoted with its own tag.
+	nest := func(levels int, inner string) string {
+		s := inner
+		for i := range levels {
+			tag := "$t" + strconv.Itoa(i) + "$"
+			s = "DO " + tag + " BEGIN " + s + "; END " + tag
+		}
+		return s
+	}
+	if a := Classify(nest(3, "DROP TABLE t"), Postgres); !a.Dangerous {
+		t.Errorf("a DROP three blocks down: %+v", a)
+	}
+	for _, levels := range []int{3, maxCodeDepth} {
+		if a := Classify(nest(levels, "SELECT 1"), Postgres); a.Dangerous {
+			t.Errorf("a SELECT %d blocks down: %+v", levels, a)
+		}
+	}
+	// Past the depth cap the code is not read, and counts as dangerous.
+	for _, levels := range []int{maxCodeDepth + 1, 5000} {
+		if a := Classify(nest(levels, "SELECT 1"), Postgres); !a.Dangerous || !strings.Contains(a.Reason, "too deep") {
+			t.Errorf("%d nested blocks: %+v", levels, a)
+		}
+	}
+}
+
+// PREPARE keeps the danger of the statement it prepares.
+func TestClassifyPrepare(t *testing.T) {
+	for _, c := range []struct {
+		d         Dialect
+		sql       string
+		dangerous bool
+	}{
+		{Postgres, "PREPARE p AS DELETE FROM t", true},
+		{Postgres, "PREPARE p (int) AS UPDATE t SET a = $1", true},
+		{Postgres, "PREPARE p (int, text) AS DELETE FROM t WHERE id = $1", false},
+		{Postgres, "PREPARE p AS SELECT 1", false},
+		{MySQL, "PREPARE s FROM 'DROP TABLE t'", true},
+		{MySQL, `PREPARE s FROM "DELETE FROM t"`, true},
+		{MySQL, "PREPARE s FROM 'DELETE FROM t WHERE id = ?'", false},
+		{MySQL, `PREPARE s FROM 'DELETE FROM t WHERE name = \'it\'\'s\''`, false},
+		{MySQL, "PREPARE s FROM @sql", false},
+	} {
+		a := Classify(c.sql, c.d)
+		if a.Class != Session || a.Verb != "PREPARE" || a.Dangerous != c.dangerous {
+			t.Errorf("%s: got %+v, want a session PREPARE, dangerous %v", c.sql, a, c.dangerous)
+		}
+		if a.Dangerous && a.Reason == "" {
+			t.Errorf("%s: dangerous without a reason", c.sql)
+		}
+	}
+}
+
+// A rule keeps the danger of its action.
+func TestClassifyCreateRule(t *testing.T) {
+	for _, c := range []struct {
+		sql       string
+		dangerous bool
+	}{
+		{"CREATE RULE r AS ON INSERT TO t DO INSTEAD DELETE FROM u", true},
+		{"CREATE OR REPLACE RULE r AS ON UPDATE TO t DO ALSO TRUNCATE u", true},
+		{"CREATE RULE r AS ON DELETE TO t DO (UPDATE u SET a = 1)", true},
+		{"CREATE RULE r AS ON DELETE TO t DO (DELETE FROM u WHERE 1 = 1)", true},
+		{"CREATE RULE r AS ON DELETE TO t WHERE OLD.a > 1 DO INSTEAD DELETE FROM u WHERE u.id = OLD.id", false},
+		{"CREATE RULE r AS ON INSERT TO t DO INSTEAD NOTHING", false},
+	} {
+		a := Classify(c.sql, Postgres)
+		if a.Class != DDL || a.Verb != "CREATE" || a.Dangerous != c.dangerous {
+			t.Errorf("%s: got %+v, want a CREATE, dangerous %v", c.sql, a, c.dangerous)
+		}
+	}
+}
+
+// A MERGE's WHEN … THEN DELETE or UPDATE is one of its actions, not a
+// statement of its own, in a routine's body as anywhere.
+func TestBeginAtomicMergeNotDangerous(t *testing.T) {
+	for _, c := range []struct {
+		sql       string
+		dangerous bool
+	}{
+		{"CREATE FUNCTION f() RETURNS void LANGUAGE sql BEGIN ATOMIC MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE; END", false},
+		{"CREATE FUNCTION f() RETURNS void LANGUAGE sql BEGIN ATOMIC MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET a = s.a WHEN NOT MATCHED THEN INSERT VALUES (s.id); END", false},
+		{"CREATE FUNCTION f() RETURNS void AS $$ BEGIN MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE; END $$ LANGUAGE plpgsql", false},
+		{"CREATE FUNCTION f() RETURNS void LANGUAGE sql BEGIN ATOMIC MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE; DELETE FROM t; END", true},
+	} {
+		if a := Classify(c.sql, Postgres); a.Dangerous != c.dangerous {
+			t.Errorf("%s: got %+v, want dangerous %v", c.sql, a, c.dangerous)
+		}
+	}
+}
+
+// DuckDB settings that name a file write to it: they are writes.
+func TestClassifyDuckDBFileSettings(t *testing.T) {
+	for src, class := range map[string]Class{
+		"SET log_query_path = '/tmp/q.log'":        Write,
+		"SET profiling_output TO '/tmp/p.json'":    Write,
+		"SET SESSION profile_output = '/tmp/p'":    Write,
+		"SET GLOBAL temp_directory = '/tmp/spill'": Write,
+		`SET "log_query_path" = '/tmp/q.log'`:      Write,
+		"SET threads = 4":                          Session,
+		"SET search_path = x":                      Session,
+	} {
+		if a := Classify(src, Postgres); a.Class != class {
+			t.Errorf("%s: got %+v, want class %v", src, a, class)
+		}
+	}
+}
+
+// Code quoted in code is read once a level, however many words before it
+// could start a statement: hostile text of a few hundred bytes classifies
+// at once, and text read more than that counts as dangerous, unread.
+func TestClassifyNestedCodeTime(t *testing.T) {
+	// nest puts levels of template into one another: each level's TAG is a
+	// dollar quote's tag of its own, and its INNER the level below it, down
+	// to inner.
+	nest := func(levels int, template, inner string) string {
+		s := inner
+		for i := range levels {
+			tag := "$t" + strconv.Itoa(i) + "$"
+			s = strings.ReplaceAll(strings.ReplaceAll(template, "TAG", tag), "INNER", s)
+		}
+		return s
+	}
+	thenElse := "DO TAG BEGIN IF a " + strings.Repeat("THEN DO ELSE DO ", 6) + "THEN INNER; END IF; END TAG"
+	routine := "CREATE FUNCTION f() RETURNS void AS TAG BEGIN " + strings.Repeat("IF a THEN CREATE FUNCTION f() ", 6) + "IF a THEN INNER; END IF; END TAG LANGUAGE plpgsql"
+	for _, c := range []struct {
+		name, sql string
+		dangerous bool
+		reason    string
+	}{
+		{"8 DOs a level", nest(8, strings.Repeat("DO ", 8)+"TAG INNER TAG", "SELECT 1"), false, ""},
+		{"12 DOs a level", nest(8, strings.Repeat("DO ", 12)+"TAG INNER TAG", "SELECT 1"), false, ""},
+		{"THEN and ELSE before DO", nest(7, thenElse, "SELECT 1"), false, ""},
+		{"THEN and ELSE before DO, a DROP inside", nest(7, thenElse, "DROP TABLE t"), true, "DROP"},
+		{"CREATEs before AS", nest(7, routine, "SELECT 1"), false, ""},
+		{"CREATEs before AS, a DROP inside", nest(7, routine, "DROP TABLE t"), true, "DROP"},
+		// A rule's action is read as the rule's and as what follows DO:
+		// twice a level, past the budget.
+		{"a rule's DO block", nest(maxCodeDepth, "CREATE RULE r AS ON INSERT TO t DO DO TAG INNER TAG", "SELECT 1"), true, "too much code"},
+	} {
+		start := time.Now()
+		a := Classify(c.sql, Postgres)
+		if took := time.Since(start); took > 50*time.Millisecond {
+			t.Errorf("%s (%d bytes): took %v", c.name, len(c.sql), took)
+		}
+		if a.Dangerous != c.dangerous || !strings.Contains(a.Reason, c.reason) {
+			t.Errorf("%s: got %+v, want dangerous %v for %q", c.name, a, c.dangerous, c.reason)
+		}
+	}
+
+	// Legitimate code, however much of it, stays within the budget.
+	body := strings.Repeat("EXECUTE 'SELECT 1'; ", 5000)
+	if a := Classify("DO $$ BEGIN "+body+"END $$", Postgres); a.Dangerous {
+		t.Errorf("5000 EXECUTEs: %+v", a)
+	}
+	// Each level's EXECUTEs are read a level deeper than its body.
+	if a := Classify(nest(maxCodeDepth-1, "DO TAG BEGIN "+body+"INNER; END TAG", "SELECT 1"), Postgres); a.Dangerous {
+		t.Errorf("5000 EXECUTEs a level, %d levels: %+v", maxCodeDepth-1, a)
 	}
 }

@@ -2,6 +2,8 @@ package dataview
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"dgopher/internal/connection"
@@ -153,8 +155,8 @@ func TestApplyInsideOpenTransaction(t *testing.T) {
 	stmts, _ := tb.view.changes()
 	tb.view.apply(stmts)
 	testutil.WaitFor(t, tt, "first apply", func() bool { return !tb.view.applying && !tb.view.loading })
-	if tb.tx != db.TxOpen {
-		t.Fatalf("tx %v after the first apply", tb.tx)
+	if tb.Tx != db.TxOpen {
+		t.Fatalf("tx %v after the first apply", tb.Tx)
 	}
 	tb.view.grid.setValue(&tb.view.src, 1, 1, db.Typed("Changed twice"))
 	tb.view.grid.setValue(&tb.view.src, 2, 2, db.Typed(db.Display(tb.view.src.Rows[3][2]))) // a duplicate email
@@ -200,4 +202,118 @@ func TestFailedTableDropsFocusWant(t *testing.T) {
 	if want := *a.FocusWant(); want != "" {
 		t.Fatalf("focus still wanted: %q", want)
 	}
+}
+
+// DuckDB has no savepoints: an apply inside an open transaction is
+// refused before anything is sent, saying why, whether the tab holds the
+// transaction or runs inside another tab's, which it names. The
+// transaction and the changes stay as they were.
+func TestDuckDBApplyInsideTxRefused(t *testing.T) {
+	a := NewFakeHost(t)
+	cn := a.AddConn(db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:", Commit: db.CommitManual})
+	tt := ui.NewTester(a.View, 1200, 700)
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	for _, s := range []string{"CREATE TABLE n (id INTEGER PRIMARY KEY, label TEXT)", "INSERT INTO n VALUES (1, 'one'), (2, 'two')"} {
+		if _, err := cn.DB.SQL.Exec(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	obj := db.Object{Schema: "main", Name: "n", Kind: db.KindTable, Rows: -1}
+	open := func() *TableTab {
+		tb := NewTableTab(a, cn, "", obj, PageData)
+		a.AddTab(tb)
+		testutil.WaitFor(t, tt, "rows", func() bool { return tb.view.src.Rows != nil && tb.columns != nil && !tb.view.loading && tb.sess != nil })
+		return tb
+	}
+	apply := func(tb *TableTab, row int, label string) {
+		t.Helper()
+		tb.view.grid.setValue(&tb.view.src, row, 1, db.Typed(label))
+		stmts, err := tb.view.changes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		tb.view.apply(stmts)
+		testutil.WaitFor(t, tt, "the apply", func() bool { return !tb.view.applying && !tb.view.loading })
+	}
+	refused := func(tb *TableTab, want ...string) {
+		t.Helper()
+		if len(a.Errors) != 1 || strings.Contains(a.Errors[0], "Parser Error") || strings.Contains(a.Errors[0], "SAVEPOINT") {
+			t.Fatalf("errors %q", a.Errors)
+		}
+		for _, w := range want {
+			if !strings.Contains(a.Errors[0], w) {
+				t.Fatalf("the refusal does not say %q: %q", w, a.Errors[0])
+			}
+		}
+		if tb.view.grid.edits.count() != 1 {
+			t.Fatalf("%d changes pending after the refusal", tb.view.grid.edits.count())
+		}
+		a.Errors = nil
+	}
+	owner := open()
+	apply(owner, 0, "uno") // opens the tab's transaction (manual commit)
+	if owner.Tx != db.TxOpen || len(a.Errors) != 0 {
+		t.Fatalf("the first apply: tx %v, errors %q", owner.Tx, a.Errors)
+	}
+	apply(owner, 1, "dos")
+	refused(owner, "DuckDB has no savepoints", "commit or roll back this tab's transaction first")
+
+	inside := open()
+	if inside.InsideTx != db.TxOpen {
+		t.Fatalf("the second tab is not inside the transaction: own %v, inside %v", inside.Tx, inside.InsideTx)
+	}
+	inside.SetTxOwner("the owner") // as the app names it
+	apply(inside, 1, "dos")
+	refused(inside, "DuckDB has no savepoints", "the owner's")
+	if owner.sess.Tx() != db.TxOpen || !owner.sess.OwnsTx() {
+		t.Fatalf("the owner's transaction: %v, owned %v", owner.sess.Tx(), owner.sess.OwnsTx())
+	}
+	var label string
+	if err := cn.DB.SQL.QueryRow("SELECT label FROM n WHERE id = 2").Scan(&label); err != nil || label != "two" {
+		t.Fatalf("row 2 holds %q, %v", label, err)
+	}
+	owner.endTx(false)
+	testutil.WaitFor(t, tt, "the rollback", func() bool { return owner.sess.Tx() == db.TxNone && !owner.Busy() })
+}
+
+// A Commit or Roll Back that stopped on an internal error tells what
+// waited for it that it failed, and reads the transaction again, which
+// stays open: closing and quitting still ask.
+func TestStoppedEndTxReadsTxAgain(t *testing.T) {
+	a := NewFakeHost(t)
+	cn := a.AddConn(db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:", Commit: db.CommitManual})
+	tt := ui.NewTester(a.View, 1200, 700)
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	for _, s := range []string{"CREATE TABLE n (id INTEGER PRIMARY KEY, label TEXT)", "INSERT INTO n VALUES (1, 'one')"} {
+		if _, err := cn.DB.SQL.Exec(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tb := NewTableTab(a, cn, "", db.Object{Schema: "main", Name: "n", Kind: db.KindTable, Rows: -1}, PageData)
+	a.AddTab(tb)
+	testutil.WaitFor(t, tt, "rows", func() bool { return tb.view.src.Rows != nil && tb.columns != nil && !tb.view.loading && tb.sess != nil })
+	tb.view.grid.setValue(&tb.view.src, 0, 1, db.Typed("uno"))
+	stmts, err := tb.view.changes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tb.view.apply(stmts) // opens the tab's transaction (manual commit)
+	testutil.WaitFor(t, tt, "the apply", func() bool { return !tb.view.applying && !tb.view.loading })
+	if tb.Tx != db.TxOpen {
+		t.Fatalf("tx %v, errors %q", tb.Tx, a.Errors)
+	}
+	// As a Commit that stopped on a panic leaves the tab.
+	var told error
+	tb.ending = true
+	tb.Times().Then = func(err error) { told = err }
+	tb.setTx(db.TxNone, db.TxNone)
+	tb.endTxStopped()
+	if !errors.Is(told, ErrTxEndStopped) || tb.Times().Then != nil || tb.ending {
+		t.Fatalf("told %v, then kept %v, ending %v", told, tb.Times().Then != nil, tb.ending)
+	}
+	testutil.WaitFor(t, tt, "the transaction read again", func() bool { return tb.Tx == db.TxOpen })
+	tb.endTx(false)
+	testutil.WaitFor(t, tt, "the rollback", func() bool { return tb.Tx == db.TxNone && !tb.Busy() })
 }

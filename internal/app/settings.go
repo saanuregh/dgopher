@@ -140,8 +140,7 @@ func (a *App) appearancePage(c *ui.Context) {
 				a.SaveSettings()
 			}
 			if ui.Button(c, "Themes Folder").Tooltip("Add a theme as a JSON file there: see the documentation").Clicked() {
-				dir := widgets.ThemesDir(a.st.Dir())
-				if err := os.MkdirAll(dir, 0o755); err != nil {
+				if dir, err := a.makeThemesFolder(); err != nil {
 					a.ShowError("Could not make the themes folder", err.Error())
 				} else {
 					mygo.Shell.OpenPath(dir)
@@ -167,6 +166,13 @@ func (a *App) appearancePage(c *ui.Context) {
 			a.settingsDirty = true
 		}
 	}).Description("A family the system lacks shows in its own font.")
+}
+
+// makeThemesFolder makes the folder of the user's themes, when it is
+// not there yet, the user's alone as the rest of the config.
+func (a *App) makeThemesFolder() (string, error) {
+	dir := widgets.ThemesDir(a.st.Dir())
+	return dir, os.MkdirAll(dir, 0o700)
 }
 
 // editorPage sets how the SQL editor runs statements and takes keys.

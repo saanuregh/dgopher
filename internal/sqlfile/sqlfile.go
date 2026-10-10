@@ -46,6 +46,14 @@ type Reader struct {
 // linear in its length.
 const chunk = 256 << 10
 
+// maxStatement and maxLine bound what is held to find where a statement
+// or a line ends: a quote or a comment that never closes would otherwise
+// read the whole file into memory. Variables for tests to lower.
+var (
+	maxStatement = 64 << 20
+	maxLine      = 1 << 30
+)
+
 // NewReader reads the statements of src, split by d's lexing rules.
 func NewReader(src io.Reader, d sqltext.Dialect) *Reader {
 	return &Reader{src: bufio.NewReaderSize(src, chunk), dialect: d, line: 1}
@@ -121,6 +129,9 @@ func (r *Reader) fill() error {
 			r.pending = "" // only comments are left
 			return nil
 		}
+		if len(r.pending) > maxStatement {
+			return fmt.Errorf("line %d: a statement longer than %d MB; a quote or comment may never close", r.line, maxStatement>>20)
+		}
 		return r.more(max(chunk, len(r.pending)))
 	}
 	// What was given is cut at the rune the next statement starts at, the
@@ -187,7 +198,7 @@ func (r *Reader) skipPsqlCommands() error {
 		r.pending = body
 		nl := strings.IndexByte(r.pending, '\n')
 		for nl < 0 && !r.eof {
-			if err := r.more(chunk); err != nil {
+			if err := r.moreOfLine(); err != nil {
 				return err
 			}
 			nl = strings.IndexByte(r.pending, '\n')
@@ -202,6 +213,15 @@ func (r *Reader) skipPsqlCommands() error {
 		r.pending = r.pending[min(nl+1, len(r.pending)):]
 		r.line++
 	}
+}
+
+// moreOfLine reads more of a line not ended yet, as much again as was
+// read, for reading it to stay linear in its length.
+func (r *Reader) moreOfLine() error {
+	if len(r.pending) > maxLine {
+		return fmt.Errorf("line %d: a line longer than %d MB", r.line, maxLine>>20)
+	}
+	return r.more(max(chunk, len(r.pending)))
 }
 
 // stripComments drops the blank lines and -- comments text starts with.
@@ -246,7 +266,7 @@ func (c *copyData) Read(p []byte) (int, error) {
 		}
 		nl := strings.IndexByte(r.pending, '\n')
 		for nl < 0 && !r.eof {
-			if err := r.more(chunk); err != nil {
+			if err := r.moreOfLine(); err != nil {
 				return 0, err
 			}
 			nl = strings.IndexByte(r.pending, '\n')

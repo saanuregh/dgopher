@@ -9,6 +9,7 @@ import (
 	"dgopher/internal/audit"
 	"dgopher/internal/db"
 	"dgopher/internal/redact"
+	"dgopher/internal/secretcmd"
 )
 
 // Record appends an event about a connection to the audit log. It takes
@@ -25,6 +26,9 @@ func (a *App) Record(cfg *db.Config, e audit.Event) {
 			e.Database = cfg.Database
 		}
 	}
+	if e.Err != nil && e.Error == "" {
+		e.Error = secretcmd.AuditText(e.Err)
+	}
 	e.Error = redact.Error(e.Error, e.Statement)
 	e.Statement = redact.Secrets(e.Statement)
 	if err := l.Record(e); err != nil {
@@ -34,11 +38,9 @@ func (a *App) Record(cfg *db.Config, e audit.Event) {
 
 // RecordRun records a statement or command that ran.
 func (a *App) RecordRun(cfg db.Config, kind, database, stmt string, rows int64, d time.Duration, err error) {
-	e := audit.Event{Kind: kind, Database: database, Statement: stmt, Rows: rows, DurationMS: d.Milliseconds()}
-	if err != nil {
-		e.Error = err.Error()
-	}
-	a.Record(&cfg, e)
+	// A pool's new connection runs the identity's command: what it
+	// printed to stderr stays out of the log, as Record keeps it.
+	a.Record(&cfg, audit.Event{Kind: kind, Database: database, Statement: stmt, Rows: rows, DurationMS: d.Milliseconds(), Err: err})
 }
 
 // connectionSummary describes the settings of a connection that matter to

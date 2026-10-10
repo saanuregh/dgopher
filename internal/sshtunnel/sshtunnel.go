@@ -37,7 +37,8 @@ type Config struct {
 	KeyPassphrase string
 	UseAgent      bool // use the SSH_AUTH_SOCK agent if set
 	// Jumps are SSH servers reached in turn before Host, as OpenSSH's
-	// ProxyJump, each logging in as Host does and its host key checked.
+	// ProxyJump, each logging in with the agent or the key file, never
+	// the password, which is Host's, and its host key checked.
 	Jumps []Hop
 	// Dial reaches the first server, nil for a direct connection.
 	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
@@ -137,7 +138,7 @@ func connect(ctx context.Context, cfg Config, knownHostsFiles []string, listener
 	if err != nil {
 		return nil, err
 	}
-	auth, agentConn, err := authMethods(cfg)
+	keys, auth, agentConn, err := authMethods(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +173,11 @@ func connect(ctx context.Context, cfg Config, knownHostsFiles []string, listener
 		if err != nil {
 			return fail(fmt.Errorf("sshtunnel: dial %s: %w", addr, err))
 		}
-		client, err := handshake(ctx, conn, addr, h.User, auth, hostKeyCallback, knownHostsFiles)
+		methods := auth
+		if i < len(hops)-1 {
+			methods = keys
+		}
+		client, err := handshake(ctx, conn, addr, h.User, methods, hostKeyCallback, knownHostsFiles)
 		if err != nil {
 			return fail(err)
 		}
@@ -424,34 +429,43 @@ func hostKeyCallback(files []string) (ssh.HostKeyCallback, error) {
 	}, nil
 }
 
-func authMethods(cfg Config) ([]ssh.AuthMethod, net.Conn, error) {
-	var methods []ssh.AuthMethod
-	var agentConn net.Conn
+// authMethods are how the tunnel logs in: keys, the agent's and the key
+// file's, for the jump hosts, and those then the password for Host. The
+// password is Host's alone: a jump host that asked for it could log in to
+// Host as the user.
+func authMethods(cfg Config) (keys, host []ssh.AuthMethod, agentConn net.Conn, err error) {
 	if cfg.UseAgent {
 		if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
 			if c, err := net.Dial("unix", sock); err == nil {
 				agentConn = c
-				methods = append(methods, ssh.PublicKeysCallback(agent.NewClient(c).Signers))
+				keys = append(keys, ssh.PublicKeysCallback(agent.NewClient(c).Signers))
 			}
 		}
+	}
+	fail := func(err error) ([]ssh.AuthMethod, []ssh.AuthMethod, net.Conn, error) {
+		if agentConn != nil {
+			agentConn.Close()
+		}
+		return nil, nil, nil, err
 	}
 	if cfg.KeyPath != "" {
 		signer, err := loadKey(expandHome(cfg.KeyPath), cfg.KeyPassphrase)
 		if err != nil {
-			if agentConn != nil {
-				agentConn.Close()
-			}
-			return nil, nil, err
+			return fail(err)
 		}
-		methods = append(methods, ssh.PublicKeys(signer))
+		keys = append(keys, ssh.PublicKeys(signer))
 	}
+	host = slices.Clone(keys)
 	if cfg.Password != "" {
-		methods = append(methods, ssh.Password(cfg.Password))
+		host = append(host, ssh.Password(cfg.Password))
 	}
-	if len(methods) == 0 {
-		return nil, nil, errors.New("sshtunnel: no authentication method: set a password, a key file, or use an ssh agent")
+	if len(host) == 0 {
+		return fail(errors.New("sshtunnel: no authentication method: set a password, a key file, or use an ssh agent"))
 	}
-	return methods, agentConn, nil
+	if len(cfg.Jumps) > 0 && len(keys) == 0 {
+		return fail(errors.New("sshtunnel: a jump host logs in with a key file or the ssh agent, never the password: set one"))
+	}
+	return keys, host, agentConn, nil
 }
 
 func loadKey(path, passphrase string) (ssh.Signer, error) {

@@ -585,13 +585,14 @@ func TestQueryResultApplyCancelledRollsBack(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer d.Close()
+			t.Cleanup(func() { d.Close() }) // after the DROP below: cleanups run last first
 			for _, s := range []string{"DROP TABLE IF EXISTS shop.rv_cancel", "CREATE TABLE shop.rv_cancel (id INT PRIMARY KEY, v TEXT)",
 				"INSERT INTO shop.rv_cancel VALUES (1, 'alpha'), (2, 'beta'), (3, 'gamma')"} {
 				if _, err := d.SQL.Exec(s); err != nil {
 					t.Fatal(err)
 				}
 			}
+			t.Cleanup(func() { d.SQL.Exec("DROP TABLE IF EXISTS shop.rv_cancel") })
 			a := newFakeQueryHost(t)
 			cn := a.AddConn(c.cfg)
 			tt := ui.NewTester(a.view, 1200, 760)

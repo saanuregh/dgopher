@@ -8,6 +8,7 @@ import (
 
 	"dgopher/internal/audit"
 	"dgopher/internal/db"
+	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -51,6 +52,7 @@ func (r *Tab) listen() {
 	kv, cfg := r.conn.KV, r.conn.Config
 	messages := feed[db.PubSubMessage]{keep: pubSubKeep}
 	go func() {
+		defer dataview.RecoverBackground(r.a.Post, r.a.ShowError, func() { p.cancel = nil })
 		defer cancel()
 		done := make(chan struct{})
 		go messages.run(done, func(batch []db.PubSubMessage) {

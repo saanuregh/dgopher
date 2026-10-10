@@ -315,7 +315,7 @@ func (w *duckWriter) Close() error {
 		}
 	}
 	if err == nil && w.format == Parquet {
-		err = w.exec("COPY " + quoteDuckIdent(w.table) + " TO " + quoteString(w.path, LiteralStandard) + " (FORMAT PARQUET, COMPRESSION ZSTD)")
+		err = w.exec("COPY " + quoteDuckIdent(w.table) + " TO " + db.Literal(db.SQLite, w.path) + " (FORMAT PARQUET, COMPRESSION ZSTD)")
 	}
 	if cerr := w.conn.Close(); err == nil {
 		err = cerr

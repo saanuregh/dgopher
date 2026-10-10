@@ -139,7 +139,7 @@ func tableNameOf(path string) string {
 func (a *App) readImportFile(x *importState) {
 	x.loading, x.err = true, ""
 	path, opt := x.path, x.opt
-	a.Background(func() func() {
+	dataview.BackgroundResetOnPanic(a, func() { x.loading = false }, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		f, err := fileimport.Open(ctx, path, opt)
@@ -317,7 +317,9 @@ func (a *App) runImport(x *importState) {
 	x.running, x.cancel, x.done, x.err = true, cancel, 0, ""
 	f, pool, cfg, database, path := x.file, cn.DB, cn.Config, x.database, x.path
 	started := time.Now()
-	go func() {
+	job := fmt.Sprintf("Importing %s into %s on %s: %s", filepath.Base(path), target.Table, cfg.Name, writeStopLoss(cfg.Engine, create != ""))
+	stopped := func() { x.running, x.err = false, "The import stopped on an internal error." }
+	dataview.RunJob(a, cn, job, cancel, stopped, func() func() {
 		defer cancel()
 		fileCols := f.Columns
 		n, err := writeRows(ctx, a, pool, cfg, database, rowWrite{target: target, cols: cols, create: create, verb: "imported",
@@ -338,11 +340,9 @@ func (a *App) runImport(x *importState) {
 			progress: func(done int64) { a.Post(func() { x.done = done }) }})
 		ev := audit.Event{Kind: audit.KindImport, Database: database, Rows: n,
 			Statement: "INSERT INTO " + target.Table, Detail: "imported from " + path}
-		if err != nil {
-			ev.Error = err.Error()
-		}
+		ev.Err = err
 		a.Record(&cfg, ev)
-		a.Post(func() {
+		return func() {
 			x.running = false
 			if err != nil {
 				x.err = err.Error()
@@ -357,8 +357,18 @@ func (a *App) runImport(x *importState) {
 			a.toast = &pendingToast{text: fmt.Sprintf("Imported %d rows into %s", n, target.Table)}
 			a.Notify(started, "Import finished", fmt.Sprintf("%s into %s", widgets.Count(n, "row"), target.Table), nil)
 			a.reloadTableTabs(cn, x.schema, target.Table)
-		})
-	}()
+		}
+	})
+}
+
+// writeStopLoss is what stopping writeRows loses, as a job's title says:
+// its one transaction, or the table it made, goes, except the rows written
+// so far into a ClickHouse table that was there.
+func writeStopLoss(e db.Engine, creates bool) string {
+	if !e.Transactions() && !creates {
+		return "stopping it keeps the rows written so far."
+	}
+	return "stopping it rolls it back, and nothing of it stays."
 }
 
 // reloadTableTabs reads again the rows of a table's open tabs, after
@@ -408,7 +418,7 @@ func writeRows(ctx context.Context, a *App, pool *db.DB, cfg db.Config, database
 	}
 	defer sess.Close()
 	engine, target := cfg.Engine, w.target
-	transactional := engine != db.ClickHouse
+	transactional := engine.Transactions()
 	// A database of one connection shares its transaction with every
 	// editor: never write into, or roll back, someone else's.
 	if transactional && sess.Tx() != db.TxNone {

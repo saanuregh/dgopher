@@ -3,12 +3,14 @@ package query
 import (
 	"cmp"
 	"context"
+	"errors"
 	"time"
 
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/safety"
+	"dgopher/internal/ui/dataview"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -92,6 +94,7 @@ func (q *Tab) switchSchema(schema string) {
 		q.Running, q.StartedAt = true, time.Now()
 		sess, pool, database := q.sess, cn.DB, q.Database
 		go func() {
+			defer dataview.RecoverBackground(q.a.Post, q.a.ShowError, func() { q.Running = false })
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			var err error
@@ -108,10 +111,15 @@ func (q *Tab) switchSchema(schema string) {
 			}
 			if err == nil {
 				current, err = sess.CurrentSchema(ctx)
+			} else if errors.Is(err, db.ErrSessionReset) {
+				current, _ = sess.CurrentSchema(ctx)
 			}
 			q.a.Post(func() {
 				q.Running = false
 				if err != nil {
+					if current != "" {
+						q.schema = current // the connection made again finds names there
+					}
 					q.note("Could not switch to "+schema+": "+err.Error(), stmt, true)
 					return
 				}
@@ -125,6 +133,26 @@ func (q *Tab) switchSchema(schema string) {
 		return
 	}
 	run()
+}
+
+// rereadSchema reads again, off the main thread, where the session finds
+// names, after a statement found its connection made again
+// (db.ErrSessionReset): the switcher shows the new connection's.
+func (q *Tab) rereadSchema() {
+	sess := q.sess
+	if sess == nil {
+		return
+	}
+	q.a.Background(func() func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		schema, err := sess.CurrentSchema(ctx)
+		return func() {
+			if err == nil && q.sess == sess {
+				q.schema = schema
+			}
+		}
+	})
 }
 
 // switchDatabase moves the editor to another database of its PostgreSQL
@@ -151,6 +179,7 @@ func (q *Tab) switchDatabase(name string) {
 	}
 	sess := q.sess
 	go func() {
+		defer dataview.RecoverBackground(q.a.Post, q.a.ShowError, nil)
 		for _, close := range closers {
 			close()
 		}

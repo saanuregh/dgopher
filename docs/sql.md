@@ -74,20 +74,52 @@ session), its verb, and whether it is destructive; the
 - **More than one statement** in a text the policy receives counts as a
   destructive write. On PostgreSQL the server refuses such text too:
   statements without parameters run through the extended protocol.
-- **A routine's text keeps the danger of what it holds**: creating a
-  procedure whose body has a `DROP` is confirmed as the `DROP` would be.
+- **Code keeps the danger of what it holds**: creating a procedure,
+  function or trigger whose body has a `DROP` is confirmed as the `DROP`
+  would be, whether the body is `BEGIN … END`, `BEGIN ATOMIC` or quoted
+  (`$$…$$`, `'…'`, `E'…'`); so is a PostgreSQL `DO` block, a string after
+  `EXECUTE` inside such code, `PREPARE … AS` and MySQL's `PREPARE … FROM
+  '…'`, and a `CREATE RULE`'s action. Quoted bodies in SQL or PL/pgSQL are
+  read; a `MERGE`'s `THEN DELETE` and an upsert's `DO UPDATE` inside a body
+  are not statements of their own.
+- **Always-true conditions** are read through casts: `TRUE::bool`,
+  `1::int = 1::int` and `CAST(1 AS bool)` are always true.
 - **Writes hidden in reads**: `INTO` a table or file after `SELECT`,
   `TABLE` or `VALUES`; `EXPLAIN ANALYZE` and `DESC ANALYZE` of a write;
   data-modifying CTEs; calls to functions with side effects, listed per
   engine in `classify.go`, with quoted and escaped names decoded first.
 - **Server-level statements** count as writes: MySQL `RESET`,
   `SET GLOBAL`, `SET PERSIST`, `SET PASSWORD`, `SET DEFAULT ROLE`,
-  `START REPLICA`, and PostgreSQL `COMMIT PREPARED`.
+  `START REPLICA`, PostgreSQL `COMMIT PREPARED`, and DuckDB `SET`s of a
+  setting that names a file it writes (`log_query_path`,
+  `profiling_output`, `temp_directory`, …).
 - **Reads** include `SHOW`, `DESCRIBE`, `EXPLAIN`, `FETCH`, cursor
   declarations over a query, DuckDB `SUMMARIZE`, `PIVOT` and `FROM`-first
   queries, `CHECK TABLE`, and the SQLite and DuckDB `PRAGMA`s that only
   report (`table_info`, `index_list` and similar). Any `PRAGMA` with `=`
   is a write.
+
+## Names and values the app writes
+
+The SQL the app makes (filters, generated statements, Go to Referenced
+Row, SQL exports) quotes names and values so that no name or value can end
+them early:
+
+| | PostgreSQL, DuckDB | MySQL | ClickHouse | SQLite |
+| --- | --- | --- | --- | --- |
+| Name | `"…"`, `"` doubled | `` `…` ``, `` ` `` doubled; `\` is itself | `` `…` ``, `` ` `` doubled and `\` escaped | `"…"`, `"` doubled |
+| String | `'…'`, `'` doubled; with a `\`, `E'…'` with `\\`; a NUL joined in as `('…' \|\| chr(0) \|\| '…')` | `\\`, `''`, `\0`, `\n`, `\r`, `\Z` | `\\`, `\'` and `\0` | `'…'`, `'` doubled; a NUL joined in as `char(0)` |
+| Bytes | PostgreSQL `E'\\x…'::bytea`, DuckDB `'\x…'::BLOB` | `X'…'` | `unhex('…')` | `X'…'` |
+
+A PostgreSQL string with a backslash is written `E'…'` because it then
+reads the same whether `standard_conforming_strings` is on or off.
+PostgreSQL text cannot hold a NUL, so such a value fails to load there.
+Bytes are written as bytes even when they would read as text: a value is
+bytes only when it is binary data (the app tells text by the column's
+type, and on SQLite, which keeps each value's own type, by the value's),
+and written as text, PostgreSQL would load other bytes from it and SQLite
+would store it as text. MySQL strings double their quotes, so a dump
+loads under `NO_BACKSLASH_ESCAPES` too.
 
 ## Parameters
 

@@ -13,7 +13,9 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/redact"
 	"dgopher/internal/safety"
+	"dgopher/internal/secretcmd"
 	"dgopher/internal/store"
+	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo"
@@ -243,7 +245,7 @@ func (r *Tab) runConsole(line string) {
 func storeHistory(cfg db.Config, sql string, d time.Duration, err error) store.HistoryEntry {
 	e := store.HistoryEntry{Time: time.Now().Add(-d), ConnectionID: cfg.ID, Connection: cfg.Name, Database: cfg.Database, SQL: sql, Duration: d}
 	if err != nil {
-		e.Error = err.Error()
+		e.Error = secretcmd.AuditText(err)
 	}
 	return e
 }
@@ -325,6 +327,7 @@ func (r *Tab) startCommandFile(path string, cmds []db.CommandLine) {
 	r.logConsole(consoleLine{input: true, text: "> run " + filepath.Base(path)})
 	kv, st := r.conn.KV, r.conn.Project.Local
 	go func() {
+		defer dataview.RecoverBackground(r.a.Post, r.a.ShowError, func() { r.file = nil })
 		defer cancel()
 		for i, cmd := range cmds {
 			if ctx.Err() != nil {

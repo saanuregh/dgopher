@@ -287,7 +287,7 @@ WHERE conrelid = $1::regclass ORDER BY contype = 'p' DESC, contype, conname`, []
 	return strings.TrimRight(b.String(), "\n") + "\n", nil
 }
 
-func quoteString(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+func quoteString(s string) string { return Literal(Postgres, s) }
 
 var _ = sql.ErrNoRows
 

@@ -146,6 +146,13 @@ func QualifiedName(d Dialect, schema, table string) string {
 func quoteDouble(s string) string   { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
 func quoteBacktick(s string) string { return "`" + strings.ReplaceAll(s, "`", "``") + "`" }
 
+// quoteClickHouse quotes a name in backticks as ClickHouse reads them: with
+// the escapes of its strings, so a backslash is doubled too. MySQL reads a
+// backslash inside backticks as itself.
+func quoteClickHouse(s string) string {
+	return "`" + strings.NewReplacer(`\`, `\\`, "`", "``").Replace(s) + "`"
+}
+
 // unitSep separates the items of lists that queries return as one string.
 const unitSep = "\x1f"
 

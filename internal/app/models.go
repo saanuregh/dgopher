@@ -12,6 +12,7 @@ import (
 	"dgopher/internal/datamodel"
 	"dgopher/internal/db"
 	"dgopher/internal/project"
+	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/modelview"
 	"dgopher/internal/ui/widgets"
 
@@ -161,7 +162,7 @@ func (a *App) buildModel(f *saveModelForm) {
 	pool := cn.PoolFor(f.database)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	f.building, f.read, f.cancel = true, 0, cancel
-	a.Background(func() func() {
+	dataview.BackgroundResetOnPanic(a, func() { f.building, f.cancel = false, nil }, func() func() {
 		defer cancel()
 		var tables []db.TableDesign
 		var notes []string

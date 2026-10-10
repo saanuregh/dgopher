@@ -70,7 +70,7 @@ func (t *searchTab) search() {
 	}
 	t.searching = true
 	poolOf, definitions := t.conn.PoolFor(t.database), t.definitions
-	t.a.Background(func() func() {
+	dataview.BackgroundResetOnPanic(t.a, func() { t.searching = false }, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 		d, err := poolOf(ctx)

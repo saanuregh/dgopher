@@ -89,7 +89,7 @@ func (e *ERTab) Close() {}
 func (e *ERTab) load() {
 	cn, database, schema, focus := e.conn, e.database, e.schema, e.focus
 	poolOf := cn.PoolFor(database) // read on the main thread
-	e.a.Background(func() func() {
+	BackgroundResetOnPanic(e.a, func() { e.loading = false }, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		d, err := poolOf(ctx)

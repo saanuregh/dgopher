@@ -72,7 +72,7 @@ func (v *Viewer) openRefPicker(row, col int, fk db.ForeignKey) {
 		schema = v.source.Table.Schema
 	}
 	poolOf := v.source.Conn.PoolFor(v.source.Database)
-	v.a.Background(func() func() {
+	BackgroundResetOnPanic(v.a, func() { p.loading = false }, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		d, err := poolOf(ctx)

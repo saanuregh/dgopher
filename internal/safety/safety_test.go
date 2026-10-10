@@ -1,6 +1,8 @@
 package safety
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
 	"dgopher/internal/db"
@@ -90,6 +92,51 @@ func TestDisablesReadOnlyClickHouseEscapes(t *testing.T) {
 		if v := ReviewSQL(ro, Analyze(ro, []string{sql})); v.Blocked == "" {
 			t.Errorf("not blocked on a read-only connection: %s", sql)
 		}
+	}
+}
+
+// DuckDB's access_mode and an ATTACH's READ_WRITE hold the read-only mode
+// too.
+func TestDisablesReadOnly(t *testing.T) {
+	ro := &db.Config{Name: "duck", Engine: db.DuckDB, ReadOnly: true}
+	for _, sql := range []string{
+		"SET access_mode = 'READ_WRITE'",
+		`SET "access_mode" = 'read_write'`,
+		"RESET access_mode",
+		"ATTACH 'other.duckdb' AS o (READ_WRITE)",
+	} {
+		if v := ReviewSQL(ro, Analyze(ro, []string{sql})); v.Blocked == "" {
+			t.Errorf("not blocked on a read-only connection: %s", sql)
+		}
+	}
+	if v := ReviewSQL(ro, Analyze(ro, []string{"SELECT 1"})); v.Blocked != "" {
+		t.Errorf("a SELECT was blocked: %s", v.Blocked)
+	}
+}
+
+// DuckDB settings that name a file to write are writes: read-only
+// connections refuse them and production asks first.
+func TestDuckDBFileSettings(t *testing.T) {
+	ro := &db.Config{Name: "duck", Engine: db.DuckDB, ReadOnly: true}
+	prod := &db.Config{Name: "duck", Engine: db.DuckDB, Env: db.Production}
+	dev := &db.Config{Name: "duck", Engine: db.DuckDB, Env: db.Development}
+	for _, sql := range []string{
+		"SET log_query_path = '/tmp/queries.log'",
+		"SET profiling_output = '/tmp/profile.json'",
+		"SET temp_directory = '/tmp/spill'",
+	} {
+		if v := ReviewSQL(ro, Analyze(ro, []string{sql})); v.Blocked == "" {
+			t.Errorf("not blocked on a read-only connection: %s", sql)
+		}
+		if v := ReviewSQL(prod, Analyze(prod, []string{sql})); !v.Confirm || v.TypeName {
+			t.Errorf("on production %s: %+v", sql, v)
+		}
+		if v := ReviewSQL(dev, Analyze(dev, []string{sql})); v.Confirm || v.Blocked != "" {
+			t.Errorf("on development %s: %+v", sql, v)
+		}
+	}
+	if v := ReviewSQL(ro, Analyze(ro, []string{"SET threads = 4"})); v.Blocked != "" {
+		t.Errorf("SET threads was blocked: %s", v.Blocked)
 	}
 }
 
@@ -185,6 +232,123 @@ func TestManyRows(t *testing.T) {
 		v.ManyRows(&db.Config{Env: c.env}, c.rows, c.limit)
 		if v.TypeName != c.typeName || v.Confirm != c.typeName {
 			t.Errorf("%+v: %+v", c, v)
+		}
+	}
+}
+
+// With a transaction open, a MySQL statement that commits it implicitly
+// asks first, saying Roll Back will not undo what ran before it; without
+// one, a temporary table, or another engine, nothing changes. When manual
+// commit's BEGIN opens the run's transaction (opens), only such a
+// statement after a write asks: before one, it commits nothing.
+func TestEndsTransactionWarns(t *testing.T) {
+	my := &db.Config{Name: "my", Engine: db.MySQL, Env: db.Development}
+	pg := &db.Config{Name: "pg", Engine: db.Postgres, Env: db.Development}
+	for _, c := range []struct {
+		cfg   *db.Config
+		sql   string // statements split at ";"
+		open  bool
+		opens bool
+		asks  bool
+	}{
+		{my, "CREATE INDEX i ON t (a)", true, false, true},
+		{my, "/*!50000 ALTER TABLE t ADD COLUMN b INT */", true, false, true},
+		{my, "CREATE INDEX i ON t (a)", false, false, false},
+		{my, "CREATE TEMPORARY TABLE x (a INT)", true, false, false},
+		{my, "INSERT INTO t VALUES (1)", true, false, false},
+		{pg, "CREATE INDEX i ON t (a)", true, false, false},
+		{my, "INSERT INTO t VALUES (1); CREATE INDEX i ON t (a)", false, true, true},
+		{my, "INSERT INTO t VALUES (1); CREATE INDEX i ON t (a); INSERT INTO t VALUES (2); DROP INDEX i ON t", false, true, true},
+		{my, "UPDATE t SET a = 1 WHERE id = 2; /*!50000 ALTER TABLE t ADD COLUMN b INT */", false, true, true},
+		{my, "CREATE INDEX i ON t (a)", false, true, false},
+		{my, "CREATE INDEX i ON t (a); INSERT INTO t VALUES (1)", false, true, false},
+		{my, "SELECT * FROM t; CREATE INDEX i ON t (a)", false, true, false},
+		{my, "CREATE TABLE u (a INT); CREATE INDEX i ON u (a)", false, true, false},
+		{my, "INSERT INTO t VALUES (1); CREATE INDEX i ON t (a); CREATE INDEX j ON t (b)", false, true, true},
+		{my, "INSERT INTO t VALUES (1); CREATE TEMPORARY TABLE x (a INT)", false, true, false},
+		{my, "INSERT INTO t VALUES (1); COMMIT; CREATE INDEX i ON t (a)", false, true, false},
+		{my, "INSERT INTO t VALUES (1); SAVEPOINT s; ROLLBACK WORK TO SAVEPOINT s; CREATE INDEX i ON t (a)", false, true, true},
+		{pg, "INSERT INTO t VALUES (1); CREATE INDEX i ON t (a)", false, true, false},
+	} {
+		stmts := Analyze(c.cfg, strings.Split(c.sql, ";"))
+		v := ReviewSQL(c.cfg, stmts)
+		if c.opens {
+			v.EndsRunTransaction(c.cfg, stmts, true)
+		} else {
+			v.EndsTransaction(c.cfg, stmts, c.open)
+		}
+		want := "commits the open transaction: Roll Back will not undo what ran before it"
+		if c.opens {
+			want = "commits the writes before it, which manual commit holds in a transaction: Roll Back will not undo them"
+		}
+		warned := slices.ContainsFunc(v.Reasons, func(r string) bool { return strings.Contains(r, want) })
+		if warned != c.asks || v.Confirm != c.asks {
+			t.Errorf("%s %q open %v opens %v: %+v", c.cfg.Engine, c.sql, c.open, c.opens, v)
+		}
+	}
+	// A second statement after the same writes is not said twice; one after
+	// other writes, in the transaction opened again, is.
+	stmts := Analyze(my, strings.Split("INSERT INTO t VALUES (1); CREATE INDEX i ON t (a); CREATE INDEX j ON t (b); INSERT INTO t VALUES (2); DROP INDEX i ON t", ";"))
+	var v Verdict
+	v.EndsRunTransaction(my, stmts, true)
+	if len(v.Reasons) != 2 || !strings.HasPrefix(v.Reasons[0], "CREATE ") || !strings.HasPrefix(v.Reasons[1], "DROP ") {
+		t.Fatalf("reasons %q", v.Reasons)
+	}
+	// Under auto-commit, with no transaction open, a typed BEGIN or START
+	// TRANSACTION holds the writes after it, up to the statement that
+	// ends it; a write before it, or after the implicit commit, commits
+	// on its own.
+	for sql, want := range map[string]string{
+		"BEGIN; INSERT INTO t VALUES (1); CREATE INDEX i ON t (a); ROLLBACK":                                    "CREATE commits the writes since BEGIN",
+		"start transaction; UPDATE t SET a = 1 WHERE id = 2; DROP INDEX i ON t":                                 "DROP commits the writes since START TRANSACTION",
+		"BEGIN WORK; INSERT INTO t VALUES (1); BEGIN":                                                           "BEGIN commits the writes since BEGIN",
+		"BEGIN; INSERT INTO t VALUES (1); SAVEPOINT s; ROLLBACK TO SAVEPOINT s; CREATE INDEX i ON t (a)":        "CREATE commits the writes since BEGIN",
+		"BEGIN; INSERT INTO t VALUES (1); CREATE INDEX i ON t (a); INSERT INTO t VALUES (2); DROP INDEX i ON t": "CREATE commits the writes since BEGIN",
+		"INSERT INTO t VALUES (1); CREATE INDEX i ON t (a)":                                                     "",
+		"BEGIN; CREATE INDEX i ON t (a)":                                                                        "",
+		"BEGIN; INSERT INTO t VALUES (1); COMMIT; CREATE INDEX i ON t (a)":                                      "",
+		"BEGIN; INSERT INTO t VALUES (1); ROLLBACK; INSERT INTO t VALUES (2); CREATE INDEX i ON t (a)":          "",
+		"BEGIN; INSERT INTO t VALUES (1); CREATE TEMPORARY TABLE x (a INT)":                                     "",
+	} {
+		stmts := Analyze(my, strings.Split(sql, ";"))
+		var v Verdict
+		v.EndsRunTransaction(my, stmts, false)
+		if want == "" && (v.Confirm || len(v.Reasons) > 0) || want != "" && (!v.Confirm || len(v.Reasons) != 1 || !strings.HasPrefix(v.Reasons[0], want)) {
+			t.Errorf("%q: %+v", sql, v)
+		}
+	}
+	pgStmts := Analyze(pg, strings.Split("BEGIN; INSERT INTO t VALUES (1); CREATE INDEX i ON t (a)", ";"))
+	var pv Verdict
+	if pv.EndsRunTransaction(pg, pgStmts, false); pv.Confirm || len(pv.Reasons) > 0 {
+		t.Errorf("PostgreSQL's DDL commits nothing: %+v", pv)
+	}
+}
+
+// A statement that ends the transaction, as the classifier reads it: not
+// ROLLBACK TO a savepoint, which keeps it.
+func TestCommitsOrRollsBack(t *testing.T) {
+	cfg := db.Config{Engine: db.SQLite}
+	for sql, want := range map[string]bool{
+		"COMMIT": true, "commit work": true, "END TRANSACTION": true, "ROLLBACK": true, "ROLLBACK TRANSACTION": true, "ABORT": true,
+		"/* undo */ ROLLBACK": true, "COMMIT AND CHAIN": true,
+		"ROLLBACK TO SAVEPOINT s": false, "ROLLBACK TRANSACTION TO s": false, "rollback work to s": false, "ROLLBACK TO s": false,
+		"BEGIN": false, "SAVEPOINT s": false, "RELEASE SAVEPOINT s": false, "SELECT 1": false,
+	} {
+		if got := CommitsOrRollsBack(cfg.Engine, Analyze(&cfg, []string{sql})[0]); got != want {
+			t.Errorf("%s: %v", sql, got)
+		}
+	}
+}
+
+// A statement that begins a transaction, as the classifier reads it.
+func TestBeginsTransaction(t *testing.T) {
+	cfg := db.Config{Engine: db.SQLite}
+	for sql, want := range map[string]bool{
+		"BEGIN": true, "begin immediate": true, "BEGIN TRANSACTION": true, "START TRANSACTION": true,
+		"COMMIT": false, "SAVEPOINT s": false, "SELECT 1": false,
+	} {
+		if got := BeginsTransaction(Analyze(&cfg, []string{sql})[0]); got != want {
+			t.Errorf("%s: %v", sql, got)
 		}
 	}
 }

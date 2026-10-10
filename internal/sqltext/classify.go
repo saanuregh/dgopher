@@ -1,6 +1,10 @@
 package sqltext
 
-import "strings"
+import (
+	"fmt"
+	"slices"
+	"strings"
+)
 
 // Class is the effect category of a statement.
 type Class int
@@ -56,6 +60,30 @@ var sideEffectFunctions = map[Dialect]map[string]bool{
 	SQLite: setOf("load_extension"),
 }
 
+// maxCodeDepth caps how many levels of code quoted inside code are read: a
+// DO block that EXECUTEs a string is two levels down. Deeper code counts as
+// dangerous, unread.
+const maxCodeDepth = 8
+
+// reading follows Classify into code quoted as strings: how many quotes
+// deep the code at hand is, and how many runes are left to read across
+// every level of one Classify call.
+type reading struct {
+	depth int
+	left  *int
+}
+
+// newReading starts reading a statement of n runes. Legitimate code reads
+// each quoted body once, from the one word that runs it: at most n runes a
+// level and a rune more a body, under 12 n in all over maxCodeDepth levels.
+// Reading more than 16 n + 1024 runes counts as dangerous, unread.
+func newReading(n int) reading {
+	left := 16*n + 1024
+	return reading{left: &left}
+}
+
+func (r reading) deeper() reading { return reading{depth: r.depth + 1, left: r.left} }
+
 // readOnlyPragmas are the SQLite and DuckDB pragmas that only report.
 var readOnlyPragmas = setOf("table_info table_xinfo index_list index_info index_xinfo foreign_key_list database_list compile_options function_list pragma_list collation_list module_list table_list show_tables show_tables_expanded database_size version storage_info")
 
@@ -76,6 +104,10 @@ func setOf(words string) map[string]bool {
 // was a name, text whose routine body holds a ';' is also marked so when
 // that body closes anywhere but at the end of its statement (after
 // nothing but a MySQL label) or at an END that follows no ';'.
+//
+// A statement also keeps the danger of the code it holds: a PostgreSQL DO
+// block's or routine's body quoted as a string, the strings EXECUTE runs
+// there, a rule's action and the statement PREPARE prepares.
 func Classify(stmt string, d Dialect) Analysis {
 	rs := []rune(stmt)
 	o := SplitOptions{Mode: SemicolonOnly}
@@ -87,7 +119,8 @@ func Classify(stmt string, d Dialect) Analysis {
 		}
 		return Analysis{Class: Write, Dangerous: false}
 	}
-	a := classifyTokens(first, d)
+	r := newReading(len(rs))
+	a := classifyTokens(first, d, r)
 	if count == 1 {
 		for _, seg := range segs {
 			if bodyHidesStatement(seg, d) {
@@ -109,36 +142,255 @@ func Classify(stmt string, d Dialect) Analysis {
 	// holds: the body may be a name the splitter took for one.
 	if !a.Dangerous {
 		if stmts := statementsCode(splitSegmentsWithoutBodies(rs, d, o)); len(stmts) > 1 {
-			if inner, ok := dangerInside(stmts, d); ok {
+			if inner, ok := dangerInside(stmts, d, r); ok {
 				a.Dangerous = true
-				a.Reason = "the routine's text holds a statement that is dangerous on its own: " + inner.Reason
+				a.Reason = routineHolds + inner.Reason
 			}
 		}
 	}
 	return a
 }
 
-// dangerInside finds a dangerous statement among stmts: each one, and
-// within each, what follows a word that opens a block.
-func dangerInside(stmts [][]Token, d Dialect) (Analysis, bool) {
+const routineHolds = "the routine's text holds a statement that is dangerous on its own: "
+
+// dangerInside finds a dangerous statement among stmts but the first: each
+// one, and within each, what follows a word that opens a block. A MERGE's
+// THEN and an ON CONFLICT's DO open its own actions, not statements.
+func dangerInside(stmts [][]Token, d Dialect, r reading) (Analysis, bool) {
 	for i, code := range stmts {
+		merge, conflict := false, false
 		for j := range code {
-			starts := j == 0 && i > 0
+			starts := j == 0
 			if j > 0 {
 				switch word(code[j-1]) {
-				case "BEGIN", "ATOMIC", "THEN", "ELSE", "DO", "LOOP":
+				case "BEGIN", "ATOMIC", "ELSE", "LOOP":
 					starts = true
+				case "THEN":
+					starts = !merge
+				case "DO":
+					starts = !conflict
 				}
 			}
-			if !starts {
+			switch w := word(code[j]); {
+			case w == "CONFLICT" && j > 0 && word(code[j-1]) == "ON":
+				conflict = true
+			case w == "MERGE" && (starts || j > 0 && isPunct(code[j-1], ")")): // ")" ends a WITH
+				merge = true
+			}
+			if !starts || i == 0 && j == 0 {
 				continue
 			}
-			if inner := classifyTokens(code[j:], d); inner.Dangerous {
+			if inner := classifyTokens(code[j:], d, r); inner.Dangerous {
 				return inner, true
 			}
 		}
 	}
 	return Analysis{}, false
+}
+
+// codeDanger finds a dangerous statement in code quoted as a string, as a
+// DO block's body: each statement, what follows a word that opens a block,
+// and the strings EXECUTE runs.
+func codeDanger(code string, d Dialect, r reading) (Analysis, bool) {
+	if r.depth > maxCodeDepth {
+		return Analysis{Class: Write, Dangerous: true, Reason: fmt.Sprintf("it quotes code more than %d levels deep, too deep to check", maxCodeDepth)}, true
+	}
+	rs := []rune(code)
+	if *r.left -= len(rs) + 1; *r.left < 0 {
+		return Analysis{Class: Write, Dangerous: true, Reason: "it holds too much code to check"}, true
+	}
+	stmts := statementsCode(splitSegmentsWithoutBodies(rs, d, SplitOptions{Mode: SemicolonOnly}))
+	if len(stmts) == 0 {
+		return Analysis{}, false
+	}
+	if a := classifyTokens(stmts[0], d, r); a.Dangerous {
+		return a, true
+	}
+	if a, ok := dangerInside(stmts, d, r); ok {
+		return a, true
+	}
+	for _, toks := range stmts {
+		for j, t := range toks {
+			if word(t) != "EXECUTE" || j+1 == len(toks) || toks[j+1].Kind != String {
+				continue
+			}
+			if hasWord(toks, "UESCAPE") {
+				return Analysis{Class: Write, Dangerous: true, Reason: uescapeReason}, true
+			}
+			if a, ok := codeDanger(executedText(toks[j+1:], d), d, r.deeper()); ok {
+				return a, true
+			}
+		}
+	}
+	return Analysis{}, false
+}
+
+const uescapeReason = "it is written with a UESCAPE, whose escapes are not decoded"
+
+func hasWord(toks []Token, w string) bool {
+	for _, t := range toks {
+		if word(t) == w {
+			return true
+		}
+	}
+	return false
+}
+
+// executedText returns the text a PL/pgSQL EXECUTE runs, from toks, which
+// start with a string, up to its INTO, USING or LOOP: the strings joined
+// with ||, any other operand standing as a name.
+func executedText(toks []Token, d Dialect) string {
+	dep := depths(toks)
+	var b strings.Builder
+	start := 0
+	for i := 0; i <= len(toks); i++ {
+		end := i == len(toks)
+		if !end && dep[i] == 0 {
+			switch word(toks[i]) {
+			case "INTO", "USING", "LOOP":
+				end = true
+			}
+		}
+		if !end && !(dep[i] == 0 && isOperator(toks[i], "||")) {
+			continue
+		}
+		if operand := toks[start:i]; len(operand) == 1 && operand[0].Kind == String {
+			b.WriteString(codeText(operand[0], d))
+		} else {
+			b.WriteString(" x ")
+		}
+		if end {
+			break
+		}
+		start = i + 1
+	}
+	return b.String()
+}
+
+// doDanger finds a dangerous statement in a PostgreSQL DO block's code,
+// toks after DO: "DO [LANGUAGE lang] code [LANGUAGE lang]". Code in a
+// language other than SQL or PL/pgSQL is not read.
+func doDanger(toks []Token, d Dialect, r reading) (Analysis, bool) {
+	i := 0
+	if i+1 < len(toks) && word(toks[i]) == "LANGUAGE" {
+		if !sqlLanguage(toks[i+1], d) {
+			return Analysis{}, false
+		}
+		i += 2
+	}
+	if i >= len(toks) || toks[i].Kind != String {
+		return Analysis{}, false
+	}
+	if i+2 < len(toks) && word(toks[i+1]) == "LANGUAGE" && !sqlLanguage(toks[i+2], d) {
+		return Analysis{}, false
+	}
+	return bodyDanger(toks, i, d, r)
+}
+
+// routineDanger finds a dangerous statement in the body a PostgreSQL
+// CREATE FUNCTION or PROCEDURE quotes as a string after AS, among the
+// routine's own clauses: up to a word that opens a block, or another
+// CREATE. Code in a language other than SQL or PL/pgSQL is not read.
+func routineDanger(toks []Token, d Dialect, r reading) (Analysis, bool) {
+	dep := depths(toks)
+	body := -1
+	for i := 1; i < len(toks); i++ {
+		t := toks[i]
+		if dep[i] != 0 {
+			continue // an argument's default, a returned table's columns
+		}
+		if ends(toks, i, "BEGIN", "ATOMIC", "THEN", "ELSE", "LOOP", "DO", "CREATE") {
+			break
+		}
+		switch {
+		case word(t) == "LANGUAGE" && i+1 < len(toks) && !sqlLanguage(toks[i+1], d):
+			return Analysis{}, false
+		case body < 0 && t.Kind == String && word(toks[i-1]) == "AS":
+			body = i
+		}
+	}
+	if body < 0 {
+		return Analysis{}, false
+	}
+	return bodyDanger(toks, body, d, r)
+}
+
+// ends reports whether toks[i] is one of words, and no name after a '.',
+// as NEW.create is.
+func ends(toks []Token, i int, words ...string) bool {
+	return (i == 0 || !isPunct(toks[i-1], ".")) && slices.Contains(words, word(toks[i]))
+}
+
+// bodyDanger reads the code the string toks[i] quotes, which a UESCAPE
+// after it makes unknown.
+//
+// Code quoted as a string is read from the one word that runs it, where
+// the grammar puts it, never from a word further back: each word that
+// could start a statement is classified, and code read from each would be
+// read again at every level.
+func bodyDanger(toks []Token, i int, d Dialect, r reading) (Analysis, bool) {
+	if i+1 < len(toks) && word(toks[i+1]) == "UESCAPE" {
+		return Analysis{Class: Write, Dangerous: true, Reason: uescapeReason}, true
+	}
+	return codeDanger(codeText(toks[i], d), d, r.deeper())
+}
+
+// sqlLanguage reports whether a LANGUAGE's name is SQL or PL/pgSQL, whose
+// code reads as SQL.
+func sqlLanguage(t Token, d Dialect) bool {
+	name := t.Text
+	switch t.Kind {
+	case String:
+		name = codeText(t, d)
+	case QuotedIdent:
+		name = DecodeQuoted(t.Text, d)
+	}
+	name = strings.ToLower(name)
+	return name == "sql" || name == "plpgsql"
+}
+
+// codeText returns the text a string token quotes, to be read as code: a
+// dollar quote without its tags, a MySQL string with its backslash escapes
+// decoded, others as DecodeQuoted decodes them.
+func codeText(t Token, d Dialect) string {
+	s := t.Text
+	switch {
+	case strings.HasPrefix(s, "$"):
+		end := strings.IndexByte(s[1:], '$')
+		if end < 0 {
+			return s
+		}
+		tag := s[:end+2]
+		return strings.TrimSuffix(s[len(tag):], tag)
+	case d == MySQL && (strings.HasPrefix(s, "'") || strings.HasPrefix(s, `"`)):
+		return decodeBackslashQuoted(s, mysqlEscape)
+	}
+	return DecodeQuoted(s, d)
+}
+
+// mysqlEscape decodes a backslash escape in a MySQL string: \% and \_ keep
+// their backslash, for LIKE.
+func mysqlEscape(b *strings.Builder, s string, i int) int {
+	switch c := s[i]; c {
+	case '%', '_':
+		b.WriteByte('\\')
+		b.WriteByte(c)
+	case 'Z':
+		b.WriteByte(0x1a)
+	default:
+		b.WriteByte(controlEscape(c, "0bnrt"))
+	}
+	return i + 1
+}
+
+// heldReason is the reason of a statement whose code holds a dangerous
+// one: what holds it, said on the outermost statement only, and why the
+// inner one is dangerous.
+func heldReason(r reading, holder string, inner Analysis) string {
+	if r.depth > 0 {
+		return inner.Reason
+	}
+	return holder + inner.Reason
 }
 
 // statementsCode returns the significant tokens of each statement in segs.
@@ -216,14 +468,14 @@ func depths(toks []Token) []int {
 
 func isPunct(t Token, s string) bool { return t.Kind == Punct && t.Text == s }
 
-func classifyTokens(toks []Token, d Dialect) Analysis {
+func classifyTokens(toks []Token, d Dialect, r reading) Analysis {
 	for len(toks) > 0 && isPunct(toks[0], "(") {
 		toks = toks[1:]
 	}
 	if len(toks) == 0 {
 		return Analysis{Class: Write, Reason: ""}
 	}
-	a := classifyVerb(toks, d)
+	a := classifyVerb(toks, d, r)
 	switch word(toks[0]) {
 	case "EXPLAIN", "DESC", "DESCRIBE":
 		// Plain EXPLAIN runs nothing; EXPLAIN ANALYZE classified its
@@ -277,7 +529,7 @@ func sideEffectCall(toks []Token, d Dialect) string {
 	return ""
 }
 
-func classifyVerb(toks []Token, d Dialect) Analysis {
+func classifyVerb(toks []Token, d Dialect, r reading) Analysis {
 	verb := word(toks[0])
 	if verb == "" {
 		return Analysis{Class: Write, Verb: strings.ToUpper(toks[0].Text)}
@@ -297,9 +549,9 @@ func classifyVerb(toks []Token, d Dialect) Analysis {
 	}
 	switch verb {
 	case "WITH":
-		return classifyWith(toks, d)
+		return classifyWith(toks, d, r)
 	case "EXPLAIN", "DESC", "DESCRIBE":
-		return classifyExplain(toks, d)
+		return classifyExplain(toks, d, r)
 	case "EXISTS", "CHECK", "CHECKSUM":
 		if d == ClickHouse || next == "TABLE" {
 			return Analysis{Class: Read, Verb: verb}
@@ -337,8 +589,15 @@ func classifyVerb(toks []Token, d Dialect) Analysis {
 			return Analysis{Class: Write, Verb: verb}
 		}
 	case "SET":
-		if setsServerState(toks, dep) {
+		if setsServerState(toks, dep) || d == Postgres && setsFile(toks) {
 			return Analysis{Class: Write, Verb: verb}
+		}
+	case "DO":
+		// MySQL's DO only evaluates expressions.
+		if d == Postgres {
+			if inner, ok := doDanger(toks[1:], d, r); ok {
+				return Analysis{Class: Write, Verb: verb, Dangerous: true, Reason: heldReason(r, "the DO block's code is dangerous: ", inner)}
+			}
 		}
 	case "START":
 		if next == "TRANSACTION" {
@@ -351,7 +610,7 @@ func classifyVerb(toks []Token, d Dialect) Analysis {
 		}
 	case "DECLARE":
 		if d == Postgres {
-			if a, ok := classifyCursor(toks, dep, d); ok {
+			if a, ok := classifyCursor(toks, dep, d, r); ok {
 				return a
 			}
 		}
@@ -364,7 +623,11 @@ func classifyVerb(toks []Token, d Dialect) Analysis {
 		if len(toks) > 1 && word(toks[1]) == "TRANSACTION" {
 			return Analysis{Class: Transaction, Verb: verb}
 		}
-		return Analysis{Class: Session, Verb: verb}
+		a := Analysis{Class: Session, Verb: verb}
+		if inner, ok := preparedDanger(toks, d, r); ok {
+			a.Dangerous, a.Reason = true, heldReason(r, "the statement it prepares is dangerous: ", inner)
+		}
+		return a
 	case "UPDATE", "DELETE":
 		a := Analysis{Class: Write, Verb: verb}
 		where := topLevel("WHERE")
@@ -387,6 +650,17 @@ func classifyVerb(toks []Token, d Dialect) Analysis {
 	case "CREATE":
 		if next == "OR" && len(toks) > 3 && word(toks[2]) == "REPLACE" && replacesTable(toks[3:]) {
 			return Analysis{Class: DDL, Verb: verb, Dangerous: true, Reason: "CREATE OR REPLACE TABLE replaces the table and its rows"}
+		}
+		if d == Postgres {
+			if action, ok := ruleAction(toks); ok {
+				if inner := classifyTokens(action, d, r); inner.Dangerous {
+					return Analysis{Class: DDL, Verb: verb, Dangerous: true, Reason: heldReason(r, "the rule's action is dangerous: ", inner)}
+				}
+			} else if routineHeader(toks) {
+				if inner, ok := routineDanger(toks, d, r); ok {
+					return Analysis{Class: DDL, Verb: verb, Dangerous: true, Reason: heldReason(r, routineHolds, inner)}
+				}
+			}
 		}
 	case "REPLACE":
 		if next == "TABLE" { // ClickHouse
@@ -519,9 +793,87 @@ func setsServerState(toks []Token, dep []int) bool {
 	return false
 }
 
+// fileSettings are the DuckDB settings whose value names a file or a
+// directory DuckDB then writes to.
+var fileSettings = setOf("log_query_path profiling_output profile_output http_logging_output temp_directory extension_directory extension_directories secret_directory home_directory")
+
+// setsFile reports whether a SET, after any SESSION, LOCAL or GLOBAL,
+// changes one of fileSettings. DuckDB reads as Postgres.
+func setsFile(toks []Token) bool {
+	i := 1
+	if i < len(toks) {
+		switch word(toks[i]) {
+		case "SESSION", "LOCAL", "GLOBAL":
+			i++
+		}
+	}
+	if i >= len(toks) {
+		return false
+	}
+	name := toks[i].Text
+	if toks[i].Kind == QuotedIdent {
+		name = DecodeQuoted(name, Postgres)
+	}
+	return fileSettings[strings.ToLower(name)]
+}
+
+// preparedDanger finds the danger of the statement a PREPARE prepares:
+// "PREPARE name [(types)] AS statement", or MySQL's "PREPARE name FROM
+// 'statement'". A statement in a variable is not known.
+func preparedDanger(toks []Token, d Dialect, r reading) (Analysis, bool) {
+	i := 2
+	if i < len(toks) && isPunct(toks[i], "(") {
+		i = skipParens(toks, i)
+	}
+	if i+1 >= len(toks) {
+		return Analysis{}, false
+	}
+	switch word(toks[i]) {
+	case "AS":
+		if a := classifyTokens(toks[i+1:], d, r); a.Dangerous {
+			return a, true
+		}
+	case "FROM":
+		if d == MySQL && toks[i+1].Kind == String {
+			return bodyDanger(toks, i+1, d, r)
+		}
+	}
+	return Analysis{}, false
+}
+
+// ruleAction returns the action of "CREATE [OR REPLACE] RULE … DO [ALSO |
+// INSTEAD] action", without the parentheses around it, from the DO before
+// any other CREATE. ok is false when toks create no rule, or one without
+// an action.
+func ruleAction(toks []Token) (action []Token, ok bool) {
+	i := 1
+	if i+1 < len(toks) && word(toks[i]) == "OR" && word(toks[i+1]) == "REPLACE" {
+		i += 2
+	}
+	if i >= len(toks) || word(toks[i]) != "RULE" {
+		return nil, false
+	}
+	dep := depths(toks)
+	for i < len(toks) && !(dep[i] == 0 && word(toks[i]) == "DO") {
+		if dep[i] == 0 && ends(toks, i, "CREATE") {
+			return nil, false
+		}
+		i++
+	}
+	i++
+	if i < len(toks) && (word(toks[i]) == "ALSO" || word(toks[i]) == "INSTEAD") {
+		i++
+	}
+	action = toks[min(i, len(toks)):]
+	if len(action) > 1 && isPunct(action[0], "(") && skipParens(action, 0) == len(action) {
+		action = action[1 : len(action)-1]
+	}
+	return action, len(action) > 0
+}
+
 // classifyCursor classifies Postgres "DECLARE name … CURSOR … FOR query" by
 // its query.
-func classifyCursor(toks []Token, dep []int, d Dialect) (Analysis, bool) {
+func classifyCursor(toks []Token, dep []int, d Dialect, r reading) (Analysis, bool) {
 	cursor := -1
 	for i := 2; i < len(toks); i++ {
 		if dep[i] > 0 {
@@ -537,7 +889,7 @@ func classifyCursor(toks []Token, dep []int, d Dialect) (Analysis, bool) {
 			if i+1 >= len(toks) {
 				return Analysis{}, false
 			}
-			a := classifyTokens(toks[i+1:], d)
+			a := classifyTokens(toks[i+1:], d, r)
 			a.Verb = "DECLARE"
 			return a, true
 		}
@@ -567,7 +919,7 @@ func readOnlyPragma(toks []Token) bool {
 	return i == len(toks)
 }
 
-func classifyWith(toks []Token, d Dialect) Analysis {
+func classifyWith(toks []Token, d Dialect, r reading) Analysis {
 	i := 1
 	if i < len(toks) && word(toks[i]) == "RECURSIVE" {
 		i++
@@ -593,7 +945,7 @@ func classifyWith(toks []Token, d Dialect) Analysis {
 				cteWrites = true
 			}
 		}
-		body := classifyTokens(toks[i+1:max(end-1, i+1)], d)
+		body := classifyTokens(toks[i+1:max(end-1, i+1)], d, r)
 		if body.Class == Write {
 			cteWrites = true // as a body that locks its rows
 		}
@@ -629,7 +981,7 @@ func classifyWith(toks []Token, d Dialect) Analysis {
 	if i >= len(toks) {
 		return Analysis{Class: Write, Verb: "WITH"}
 	}
-	a := classifyTokens(toks[i:], d)
+	a := classifyTokens(toks[i:], d, r)
 	if cteWrites && a.Class == Read {
 		a.Class = Write
 	}
@@ -688,7 +1040,7 @@ func skipParens(toks []Token, i int) int {
 
 // classifyExplain classifies EXPLAIN, DESC and DESCRIBE: Read, unless
 // ANALYZE runs the statement, which is then classified.
-func classifyExplain(toks []Token, d Dialect) Analysis {
+func classifyExplain(toks []Token, d Dialect, r reading) Analysis {
 	read := Analysis{Class: Read, Verb: word(toks[0])}
 	i := 1
 	analyze := false
@@ -729,7 +1081,7 @@ func classifyExplain(toks []Token, d Dialect) Analysis {
 	if !analyze || i >= len(toks) {
 		return read
 	}
-	inner := classifyTokens(toks[i:], d)
+	inner := classifyTokens(toks[i:], d, r)
 	if inner.Class == Read {
 		return read
 	}

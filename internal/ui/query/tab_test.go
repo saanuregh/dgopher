@@ -651,6 +651,49 @@ func TestIntegrationLargeChangeMySQL(t *testing.T) {
 	cn.DB.SQL.Exec(`DROP TABLE IF EXISTS it_guard`)
 }
 
+// Under MySQL's autocommit off, a large change is not held in a
+// transaction of the app's, whose COMMIT would commit it unasked: the
+// transaction the statement begins holds it until the user ends it.
+func TestIntegrationLargeChangeAutocommitOff(t *testing.T) {
+	testutil.Integration(t)
+	a := newFakeQueryHost(t)
+	a.Settings().ChangeLimit = 2
+	cn := a.AddConn(db.Config{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher",
+		Database: "shop", Env: db.Staging})
+	tt := ui.NewTester(a.view, 1000, 700)
+	q := newEditor(t, a, tt, cn, "SET autocommit = 0")
+	t.Cleanup(func() {
+		q.sess.Close()
+		cn.DB.SQL.Exec(`DROP TABLE IF EXISTS it_guard_off`)
+	})
+	for _, s := range []string{`DROP TABLE IF EXISTS it_guard_off`, `CREATE TABLE it_guard_off (id INT PRIMARY KEY, a INT) ENGINE=InnoDB`,
+		`INSERT INTO it_guard_off VALUES (1, 0), (2, 0), (3, 0)`} {
+		if _, err := cn.DB.SQL.Exec(s); err != nil {
+			t.Fatal(s, err)
+		}
+	}
+	sum := func() int {
+		var n int
+		cn.DB.SQL.QueryRow(`SELECT sum(a) FROM it_guard_off`).Scan(&n)
+		return n
+	}
+	runWith(t, tt, q, "SET", RunStatement)
+	q.Editor.Text = "UPDATE it_guard_off SET a = 1 WHERE id > 0"
+	q.Run(RunStatement)
+	testutil.WaitFor(t, tt, "the run or its question", func() bool { return a.Confirm != nil || !q.Running })
+	if a.Confirm != nil {
+		t.Fatalf("the change was held in a transaction of the app's: %+v", a.Confirm)
+	}
+	if q.Tx != db.TxOpen || sum() != 0 {
+		t.Fatalf("tx %v, committed sum %d", q.Tx, sum())
+	}
+	q.endTx(false)
+	testutil.WaitFor(t, tt, "the rollback", func() bool { return !q.Running })
+	if sum() != 0 {
+		t.Fatalf("committed sum %d after Roll Back", sum())
+	}
+}
+
 // The commit key commits the open transaction; rolling back has no key
 // until one is set.
 func TestTransactionKeys(t *testing.T) {

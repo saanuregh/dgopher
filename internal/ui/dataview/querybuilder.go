@@ -111,7 +111,7 @@ func (b *queryBuilder) addTable(a Host, schema, name string, on []qbOn) {
 	t := &qbTable{schema: schema, name: name, alias: b.aliasFor(name), loading: true, on: on}
 	b.tables = append(b.tables, t)
 	poolOf := b.conn.PoolFor(b.database)
-	a.Background(func() func() {
+	BackgroundResetOnPanic(a, func() { t.loading = false }, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		d, err := poolOf(ctx)

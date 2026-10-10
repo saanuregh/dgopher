@@ -768,8 +768,8 @@ func PrettyValue(s string) string {
 }
 
 // SQLOptionsFor returns how rows of a connection are written as SQL.
-func SQLOptionsFor(cn *connection.Conn, table string) export.Options {
-	opt := export.Options{Table: table, Literal: literalOf(cn.Config.Engine)}
+func SQLOptionsFor(cn *connection.Conn, schema, table string) export.Options {
+	opt := export.Options{Schema: schema, Table: table, Engine: cn.Config.Engine}
 	if cn.DB != nil {
 		opt.Quote = cn.DB.Dialect.Quote
 	}

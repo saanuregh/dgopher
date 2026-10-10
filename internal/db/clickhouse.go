@@ -38,7 +38,7 @@ func withServerParams(ctx context.Context, e Engine, args []any) (context.Contex
 type clickhouseDialect struct{}
 
 func (clickhouseDialect) Engine() Engine         { return ClickHouse }
-func (clickhouseDialect) Quote(s string) string  { return quoteBacktick(s) }
+func (clickhouseDialect) Quote(s string) string  { return quoteClickHouse(s) }
 func (clickhouseDialect) Placeholder(int) string { return "?" }
 func (clickhouseDialect) Editable() (bool, string) {
 	return false, "ClickHouse changes rows with asynchronous mutations (ALTER TABLE … UPDATE), not row edits: use the SQL editor."

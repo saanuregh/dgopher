@@ -153,3 +153,69 @@ func TestMySQLDelimiter(t *testing.T) {
 		}
 	}
 }
+
+// limit lowers a size limit for one test.
+func limit(t *testing.T, v *int, n int) {
+	old := *v
+	*v = n
+	t.Cleanup(func() { *v = old })
+}
+
+func TestStatementSizeCap(t *testing.T) {
+	limit(t, &maxStatement, 1<<20)
+	src := "SELECT 1;\n\nSELECT 'never closes\n" + strings.Repeat("x", 3<<20)
+	r := NewReader(strings.NewReader(src), sqltext.Postgres)
+	if _, err := r.Next(); err != nil {
+		t.Fatal(err)
+	}
+	_, err := r.Next()
+	if err == nil || !strings.Contains(err.Error(), "line 3:") || !strings.Contains(err.Error(), "never close") {
+		t.Fatalf("got %v", err)
+	}
+	// A statement under the limit still reads whole.
+	long := "SELECT '" + strings.Repeat("y", 900<<10) + "'"
+	got, _ := all(t, long+";\nSELECT 2;\n", sqltext.Postgres)
+	if len(got) != 2 || got[0].SQL != long {
+		t.Fatalf("%d statements", len(got))
+	}
+}
+
+// countingReader counts the reads made of it.
+type countingReader struct {
+	r     io.Reader
+	reads int
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	c.reads++
+	return c.r.Read(p)
+}
+
+func TestCopyLineGrowth(t *testing.T) {
+	line := strings.Repeat("z", 32<<20)
+	src := "COPY t (a) FROM stdin;\n" + line + "\n\\.\n"
+	c := &countingReader{r: strings.NewReader(src)}
+	r := NewReader(c, sqltext.Postgres)
+	if _, err := r.Next(); err != nil {
+		t.Fatal(err)
+	}
+	b, err := io.ReadAll(r.Data())
+	if err != nil || len(b) != len(line)+1 {
+		t.Fatalf("%d bytes: %v", len(b), err)
+	}
+	// Growing by a fixed chunk would take 128 reads.
+	if c.reads > 40 {
+		t.Fatalf("%d reads", c.reads)
+	}
+	limit(t, &maxLine, 1<<20)
+	for _, src := range []string{"COPY t (a) FROM stdin;\n" + strings.Repeat("z", 3<<20), `\restrict ` + strings.Repeat("z", 3<<20)} {
+		r = NewReader(strings.NewReader(src), sqltext.Postgres)
+		_, err = r.Next()
+		if err == nil {
+			_, err = io.ReadAll(r.Data())
+		}
+		if err == nil || !strings.Contains(err.Error(), "line 1") && !strings.Contains(err.Error(), "line 2") {
+			t.Fatalf("%.20q: %v", src, err)
+		}
+	}
+}

@@ -19,7 +19,10 @@ palette, or from a project's menu in the sidebar.
 - trusted SSH hosts, and connections added, changed or deleted.
 
 **Each entry holds** the time, the OS user and host, the connection, its
-environment, rows and duration, and the error if any.
+environment, rows and duration, and the error if any; a connect also
+records the server's version and whether TLS was used. A failing password
+or identity command is recorded as failed with its exit status, without
+what it printed.
 
 **Tamper evidence:**
 - Every entry carries the SHA-256 of the entry before it, and a number.
@@ -39,8 +42,11 @@ environment, rows and duration, and the error if any.
   was: a chain broken there stays broken, at the same entry. A damaged end
   of the last file, from a write cut short, is left out, and an entry says
   so; the files are kept as `*.migrated`.
-- Secrets (passwords in `CREATE`/`ALTER USER`, Redis `AUTH`, `CONFIG SET
-  requirepass` and similar) are redacted before they are written.
+- Secrets (passwords in `CREATE`/`ALTER USER`, the arguments of functions
+  and engines that take credentials, URL and connection-string passwords,
+  Redis `AUTH`, `CONFIG SET requirepass` and similar; see
+  [How statements are read](safety.md)) are redacted before they are
+  written.
 - **Export** saves the whole log to a file of your choice, one JSON entry
   per line, oldest first. The exported file carries the same chain, so it
   can be checked on its own.

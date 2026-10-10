@@ -40,7 +40,14 @@ type KV struct {
 	// dial reaches a node as the client does, through the tunnel or the
 	// proxy and TLS, for a connection the client cannot hold, as MONITOR.
 	dial func(ctx context.Context, addr string) (net.Conn, error)
+
+	// tlsState is whether the client uses TLS, as TLSState says it.
+	tlsState string
 }
+
+// TLSState says whether the connection uses TLS, "TLS" or "no TLS": under
+// prefer, as the server's answer to a first handshake decided.
+func (k *KV) TLSState() string { return k.tlsState }
 
 // OpenRedis connects to a Redis server, a cluster, or the master Sentinel
 // names, and checks the connection.
@@ -161,7 +168,7 @@ func OpenRedis(ctx context.Context, cfg Config, knownHosts []string) (*KV, error
 		client.Close()
 		return fail(err)
 	}
-	k := &KV{Config: cfg, Client: client, tunnel: tunnel,
+	k := &KV{Config: cfg, Client: client, tunnel: tunnel, tlsState: tlsWord(tc != nil),
 		dial: func(ctx context.Context, addr string) (net.Conn, error) { return dialNode(ctx, dialTCP, addr, tc) }}
 	// Each COMMAND entry is [name, arity, flags, ...].
 	if cmds, err := client.Do(pctx, client.B().Command().Build()).ToArray(); err == nil {

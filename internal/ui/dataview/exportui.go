@@ -30,6 +30,8 @@ import (
 type ExportSource struct {
 	Conn     *connection.Conn
 	Database string
+	// Schema qualifies the table of SQL INSERTs, "" for none.
+	Schema string
 	// Name names the files, and the table of SQL INSERTs.
 	Name string
 	SQL  string
@@ -65,6 +67,8 @@ type exportState struct {
 	header    bool
 	nullText  string
 	bom       bool
+	guard     bool
+	schema    string
 	table     string
 	perInsert float64
 
@@ -108,7 +112,7 @@ const defaultExportPattern = "${table}_${timestamp}"
 func OpenExport(a Host, src ExportSource) {
 	p := a.Settings().Export
 	x := &exportState{open: true, src: src, format: p.Format, folder: p.Folder, pattern: p.Pattern, openFolder: p.OpenFolder,
-		header: true, table: src.Name, perInsert: 1, delim: delimiterIndex(','), limited: p.Limit() > 0, limit: settings.DefaultExportRowLimit}
+		header: true, guard: p.FormulaGuard, schema: src.Schema, table: src.Name, perInsert: 1, delim: delimiterIndex(','), limited: p.Limit() > 0, limit: settings.DefaultExportRowLimit}
 	if p.Limit() > 0 {
 		x.limit = float64(p.Limit())
 	}
@@ -177,8 +181,8 @@ func expandPattern(pattern, table, connection string, now time.Time) string {
 }
 
 func (x *exportState) options() export.Options {
-	opt := export.Options{Header: x.header, NullText: x.nullText, BOM: x.bom, Table: x.table, RowsPerInsert: int(x.perInsert),
-		Literal: literalOf(x.src.Conn.Config.Engine)}
+	opt := export.Options{Header: x.header, NullText: x.nullText, BOM: x.bom, FormulaGuard: x.guard, Schema: x.schema, Table: x.table, RowsPerInsert: int(x.perInsert),
+		Engine: x.src.Conn.Config.Engine}
 	if x.src.Conn.DB != nil {
 		opt.Quote = x.src.Conn.DB.Dialect.Quote
 	}
@@ -247,8 +251,13 @@ func ExportView(a Host, c *ui.Context) {
 					ui.Field(c, "", func() { ui.Checkbox(c, &x.header, "Column names first") })
 					ui.Field(c, "NULL as", func() { ui.TextInput(c, &x.nullText).Placeholder("empty").Font(widgets.MonoFont) })
 					ui.Field(c, "", func() { ui.Checkbox(c, &x.bom, "Byte order mark, for Excel") })
+					if f != export.Markdown {
+						ui.Field(c, "", func() { ui.Checkbox(c, &x.guard, "Guard against spreadsheet formulas") }).
+							Description("Text starting with =, +, -, @, a tab or a line break, or their full-width forms, gets a ' first, so that a spreadsheet shows it rather than runs it.")
+					}
 				case export.SQL:
 					if !many {
+						ui.Field(c, "Schema", func() { ui.TextInput(c, &x.schema).Placeholder("none").Font(widgets.MonoFont) })
 						ui.Field(c, "Table", func() { ui.TextInput(c, &x.table).Font(widgets.MonoFont) })
 					}
 					ui.Field(c, "Rows per INSERT", func() { ui.NumberInput(c, &x.perInsert, 1, 1000, 10) })
@@ -404,7 +413,7 @@ const exportPage = 5000
 // runExport writes the rows, off the main thread, and audits it: of the
 // source, or of each table chosen, one file each.
 func runExport(a Host, x *exportState) {
-	prefs := settings.ExportPrefs{Format: x.format, Folder: x.folder, Pattern: x.pattern, OpenFolder: x.openFolder, Unlimited: !x.limited}
+	prefs := settings.ExportPrefs{Format: x.format, Folder: x.folder, Pattern: x.pattern, OpenFolder: x.openFolder, Unlimited: !x.limited, FormulaGuard: x.guard}
 	if x.limited {
 		prefs.RowLimit = int(x.limit)
 	}
@@ -453,7 +462,17 @@ func runExport(a Host, x *exportState) {
 	if !all {
 		read = x.src.RowsRead()
 	}
-	a.Background(func() func() {
+	job := "Exporting " + x.src.Name
+	if len(srcs) > 1 {
+		job = fmt.Sprintf("Exporting %d tables", len(srcs))
+	}
+	if toClip {
+		job += " of " + cfg.Name + ": stopping it copies nothing."
+	} else {
+		job += " of " + cfg.Name + ": stopping it removes the file it is writing."
+	}
+	stopped := func() { x.running, x.err = false, "The export stopped on an internal error." }
+	RunJob(a, x.src.Conn, job, cancel, stopped, func() func() {
 		defer cancel()
 		defer release()
 		var clip strings.Builder
@@ -463,7 +482,7 @@ func runExport(a Host, x *exportState) {
 			x.current.Store(int64(i))
 			o := opt
 			if x.tables != nil {
-				o.Table = src.Name
+				o.Schema, o.Table = src.Schema, src.Name
 			}
 			var n int64
 			var limited bool
@@ -483,7 +502,7 @@ func runExport(a Host, x *exportState) {
 				ev.Detail += ", stopped at its limit of " + strconv.Itoa(limit) + " rows"
 			}
 			if err != nil {
-				ev.Error = err.Error()
+				ev.Err = err
 				if len(srcs) > 1 {
 					err = fmt.Errorf("%s: %w", src.Name, err)
 				}
@@ -640,16 +659,4 @@ func exportRows(ctx context.Context, pool *db.DB, lent *db.Session, src ExportSo
 			sess.Close()
 		}
 	}, c.Truncated, nil
-}
-
-func literalOf(e db.Engine) export.Literal {
-	switch e {
-	case db.Postgres, db.DuckDB:
-		return export.LiteralPostgres
-	case db.MySQL:
-		return export.LiteralMySQL
-	case db.ClickHouse:
-		return export.LiteralClickHouse
-	}
-	return export.LiteralStandard
 }

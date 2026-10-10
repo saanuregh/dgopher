@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"dgopher/internal/db"
+	"dgopher/internal/sqltext"
 )
 
 // State is how a table of one model stands in another.
@@ -277,7 +278,7 @@ func columnText(c db.ColumnDesign) string {
 		parts = append(parts, "PRIMARY KEY")
 	}
 	if c.Comment != "" {
-		parts = append(parts, "-- "+c.Comment)
+		parts = append(parts, sqltext.LineComment(c.Comment))
 	}
 	return strings.Join(parts, " ")
 }

@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -357,13 +358,30 @@ func TestConnectDials(t *testing.T) {
 	}
 }
 
+// keyFile writes a private key to a file of the test.
+func keyFile(t *testing.T, priv ed25519.PrivateKey) string {
+	t.Helper()
+	block, err := ssh.MarshalPrivateKey(priv, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "id_ed25519")
+	if err := os.WriteFile(path, pem.EncodeToMemory(block), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 // A tunnel goes through jump hosts in turn, each host key checked: an
 // unknown jump is named in the error, and once trusted the tunnel opens.
+// The jump host logs in with the key, the SSH host with the password.
 func TestJumpHosts(t *testing.T) {
-	jump, target := startServer(t, nil), startServer(t, nil)
+	clientSigner, clientPriv := newSigner(t)
+	jump, target := startServer(t, clientSigner.PublicKey()), startServer(t, nil)
 	echoHost, echoPort := startEcho(t)
 	known := trustedFile(t, target)
 	cfg := config(target)
+	cfg.KeyPath = keyFile(t, clientPriv)
 	cfg.Jumps = []Hop{{Host: jump.Host, Port: jump.Port, User: "tester"}}
 	_, err := Open(context.Background(), cfg, echoHost, echoPort, []string{known})
 	var hostKeyErr *HostKeyError
@@ -384,5 +402,35 @@ func TestJumpHosts(t *testing.T) {
 	cfg.Jumps[0].User = ""
 	if _, err := Open(context.Background(), cfg, echoHost, echoPort, []string{known}); err == nil {
 		t.Fatal("a jump host without a user")
+	}
+}
+
+// A jump host is offered the key and the agent, never the password of
+// the SSH host behind it; without either, the tunnel says what it needs.
+func TestJumpHostGetsNoPassword(t *testing.T) {
+	_, clientPriv := newSigner(t)
+	jump, target := startServer(t, nil), startServer(t, nil)
+	echoHost, echoPort := startEcho(t)
+	known := trustedFile(t, target)
+	if err := Trust(known, jump.Addr, jump.HostKey.PublicKey()); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config(target)
+	cfg.KeyPath = keyFile(t, clientPriv)
+	cfg.Jumps = []Hop{{Host: jump.Host, Port: jump.Port, User: "tester"}}
+	if tun, err := Open(context.Background(), cfg, echoHost, echoPort, []string{known}); err == nil {
+		tun.Close()
+		t.Fatal("the jump host let in a key it does not know")
+	}
+	if got := jump.Passwords(); len(got) > 0 {
+		t.Fatalf("the jump host was offered %q", got)
+	}
+	cfg.KeyPath = ""
+	_, err := Open(context.Background(), cfg, echoHost, echoPort, []string{known})
+	if err == nil || !strings.Contains(err.Error(), "jump host") {
+		t.Fatalf("a jump host without a key or the agent: %v", err)
+	}
+	if got := jump.Passwords(); len(got) > 0 {
+		t.Fatalf("the jump host was offered %q", got)
 	}
 }

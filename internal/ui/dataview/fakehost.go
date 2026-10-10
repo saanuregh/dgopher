@@ -13,6 +13,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/project"
 	"dgopher/internal/safety"
+	"dgopher/internal/secretcmd"
 	"dgopher/internal/settings"
 	"dgopher/internal/ui/widgets"
 
@@ -137,10 +138,16 @@ func (h *FakeHost) Post(fn func()) {
 
 func (h *FakeHost) Background(work func() func()) {
 	go func() {
+		defer RecoverBackground(h.Post, h.ShowError, nil)
 		if done := work(); done != nil {
 			h.Post(done)
 		}
 	}()
+}
+
+// StartJob keeps no job: nothing quits or disconnects the fake.
+func (h *FakeHost) StartJob(cn *connection.Conn, title string, cancel context.CancelFunc) (finish func()) {
+	return func() {}
 }
 
 func (h *FakeHost) Settings() *settings.Settings { return &h.settings }
@@ -289,14 +296,16 @@ func (h *FakeHost) RecordBlocked(cn *connection.Conn, why, what string) {
 	h.Events = append(h.Events, audit.Event{Kind: audit.KindBlocked, Statement: what, Detail: why})
 }
 
-func (h *FakeHost) Record(cfg *db.Config, e audit.Event) { h.Events = append(h.Events, e) }
-
-func (h *FakeHost) RecordRun(cfg db.Config, kind, database, stmt string, rows int64, d time.Duration, err error) {
-	e := audit.Event{Kind: kind, Statement: stmt, Rows: rows}
-	if err != nil {
-		e.Error = err.Error()
+// Record writes the error as the app's does.
+func (h *FakeHost) Record(cfg *db.Config, e audit.Event) {
+	if e.Err != nil && e.Error == "" {
+		e.Error = secretcmd.AuditText(e.Err)
 	}
 	h.Events = append(h.Events, e)
+}
+
+func (h *FakeHost) RecordRun(cfg db.Config, kind, database, stmt string, rows int64, d time.Duration, err error) {
+	h.Record(&cfg, audit.Event{Kind: kind, Statement: stmt, Rows: rows, Err: err})
 }
 
 // ConnByID finds a connection of the host by its ID, as the app does.

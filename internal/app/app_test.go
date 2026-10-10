@@ -728,7 +728,7 @@ func TestConnectionFromURL(t *testing.T) {
 	f := a.connForm
 	f.url = "mysql://app:pw@db.internal:3307/shop?tls=true"
 	a.fillFromURL(f)
-	if f.engine != "MySQL" || f.cfg.Host != "db.internal" || f.port != "3307" || f.cfg.Password != "pw" || f.url != "" || f.tls != tlsLabels[db.TLSRequire] {
+	if f.engine != "MySQL" || f.cfg.Host != "db.internal" || f.port != "3307" || f.cfg.Password != "pw" || f.url != "" || f.tls != tlsLabels[db.TLSVerifyFull] {
 		t.Fatalf("form %+v", f)
 	}
 	tt.Frame()
@@ -1309,7 +1309,7 @@ func TestNotifyLongWork(t *testing.T) {
 // agreeing to what the policy asks.
 func runFile(t *testing.T, a *App, tt *ui.Tester, cn *connection.Conn, path string, edit func(*sqlFileRun)) *sqlFileRun {
 	t.Helper()
-	a.startSQLFileRun(cn, "", path)
+	a.startSQLFileRun(cn, "", path, "")
 	x := a.sqlFile
 	testutil.WaitFor(t, tt, "the survey", func() bool { return !x.reading })
 	if edit != nil {
@@ -1342,7 +1342,7 @@ func TestRunSQLFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "dump.sql")
 	os.WriteFile(path, []byte(b.String()), 0o600)
 
-	a.startSQLFileRun(cn, "", path)
+	a.startSQLFileRun(cn, "", path, "")
 	x := a.sqlFile
 	testutil.WaitFor(t, tt, "the survey", func() bool { return !x.reading })
 	if x.statements != 3003 || x.verbs["INSERT"] != 3000 || len(x.dangerous) != 1 || !strings.HasPrefix(x.dangerous[0], "line 2: DROP TABLE gone") || !x.verdict.Confirm {
@@ -1386,7 +1386,7 @@ func TestRunSQLFile(t *testing.T) {
 	}
 
 	// A file changed since it was read is not run.
-	a.startSQLFileRun(cn, "", path)
+	a.startSQLFileRun(cn, "", path, "")
 	x = a.sqlFile
 	testutil.WaitFor(t, tt, "the survey", func() bool { return !x.reading })
 	os.WriteFile(path, []byte("DROP TABLE t;\n"), 0o600)
@@ -1735,8 +1735,20 @@ func TestBackup(t *testing.T) {
 	a.openBackup(cn, "", true)
 	a.backup.path = sql
 	a.startBackup(a.backup)
-	if a.sqlFile == nil || a.sqlFile.path != sql {
-		t.Fatalf("the SQL file is not run: %+v", a.sqlFile)
+	x := a.sqlFile
+	if x == nil || x.path != sql {
+		t.Fatalf("the SQL file is not read: %+v", x)
+	}
+	testutil.WaitFor(t, tt, "the survey", func() bool { return !x.reading })
+	a.confirmSQLFile(x)
+	if a.confirm == nil || a.confirm.Action != "Restore" {
+		t.Fatalf("the restore is not asked: %+v", a.confirm)
+	}
+	a.confirm.OnConfirm()
+	a.confirm = nil
+	testutil.WaitFor(t, tt, "the restore", func() bool { return x.finished })
+	if x.err != "" {
+		t.Fatal(x.err)
 	}
 }
 

@@ -133,7 +133,11 @@ func (r *Tab) loadVector(element string) {
 	v := &r.vector
 	v.element, v.loading, v.err, v.vector, v.similar = element, true, "", nil, nil
 	kv, key, gen := r.conn.KV, r.selected, r.valueGen
-	r.a.Background(func() func() {
+	dataview.BackgroundResetOnPanic(r.a, func() {
+		if gen == r.valueGen && v.element == element {
+			v.loading = false
+		}
+	}, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		vector, err := kv.VectorOf(ctx, key, element)

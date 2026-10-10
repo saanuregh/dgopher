@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"dgopher/internal/db"
+	"dgopher/internal/sqltext"
 	"dgopher/internal/testutil"
 )
 
@@ -210,6 +211,17 @@ func TestScriptRecreatesPostgres(t *testing.T) {
 	for _, want := range []string{"What was bought", `lines\_of(o integer)`, "→ orders.id", "*on orders*"} {
 		if !strings.Contains(doc, want) {
 			t.Errorf("no %q in the documentation:\n%s", want, doc)
+		}
+	}
+}
+
+func TestScriptErrorStaysComment(t *testing.T) {
+	s := &Schema{Engine: db.Postgres, Tables: []Table{
+		{Object: db.Object{Name: "gone\rDROP TABLE victims;", Kind: db.KindTable}, Err: "denied DROP TABLE victims;"},
+	}}
+	for _, st := range sqltext.Split(Script(s), sqltext.Postgres) {
+		if strings.Contains(st.Text, "DROP TABLE victims") {
+			t.Errorf("the label runs as %q", st.Text)
 		}
 	}
 }

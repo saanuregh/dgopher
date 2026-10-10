@@ -189,7 +189,11 @@ func (t *activityTab) refresh() {
 	t.loading = true
 	kv, pool := t.conn.KV, t.conn.DB // read on the main thread
 	page, gen := t.pages[t.page], t.gen
-	t.a.Background(func() func() {
+	dataview.BackgroundResetOnPanic(t.a, func() {
+		if gen == t.gen {
+			t.loading = false
+		}
+	}, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		var src dataview.Source
@@ -285,18 +289,36 @@ func redisActivity(ctx context.Context, kv *db.KV) (map[string]string, dataview.
 func (t *activityTab) act(row []any, terminate bool) {
 	var stmt, title string
 	page := t.pages[t.page]
+	redis := t.conn.KV != nil || t.conn.Config.Engine == db.Redis
 	switch {
-	case t.conn.KV != nil:
+	case redis:
 		stmt, title = "CLIENT KILL ID "+db.Display(row[0]), "Disconnect client "+db.Display(row[0])+"?"
 	case terminate:
 		stmt, title = page.kill(row), "End this session?"
 	default:
 		stmt, title = page.stop(row), "Cancel this query?"
 	}
+	// Stopping another session's work is exempt from read-only, which the
+	// server enforces through its own privileges; the rest of the policy holds.
+	policy := t.conn.Config
+	policy.ReadOnly = false
+	var verdict safety.Verdict
+	if redis {
+		verdict = safety.ReviewRedis(&policy, t.conn.KV, strings.Fields(stmt))
+	} else {
+		verdict = safety.ReviewSQL(&policy, safety.Analyze(&policy, []string{stmt}))
+	}
+	if verdict.Blocked != "" {
+		t.a.RecordBlocked(t.conn, verdict.Blocked, stmt)
+		t.a.ShowError("Could not stop it", verdict.Blocked)
+		return
+	}
 	v := safety.Verdict{Confirm: true, Reasons: []string{"This acts on another user's work on " + t.conn.Config.Name + ":\n" + t.describe(row)}}
 	if t.conn.Config.ReadOnly {
 		v.Reasons = append(v.Reasons, "The connection is read-only, but stopping queries is not a write: the server decides whether you may.")
 	}
+	v.Reasons = append(v.Reasons, verdict.Reasons...)
+	v.TypeName = verdict.TypeName || (terminate && t.conn.Config.Env == db.Production)
 	cn := t.conn
 	t.a.AskConfirm(cn, v, title, "Stop", stmt, func() {
 		kv, pool, cfg := cn.KV, cn.DB, cn.Config // read on the main thread

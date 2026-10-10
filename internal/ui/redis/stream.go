@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"dgopher/internal/db"
+	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -59,7 +60,11 @@ func (r *Tab) loadGroups() {
 	s.loads++
 	kv, key, chosen, load := r.conn.KV, r.selected, s.chosenGroup(), s.loads
 	gen := r.valueGen
-	r.a.Background(func() func() {
+	dataview.BackgroundResetOnPanic(r.a, func() {
+		if gen == r.valueGen && load == s.loads {
+			s.loading = false
+		}
+	}, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		groups, err := kv.StreamGroups(ctx, key)

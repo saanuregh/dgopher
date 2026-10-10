@@ -18,7 +18,9 @@ import (
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/netproxy"
 	"dgopher/internal/project"
+	"dgopher/internal/secretcmd"
 	"dgopher/internal/state"
 	"dgopher/internal/store"
 	"dgopher/internal/testutil"
@@ -1107,6 +1109,10 @@ func TestCloudIdentityForm(t *testing.T) {
 		t.Fatalf("an identity without TLS: %v", err)
 	}
 	f.tls = tlsLabels[db.TLSRequire]
+	if cfg = f.config(); cfg.Validate() == nil || !strings.Contains(cfg.Validate().Error(), "verify-full") {
+		t.Fatalf("an identity over unverified TLS: %v", cfg.Validate())
+	}
+	f.tls = tlsLabels[db.TLSVerifyFull]
 	if cfg = f.config(); cfg.Validate() != nil {
 		t.Fatal(cfg.Validate())
 	}
@@ -1313,5 +1319,329 @@ func TestNavigatorSkipsNotes(t *testing.T) {
 	tt.Frame()
 	if got := chosen(); got.kind == nodeInfo {
 		t.Fatalf("a click chose the note")
+	}
+}
+
+// trustDetail is the row of a trust prompt with a label.
+func trustDetail(t *testing.T, r *widgets.ConfirmRequest, label string) widgets.ConfirmDetail {
+	t.Helper()
+	for _, d := range r.Details {
+		if d.Label == label {
+			return d
+		}
+	}
+	t.Fatalf("the prompt has no %s row: %+v", label, r.Details)
+	return widgets.ConfirmDetail{}
+}
+
+// legacyPasswordKey is the keychain key a password was kept under before
+// the key named the proxy, the client certificate, the jump hosts and the
+// identity.
+func legacyPasswordKey(cfg *db.Config) string {
+	where := fmt.Sprintf("%s|%s|%d|%s|%s|%v|%s|%d|%s", cfg.Engine, cfg.Host, cfg.Port, cfg.User, cfg.Database,
+		cfg.SSH.Enabled, cfg.SSH.Host, cfg.SSH.Port, cfg.SSH.User)
+	sum := sha256.Sum256([]byte(where))
+	return "conn/" + cfg.ID + "/" + hex.EncodeToString(sum[:6]) + "/password"
+}
+
+// A pull that sends a trusted connection through a proxy, without TLS,
+// asks again, listing where its password would go with the changes
+// marked; the password kept for the direct route is not sent through the
+// proxy, and is asked for instead.
+func TestPulledProxyAsksWithDetails(t *testing.T) {
+	a := newTestApp(t)
+	a.openConnForm(nil)
+	f := a.connForm
+	f.cfg.Name, f.cfg.Host, f.cfg.User, f.cfg.Password = "Billing", "127.0.0.1", "app", "s3cret"
+	f.port, f.tls, f.envChosen = "1", tlsLabels[db.TLSVerifyFull], true
+	a.saveConnForm(f, false)
+	p := a.projects[0]
+	pulled := a.conns[0].Config
+	pulled.TLS = db.TLSDisable
+	pulled.Proxy = db.ProxyConfig{Kind: "socks5", Host: "127.0.0.1", Port: 1, User: "mallory"}
+	if err := p.Save([]db.Config{pulled}); err != nil {
+		t.Fatal(err)
+	}
+	a.reloadProject(p)
+	cn := a.conns[0]
+	if cn.Config.Proxy.Host != "127.0.0.1" {
+		t.Fatalf("not reloaded: %+v", cn.Config)
+	}
+	tt := ui.NewTester(a.view, 1000, 900)
+	a.Connect(cn, nil)
+	r := a.confirm
+	if r == nil {
+		t.Fatal("a pull that added a proxy connected without asking")
+	}
+	if d := trustDetail(t, r, "Proxy"); !d.Changed || !strings.Contains(d.Value, "mallory@127.0.0.1:1") {
+		t.Errorf("proxy row %+v", d)
+	}
+	if d := trustDetail(t, r, "TLS"); !d.Changed || !strings.Contains(d.Value, "off") {
+		t.Errorf("TLS row %+v", d)
+	}
+	if d := trustDetail(t, r, "Server"); d.Changed || !strings.Contains(d.Value, "app@127.0.0.1:1") {
+		t.Errorf("server row %+v", d)
+	}
+	tt.Frame()
+	if !testutil.HasTextContaining(tt, "mallory@127.0.0.1:1") {
+		t.Fatalf("the dialog does not list the proxy: %q", tt.Texts())
+	}
+	testutil.Snapshot(t, tt, "shared-trust-changed")
+	cfg := cn.Config
+	a.loadSecrets(&cfg)
+	if cfg.Password != "" {
+		t.Fatal("the password kept for the direct route was loaded for the proxy")
+	}
+	r.OnConfirm()
+	a.confirm = nil
+	testutil.WaitFor(t, tt, "the password prompt", func() bool { return a.prompt != nil })
+	if !a.prompt.offerKeep {
+		t.Fatal("the prompt does not offer to keep the password")
+	}
+	a.prompt.onCancel()
+	a.prompt = nil
+}
+
+// The proxy's password is kept for the proxy it was typed for; the
+// database's for the proxy, the client certificate, the jump hosts and
+// the identity it goes with.
+func TestProxyPasswordKeyedByHost(t *testing.T) {
+	base := db.Config{ID: "p.x", Engine: db.MySQL, Host: "db", Port: 3306, User: "u",
+		Proxy: db.ProxyConfig{Kind: "socks5", Host: "proxy", Port: 1080, User: "pu"}, SSH: db.SSHConfig{Enabled: true, Host: "bastion", User: "b"}}
+	for name, edit := range map[string]func(*db.Config){
+		"proxy host": func(c *db.Config) { c.Proxy.Host = "evil" },
+		"proxy port": func(c *db.Config) { c.Proxy.Port = 1081 },
+		"proxy user": func(c *db.Config) { c.Proxy.User = "other" },
+		"proxy kind": func(c *db.Config) { c.Proxy.Kind = "http" },
+	} {
+		c := base
+		edit(&c)
+		for _, what := range []string{"proxy-password", "password"} {
+			if secretKey(&c, what) == secretKey(&base, what) {
+				t.Errorf("a change of the %s keeps the key of the %s", name, what)
+			}
+		}
+	}
+	for name, edit := range map[string]func(*db.Config){
+		"client certificate": func(c *db.Config) { c.CertFile, c.KeyFile = "/c.pem", "/k.pem" },
+		"jump hosts":         func(c *db.Config) { c.SSH.Jump = "evil@jump" },
+		"identity":           func(c *db.Config) { c.Identity = db.IdentityAWS },
+		"identity region":    func(c *db.Config) { c.Identity, c.IdentityRegion = db.IdentityAWS, "eu-west-1" },
+		"clear text":         func(c *db.Config) { c.ClearTextPassword = true },
+	} {
+		c := base
+		edit(&c)
+		if secretKey(&c, "password") == secretKey(&base, "password") {
+			t.Errorf("a change of the %s keeps the password's key", name)
+		}
+	}
+	noProxy := base
+	noProxy.Proxy = db.ProxyConfig{}
+	if secretKey(&noProxy, "password") != legacyPasswordKey(&noProxy) {
+		t.Fatal("a connection without a proxy lost the key of its password")
+	}
+}
+
+// A pull that lowers the care taken with a connection asks again.
+func TestLoweredProtectionAsks(t *testing.T) {
+	for name, lower := range map[string]func(*db.Config){
+		"Environment": func(c *db.Config) { c.Env = db.Staging },
+		"Read-only":   func(c *db.Config) { c.ReadOnly = false },
+		"Commit":      func(c *db.Config) { c.Commit = db.CommitAuto },
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := newTestApp(t)
+			file := filepath.Join(t.TempDir(), "x.sqlite")
+			os.WriteFile(file, nil, 0o600)
+			cn := addConn(a, db.Config{ID: "s", Name: "s", Engine: db.SQLite, Database: file, Env: db.Production, ReadOnly: true})
+			lower(&cn.Config)
+			a.Connect(cn, nil)
+			if a.confirm == nil {
+				t.Fatal("connected without asking")
+			}
+			if d := trustDetail(t, a.confirm, name); !d.Changed {
+				t.Fatalf("the row is not marked: %+v", d)
+			}
+		})
+	}
+}
+
+// Raising the care taken connects without asking, and is the baseline a
+// later pull is compared with; a connection trusted before the details
+// were kept takes the values it has as its baseline.
+func TestRaisedProtectionDoesNot(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1000, 700)
+	file := filepath.Join(t.TempDir(), "x.sqlite")
+	os.WriteFile(file, nil, 0o600)
+	cn := addConn(a, db.Config{ID: "s", Name: "s", Engine: db.SQLite, Database: file, Env: db.Development})
+	cn.Config.Env, cn.Config.ReadOnly = db.Production, true
+	a.Connect(cn, nil)
+	if a.confirm != nil {
+		t.Fatal("raising the protection asked")
+	}
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	a.disconnect(cn)
+	cn.Config.ReadOnly = false
+	a.Connect(cn, nil)
+	if a.confirm == nil {
+		t.Fatal("lowering the raised protection did not ask")
+	}
+	a.confirm = nil
+	cn.Status = connection.StatusIdle
+	// As an entry kept before the details were.
+	a.settings.TrustedDetails = nil
+	a.Connect(cn, nil)
+	if a.confirm != nil {
+		t.Fatal("an entry from before the details asked")
+	}
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	a.disconnect(cn)
+	cn.Config.Env = db.Development
+	a.Connect(cn, nil)
+	if a.confirm == nil {
+		t.Fatal("the values at the first connect are not the baseline")
+	}
+}
+
+// A pulled cloud identity shows the command it runs, word for word, and
+// that it sends a token.
+func TestIdentityPromptNamesCommand(t *testing.T) {
+	a := newTestApp(t)
+	cn := addConn(a, db.Config{ID: "rds", Name: "rds", Engine: db.Postgres, Host: "orders.rds.amazonaws.com", Port: 5432, User: "app",
+		TLS: db.TLSVerifyFull, Identity: db.IdentityAWS, IdentityRegion: "eu-west-1", IdentityProfile: "prod"})
+	a.settings.TrustedShared = nil
+	a.Connect(cn, nil)
+	if a.confirm == nil {
+		t.Fatal("a pulled identity connected without asking")
+	}
+	argv := "aws rds generate-db-auth-token --hostname orders.rds.amazonaws.com --port 5432 --username app --region eu-west-1 --profile prod"
+	if d := trustDetail(t, a.confirm, "Identity"); !strings.Contains(d.Value, argv) || !strings.Contains(d.Value, "token") {
+		t.Fatalf("identity row %+v", d)
+	}
+	reason := strings.Join(a.confirm.Reasons, " ")
+	if !strings.Contains(reason, argv) || strings.Contains(reason, "password") {
+		t.Fatalf("the reason: %s", reason)
+	}
+}
+
+// A connection whose keychain password is gone, as when its key changed,
+// asks for it and offers to keep it; one that never had one asks nothing.
+func TestMissingKeychainPasswordAsks(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1000, 700)
+	proxy := db.ProxyConfig{Kind: "socks5", Host: "127.0.0.1", Port: 1}
+	cn := addConn(a, db.Config{ID: "pg", Name: "pg", Engine: db.Postgres, Host: "127.0.0.1", Port: 1, User: "u", Proxy: proxy})
+	legacy := legacyPasswordKey(&cn.Config)
+	a.st.Secrets().Set(legacy, "old")
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "the password prompt", func() bool { return a.prompt != nil })
+	if !a.prompt.offerKeep || !testutil.HasTextContaining(tt, "Keep it in the keychain") {
+		t.Fatalf("the prompt does not offer to keep it: %q", tt.Texts())
+	}
+	testutil.Snapshot(t, tt, "keychain-password-lost")
+	a.prompt.keep = true
+	a.prompt.onSubmit("typed")
+	a.prompt = nil
+	if pw, _ := a.st.Secrets().Get(secretKey(&cn.Config, "password")); pw != "typed" {
+		t.Fatalf("kept %q", pw)
+	}
+	if _, err := a.st.Secrets().Get(legacy); err == nil {
+		t.Fatal("the password under the old key stays")
+	}
+	testutil.WaitFor(t, tt, "the failure", func() bool { return cn.Status == connection.StatusFailed })
+	a.alert = nil
+
+	none := addConn(a, db.Config{ID: "none", Name: "none", Engine: db.Postgres, Host: "127.0.0.1", Port: 1, User: "u", Proxy: proxy})
+	a.Connect(none, nil)
+	testutil.WaitFor(t, tt, "the failure", func() bool { return none.Status == connection.StatusFailed })
+	if a.prompt != nil {
+		t.Fatal("asked for the password of a connection that never had one")
+	}
+}
+
+// What a failing password command prints to stderr is shown, never
+// audited.
+func TestCommandStderrNotAudited(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs sh")
+	}
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1000, 700)
+	cn := addConn(a, db.Config{ID: "r", Name: "r", Engine: db.Redis, Host: "127.0.0.1", Port: 1,
+		PasswordCommand: `sh -c 'echo "refused hunter2" >&2; exit 3'`})
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "the failure", func() bool { return cn.Status == connection.StatusFailed })
+	if !strings.Contains(cn.Err, "hunter2") {
+		t.Fatalf("the live error lost what the command printed: %q", cn.Err)
+	}
+	var log bytes.Buffer
+	a.projects[0].Audit.Export(&log)
+	if strings.Contains(log.String(), "hunter2") || !strings.Contains(log.String(), "the password command failed (exit 3)") {
+		t.Fatalf("the audit log:\n%s", log.String())
+	}
+}
+
+// A cloud identity's command failing keeps what it printed out of the audit
+// log, though the text held a secret of the connection, which redacting
+// the error takes out.
+func TestIdentityStderrNotAudited(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs sh")
+	}
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "aws"), []byte("#!/bin/sh\necho 'An error occurred: pin=4711 for proxy zzproxy-pass' >&2\nexit 255\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1000, 700)
+	cn := addConn(a, db.Config{ID: "pg", Name: "pg", Engine: db.Postgres, Host: "127.0.0.1", Port: 1, User: "u", Database: "d",
+		TLS: db.TLSVerifyFull, Identity: db.IdentityAWS, IdentityRegion: "eu-west-1",
+		Proxy: db.ProxyConfig{Kind: netproxy.SOCKS5, Host: "127.0.0.1", Port: 1, Password: "zzproxy-pass"}})
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "the failure", func() bool { return cn.Status == connection.StatusFailed })
+	if !strings.Contains(cn.Err, "pin=4711") {
+		t.Fatalf("the live error lost what the command printed: %q", cn.Err)
+	}
+	var log bytes.Buffer
+	a.projects[0].Audit.Export(&log)
+	if strings.Contains(log.String(), "4711") || !strings.Contains(log.String(), "aws failed (exit 255)") {
+		t.Fatalf("the audit log:\n%s", log.String())
+	}
+}
+
+// An event's Err reaches the audit log without what a command printed to
+// stderr, whichever site recorded it.
+func TestRecordErrNotAudited(t *testing.T) {
+	a := newTestApp(t)
+	cn := addConn(a, db.Config{ID: "r", Name: "r", Engine: db.Redis, Host: "127.0.0.1", Port: 1})
+	a.Record(&cn.Config, audit.Event{Kind: audit.KindBackup, Detail: "to a file",
+		Err: fmt.Errorf("backup: %w", &secretcmd.CommandError{Command: "pg_dump", Status: 2, Stderr: "refused hunter2"})})
+	events, err := a.projects[0].Audit.Read(1)
+	if err != nil || len(events) != 1 {
+		t.Fatalf("read %d events: %v", len(events), err)
+	}
+	if got := events[0].Error; strings.Contains(got, "hunter2") || !strings.Contains(got, "pg_dump failed (exit 2)") {
+		t.Fatalf("the audit log keeps %q", got)
+	}
+}
+
+// The themes folder is the user's alone, as the rest of the config.
+func TestThemesFolderPrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permissions")
+	}
+	a := newTestApp(t)
+	dir, err := a.makeThemesFolder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o700 {
+		t.Fatalf("the themes folder is %v", fi.Mode().Perm())
 	}
 }

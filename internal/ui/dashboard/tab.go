@@ -325,7 +325,11 @@ func (t *Tab) runPanel(i int, asked bool) {
 	s.running, s.cancel, s.err = true, cancel, ""
 	s.runs++
 	run0, pool, cfg, database := s.runs, cn.DB, cn.Config, p.Database
-	t.h.Background(func() func() {
+	dataview.BackgroundResetOnPanic(t.h, func() {
+		if run0 == s.runs {
+			s.running, s.cancel = false, nil
+		}
+	}, func() func() {
 		defer cancel()
 		start := time.Now()
 		src, err := run(ctx, pool, cfg, database, prep)

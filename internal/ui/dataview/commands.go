@@ -44,8 +44,8 @@ func (v *Viewer) Commands() []widgets.Command {
 // transaction, and the rows', on the Data page.
 func (t *TableTab) Commands() []widgets.Command {
 	var cmds []widgets.Command
-	if t.tx != db.TxNone && !t.view.applying {
-		if t.tx == db.TxOpen {
+	if t.Tx != db.TxNone && !t.view.applying {
+		if t.Tx == db.TxOpen {
 			cmds = append(cmds, widgets.Command{Title: "Commit", Detail: "the open transaction", Key: keymap.Commit, Icon: widgets.IconCheck, Run: func() { t.endOpenTx(true) }})
 		}
 		cmds = append(cmds, widgets.Command{Title: "Roll Back", Detail: "the open transaction", Key: keymap.Rollback, Icon: widgets.IconUndo, Run: func() { t.endOpenTx(false) }})

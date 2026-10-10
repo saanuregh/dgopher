@@ -200,7 +200,7 @@ func (r *reader) phpArray(n, depth int, class string) (any, error) {
 		if key, ok := k.(int64); !ok || key != int64(i) {
 			list = false
 		}
-		m.set(phpKey(k), v)
+		m.set(r.phpKey(k), v)
 	}
 	if err := r.expect("}"); err != nil {
 		return nil, err
@@ -213,10 +213,12 @@ func (r *reader) phpArray(n, depth int, class string) (any, error) {
 
 // phpKey writes an array's key, or a property's name without the marks
 // of its visibility: \0*\0 protected, \0Class\0 private.
-func phpKey(k any) string {
-	s := keyString(k)
+func (r *reader) phpKey(k any) string {
+	var s string
 	if b, ok := k.(bytesValue); ok {
 		s = string(b)
+	} else {
+		s = r.names.keyString(k)
 	}
 	if strings.HasPrefix(s, "\x00") {
 		if i := strings.IndexByte(s[1:], 0); i >= 0 {

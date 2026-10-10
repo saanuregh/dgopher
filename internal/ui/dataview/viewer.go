@@ -55,8 +55,16 @@ type ViewerSource struct {
 	// SessionBusy says why the session cannot take a statement now, "" when it can; nil when
 	// the session is the Viewer's alone.
 	SessionBusy func() string
-	// TxChanged reports the session's transaction state after a read or an apply.
-	TxChanged func(db.TxState)
+	// TxChanged reports the session's transaction state after a read or an apply, as SessionTx
+	// reads it.
+	TxChanged func(own, inside db.TxState)
+	// TxOwner names the tab whose transaction the session's statements run
+	// inside, on a connection every session shares, "" when unknown; nil
+	// when no tab names it.
+	TxOwner func() (name string, inside bool)
+	// SessionReset, when set, is told that a statement found the session's connection lost and
+	// made again (db.ErrSessionReset): what the session had set, as its schema, went with it.
+	SessionReset func()
 	// Rerun runs the statement again for a refresh of a statement that writes, through the
 	// owner's safety review; nil for a table.
 	Rerun      func()
@@ -65,6 +73,17 @@ type ViewerSource struct {
 	Bars func(c *ui.Context)
 	// ShowDDL opens the table's definition from the cell menu.
 	ShowDDL func()
+}
+
+// SessionTx reads a session's transaction, off the main thread: own is the
+// one the session began; inside, one another session began on a pool of
+// one connection (DuckDB, an in-memory SQLite), which its statements run
+// in, but which only that session commits or rolls back.
+func SessionTx(sess *db.Session) (own, inside db.TxState) {
+	if own, inside, ok := SharedSessionTx(sess); ok {
+		return own, inside
+	}
+	return sess.Tx(), db.TxNone
 }
 
 // Viewer shows the rows of one source: its grid, toolbar, bars and status
@@ -165,7 +184,7 @@ func NewViewer(a Host, src ViewerSource) *Viewer {
 		v.a.Record(&v.source.Conn.Config, e)
 	}
 	v.grid.noDefaultUpdate = cn.Config.Engine == db.SQLite
-	v.grid.SQLOpts = SQLOptionsFor(cn, "")
+	v.grid.SQLOpts = SQLOptionsFor(cn, "", "")
 	if src.Table != nil {
 		v.bindTable()
 	}
@@ -179,7 +198,7 @@ func (v *Viewer) bindTable() {
 	v.grid.referencesOf = v.referencingRows
 	v.grid.colorRules = rowColorRules(cn.Project, v.historyKey())
 	v.grid.colorsChanged = func(rules []colorRule) { saveRowColors(cn.Project, v.historyKey(), rules) }
-	v.grid.SQLOpts = SQLOptionsFor(cn, v.qualified())
+	v.grid.SQLOpts = SQLOptionsFor(cn, v.source.Table.Schema, v.source.Table.Name)
 }
 
 // BindTable gives a query's rows the table they were found to be read
@@ -530,6 +549,7 @@ func (v *Viewer) reload() {
 	v.cancel = cancel
 	sess, pool, database, cfg := v.source.Session(), v.source.Conn.DB, v.source.Database, v.source.Conn.Config
 	go func() {
+		defer RecoverBackground(v.a.Post, v.a.ShowError, func() { v.loading = false })
 		connection.CloseThenCancel(oldCursors, oldCancel)
 		start := time.Now()
 		var err error
@@ -548,13 +568,14 @@ func (v *Viewer) reload() {
 		}
 		elapsed := time.Since(start)
 		v.a.RecordRun(cfg, audit.KindStatement, database, query, int64(len(rows)), elapsed, err)
-		var tx db.TxState
+		var own, inside db.TxState
 		if sess != nil {
-			tx = sess.Tx()
+			own, inside = SessionTx(sess)
 		}
 		v.a.Post(func() {
 			v.loading, v.elapsed = false, elapsed
-			v.source.TxChanged(tx)
+			v.source.TxChanged(own, inside)
+			v.noteReset(err)
 			if v.reloadAgain {
 				v.reloadAgain = false
 				defer v.reload()
@@ -581,6 +602,14 @@ func (v *Viewer) reload() {
 			}
 		})
 	}()
+}
+
+// noteReset tells the owner when err is a statement's refusal to run on
+// the session's connection made again.
+func (v *Viewer) noteReset(err error) {
+	if errors.Is(err, db.ErrSessionReset) && v.source.SessionReset != nil {
+		v.source.SessionReset()
+	}
 }
 
 // runAfterRead runs what waited for the rows to be read again.
@@ -682,6 +711,7 @@ func (v *Viewer) fetchMore() {
 	c := v.cursor
 	n := min(v.a.Settings().PageSize, db.MaxRows-len(v.src.Rows))
 	go func() {
+		defer RecoverBackground(v.a.Post, v.a.ShowError, func() { v.loading = false })
 		rows, err := c.Fetch(n)
 		done := c.Done()
 		v.a.Post(func() {
@@ -875,9 +905,16 @@ func (v *Viewer) apply(stmts []db.Statement) {
 	manual := v.source.Conn.Config.ManualCommit()
 	sess, pool, database, cfg := v.source.Session(), v.source.Conn.DB, v.source.Database, v.source.Conn.Config
 	engine := cfg.Engine.Label()
+	owner := ""
+	if v.source.TxOwner != nil {
+		if name, inside := v.source.TxOwner(); inside {
+			owner = name // not one kept from an earlier transaction
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	v.applyCancel = cancel
 	go func() {
+		defer RecoverBackground(v.a.Post, v.a.ShowError, func() { v.applying = false })
 		defer cancel()
 		var err error
 		if sess == nil {
@@ -896,6 +933,11 @@ func (v *Viewer) apply(stmts []db.Statement) {
 			if err = sess.Begin(ctx); err == nil {
 				began = true
 			}
+		} else if !cfg.Engine.Savepoints() {
+			// Nothing is sent: SAVEPOINT would fail, and a failed change
+			// would abort the transaction it ran in.
+			_, inside := SessionTx(sess)
+			err = errors.New(noSavepointsText(engine, owner, inside != db.TxNone))
 		} else if _, err = sess.Exec(ctx, "SAVEPOINT "+savepoint); err == nil {
 			saved = true
 		} else {
@@ -911,11 +953,17 @@ func (v *Viewer) apply(stmts []db.Statement) {
 			}
 			v.a.RecordRun(cfg, audit.KindEdit, database, s.Preview(), n, time.Since(start), err)
 		}
+		// A connection lost with the batch's transaction: the server rolled
+		// it back. An undo would go to the connection made again and take
+		// its one refusal (db.ErrSessionReset), which the user's next
+		// statement must get instead.
+		lost := errors.Is(err, db.ErrTxLost)
 		// The rollback goes out on a context of its own: an owner that
 		// closes stops the batch by ending ctx.
 		undo, cancelUndo := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 		var undoErr error
 		switch {
+		case lost:
 		case err != nil && began:
 			undoErr = sess.Rollback(undo)
 		case err != nil && saved:
@@ -928,8 +976,11 @@ func (v *Viewer) apply(stmts []db.Statement) {
 			err = sess.Commit(ctx)
 		}
 		cancelUndo()
-		if errors.Is(undoErr, db.ErrTxLost) {
-			undoErr = nil // the server rolled back as the connection went
+		resetBy := errors.Join(err, undoErr)
+		if errors.Is(undoErr, db.ErrTxLost) || errors.Is(undoErr, db.ErrSessionReset) {
+			// The server rolled back as the connection went: the undo,
+			// refused on the connection made again, had nothing left.
+			undoErr = nil
 		}
 		if undoErr != nil {
 			err = fmt.Errorf("%w\nThe rollback failed too: %v", err, undoErr)
@@ -938,20 +989,26 @@ func (v *Viewer) apply(stmts []db.Statement) {
 		switch {
 		case undoErr != nil:
 			outcome.Detail += "failed, and so did their rollback"
-			outcome.Error = err.Error()
+			outcome.Err = err
 		case err != nil:
 			outcome.Detail += "rolled back"
-			outcome.Error = err.Error()
+			outcome.Err = err
 		case began && !manual:
 			outcome.Detail += "committed"
 		default:
 			outcome.Detail += "applied in an open transaction, not committed yet"
 		}
 		v.a.Record(&cfg, outcome)
-		tx := sess.Tx()
+		own, inside := SessionTx(sess)
 		v.a.Post(func() {
 			v.applying = false
-			v.source.TxChanged(tx)
+			v.source.TxChanged(own, inside)
+			// A lost connection took what the session had set with it, as
+			// a refusal says (noteReset); the owner reads its schema
+			// without taking the refusal.
+			if (lost || errors.Is(resetBy, db.ErrSessionReset)) && v.source.SessionReset != nil {
+				v.source.SessionReset()
+			}
 			then := v.afterApply
 			v.afterApply = nil
 			if err != nil {
@@ -1263,11 +1320,11 @@ func (v *Viewer) exportSource() ExportSource {
 	if v.checkFilter(v.where) != nil {
 		sql = "" // the filter is refused: only the rows read can go
 	}
-	name := "query"
+	name, schema := "query", ""
 	if !v.source.Wrap {
-		name = v.source.Table.Name
+		name, schema = v.source.Table.Name, v.source.Table.Schema
 	}
-	src := ExportSource{Conn: v.source.Conn, Database: v.source.Database, Name: name, SQL: sql, Args: v.source.Args,
+	src := ExportSource{Conn: v.source.Conn, Database: v.source.Database, Schema: schema, Name: name, SQL: sql, Args: v.source.Args,
 		Cols: v.src.Cols, RowsRead: func() [][]any { return v.src.Rows }, Read: len(v.src.Rows)}
 	if v.source.CountOnSession {
 		src.OnSession = v.lendSession
@@ -1287,14 +1344,14 @@ func (v *Viewer) lendSession() (sess *db.Session, done func(), why string) {
 	}
 	v.sessionReads++
 	return sess, func() {
-		tx := sess.Tx()
+		own, inside := SessionTx(sess)
 		v.a.Post(func() {
 			v.sessionReads--
 			if v.sessionReads == 0 {
 				v.readCancel = nil
 			}
 			if !v.released {
-				v.source.TxChanged(tx)
+				v.source.TxChanged(own, inside)
 			}
 		})
 	}, ""
@@ -1412,7 +1469,7 @@ func (v *Viewer) loadRefs(then func()) {
 	}
 	v.refsLoading = true
 	poolOf, schema, name := v.source.Conn.PoolFor(v.source.Database), v.source.Table.Schema, v.source.Table.Name
-	v.a.Background(func() func() {
+	BackgroundResetOnPanic(v.a, func() { v.refsLoading, v.refsWaiting = false, nil }, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		refs := []db.Reference{}
@@ -1618,7 +1675,7 @@ func (v *Viewer) queryRows(q string, args []any, limit int, then func(cols []str
 	}
 	poolOf := v.source.Conn.PoolFor(v.source.Database)
 	cfg, database := v.source.Conn.Config, v.source.Database
-	v.a.Background(func() func() {
+	BackgroundResetOnPanic(v.a, func() { then(nil, nil, errors.New("stopped on an internal error")) }, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		start := time.Now()
@@ -1676,6 +1733,15 @@ func (v *Viewer) queryOnSession(q string, args []any, limit int, then func(cols 
 	v.readCancel = cancel
 	cfg, database := v.source.Conn.Config, v.source.Database
 	go func() {
+		defer RecoverBackground(v.a.Post, v.a.ShowError, func() {
+			v.sessionReads--
+			if v.sessionReads == 0 {
+				v.readCancel = nil
+			}
+			if !v.released {
+				then(nil, nil, errors.New("stopped on an internal error"))
+			}
+		})
 		start := time.Now()
 		var cols []string
 		var out [][]any
@@ -1689,7 +1755,7 @@ func (v *Viewer) queryOnSession(q string, args []any, limit int, then func(cols 
 		}
 		cancel()
 		v.a.RecordRun(cfg, audit.KindStatement, database, q, int64(len(out)), time.Since(start), err)
-		tx := sess.Tx()
+		own, inside := SessionTx(sess)
 		v.a.Post(func() {
 			v.sessionReads--
 			if v.sessionReads == 0 {
@@ -1698,7 +1764,8 @@ func (v *Viewer) queryOnSession(q string, args []any, limit int, then func(cols 
 			if v.released {
 				return
 			}
-			v.source.TxChanged(tx)
+			v.source.TxChanged(own, inside)
+			v.noteReset(err)
 			then(cols, out, err)
 		})
 	}()

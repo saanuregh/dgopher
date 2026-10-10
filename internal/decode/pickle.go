@@ -34,6 +34,7 @@ func decodePickle(b []byte) (any, error) {
 	r := &reader{b: b}
 	var stack []any
 	memo := map[int64]any{}
+	encoded := 0
 	pop := func() (any, error) {
 		if len(stack) == 0 {
 			return nil, errors.New("the pickle takes from an empty stack")
@@ -107,7 +108,9 @@ func decodePickle(b []byte) (any, error) {
 			if err := r.done(); err != nil {
 				return nil, err
 			}
-			return plain(v, newWalk())
+			w := newWalk()
+			w.names = &r.names
+			return plain(v, w)
 		case '(':
 			stack = append(stack, pyMark{})
 		case '0':
@@ -436,7 +439,7 @@ func decodePickle(b []byte) (any, error) {
 			if err != nil {
 				return nil, err
 			}
-			stack = append(stack, pyGlobal{fmt.Sprint(module), fmt.Sprint(name)})
+			stack = append(stack, pyGlobal{r.names.name(module), r.names.name(name)})
 		case 'R', 0x81, 0x92: // REDUCE, NEWOBJ, NEWOBJ_EX
 			if op == 0x92 {
 				if _, err := pop(); err != nil { // the keyword arguments
@@ -451,7 +454,11 @@ func decodePickle(b []byte) (any, error) {
 			if err != nil {
 				return nil, err
 			}
-			stack = append(stack, construct(className(callable), args))
+			v, err := construct(className(callable, &r.names), args, &encoded)
+			if err != nil {
+				return nil, err
+			}
+			stack = append(stack, v)
 		case 'b': // BUILD
 			state, err := pop()
 			if err != nil {
@@ -472,35 +479,43 @@ func decodePickle(b []byte) (any, error) {
 	}
 }
 
+// maxEncoded is how many bytes the _codecs.encode reductions of one
+// pickle make together at most: each copies its text, which the memo may
+// hand to any number of them.
+const maxEncoded = 64 << 20
+
 // construct makes the value a class makes of its arguments: the values
 // of the classes the older protocols write bytes, sets and ordered dicts
-// with, else an object of the class.
-func construct(class string, args any) any {
+// with, else an object of the class. encoded counts the bytes made.
+func construct(class string, args any, encoded *int) (any, error) {
 	list, _ := args.([]any)
 	switch class {
 	case "_codecs.encode":
 		// Bytes, of protocol 0 to 2: their Latin-1 text.
 		if len(list) == 2 {
 			if s, ok := list[0].(string); ok && list[1] == "latin1" {
+				if *encoded += len(s); *encoded > maxEncoded {
+					return nil, fmt.Errorf("the pickle makes more than %d MB of bytes", maxEncoded>>20)
+				}
 				b := make([]byte, 0, len(s))
 				for _, r := range s {
 					b = append(b, byte(r))
 				}
-				return bytesValue(b)
+				return bytesValue(b), nil
 			}
 		}
 	case "builtins.set", "__builtin__.set", "builtins.frozenset", "__builtin__.frozenset":
 		if len(list) == 1 {
 			if l, ok := list[0].(*pyList); ok {
-				return &pySet{items: l.items}
+				return &pySet{items: l.items}, nil
 			}
 		}
 	case "collections.OrderedDict":
 		if len(list) == 0 {
-			return &pyDict{}
+			return &pyDict{}, nil
 		}
 	}
-	return &pyObject{class: class, args: args}
+	return &pyObject{class: class, args: args}, nil
 }
 
 func (d *pyDict) add(items []any) error {
@@ -522,11 +537,11 @@ func appendItems(state any, items []any) any {
 	return l
 }
 
-func className(v any) string {
+func className(v any, n *names) string {
 	if g, ok := v.(pyGlobal); ok {
-		return g.module + "." + g.name
+		return n.name(g.module, ".", g.name)
 	}
-	return fmt.Sprint(v)
+	return n.name(v)
 }
 
 // plain turns the unpickled values into those JSON writes: a list, a set
@@ -580,7 +595,7 @@ func plain(v any, w *walk) (any, error) {
 			if err != nil {
 				return nil, err
 			}
-			m.set(keyString(key), value)
+			m.set(w.names.keyString(key), value)
 		}
 		return m, nil
 	case *pyObject:
@@ -602,7 +617,7 @@ func plain(v any, w *walk) (any, error) {
 		}
 		return m, nil
 	case pyGlobal:
-		return "<" + x.module + "." + x.name + ">", nil
+		return w.names.name("<", x.module, ".", x.name, ">"), nil
 	}
 	return v, nil
 }

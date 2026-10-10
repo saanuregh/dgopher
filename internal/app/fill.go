@@ -16,6 +16,7 @@ import (
 	"dgopher/internal/redact"
 	"dgopher/internal/safety"
 	"dgopher/internal/testdata"
+	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -76,7 +77,7 @@ func (a *App) openFill(cn *connection.Conn, database string, obj db.Object) {
 	a.filling = x
 	poolOf := cn.PoolFor(database)
 	engine := cn.Config.Engine
-	a.Background(func() func() {
+	dataview.BackgroundResetOnPanic(a, func() { x.loading = false }, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 		cols, err := readFillColumns(ctx, poolOf, engine, obj)
@@ -327,7 +328,9 @@ func (a *App) runFill(x *fillDialog) {
 	x.running, x.cancel, x.done, x.err = true, cancel, 0, ""
 	pool, cfg, database := cn.DB, cn.Config, x.database
 	started := time.Now()
-	go func() {
+	job := fmt.Sprintf("Adding %s generated rows to %s on %s: %s", widgets.HumanCount(int64(n)), obj.Name, cfg.Name, writeStopLoss(cfg.Engine, false))
+	stopped := func() { x.running, x.cancel, x.err = false, nil, "Generating rows stopped on an internal error." }
+	dataview.RunJob(a, cn, job, cancel, stopped, func() func() {
 		defer cancel()
 		r := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
 		written, err := writeRows(ctx, a, pool, cfg, database, rowWrite{target: target, cols: p.cols, verb: "added",
@@ -345,11 +348,9 @@ func (a *App) runFill(x *fillDialog) {
 			progress: func(done int64) { a.Post(func() { x.done = done }) }})
 		ev := audit.Event{Kind: audit.KindImport, Database: database, Rows: written,
 			Statement: "INSERT INTO " + obj.Name, Detail: fmt.Sprintf("%d generated rows", n)}
-		if err != nil {
-			ev.Error = err.Error()
-		}
+		ev.Err = err
 		a.Record(&cfg, ev)
-		a.Post(func() {
+		return func() {
 			x.running, x.cancel = false, nil
 			if err != nil {
 				x.err = err.Error()
@@ -361,8 +362,8 @@ func (a *App) runFill(x *fillDialog) {
 			a.toast = &pendingToast{text: text}
 			a.Notify(started, "Rows generated", text, nil)
 			a.reloadTableTabs(cn, obj.Schema, obj.Name)
-		})
-	}()
+		}
+	})
 }
 
 // fillKindLabels are the labels of testdata.Kinds, in order.

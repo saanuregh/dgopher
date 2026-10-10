@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -225,6 +227,8 @@ var errTooLarge = fmt.Errorf("it shows more than %d values", maxValues)
 type walk struct {
 	left   int
 	onPath map[any]bool
+	// names makes the keys of the maps shown, when they are made.
+	names *names
 }
 
 func newWalk() *walk { return &walk{left: maxValues, onPath: map[any]bool{}} }
@@ -281,14 +285,100 @@ func toJSON(v any) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	w := &textWriter{}
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(v); err != nil && err != errTextFull {
-		return "", err
+	w := &jsonWriter{indent: []byte("\n")}
+	w.encoder = json.NewEncoder(&w.scalarText)
+	w.encoder.SetEscapeHTML(false)
+	w.value(v, 0)
+	w.write([]byte("\n"))
+	if w.err != nil && w.err != errTextFull {
+		return "", w.err
 	}
-	return w.text(), nil
+	return w.out.text(), nil
+}
+
+// jsonWriter writes a value as json.Encoder indented by two spaces does,
+// a piece at a time, and stops at MaxText: a value shared many times
+// holds as much memory as the text shown, not as all of its JSON.
+type jsonWriter struct {
+	out        textWriter
+	encoder    *json.Encoder
+	scalarText bytes.Buffer
+	// indent is a newline and the spaces of the deepest line so far.
+	indent []byte
+	// err stops the writing: errTextFull, or a value JSON cannot hold.
+	err error
+}
+
+// value writes v nested depth deep.
+func (w *jsonWriter) value(v any, depth int) {
+	switch x := v.(type) {
+	case *orderedMap:
+		if len(x.keys) == 0 {
+			w.write([]byte("{}"))
+			return
+		}
+		w.write([]byte("{"))
+		for i, k := range x.keys {
+			if i > 0 {
+				w.write([]byte(","))
+			}
+			w.newline(depth + 1)
+			w.scalar(k)
+			w.write([]byte(": "))
+			w.value(x.values[i], depth+1)
+			if w.err != nil {
+				return
+			}
+		}
+		w.newline(depth)
+		w.write([]byte("}"))
+	case []any:
+		if len(x) == 0 {
+			w.write([]byte("[]"))
+			return
+		}
+		w.write([]byte("["))
+		for i, item := range x {
+			if i > 0 {
+				w.write([]byte(","))
+			}
+			w.newline(depth + 1)
+			w.value(item, depth+1)
+			if w.err != nil {
+				return
+			}
+		}
+		w.newline(depth)
+		w.write([]byte("]"))
+	default:
+		w.scalar(v)
+	}
+}
+
+// scalar writes a value holding no others as json.Encoder does, with <, >
+// and & as they are.
+func (w *jsonWriter) scalar(v any) {
+	if w.err != nil {
+		return
+	}
+	w.scalarText.Reset()
+	if w.err = w.encoder.Encode(v); w.err == nil {
+		w.write(bytes.TrimRight(w.scalarText.Bytes(), "\n"))
+	}
+}
+
+// newline starts a line depth deep.
+func (w *jsonWriter) newline(depth int) {
+	for len(w.indent) < 1+2*depth {
+		w.indent = append(w.indent, ' ')
+	}
+	w.write(w.indent[:1+2*depth])
+}
+
+func (w *jsonWriter) write(p []byte) {
+	if w.err == nil {
+		_, w.err = w.out.Write(p)
+	}
 }
 
 // errTextFull stops writing a text past MaxText.
@@ -340,29 +430,6 @@ func (m *orderedMap) set(k string, v any) {
 	m.values = append(m.values, v)
 }
 
-func (m *orderedMap) MarshalJSON() ([]byte, error) {
-	var b bytes.Buffer
-	b.WriteByte('{')
-	for i, k := range m.keys {
-		if i > 0 {
-			b.WriteByte(',')
-		}
-		key, err := marshal(k)
-		if err != nil {
-			return nil, err
-		}
-		b.Write(key)
-		b.WriteByte(':')
-		val, err := marshal(m.values[i])
-		if err != nil {
-			return nil, err
-		}
-		b.Write(val)
-	}
-	b.WriteByte('}')
-	return b.Bytes(), nil
-}
-
 // bytesValue is bytes a decoder read, as JSON a string: their text, or 0x and
 // their hex digits when they are not text.
 type bytesValue []byte
@@ -388,10 +455,174 @@ func marshal(v any) ([]byte, error) {
 	return bytes.TrimRight(b.Bytes(), "\n"), nil
 }
 
+// maxName is how long a key or a name made of a decoded value is at most,
+// the rest cut: a tuple holding one twice, 40 deep, has 2^40 items.
+const maxName = 4 << 10
+
+// maxNames is how much text the keys and names made while decoding one
+// value take together at most, each past it "…": a value shared by many
+// is made into a name each time it is used.
+const maxNames = 16 << 20
+
+// names makes keys and names of decoded values as fmt.Sprint writes them,
+// within maxName each and maxNames together.
+type names struct {
+	used int
+	// buffer is written each name, then copied.
+	buffer []byte
+}
+
 // keyString is a decoded map key as a JSON object's key.
-func keyString(k any) string {
+func (n *names) keyString(k any) string {
 	if s, ok := k.(string); ok {
 		return s
 	}
-	return fmt.Sprint(k)
+	return n.name(k)
+}
+
+// name writes parts one after the other, each as fmt.Sprint writes it
+// alone, cut past maxName with "…".
+func (n *names) name(parts ...any) string {
+	room := min(maxName, maxNames-n.used)
+	if room <= 0 {
+		return "…"
+	}
+	p := namePrinter{b: n.buffer[:0], room: room}
+	for _, part := range parts {
+		p.arg(part)
+	}
+	s := p.text()
+	n.buffer = p.b
+	n.used += len(s)
+	return s
+}
+
+// namePrinter writes values as fmt does with %v, up to a byte past room:
+// fmt makes all of a value's text before writing any.
+type namePrinter struct {
+	b    []byte
+	room int
+}
+
+func (p *namePrinter) full() bool { return len(p.b) > p.room }
+
+func (p *namePrinter) write(s string) {
+	if n := p.room + 1 - len(p.b); n > 0 {
+		p.b = append(p.b, s[:min(len(s), n)]...)
+	}
+}
+
+// text is what was written, cut past room between characters, with "…".
+func (p *namePrinter) text() string {
+	if p.full() {
+		i := p.room
+		for k := 1; k < utf8.UTFMax && i > 0 && !utf8.RuneStart(p.b[i]); k++ {
+			i--
+		}
+		p.b = append(p.b[:i], "…"...)
+	}
+	return string(p.b)
+}
+
+// arg writes a value as fmt.Sprint writes it alone.
+func (p *namePrinter) arg(v any) {
+	if p.full() {
+		return
+	}
+	if v == nil {
+		p.write("<nil>")
+	} else if !p.method(v) {
+		p.value(reflect.ValueOf(v), 0)
+	}
+}
+
+// method writes a value with its String or Error method, or its Format, as
+// fmt does, and reports whether it has one.
+func (p *namePrinter) method(v any) bool {
+	switch x := v.(type) {
+	case bytesValue:
+		// As String does, making no more of a long value than shows.
+		n := max(p.room+1-len(p.b), 0)
+		if utf8.Valid(x) {
+			p.write(string(x[:min(len(x), n)]))
+		} else {
+			p.write("0x")
+			p.write(hex.EncodeToString(x[:min(len(x), n/2+1)]))
+		}
+	case fmt.Formatter, error, fmt.Stringer:
+		p.write(fmt.Sprint(v))
+	default:
+		return false
+	}
+	return true
+}
+
+// value writes v nested depth deep as fmt's printValue does with %v: a
+// pointer below the top as its address, and a value reached through an
+// unexported field without its methods.
+func (p *namePrinter) value(v reflect.Value, depth int) {
+	if p.full() {
+		return
+	}
+	if depth > 0 && v.IsValid() && v.CanInterface() && p.method(v.Interface()) {
+		return
+	}
+	switch v.Kind() {
+	case reflect.Invalid:
+		p.write("<nil>")
+	case reflect.String:
+		p.write(v.String())
+	case reflect.Bool:
+		p.write(strconv.FormatBool(v.Bool()))
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		p.write(strconv.FormatInt(v.Int(), 10))
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		p.write(strconv.FormatUint(v.Uint(), 10))
+	case reflect.Struct:
+		p.write("{")
+		for i := range v.NumField() {
+			if i > 0 {
+				p.write(" ")
+			}
+			f := v.Field(i)
+			if f.Kind() == reflect.Interface && !f.IsNil() {
+				f = f.Elem()
+			}
+			p.value(f, depth+1)
+		}
+		p.write("}")
+	case reflect.Interface:
+		if e := v.Elem(); e.IsValid() {
+			p.value(e, depth+1)
+		} else {
+			p.write("<nil>")
+		}
+	case reflect.Array, reflect.Slice:
+		p.write("[")
+		for i := 0; i < v.Len() && !p.full(); i++ {
+			if i > 0 {
+				p.write(" ")
+			}
+			p.value(v.Index(i), depth+1)
+		}
+		p.write("]")
+	case reflect.Pointer:
+		if depth == 0 && !v.IsNil() {
+			switch v.Elem().Kind() {
+			case reflect.Array, reflect.Slice, reflect.Struct, reflect.Map:
+				p.write("&")
+				p.value(v.Elem(), depth+1)
+				return
+			}
+		}
+		if v.IsNil() {
+			p.write("<nil>")
+		} else {
+			p.write("0x" + strconv.FormatUint(uint64(v.Pointer()), 16))
+		}
+	default:
+		// A number, or a kind no decoder makes: fmt writes it so at any
+		// depth.
+		p.write(fmt.Sprint(v))
+	}
 }

@@ -35,8 +35,8 @@ func TestCSVOptions(t *testing.T) {
 
 func TestSQLRowsPerInsert(t *testing.T) {
 	out := render(t, SQL, []string{"a", "b"}, [][]any{{1, "x"}, {2, nil}, {3, "z"}}, Options{Table: "t", RowsPerInsert: 2})
-	want := "INSERT INTO t (\"a\", \"b\") VALUES\n  (1, 'x'),\n  (2, NULL);\n" +
-		"INSERT INTO t (\"a\", \"b\") VALUES\n  (3, 'z');\n"
+	want := "INSERT INTO \"t\" (\"a\", \"b\") VALUES\n  (1, 'x'),\n  (2, NULL);\n" +
+		"INSERT INTO \"t\" (\"a\", \"b\") VALUES\n  (3, 'z');\n"
 	if out != want {
 		t.Errorf("got\n%s\nwant\n%s", out, want)
 	}

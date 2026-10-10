@@ -15,7 +15,37 @@ import (
 	"time"
 
 	"github.com/duckdb/duckdb-go/v2"
+
+	"dgopher/internal/export"
 )
+
+// The most of a workbook's part that is read, as its zip entry declares
+// it, which archive/zip holds the entry to: the shared strings, all held
+// in memory, may be larger than the other parts. Sheets, read a row at a
+// time, are bounded by Excel's rows and columns instead, and their cells
+// by maxTokenSize: the longest run between two '<', a text or a tag that
+// the XML decoder holds whole. Excel's cells hold at most 32,767
+// characters, a few times longer escaped. Variables for tests.
+var (
+	maxPartSize          = 64 << 20
+	maxSharedStringsSize = 256 << 20
+	maxTokenSize         = 1 << 20
+)
+
+// The most shared strings a workbook may hold, and bytes of text among
+// them. Their part's size does not bound their memory: each string costs
+// 16 bytes beyond its text, so 5 bytes of <si/> take more than three
+// times that, and the garbage collector lets the heap grow to twice what
+// is held. These keep the shared strings of any workbook well under 1 GB
+// of memory. Variables for tests.
+var (
+	maxSharedStrings     = 4 << 20
+	maxSharedStringsText = 128 << 20
+)
+
+// excelMaxSheetRows is how many rows an Excel sheet holds, its header's
+// among them.
+const excelMaxSheetRows = export.ExcelMaxRows + 1
 
 // workbook is what reading a sheet of an Excel workbook needs from its
 // other parts.
@@ -28,43 +58,74 @@ type workbook struct {
 	date1904 bool
 }
 
-func openWorkbook(p string) (*workbook, error) {
+func openWorkbook(ctx context.Context, p string) (*workbook, error) {
 	z, err := zip.OpenReader(p)
 	if err != nil {
 		return nil, fmt.Errorf("%s is not an Excel workbook: %w", path.Base(p), err)
 	}
 	wb := &workbook{zip: z, parts: map[string]string{}, dates: map[int]bool{}}
-	if err := wb.readParts(); err != nil {
+	if err := wb.readParts(ctx); err != nil {
 		z.Close()
 		return nil, err
 	}
 	return wb, nil
 }
 
-func (wb *workbook) open(name string) (io.ReadCloser, error) {
+// open opens a part of the workbook no larger than limit bytes, which
+// stops reading once ctx is done.
+func (wb *workbook) open(ctx context.Context, name string, limit int) (io.ReadCloser, error) {
 	for _, f := range wb.zip.File {
 		if f.Name == name {
-			return f.Open()
+			if f.UncompressedSize64 > uint64(limit) {
+				return nil, fmt.Errorf("the workbook's %s is larger than %d MB", name, limit>>20)
+			}
+			r, err := f.Open()
+			if err != nil {
+				return nil, err
+			}
+			return &partReader{ctx: ctx, ReadCloser: r}, nil
 		}
 	}
-	return nil, fmt.Errorf("the workbook has no %s", name)
+	return nil, missingPart(name)
+}
+
+// missingPart is the error of a part the workbook does not have.
+type missingPart string
+
+func (m missingPart) Error() string { return "the workbook has no " + string(m) }
+
+// partReader reads a part of the workbook until its context is done. How
+// long its text and tags run is bounded where it is decoded (markupLimit).
+type partReader struct {
+	ctx context.Context
+	io.ReadCloser
+}
+
+func (p *partReader) Read(b []byte) (int, error) {
+	if err := p.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return p.ReadCloser.Read(b)
 }
 
 // decode reads a part of the workbook into v; a part that is not there
 // leaves v as it is, when optional.
-func (wb *workbook) decode(name string, v any, optional bool) error {
-	r, err := wb.open(name)
+func (wb *workbook) decode(ctx context.Context, name string, limit int, v any, optional bool) error {
+	r, err := wb.open(ctx, name, limit)
 	if err != nil {
-		if optional {
+		if _, missing := err.(missingPart); optional && missing {
 			return nil
 		}
 		return err
 	}
 	defer r.Close()
-	return xml.NewDecoder(r).Decode(v)
+	return newDecoder(r, "the workbook's "+name).Decode(v)
 }
 
-func (wb *workbook) readParts() error {
+func (wb *workbook) readParts(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	var book struct {
 		Pr struct {
 			Date1904 string `xml:"date1904,attr"`
@@ -74,7 +135,7 @@ func (wb *workbook) readParts() error {
 			ID   string `xml:"http://schemas.openxmlformats.org/officeDocument/2006/relationships id,attr"`
 		} `xml:"sheets>sheet"`
 	}
-	if err := wb.decode("xl/workbook.xml", &book, false); err != nil {
+	if err := wb.decode(ctx, "xl/workbook.xml", maxPartSize, &book, false); err != nil {
 		return err
 	}
 	wb.date1904 = book.Pr.Date1904 == "1" || book.Pr.Date1904 == "true"
@@ -84,41 +145,28 @@ func (wb *workbook) readParts() error {
 			Target string `xml:"Target,attr"`
 		} `xml:"Relationship"`
 	}
-	if err := wb.decode("xl/_rels/workbook.xml.rels", &rels, false); err != nil {
+	if err := wb.decode(ctx, "xl/_rels/workbook.xml.rels", maxPartSize, &rels, false); err != nil {
 		return err
 	}
+	targets := make(map[string][]string, len(rels.Rels))
+	for _, r := range rels.Rels {
+		targets[r.ID] = append(targets[r.ID], r.Target)
+	}
 	for _, s := range book.Sheets {
-		for _, r := range rels.Rels {
-			if r.ID == s.ID {
-				target := strings.TrimPrefix(r.Target, "/")
-				if !strings.HasPrefix(target, "xl/") {
-					target = path.Join("xl", target)
-				}
-				wb.sheets = append(wb.sheets, s.Name)
-				wb.parts[s.Name] = target
+		for _, t := range targets[s.ID] {
+			target := strings.TrimPrefix(t, "/")
+			if !strings.HasPrefix(target, "xl/") {
+				target = path.Join("xl", target)
 			}
+			wb.sheets = append(wb.sheets, s.Name)
+			wb.parts[s.Name] = target
 		}
 	}
 	if len(wb.sheets) == 0 {
 		return errors.New("the workbook has no sheet")
 	}
-	var shared struct {
-		Items []struct {
-			Text string `xml:"t"`
-			Runs []struct {
-				Text string `xml:"t"`
-			} `xml:"r"`
-		} `xml:"si"`
-	}
-	if err := wb.decode("xl/sharedStrings.xml", &shared, true); err != nil {
+	if err := wb.readSharedStrings(ctx); err != nil {
 		return err
-	}
-	for _, it := range shared.Items {
-		s := it.Text
-		for _, r := range it.Runs {
-			s += r.Text
-		}
-		wb.strings = append(wb.strings, unescapeExcel(s))
 	}
 	var styles struct {
 		Formats []struct {
@@ -129,7 +177,7 @@ func (wb *workbook) readParts() error {
 			Format int `xml:"numFmtId,attr"`
 		} `xml:"cellXfs>xf"`
 	}
-	if err := wb.decode("xl/styles.xml", &styles, true); err != nil {
+	if err := wb.decode(ctx, "xl/styles.xml", maxPartSize, &styles, true); err != nil {
 		return err
 	}
 	custom := map[int]string{}
@@ -140,6 +188,69 @@ func (wb *workbook) readParts() error {
 		wb.dates[i] = isDateFormat(c.Format, custom[c.Format])
 	}
 	return nil
+}
+
+// readSharedStrings reads the workbook's shared strings an element at a
+// time. An item's text is its <t>, or its runs' <t> joined; its phonetic
+// runs are left out.
+func (wb *workbook) readSharedStrings(ctx context.Context) error {
+	const name = "xl/sharedStrings.xml"
+	r, err := wb.open(ctx, name, maxSharedStringsSize)
+	if _, missing := err.(missingPart); missing {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	defer r.Close()
+	d := newTokenReader(r, "the workbook's "+name)
+	var (
+		item          []byte // the text of the item open
+		depth         int    // of the element open: 1 the root, 2 an item
+		inItem, inRun bool
+		textDepth     int // of the <t> being read, 0 outside one
+		text          int // the bytes of text read
+	)
+	for {
+		tok, err := d.Token()
+		if err != nil {
+			return err
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			depth++
+			switch {
+			case depth == 2 && t.Name.Local == "si":
+				inItem, item = true, item[:0]
+			case depth == 3 && inItem && t.Name.Local == "r":
+				inRun = true
+			case (depth == 3 && inItem || depth == 4 && inRun) && t.Name.Local == "t":
+				textDepth = depth
+			}
+		case xml.EndElement:
+			switch {
+			case depth == 1:
+				return nil
+			case depth == textDepth:
+				textDepth = 0
+			case depth == 3 && inRun:
+				inRun = false
+			case depth == 2 && inItem:
+				inItem = false
+				if len(wb.strings) == maxSharedStrings {
+					return fmt.Errorf("the workbook's %s holds more than %d shared strings", name, maxSharedStrings)
+				}
+				wb.strings = append(wb.strings, unescapeExcel(string(item)))
+			}
+			depth--
+		case xml.CharData:
+			if textDepth != 0 && depth == textDepth {
+				if text += len(t); text > maxSharedStringsText {
+					return fmt.Errorf("the workbook's %s holds more than %d MB of text", name, maxSharedStringsText>>20)
+				}
+				item = append(item, t...)
+			}
+		}
+	}
 }
 
 // isDateFormat reports whether a number format shows a date or a time:
@@ -178,6 +289,7 @@ func unescapeExcel(s string) string {
 		return s
 	}
 	var b strings.Builder
+	b.Grow(len(s))
 	for i := 0; i < len(s); i++ {
 		if s[i] == '_' && i+6 < len(s) && s[i+1] == 'x' && s[i+6] == '_' {
 			if n, err := strconv.ParseUint(s[i+2:i+6], 16, 16); err == nil {
@@ -193,14 +305,15 @@ func unescapeExcel(s string) string {
 
 // sheetRows calls each with every row of a sheet, as values by column:
 // float64, bool, time.Time or string, nil for an empty cell.
-func (wb *workbook) sheetRows(sheet string, each func([]any) error) error {
-	r, err := wb.open(wb.parts[sheet])
+func (wb *workbook) sheetRows(ctx context.Context, sheet string, each func([]any) error) error {
+	r, err := wb.open(ctx, wb.parts[sheet], math.MaxInt)
 	if err != nil {
 		return err
 	}
 	defer r.Close()
-	d := xml.NewDecoder(r)
+	d := newTokenReader(r, "the workbook's "+wb.parts[sheet])
 	var row []any
+	rows := 0
 	var cell struct {
 		col   int
 		typ   string
@@ -220,6 +333,9 @@ func (wb *workbook) sheetRows(sheet string, each func([]any) error) error {
 		case xml.StartElement:
 			switch t.Name.Local {
 			case "row":
+				if rows++; rows > excelMaxSheetRows {
+					return fmt.Errorf("the sheet %s has more than %d rows, Excel's most", sheet, excelMaxSheetRows)
+				}
 				row = row[:0:0]
 			case "c":
 				cell.col, cell.typ, cell.style = len(row), "", 0
@@ -227,7 +343,11 @@ func (wb *workbook) sheetRows(sheet string, each func([]any) error) error {
 				for _, a := range t.Attr {
 					switch a.Name.Local {
 					case "r":
-						if c, ok := columnIndex(a.Value); ok {
+						c, ok, err := columnIndex(a.Value)
+						if err != nil {
+							return fmt.Errorf("the sheet %s: %w", sheet, err)
+						}
+						if ok {
 							cell.col = c
 						}
 					case "t":
@@ -241,6 +361,11 @@ func (wb *workbook) sheetRows(sheet string, each func([]any) error) error {
 			}
 		case xml.CharData:
 			if cell.in {
+				// Comments split a text into runs, which markupLimit
+				// bounds one at a time.
+				if cell.value.Len()+len(t) > maxTokenSize {
+					return fmt.Errorf("the workbook's %s holds a value longer than %d KB", wb.parts[sheet], maxTokenSize>>10)
+				}
 				cell.value.Write(t)
 			}
 		case xml.EndElement:
@@ -248,6 +373,9 @@ func (wb *workbook) sheetRows(sheet string, each func([]any) error) error {
 			case "v", "t":
 				cell.in = false
 			case "c":
+				if cell.col >= export.ExcelMaxColumns {
+					return fmt.Errorf("the sheet %s has a cell past column XFD, Excel's last", sheet)
+				}
 				for len(row) <= cell.col {
 					row = append(row, nil)
 				}
@@ -306,14 +434,22 @@ func excelTime(serial float64, date1904 bool) time.Time {
 	return epoch.AddDate(0, 0, int(days)).Add(time.Duration(ms) * time.Millisecond)
 }
 
-// columnIndex is the index of a cell reference's column: A1 is 0, AB7 27.
-func columnIndex(ref string) (int, bool) {
+// columnIndex is the index of a cell reference's column: A1 is 0, AB7
+// 27; ok is false for a reference without a column. A column past XFD,
+// Excel's last, is an error.
+func columnIndex(ref string) (index int, ok bool, err error) {
 	n := 0
 	i := 0
 	for ; i < len(ref) && ref[i] >= 'A' && ref[i] <= 'Z'; i++ {
+		if i == 3 {
+			return 0, false, fmt.Errorf("the cell %.20s is past column XFD, Excel's last", ref)
+		}
 		n = n*26 + int(ref[i]-'A'+1)
 	}
-	return n - 1, i > 0
+	if n > export.ExcelMaxColumns {
+		return 0, false, fmt.Errorf("the cell %.20s is past column XFD, Excel's last", ref)
+	}
+	return n - 1, i > 0, nil
 }
 
 // kind is what a column's cells hold, as a sheet is read.
@@ -391,7 +527,7 @@ func cellText(v any) any {
 // loadExcel reads a sheet into the table src: once to find its columns
 // and their types, then to load its rows.
 func (f *File) loadExcel(ctx context.Context, opt Options) error {
-	wb, err := openWorkbook(f.Path)
+	wb, err := openWorkbook(ctx, f.Path)
 	if err != nil {
 		return err
 	}
@@ -406,7 +542,7 @@ func (f *File) loadExcel(ctx context.Context, opt Options) error {
 	var first []any
 	var kinds []kind
 	width, rows := 0, 0
-	err = wb.sheetRows(f.Sheet, func(row []any) error {
+	err = wb.sheetRows(ctx, f.Sheet, func(row []any) error {
 		if rows == 0 {
 			first = append([]any(nil), row...)
 		}
@@ -450,7 +586,7 @@ func (f *File) loadExcel(ctx context.Context, opt Options) error {
 	}
 	return f.createAndAppend(ctx, func(add func([]any) error) error {
 		n := 0
-		return wb.sheetRows(f.Sheet, func(row []any) error {
+		return wb.sheetRows(ctx, f.Sheet, func(row []any) error {
 			if n++; n == 1 && f.HasHeader {
 				return nil
 			}

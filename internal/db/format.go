@@ -153,35 +153,75 @@ func Literal(e Engine, v any) string {
 	if IsNumeric(v) {
 		return Display(v)
 	}
-	s := Display(v)
+	return textLiteral(e, Display(v))
+}
+
+var (
+	// A quote is doubled, not backslashed, so MySQL strings still end
+	// where they should under NO_BACKSLASH_ESCAPES.
+	mysqlEscaper        = strings.NewReplacer(`\`, `\\`, `'`, `''`, "\x00", `\0`, "\n", `\n`, "\r", `\r`, "\x1a", `\Z`)
+	clickHouseEscaper   = strings.NewReplacer(`\`, `\\`, `'`, `\'`, "\x00", `\0`)
+	escapeStringEscaper = strings.NewReplacer(`\`, `\\`, `'`, `''`)
+)
+
+// textLiteral writes text as a literal. NUL ends a quoted string in DuckDB
+// and SQLite, so text holding it is joined from quoted parts and chr(0),
+// in parentheses so it reads as one value wherever a literal may stand.
+func textLiteral(e Engine, s string) string {
+	if strings.ContainsRune(s, 0) && e != MySQL && e != ClickHouse {
+		char := "chr(0)"
+		if e == SQLite {
+			char = "char(0)"
+		}
+		var parts []string
+		for i, part := range strings.Split(s, "\x00") {
+			if i > 0 {
+				parts = append(parts, char)
+			}
+			if part != "" {
+				parts = append(parts, textLiteral(e, part))
+			}
+		}
+		return "(" + strings.Join(parts, " || ") + ")"
+	}
 	switch e {
 	case MySQL:
-		r := strings.NewReplacer(`\`, `\\`, `'`, `''`, "\x00", `\0`, "\n", `\n`, "\r", `\r`, "\x1a", `\Z`)
-		return "'" + r.Replace(s) + "'"
+		return "'" + mysqlEscaper.Replace(s) + "'"
 	case ClickHouse:
-		r := strings.NewReplacer(`\`, `\\`, `'`, `\'`)
-		return "'" + r.Replace(s) + "'"
+		return "'" + clickHouseEscaper.Replace(s) + "'"
+	case Postgres, DuckDB:
+		// PostgreSQL reads a backslash as itself only while
+		// standard_conforming_strings is on, which any statement may turn
+		// off. An escape string, E'…', reads the same either way, and
+		// DuckDB reads it as PostgreSQL does.
+		if strings.Contains(s, `\`) {
+			return "E'" + escapeStringEscaper.Replace(s) + "'"
+		}
 	}
-	// Standard SQL, as PostgreSQL (standard_conforming_strings), SQLite and
-	// DuckDB read it: a quote is doubled, a backslash is itself.
+	// Standard SQL: a quote is doubled, a backslash is itself.
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
 // bytesLiteral writes binary data as each engine reads a binary literal:
 // as text it would be stored, or compared, as other bytes.
 func bytesLiteral(e Engine, b []byte) string {
-	h := hex.EncodeToString(b)
 	switch e {
 	case Postgres:
-		return `'\x` + h + `'::bytea`
+		return `E'\\x` + hex.EncodeToString(b) + `'::bytea`
 	case DuckDB:
+		const digits = "0123456789ABCDEF"
 		var s strings.Builder
+		s.Grow(len("'") + 4*len(b) + len("'::BLOB"))
+		s.WriteByte('\'')
 		for _, c := range b {
-			fmt.Fprintf(&s, `\x%02X`, c)
+			s.WriteString(`\x`)
+			s.WriteByte(digits[c>>4])
+			s.WriteByte(digits[c&0xf])
 		}
-		return "'" + s.String() + "'::BLOB"
+		s.WriteString("'::BLOB")
+		return s.String()
 	case ClickHouse:
-		return "unhex('" + h + "')"
+		return "unhex('" + hex.EncodeToString(b) + "')"
 	}
-	return "X'" + h + "'"
+	return "X'" + hex.EncodeToString(b) + "'"
 }

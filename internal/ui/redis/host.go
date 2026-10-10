@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"context"
 	"time"
 
 	"dgopher/internal/connection"
@@ -27,4 +28,9 @@ type Host interface {
 	// FocusWant is where the keyboard focus is wanted: "editor" for the
 	// tab's main view, "filter" for its filter; whoever takes it clears it.
 	FocusWant() *string
+	// StartJob counts work on a connection as running until finish is
+	// called, on any goroutine: quitting, disconnecting and deleting the
+	// connection list title, which says what the work does and what
+	// stopping it loses, and stop it with cancel.
+	StartJob(cn *connection.Conn, title string, cancel context.CancelFunc) (finish func())
 }

@@ -150,7 +150,7 @@ func namesIn(text string, d sqltext.Dialect) map[string]bool {
 func comment(text string) string {
 	lines := strings.Split(strings.TrimSpace(text), "\n")
 	for i, l := range lines {
-		lines[i] = "-- " + l
+		lines[i] = sqltext.LineComment(l)
 	}
 	return strings.Join(lines, "\n")
 }

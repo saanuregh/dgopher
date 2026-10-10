@@ -24,6 +24,7 @@ import (
 	"dgopher/internal/project"
 	"dgopher/internal/redact"
 	"dgopher/internal/safety"
+	"dgopher/internal/secretcmd"
 	"dgopher/internal/settings"
 	"dgopher/internal/sqltext"
 	"dgopher/internal/store"
@@ -107,8 +108,6 @@ type Tab struct {
 	stmtOK    bool
 	// newTab keeps the results of earlier runs for the next one.
 	newTab bool
-	// txs is when the session's transaction opened and was last used.
-	txs connection.TxTimes
 	// stepConfirm asks before each write of the next run.
 	stepConfirm bool
 	// paramValues are the last values given to parameters, by key.
@@ -132,7 +131,11 @@ type Tab struct {
 	Running   bool
 	cancel    context.CancelFunc
 	StartedAt time.Time
-	Tx        db.TxState
+	dataview.SessionTxState
+	// autocommitOff is MySQL's autocommit off on the session as its last
+	// run left it (db.Session.AutocommitOff): with no transaction open,
+	// the bar says so, and nothing asks before closing.
+	autocommitOff bool
 
 	results   []*result
 	resultIdx int // len(results) for the messages
@@ -225,6 +228,7 @@ func (q *Tab) Close() {
 	}
 	cancel, sess := q.cancel, q.sess
 	go func() {
+		defer dataview.RecoverBackground(q.a.Post, q.a.ShowError, nil)
 		for _, close := range closers {
 			close()
 		}
@@ -342,7 +346,7 @@ func (q *Tab) adoptSession(s *db.Session) {
 			}
 			return
 		}
-		q.sess = s
+		q.sess, q.autocommitOff = s, false
 	})
 }
 
@@ -618,7 +622,11 @@ func (q *Tab) runBound(stmts []string, starts []int, values map[string]params.In
 		}
 		an[i].Skip = skip
 	}
+	if q.refuseEndingOthersTx(an) {
+		return
+	}
 	v := safety.ReviewSQL(cfg, an)
+	q.warnImplicitCommits(&v, an)
 	if v.Blocked != "" {
 		q.a.RecordBlocked(q.Conn, v.Blocked, strings.Join(sqls, ";\n"))
 		q.note(v.Blocked, "", true)
@@ -706,6 +714,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 	sess, pool, database := q.sess, q.Conn.DB, q.Database
 	dialect := q.Editor.Dialect
 	go func() {
+		defer dataview.RecoverBackground(q.a.Post, q.a.ShowError, q.runStopped)
 		for _, close := range closers {
 			close()
 		}
@@ -721,22 +730,34 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 			}
 			q.adoptSession(sess)
 		}
-		if manual && writes && sess.Tx() == db.TxNone {
-			err := sess.Begin(ctx)
-			q.a.RecordRun(cfg, audit.KindStatement, database, "BEGIN -- manual commit", -1, 0, err)
-			if err != nil {
-				q.a.Post(func() {
-					q.Running = false
-					q.note("Could not open a transaction: "+err.Error(), "", true)
-				})
-				return
-			}
-			q.a.Post(func() { q.note("Manual commit: opened a transaction. Commit or roll back when done.", "", false) })
-		}
 		runAll := false
+		// resetSchema is where a connection made again finds names, read
+		// as a statement is refused on it (db.ErrSessionReset).
+		resetSchema := ""
+		// Manual commit runs every write in a transaction: the app's BEGIN
+		// opens one before the first statement that runs while a write is
+		// still to come, and again after a statement commits it, as MySQL's
+		// DDL does without being asked. lastWrite is the last write's
+		// index, -1 for none; fresh is whether the open transaction is the
+		// app's with nothing written in it yet, which a commit keeps
+		// nothing of; reopens, whether the note of an implicit commit said
+		// that the next write opens one again.
+		lastWrite := -1
+		if manual && writes {
+			for i, s := range stmts {
+				if safety.WritesInTransaction(cfg.Engine, s) {
+					lastWrite = i
+				}
+			}
+		}
+		fresh, reopens := false, false
+		// transactional keeps, by schema and name, whether a MySQL table
+		// keeps transactions (mysqlTransactional), until a statement that
+		// is no change of rows could alter its engine or the database.
+		transactional := map[[2]string]bool{}
 		for i, s := range stmts {
 			if stepConfirm {
-				answer := q.askStep(ctx, s, i, len(stmts), &runAll)
+				answer := q.askStep(ctx, s, i, len(stmts), &runAll, sess.Tx() != db.TxNone && !fresh)
 				if answer == "skip" {
 					q.a.Post(func() { q.note("Skipped: "+widgets.OneLine(s.SQL, 120), s.SQL, false) })
 					continue
@@ -746,6 +767,35 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 					break
 				}
 			}
+			// Not before a statement that would commit it at once, or that
+			// cannot run in a transaction.
+			if i <= lastWrite && sess.Tx() == db.TxNone &&
+				!safety.CommitsImplicitly(cfg.Engine, s) && !safety.OutsideTransaction(cfg.Engine, s.SQL) {
+				err := sess.Begin(ctx)
+				q.a.RecordRun(cfg, audit.KindStatement, database, "BEGIN -- manual commit", -1, 0, err)
+				if err != nil {
+					if errors.Is(err, db.ErrSessionReset) {
+						resetSchema, _ = sess.CurrentSchema(ctx)
+					}
+					msg := "Could not open a transaction: " + err.Error()
+					if i > 0 {
+						msg = fmt.Sprintf("Stopped before statement %d of %d: could not open a transaction for it: %s", i+1, len(stmts), err)
+					}
+					q.a.Post(func() { q.note(msg, "", true) })
+					break
+				}
+				if !reopens {
+					q.a.Post(func() { q.note("Manual commit: opened a transaction. Commit or roll back when done.", "", false) })
+				}
+				fresh, reopens = true, false
+			}
+			if !changesRows(s, dialect) {
+				clear(transactional)
+			}
+			owned := manual && sess.OwnsTx()
+			// The error of a statement before it, skipped as errors are,
+			// is not this one's.
+			err = nil
 			res := &result{sql: s.SQL, verb: s.Analysis.Verb, stmt: s, start: s.Start, skip: s.Skip}
 			res.table, res.tableWhy = sqltext.SingleTable(s.SQL, dialect)
 			var cursor *db.Cursor
@@ -772,7 +822,9 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 					res.schema, res.schemaErr = sess.CurrentSchema(sctx)
 				}
 			}
-			if wantsRows(s, dialect) {
+			// A statement that begins or ends a transaction goes where it is
+			// checked, whatever its text holds (RETURNING in a comment).
+			if wantsRows(s, dialect) && !safety.ControlsTransaction(cfg.Engine, s) {
 				res.rowsMode = true
 				cursor, err = sess.Query(sctx, s.SQL, s.Args...)
 				if err == nil {
@@ -796,15 +848,32 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 			} else {
 				if guarded(cfg, changeLimit, s, sess, dialect) {
 					changed, _ := sqltext.ChangedTable(s.SQL, dialect)
-					guard, err = q.beginGuard(sctx, sess, s, changed, changeLimit, database)
+					guard, err = q.beginGuard(sctx, sess, s, changed, changeLimit, database, transactional)
 				}
-				if err == nil {
+				switch {
+				case err != nil:
+				case safety.ControlsTransaction(cfg.Engine, s):
+					// Refused, should another session have begun a
+					// transaction on a connection every session shares
+					// since the run was reviewed (db.ErrNotOwner).
+					res.affected, err = sess.ExecTransactionControl(sctx, s.SQL)
+				default:
 					res.affected, err = sess.Exec(sctx, s.SQL, s.Args...)
 				}
 				rows = res.affected
 			}
 			if timer != nil {
 				timer.Stop()
+			}
+			if errors.Is(err, db.ErrNotOwner) {
+				// Not sent: it is refused, as before the run, not audited.
+				scancel()
+				rest := make([]string, len(stmts)-i)
+				for j, left := range stmts[i:] {
+					rest[j] = left.SQL
+				}
+				q.a.Post(func() { q.refuseInsideRun(s, i, len(stmts), strings.Join(rest, ";\n")) })
+				break
 			}
 			stop := context.CancelFunc(scancel) // with the cursor
 			if !res.rowsMode || err != nil {
@@ -823,17 +892,17 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 			if guard != nil {
 				err = guard.finish(ctx, rows, err)
 			}
-			entry := store.HistoryEntry{Time: start, ConnectionID: cfg.ID, Connection: cfg.Name, Database: database,
-				SQL: logged, Duration: res.elapsed, Rows: rows} // the history redacts it
 			if err != nil {
 				res.err = err.Error()
 				res.errInfo = db.DescribeError(err)
 				if timedOut.Load() {
 					res.errInfo.Message = fmt.Sprintf("Stopped after the connection's statement timeout of %s. %s", timeout, res.errInfo.Message)
 				}
-				entry.Error = res.err
+				if errors.Is(err, db.ErrSessionReset) {
+					resetSchema, _ = sess.CurrentSchema(ctx)
+				}
 			}
-			st.AppendHistory(entry)
+			st.AppendHistory(historyEntry(cfg, database, logged, start, res.elapsed, rows, err))
 			q.a.Post(func() {
 				if res.rowsMode && cursor != nil {
 					res.view = q.newView(res, cursor, first, done, stop)
@@ -852,23 +921,52 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 					q.note(fmt.Sprintf("%s · %s · %s", verbLabel(res.verb), affectedLabel(res.affected), widgets.FormatDuration(res.elapsed)), res.sql, false)
 				}
 			})
-			if err != nil && (!continueOnError || errors.Is(err, errDeclined)) {
+			if manual {
+				// A statement that ran in the session's transaction and left
+				// none open, not one that ends transactions, committed it, as
+				// MySQL's DDL does: what follows runs in a new one.
+				if owned && !fresh && err == nil && s.Analysis.Class != sqltext.Transaction && sess.Tx() == db.TxNone {
+					verb := s.Analysis.Verb
+					if verb == "" {
+						verb = "The statement"
+					}
+					q.a.Post(func() {
+						q.note(verb+" committed the transaction: Roll Back will not undo what ran before it. A new one opens before the next write.", s.SQL, false)
+					})
+					reopens = true
+				}
+				if err == nil && safety.WritesInTransaction(cfg.Engine, s) {
+					fresh = false
+				}
+			}
+			// The rest of a script would run on a new connection, without
+			// what this one had set or the transaction it had open.
+			lost := errors.Is(err, db.ErrSessionReset) || errors.Is(err, db.ErrTxLost)
+			if lost && continueOnError && i < len(stmts)-1 {
+				q.a.Post(func() {
+					q.note(fmt.Sprintf("Stopped after statement %d of %d, though errors are skipped: the connection was lost, and the rest would run on a new connection without what the lost one had set or its open transaction.", i+1, len(stmts)), "", true)
+				})
+			}
+			if err != nil && (!continueOnError || lost || errors.Is(err, errDeclined)) {
 				break
 			}
 		}
-		tx := sess.Tx()
+		own, inside := dataview.SessionTx(sess)
+		autocommitOff := sess.AutocommitOff()
 		// A SET search_path or a USE may have moved where names are found.
-		schema := ""
-		if tx != db.TxFailed && slices.ContainsFunc(stmts, func(s safety.Statement) bool { return s.Analysis.Verb == "SET" || s.Analysis.Verb == "USE" }) {
-			schema, _ = sess.CurrentSchema(ctx)
+		schema := resetSchema
+		if own != db.TxFailed && inside != db.TxFailed && slices.ContainsFunc(stmts, func(s safety.Statement) bool { return s.Analysis.Verb == "SET" || s.Analysis.Verb == "USE" }) {
+			if now, err := sess.CurrentSchema(ctx); err == nil {
+				schema = now
+			}
 		}
 		q.a.Post(func() {
 			q.Running = false
 			if schema != "" {
 				q.schema = schema
 			}
-			q.txs.Set(tx, q.a.Now())
-			q.Tx = tx
+			q.setTx(own, inside)
+			q.autocommitOff = autocommitOff
 			// A statement's cursor closes as the next one runs: those
 			// results end where they were read.
 			for i, r := range q.results {
@@ -896,6 +994,19 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 			q.notifyRun(len(stmts), q.results[firstNew:])
 		})
 	}()
+}
+
+// historyEntry is what the history keeps of a statement that ran, logged
+// being its SQL as the audit log has it, which the history redacts. Its
+// error is the audit log's too (secretcmd.AuditText): a new connection
+// runs the identity's command, whose stderr only the live error shows.
+func historyEntry(cfg db.Config, database, logged string, start time.Time, elapsed time.Duration, rows int64, err error) store.HistoryEntry {
+	e := store.HistoryEntry{Time: start, ConnectionID: cfg.ID, Connection: cfg.Name, Database: database,
+		SQL: logged, Duration: elapsed, Rows: rows}
+	if err != nil {
+		e.Error = secretcmd.AuditText(err)
+	}
+	return e
 }
 
 // notifyRun tells of the end of a run by a system notification, when it
@@ -949,6 +1060,7 @@ func (q *Tab) endTx(commit bool) {
 	q.Running = true
 	sess, cfg, database := q.sess, q.Conn.Config, q.Database
 	go func() {
+		defer dataview.RecoverBackground(q.a.Post, q.a.ShowError, q.endTxStopped)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		var err error
@@ -960,21 +1072,27 @@ func (q *Tab) endTx(commit bool) {
 			word, stmt = "Rolled back", "ROLLBACK"
 			err = sess.Rollback(ctx)
 		}
-		q.a.RecordRun(cfg, audit.KindStatement, database, stmt, -1, time.Since(start), err)
-		tx := sess.Tx()
+		// A stale tab's COMMIT or ROLLBACK the connection refused was never
+		// sent: it is said, not audited.
+		title, notEnded, refused := dataview.NotEnded(err, commit)
+		if !refused {
+			q.a.RecordRun(cfg, audit.KindStatement, database, stmt, -1, time.Since(start), err)
+		}
+		own, inside := dataview.SessionTx(sess)
 		q.a.Post(func() {
-			q.Running, q.Tx = false, tx
-			q.txs.Set(tx, q.a.Now())
-			if f := q.txs.Then; f != nil {
-				q.txs.Then = nil
-				f(err)
-			}
+			q.Running = false
+			q.setTx(own, inside)
+			q.TellFinishTx(err)
 			for _, r := range q.results {
 				if r.view != nil {
 					r.view.CutShort()
 				}
 			}
-			if err != nil {
+			switch {
+			case refused:
+				q.note(title+": "+notEnded, "", true)
+				return
+			case err != nil:
 				q.note(err.Error(), "", true)
 				return
 			}
@@ -1143,8 +1261,10 @@ func (q *Tab) View(c *ui.Context) {
 		// The bars come and go, as one while a header is typed: in a
 		// column always there, the editor keeps its place, and the focus.
 		ui.Column(c).Children(func() {
-			if q.Tx != db.TxNone {
+			if q.InTx() {
 				q.txBar(c)
+			} else if q.autocommitOff && q.sess != nil {
+				q.autocommitBar(c)
 			}
 			if q.DiskConflict != "" {
 				q.conflictBar(c)
@@ -1212,19 +1332,33 @@ func (q *Tab) txBar(c *ui.Context) {
 	t := c.Theme()
 	label := "Transaction open: changes are not visible to others until you commit."
 	col := t.Warning
-	if q.Tx == db.TxFailed {
+	switch {
+	case q.InsideTx != db.TxNone:
+		owner, _ := q.TxOwner()
+		label = dataview.InsideTxLabel(owner, q.Conn.Config.Name, q.InsideTx)
+	case q.Tx == db.TxFailed:
 		label = "The transaction failed: roll it back to go on."
 		col = t.Danger
 	}
 	ui.Row(c).Padding(6, 12).Gap(10).Background(col.Alpha(0.16)).BorderWidth(0, 0, 1, 0).BorderColor(col).Children(func() {
 		ui.Icon(c, widgets.IconAlert).TextColor(col).FontSize(14)
 		ui.Text(c, label).Grow(1).Shrink(1)
-		if q.Tx == db.TxOpen && ui.PrimaryButton(c, "Commit").Disabled(q.Busy()).Tooltip(keymap.Hint("Commit the transaction", keymap.Commit)).Clicked() {
+		if (q.Tx == db.TxOpen || q.InsideTx == db.TxOpen) && ui.PrimaryButton(c, "Commit").Disabled(q.Busy()).Tooltip(keymap.Hint("Commit the transaction", keymap.Commit)).Clicked() {
 			q.endOpenTx(true)
 		}
 		if ui.Button(c, "Roll Back").Disabled(q.Busy()).Tooltip(keymap.Hint("Roll back the transaction", keymap.Rollback)).Clicked() {
 			q.endOpenTx(false)
 		}
+	})
+}
+
+// autocommitBar says that MySQL's autocommit is off with no transaction
+// open: nothing waits to be committed yet, so it offers nothing to end.
+func (q *Tab) autocommitBar(c *ui.Context) {
+	t := c.Theme()
+	ui.Row(c).Padding(6, 12).Gap(10).Background(t.Surface).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
+		ui.Icon(c, widgets.IconClock).TextColor(widgets.PaletteOf(c).Muted).FontSize(14)
+		ui.Text(c, "Autocommit is off: the next statement that reads or writes a table begins a transaction.").Grow(1).Shrink(1)
 	})
 }
 
@@ -1300,9 +1434,12 @@ func (q *Tab) current() *result {
 // table's.
 func (q *Tab) newView(res *result, c *db.Cursor, rows [][]any, done bool, stop context.CancelFunc) *dataview.Viewer {
 	s := res.stmt
+	reads := s.Analysis.Class == sqltext.Read
 	why := res.tableWhy
 	switch {
 	case why != "":
+	case !reads:
+		why = notReadReason(s.Analysis)
 	case res.schemaErr != nil:
 		why = "Could not read the editor's schema: " + res.schemaErr.Error()
 	default:
@@ -1315,21 +1452,20 @@ func (q *Tab) newView(res *result, c *db.Cursor, rows [][]any, done bool, stop c
 		Statement:      s.SQL,
 		Args:           s.Args,
 		Wrap:           true,
-		Reads:          s.Analysis.Class == sqltext.Read,
+		Reads:          reads,
 		ReadOnly:       why,
 		CountOnSession: true,
 		CursorOpen:     q.cursorOpen,
 		Session:        func() *db.Session { return q.sess },
 		AdoptSession:   q.adoptSession,
 		SessionBusy:    func() string { return q.sessionBusy(res) },
-		TxChanged: func(tx db.TxState) {
-			q.Tx = tx
-			q.txs.Set(tx, q.a.Now())
-		},
-		Rerun: func() { q.rerun(s) },
+		TxChanged:      q.setTx,
+		TxOwner:        q.TxOwner,
+		SessionReset:   q.rereadSchema,
+		Rerun:          func() { q.rerun(s) },
 	})
 	v.Adopt(c, rows, done, res.elapsed, stop)
-	if res.tableWhy == "" && res.schemaErr == nil {
+	if res.tableWhy == "" && reads && res.schemaErr == nil {
 		schema := res.table.Schema
 		if schema == "" {
 			schema = res.schema
@@ -1337,6 +1473,16 @@ func (q *Tab) newView(res *result, c *db.Cursor, rows [][]any, done bool, stop c
 		q.bindTable(v, res.table, schema)
 	}
 	return v
+}
+
+// notReadReason says why the rows of a statement that does more than read,
+// as one calling nextval or locking its rows, are not edited.
+func notReadReason(a sqltext.Analysis) string {
+	why := "The statement does more than read"
+	if a.Reason != "" {
+		why += ": it " + a.Reason
+	}
+	return why + ". Its rows are not edited: applying changes reads them again, which would run it again."
 }
 
 // bindTable finds, off the main thread, the table a result's rows are
@@ -1435,7 +1581,11 @@ func (q *Tab) rerun(s safety.Statement) {
 	q.settlePending(q.replaced(RunStatement), func() {
 		cfg := &q.Conn.Config
 		s.Start = -1 // the editor's text may have moved since the run
+		if q.refuseEndingOthersTx([]safety.Statement{s}) {
+			return
+		}
 		v := safety.ReviewSQL(cfg, []safety.Statement{s})
+		q.warnImplicitCommits(&v, []safety.Statement{s})
 		if v.Blocked != "" {
 			q.a.RecordBlocked(q.Conn, v.Blocked, s.SQL)
 			q.note(v.Blocked, "", true)
@@ -1531,9 +1681,24 @@ func (q *Tab) conflictBar(c *ui.Context) {
 			}
 		}
 		if ui.Button(c, "Keep Mine").Tooltip("Write the editor's text over the file").Clicked() {
-			q.Flush(true)
+			q.keepMine()
 		}
 	})
+}
+
+// keepMine writes the editor's text over its file: at once inside the
+// project, and once confirmed, with the full path and a symlink's
+// target, outside it, since a cloned workspace may have named that file.
+func (q *Tab) keepMine() {
+	if q.Conn.Project != nil && project.Contains(q.Conn.Project.Dir, q.Path) {
+		q.Flush(true)
+		return
+	}
+	v := safety.Verdict{Confirm: true, Reasons: []string{"The file is outside the project folder."}}
+	if target, err := os.Readlink(q.Path); err == nil {
+		v.Reasons = []string{"The file is a symlink to " + target + ", which is missing or outside the project folder: the text is written there."}
+	}
+	q.a.AskConfirm(q.Conn, v, "Write over "+filepath.Base(q.Path)+"?", "Write", q.Path, func() { q.Flush(true) })
 }
 
 // headerBar says that the file names another connection than the
@@ -1709,11 +1874,15 @@ func SplitOptions(s *settings.Settings) sqltext.SplitOptions {
 // askStep asks, on the main thread, whether to run a statement of a
 // script on production, and waits for the answer: "run", "skip" or
 // "cancel". Run All answers for the plain writes left; a destructive
-// statement asks still.
-func (q *Tab) askStep(ctx context.Context, s safety.Statement, i, n int, runAll *bool) string {
+// statement asks still, as one that commits the open transaction does.
+// open is whether a transaction is open on the session that holds what
+// the statement may commit.
+func (q *Tab) askStep(ctx context.Context, s safety.Statement, i, n int, runAll *bool, open bool) string {
 	cfg := q.Conn.Config
 	v := safety.ReviewSQL(&cfg, []safety.Statement{s})
-	if !v.Confirm || *runAll && !v.TypeName {
+	commits := open && safety.CommitsImplicitly(cfg.Engine, s)
+	v.EndsTransaction(&cfg, []safety.Statement{s}, commits)
+	if !v.Confirm || *runAll && !v.TypeName && !commits {
 		return "run"
 	}
 	answer := make(chan string, 1)
@@ -1763,9 +1932,13 @@ type changeGuard struct {
 // DuckDB's and an in-memory SQLite's,
 // which every session shares, are not. EXPLAIN ANALYZE reports no rows,
 // and RETURNING and a WITH that changes rows read theirs: neither is.
+// Nor is a change under MySQL's autocommit off, which begins a
+// transaction that holds it until the user commits or rolls back: the
+// guard's COMMIT would commit it unasked.
 func guarded(cfg db.Config, limit int, s safety.Statement, sess *db.Session, dialect sqltext.Dialect) bool {
 	if limit <= 0 || !changesRows(s, dialect) || sess.Tx() != db.TxNone || sess.DB().Single() ||
-		cfg.Env != db.Staging && cfg.Env != db.Production || !cfg.Engine.IsSQL() || cfg.Engine == db.ClickHouse {
+		cfg.Env != db.Staging && cfg.Env != db.Production || !cfg.Engine.Transactions() ||
+		sess.AutocommitOff() {
 		return false
 	}
 	for _, t := range sqltext.Tokenize(s.SQL, dialect) {
@@ -1789,11 +1962,17 @@ func changesRows(s safety.Statement, dialect sqltext.Dialect) bool {
 }
 
 // beginGuard opens the guard's transaction, nil when the statement's table
-// keeps none, as a MySQL MyISAM table: its changes cannot wait.
-func (q *Tab) beginGuard(ctx context.Context, sess *db.Session, s safety.Statement, table sqltext.TableRef, limit int, database string) (*changeGuard, error) {
+// keeps none, as a MySQL MyISAM table: its changes cannot wait. known is
+// what the run has learned of MySQL tables (mysqlTransactional).
+func (q *Tab) beginGuard(ctx context.Context, sess *db.Session, s safety.Statement, table sqltext.TableRef, limit int, database string, known map[[2]string]bool) (*changeGuard, error) {
 	cfg := q.Conn.Config
-	if cfg.Engine == db.MySQL && table.Name != "" && !mysqlTransactional(ctx, sess, table) {
-		return nil, nil
+	if cfg.Engine == db.MySQL && table.Name != "" {
+		switch keeps, err := mysqlTransactional(ctx, sess, table, known); {
+		case err != nil:
+			return nil, err
+		case !keeps:
+			return nil, nil
+		}
 	}
 	err := sess.Begin(ctx)
 	q.a.RecordRun(cfg, audit.KindStatement, database, "BEGIN -- counting the rows a change makes", -1, 0, err)
@@ -1804,17 +1983,32 @@ func (q *Tab) beginGuard(ctx context.Context, sess *db.Session, s safety.Stateme
 }
 
 // mysqlTransactional reports whether a MySQL table's engine keeps
-// transactions; true when it cannot be told.
-func mysqlTransactional(ctx context.Context, sess *db.Session, table sqltext.TableRef) bool {
+// transactions; true when it cannot be told. Its error is the session's
+// refusal after its connection was made again (db.ErrSessionReset), which
+// the statement it was asked for must not run past. known keeps the
+// answers the server gave, by schema and name, and answers from them.
+func mysqlTransactional(ctx context.Context, sess *db.Session, table sqltext.TableRef, known map[[2]string]bool) (bool, error) {
+	key := [2]string{table.Schema, table.Name}
+	if keeps, ok := known[key]; ok {
+		return keeps, nil
+	}
 	cursor, err := sess.Query(ctx, `SELECT e.TRANSACTIONS FROM information_schema.TABLES t
 JOIN information_schema.ENGINES e ON e.ENGINE = t.ENGINE
 WHERE t.TABLE_SCHEMA = COALESCE(NULLIF(?, ''), DATABASE()) AND t.TABLE_NAME = ?`, table.Schema, table.Name)
+	if errors.Is(err, db.ErrSessionReset) {
+		return false, err
+	}
 	if err != nil {
-		return true
+		return true, nil
 	}
 	defer cursor.Close()
 	rows, err := cursor.Fetch(1)
-	return err != nil || len(rows) == 0 || !strings.EqualFold(db.Display(rows[0][0]), "NO")
+	if err != nil || len(rows) == 0 {
+		return true, nil
+	}
+	keeps := !strings.EqualFold(db.Display(rows[0][0]), "NO")
+	known[key] = keeps
+	return keeps, nil
 }
 
 // finish ends the guard's transaction once the statement ran, n rows
@@ -2023,12 +2217,11 @@ func (q *Tab) lendSession() (sess *db.Session, done func(), why string) {
 	}
 	q.exports++
 	return sess, func() {
-		tx := sess.Tx()
+		own, inside := dataview.SessionTx(sess)
 		q.a.Post(func() {
 			q.exports--
 			if !q.closed {
-				q.Tx = tx
-				q.txs.Set(tx, q.a.Now())
+				q.setTx(own, inside)
 			}
 		})
 	}, ""

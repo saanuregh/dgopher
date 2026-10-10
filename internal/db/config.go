@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"maps"
 	"net"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -92,6 +93,15 @@ func (e Engine) IsFile() bool { return e == SQLite || e == DuckDB }
 // a transaction, all or none, as PostgreSQL's, SQLite's and DuckDB's can.
 func (e Engine) TransactionalDDL() bool { return e == Postgres || e == SQLite || e == DuckDB }
 
+// Transactions reports whether a client can hold a transaction of the
+// engine's open: ClickHouse and Redis have none.
+func (e Engine) Transactions() bool { return e != ClickHouse && e != Redis }
+
+// Savepoints reports whether the engine nests a savepoint in an open
+// transaction, which a failed statement can roll back to alone: DuckDB's
+// grammar has none, and ClickHouse holds no transactions.
+func (e Engine) Savepoints() bool { return e == Postgres || e == MySQL || e == SQLite }
+
 // Environment says how careful the app must be with a connection.
 type Environment string
 
@@ -150,8 +160,9 @@ type SSHConfig struct {
 	// PasswordCommand prints the SSH password, or the key's passphrase.
 	PasswordCommand string `json:"passwordCommand,omitempty"`
 	// Jump lists SSH servers reached in turn before Host, as OpenSSH's
-	// -J: [user@]host[:port], separated by commas, each logging in as
-	// the tunnel does, as User when it names no user.
+	// -J: [user@]host[:port], separated by commas, as User when it names
+	// no user. They log in with the key file or the agent only: the
+	// tunnel's password is the target's, never sent to a jump host.
 	Jump string `json:"jump,omitempty"`
 }
 
@@ -389,8 +400,8 @@ func NewID() string {
 
 // ManualCommit reports whether writes wait for an explicit commit.
 func (c *Config) ManualCommit() bool {
-	if c.Engine == ClickHouse || c.Engine == Redis {
-		return false // neither has transactions a client can hold open
+	if !c.Engine.Transactions() {
+		return false
 	}
 	switch c.Commit {
 	case CommitAuto:
@@ -491,25 +502,64 @@ func (c *Config) Validate() error {
 	if sources > 1 {
 		errs = append(errs, "choose one way to get the password: ask, an environment variable, a command or a cloud identity")
 	}
-	// Prefer may fall back to plain text: a token, or a clear password,
-	// goes only where TLS is required.
-	noTLS := c.TLS != TLSRequire && c.TLS != TLSVerifyFull
+	// Prefer may fall back to plain text, and require trusts any
+	// certificate, so whoever sits in the middle would read the token or
+	// the clear password: they go only to a verified server.
+	verified := c.TLS == TLSVerifyFull
 	switch {
 	case c.Identity == "":
 	case !slices.Contains(Identities(), c.Identity):
 		errs = append(errs, fmt.Sprintf("unknown identity %q", c.Identity))
 	case c.Engine != Postgres && c.Engine != MySQL:
 		errs = append(errs, "a cloud identity logs in to PostgreSQL or MySQL")
-	case noTLS:
-		errs = append(errs, "a cloud identity's token goes only over TLS")
+	case !verified:
+		errs = append(errs, "a cloud identity's token goes only over verified TLS: choose TLS verify-full "+
+			"(Verify certificate and host) and, unless the system trusts it, the server's CA file: AWS's RDS CA bundle, Cloud SQL's server CA")
 	}
-	if c.ClearTextPassword && (c.Engine != MySQL || noTLS) {
-		errs = append(errs, "a password sent as clear text goes only to MySQL, over TLS")
+	if c.Identity == IdentityAWS {
+		errs = append(errs, awsIdentityProblems(c)...)
+	}
+	switch {
+	case !c.ClearTextPassword:
+	case c.Engine != MySQL:
+		errs = append(errs, "a password sent as clear text goes only to MySQL")
+	case !verified:
+		errs = append(errs, "a password sent as clear text goes only over verified TLS: choose TLS verify-full "+
+			"(Verify certificate and host) and, unless the system trusts it, the server's CA file")
 	}
 	if len(errs) > 0 {
 		return errors.New(strings.Join(errs, "; "))
 	}
 	return nil
+}
+
+// AWS identity values become words of the aws command line, which on
+// Windows is a batch file whose quoting Go cannot get right: they keep
+// to the characters such names have, and never start as an option.
+var (
+	awsHost    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]*$`)
+	awsUser    = regexp.MustCompile(`^[A-Za-z0-9_.@][A-Za-z0-9_.@-]*$`)
+	awsRegion  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+	awsProfile = regexp.MustCompile(`^[A-Za-z0-9_.][A-Za-z0-9_.-]*$`)
+)
+
+// awsIdentityProblems are the values of an AWS identity its command
+// cannot take.
+func awsIdentityProblems(c *Config) []string {
+	var errs []string
+	if !awsHost.MatchString(c.Host) {
+		errs = append(errs, "an AWS identity's host is a name of letters, digits, dots and dashes")
+	}
+	if !awsUser.MatchString(c.User) {
+		errs = append(errs, "an AWS identity's user is made of letters, digits and _ . @ -")
+	}
+	if c.IdentityRegion != "" && !awsRegion.MatchString(c.IdentityRegion) {
+		errs = append(errs, "an AWS region is made of lowercase letters, digits and dashes, as eu-west-1")
+	}
+	if c.IdentityProfile != "" && !awsProfile.MatchString(c.IdentityProfile) {
+		errs = append(errs, "an AWS profile is made of letters, digits and _ . -")
+	}
+	return errs
 }
 
 func (c *Config) port() int {

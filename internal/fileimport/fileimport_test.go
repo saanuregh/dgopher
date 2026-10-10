@@ -208,3 +208,31 @@ func TestExactValues(t *testing.T) {
 	xml := write(t, "t.xml", `<r><x n="9.5" at="2024-01-02 10:00:00" day="2024-01-02"/><x n="3" at="2024-01-03 11:00:00" day="2024-01-03"/></r>`)
 	open(t, xml, Options{}, Column{"n", "DOUBLE"}, Column{"at", "TIMESTAMP"}, Column{"day", "DATE"})
 }
+
+// Reading an XML file twice, its columns first and its rows after, gives
+// the columns, their order and types, and the values reading it once did.
+func TestXMLTwoPassSameRows(t *testing.T) {
+	path := write(t, "two.xml", `<root>
+  <row id="1"><b>x</b><c>1</c></row>
+  <row id="2" extra="e"><c>2</c><c>3</c><d><i>deep</i> text</d></row>
+  <row><a>late</a><b>y</b><c>4</c></row>
+</root>`)
+	f := open(t, path, Options{}, Column{"id", "BIGINT"}, Column{"b", "VARCHAR"}, Column{"c", "VARCHAR"},
+		Column{"extra", "VARCHAR"}, Column{"d", "VARCHAR"}, Column{"a", "VARCHAR"})
+	want := [][]any{
+		{int64(1), "x", "1", nil, nil, nil},
+		{int64(2), nil, `["2","3"]`, "e", "deep text", nil},
+		{nil, "y", "4", nil, nil, "late"},
+	}
+	if got := rows(t, f); !reflect.DeepEqual(got, want) {
+		t.Fatalf("rows %#v, want %#v", got, want)
+	}
+	f = open(t, path, Options{AllText: true}, Column{"id", "VARCHAR"}, Column{"b", "VARCHAR"}, Column{"c", "VARCHAR"},
+		Column{"extra", "VARCHAR"}, Column{"d", "VARCHAR"}, Column{"a", "VARCHAR"})
+	if got := rows(t, f); got[0][0] != "1" || got[2][5] != "late" {
+		t.Fatalf("all text %v", got)
+	}
+	if _, err := Open(context.Background(), path, Options{Rows: "nothing"}); err == nil || err.Error() != "no element nothing in the file" {
+		t.Fatalf("missing rows: %v", err)
+	}
+}

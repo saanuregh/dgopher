@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"dgopher/internal/db"
+	"dgopher/internal/sqltext"
 )
 
 // Script writes a model's tables as the statements making them on an
@@ -53,7 +54,7 @@ func ScriptText(m *Model, to db.Engine, ch db.SchemaChange, notes []string) stri
 	fmt.Fprintf(&b, "-- The data model %q, for %s.\n", m.Name, to.Label())
 	b.WriteString("-- A model keeps tables: its types, sequences, views and routines are not in it.\n")
 	for _, n := range notes {
-		b.WriteString("-- " + n + "\n")
+		b.WriteString(sqltext.LineComment(n) + "\n")
 	}
 	b.WriteString("\n" + ch.Text() + "\n")
 	return b.String()

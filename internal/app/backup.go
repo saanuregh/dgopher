@@ -10,6 +10,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/safety"
+	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo"
@@ -96,40 +97,63 @@ func (a *App) choosePath(b *backupDialog) {
 	}()
 }
 
+// restoreVerdict is what every restore into what asks, as it writes:
+// always asked, the connection's name typed on production.
+func restoreVerdict(cn *connection.Conn, what string) safety.Verdict {
+	return safety.Verdict{Confirm: true, Reasons: []string{"Restoring writes the backup's tables and rows into " + what + "."},
+		TypeName: cn.Config.Env == db.Production}
+}
+
 // startBackup backs up as the dialog says, or restores, once agreed.
 func (a *App) startBackup(b *backupDialog) {
 	cn := b.conn
 	cfg := cn.Config
 	if b.restore && cfg.Engine != db.DuckDB && !db.IsArchive(b.path) {
-		// A SQL file restores as any SQL file runs.
+		// A SQL file restores as any SQL file runs, asked once, as any
+		// restore is, once read through.
 		b.open = false
-		a.startSQLFileRun(cn, b.database, b.path)
+		a.startSQLFileRun(cn, b.database, b.path, b.what())
 		return
 	}
 	poolOf := cn.PoolFor(b.database)
 	base := cn.DB
 	opts := db.BackupOptions{Format: db.BackupFormats(cfg.Engine)[b.format], Content: db.BackupContent(b.content), Database: b.database, Path: b.path}
-	run := func() {
+	// planned is a restore planned before it was asked, as DuckDB's is.
+	run := func(planned *db.ToolRun) {
 		ctx, cancel := context.WithCancel(context.Background())
 		b.running, b.cancel, b.err, b.lines, b.done = true, cancel, "", nil, false
 		started := time.Now()
 		restore, path, clean, database := b.restore, b.path, b.clean, b.database
-		a.Background(func() func() {
+		job := "Backing up " + b.what() + ": stopping it leaves the backup unfinished."
+		if restore {
+			job = "Restoring " + filepath.Base(path) + " into " + b.what() + ": stopping it rolls it back, and nothing of the backup stays."
+		}
+		stopped := func() { b.running, b.cancel, b.err = false, nil, "It stopped on an internal error." }
+		dataview.RunJob(a, cn, job, cancel, stopped, func() func() {
 			defer cancel()
 			var tool db.ToolRun
 			var err error
-			if restore {
+			switch {
+			case planned != nil:
+				tool = *planned
+			case restore:
 				tool, err = db.PlanRestore(ctx, base, database, path, clean)
-			} else {
+			default:
 				tool, err = db.PlanBackup(ctx, base, opts)
 			}
 			if err == nil {
-				if tool.Statement != "" {
+				switch {
+				case tool.Import != "":
+					var d *db.DB
+					if d, err = poolOf(ctx); err == nil {
+						err = db.RestoreDuckDB(ctx, d, tool)
+					}
+				case tool.Statement != "":
 					var d *db.DB
 					if d, err = poolOf(ctx); err == nil {
 						_, err = d.SQL.ExecContext(ctx, tool.Statement)
 					}
-				} else {
+				default:
 					err = db.RunTool(ctx, tool, func(line string) { a.Post(func() { b.addLine(line) }) })
 				}
 			}
@@ -138,9 +162,7 @@ func (a *App) startBackup(b *backupDialog) {
 				kind, detail = audit.KindRestore, "from "+path
 			}
 			ev := audit.Event{Kind: kind, Database: database, Statement: tool.Shown(), Detail: detail, DurationMS: time.Since(started).Milliseconds()}
-			if err != nil {
-				ev.Error = err.Error()
-			}
+			ev.Err = err
 			a.Record(&cfg, ev)
 			return func() {
 				b.running, b.cancel = false, nil
@@ -162,27 +184,51 @@ func (a *App) startBackup(b *backupDialog) {
 		})
 	}
 	if !b.restore {
-		run()
+		run(nil)
 		return
 	}
 	// A restore writes: always asked, the connection's name typed on
 	// production, and refused where the policy refuses writes.
-	v := safety.Verdict{Confirm: true, Reasons: []string{"Restoring writes the backup's tables and rows into " + b.what() + "."},
-		TypeName: cfg.Env == db.Production}
-	if cfg.Engine == db.DuckDB {
-		stmt := "IMPORT DATABASE " + db.Literal(db.DuckDB, b.path)
-		v2 := safety.ReviewSQL(&cfg, safety.Analyze(&cfg, []string{stmt}))
-		if v2.Blocked != "" {
-			a.RecordBlocked(cn, v2.Blocked, stmt)
-			b.err = v2.Blocked
-			return
-		}
-		v.Reasons = append(v2.Reasons, v.Reasons...)
-	}
+	v := restoreVerdict(cn, b.what())
 	if b.clean {
 		v.Reasons = append(v.Reasons, "Drop objects first: what the backup holds is dropped from "+b.what()+" before it is made again.")
 	}
-	a.AskConfirm(cn, v, "Restore into "+b.what()+"?", "Restore", b.path, run)
+	title := "Restore into " + b.what() + "?"
+	if cfg.Engine != db.DuckDB {
+		a.AskConfirm(cn, v, title, "Restore", b.path, func() { run(nil) })
+		return
+	}
+	// DuckDB's restore is planned first, for the statements it runs on the
+	// connection to be reviewed as they will run.
+	ctx, cancel := context.WithCancel(context.Background())
+	b.running, b.cancel, b.err, b.lines, b.done = true, cancel, "", nil, false
+	path := b.path
+	dataview.BackgroundResetOnPanic(a, func() { b.running, b.cancel = false, nil }, func() func() {
+		defer cancel()
+		d, err := poolOf(ctx)
+		var tool db.ToolRun
+		if err == nil {
+			tool, err = db.PlanRestore(ctx, d, "", path, false)
+		}
+		return func() {
+			b.running, b.cancel = false, nil
+			if a.backup != b || !b.open {
+				return // closed meanwhile
+			}
+			if err != nil {
+				b.err = err.Error()
+				return
+			}
+			v2 := safety.ReviewSQL(&cfg, safety.Analyze(&cfg, tool.Statements))
+			if v2.Blocked != "" {
+				a.RecordBlocked(cn, v2.Blocked, tool.Shown())
+				b.err = v2.Blocked
+				return
+			}
+			v.Reasons = append(v2.Reasons, v.Reasons...)
+			a.AskConfirm(cn, v, title, "Restore", path, func() { run(&tool) })
+		}
+	})
 }
 
 func (b *backupDialog) addLine(line string) {
@@ -198,6 +244,10 @@ func (a *App) backupView(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	e := b.conn.Config.Engine
 	formats := db.BackupFormats(e)
+	note := backupNote(e, b.restore)
+	if !b.restore && b.conn.DB != nil && db.MysqldumpChecksCAOnly(b.conn.DB) {
+		note += " Through the tunnel or proxy, verify-full checks the server's certificate against the CA file only, not the server's name, which mysqldump cannot be told."
+	}
 	ui.Modal(c, &b.open, func() {
 		ui.Column(c).Width(620).Gap(12).Children(func() {
 			title := "Back Up " + b.what()
@@ -235,7 +285,7 @@ func (a *App) backupView(c *ui.Context) {
 							a.choosePath(b)
 						}
 					})
-				}).Description(backupNote(e, b.restore))
+				}).Description(note)
 			})
 			if len(b.lines) > 0 {
 				ui.Scroll(c).MaxHeight(160).Radius(6).Background(pal.EditorBg).Children(func() {
@@ -285,7 +335,7 @@ func (a *App) backupView(c *ui.Context) {
 func backupNote(e db.Engine, restore bool) string {
 	switch {
 	case restore && e == db.DuckDB:
-		return "IMPORT DATABASE makes the folder's tables in the database, which must not have them."
+		return "IMPORT DATABASE reads the folder in a DuckDB of its own, which reaches no file outside it; what it makes is then copied into the database, which must not have its tables."
 	case restore && e == db.Postgres:
 		return "A .dump of pg_dump, or a SQL file."
 	case restore && e == db.SQLite:

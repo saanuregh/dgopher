@@ -103,6 +103,28 @@ func TestScriptStopsOrContinues(t *testing.T) {
 	}
 }
 
+// With errors skipped, the statements after a failed one run, and each
+// shows its own outcome.
+func TestScriptContinuesPastFailedWrite(t *testing.T) {
+	a := newFakeQueryHost(t)
+	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1000, 700)
+	q := newEditor(t, a, tt, cn, "SELECT * FROM missing;\nCREATE TABLE t (a int);\nINSERT INTO t VALUES (1);\nSELECT count(*) AS n FROM t;")
+	a.Settings().ContinueOnError = true
+	runWith(t, tt, q, "SELECT *", RunScript)
+	if len(q.results) != 4 || q.results[0].err == "" {
+		t.Fatalf("%d results", len(q.results))
+	}
+	for _, r := range q.results[1:] {
+		if r.err != "" {
+			t.Fatalf("%s: %s", r.sql, r.err)
+		}
+	}
+	if q.results[2].affected != 1 {
+		t.Fatalf("INSERT affected %d", q.results[2].affected)
+	}
+}
+
 // Two statements on adjacent lines run in one step, each with its own
 // result, as a script and as a selection.
 func TestScriptTwoSelectsTwoResults(t *testing.T) {

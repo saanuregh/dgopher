@@ -378,7 +378,7 @@ func (s *Session) ApplyEdits(ctx context.Context, stmts []Statement, each func(i
 			// Even when ctx has ended, which stopped the statements.
 			rollback, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
-			if rerr := s.Rollback(rollback); rerr != nil && !errors.Is(rerr, ErrTxLost) {
+			if rerr := s.Rollback(rollback); rerr != nil && !errors.Is(rerr, ErrTxLost) && !errors.Is(rerr, ErrSessionReset) {
 				err = fmt.Errorf("%w\nThe rollback failed too: %v", err, rerr)
 			}
 		}

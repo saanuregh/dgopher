@@ -10,7 +10,7 @@ SQLite file, `.dgopher/state.sqlite`.
 | --- | --- | --- |
 | `dgopher.json` | committed | connections without passwords, snippets, and the queries folder |
 | `queries/**/*.sql` | committed | SQL files, each starting with `-- connection: <id>` |
-| `.dgopher/.gitignore` | ignored | `*`: the folder ignores itself, so your `.gitignore` is never touched |
+| `.dgopher/.gitignore` | ignored | `*`: the folder ignores itself, so your `.gitignore` is never touched; written again on each open if it holds anything else |
 | `.dgopher/state.sqlite` | ignored | the project's state (with SQLite's `-wal` and `-shm` files beside it), described below |
 | `.dgopher/*.migrated` | ignored | the files an older DGopher kept this state in, set aside once imported; delete them when you like |
 | `.dgopher/sample.sqlite` | ignored | the sample database, if you made it in this project |
@@ -33,6 +33,17 @@ they are, and the project says why.
 A database file you put in the project yourself, such as `data/app.db`, is
 yours to commit or ignore.
 
+A project's state reopens only what is inside the project: editors,
+dashboards and data models whose files are outside its folder (after `..`,
+absolute paths and symbolic links are resolved; a link whose target is
+missing counts as outside), or under its `.git/` or `.dgopher/`, are
+skipped, so a cloned repository that ships its own `.dgopher/` cannot open
+your other files. An editor you opened on a script outside the project does
+not come back after a restart. A `.dgopher` that is a symbolic link stops
+the project from opening. Keeping your text over a changed file outside the
+project, or a link to one, asks first, showing its full path and where the
+link points.
+
 **The app's config directory** holds only what is about the app, not a
 project: `~/.config/dgopher` on Linux, `~/Library/Application
 Support/dgopher` on macOS, and `%AppData%\dgopher` on Windows.
@@ -40,7 +51,7 @@ Support/dgopher` on macOS, and `%AppData%\dgopher` on Windows.
 
 | File | What |
 | --- | --- |
-| `settings.json` | preferences, the project folders in the sidebar, and the connections you trusted |
+| `settings.json` | preferences, the project folders in the sidebar, and the connections you trusted, with what you agreed to (no secrets) to mark what a pull changes |
 | `known_hosts` | SSH hosts trusted in the app (`~/.ssh/known_hosts` is also read) |
 
 Trust stays here, not in the project, so that a cloned repository cannot
@@ -65,13 +76,25 @@ Without the file, as when it cannot be written, the layout lasts the run.
 **Passwords** are never in either place: see
 [Secrets](safety.md#secrets).
 - A keychain password is kept for where it was typed for: the engine,
-  host, port, user and database, and the SSH tunnel. If a pulled `dgopher.json` points a connection somewhere
-  else, the app asks again rather than send the stored password there.
+  host, port, user and database, the SSH tunnel, the Redis topology, and,
+  when set, the client certificate, jump hosts, proxy, cloud identity and
+  clear-text mode; a proxy's password for the proxy too. If a pulled
+  `dgopher.json` points a connection somewhere else, or through a new proxy,
+  the app finds no password for it and sends none, rather than send the
+  stored one there; enter it in the connection's form. A password kept
+  before these fields joined is asked for once, and can be kept again.
 - Environment variables must be named `DGOPHER_*`, so a cloned repository
-  cannot have the app send, say, `GITHUB_TOKEN` to a host of its choice.
+  cannot have the app send, say, `GITHUB_TOKEN` to a host of its choice. A
+  password command is shown and asked for before it first runs, so a
+  repository can have one print a variable only with your agreement.
 - A connection you make or edit in the app is trusted as you save it.
   Before the first connect of one that arrived in `dgopher.json` from
-  someone else, and whenever a pull changes where it goes (engine, host,
-  port, user, database or tunnel), how safely (TLS mode or CA file), or
-  where its password comes from (variable or command), the app shows the
-  destination and the exact command, and asks.
+  someone else, the app lists where it goes and how safely, and asks: the
+  server, TLS and whether it is verified, the CA file, a client certificate,
+  a proxy, SSH and jump hosts, where the password comes from (a variable, a
+  command's exact text, or a cloud identity's command, which sends a token),
+  clear-text passwords, the environment, read-only and the commit mode. It
+  asks again when a pull changes any of these, marking what changed, or makes
+  the connection protect less (production to staging or development,
+  read-only off, manual commit to auto); a change that protects more is taken
+  as it is.

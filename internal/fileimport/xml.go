@@ -7,11 +7,236 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
+
+	"dgopher/internal/export"
 )
 
 // xmlMaxDepth is how deep an XML file's rows are looked for.
 const xmlMaxDepth = 8
+
+// How deep the elements of an XML file, or of a workbook's part, may
+// nest, and how many name spaces the elements open at once may declare:
+// the XML decoder holds each of them until its element ends.
+const (
+	maxElementDepth   = 10_000
+	maxOpenNamespaces = 10_000
+)
+
+// newTokenReader reads the tokens of r as xml.Decoder's Token does,
+// refusing, as name, elements past nestingLimit's limits.
+func newTokenReader(r io.Reader, name string) xml.TokenReader {
+	return &nestingLimit{next: xml.NewDecoder(&markupLimit{r: r, name: name}).Token, name: name}
+}
+
+// newDecoder is xml.NewDecoder(r) refusing, as name, elements past
+// nestingLimit's limits. It reads raw tokens, so that only the decoder
+// returned translates name spaces and matches end elements; its errors
+// for an end element that does not match, or is missing, say line 1.
+func newDecoder(r io.Reader, name string) *xml.Decoder {
+	return xml.NewTokenDecoder(&nestingLimit{next: xml.NewDecoder(&markupLimit{r: r, name: name}).RawToken, name: name})
+}
+
+// markupLimit reads r, refusing, as name, markup longer than
+// maxTokenSize from its '<' to its end, which the XML decoder holds whole
+// with all its attributes before nestingLimit could count them. Comments,
+// CDATA sections, processing instructions and directives count too: the
+// decoder holds each whole as one token as well. Text between markup,
+// which the decoder holds whole as one token too, is refused past
+// maxTokenSize as well.
+type markupLimit struct {
+	r    io.Reader
+	name string
+	// The markup being read, if any: its kind, its bytes so far, the quote
+	// a value is open in, the depth of '<' in a directive, and the last
+	// bytes seen, which a comment's, CDATA's or instruction's end needs.
+	kind  markupKind
+	size  int
+	attrs int // the attributes of a tag
+	quote byte
+	depth int
+	last  [2]byte
+	// In a directive: how much of "<!--" was just read, whether a comment
+	// is open in it, and that comment's last bytes.
+	opening     int
+	inComment   bool
+	commentLast [2]byte
+	text        int // the bytes of text since the last markup
+}
+
+// maxTagAttributes is the most attributes a tag may have: the decoder
+// takes some 25 bytes of memory for each byte of a tag of many short
+// attributes, so maxTokenSize alone would let one tag take 25 MB. A row
+// takes at most export.ExcelMaxColumns columns anyway.
+const maxTagAttributes = export.ExcelMaxColumns
+
+type markupKind int
+
+const (
+	markupNone markupKind = iota
+	markupOpen            // after '<', its kind not yet known
+	markupTag
+	markupBang // after "<!", a comment, CDATA or directive not yet known
+	markupComment
+	markupCDATA
+	markupInstruction
+	markupDirective
+)
+
+func (m *markupLimit) Read(b []byte) (int, error) {
+	n, err := m.r.Read(b)
+	for _, c := range b[:n] {
+		if m.kind == markupNone {
+			if c == '<' {
+				m.kind, m.size, m.attrs, m.quote, m.depth, m.last = markupOpen, 1, 0, 0, 1, [2]byte{}
+				m.opening, m.inComment, m.text = 0, false, 0
+			} else if m.text++; m.text > maxTokenSize {
+				return n, fmt.Errorf("%s holds a value longer than %d KB", m.name, maxTokenSize>>10)
+			}
+			continue
+		}
+		if m.size++; m.size > maxTokenSize {
+			return n, fmt.Errorf("%s holds a tag longer than %d KB", m.name, maxTokenSize>>10)
+		}
+		switch m.kind {
+		case markupOpen:
+			switch c {
+			case '?':
+				m.kind = markupInstruction
+			case '!':
+				m.kind = markupBang
+			default:
+				m.kind = markupTag
+			}
+		case markupBang:
+			// "<!-" starts a comment, "<![" CDATA, anything else a directive.
+			switch c {
+			case '-':
+				m.kind = markupComment
+			case '[':
+				m.kind = markupCDATA
+			default:
+				m.kind = markupDirective
+				m.directiveByte(c)
+			}
+		case markupTag:
+			if m.tagByte(c); m.attrs > maxTagAttributes {
+				return n, fmt.Errorf("%s holds a tag of more than %d attributes", m.name, maxTagAttributes)
+			}
+		case markupComment:
+			// The '-' after "<!" is not one of the closing "--".
+			if c == '>' && m.last == [2]byte{'-', '-'} && m.size > 6 {
+				m.kind = markupNone
+			}
+		case markupCDATA:
+			if c == '>' && m.last == [2]byte{']', ']'} {
+				m.kind = markupNone
+			}
+		case markupInstruction:
+			if c == '>' && m.last[1] == '?' && m.size > 3 {
+				m.kind = markupNone
+			}
+		case markupDirective:
+			m.directiveByte(c)
+		}
+		m.last = [2]byte{m.last[1], c}
+	}
+	return n, err
+}
+
+// tagByte reads a byte of a start or end tag, which a '>' outside a
+// quoted value ends, counting its attributes by their '='.
+func (m *markupLimit) tagByte(c byte) {
+	switch {
+	case m.quote == 0 && c == '=':
+		m.attrs++
+	case m.quote != 0:
+		if c == m.quote {
+			m.quote = 0
+		}
+	case c == '"' || c == '\'':
+		m.quote = c
+	case c == '>':
+		m.kind = markupNone
+	}
+}
+
+// directiveByte reads a byte of a directive, as <!DOCTYPE …>, which
+// holds quoted values, comments and markup of its own, nested in '<' and
+// '>', as the XML decoder reads it: a comment, from "<!--" outside quotes
+// to "-->", is skipped, whatever it holds.
+func (m *markupLimit) directiveByte(c byte) {
+	if m.inComment {
+		if c == '>' && m.commentLast == [2]byte{'-', '-'} {
+			m.inComment = false
+		}
+		m.commentLast = [2]byte{m.commentLast[1], c}
+		return
+	}
+	if m.opening > 0 {
+		if c == "<!--"[m.opening] {
+			if m.opening++; m.opening == 4 {
+				m.opening, m.inComment, m.commentLast = 0, true, [2]byte{}
+			}
+			return
+		}
+		// Not a comment: the '<' nests, and c is read as any other byte.
+		m.opening = 0
+		m.depth++
+	}
+	switch {
+	case m.quote != 0:
+		if c == m.quote {
+			m.quote = 0
+		}
+	case c == '"' || c == '\'':
+		m.quote = c
+	case c == '<':
+		m.opening = 1
+	case c == '>':
+		if m.depth--; m.depth == 0 {
+			m.kind = markupNone
+		}
+	}
+}
+
+// nestingLimit passes on the tokens next reads until elements nest
+// deeper than maxElementDepth, or those open declare more than
+// maxOpenNamespaces name spaces, before a decoder holds more of them.
+type nestingLimit struct {
+	next     func() (xml.Token, error)
+	name     string
+	declared []int // the name spaces each open element declares
+	spaces   int   // their sum
+}
+
+func (l *nestingLimit) Token() (xml.Token, error) {
+	t, err := l.next()
+	switch t := t.(type) {
+	case xml.StartElement:
+		n := 0
+		for _, a := range t.Attr {
+			if a.Name.Space == "xmlns" || a.Name.Space == "" && a.Name.Local == "xmlns" {
+				n++
+			}
+		}
+		l.declared, l.spaces = append(l.declared, n), l.spaces+n
+		if len(l.declared) > maxElementDepth {
+			return nil, fmt.Errorf("%s nests elements deeper than %d", l.name, maxElementDepth)
+		}
+		if l.spaces > maxOpenNamespaces {
+			return nil, fmt.Errorf("%s declares more than %d name spaces in elements open at once", l.name, maxOpenNamespaces)
+		}
+	case xml.EndElement:
+		// Raw tokens may end an element that never started.
+		if k := len(l.declared); k > 0 {
+			l.spaces -= l.declared[k-1]
+			l.declared = l.declared[:k-1]
+		}
+	}
+	return t, err
+}
 
 // loadXML reads the rows of an XML file into the table src: each element
 // at the rows' path is a row, whose attributes and child elements are its
@@ -26,23 +251,28 @@ func (f *File) loadXML(ctx context.Context, opt Options) error {
 		}
 		f.Rows = path
 	}
+	// The columns first, then the rows, read again, straight into the
+	// table: a file's rows held all at once take many times its size.
 	var names []string
 	index := map[string]int{}
-	var rows []map[string][]string
+	found := false
 	err := xmlRows(f.Path, f.Rows, func(fields map[string][]string, order []string) error {
+		found = true
 		for _, n := range order {
 			if _, ok := index[n]; !ok {
+				if len(names) == export.ExcelMaxColumns {
+					return fmt.Errorf("the elements %s hold more than %d attributes and child elements; an import takes at most %d columns", f.Rows, export.ExcelMaxColumns, export.ExcelMaxColumns)
+				}
 				index[n] = len(names)
 				names = append(names, n)
 			}
 		}
-		rows = append(rows, fields)
 		return ctx.Err()
 	})
 	if err != nil {
 		return err
 	}
-	if len(rows) == 0 {
+	if !found {
 		return fmt.Errorf("no element %s in the file", f.Rows)
 	}
 	if len(names) == 0 {
@@ -53,22 +283,23 @@ func (f *File) loadXML(ctx context.Context, opt Options) error {
 		f.Columns[i] = Column{Name: n, Type: "VARCHAR"}
 	}
 	err = f.createAndAppend(ctx, func(add func([]any) error) error {
-		for _, fields := range rows {
+		return xmlRows(f.Path, f.Rows, func(fields map[string][]string, _ []string) error {
 			vals := make([]any, len(names))
 			for n, vs := range fields {
+				i, ok := index[n]
+				if !ok {
+					return fmt.Errorf("the file changed while it was read")
+				}
 				switch len(vs) {
 				case 1:
-					vals[index[n]] = vs[0]
+					vals[i] = vs[0]
 				default:
 					out, _ := json.Marshal(vs)
-					vals[index[n]] = string(out)
+					vals[i] = string(out)
 				}
 			}
-			if err := add(vals); err != nil {
-				return err
-			}
-		}
-		return nil
+			return add(vals)
+		})
 	})
 	if err != nil || opt.AllText {
 		return err
@@ -89,7 +320,7 @@ func mostRepeated(path string) (string, error) {
 	counts := map[string]int{}
 	var stack []string
 	var structured []bool // whether each open element has attributes or children
-	d := xml.NewDecoder(file)
+	d := newTokenReader(file, filepath.Base(path))
 	for {
 		tok, err := d.Token()
 		if err == io.EOF {
@@ -146,7 +377,7 @@ func xmlRows(path, rows string, each func(fields map[string][]string, order []st
 	// While in a row: the child being read, and its text.
 	child, depth := "", 0
 	var text strings.Builder
-	d := xml.NewDecoder(file)
+	d := newTokenReader(file, filepath.Base(path))
 	for {
 		tok, err := d.Token()
 		if err == io.EOF {
@@ -175,6 +406,9 @@ func xmlRows(path, rows string, each func(fields map[string][]string, order []st
 			if child != "" {
 				if text.Len() > 0 && len(stack) > depth {
 					text.WriteByte(' ') // the texts of grandchildren apart
+				}
+				if text.Len()+len(t) > maxTokenSize {
+					return fmt.Errorf("%s holds a value longer than %d KB in the element %s", filepath.Base(path), maxTokenSize>>10, child)
 				}
 				text.Write(t)
 			}

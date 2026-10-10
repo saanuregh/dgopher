@@ -14,6 +14,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
 	"dgopher/internal/project"
+	"dgopher/internal/sqltext"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/widgets"
@@ -644,7 +645,11 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 			case connection.StatusConnecting:
 				ui.Spinner(c).Size(12, 12)
 			case connection.StatusConnected:
-				ui.Box(c).Size(6, 6).Radius(3).Background(t.Success).Tooltip("Connected " + cn.Version)
+				tip := "Connected " + cn.Version
+				if s := tlsStateOf(cn.DB, cn.KV); s != "" {
+					tip += ", " + s
+				}
+				ui.Box(c).Size(6, 6).Radius(3).Background(t.Success).Tooltip(tip)
 			case connection.StatusFailed:
 				ui.Icon(c, widgets.IconAlert).TextColor(t.Danger).FontSize(12).Tooltip(cn.Err)
 			}
@@ -827,7 +832,7 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			a.renameObject(cn, n.database, obj)
 		}
 		if m.Item("Export Data…").Chosen() {
-			dataview.OpenExport(a, dataview.ExportSource{Conn: cn, Database: n.database, Name: obj.Name, SQL: "SELECT * FROM " + quoted})
+			dataview.OpenExport(a, dataview.ExportSource{Conn: cn, Database: n.database, Schema: obj.Schema, Name: obj.Name, SQL: "SELECT * FROM " + quoted})
 		}
 		if obj.Kind == db.KindTable && m.Item("Copy to Another Database…").Chosen() {
 			a.openCopy(cn, n.database, obj.Schema, []string{obj.Name})
@@ -991,7 +996,7 @@ func (a *App) openExportTables(cn *connection.Conn, database, schema string) {
 			srcs := make([]dataview.ExportSource, len(objs))
 			chosen := make([]bool, len(objs))
 			for i, o := range objs {
-				srcs[i] = dataview.ExportSource{Conn: cn, Database: database, Name: o.Name,
+				srcs[i] = dataview.ExportSource{Conn: cn, Database: database, Schema: o.Schema, Name: o.Name,
 					SQL: "SELECT * FROM " + db.QualifiedName(d.Dialect, o.Schema, o.Name)}
 				chosen[i] = o.Kind == db.KindTable
 			}
@@ -1038,7 +1043,7 @@ func partitionTemplate(d db.Dialect, obj db.Object) string {
 	case "HASH":
 		bounds = "FOR VALUES WITH (MODULUS 4, REMAINDER 0)"
 	}
-	return "-- A new partition of " + obj.Name + ", partitioned by " + obj.Partitioning + ": name it and set its bounds, then run it.\n" +
+	return sqltext.LineComment("A new partition of "+obj.Name+", partitioned by "+obj.Partitioning+": name it and set its bounds, then run it.") + "\n" +
 		"CREATE TABLE " + db.QualifiedName(d, obj.Schema, obj.Name+"_new") + "\n  PARTITION OF " + db.QualifiedName(d, obj.Schema, obj.Name) + "\n  " + bounds + ";\n"
 }
 

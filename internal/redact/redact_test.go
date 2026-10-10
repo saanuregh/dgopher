@@ -1,6 +1,7 @@
 package redact
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -55,6 +56,27 @@ func TestRedactRedisArgs(t *testing.T) {
 	if out := Redis([]string{"CONFIG", "SET", "maxmemory", "1gb"}); !strings.Contains(out, "1gb") {
 		t.Errorf("a setting that is no secret was hidden: %s", out)
 	}
+	for _, c := range []struct {
+		args         []string
+		secret, keep string
+	}{
+		{[]string{"SENTINEL", "SET", "mymaster", "auth-pass", "sentpw1"}, "sentpw1", "SENTINEL SET mymaster auth-pass"},
+		{[]string{"SENTINEL", "SET", "mymaster", "quorum", "2", "auth-pass", "sentpw2"}, "sentpw2", "quorum 2 auth-pass"},
+		{[]string{"SENTINEL", "CONFIG", "SET", "sentinel-pass", "sentpw3"}, "sentpw3", "SENTINEL CONFIG SET sentinel-pass"},
+		{[]string{"ACL", "SETUSER", "bob", "on", "<rmpw44"}, "rmpw44", "ACL SETUSER bob on <"},
+	} {
+		out := Redis(c.args)
+		if strings.Contains(out, c.secret) || !strings.Contains(out, c.keep) {
+			t.Errorf("%q became %s", c.args, out)
+		}
+		text := Secrets(strings.Join(c.args, " "))
+		if strings.Contains(text, c.secret) || !strings.Contains(text, c.keep) {
+			t.Errorf("%q as text became %s", c.args, text)
+		}
+	}
+	if out := Redis([]string{"SENTINEL", "SET", "mymaster", "quorum", "2"}); out != "SENTINEL SET mymaster quorum 2" {
+		t.Errorf("a sentinel setting that is no secret was hidden: %s", out)
+	}
 }
 
 func TestRedactMoreSQL(t *testing.T) {
@@ -70,6 +92,43 @@ func TestRedactMoreSQL(t *testing.T) {
 	} {
 		if out := Secrets(in); strings.Contains(out, secret) {
 			t.Errorf("%q kept its secret: %s", in, out)
+		}
+	}
+	cases := []struct{ in, secret, keep string }{
+		// MySQL and ClickHouse read \' as a quote inside the string.
+		{`CREATE USER u IDENTIFIED BY 'p\'ss w0rd' PASSWORD EXPIRE`, "w0rd", "PASSWORD EXPIRE"},
+		{`CREATE USER u IDENTIFIED WITH sha256_password BY 'p\'ss w0rd' SETTINGS max_threads = 4`, "w0rd", "SETTINGS max_threads = 4"},
+		{`ALTER USER u IDENTIFIED BY "p\"ss w0rd" ACCOUNT LOCK`, "w0rd", "ACCOUNT LOCK"},
+		{`ATTACH 'postgres://u:urlpw77@h/db' AS p (TYPE postgres)`, "urlpw77", "AS p (TYPE postgres)"},
+		{`CREATE SUBSCRIPTION s CONNECTION 'postgresql://rep:subpw99@h:5432/d' PUBLICATION p`, "subpw99", "PUBLICATION p"},
+		{`SELECT 1 -- postgres://u:barepw1@h/db`, "barepw1", "SELECT 1 -- postgres://u:"},
+		{`ATTACH 'host=h user=u passwd=passwd77' AS p (TYPE postgres)`, "passwd77", "AS p (TYPE postgres)"},
+		{`CREATE SECRET az (TYPE azure, CONNECTION_STRING 'DefaultEndpointsProtocol=https;AccountName=acct;AccountKey=azkey123==;')`, "azkey123", "TYPE azure"},
+		{`CREATE SECRET h (TYPE http, EXTRA_HTTP_HEADERS MAP {'Authorization': 'Bearer tok999'})`, "tok999", "TYPE http"},
+		{`CREATE SECRET h (TYPE http, EXTRA_HTTP_HEADERS MAP {'X-Api-Key': 'apikey777'}, SCOPE 's3://b')`, "apikey777", "SCOPE 's3://b'"},
+		{`SELECT * FROM read_csv('x.csv', headers = {'Authorization': 'Bearer tok888'})`, "tok888", "read_csv('x.csv'"},
+		{`ATTACH 'md:my_db?motherduck_token=mdtok55' AS md`, "mdtok55", "AS md"},
+	}
+	for _, engine := range []string{"MaterializedPostgreSQL", "MaterializedMySQL", "S3Queue", "AzureQueue",
+		"icebergS3", "icebergAzure", "icebergHDFS", "icebergS3Cluster", "deltaLakeCluster", "hudiCluster",
+		"ExternalDistributed", "ODBC", "JDBC"} {
+		cases = append(cases, struct{ in, secret, keep string }{
+			"CREATE TABLE t (id UInt64) ENGINE = " + engine + "('h:5432', 'db', 'u', 'engpw42')", "engpw42", "CREATE TABLE t (id UInt64) ENGINE = " + engine + "(",
+		})
+	}
+	for _, c := range cases {
+		if out := Secrets(c.in); strings.Contains(out, c.secret) || !strings.Contains(out, c.keep) {
+			t.Errorf("%q became %s", c.in, out)
+		}
+	}
+	for _, s := range []string{
+		`SELECT 'C:\' AS p, 'it''s' FROM t WHERE x = 'y'`,
+		`SELECT 'https://example.com:8080/a@b' AS link`,
+		`SELECT "connection_string", url FROM t`,
+		`SELECT MAP {'a': 1} AS m`,
+	} {
+		if out := Secrets(s); out != s {
+			t.Errorf("an ordinary query changed: %q became %q", s, out)
 		}
 	}
 }
@@ -113,5 +172,66 @@ func TestError(t *testing.T) {
 	}
 	if got := Error("value >= 10 failed", "SELECT 1"); got != "value >= 10 failed" {
 		t.Errorf("an operator was taken for an ACL password: %q", got)
+	}
+	for _, c := range []struct{ msg, stmt, secret, keep string }{
+		{`Error 1064: near 'IDENTIFIED BY 'p\'ss w0rd' WITH' at line 1`, `CREATE USER u IDENTIFIED BY 'p\'ss w0rd' WITH`, "w0rd", "Error 1064: near"},
+		{`Code: 62. DB::Exception: Syntax error at 'p'ss w0rd SETTING'`, `CREATE USER u IDENTIFIED WITH plaintext_password BY 'p\'ss w0rd' SETTING`, "w0rd", "Code: 62."},
+		{`could not open postgres://u:urlpw77@h/db`, `ATTACH 'postgres://u:urlpw77@h/db' AS p`, "urlpw77", "could not open postgres://u:"},
+		{`password "urlpw77" rejected`, `ATTACH 'postgres://u:urlpw77@h/db' AS p`, "urlpw77", "rejected"},
+		{`could not connect to postgresql://admin:barepw88@db:5432`, `SELECT 1`, "barepw88", "@db:5432"},
+		{`passwd=passwd77 rejected`, `ATTACH 'host=h passwd=passwd77' AS p`, "passwd77", "rejected"},
+		{`invalid key azkey123== for acct`, `CREATE SECRET az (TYPE azure, CONNECTION_STRING 'AccountName=acct;AccountKey=azkey123==;')`, "azkey123", "for acct"},
+		{`HTTP 401 with Bearer tok99999`, `CREATE SECRET h (TYPE http, EXTRA_HTTP_HEADERS MAP {'Authorization': 'Bearer tok99999'})`, "tok99999", "HTTP 401"},
+		{`HTTP 403 with key apikey777`, `CREATE SECRET h (TYPE http, EXTRA_HTTP_HEADERS MAP {'X-Api-Key': 'apikey777'})`, "apikey777", "HTTP 403"},
+		{`invalid token mdtok5555`, `ATTACH 'md:my_db?motherduck_token=mdtok5555'`, "mdtok5555", "invalid token"},
+		{`Code: 36. DB::Exception: in MaterializedPostgreSQL('h:5432', 'db', 'u', 'engpw42')`, `CREATE TABLE t ENGINE = MaterializedPostgreSQL('h:5432', 'db', 'u', 'engpw42')`, "engpw42", "Code: 36."},
+		{`ERR wrong number of arguments in SENTINEL SET mymaster auth-pass sentpw1`, `SENTINEL SET mymaster auth-pass sentpw1`, "sentpw1", "auth-pass"},
+		{`ERR in SENTINEL CONFIG SET sentinel-pass sentpw3`, `SENTINEL CONFIG SET sentinel-pass sentpw3`, "sentpw3", "sentinel-pass"},
+		{`ERR Error in ACL SETUSER modifier '<rmpw44': Syntax error`, `ACL SETUSER bob <rmpw44`, "rmpw44", "Syntax error"},
+	} {
+		if got := Error(c.msg, c.stmt); strings.Contains(got, c.secret) || !strings.Contains(got, c.keep) {
+			t.Errorf("%q became %q", c.msg, got)
+		}
+	}
+}
+
+// A successful statement has no error to hide secrets in.
+func TestErrorEmpty(t *testing.T) {
+	if got := Error("", "ALTER USER app WITH PASSWORD 'hunter2'"); got != "" {
+		t.Errorf("an empty error became %q", got)
+	}
+}
+
+// (?i) folds ſ to s and K (Kelvin) to k: the word checks before the
+// expressions must not skip them.
+func TestSecretsFoldedLetters(t *testing.T) {
+	for in, secret := range map[string]string{
+		"SELECT 'host=h paſsword=foldpw1'":             "foldpw1",
+		"SELECT 'md:db?motherducK_token=foldpw2'":      "foldpw2",
+		"SELECT 'postgres://u:foldpw4@h/db' -- paſswd": "foldpw4",
+	} {
+		if out := Secrets(in); strings.Contains(out, secret) {
+			t.Errorf("%q kept %q: %q", in, secret, out)
+		}
+	}
+}
+
+func largeInsert() string {
+	var b strings.Builder
+	b.WriteString("INSERT INTO customers (id, name, email, note) VALUES ")
+	for i := 0; b.Len() < 600_000; i++ {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		fmt.Fprintf(&b, "(%d, 'Customer %d', 'customer%d@example.com', 'a note about customer %d that is long enough')", i, i, i, i)
+	}
+	return b.String()
+}
+
+func BenchmarkSecretsLargeInsert(b *testing.B) {
+	s := largeInsert()
+	b.ReportAllocs()
+	for b.Loop() {
+		Secrets(s)
 	}
 }

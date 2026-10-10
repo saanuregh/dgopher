@@ -219,7 +219,7 @@ func TestExportTables(t *testing.T) {
 	}
 	n, _ := os.ReadFile(filepath.Join(dir, "n.sql"))
 	m, _ := os.ReadFile(filepath.Join(dir, "m.sql"))
-	if strings.Count(string(n), "INSERT INTO n (") != 100 || strings.Count(string(m), "INSERT INTO m (") != 2 {
+	if strings.Count(string(n), "INSERT INTO \"n\" (") != 100 || strings.Count(string(m), "INSERT INTO \"m\" (") != 2 {
 		t.Fatalf("n.sql:\n%.300s\nm.sql:\n%s", n, m)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "skipped.sql")); err == nil {
@@ -230,5 +230,85 @@ func TestExportTables(t *testing.T) {
 	}
 	if len(a.Events) < 2 || !strings.Contains(a.Events[len(a.Events)-2].Detail, "n.sql") || !strings.Contains(a.Events[len(a.Events)-1].Detail, "m.sql") {
 		t.Fatalf("audit %+v", a.Events)
+	}
+}
+
+// The formula guard is off at first; once chosen, the next export keeps
+// it, and the file's text is guarded.
+func TestFormulaGuardRemembered(t *testing.T) {
+	a, tt, src := exportHost(t)
+	src.SQL, src.Name, src.RowsRead, src.Read = "SELECT '=1+1' AS f, -5 AS n", "guarded", nil, 0
+	OpenExport(a, src)
+	if a.dialogs.export.guard {
+		t.Fatal("the formula guard is on by default")
+	}
+	a.Settings().Export.FormulaGuard = true
+	path := runExportTo(t, a, tt, src, export.CSV, true)
+	data, _ := os.ReadFile(path)
+	if string(data) != "f,n\n'=1+1,-5\n" {
+		t.Fatalf("got %q", data)
+	}
+	if !a.Settings().Export.FormulaGuard {
+		t.Fatal("the formula guard is not kept")
+	}
+	a.dialogs.export = nil
+	OpenExport(a, src)
+	if !a.dialogs.export.guard {
+		t.Fatal("the formula guard is not remembered")
+	}
+}
+
+func TestDuckDBExportStyle(t *testing.T) {
+	cn := &connection.Conn{Config: db.Config{Engine: db.DuckDB}}
+	if got := SQLOptionsFor(cn, "", "t").Engine; got != db.DuckDB {
+		t.Fatalf("DuckDB exports in style %q", got)
+	}
+}
+
+// A source's schema qualifies the table of the SQL INSERTs; cleared, the
+// table goes bare; each table of Export Tables keeps its own schema.
+func TestExportSQLNamesSchema(t *testing.T) {
+	a, tt, src := exportHost(t)
+	src.Schema = "s"
+	path := runExportTo(t, a, tt, src, export.SQL, false)
+	if data, _ := os.ReadFile(path); !strings.Contains(string(data), `INSERT INTO "s"."numbers" (`) {
+		t.Fatalf("with schema:\n%.300s", data)
+	}
+
+	OpenExport(a, src)
+	x := a.dialogs.export
+	x.format, x.all, x.folder, x.schema = string(export.SQL), false, t.TempDir(), ""
+	tt.Frame()
+	path = x.pathOf(src.Name)
+	runExport(a, x)
+	testutil.WaitFor(t, tt, "the export", func() bool { return !x.running })
+	if x.err != "" {
+		t.Fatal(x.err)
+	}
+	if data, _ := os.ReadFile(path); !strings.Contains(string(data), `INSERT INTO "numbers" (`) {
+		t.Fatalf("cleared schema:\n%.300s", data)
+	}
+
+	if _, err := src.Conn.DB.SQL.Exec("CREATE TABLE m (x TEXT); INSERT INTO m VALUES ('a')"); err != nil {
+		t.Fatal(err)
+	}
+	srcs := []ExportSource{
+		{Conn: src.Conn, Schema: "one", Name: "n", SQL: "SELECT * FROM n"},
+		{Conn: src.Conn, Schema: "two", Name: "m", SQL: "SELECT * FROM m"},
+	}
+	OpenExportTables(a, "Export tables", srcs, []bool{true, true})
+	x = a.dialogs.export
+	dir := t.TempDir()
+	x.format, x.folder, x.pattern = string(export.SQL), dir, "${table}"
+	tt.Frame()
+	runExport(a, x)
+	testutil.WaitFor(t, tt, "the export", func() bool { return !x.running })
+	if x.err != "" {
+		t.Fatal(x.err)
+	}
+	n, _ := os.ReadFile(filepath.Join(dir, "n.sql"))
+	m, _ := os.ReadFile(filepath.Join(dir, "m.sql"))
+	if !strings.Contains(string(n), `INSERT INTO "one"."n" (`) || !strings.Contains(string(m), `INSERT INTO "two"."m" (`) {
+		t.Fatalf("n.sql:\n%.300s\nm.sql:\n%s", n, m)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/datamodel"
 	"dgopher/internal/db"
+	"dgopher/internal/sqltext"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 
@@ -233,7 +234,7 @@ func (t *Tab) readSchema(cn *connection.Conn, database, schema string, done func
 		}
 		pool := cn.PoolFor(database)
 		m, rev := t.m, t.rev
-		t.h.Background(func() func() {
+		dataview.BackgroundResetOnPanic(t.h, func() { done(nil, errors.New("stopped on an internal error")) }, func() func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
 			var tables []db.TableDesign
@@ -407,9 +408,9 @@ func (t *Tab) migrationText() (string, bool) {
 		return "", false
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "-- Makes %s like the data model %q.\n", t.result.label, t.m.Name)
+	b.WriteString(sqltext.LineComment(fmt.Sprintf("Makes %s like the data model %q.", t.result.label, t.m.Name)) + "\n")
 	for _, n := range notes {
-		b.WriteString("-- " + n + "\n")
+		b.WriteString(sqltext.LineComment(n) + "\n")
 	}
 	b.WriteString("\n" + ch.Text() + "\n")
 	return b.String(), true

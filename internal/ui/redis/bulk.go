@@ -15,6 +15,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/redact"
 	"dgopher/internal/safety"
+	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo"
@@ -67,24 +68,33 @@ func (r *Tab) openBulk(kind bulkKind) {
 }
 
 // background runs work with a cancel the dialog offers, then its result
-// on the UI thread.
-func (r *Tab) background(b *bulkDialog, work func(ctx context.Context) func()) {
+// on the UI thread. job, when set, says what the work does and what
+// stopping it loses, for quitting and disconnecting to list and stop it
+// (Host.StartJob).
+func (r *Tab) background(b *bulkDialog, job string, work func(ctx context.Context) func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	b.running, b.cancel, b.done, b.err, b.result = true, cancel, 0, "", ""
-	r.a.Background(func() func() {
+	// A panic: the app shows it, and the dialog stops waiting.
+	stopped := func() { b.running, b.cancel, b.err = false, nil, "It stopped on an internal error." }
+	run := func() func() {
 		defer cancel()
 		then := work(ctx)
 		return func() {
 			b.running, b.cancel = false, nil
 			then()
 		}
-	})
+	}
+	if job == "" {
+		dataview.BackgroundResetOnPanic(r.a, stopped, run)
+	} else {
+		dataview.RunJob(r.a, r.conn, job, cancel, stopped, run)
+	}
 }
 
 // countKeys counts the keys matching the pattern, naming a few.
 func (r *Tab) countKeys(b *bulkDialog) {
 	kv, pattern := r.conn.KV, b.pattern
-	r.background(b, func(ctx context.Context) func() {
+	r.background(b, "", func(ctx context.Context) func() {
 		n, sample, err := kv.CountMatching(ctx, pattern, sampleKeys)
 		return func() {
 			if err != nil {
@@ -116,7 +126,8 @@ func (r *Tab) deleteKeys(b *bulkDialog) {
 	preview := "UNLINK each key matching " + pattern + "\n\n" + strings.Join(b.sample, "\n")
 	r.a.AskConfirm(r.conn, v, fmt.Sprintf("Delete %s keys from %s?", widgets.HumanCount(n), cfg.Name), "Delete", preview, func() {
 		kv := r.conn.KV
-		r.background(b, func(ctx context.Context) func() {
+		job := fmt.Sprintf("Deleting the keys matching %s on %s: stopping it keeps the deletions made so far.", pattern, cfg.Name)
+		r.background(b, job, func(ctx context.Context) func() {
 			start := time.Now()
 			gone, err := kv.DeleteMatching(ctx, pattern, func(n int64) { r.a.Post(func() { b.done = n }) })
 			r.a.RecordRun(cfg, audit.KindCommand, cfg.Database, "UNLINK each key matching "+pattern, gone, time.Since(start), err)
@@ -151,7 +162,8 @@ func (r *Tab) chooseExport(b *bulkDialog) {
 
 func (r *Tab) exportKeys(b *bulkDialog) {
 	kv, cfg, pattern, path := r.conn.KV, r.conn.Config, b.pattern, b.path
-	r.background(b, func(ctx context.Context) func() {
+	job := fmt.Sprintf("Exporting the keys matching %s of %s: stopping it removes the file it is writing.", pattern, cfg.Name)
+	r.background(b, job, func(ctx context.Context) func() {
 		start := time.Now()
 		written, skipped, err := exportTo(ctx, kv, pattern, path, func(n int64) { r.a.Post(func() { b.done = n }) })
 		r.a.RecordRun(cfg, audit.KindExport, cfg.Database, "keys matching "+pattern+" to "+path, written, time.Since(start), err)
@@ -205,7 +217,7 @@ func (r *Tab) chooseImport(b *bulkDialog) {
 
 func (r *Tab) readImport(b *bulkDialog, path string) {
 	b.path, b.dumps = path, nil
-	r.background(b, func(context.Context) func() {
+	r.background(b, "", func(context.Context) func() {
 		f, err := os.Open(path)
 		var dumps []db.KeyDump
 		if err == nil {
@@ -251,7 +263,8 @@ func (r *Tab) importKeys(b *bulkDialog) {
 	dumps, replace, path := b.dumps, b.replace, b.path
 	run := func() {
 		kv := r.conn.KV
-		r.background(b, func(ctx context.Context) func() {
+		job := fmt.Sprintf("Importing the keys of %s into %s: stopping it keeps the keys written so far.", filepath.Base(path), cfg.Name)
+		r.background(b, job, func(ctx context.Context) func() {
 			start := time.Now()
 			written, skipped, err := kv.ImportKeys(ctx, dumps, replace, func(n int64) { r.a.Post(func() { b.done = n }) })
 			r.a.RecordRun(cfg, audit.KindImport, cfg.Database, "keys from "+path, written, time.Since(start), err)

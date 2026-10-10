@@ -140,3 +140,47 @@ func TestOpenConcurrently(t *testing.T) {
 		t.Fatalf("history %d", len(h))
 	}
 }
+
+// An older workspace.json naming files outside the project, or under its
+// .git or .dgopher, is imported without them.
+func TestLegacyImportSkipsOutsidePaths(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, ".dgopher")
+	os.MkdirAll(dir, 0o700)
+	os.Symlink(root+"/..", filepath.Join(root, "up"))
+	ws := `{"editors": [{"path": "../x"}, {"path": "/etc/passwd"}, {"path": ".git/config"}, {"path": ".dgopher/x"}, {"path": "up/x"}, {"path": "q/a.sql", "connection": "c"}],
+		"active": 5, "dashboards": ["../d.json", "d.json"], "models": ["/m.json", "m.json"], "files": ["../f.sql", "f.sql"]}`
+	os.WriteFile(filepath.Join(dir, "workspace.json"), []byte(ws), 0o600)
+	d := open(t, dir)
+	var got map[string]any
+	if err := d.LoadJSON("workspace.json", &got); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(got)
+	want := `{"active":0,"dashboards":["d.json"],"editors":[{"connection":"c","path":"q/a.sql"}],"files":["f.sql"],"models":["m.json"]}`
+	if string(b) != want {
+		t.Fatalf("imported %s", b)
+	}
+}
+
+// A symlink whose target is missing is not inside the project, wherever it
+// points, since writing through it would create its target.
+func TestContainsDanglingSymlink(t *testing.T) {
+	dir, outside := t.TempDir(), t.TempDir()
+	os.MkdirAll(filepath.Join(outside, "there"), 0o755)
+	os.WriteFile(filepath.Join(dir, "real.sql"), nil, 0o644)
+	os.Symlink(filepath.Join(outside, "planted.txt"), filepath.Join(dir, "notes.sql"))
+	os.Symlink(filepath.Join(dir, "missing.sql"), filepath.Join(dir, "inward.sql"))
+	os.Symlink("notes.sql", filepath.Join(dir, "chain.sql"))
+	os.Symlink(filepath.Join(outside, "absent"), filepath.Join(dir, "gone"))
+	os.Symlink(filepath.Join(outside, "there"), filepath.Join(dir, "away"))
+	os.Symlink("real.sql", filepath.Join(dir, "alias.sql"))
+	for path, want := range map[string]bool{
+		"notes.sql": false, "inward.sql": false, "chain.sql": false, "gone/x.sql": false, "away/new.sql": false,
+		filepath.Join(dir, "notes.sql"): false, "alias.sql": true, "real.sql": true, "deleted.sql": true, "a/b/c.sql": true,
+	} {
+		if got := Contains(dir, path); got != want {
+			t.Errorf("Contains(%q) = %v", path, got)
+		}
+	}
+}

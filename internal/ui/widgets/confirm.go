@@ -14,7 +14,8 @@ type ConfirmRequest struct {
 	Conn      *connection.Conn
 	Title     string
 	Reasons   []string
-	Preview   string // the statements, as they will run
+	Preview   string          // the statements, as they will run
+	Details   []ConfirmDetail // what the user agrees to, as where a password goes
 	TypeName  bool
 	Typed     string
 	Action    string
@@ -29,6 +30,13 @@ type ConfirmRequest struct {
 	// Answered is set by the buttons: closed otherwise, the request was
 	// cancelled.
 	Answered bool
+}
+
+// ConfirmDetail is a row of what a request asks the user to agree to.
+type ConfirmDetail struct {
+	Label, Value string
+	// Changed marks a row that differs from what the user agreed to last.
+	Changed bool
 }
 
 // ConfirmView draws a request as a dialog, in the colors of the
@@ -54,6 +62,15 @@ func ConfirmView(c *ui.Context, r *ConfirmRequest) {
 				ui.Row(c).Gap(8).AlignItems(ui.Start).Children(func() {
 					ui.Icon(c, IconAlert).TextColor(t.Warning).FontSize(14)
 					ui.Text(c, reason).Grow(1).Shrink(1)
+				})
+			}
+			if len(r.Details) > 0 {
+				ui.Scroll(c).MaxHeight(300).Radius(8).Border(1, t.Border).Children(func() {
+					ui.Column(c).Padding(10).Gap(6).Children(func() {
+						for _, d := range r.Details {
+							detailRow(c, d)
+						}
+					})
 				})
 			}
 			if r.Preview != "" {
@@ -82,7 +99,7 @@ func ConfirmView(c *ui.Context, r *ConfirmRequest) {
 					r.Open, r.Answered = false, true
 					r.OnSkip()
 				}
-				if r.OnRunAll != nil && ui.Button(c, "Run All").Tooltip("Run this and the script's other writes without asking; destructive statements still ask").Clicked() {
+				if r.OnRunAll != nil && ui.Button(c, "Run All").Tooltip("Run this and the script's other writes without asking; destructive statements, and those that commit the open transaction, still ask").Clicked() {
 					r.Open, r.Answered = false, true
 					r.OnRunAll()
 				}
@@ -92,5 +109,22 @@ func ConfirmView(c *ui.Context, r *ConfirmRequest) {
 				}
 			})
 		})
+	})
+}
+
+// detailRow draws a row of a request's details, a changed one in the
+// warning color and said to be changed, which a color alone would not
+// tell everyone.
+func detailRow(c *ui.Context, d ConfirmDetail) {
+	t := c.Theme()
+	pal := PaletteOf(c)
+	ui.Row(c).Gap(8).AlignItems(ui.Start).Children(func() {
+		label := ui.Text(c, d.Label).FontSize(12.5).Width(140).Shrink(0).TextColor(pal.Muted)
+		value := ui.Text(c, d.Value).FontSize(12.5).Grow(1).Shrink(1).Selectable()
+		if d.Changed {
+			label.TextColor(t.Warning).Bold()
+			value.TextColor(t.Warning)
+			ui.Text(c, "changed").FontSize(11).Bold().TextColor(t.Warning).Shrink(0)
+		}
 	})
 }

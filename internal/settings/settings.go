@@ -61,6 +61,21 @@ type Settings struct {
 	// (sharedFingerprint). It is kept here, not in a project, for a
 	// repository not to trust its own servers.
 	TrustedShared []string `json:"trustedShared,omitempty"`
+	// TrustedDetails are the shared connections as the user last agreed
+	// to them, by project folder and connection ID, joined by "\x00": a
+	// later prompt marks what changed since, and a pull that lowers the
+	// care taken with one asks again.
+	TrustedDetails map[string]TrustedDetail `json:"trustedDetails,omitempty"`
+}
+
+// TrustedDetail is a shared connection as the user agreed to it: the
+// "Label: value" rows of where its secrets go and how safely, none a
+// secret, and how carefully the app treats it.
+type TrustedDetail struct {
+	Rows         []string       `json:"rows"`
+	Env          db.Environment `json:"environment"`
+	ReadOnly     bool           `json:"readOnly,omitempty"`
+	ManualCommit bool           `json:"manualCommit,omitempty"`
 }
 
 // Default returns the settings of a first run.
@@ -79,6 +94,9 @@ type ExportPrefs struct {
 	// again, 0 for DefaultExportRowLimit; Unlimited reads every row.
 	RowLimit  int  `json:"rowLimit,omitempty"`
 	Unlimited bool `json:"unlimited,omitempty"`
+	// FormulaGuard prefixes ' to CSV and TSV text a spreadsheet would read
+	// as a formula.
+	FormulaGuard bool `json:"formulaGuard,omitempty"`
 }
 
 // DefaultExportRowLimit is the most rows an export reads by running its

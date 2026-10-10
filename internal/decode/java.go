@@ -138,7 +138,7 @@ func (r *javaReader) content(depth int) (any, error) {
 			return nil, fmt.Errorf("a reference to %#x, which the stream never made", h)
 		}
 		if _, ok := r.handles[i].(*javaClass); ok {
-			return "<class " + r.handles[i].(*javaClass).name + ">", nil
+			return r.names.name("<class ", r.handles[i].(*javaClass).name, ">"), nil
 		}
 		return r.handles[i], nil
 	case tcString, tcLongString:
@@ -158,7 +158,7 @@ func (r *javaReader) content(depth int) (any, error) {
 		if err != nil || c == nil {
 			return nil, err
 		}
-		return "<class " + c.name + ">", nil
+		return r.names.name("<class ", c.name, ">"), nil
 	case tcClass:
 		c, err := r.classDesc(depth)
 		if err != nil {
@@ -183,7 +183,7 @@ func (r *javaReader) content(depth int) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		v := fmt.Sprintf("%s.%v", c.name, name)
+		v := r.names.name(c.name, ".", name)
 		r.handles[h] = v
 		return v, nil
 	case tcArray:
@@ -330,7 +330,7 @@ func (r *javaReader) classDesc(depth int) (*javaClass, error) {
 				if err != nil {
 					return nil, err
 				}
-				f.class = fmt.Sprint(class)
+				f.class = r.names.name(class)
 			}
 			c.fields = append(c.fields, f)
 		}

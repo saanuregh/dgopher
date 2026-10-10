@@ -9,6 +9,7 @@ import (
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -84,7 +85,7 @@ func (t *usersTab) refresh() {
 		return
 	}
 	t.loading = true
-	t.a.Background(func() func() {
+	dataview.BackgroundResetOnPanic(t.a, func() { t.loading = false }, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		accounts, err := db.ListAccounts(ctx, pool.Dialect, pool.SQL)
