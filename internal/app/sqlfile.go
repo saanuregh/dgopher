@@ -330,6 +330,9 @@ func (a *App) confirmSQLFile(x *sqlFileRun) {
 // session of its own. Each is reviewed again: what the survey did not
 // find, as the file changed since, stops it.
 func (a *App) runSQLFile(x *sqlFileRun) {
+	if x.running || x.finished || a.sqlFile != x {
+		return // asked again, or closed while the run was being confirmed
+	}
 	if info, err := os.Stat(x.path); err != nil || info.Size() != x.size || !info.ModTime().Equal(x.modTime) {
 		x.err = "The file changed since it was read: open it again to run it."
 		return

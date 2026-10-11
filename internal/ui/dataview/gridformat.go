@@ -65,6 +65,16 @@ func (g *Grid) SelectionStats(src *Source) string {
 // cellText is a value's text as a cell shows it: its first line, cut to
 // max runes.
 func cellText(s string, max int) string {
+	// A cell is drawn every frame: a long value is read no further than
+	// the runes that can show, and the one past them.
+	n := 0
+	for i := range s {
+		if n > max {
+			s = s[:i]
+			break
+		}
+		n++
+	}
 	if i := strings.IndexAny(s, "\r\n"); i >= 0 {
 		s = s[:i] + " ⏎…"
 	}

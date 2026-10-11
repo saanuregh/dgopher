@@ -101,7 +101,7 @@ func (a *App) historyView(c *ui.Context) {
 		ui.Row(c).Padding(10, 16).Gap(8).BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
 			ui.Text(c, "Enter opens the query in a new editor of its connection.").FontSize(12).TextColor(pal.Muted).Grow(1)
 			if ui.Button(c, "Clear History…").Clicked() {
-				a.closing = &closeRequest{open: true, title: "Clear the query history?", reason: "Every saved query is forgotten.", onClose: func() {
+				a.closing = &closeRequest{open: true, title: "Clear the query history?", reason: "Every saved query is forgotten.", action: "Clear", onClose: func() {
 					h.project.Local.ClearHistory()
 					h.entries = nil
 				}}

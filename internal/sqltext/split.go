@@ -44,20 +44,21 @@ type segment struct {
 	delim string
 }
 
-func splitSegments(rs []rune, d Dialect, o SplitOptions) []segment {
-	return splitTokens(rs, tokenizeRunes(rs, d), d, o, true)
+func splitSegments(rs []rune, d Dialect, q quoting, o SplitOptions) []segment {
+	return splitTokens(rs, tokenizeQuoted(rs, d, q), d, q, o, true)
 }
 
 // splitSegmentsWithoutBodies splits at every ';', routine bodies or not.
-func splitSegmentsWithoutBodies(rs []rune, d Dialect, o SplitOptions) []segment {
-	return splitTokens(rs, tokenizeRunes(rs, d), d, o, false)
+func splitSegmentsWithoutBodies(rs []rune, d Dialect, q quoting, o SplitOptions) []segment {
+	return splitTokens(rs, tokenizeQuoted(rs, d, q), d, q, o, false)
 }
 
-// splitTokens splits toks, which run contiguously to the end of rs. With
-// bodies, a ';' inside a routine body (CREATE PROCEDURE … BEGIN … END and
-// the like) stays in its statement; a body still open at the end of the text
-// is split again without bodies, so an unclosed BEGIN never merges statements.
-func splitTokens(rs []rune, toks []Token, d Dialect, o SplitOptions, bodies bool) []segment {
+// splitTokens splits toks, which run contiguously to the end of rs and
+// were lexed with q, as any text it lexes again is. With bodies, a ';'
+// inside a routine body (CREATE PROCEDURE … BEGIN … END and the like) stays
+// in its statement; a body still open at the end of the text is split again
+// without bodies, so an unclosed BEGIN never merges statements.
+func splitTokens(rs []rune, toks []Token, d Dialect, q quoting, o SplitOptions, bodies bool) []segment {
 	var out []segment
 	var cur []Token
 	delimiter := []rune(";")
@@ -93,21 +94,21 @@ func splitTokens(rs []rune, toks []Token, d Dialect, o SplitOptions, bodies bool
 				out = append(out, segment{toks: line, directive: true, bodyEnd: -1, delim: string(delim)})
 				reset()
 				delimiter = delim
-				toks, i = resumeAt(rs, toks[i:], lineEnd, d), -1
+				toks, i = resumeAt(rs, toks[i:], lineEnd, d, q), -1
 				continue
 			}
 		}
 		if string(delimiter) != ";" {
-			if q := findDelimiter(rs, toks, i, delimiter); q >= 0 {
-				if q > t.Start {
+			if at := findDelimiter(rs, toks, i, delimiter); at >= 0 {
+				if at > t.Start {
 					// Not lexed again: Format must write "END$$" back unchanged.
-					cur = append(cur, Token{Kind: t.Kind, Start: t.Start, End: q, Text: string(rs[t.Start:q])})
+					cur = append(cur, Token{Kind: t.Kind, Start: t.Start, End: at, Text: string(rs[t.Start:at])})
 				}
-				end := q + len(delimiter)
-				cur = append(cur, Token{Kind: Punct, Start: q, End: end, Text: string(delimiter)})
+				end := at + len(delimiter)
+				cur = append(cur, Token{Kind: Punct, Start: at, End: end, Text: string(delimiter)})
 				out = append(out, segment{toks: cur, delimited: true, bodyEnd: -1, delim: string(delimiter)})
 				reset()
-				toks, i = resumeAt(rs, toks[i:], end, d), -1
+				toks, i = resumeAt(rs, toks[i:], end, d, q), -1
 				continue
 			}
 			if t.Kind != Whitespace || len(cur) > 0 {
@@ -199,7 +200,7 @@ func splitTokens(rs []rune, toks []Token, d Dialect, o SplitOptions, bodies bool
 		if openBodies > 0 {
 			again := o
 			again.Delimiter = string(delimiter)
-			out = append(out, splitTokens(rs, cur, d, again, false)...)
+			out = append(out, splitTokens(rs, cur, d, q, again, false)...)
 		} else {
 			closeSegment(false)
 		}
@@ -399,8 +400,8 @@ func findDelimiter(rs []rune, toks []Token, i int, delim []rune) int {
 }
 
 // tokenizeAt tokenizes rs[from:to] with offsets into rs.
-func tokenizeAt(rs []rune, from, to int, d Dialect) []Token {
-	toks := tokenizeRunes(rs[from:to], d)
+func tokenizeAt(rs []rune, from, to int, d Dialect, q quoting) []Token {
+	toks := tokenizeQuoted(rs[from:to], d, q)
 	for i := range toks {
 		toks[i].Start += from
 		toks[i].End += from
@@ -412,7 +413,7 @@ func tokenizeAt(rs []rune, from, to int, d Dialect) []Token {
 // (which run to the end of rs) when p is a token boundary or inside
 // whitespace, and lexing again otherwise. It may overwrite one element of
 // toks, which the caller no longer reads.
-func resumeAt(rs []rune, toks []Token, p int, d Dialect) []Token {
+func resumeAt(rs []rune, toks []Token, p int, d Dialect, q quoting) []Token {
 	for k, t := range toks {
 		if t.End <= p {
 			continue
@@ -429,7 +430,7 @@ func resumeAt(rs []rune, toks []Token, p int, d Dialect) []Token {
 	if p >= len(rs) {
 		return nil
 	}
-	return tokenizeAt(rs, p, len(rs), d)
+	return tokenizeAt(rs, p, len(rs), d, q)
 }
 
 // SplitWith splits on ';' outside strings, comments, quoted identifiers and
@@ -444,7 +445,7 @@ func resumeAt(rs []rune, toks []Token, p int, d Dialect) []Token {
 func SplitWith(src string, d Dialect, o SplitOptions) []Statement {
 	rs := []rune(src)
 	var out []Statement
-	for _, seg := range splitSegments(rs, d, o) {
+	for _, seg := range splitSegments(rs, d, defaultQuoting(d), o) {
 		if seg.directive {
 			continue
 		}

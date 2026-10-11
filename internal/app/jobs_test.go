@@ -207,6 +207,55 @@ func TestSQLFileProductionNeedsTypedName(t *testing.T) {
 	}
 }
 
+// A question asked from a dialog shows above it: a click where the Run SQL
+// File dialog's Cancel is reaches the confirmation, not the dialog.
+func TestQuestionAboveSQLFileDialog(t *testing.T) {
+	a, tt, cn, _ := liteApp(t, db.Production)
+	path := writeSQL(t, "writes.sql", "CREATE TABLE p (a int);\nINSERT INTO p VALUES (1);\n")
+	a.startSQLFileRun(cn, "", path, "")
+	x := a.sqlFile
+	testutil.WaitFor(t, tt, "the survey", func() bool { return !x.reading })
+	tt.Frame()
+	cancel, ok := tt.Find("Cancel")
+	if !ok {
+		t.Fatal("no Cancel in the Run SQL File dialog")
+	}
+	a.confirmSQLFile(x)
+	tt.Frame()
+	tt.ClickAt(cancel.X+cancel.W/2, cancel.Y+cancel.H/2)
+	tt.Frame()
+	if !x.open || a.sqlFile != x {
+		t.Fatal("the click reached the Run SQL File dialog under the confirmation")
+	}
+}
+
+// Run clicked again while its confirmation shows, then both confirmations
+// answered, runs the file once.
+func TestSQLFileRunsOnce(t *testing.T) {
+	a, tt, cn, _ := liteApp(t, db.Production)
+	path := writeSQL(t, "writes.sql", "CREATE TABLE IF NOT EXISTS p (a int);\nINSERT INTO p VALUES (1);\n")
+	a.startSQLFileRun(cn, "", path, "")
+	x := a.sqlFile
+	testutil.WaitFor(t, tt, "the survey", func() bool { return !x.reading })
+	a.confirmSQLFile(x)
+	a.confirmSQLFile(x)
+	tt.Frame()
+	for a.confirm != nil {
+		r := a.confirm
+		r.OnConfirm()
+		r.Open, r.Answered = false, true
+		tt.Frame()
+	}
+	testutil.WaitFor(t, tt, "the run", func() bool { return !x.running })
+	// A confirmation answered once the run finished runs nothing either.
+	a.runSQLFile(x)
+	testutil.WaitFor(t, tt, "the run", func() bool { return !x.running })
+	var n int
+	if err := cn.DB.SQL.QueryRow(`SELECT count(*) FROM p`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("the file ran into %d rows (%v)", n, err)
+	}
+}
+
 // The survey follows the transactions a MySQL file begins and ends itself:
 // a statement inside one that commits it implicitly, as CREATE INDEX does,
 // makes the run ask first, by its line and the BEGIN's. It reads only the

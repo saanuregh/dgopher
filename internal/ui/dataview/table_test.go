@@ -152,16 +152,16 @@ func TestApplyInsideOpenTransaction(t *testing.T) {
 	// The first apply opens the transaction (manual commit), the second
 	// runs inside it and fails on the unique email.
 	tb.view.grid.setValue(&tb.view.src, 0, 1, db.Typed("Changed once"))
-	stmts, _ := tb.view.changes()
-	tb.view.apply(stmts)
+	stmts, shown, _ := tb.view.changeStatements()
+	tb.view.apply(stmts, shown)
 	testutil.WaitFor(t, tt, "first apply", func() bool { return !tb.view.applying && !tb.view.loading })
 	if tb.Tx != db.TxOpen {
 		t.Fatalf("tx %v after the first apply", tb.Tx)
 	}
 	tb.view.grid.setValue(&tb.view.src, 1, 1, db.Typed("Changed twice"))
 	tb.view.grid.setValue(&tb.view.src, 2, 2, db.Typed(db.Display(tb.view.src.Rows[3][2]))) // a duplicate email
-	stmts, _ = tb.view.changes()
-	tb.view.apply(stmts)
+	stmts, shown, _ = tb.view.changeStatements()
+	tb.view.apply(stmts, shown)
 	testutil.WaitFor(t, tt, "second apply", func() bool { return !tb.view.applying })
 	if len(a.Errors) == 0 {
 		t.Fatal("a failing apply reported no error")
@@ -229,11 +229,11 @@ func TestDuckDBApplyInsideTxRefused(t *testing.T) {
 	apply := func(tb *TableTab, row int, label string) {
 		t.Helper()
 		tb.view.grid.setValue(&tb.view.src, row, 1, db.Typed(label))
-		stmts, err := tb.view.changes()
+		stmts, shown, err := tb.view.changeStatements()
 		if err != nil {
 			t.Fatal(err)
 		}
-		tb.view.apply(stmts)
+		tb.view.apply(stmts, shown)
 		testutil.WaitFor(t, tt, "the apply", func() bool { return !tb.view.applying && !tb.view.loading })
 	}
 	refused := func(tb *TableTab, want ...string) {
@@ -295,11 +295,11 @@ func TestStoppedEndTxReadsTxAgain(t *testing.T) {
 	a.AddTab(tb)
 	testutil.WaitFor(t, tt, "rows", func() bool { return tb.view.src.Rows != nil && tb.columns != nil && !tb.view.loading && tb.sess != nil })
 	tb.view.grid.setValue(&tb.view.src, 0, 1, db.Typed("uno"))
-	stmts, err := tb.view.changes()
+	stmts, shown, err := tb.view.changeStatements()
 	if err != nil {
 		t.Fatal(err)
 	}
-	tb.view.apply(stmts) // opens the tab's transaction (manual commit)
+	tb.view.apply(stmts, shown) // opens the tab's transaction (manual commit)
 	testutil.WaitFor(t, tt, "the apply", func() bool { return !tb.view.applying && !tb.view.loading })
 	if tb.Tx != db.TxOpen {
 		t.Fatalf("tx %v, errors %q", tb.Tx, a.Errors)

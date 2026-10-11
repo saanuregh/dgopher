@@ -66,23 +66,24 @@ var sideEffectFunctions = map[Dialect]map[string]bool{
 const maxCodeDepth = 8
 
 // reading follows Classify into code quoted as strings: how many quotes
-// deep the code at hand is, and how many runes are left to read across
-// every level of one Classify call.
+// deep the code at hand is, how many runes are left to read across
+// every level of one Classify call, and how its strings are quoted.
 type reading struct {
 	depth int
 	left  *int
+	q     quoting
 }
 
 // newReading starts reading a statement of n runes. Legitimate code reads
 // each quoted body once, from the one word that runs it: at most n runes a
 // level and a rune more a body, under 12 n in all over maxCodeDepth levels.
 // Reading more than 16 n + 1024 runes counts as dangerous, unread.
-func newReading(n int) reading {
+func newReading(n int, q quoting) reading {
 	left := 16*n + 1024
-	return reading{left: &left}
+	return reading{left: &left, q: q}
 }
 
-func (r reading) deeper() reading { return reading{depth: r.depth + 1, left: r.left} }
+func (r reading) deeper() reading { return reading{depth: r.depth + 1, left: r.left, q: r.q} }
 
 // readOnlyPragmas are the SQLite and DuckDB pragmas that only report.
 var readOnlyPragmas = setOf("table_info table_xinfo index_list index_info index_xinfo foreign_key_list database_list compile_options function_list pragma_list collation_list module_list table_list show_tables show_tables_expanded database_size version storage_info")
@@ -108,10 +109,110 @@ func setOf(words string) map[string]bool {
 // A statement also keeps the danger of the code it holds: a PostgreSQL DO
 // block's or routine's body quoted as a string, the strings EXECUTE runs
 // there, a rule's action and the statement PREPARE prepares.
+//
+// A session or server setting can change where a string ends, so the text
+// is read under each quoting rule its engine can switch to, and the
+// strictest reading counts.
 func Classify(stmt string, d Dialect) Analysis {
+	return classifyEachQuoting(stmt, d, false)
+}
+
+// ClassifyExecutable is Classify of what MySQL runs: its executable
+// comments unwrapped as each quoting rule reads where strings end. Other
+// dialects have none.
+func ClassifyExecutable(stmt string, d Dialect) Analysis {
+	return classifyEachQuoting(stmt, d, d == MySQL)
+}
+
+// TokenizeExecutable is Tokenize under each quoting rule
+// ClassifyExecutable reads stmt with, the default first, MySQL's executable
+// comments unwrapped as that rule reads them.
+func TokenizeExecutable(stmt string, d Dialect) [][]Token {
+	var out [][]Token
+	for _, q := range quotingVariants(d, stmt) {
+		text := stmt
+		if d == MySQL {
+			text = unwrapExecutable(stmt, q)
+		}
+		out = append(out, tokenizeQuoted([]rune(text), d, q))
+	}
+	return out
+}
+
+// classifyEachQuoting classifies stmt under each of quotingVariants, its
+// executable comments unwrapped first when unwrap is set, and returns the
+// strictest of each part: the highest class any reading gives, with its
+// verb, and the danger any reading finds, with its reason, as the policy
+// reads the class and the danger apart. The default reading wins a tie.
+func classifyEachQuoting(stmt string, d Dialect, unwrap bool) Analysis {
+	var strictest Analysis
+	for k, q := range quotingVariants(d, stmt) {
+		text := stmt
+		if unwrap {
+			text = unwrapExecutable(stmt, q)
+		}
+		a := classifyQuoted(text, d, q)
+		if k == 0 {
+			strictest = a
+			continue
+		}
+		if classRank(a.Class) > classRank(strictest.Class) {
+			strictest.Class, strictest.Verb = a.Class, a.Verb
+		}
+		if a.Dangerous && !strictest.Dangerous {
+			strictest.Dangerous, strictest.Reason = true, a.Reason
+		}
+	}
+	return strictest
+}
+
+// quotingVariants lists the quoting rules d can be switched to that could
+// read stmt differently, the default first: PostgreSQL's
+// standard_conforming_strings off, MySQL's NO_BACKSLASH_ESCAPES and
+// ANSI_QUOTES. Only a '\' or, for ANSI_QUOTES, a '"' can make them differ.
+func quotingVariants(d Dialect, stmt string) []quoting {
+	def := defaultQuoting(d)
+	out := []quoting{def}
+	backslash, double := strings.Contains(stmt, `\`), strings.Contains(stmt, `"`)
+	switch d {
+	case Postgres:
+		if backslash {
+			out = append(out, quoting{backslashes: true})
+		}
+	case MySQL:
+		if backslash {
+			out = append(out, quoting{backslashes: false})
+		}
+		if double {
+			out = append(out, quoting{backslashes: true, ansiQuotes: true})
+		}
+		if backslash && double {
+			out = append(out, quoting{backslashes: false, ansiQuotes: true})
+		}
+	}
+	return out
+}
+
+// classRank orders classes by what they change, least first.
+func classRank(c Class) int {
+	switch c {
+	case Read:
+		return 0
+	case Session:
+		return 1
+	case Transaction:
+		return 2
+	case Write:
+		return 3
+	}
+	return 4 // DDL
+}
+
+// classifyQuoted is Classify under the one quoting rule q.
+func classifyQuoted(stmt string, d Dialect, q quoting) Analysis {
 	rs := []rune(stmt)
 	o := SplitOptions{Mode: SemicolonOnly}
-	segs := splitSegments(rs, d, o)
+	segs := splitSegments(rs, d, q, o)
 	first, count := statementCode(segs)
 	if count == 0 {
 		if strings.TrimSpace(stmt) == "" {
@@ -119,12 +220,12 @@ func Classify(stmt string, d Dialect) Analysis {
 		}
 		return Analysis{Class: Write, Dangerous: false}
 	}
-	r := newReading(len(rs))
+	r := newReading(len(rs), q)
 	a := classifyTokens(first, d, r)
 	if count == 1 {
 		for _, seg := range segs {
 			if bodyHidesStatement(seg, d) {
-				if _, n := statementCode(splitSegmentsWithoutBodies(rs, d, o)); n > count {
+				if _, n := statementCode(splitSegmentsWithoutBodies(rs, d, q, o)); n > count {
 					count = n
 				}
 			}
@@ -141,7 +242,7 @@ func Classify(stmt string, d Dialect) Analysis {
 	// Read as statements, a routine's text keeps the danger of what it
 	// holds: the body may be a name the splitter took for one.
 	if !a.Dangerous {
-		if stmts := statementsCode(splitSegmentsWithoutBodies(rs, d, o)); len(stmts) > 1 {
+		if stmts := statementsCode(splitSegmentsWithoutBodies(rs, d, q, o)); len(stmts) > 1 {
 			if inner, ok := dangerInside(stmts, d, r); ok {
 				a.Dangerous = true
 				a.Reason = routineHolds + inner.Reason
@@ -199,7 +300,7 @@ func codeDanger(code string, d Dialect, r reading) (Analysis, bool) {
 	if *r.left -= len(rs) + 1; *r.left < 0 {
 		return Analysis{Class: Write, Dangerous: true, Reason: "it holds too much code to check"}, true
 	}
-	stmts := statementsCode(splitSegmentsWithoutBodies(rs, d, SplitOptions{Mode: SemicolonOnly}))
+	stmts := statementsCode(splitSegmentsWithoutBodies(rs, d, r.q, SplitOptions{Mode: SemicolonOnly}))
 	if len(stmts) == 0 {
 		return Analysis{}, false
 	}
@@ -217,7 +318,7 @@ func codeDanger(code string, d Dialect, r reading) (Analysis, bool) {
 			if hasWord(toks, "UESCAPE") {
 				return Analysis{Class: Write, Dangerous: true, Reason: uescapeReason}, true
 			}
-			if a, ok := codeDanger(executedText(toks[j+1:], d), d, r.deeper()); ok {
+			if a, ok := codeDanger(executedText(toks[j+1:], d, r.q), d, r.deeper()); ok {
 				return a, true
 			}
 		}
@@ -239,7 +340,7 @@ func hasWord(toks []Token, w string) bool {
 // executedText returns the text a PL/pgSQL EXECUTE runs, from toks, which
 // start with a string, up to its INTO, USING or LOOP: the strings joined
 // with ||, any other operand standing as a name.
-func executedText(toks []Token, d Dialect) string {
+func executedText(toks []Token, d Dialect, q quoting) string {
 	dep := depths(toks)
 	var b strings.Builder
 	start := 0
@@ -255,7 +356,7 @@ func executedText(toks []Token, d Dialect) string {
 			continue
 		}
 		if operand := toks[start:i]; len(operand) == 1 && operand[0].Kind == String {
-			b.WriteString(codeText(operand[0], d))
+			b.WriteString(codeText(operand[0], d, q))
 		} else {
 			b.WriteString(" x ")
 		}
@@ -273,7 +374,7 @@ func executedText(toks []Token, d Dialect) string {
 func doDanger(toks []Token, d Dialect, r reading) (Analysis, bool) {
 	i := 0
 	if i+1 < len(toks) && word(toks[i]) == "LANGUAGE" {
-		if !sqlLanguage(toks[i+1], d) {
+		if !sqlLanguage(toks[i+1], d, r.q) {
 			return Analysis{}, false
 		}
 		i += 2
@@ -281,7 +382,7 @@ func doDanger(toks []Token, d Dialect, r reading) (Analysis, bool) {
 	if i >= len(toks) || toks[i].Kind != String {
 		return Analysis{}, false
 	}
-	if i+2 < len(toks) && word(toks[i+1]) == "LANGUAGE" && !sqlLanguage(toks[i+2], d) {
+	if i+2 < len(toks) && word(toks[i+1]) == "LANGUAGE" && !sqlLanguage(toks[i+2], d, r.q) {
 		return Analysis{}, false
 	}
 	return bodyDanger(toks, i, d, r)
@@ -303,7 +404,7 @@ func routineDanger(toks []Token, d Dialect, r reading) (Analysis, bool) {
 			break
 		}
 		switch {
-		case word(t) == "LANGUAGE" && i+1 < len(toks) && !sqlLanguage(toks[i+1], d):
+		case word(t) == "LANGUAGE" && i+1 < len(toks) && !sqlLanguage(toks[i+1], d, r.q):
 			return Analysis{}, false
 		case body < 0 && t.Kind == String && word(toks[i-1]) == "AS":
 			body = i
@@ -332,16 +433,16 @@ func bodyDanger(toks []Token, i int, d Dialect, r reading) (Analysis, bool) {
 	if i+1 < len(toks) && word(toks[i+1]) == "UESCAPE" {
 		return Analysis{Class: Write, Dangerous: true, Reason: uescapeReason}, true
 	}
-	return codeDanger(codeText(toks[i], d), d, r.deeper())
+	return codeDanger(codeText(toks[i], d, r.q), d, r.deeper())
 }
 
 // sqlLanguage reports whether a LANGUAGE's name is SQL or PL/pgSQL, whose
 // code reads as SQL.
-func sqlLanguage(t Token, d Dialect) bool {
+func sqlLanguage(t Token, d Dialect, q quoting) bool {
 	name := t.Text
 	switch t.Kind {
 	case String:
-		name = codeText(t, d)
+		name = codeText(t, d, q)
 	case QuotedIdent:
 		name = DecodeQuoted(t.Text, d)
 	}
@@ -350,9 +451,9 @@ func sqlLanguage(t Token, d Dialect) bool {
 }
 
 // codeText returns the text a string token quotes, to be read as code: a
-// dollar quote without its tags, a MySQL string with its backslash escapes
-// decoded, others as DecodeQuoted decodes them.
-func codeText(t Token, d Dialect) string {
+// dollar quote without its tags, a string whose backslashes q reads as
+// escapes with them decoded, others as DecodeQuoted decodes them.
+func codeText(t Token, d Dialect, q quoting) string {
 	s := t.Text
 	switch {
 	case strings.HasPrefix(s, "$"):
@@ -363,7 +464,12 @@ func codeText(t Token, d Dialect) string {
 		tag := s[:end+2]
 		return strings.TrimSuffix(s[len(tag):], tag)
 	case d == MySQL && (strings.HasPrefix(s, "'") || strings.HasPrefix(s, `"`)):
+		if !q.backslashes {
+			return unquoteText(s)
+		}
 		return decodeBackslashQuoted(s, mysqlEscape)
+	case d == Postgres && q.backslashes && strings.HasPrefix(s, "'"):
+		return decodeBackslashQuoted(s, postgresEscape)
 	}
 	return DecodeQuoted(s, d)
 }

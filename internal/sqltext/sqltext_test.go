@@ -44,6 +44,9 @@ func TestTokenize(t *testing.T) {
 		{"block comment", Generic, "/* x */a", []Kind{Comment, Identifier}},
 		{"pg nested block", Postgres, "/* a /* b */ c */x", []Kind{Comment, Identifier}},
 		{"generic not nested", Generic, "/* a /* b */ c", []Kind{Comment, Identifier}},
+		{"mysql comment ends at its first close", MySQL, "/*@/*/x", []Kind{Comment, Identifier}},
+		{"sqlite comment ends at its first close", SQLite, "/*/*/x", []Kind{Comment, Identifier}},
+		{"pg nested opener before a close", Postgres, "/*@/*/x", []Kind{Comment}},
 		{"unterminated block", Postgres, "a /* never", []Kind{Identifier, Comment}},
 		{"hash comment mysql", MySQL, "a # c\nb", []Kind{Identifier, Comment, Identifier}},
 		{"hash comment clickhouse", ClickHouse, "# c", []Kind{Comment}},
@@ -1190,4 +1193,134 @@ func nest(levels int, template, inner string) string {
 		s = strings.ReplaceAll(strings.ReplaceAll(template, "TAG", tag), "INNER", s)
 	}
 	return s
+}
+
+// A session or server can switch how strings are quoted: PostgreSQL's
+// standard_conforming_strings off makes '\' an escape, MySQL's
+// NO_BACKSLASH_ESCAPES makes it a character and its ANSI_QUOTES makes
+// "…" a name. Text is read under every rule its engine can switch to.
+func TestClassifyEscapeModes(t *testing.T) {
+	for _, c := range []struct {
+		d         Dialect
+		src       string
+		read      bool
+		dangerous bool
+	}{
+		{Postgres, `SELECT 'a\' , ' , pg_advisory_lock(1) --'`, false, false},
+		{MySQL, `DELETE FROM t WHERE id = 'a\' OR 1=1 -- '`, false, true},
+		{MySQL, `SELECT "a\" , GET_LOCK('x', 0) FROM (SELECT 1 AS "a\") t -- "`, false, false},
+		{MySQL, `SELECT "a" , GET_LOCK('x', 0) FROM (SELECT 1 AS "a") t`, false, false},
+		{MySQL, `SELECT 'it\'s'`, true, false},
+		{MySQL, `SELECT 'O\'Brien' AS n, 'x' AS m`, true, false},
+		{MySQL, `SELECT * FROM t WHERE a='O\'Brien' AND b='x'`, true, false},
+		{MySQL, `SELECT "it\"s", "x"`, true, false},
+		{Postgres, `SELECT E'a\'b'`, true, false},
+		{Postgres, `SELECT 'C:\path'`, true, false},
+		{Postgres, `SELECT $$a\$$, U&'b\0061'`, true, false},
+	} {
+		a := Classify(c.src, c.d)
+		if (a.Class == Read) != c.read || a.Dangerous != c.dangerous {
+			t.Errorf("%s: got %+v, want read %v dangerous %v", c.src, a, c.read, c.dangerous)
+		}
+		if a.Dangerous && a.Reason == "" {
+			t.Errorf("%s: dangerous without a reason", c.src)
+		}
+	}
+}
+
+// Only a backslash, or on MySQL a double quote, can read differently under
+// another quoting rule: other text is classified once, as it always was.
+func TestQuotingVariants(t *testing.T) {
+	for _, c := range []struct {
+		d    Dialect
+		src  string
+		want int
+	}{
+		{Postgres, `SELECT 'a', "b"`, 1},
+		{Postgres, `SELECT 'a\'`, 2},
+		{MySQL, `SELECT 'a'`, 1},
+		{MySQL, `SELECT 'a\'`, 2},
+		{MySQL, `SELECT "a"`, 2},
+		{MySQL, `SELECT "a\"`, 4},
+		{ClickHouse, `SELECT 'a\'`, 1},
+		{SQLite, `SELECT "a\"`, 1},
+		{Generic, `SELECT "a\"`, 1},
+	} {
+		got := quotingVariants(c.d, c.src)
+		if len(got) != c.want || got[0] != defaultQuoting(c.d) {
+			t.Errorf("%s: %+v, want %d starting with the default", c.src, got, c.want)
+		}
+	}
+	for _, c := range []struct {
+		d   Dialect
+		src string
+	}{
+		{Postgres, "UPDATE t SET a = 1 WHERE id = 1 OR 1 = 1"},
+		{Postgres, "SELECT 1; DELETE FROM t"},
+		{Postgres, "DO $$ BEGIN EXECUTE 'DROP TABLE t'; END $$"},
+		{Postgres, "SELECT pg_advisory_lock(1)"},
+		{MySQL, "CREATE PROCEDURE p() BEGIN SELECT 1; DELETE FROM t; END"},
+		{MySQL, "PREPARE s FROM 'DELETE FROM t'"},
+		{MySQL, "SELECT 'it''s'"},
+		{MySQL, "/*! DELETE FROM t */"},
+		{SQLite, `SELECT [a']; DROP TABLE t; --'`},
+	} {
+		if got, want := Classify(c.src, c.d), classifyQuoted(c.src, c.d, defaultQuoting(c.d)); got != want {
+			t.Errorf("%s: %+v, the default rule reads %+v", c.src, got, want)
+		}
+	}
+}
+
+// MySQL's executable comments are code or text as each quoting rule reads
+// where the strings around them end.
+func TestClassifyExecutableEscapeModes(t *testing.T) {
+	for _, c := range []struct {
+		src  string
+		read bool
+	}{
+		{`SELECT 'a\' /*! , SLEEP(1) */ '`, false},
+		{`SELECT 'a\' /*! INTO OUTFILE '/tmp/x' */ -- '`, false},
+		{`SELECT "a\" /*! , SLEEP(1) */ "`, false},
+		{`SELECT '/*! DELETE FROM t */'`, true},
+		{`SELECT 'it\'s' /*! , 1 */`, true},
+	} {
+		if a := ClassifyExecutable(c.src, MySQL); (a.Class == Read) != c.read {
+			t.Errorf("%s: got %+v, want read %v", c.src, a, c.read)
+		}
+	}
+	src := `SELECT 'a\' /*! , SLEEP(1) */ '`
+	if got := TokenizeExecutable(src, MySQL); len(got) != 2 || !reflect.DeepEqual(got[0], Tokenize(UnwrapExecutable(src), MySQL)) {
+		t.Errorf("TokenizeExecutable: %d readings, the first not the default's", len(got))
+	}
+	if a := ClassifyExecutable(src, Postgres); a != Classify(src, Postgres) {
+		t.Errorf("Postgres has no executable comments: %+v", a)
+	}
+}
+
+// A reading that is dangerous does not take away another's class: the
+// policy reads the class alone too, to refuse writes on read-only
+// connections. Not valid MySQL, but it must not read as less than its
+// default reading does.
+func TestClassifyStrictestKeepsClass(t *testing.T) {
+	src := `WITH x AS (PREPARE s FROM 'DELETE FROM t \''' WHERE id=1') SELECT 1 FOR UPDATE /* ' ) SELECT 1 */`
+	def := classifyQuoted(UnwrapExecutable(src), MySQL, defaultQuoting(MySQL))
+	got := ClassifyExecutable(src, MySQL)
+	if classRank(got.Class) < classRank(def.Class) || def.Dangerous && !got.Dangerous {
+		t.Fatalf("strictest %+v, less than the default reading %+v", got, def)
+	}
+}
+
+// MySQL ends an ordinary comment inside an executable one at its own */,
+// and runs what follows: it is code, not comment.
+func TestUnwrapExecutableNestedComment(t *testing.T) {
+	src := "SELECT 1 /*! , 2 /* x */ , 3 */ , 4"
+	commas := 0
+	for _, tok := range Tokenize(UnwrapExecutable(src), MySQL) {
+		if tok.Kind == Punct && tok.Text == "," {
+			commas++
+		}
+	}
+	if commas != 3 {
+		t.Fatalf("%q unwrapped to %q: %d commas, the server reads 3", src, UnwrapExecutable(src), commas)
+	}
 }

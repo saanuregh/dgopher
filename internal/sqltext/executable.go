@@ -9,6 +9,12 @@ import "strings"
 // Strings and ordinary comments are copied as they are, so a quote inside
 // them misleads nothing.
 func UnwrapExecutable(sql string) string {
+	return unwrapExecutable(sql, defaultQuoting(MySQL))
+}
+
+// unwrapExecutable is UnwrapExecutable with strings read as q reads them,
+// which decides whether a /*! inside one is code.
+func unwrapExecutable(sql string, q quoting) string {
 	if !strings.Contains(sql, "/*!") && !strings.Contains(sql, "/*M!") {
 		return sql
 	}
@@ -16,6 +22,7 @@ func UnwrapExecutable(sql string) string {
 	r := []rune(sql)
 	inExec := false
 	at := func(i int, s string) bool { return strings.HasPrefix(string(r[i:min(len(r), i+len(s))]), s) }
+	escapes := func(quote rune) bool { return q.backslashes && (quote == '\'' || quote == '"' && !q.ansiQuotes) }
 	for i := 0; i < len(r); i++ {
 		c := r[i]
 		switch {
@@ -24,7 +31,7 @@ func UnwrapExecutable(sql string) string {
 			b.WriteRune(c)
 			for i++; i < len(r); i++ {
 				b.WriteRune(r[i])
-				if r[i] == '\\' && c != '`' && i+1 < len(r) {
+				if r[i] == '\\' && escapes(c) && i+1 < len(r) {
 					i++
 					b.WriteRune(r[i])
 					continue
@@ -50,7 +57,9 @@ func UnwrapExecutable(sql string) string {
 			b.WriteRune(' ')
 			i++
 			continue
-		case !inExec && at(i, "/*"):
+		case at(i, "/*"):
+			// An ordinary comment, inside an executable one too, where it
+			// ends only itself: MySQL runs what follows its */.
 			end := strings.Index(string(r[i+2:]), "*/")
 			if end < 0 {
 				b.WriteString(string(r[i:]))

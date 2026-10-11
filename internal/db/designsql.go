@@ -298,6 +298,31 @@ func (diff designDiff) supported(e Engine) error {
 	return nil
 }
 
+// castNeeded reports whether a PostgreSQL column of type was needs USING
+// to change to type now. To a character type, and to a bit type from one,
+// it does not: PostgreSQL then converts as it does when assigning, which
+// fails on a value that does not fit, where the explicit cast would cut the
+// value, or pad a bit string, without an error.
+func castNeeded(was, now string) bool {
+	base := func(t string) string {
+		t = strings.ToLower(strings.Join(strings.Fields(t), " "))
+		if i := strings.IndexByte(t, '('); i >= 0 && strings.HasSuffix(t, ")") {
+			t = strings.TrimSpace(t[:i])
+		}
+		return strings.TrimPrefix(t, "pg_catalog.")
+	}
+	switch base(now) {
+	case "varchar", "character varying", "char", "character", "bpchar":
+		return false
+	case "bit", "bit varying", "varbit":
+		switch base(was) {
+		case "bit", "bit varying", "varbit":
+			return false
+		}
+	}
+	return true
+}
+
 // modifyColumnSQL writes the ALTER TABLE clauses, and on PostgreSQL and
 // DuckDB the COMMENT statement, changing a column: the column has its new
 // name already.
@@ -350,7 +375,11 @@ func modifyColumnSQL(d Dialect, t TableDesign, was, now ColumnDesign) ([]string,
 		return out, nil
 	}
 	if now.Type != was.Type {
-		out = append(out, "ALTER COLUMN "+name+" TYPE "+now.Type+" USING "+name+"::"+now.Type)
+		step := "ALTER COLUMN " + name + " TYPE " + now.Type
+		if e != Postgres || castNeeded(was.Type, now.Type) {
+			step += " USING " + name + "::" + now.Type
+		}
+		out = append(out, step)
 	}
 	if now.Default != was.Default {
 		if now.Default == "" {

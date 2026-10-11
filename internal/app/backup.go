@@ -149,7 +149,9 @@ func (a *App) startBackup(b *backupDialog) {
 					}
 				case tool.Statement != "":
 					var d *db.DB
-					if d, err = poolOf(ctx); err == nil {
+					if d, err = poolOf(ctx); err == nil && cfg.Engine == db.DuckDB {
+						err = db.BackupDuckDB(ctx, d, tool.Statement)
+					} else if err == nil {
 						_, err = d.SQL.ExecContext(ctx, tool.Statement)
 					}
 				default:

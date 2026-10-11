@@ -30,6 +30,12 @@ type Editor struct {
 	longest                int // runes of the longest line of longestOf
 	longestOf              string
 
+	// gutterTop is the first line, as the editor shows it, that the
+	// gutter drew in the last frame.
+	gutterTop int
+	// The line starts of the line numbers and of the fold markers.
+	numberLines, markerLines lineSlicer
+
 	// The selection as the last frame read it, in runes.
 	SelStart, SelEnd int
 	// PendingSel moves the selection in the next frame.
@@ -244,8 +250,13 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 	}
 	var area ui.Element
 	folded := e.syncFolds()
-	numbers := e.lineNumbers()
+	// The gutter's lines in sight alone, as a long text's would be laid
+	// out each frame: from top, which its top padding puts in place.
+	top, bottom := e.gutterRange(lh)
+	e.gutterTop = top
+	numbers := e.numberLines.lines(e.lineNumbers(), top, bottom)
 	markers, foldAt := e.foldMarkers()
+	markers = e.markerLines.lines(markers, top, bottom)
 	markersW := e.markersWidth()
 	gutterW := e.gutterWidth()
 	textX := gutterW + 12
@@ -304,11 +315,11 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 	box.Children(func() {
 		ui.Row(c).AlignItems(ui.Stretch).MinHeightPercent(100).MinWidthPercent(100).Children(func() {
 			ui.Text(c, numbers).Font(widgets.MonoFont).FontSize(fontSize).FixedLineHeight(lh).
-				TextColor(pal.LineNumber).TextAlign(ui.End).Padding(8, 4, 8, 12).
+				TextColor(pal.LineNumber).TextAlign(ui.End).Padding(8+float32(top)*lh, 4, 8, 12).
 				Width(gutterW - markersW).Unselectable()
 			// A block's marker folds it, or opens it, as it is clicked.
 			marks := ui.Text(c, markers).Font(widgets.MonoFont).FontSize(fontSize).FixedLineHeight(lh).
-				TextColor(pal.LineNumber).Padding(8, 6, 8, 2).Width(markersW).Unselectable()
+				TextColor(pal.LineNumber).Padding(8+float32(top)*lh, 6, 8, 2).Width(markersW).Unselectable()
 			if marks.Clicked() {
 				if _, y, ok := marks.PointerPosition(); ok {
 					if b, ok := foldAt[int((y-8)/lh)]; ok {
@@ -393,6 +404,45 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 	return area
 }
 
+// gutterMargin is how far, in DIPs, the gutter draws beyond the view, as
+// the view's height and scrolling are the last frame's.
+const gutterMargin = 1000
+
+// gutterRange is the first and the last line, as the editor shows it,
+// that the gutter draws: those in sight, and a margin.
+func (e *Editor) gutterRange(lh float32) (top, bottom int) {
+	top = max(0, int((e.Scroll.Y-8-gutterMargin)/lh))
+	bottom = int((e.Scroll.Y+max(e.viewH, gutterMargin)+gutterMargin)/lh) + 1
+	return top, bottom
+}
+
+// lineSlicer cuts lines out of a text, with its line starts kept until
+// the text changes.
+type lineSlicer struct {
+	of     string
+	starts []int
+}
+
+// lines are a text's lines from top to bottom, both counted from 0.
+func (s *lineSlicer) lines(text string, top, bottom int) string {
+	if text != s.of || s.starts == nil {
+		s.of, s.starts = text, []int{0}
+		for i := range len(text) {
+			if text[i] == '\n' {
+				s.starts = append(s.starts, i+1)
+			}
+		}
+	}
+	if top >= len(s.starts) {
+		return ""
+	}
+	end := len(text)
+	if bottom+1 < len(s.starts) {
+		end = s.starts[bottom+1] - 1
+	}
+	return text[s.starts[top]:end]
+}
+
 // runButtons draws the statements' run buttons, on their first lines in
 // the gutter's margin, before the line numbers: those in sight alone, as
 // a long script has many. A statement inside a fold has none.
@@ -456,38 +506,40 @@ func (e *Editor) Replace(start, end int, s string) {
 }
 
 // overlay puts runs over others, which it cuts where they meet: text
-// ranges may not overlap.
+// ranges may not overlap. Sorted by start, each list is walked once: the
+// marks of a find are many, and drawn every frame.
 func overlay(base, top []ui.TextRange) []ui.TextRange {
 	if len(top) == 0 {
 		return base
 	}
+	byStart := func(x, y ui.TextRange) int { return x.Start - y.Start }
+	if !slices.IsSortedFunc(base, byStart) {
+		base = slices.SortedFunc(slices.Values(base), byStart)
+	}
+	if !slices.IsSortedFunc(top, byStart) {
+		top = slices.SortedFunc(slices.Values(top), byStart)
+	}
 	out := make([]ui.TextRange, 0, len(base)+len(top))
+	j := 0
 	for _, b := range base {
-		parts := []ui.TextRange{b}
-		for _, t := range top {
-			var next []ui.TextRange
-			for _, p := range parts {
-				if t.End <= p.Start || t.Start >= p.End {
-					next = append(next, p)
-					continue
-				}
-				if p.Start < t.Start {
-					left := p
-					left.End = t.Start
-					next = append(next, left)
-				}
-				if t.End < p.End {
-					right := p
-					right.Start = t.End
-					next = append(next, right)
-				}
-			}
-			parts = next
+		// Those ending before b end before every run after it too.
+		for j < len(top) && top[j].End <= b.Start {
+			j++
 		}
-		out = append(out, parts...)
+		for k := j; k < len(top) && top[k].Start < b.End && b.Start < b.End; k++ {
+			if t := top[k]; b.Start < t.Start {
+				left := b
+				left.End = t.Start
+				out = append(out, left)
+			}
+			b.Start = max(b.Start, top[k].End)
+		}
+		if b.Start < b.End {
+			out = append(out, b)
+		}
 	}
 	out = append(out, top...)
-	slices.SortFunc(out, func(x, y ui.TextRange) int { return x.Start - y.Start })
+	slices.SortFunc(out, byStart)
 	return out
 }
 
@@ -511,13 +563,16 @@ func FindAll(text, query string) []int {
 	}
 	lt, lq := strings.ToLower(text), strings.ToLower(query)
 	var out []int
+	runes := 0 // in lt[:from], counted once through the text
 	for from := 0; ; {
 		i := strings.Index(lt[from:], lq)
 		if i < 0 {
 			return out
 		}
 		at := from + i
-		out = append(out, utf8.RuneCountInString(lt[:at]))
+		runes += utf8.RuneCountInString(lt[from:at])
+		out = append(out, runes)
+		runes += utf8.RuneCountInString(lq)
 		from = at + len(lq)
 	}
 }

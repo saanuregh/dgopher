@@ -247,6 +247,28 @@ func TestHistoryPerProject(t *testing.T) {
 	}
 }
 
+func TestClearHistoryButton(t *testing.T) {
+	a := newTestApp(t)
+	p := a.projects[0]
+	if err := p.Local.AppendHistory(store.HistoryEntry{SQL: "SELECT 42", Connection: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	tt := ui.NewTester(a.view, 1200, 800)
+	a.openHistoryOf(p)
+	testutil.WaitFor(t, tt, "entries", func() bool { return len(a.history.entries) == 1 })
+	if err := tt.Click("Clear History…"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if err := tt.Click("Clear"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if h, _ := p.Local.History(10); len(h) != 0 {
+		t.Fatalf("history left: %+v", h)
+	}
+}
+
 func TestSidebarListsProjects(t *testing.T) {
 	a := newBareApp(t)
 	p1, _ := a.addProject(newProjectDir(t, "billing"))

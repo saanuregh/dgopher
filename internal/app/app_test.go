@@ -852,6 +852,10 @@ func TestAuditTrail(t *testing.T) {
 	testutil.SetCaret(tt, &q.Editor, 3)
 	q.Run(query.RunStatement)
 	testutil.WaitFor(t, tt, "select", func() bool { return !q.Running })
+	if a.confirm == nil {
+		t.Fatal("ALTER USER on production ran without asking")
+	}
+	a.confirm = nil // left unanswered: the question would cover the audit viewer
 	ro := cn.Config
 	cn.Config.ReadOnly = true
 	q.Editor.Text = "DELETE FROM accounts WHERE id = 1;"

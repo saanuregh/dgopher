@@ -24,7 +24,7 @@ type TxState int
 const (
 	TxNone   TxState = iota
 	TxOpen           // statements wait for COMMIT or ROLLBACK
-	TxFailed         // PostgreSQL: an error aborted it; only ROLLBACK helps
+	TxFailed         // PostgreSQL, DuckDB: an error aborted it; only ROLLBACK helps
 )
 
 // Session is one connection of the pool kept for an editor, so that what a
@@ -141,28 +141,32 @@ func (s *Session) Close() error {
 // that no other session's statement comes between: a COMMIT and BEGIN
 // there would make the ROLLBACK end another's transaction. A session that
 // does not own the transaction cannot come to own it, as Close holds s.mu.
+// It waits for the connection however long another statement holds it:
+// Close runs off the UI thread, and closing the pool ends the wait.
+// Meanwhile, and should the ROLLBACK fail, the transaction stays this
+// session's, for no other session's statement to take it and its COMMIT
+// to commit what this session left (noteStatement).
 func (s *Session) rollBackOwnSharedTx() {
 	if state, owner := s.db.SharedTx(); state == TxNone || owner != s {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	conn, err := s.db.SQL.Conn(ctx)
-	if err == nil {
-		defer conn.Close()
-		if state, owner := s.db.SharedTx(); state != TxNone && owner == s {
-			_, err = conn.ExecContext(ctx, "ROLLBACK")
-		}
+	conn, err := s.db.SQL.Conn(context.Background())
+	if err != nil {
+		return // the pool is closed, and the transaction with it
+	}
+	defer conn.Close()
+	if state, owner := s.db.SharedTx(); state == TxNone || owner != s {
+		return
+	}
+	if _, err := conn.ExecContext(context.Background(), "ROLLBACK"); err != nil {
+		// Unless the connection shows it ended anyway.
+		s.refreshSharedTx(conn)
+		return
 	}
 	s.db.txMu.Lock()
 	defer s.db.txMu.Unlock()
 	if s.db.txOwner == s {
-		// Not rolled back, it stays open for the next statement's session
-		// to own (noteStatement).
-		s.db.txOwner = nil
-		if err == nil {
-			s.db.sharedTx = TxNone
-		}
+		s.db.txOwner, s.db.sharedTx = nil, TxNone
 	}
 }
 
@@ -257,7 +261,7 @@ func (s *Session) Begin(ctx context.Context) error {
 }
 
 // ErrTxFailed is the error of a commit of a transaction an error aborted:
-// PostgreSQL answers such a COMMIT with a rollback, and no error.
+// PostgreSQL and DuckDB answer such a COMMIT with a rollback, and no error.
 var ErrTxFailed = errors.New("the transaction failed before the commit and was rolled back: nothing was committed")
 
 // ErrNotOwner is the error of Commit and Rollback on a pool of one
@@ -272,16 +276,38 @@ var ErrNoTransaction = errors.New("no transaction is open: it was already commit
 
 // Commit commits the open transaction; a failed one is rolled back
 // instead (ErrTxFailed). On a pool of one connection, only the session
-// that began the transaction ends it (ErrNotOwner, ErrNoTransaction).
+// that began the transaction ends it (ErrNotOwner, ErrNoTransaction), and
+// whether it failed is read on the connection before the COMMIT is sent:
+// a statement outside the sessions, as an interrupted catalog read, can
+// abort DuckDB's.
 func (s *Session) Commit(ctx context.Context) error {
-	if s.Tx() == TxFailed {
-		if _, err := s.exec(ctx, "ROLLBACK", s.mayEndSharedTx); errors.Is(err, ErrNotOwner) || errors.Is(err, ErrNoTransaction) {
+	if s.Tx() != TxFailed {
+		_, err := s.exec(ctx, "COMMIT", s.mayCommitSharedTx)
+		if !errors.Is(err, errSharedTxFailed) {
 			return err
 		}
-		return ErrTxFailed
 	}
-	_, err := s.exec(ctx, "COMMIT", s.mayEndSharedTx)
-	return err
+	if _, err := s.exec(ctx, "ROLLBACK", s.mayEndSharedTx); errors.Is(err, ErrNotOwner) || errors.Is(err, ErrNoTransaction) {
+		return err
+	}
+	return ErrTxFailed
+}
+
+// errSharedTxFailed refuses the COMMIT of a failed transaction of a pool
+// of one connection, which Commit then rolls back.
+var errSharedTxFailed = errors.New("the shared transaction failed")
+
+// mayCommitSharedTx is mayEndSharedTx, and refuses the COMMIT of a failed
+// transaction (errSharedTxFailed), which DuckDB would answer with a
+// rollback and no error.
+func (s *Session) mayCommitSharedTx() error {
+	if err := s.mayEndSharedTx(); err != nil {
+		return err
+	}
+	if state, _ := s.db.SharedTx(); state == TxFailed {
+		return errSharedTxFailed
+	}
+	return nil
 }
 
 // Rollback rolls the open transaction back; on a pool of one connection,
@@ -355,6 +381,32 @@ func (s *Session) noteStatement(query string, err error, shared *sql.Conn) {
 	}
 }
 
+// refreshSharedTx reads again, on shared, the one connection of a pool of
+// one held, a transaction recorded open on it: a statement that ran on it
+// outside the sessions, as a catalog read, may have ended it or, on
+// DuckDB, aborted it. With none recorded open it sends nothing. An ended
+// transaction is left to no session, as noteStatement leaves it.
+func (s *Session) refreshSharedTx(shared *sql.Conn) {
+	s.db.txMu.Lock()
+	recorded, lastTxID := s.db.sharedTx, s.db.lastTxID
+	s.db.txMu.Unlock()
+	if recorded == TxNone {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	state, ok := readTxStateWithLastID(ctx, shared, &lastTxID)
+	if !ok {
+		return
+	}
+	s.db.txMu.Lock()
+	defer s.db.txMu.Unlock()
+	s.db.lastTxID, s.db.sharedTx = lastTxID, state
+	if state == TxNone {
+		s.db.txOwner = nil
+	}
+}
+
 // rollsBackOnTimeout reports MySQL's innodb_rollback_on_timeout, under
 // which a lock wait timeout rolls back the whole transaction; false when
 // unknown, which keeps the transaction shown.
@@ -386,8 +438,30 @@ func (s *Session) Exec(ctx context.Context, query string, args ...any) (int64, e
 // transaction another session began is open, it is refused (ErrNotOwner)
 // and nothing is sent: only that session ends it, and a BEGIN would fail
 // and, on DuckDB, abort it.
+//
+// A COMMIT of a shared transaction that failed is not sent either: DuckDB
+// would answer it with a rollback and no error. It is rolled back, as
+// Commit does, and ErrTxFailed says that nothing was committed.
 func (s *Session) ExecTransactionControl(ctx context.Context, query string) (int64, error) {
-	return s.exec(ctx, query, s.mayControlSharedTx)
+	words := leadingWords(s.db.Config.Engine, query)
+	ends, _ := endsTransaction(words)
+	commits := ends && (wordAt(words, 0) == "COMMIT" || wordAt(words, 0) == "END")
+	n, err := s.exec(ctx, query, func() error {
+		if err := s.mayControlSharedTx(); err != nil || !commits {
+			return err
+		}
+		if state, _ := s.db.SharedTx(); state == TxFailed {
+			return errSharedTxFailed
+		}
+		return nil
+	})
+	if !errors.Is(err, errSharedTxFailed) {
+		return n, err
+	}
+	if _, err := s.exec(ctx, "ROLLBACK", s.mayEndSharedTx); errors.Is(err, ErrNotOwner) || errors.Is(err, ErrNoTransaction) {
+		return 0, err
+	}
+	return 0, ErrTxFailed
 }
 
 // exec is Exec. On a pool of one connection, check, when set, refuses the
@@ -409,6 +483,7 @@ func (s *Session) exec(ctx context.Context, query string, check func() error, ar
 	}
 	if shared != nil {
 		defer shared.Close()
+		s.refreshSharedTx(shared)
 		if check != nil {
 			if err := check(); err != nil {
 				return 0, err
@@ -478,6 +553,7 @@ func (s *Session) Query(ctx context.Context, query string, args ...any) (*Cursor
 	}
 	if shared != nil {
 		defer shared.Close()
+		s.refreshSharedTx(shared)
 	}
 	wasTx := s.txState()
 	// Read s.q on each call: a retry replaces it. The watch goes on with

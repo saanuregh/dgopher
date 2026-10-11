@@ -323,3 +323,97 @@ func TestFilterCannotLeaveReadOnly(t *testing.T) {
 		t.Fatalf("err %q, loading %v, events %+v", tb.view.err, tb.view.loading, a.Events[events:])
 	}
 }
+
+// A filter is read under every quoting rule its engine can switch to, MySQL's
+// executable comments unwrapped as each reads them: one that only reads with
+// backslash escapes still holds code without them.
+func TestCheckFilterEveryQuoting(t *testing.T) {
+	v := &Viewer{source: ViewerSource{Conn: &connection.Conn{Config: db.Config{Name: "my", Engine: db.MySQL}}}}
+	for _, w := range []string{
+		`id = 'a\' OR GET_LOCK('k', 0) -- '`,
+		`id = 'a\' /*! OR GET_LOCK('k', 0) */ -- '`,
+	} {
+		if err := v.checkFilter(w); err == nil {
+			t.Errorf("%s: allowed", w)
+		}
+	}
+	if err := v.checkFilter(`name = 'O\'Brien'`); err != nil {
+		t.Errorf("an escaped quote: %v", err)
+	}
+}
+
+// While rows are read, a page fetched or a reload, the grid takes no edit:
+// a page landing would number a row added meanwhile as a read one, and a
+// reload drops edits.
+func TestNoEditWhileReading(t *testing.T) {
+	_, tt, tb, _ := openNumbers(t, 300, 100)
+	v := tb.view
+	tt.Frame()
+	if _, ok := tt.Find("Add Row"); !ok || v.grid.readOnly != "" {
+		t.Fatalf("before reading: Add Row shown %v, read-only %q", ok, v.grid.readOnly)
+	}
+	v.loading = true
+	tt.Frame()
+	if _, ok := tt.Find("Add Row"); ok || v.grid.readOnly != "Reading the rows…" {
+		t.Fatalf("while reading: Add Row shown %v, read-only %q", ok, v.grid.readOnly)
+	}
+	v.loading = false
+	tt.Frame()
+	if _, ok := tt.Find("Add Row"); !ok || v.grid.readOnly != "" {
+		t.Fatalf("after reading: Add Row shown %v, read-only %q", ok, v.grid.readOnly)
+	}
+}
+
+// A masked column's values stay masked in what applying edits shows and
+// keeps: the review, the audit log and an error; the rows get the values.
+func TestMaskedValuesNotShownOrAudited(t *testing.T) {
+	a, tt, tb, file := openNumbers(t, 3, 100)
+	v := tb.view
+	v.chooseMask("label", true)
+	tt.Frame()
+	if !v.grid.isMasked(1) {
+		t.Fatal("label is not masked")
+	}
+	hidden := func(what, s string) {
+		t.Helper()
+		if strings.Contains(s, "hunter2") {
+			t.Errorf("%s shows a masked value: %s", what, s)
+		}
+	}
+	apply := func() {
+		t.Helper()
+		v.Review(nil)
+		if a.Confirm == nil {
+			t.Fatal("no review")
+		}
+		hidden("the review", a.Confirm.Preview)
+		a.Confirm.OnConfirm()
+		testutil.WaitFor(t, tt, "applied", func() bool { return !v.applying && !v.loading })
+	}
+
+	// A row gone since it was read: the update changes none, and fails.
+	v.grid.setValue(&v.src, 1, 1, "hunter2-a")
+	gone, err := db.Open(context.Background(), db.Config{Name: "s", Engine: db.SQLite, Database: file}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gone.SQL.Exec("DELETE FROM n WHERE id = 2")
+	gone.Close()
+	apply()
+	if len(a.Errors) == 0 {
+		t.Fatal("updating a row gone did not fail")
+	}
+	hidden("the error", strings.Join(a.Errors, "\n"))
+
+	v.grid.edits.clear()
+	v.grid.setValue(&v.src, 0, 1, "hunter2-b")
+	v.grid.addRow(&v.src)
+	v.grid.setValue(&v.src, len(v.src.Rows), 1, "hunter2-c")
+	apply()
+	for _, e := range a.Events {
+		hidden("the audit log", e.Statement+" "+e.Error)
+	}
+	if got := labelOf(t, file, 1); got != "hunter2-b" {
+		t.Errorf("row 1 holds %q", got)
+	}
+}

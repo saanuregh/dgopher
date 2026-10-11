@@ -466,7 +466,8 @@
   - Sensitive values stay off the screen: columns named as passwords,
     tokens, keys or card numbers show `••••••` in the grid, the value
     panel and the figures of the profile, calculation and grouping
-    panels. A column's header menu hides or shows any column's values,
+    panels, and in the review and audit of edits. A column's header menu
+    hides or shows any column's values,
     for the team in `dgopher.json` when the rows are a table's; a setting
     shows the sensitive ones. Copies and exports keep the real values.
 - **Table tab:**

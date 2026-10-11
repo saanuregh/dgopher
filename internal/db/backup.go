@@ -250,6 +250,31 @@ func (d *DB) sharedTxOpen() bool {
 	return state != TxNone
 }
 
+// ErrBackupInTransaction refuses a DuckDB backup while a transaction is
+// open on the connection, which all its editors share: EXPORT DATABASE
+// would write its uncommitted rows, and a failed one can abort it.
+var ErrBackupInTransaction = errors.New("a transaction is open on the connection, which its editors share: commit it or roll it back, then back up")
+
+// BackupDuckDB runs the statement of a DuckDB backup PlanBackup planned,
+// refused while a transaction is open (ErrBackupInTransaction). Holding
+// the one connection, no editor's statement comes between the check and
+// the export.
+func BackupDuckDB(ctx context.Context, d *DB, statement string) error {
+	if d.sharedTxOpen() {
+		return ErrBackupInTransaction
+	}
+	conn, err := d.SQL.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if state, ok := readTxState(ctx, conn); d.sharedTxOpen() || ok && state != TxNone {
+		return ErrBackupInTransaction
+	}
+	_, err = conn.ExecContext(ctx, statement)
+	return err
+}
+
 // RestoreDuckDB runs a DuckDB restore PlanRestore planned: it imports the
 // backup folder into run.Stage, in a DuckDB of its own that reaches no file
 // outside the folder, then runs run.Statements on the connection, which
@@ -392,6 +417,11 @@ func postgresTool(ctx context.Context, d *DB, tool, database string) (ToolRun, e
 	}
 	mode := map[TLSMode]string{"": "disable", TLSDisable: "disable", TLSPrefer: "prefer", TLSRequire: "require", TLSVerifyFull: "verify-full"}[cfg.TLS]
 	run.Env = append(run.Env, "PGSSLMODE="+mode)
+	if cfg.TLS == TLSPrefer || cfg.TLS == TLSRequire {
+		// As the app's own connections: libpq 16 and later refuse to send
+		// the password as it is; older ones ignore the variable.
+		run.Env = append(run.Env, "PGREQUIREAUTH=!password")
+	}
 	if roots != "" {
 		run.Env = append(run.Env, "PGSSLROOTCERT="+roots)
 	}

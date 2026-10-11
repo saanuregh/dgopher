@@ -329,7 +329,7 @@ func (v *Viewer) checkFilter(w string) error {
 	if len(sqltext.SplitWith(q, d, sqltext.SplitOptions{Mode: sqltext.SemicolonOnly})) != 1 {
 		return errors.New("the filter is one condition, without ';'")
 	}
-	if a := sqltext.Classify(q, d); a.Class != sqltext.Read {
+	if a := sqltext.ClassifyExecutable("SELECT * FROM t WHERE "+w, d); a.Class != sqltext.Read {
 		return errors.New("the filter must only read")
 	}
 	// What the connection's policy refuses, as leaving read-only mode.
@@ -748,11 +748,13 @@ func (v *Viewer) countRows() {
 	})
 }
 
-// changes turns the pending edits into the database's changes.
-func (v *Viewer) changes() ([]db.Statement, error) {
+// changeStatements turns the pending edits into the database's changes,
+// and gives the same statements as they show and are audited: masked
+// columns' values as MaskedText, as the grid shows them.
+func (v *Viewer) changeStatements() (stmts, shown []db.Statement, err error) {
 	key, _, err := v.keyColumns()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	colIndex := map[string]int{}
 	for i, name := range v.bound {
@@ -762,7 +764,7 @@ func (v *Viewer) changes() ([]db.Statement, error) {
 	}
 	for _, k := range key {
 		if _, ok := colIndex[k]; !ok {
-			return nil, fmt.Errorf("the key column %s is not among the rows read: refresh the table", k)
+			return nil, nil, fmt.Errorf("the key column %s is not among the rows read: refresh the table", k)
 		}
 	}
 	// A column the table does not have takes no value: an added or
@@ -801,7 +803,42 @@ func (v *Viewer) changes() ([]db.Statement, error) {
 		changes = append(changes, db.Change{Kind: db.ChangeDelete, Key: keyValues(r)})
 	}
 	target := &db.EditTarget{Dialect: v.dialect(), Schema: v.source.Table.Schema, Table: v.source.Table.Name, Columns: v.columns, Key: key}
-	return target.Statements(changes)
+	if stmts, err = target.Statements(changes); err != nil {
+		return nil, nil, err
+	}
+	masked := map[string]bool{}
+	for col, name := range v.bound {
+		if name != "" && v.grid.isMasked(col) {
+			masked[name] = true
+		}
+	}
+	if len(masked) == 0 {
+		return stmts, stmts, nil
+	}
+	mask := func(name string, value any) any {
+		if value == nil || !masked[name] {
+			return value
+		}
+		return MaskedText
+	}
+	hidden := lists.Map(changes, func(ch db.Change) db.Change {
+		values := make(map[string]any, len(ch.Values))
+		for name, value := range ch.Values {
+			values[name] = mask(name, value)
+		}
+		ch.Values = values
+		ch.Key = slices.Clone(ch.Key)
+		for i, k := range key {
+			if i < len(ch.Key) {
+				ch.Key[i] = mask(k, ch.Key[i])
+			}
+		}
+		return ch
+	})
+	if shown, err = target.Statements(hidden); err != nil {
+		return nil, nil, err
+	}
+	return stmts, shown, nil
 }
 
 // Review shows the statements of the pending edits before applying them;
@@ -836,7 +873,7 @@ func (v *Viewer) reviewChanges() {
 		v.loadRefs(v.reviewChanges)
 		return
 	}
-	stmts, err := v.changes()
+	stmts, shown, err := v.changeStatements()
 	if err != nil {
 		v.a.ShowError("Could not prepare the changes", err.Error())
 		return
@@ -844,7 +881,7 @@ func (v *Viewer) reviewChanges() {
 	var previews []string
 	sqls := make([]string, len(stmts))
 	for i, s := range stmts {
-		previews = append(previews, s.Preview())
+		previews = append(previews, shown[i].Preview())
 		sqls[i] = s.SQL
 	}
 	verdict := safety.ReviewSQL(&v.source.Conn.Config, safety.Analyze(&v.source.Conn.Config, sqls))
@@ -865,12 +902,13 @@ func (v *Viewer) reviewChanges() {
 	}
 	verdict.ManyRows(&v.source.Conn.Config, db.ExistingRowChanges(stmts), v.a.Settings().ChangeLimit)
 	title := fmt.Sprintf("Apply %d change%s to %s?", len(stmts), widgets.Plural(len(stmts)), v.source.Table.Name)
-	v.a.AskConfirm(v.source.Conn, verdict, title, "Apply", strings.Join(previews, "\n"), func() { v.apply(stmts) })
+	v.a.AskConfirm(v.source.Conn, verdict, title, "Apply", strings.Join(previews, "\n"), func() { v.apply(stmts, shown) })
 }
 
-// apply runs the statements in one transaction. On a connection in manual
-// commit, the transaction stays open for the user to commit.
-func (v *Viewer) apply(stmts []db.Statement) {
+// apply runs the statements in one transaction, and shows and audits them
+// as shown has them. On a connection in manual commit, the transaction
+// stays open for the user to commit.
+func (v *Viewer) apply(stmts, shown []db.Statement) {
 	if why := v.sessionBusy(); why != "" {
 		v.a.ShowError("The changes were not applied", why)
 		return
@@ -926,9 +964,9 @@ func (v *Viewer) apply(stmts []db.Statement) {
 			start := time.Now()
 			n, err = sess.Exec(ctx, s.SQL, s.Args...)
 			if err == nil && s.Want >= 0 && n >= 0 && n != s.Want {
-				err = fmt.Errorf("%s\nchanged %d rows instead of %d: nothing was applied", s.Preview(), n, s.Want)
+				err = fmt.Errorf("%s\nchanged %d rows instead of %d: nothing was applied", shown[i].Preview(), n, s.Want)
 			}
-			v.a.RecordRun(cfg, audit.KindEdit, database, s.Preview(), n, time.Since(start), err)
+			v.a.RecordRun(cfg, audit.KindEdit, database, shown[i].Preview(), n, time.Since(start), err)
 		}
 		// A connection lost with the batch's transaction: the server rolled
 		// it back. An undo would go to the connection made again and take
@@ -1011,6 +1049,11 @@ func (v *Viewer) View(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	readOnly := v.readOnlyReason()
+	if v.loading && readOnly == "" {
+		// A page landing would number a row added meanwhile as a read
+		// one, and a reload drops the edits.
+		readOnly = "Reading the rows…"
+	}
 	v.grid.readOnly = readOnly
 	v.maskColumns()
 	if v.applying {

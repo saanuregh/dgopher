@@ -120,6 +120,16 @@ func isHexDigit(r rune) bool {
 	return isDigit(r) || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')
 }
 
+// quoting is how '…' and "…" are read, which a session or server setting
+// can switch: backslash escapes in them, and MySQL's ANSI_QUOTES, which
+// makes "…" a name.
+type quoting struct{ backslashes, ansiQuotes bool }
+
+// defaultQuoting is how d reads strings unless a setting switches it.
+func defaultQuoting(d Dialect) quoting {
+	return quoting{backslashes: d == MySQL || d == ClickHouse}
+}
+
 // Tokenize splits src into tokens that cover it completely and contiguously.
 func Tokenize(src string, d Dialect) []Token {
 	return tokenizeRunes([]rune(src), d)
@@ -133,17 +143,22 @@ func TokenizeFirst(src string, d Dialect, n int) []Token {
 	if utf8.ValidString(src) {
 		text = src // as string([]rune(src)), without encoding it again
 	}
-	return tokenizeRunesUpTo([]rune(src), text, d, n)
+	return tokenizeRunesUpTo([]rune(src), text, d, defaultQuoting(d), n)
 }
 
 func tokenizeRunes(rs []rune, d Dialect) []Token {
-	return tokenizeRunesUpTo(rs, "", d, 0)
+	return tokenizeQuoted(rs, d, defaultQuoting(d))
+}
+
+// tokenizeQuoted is tokenizeRunes with strings read as q reads them.
+func tokenizeQuoted(rs []rune, d Dialect, q quoting) []Token {
+	return tokenizeRunesUpTo(rs, "", d, q, 0)
 }
 
 // tokenizeRunesUpTo tokenizes rs, whose text is text or, when that is "",
-// string(rs); it stops after limit significant tokens when limit is above
-// 0.
-func tokenizeRunesUpTo(rs []rune, text string, d Dialect, limit int) []Token {
+// string(rs), with strings read as q reads them; it stops after limit
+// significant tokens when limit is above 0.
+func tokenizeRunesUpTo(rs []rune, text string, d Dialect, q quoting, limit int) []Token {
 	keywords := keywordSet(d)
 	n := len(rs)
 	if n == 0 {
@@ -189,7 +204,7 @@ func tokenizeRunesUpTo(rs []rune, text string, d Dialect, limit int) []Token {
 			i = scanBlockComment(rs, i, d == Postgres || d == ClickHouse)
 			kind = Comment
 		case r == '\'':
-			i = scanQuoted(rs, i+1, '\'', d == MySQL || d == ClickHouse)
+			i = scanQuoted(rs, i+1, '\'', q.backslashes)
 			kind = String
 		case (r == 'E' || r == 'e') && d == Postgres && at(i+1) == '\'':
 			i = scanQuoted(rs, i+2, '\'', true)
@@ -202,10 +217,14 @@ func tokenizeRunesUpTo(rs []rune, text string, d Dialect, limit int) []Token {
 				kind = QuotedIdent
 			}
 		case r == '"':
-			if d == MySQL {
-				i = scanQuoted(rs, i+1, '"', true)
+			switch {
+			case d == MySQL && q.ansiQuotes:
+				i = scanQuoted(rs, i+1, '"', false)
+				kind = QuotedIdent
+			case d == MySQL:
+				i = scanQuoted(rs, i+1, '"', q.backslashes)
 				kind = String
-			} else {
+			default:
 				i = scanQuoted(rs, i+1, '"', d == ClickHouse)
 				kind = QuotedIdent
 			}
@@ -269,7 +288,7 @@ func tokenizeRunesUpTo(rs []rune, text string, d Dialect, limit int) []Token {
 				kind = Identifier
 			}
 		case strings.ContainsRune("xXbBnN", r) && at(i+1) == '\'':
-			i = scanQuoted(rs, i+2, '\'', d == MySQL || d == ClickHouse)
+			i = scanQuoted(rs, i+2, '\'', q.backslashes)
 			kind = String
 		case isIdentStart(r):
 			for i < n && identPartAt(rs, i, d) {
@@ -358,10 +377,10 @@ func scanBlockComment(rs []rune, i int, nested bool) int {
 	depth := 0
 	n := len(rs)
 	for i < n {
-		if rs[i] == '/' && i+1 < n && rs[i+1] == '*' {
-			if depth == 0 || nested {
-				depth++
-			}
+		// Where comments do not nest, an opener inside one is text: its
+		// star may begin the */ that closes it, as in /*/*/.
+		if rs[i] == '/' && i+1 < n && rs[i+1] == '*' && (depth == 0 || nested) {
+			depth++
 			i += 2
 			continue
 		}

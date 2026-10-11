@@ -13,6 +13,7 @@ func TestReviewSQL(t *testing.T) {
 	staging := &db.Config{Name: "stg", Engine: db.Postgres, Env: db.Staging}
 	prod := &db.Config{Name: "prod", Engine: db.Postgres, Env: db.Production}
 	ro := &db.Config{Name: "replica", Engine: db.MySQL, Env: db.Development, ReadOnly: true}
+	pgRO := &db.Config{Name: "pg-replica", Engine: db.Postgres, Env: db.Development, ReadOnly: true}
 	cases := []struct {
 		name     string
 		cfg      *db.Config
@@ -46,6 +47,22 @@ func TestReviewSQL(t *testing.T) {
 		{"a quote in a line comment", &db.Config{Name: "my", Engine: db.MySQL, Env: db.Production}, []string{"# it's\n/*!DELETE FROM t*/"}, false, true, true, true},
 		{"executable comment hides a second statement", &db.Config{Name: "my", Engine: db.MySQL}, []string{"SELECT 1 /*!; DELETE FROM t */"}, false, true, false, true},
 		{"mariadb executable comment", &db.Config{Name: "my", Engine: db.MySQL, Env: db.Production}, []string{"/*M!100000 DELETE FROM t */"}, false, true, true, true},
+		{"an ordinary comment in an executable one ends only itself", &db.Config{Name: "my", Engine: db.MySQL, ReadOnly: true}, []string{"SELECT 1 /*! /* x */ , GET_LOCK('k', 0) */"}, true, false, false, true},
+		{"an ordinary comment in an executable one hides no delete", &db.Config{Name: "my", Engine: db.MySQL, Env: db.Production}, []string{"/*! /* x */ DELETE FROM t */"}, false, true, true, true},
+		{"a comment that closes early hides no second statement", &db.Config{Name: "lite", Engine: db.SQLite, Env: db.Production}, []string{"SELECT 1 /*@/*/ ; DELETE FROM t"}, false, true, true, true},
+		{"a comment that closes early hides no outfile", &db.Config{Name: "my", Engine: db.MySQL, ReadOnly: true}, []string{"SELECT 1 /*@/*/ INTO OUTFILE '/tmp/x'"}, true, false, false, true},
+		{"a comment that closes early hides no locking read", &db.Config{Name: "my", Engine: db.MySQL, ReadOnly: true}, []string{"SELECT * FROM t /*@/*/ FOR UPDATE"}, true, false, false, true},
+		{"a call after a backslash with standard_conforming_strings off", pgRO, []string{`SELECT 'a\' , ' , pg_advisory_lock(1) --'`}, true, false, false, true},
+		{"a condition after a backslash under NO_BACKSLASH_ESCAPES", &db.Config{Name: "my", Engine: db.MySQL}, []string{`DELETE FROM t WHERE id = 'a\' OR 1=1 -- '`}, false, true, false, true},
+		{"a call after a name under ANSI_QUOTES", ro, []string{`SELECT "a\" , GET_LOCK('x', 0) FROM (SELECT 1 AS "a\") t -- "`}, true, false, false, true},
+		{"an executable comment after a backslash under NO_BACKSLASH_ESCAPES", ro, []string{`SELECT 'a\' /*! , SLEEP(1) */ '`}, true, false, false, true},
+		{"an outfile in an executable comment after a backslash", ro, []string{`SELECT 'a\' /*! INTO OUTFILE '/tmp/x' */ -- '`}, true, false, false, true},
+		{"a second statement after a backslash under NO_BACKSLASH_ESCAPES", ro, []string{`SELECT 'a\' ; SET SESSION TRANSACTION READ WRITE -- '`}, true, false, false, true},
+		{"an escaped quote on read-only", ro, []string{`SELECT 'it\'s'`}, false, false, false, false},
+		{"escaped quotes and another string on read-only", ro, []string{`SELECT 'O\'Brien' AS n, 'x' AS m`}, false, false, false, false},
+		{"escaped quotes in a condition on read-only", ro, []string{`SELECT * FROM t WHERE a='O\'Brien' AND b='x'`}, false, false, false, false},
+		{"an E string on read-only", pgRO, []string{`SELECT E'a\'b'`}, false, false, false, false},
+		{"a path on read-only", pgRO, []string{`SELECT 'C:\path'`}, false, false, false, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -92,6 +109,15 @@ func TestDisablesReadOnlyClickHouseEscapes(t *testing.T) {
 		if v := ReviewSQL(ro, Analyze(ro, []string{sql})); v.Blocked == "" {
 			t.Errorf("not blocked on a read-only connection: %s", sql)
 		}
+	}
+}
+
+// A read-only switch hidden in a string by one quoting rule is read under
+// the others too.
+func TestDisablesReadOnlyQuoting(t *testing.T) {
+	sql := `SELECT 'a\' ; SET SESSION TRANSACTION READ WRITE -- '`
+	if !disablesReadOnly(sql, Dialect(db.MySQL)) {
+		t.Errorf("not seen: %s", sql)
 	}
 }
 

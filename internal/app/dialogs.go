@@ -72,14 +72,24 @@ type hostKeyRequest struct {
 
 // dialogs builds the window's dialogs.
 func (a *App) dialogs(c *ui.Context) {
-	t := c.Theme()
-	pal := widgets.PaletteOf(c)
 	if a.connForm != nil {
 		a.connFormView(c)
 		if !a.connForm.open {
 			a.connForm = nil
 		}
 	}
+	if a.palette != nil {
+		a.paletteView(c)
+	}
+	if a.settingsOpen {
+		a.settingsView(c)
+	}
+}
+
+// questions draws the questions, above every other dialog that may ask them.
+func (a *App) questions(c *ui.Context) {
+	t := c.Theme()
+	pal := widgets.PaletteOf(c)
 	if r := a.confirm; r != nil {
 		widgets.ConfirmView(c, r)
 		if !r.Open {
@@ -196,12 +206,6 @@ func (a *App) dialogs(c *ui.Context) {
 		if !al.open {
 			a.alert = nil
 		}
-	}
-	if a.palette != nil {
-		a.paletteView(c)
-	}
-	if a.settingsOpen {
-		a.settingsView(c)
 	}
 }
 

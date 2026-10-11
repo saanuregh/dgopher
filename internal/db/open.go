@@ -368,9 +368,10 @@ func postgresConfig(cfg Config, ep endpoint, tc *tls.Config) (*pgx.ConnConfig, e
 	// file's would land here too. Set here rather than in the URL, whose
 	// query writes a space as +.
 	pc.RuntimeParams = map[string]string{"application_name": appName}
-	if cfg.TLS == TLSPrefer {
-		// A server, or whoever sits in the middle, that declines TLS
-		// would otherwise be sent the password as it is.
+	if cfg.TLS == TLSPrefer || cfg.TLS == TLSRequire {
+		// A server that declines TLS, or whoever sits in the middle with a
+		// certificate of its own, which neither mode checks, would
+		// otherwise be sent the password as it is.
 		pc.RequireAuth = "!password"
 	}
 	// A cancelled query asks the server to stop it, and keeps the

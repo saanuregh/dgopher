@@ -234,6 +234,12 @@ func TestIntegrationLexingConformance(t *testing.T) {
 					t.Errorf("want Comment ending at first */, got %s", describe(toks))
 				}
 			}},
+			{"SELECT 1 /*@/*/ , 2", func(t *testing.T, a serverAnswer, toks []sqltext.Token) {
+				columnsAgree(2)(t, a, toks)
+				if c := commentTexts(toks); len(c) != 1 || c[0] != "/*@/*/" {
+					t.Errorf("want Comment ending at the */ an opener's star begins, got %s", describe(toks))
+				}
+			}},
 		})
 	})
 

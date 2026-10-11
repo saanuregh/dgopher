@@ -158,6 +158,7 @@ func (a *App) overlays(c *ui.Context) {
 	if a.auditView != nil {
 		a.auditViewer(c)
 	}
+	a.questions(c)
 	if tst := a.toast; tst != nil {
 		a.toast = nil
 		if tst.action != "" {

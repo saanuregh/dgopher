@@ -31,7 +31,7 @@ func init() {
 func FormatWith(src string, d Dialect, o SplitOptions) string {
 	var b strings.Builder
 	wroteAny := false
-	for _, seg := range splitSegments([]rune(src), d, o) {
+	for _, seg := range splitSegments([]rune(src), d, defaultQuoting(d), o) {
 		toks := seg.toks
 		for len(toks) > 0 && toks[len(toks)-1].Kind == Whitespace {
 			toks = toks[:len(toks)-1]

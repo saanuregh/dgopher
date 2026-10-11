@@ -47,7 +47,7 @@ func Analyze(cfg *db.Config, stmts []string) []Statement {
 	d := Dialect(cfg.Engine)
 	out := make([]Statement, len(stmts))
 	for i, s := range stmts {
-		out[i] = Statement{SQL: s, Analysis: sqltext.Classify(PolicyText(cfg.Engine, s), d), Start: -1}
+		out[i] = Statement{SQL: s, Analysis: sqltext.ClassifyExecutable(s, d), Start: -1}
 	}
 	return out
 }
@@ -83,7 +83,7 @@ func ReviewSQL(cfg *db.Config, stmts []Statement) Verdict {
 				v.Blocked = fmt.Sprintf("%s is read-only: %s statements are not allowed. Edit the connection to allow writes.", cfg.Name, verbOf(s.Analysis))
 				return v
 			}
-			if disablesReadOnly(PolicyText(cfg.Engine, s.SQL), Dialect(cfg.Engine)) {
+			if disablesReadOnly(s.SQL, Dialect(cfg.Engine)) {
 				v.Blocked = cfg.Name + " is read-only: the session's read-only setting cannot be changed."
 				return v
 			}
@@ -303,10 +303,21 @@ func verbOf(a sqltext.Analysis) string {
 // read-only mode off: SET and BEGIN … READ WRITE, set_config(), the
 // settings that hold the mode, DuckDB's access_mode among them, and an
 // ATTACH's READ_WRITE. It reads the tokens, so that comments and spacing
-// between the words hide nothing.
+// between the words hide nothing, under every quoting rule the session
+// could be in, as the classifier does.
 func disablesReadOnly(sql string, d sqltext.Dialect) bool {
+	for _, toks := range sqltext.TokenizeExecutable(sql, d) {
+		if tokensDisableReadOnly(toks, d) {
+			return true
+		}
+	}
+	return false
+}
+
+// tokensDisableReadOnly is disablesReadOnly of one quoting rule's tokens.
+func tokensDisableReadOnly(toks []sqltext.Token, d sqltext.Dialect) bool {
 	var words []string
-	for _, t := range sqltext.Tokenize(sql, d) {
+	for _, t := range toks {
 		switch t.Kind {
 		case sqltext.Whitespace, sqltext.Comment:
 			continue

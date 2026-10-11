@@ -124,7 +124,13 @@ and the run fails naming the line that began it.
   nothing when the transaction open now is another tab's, or none is. A
   schema change that runs in a transaction of its own (the table designer,
   a model's migration) is refused while one is open, as its `BEGIN` would
-  fail and abort it.
+  fail and abort it. So is a DuckDB backup, whose export would hold the
+  transaction's uncommitted rows. A Commit, or a typed `COMMIT` or `END`, of
+  a transaction something else on the connection aborted (a catalog read
+  cut short, a failed backup) rolls it back and says that nothing was
+  committed, where DuckDB would answer with a rollback and no error.
+  Closing the owner's tab rolls its transaction back as soon as the
+  connection is free; no other tab takes the transaction meanwhile.
 - On MySQL, a statement that commits an open transaction itself (DDL and
   the rest of [MySQL's list](https://dev.mysql.com/doc/refman/8.4/en/implicit-commit.html),
   temporary tables aside) asks first: Roll Back would not undo what ran
@@ -161,6 +167,13 @@ and the run fails naming the line that began it.
 - The app splits a script into statements with the lexing rules of each
   server: its comments, quotes, escapes and dollar-quoted strings. Tests run
   these rules against the real servers.
+- A session, a role, a database or the server can change where strings
+  end: PostgreSQL's `standard_conforming_strings = off` makes `\` an escape,
+  MySQL's `NO_BACKSLASH_ESCAPES` makes it a character and its `ANSI_QUOTES`
+  makes `"…"` a name. A statement holding a `\`, or on MySQL a `"`, is read
+  under each rule its server can switch to (DuckDB's as PostgreSQL's), and
+  counts as its most dangerous reading: a write with a backslash in a
+  string may ask where it would not otherwise.
 - Text that still holds more than one statement counts as a destructive
   write, confirmed everywhere. On PostgreSQL the server also refuses such
   text, because statements run through the extended protocol.
@@ -256,6 +269,10 @@ Each connection takes its password from one place.
   the app's settings only: pg_dump and pg_restore read none of these
   either, and mysqldump reads no option file but the app's, nor `MYSQL_*`
   variables.
+- A PostgreSQL password never goes as clear text under `prefer` or
+  `require`: neither checks the server's certificate, so the server asking
+  for it could be anyone in the path. Such a server fails to connect; use
+  verify-full. pg_dump and pg_restore keep the rule from libpq 16 on.
 - A cloud identity's token and a MySQL password sent as clear text go only
   over verified TLS. Under `disable` and `prefer`, MySQL's
   `caching_sha2_password` fetches the server's key without checking it, so
