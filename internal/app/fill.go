@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 	"dgopher/internal/redact"
 	"dgopher/internal/safety"
 	"dgopher/internal/testdata"
@@ -164,10 +166,7 @@ func readFillColumns(ctx context.Context, poolOf func(context.Context) (*db.DB, 
 		switch fc.gen.Kind {
 		case testdata.Reference:
 			ref := fks[fk]
-			schema := ref.RefSchema
-			if schema == "" {
-				schema = obj.Schema
-			}
+			schema := cmp.Or(ref.RefSchema, obj.Schema)
 			fc.refTo = ref.RefTable + "." + ref.RefColumns[0]
 			fc.gen.Values, err = db.DistinctValues(ctx, d, schema, ref.RefTable, db.Column{Name: ref.RefColumns[0], Type: c.Type}, referenceLimit)
 			if err != nil {
@@ -347,8 +346,7 @@ func (a *App) runFill(x *fillDialog) {
 			},
 			progress: func(done int64) { a.Post(func() { x.done = done }) }})
 		ev := audit.Event{Kind: audit.KindImport, Database: database, Rows: written,
-			Statement: "INSERT INTO " + obj.Name, Detail: fmt.Sprintf("%d generated rows", n)}
-		ev.Err = err
+			Statement: "INSERT INTO " + obj.Name, Detail: fmt.Sprintf("%d generated rows", n), Err: err}
 		a.Record(&cfg, ev)
 		return func() {
 			x.running, x.cancel = false, nil
@@ -367,13 +365,7 @@ func (a *App) runFill(x *fillDialog) {
 }
 
 // fillKindLabels are the labels of testdata.Kinds, in order.
-var fillKindLabels = func() []string {
-	labels := make([]string, len(testdata.Kinds))
-	for i, k := range testdata.Kinds {
-		labels[i] = k.Label()
-	}
-	return labels
-}()
+var fillKindLabels = lists.Map(testdata.Kinds, testdata.Kind.Label)
 
 func (a *App) fillView(c *ui.Context) {
 	x := a.filling

@@ -269,6 +269,52 @@ func TestHeaderMenuHidesAndPins(t *testing.T) {
 	}
 }
 
+// "Then by This" moves the column to the end of the order, once, and
+// leaves the order it replaced as it was.
+func TestOrderThenByThis(t *testing.T) {
+	a := NewFakeHost(t)
+	src := &Source{
+		Cols: []db.ColumnInfo{{Name: "id"}, {Name: "kind"}, {Name: "name"}},
+		Rows: [][]any{{int64(1), "x", "a"}, {int64(2), "y", "b"}},
+	}
+	g := NewGrid()
+	before := []ui.SortKey{{Column: colID(2)}, {Column: colID(1), Descending: true}}
+	g.sort = ui.SortOrder{Column: colID(0), Then: before}
+	tt := ui.NewTester(func(c *ui.Context) { g.View(c, a, src) }, 800, 300)
+	tt.Frame()
+	choose := func(item string) {
+		t.Helper()
+		if err := tt.RightClick("name"); err != nil {
+			t.Fatal(err)
+		}
+		if err := tt.ChooseMenuItem("Order", item); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+	}
+	choose("Then by This, Descending")
+	want := []ui.SortKey{{Column: colID(1), Descending: true}, {Column: colID(2), Descending: true}}
+	if !slices.Equal(g.sort.Then, want) || g.sort.Column != colID(0) {
+		t.Fatalf("order %+v", g.sort)
+	}
+	if !slices.Equal(before, []ui.SortKey{{Column: colID(2)}, {Column: colID(1), Descending: true}}) {
+		t.Fatalf("the earlier order changed: %+v", before)
+	}
+	choose("Then by This, Ascending")
+	want = []ui.SortKey{{Column: colID(1), Descending: true}, {Column: colID(2)}}
+	if !slices.Equal(g.sort.Then, want) {
+		t.Fatalf("order %+v", g.sort.Then)
+	}
+	g.sort = ui.SortOrder{Column: colID(0)}
+	choose("Then by This, Ascending")
+	if !slices.Equal(g.sort.Then, []ui.SortKey{{Column: colID(2)}}) {
+		t.Fatalf("order %+v", g.sort.Then)
+	}
+	if got := withoutSortKey(nil, colID(2)); got != nil {
+		t.Fatalf("from no keys: %#v", got)
+	}
+}
+
 func TestFitWidths(t *testing.T) {
 	a := NewFakeHost(t)
 	src := &Source{Cols: []db.ColumnInfo{{Name: "a"}}, Rows: [][]any{{strings.Repeat("x", 80)}}}

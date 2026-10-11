@@ -11,6 +11,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/datamodel"
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 	"dgopher/internal/sqltext"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
@@ -88,10 +89,7 @@ func (t *Tab) compareView(c *ui.Context) {
 						ui.Text(c, "The project has no "+t.m.Engine.Label()+" connection.").TextColor(pal.Muted)
 						return
 					}
-					names := make([]string, len(f.conns))
-					for i, cn := range f.conns {
-						names[i] = cn.Config.Name
-					}
+					names := lists.Map(f.conns, func(cn *connection.Conn) string { return cn.Config.Name })
 					ui.Field(c, "Connection", func() {
 						ui.Select(c, &f.conn, names).Label("Connection")
 					})
@@ -112,10 +110,7 @@ func (t *Tab) compareView(c *ui.Context) {
 						ui.Text(c, "The project has no other "+t.m.Engine.Label()+" model.").TextColor(pal.Muted)
 						return
 					}
-					names := make([]string, len(f.models))
-					for i, m := range f.models {
-						names[i] = m.Name
-					}
+					names := lists.Map(f.models, func(m *datamodel.Model) string { return m.Name })
 					ui.Field(c, "Model", func() {
 						ui.Select(c, &f.model, names).Label("Model")
 					})

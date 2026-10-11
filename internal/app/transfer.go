@@ -177,9 +177,8 @@ func (a *App) runCopy(x *copyDialog, to *connection.Conn, tables []string) {
 				status(table, widgets.Count(done, "row")+"…")
 			})
 			ev := audit.Event{Kind: audit.KindImport, Database: toDB, Rows: n, Statement: "INSERT INTO " + table,
-				Detail: fmt.Sprintf("copied from %s, %s.%s", from.Config.Name, fromSchema, table)}
+				Detail: fmt.Sprintf("copied from %s, %s.%s", from.Config.Name, fromSchema, table), Err: err}
 			if err != nil {
-				ev.Err = err
 				status(table, "failed")
 			} else {
 				status(table, widgets.Count(n, "row")+" copied")

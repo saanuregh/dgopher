@@ -70,3 +70,21 @@ func newEditor(t *testing.T, h *fakeQueryHost, tt *ui.Tester, cn *connection.Con
 	tt.Frame()
 	return q
 }
+
+// openEditor adds cfg to a new host, draws it at w×h and opens a connected editor on text.
+func openEditor(t *testing.T, cfg db.Config, w, h int, text string) (*fakeQueryHost, *ui.Tester, *connection.Conn, *Tab) {
+	t.Helper()
+	a := newFakeQueryHost(t)
+	cn := a.AddConn(cfg)
+	tt := ui.NewTester(a.view, w, h)
+	return a, tt, cn, newEditor(t, a, tt, cn, text)
+}
+
+// applyEdits presses ⌘S and confirms the review of the grid's edits.
+func applyEdits(t *testing.T, a *fakeQueryHost, tt *ui.Tester) {
+	t.Helper()
+	tt.Key(ui.Cmd, ui.KeyS)
+	testutil.WaitFor(t, tt, "the review", func() bool { return a.Confirm != nil })
+	a.Confirm.OnConfirm()
+	a.Confirm = nil
+}

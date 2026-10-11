@@ -12,6 +12,7 @@ import (
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 	"dgopher/internal/safety"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
@@ -276,10 +277,7 @@ func redisActivity(ctx context.Context, kv *db.KV) (map[string]string, dataview.
 				fields[k] = v
 			}
 		}
-		row := make([]any, len(names))
-		for i, n := range names {
-			row[i] = fields[n]
-		}
+		row := lists.Map(names, func(n string) any { return fields[n] })
 		src.Rows = append(src.Rows, row)
 	}
 	return info, src, nil
@@ -361,10 +359,7 @@ func (t *activityTab) View(c *ui.Context) {
 	ui.Column(c).Grow(1).Children(func() {
 		ui.Row(c).Padding(6, 10).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			if len(t.pages) > 1 {
-				names := make([]string, len(t.pages))
-				for i, p := range t.pages {
-					names[i] = p.name
-				}
+				names := lists.Map(t.pages, func(p activityPage) string { return p.name })
 				if ui.Segmented(c, &t.page, names...).Label("Page").Changed() {
 					t.showPage(t.page)
 				}

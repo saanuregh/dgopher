@@ -57,14 +57,9 @@ func paramsView(a Host, c *ui.Context) {
 					}).Description(paramKind(fl))
 				}
 			})
-			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				if ui.Button(c, "Cancel").Clicked() {
-					f.open = false
-				}
-				if widgets.Activated(c, ui.PrimaryButton(c, "Run")) || submit {
-					f.submit()
-				}
-			})
+			if widgets.DialogFooter(c, &f.open, "Run", submit) {
+				f.submit()
+			}
 		})
 	})
 	if !f.open && a.QueryDialogs().params == f {

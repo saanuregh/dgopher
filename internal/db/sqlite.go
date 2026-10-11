@@ -22,21 +22,18 @@ func (sqliteDialect) Schemas(ctx context.Context, q Querier) ([]string, error) {
 }
 
 func (d sqliteDialect) Objects(ctx context.Context, q Querier, schema string) ([]Object, error) {
-	var out []Object
-	err := scanRows(ctx, q, `SELECT name, type FROM `+d.Quote(schema)+`.sqlite_master
-WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite\_%' ESCAPE '\' ORDER BY name`, nil, func(scan func(...any) error) error {
+	return scanAll(ctx, q, `SELECT name, type FROM `+d.Quote(schema)+`.sqlite_master
+WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite\_%' ESCAPE '\' ORDER BY name`, nil, func(scan func(...any) error) (Object, error) {
 		o := Object{Schema: schema, Rows: -1, Bytes: -1, Kind: KindTable}
 		var typ string
 		if err := scan(&o.Name, &typ); err != nil {
-			return err
+			return o, err
 		}
 		if typ == "view" {
 			o.Kind = KindView
 		}
-		out = append(out, o)
-		return nil
+		return o, nil
 	})
-	return out, err
 }
 
 func (d sqliteDialect) Columns(ctx context.Context, q Querier, schema, table string) ([]Column, error) {
@@ -96,17 +93,15 @@ func (d sqliteDialect) Indexes(ctx context.Context, q Querier, schema, table str
 		unique bool
 		origin string
 	}
-	var list []row
-	err := scanRows(ctx, q, `SELECT name, "unique", origin FROM pragma_index_list(?, ?) ORDER BY name`, []any{table, schema},
-		func(scan func(...any) error) error {
+	list, err := scanAll(ctx, q, `SELECT name, "unique", origin FROM pragma_index_list(?, ?) ORDER BY name`, []any{table, schema},
+		func(scan func(...any) error) (row, error) {
 			var r row
 			var unique int64
 			if err := scan(&r.name, &unique, &r.origin); err != nil {
-				return err
+				return r, err
 			}
 			r.unique = unique != 0
-			list = append(list, r)
-			return nil
+			return r, nil
 		})
 	if err != nil {
 		return nil, err

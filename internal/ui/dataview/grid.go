@@ -18,6 +18,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/export"
 	"dgopher/internal/keymap"
+	"dgopher/internal/lists"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -352,6 +353,19 @@ func (g *Grid) value(src *Source, row, col int) (any, bool) {
 	return src.Rows[row][col], false
 }
 
+// plainValue is a cell's value as shown, for copying out: unset and
+// DEFAULT as nil, typed text as a string.
+func (g *Grid) plainValue(src *Source, row, col int) any {
+	v, _ := g.value(src, row, col)
+	if v == unset || v == db.Default {
+		return nil
+	}
+	if typed, ok := v.(db.Typed); ok {
+		return string(typed)
+	}
+	return v
+}
+
 // View builds the grid; it returns its table.
 func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 	pal := widgets.PaletteOf(c)
@@ -378,8 +392,7 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 			g.showAllMenu(m)
 		}
 	}
-	sortBefore := g.sort
-	sortBefore.Then = slices.Clone(g.sort.Then)
+	sortBefore := cloneSort(g.sort)
 	var table ui.Element
 	// Rows as dense as a spreadsheet's: the theme's spacing sizes them.
 	theme := c.Theme()
@@ -591,11 +604,7 @@ func (g *Grid) setValue(src *Source, row, col int, v any) {
 		return
 	}
 	orig := src.Rows[row][col]
-	if typed, ok := v.(db.Typed); ok && orig != nil && string(typed) == db.Display(orig) {
-		delete(g.edits.updates[row], col)
-		return
-	}
-	if v == nil && orig == nil {
+	if typed, ok := v.(db.Typed); ok && orig != nil && string(typed) == db.Display(orig) || v == nil && orig == nil {
 		delete(g.edits.updates[row], col)
 		return
 	}
@@ -668,22 +677,12 @@ func (g *Grid) copySelection(src *Source, f export.Format, header bool) string {
 		}
 		return db.Display(v)
 	}
-	names := make([]string, len(src.Cols))
-	for i, col := range src.Cols {
-		names[i] = col.Name
-	}
+	names := lists.Map(src.Cols, func(col db.ColumnInfo) string { return col.Name })
 	data := make([][]any, 0, len(rows))
 	for _, r := range rows {
 		vals := make([]any, len(src.Cols))
 		for col := range src.Cols {
-			v, _ := g.value(src, r, col)
-			if v == unset || v == db.Default {
-				v = nil
-			}
-			if typed, ok := v.(db.Typed); ok {
-				v = string(typed)
-			}
-			vals[col] = v
+			vals[col] = g.plainValue(src, r, col)
 		}
 		data = append(data, vals)
 	}

@@ -153,14 +153,7 @@ func (g *Grid) copyAdvanced(src *Source, opt settings.CopyOptions) string {
 			vals = append(vals, strconv.Itoa(r+1))
 		}
 		for col := range src.Cols {
-			v, _ := g.value(src, r, col)
-			if v == unset || v == db.Default {
-				v = nil
-			}
-			if typed, ok := v.(db.Typed); ok {
-				v = string(typed)
-			}
-			vals = append(vals, v)
+			vals = append(vals, g.plainValue(src, r, col))
 		}
 		data = append(data, vals)
 	}
@@ -256,33 +249,26 @@ func clipView(a Host, c *ui.Context) {
 			if f.paste {
 				ui.Text(c, "Pasted cells are pending changes: review them as SQL before they are applied.").FontSize(12).TextColor(pal.Muted)
 			}
-			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				if ui.Button(c, "Cancel").Clicked() {
-					f.open = false
-				}
-				label := "Copy"
+			label := "Copy"
+			if f.paste {
+				label = "Paste"
+			}
+			if widgets.DialogFooter(c, &f.open, label, false) {
+				f.open = false
 				if f.paste {
-					label = "Paste"
+					f.pasteOpts.Delimiter = delimiterRunes[f.delim]
+					pasteInto(a, f.g, f.src, c.ReadClipboard(), f.pasteOpts)
+					return
 				}
-				if widgets.Activated(c, ui.PrimaryButton(c, label)) {
-					f.open = false
-					if f.paste {
-						f.pasteOpts.Delimiter = delimiterRunes[f.delim]
-						pasteInto(a, f.g, f.src, c.ReadClipboard(), f.pasteOpts)
-						return
-					}
-					f.copy.Delimiter = delimiterRunes[f.delim]
-					a.Settings().AdvancedCopy = f.copy
-					a.SaveSettings()
-					a.WriteClipboard(f.g.copyAdvanced(f.src, f.copy))
-					c.Toast("Copied")
-				}
-			})
+				f.copy.Delimiter = delimiterRunes[f.delim]
+				a.Settings().AdvancedCopy = f.copy
+				a.SaveSettings()
+				a.WriteClipboard(f.g.copyAdvanced(f.src, f.copy))
+				c.Toast("Copied")
+			}
 		})
 	})
-	if !f.open && a.Dialogs().clip == f {
-		a.Dialogs().clip = nil
-	}
+	dropClosed(&a.Dialogs().clip, f, f.open)
 }
 
 // copyText writes the chosen rows in a "Copy as" format.
@@ -299,22 +285,11 @@ const maxCopyRows = 100000
 // openWith opens the rows read in the system's app for CSV files, as a
 // spreadsheet, through a file of the user's own.
 func (g *Grid) openWith(a Host, src *Source) {
-	names := make([]string, len(src.Cols))
-	for i, c := range src.Cols {
-		names[i] = c.Name
-	}
 	rows := make([][]any, 0, len(src.Rows))
 	for r := range src.Rows {
 		vals := make([]any, len(src.Cols))
 		for col := range src.Cols {
-			v, _ := g.value(src, r, col)
-			if v == unset || v == db.Default {
-				v = nil
-			}
-			if typed, ok := v.(db.Typed); ok {
-				v = string(typed)
-			}
-			vals[col] = v
+			vals[col] = g.plainValue(src, r, col)
 		}
 		rows = append(rows, vals)
 	}

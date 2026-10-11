@@ -99,18 +99,6 @@ func TestIntegrationModels(t *testing.T) {
 				}
 				return &Model{Name: "shop", Engine: srv.cfg.Engine, Tables: tables}
 			}
-			same := func(a, b *Model) {
-				t.Helper()
-				diffs, err := Compare(a, b)
-				if err != nil {
-					t.Fatal(err)
-				}
-				for _, df := range diffs {
-					if df.State != Same {
-						t.Fatalf("%s differs (%d): %+v", df.Name, df.State, df.Changes)
-					}
-				}
-			}
 			m := read("it_model_a")
 			if len(m.Tables) < 2 {
 				t.Fatalf("tables %+v", m.Tables)
@@ -127,7 +115,7 @@ func TestIntegrationModels(t *testing.T) {
 				t.Fatalf("notes %q", notes)
 			}
 			apply(t, d, ch)
-			same(m, read("it_model_b"))
+			unchanged(t, m, read("it_model_b"))
 
 			i := slices.IndexFunc(m.Tables, func(t db.TableDesign) bool { return t.Name == "orders" })
 			m.Tables[i].Columns = append(m.Tables[i].Columns, db.ColumnDesign{Name: "note", Type: "varchar(20)", Nullable: true})
@@ -139,7 +127,7 @@ func TestIntegrationModels(t *testing.T) {
 				t.Fatal(err, notes)
 			}
 			apply(t, d, ch)
-			same(m, read("it_model_b"))
+			unchanged(t, m, read("it_model_b"))
 
 			for _, other := range servers() {
 				if other.cfg.Engine == srv.cfg.Engine {
@@ -167,7 +155,7 @@ func TestIntegrationModels(t *testing.T) {
 					t.Fatal(err, notes)
 				}
 				apply(t, d, ch)
-				same(to, read(schema))
+				unchanged(t, to, read(schema))
 			}
 			if srv.cfg.Engine != db.DuckDB {
 				// A key of a new table to a unique index the migration adds.

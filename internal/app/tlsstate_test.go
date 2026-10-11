@@ -35,10 +35,7 @@ func TestTLSStateShown(t *testing.T) {
 		if !tt.HasText(shown) {
 			t.Errorf("the status bar does not show %q: %q", shown, tt.Texts())
 		}
-		events, err := a.projects[0].Audit.Read(0)
-		if err != nil {
-			t.Fatal(err)
-		}
+		events := auditEvents(t, a)
 		found := false
 		for _, e := range events {
 			if e.Kind == audit.KindConnect && e.Connection == c.cfg.Name {

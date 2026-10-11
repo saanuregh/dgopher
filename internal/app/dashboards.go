@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"errors"
 	"os"
 	"path/filepath"
@@ -144,10 +145,7 @@ func (a *App) addPanel(x *addToDashboard) {
 		}
 		d = &dashboard.Dashboard{Name: name}
 	}
-	title := strings.TrimSpace(x.title)
-	if title == "" {
-		title = "Panel"
-	}
+	title := cmp.Or(strings.TrimSpace(x.title), "Panel")
 	d.Panels = append(d.Panels, dashboard.Panel{Title: title, Connection: strings.TrimPrefix(x.conn.Config.ID, p.Prefix),
 		Database: x.database, SQL: x.sql, View: dashboard.Views[x.view], Width: 2})
 	if _, err := d.Save(path, was); err != nil {

@@ -40,22 +40,19 @@ func mysqlObjects(ctx context.Context, q Querier, schema string, sized bool) ([]
 	if sized {
 		stats = "COALESCE(TABLE_ROWS, -1), COALESCE(DATA_LENGTH + INDEX_LENGTH, -1), COALESCE(ENGINE, ''), COALESCE(TABLE_COMMENT, '')"
 	}
-	var out []Object
-	err := scanRows(ctx, q, `SELECT TABLE_NAME, TABLE_TYPE, `+stats+`
-FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME`, []any{schema}, func(scan func(...any) error) error {
+	return scanAll(ctx, q, `SELECT TABLE_NAME, TABLE_TYPE, `+stats+`
+FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME`, []any{schema}, func(scan func(...any) error) (Object, error) {
 		o := Object{Schema: schema}
 		var typ string
 		if err := scan(&o.Name, &typ, &o.Rows, &o.Bytes, &o.Engine, &o.Comment); err != nil {
-			return err
+			return o, err
 		}
 		o.Kind = KindTable
 		if strings.Contains(typ, "VIEW") {
 			o.Kind, o.Rows, o.Bytes = KindView, -1, -1
 		}
-		out = append(out, o)
-		return nil
+		return o, nil
 	})
-	return out, err
 }
 
 func (mysqlDialect) Columns(ctx context.Context, q Querier, schema, table string) ([]Column, error) {
@@ -74,39 +71,24 @@ func mysqlColumns(ctx context.Context, q Querier, schema, table string) (map[str
 	if table != "" {
 		which, args = " AND TABLE_NAME = ?", append(args, table)
 	}
-	out := map[string][]Column{}
-	err := scanRows(ctx, q, `SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE = 'YES', COALESCE(COLUMN_DEFAULT, ''),
+	return scanColumns(ctx, q, `SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE = 'YES', COALESCE(COLUMN_DEFAULT, ''),
   COLUMN_DEFAULT IS NOT NULL, COLUMN_KEY = 'PRI', EXTRA LIKE '%auto_increment%', COALESCE(COLUMN_COMMENT, '')
 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ?`+which+`
-ORDER BY TABLE_NAME, ORDINAL_POSITION`, args, func(scan func(...any) error) error {
-		var t string
-		var c Column
-		if err := scan(&t, &c.Name, &c.Type, &c.Nullable, &c.Default, &c.HasDefault, &c.PrimaryKey, &c.AutoIncrement, &c.Comment); err != nil {
-			return err
-		}
-		out[t] = append(out[t], c)
-		return nil
-	})
-	return out, err
+ORDER BY TABLE_NAME, ORDINAL_POSITION`, args)
 }
 
 func (d mysqlDialect) Indexes(ctx context.Context, q Querier, schema, table string) ([]Index, error) {
-	var out []Index
-	err := scanRows(ctx, q, `SELECT INDEX_NAME, MIN(NON_UNIQUE) = 0,
+	return scanAll(ctx, q, `SELECT INDEX_NAME, MIN(NON_UNIQUE) = 0,
   GROUP_CONCAT(COALESCE(COLUMN_NAME, EXPRESSION) ORDER BY SEQ_IN_INDEX SEPARATOR 0x1f), MIN(INDEX_TYPE)
 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
-GROUP BY INDEX_NAME ORDER BY INDEX_NAME = 'PRIMARY' DESC, INDEX_NAME`, []any{schema, table}, func(scan func(...any) error) error {
+GROUP BY INDEX_NAME ORDER BY INDEX_NAME = 'PRIMARY' DESC, INDEX_NAME`, []any{schema, table}, func(scan func(...any) error) (Index, error) {
 		var ix Index
 		var cols, typ string
 		if err := scan(&ix.Name, &ix.Unique, &cols, &typ); err != nil {
-			return err
+			return ix, err
 		}
 		ix.Columns = splitList(cols)
 		ix.Primary = ix.Name == "PRIMARY"
-		quoted := make([]string, len(ix.Columns))
-		for i, c := range ix.Columns {
-			quoted[i] = d.Quote(c)
-		}
 		kind := "INDEX"
 		if ix.Primary {
 			kind = "PRIMARY KEY"
@@ -115,16 +97,13 @@ GROUP BY INDEX_NAME ORDER BY INDEX_NAME = 'PRIMARY' DESC, INDEX_NAME`, []any{sch
 		} else {
 			kind += " " + d.Quote(ix.Name)
 		}
-		ix.Definition = fmt.Sprintf("%s (%s) USING %s", kind, strings.Join(quoted, ", "), typ)
-		out = append(out, ix)
-		return nil
+		ix.Definition = fmt.Sprintf("%s (%s) USING %s", kind, QuoteNames(d, ix.Columns), typ)
+		return ix, nil
 	})
-	return out, err
 }
 
 func (mysqlDialect) ForeignKeys(ctx context.Context, q Querier, schema, table string) ([]ForeignKey, error) {
-	var out []ForeignKey
-	err := scanRows(ctx, q, `SELECT k.CONSTRAINT_NAME, k.REFERENCED_TABLE_SCHEMA, k.REFERENCED_TABLE_NAME, rc.DELETE_RULE, rc.UPDATE_RULE,
+	return scanAll(ctx, q, `SELECT k.CONSTRAINT_NAME, k.REFERENCED_TABLE_SCHEMA, k.REFERENCED_TABLE_NAME, rc.DELETE_RULE, rc.UPDATE_RULE,
   GROUP_CONCAT(k.COLUMN_NAME ORDER BY k.ORDINAL_POSITION SEPARATOR 0x1f),
   GROUP_CONCAT(k.REFERENCED_COLUMN_NAME ORDER BY k.ORDINAL_POSITION SEPARATOR 0x1f)
 FROM information_schema.KEY_COLUMN_USAGE k
@@ -132,20 +111,18 @@ JOIN information_schema.REFERENTIAL_CONSTRAINTS rc
   ON rc.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA AND rc.CONSTRAINT_NAME = k.CONSTRAINT_NAME AND rc.TABLE_NAME = k.TABLE_NAME
 WHERE k.TABLE_SCHEMA = ? AND k.TABLE_NAME = ? AND k.REFERENCED_TABLE_NAME IS NOT NULL
 GROUP BY k.CONSTRAINT_NAME, k.REFERENCED_TABLE_SCHEMA, k.REFERENCED_TABLE_NAME, rc.DELETE_RULE, rc.UPDATE_RULE
-ORDER BY k.CONSTRAINT_NAME`, []any{schema, table}, func(scan func(...any) error) error {
+ORDER BY k.CONSTRAINT_NAME`, []any{schema, table}, func(scan func(...any) error) (ForeignKey, error) {
 		var fk ForeignKey
 		var cols, refCols, onDelete, onUpdate string
 		if err := scan(&fk.Name, &fk.RefSchema, &fk.RefTable, &onDelete, &onUpdate, &cols, &refCols); err != nil {
-			return err
+			return fk, err
 		}
 		fk.Columns, fk.RefColumns = splitList(cols), splitList(refCols)
 		fk.OnDelete, fk.OnUpdate = action(onDelete), action(onUpdate)
 		fk.Definition = fmt.Sprintf("FOREIGN KEY (%s) REFERENCES %s.%s (%s)",
 			strings.Join(fk.Columns, ", "), fk.RefSchema, fk.RefTable, strings.Join(fk.RefColumns, ", ")) + actionsSQL(fk.OnDelete, fk.OnUpdate)
-		out = append(out, fk)
-		return nil
+		return fk, nil
 	})
-	return out, err
 }
 
 func (d mysqlDialect) DDL(ctx context.Context, q Querier, schema string, obj Object) (string, error) {
@@ -217,22 +194,19 @@ func (d mysqlDialect) ItemDDL(ctx context.Context, q Querier, it Item) (string, 
 }
 
 func (mysqlDialect) ReferencedBy(ctx context.Context, q Querier, schema, table string) ([]Reference, error) {
-	var out []Reference
-	err := scanRows(ctx, q, `SELECT CONSTRAINT_NAME, TABLE_SCHEMA, TABLE_NAME,
+	return scanAll(ctx, q, `SELECT CONSTRAINT_NAME, TABLE_SCHEMA, TABLE_NAME,
   GROUP_CONCAT(COLUMN_NAME ORDER BY ORDINAL_POSITION SEPARATOR 0x1f),
   GROUP_CONCAT(REFERENCED_COLUMN_NAME ORDER BY ORDINAL_POSITION SEPARATOR 0x1f)
 FROM information_schema.KEY_COLUMN_USAGE
 WHERE REFERENCED_TABLE_SCHEMA = ? AND REFERENCED_TABLE_NAME = ?
 GROUP BY CONSTRAINT_NAME, TABLE_SCHEMA, TABLE_NAME
-ORDER BY TABLE_SCHEMA, TABLE_NAME, CONSTRAINT_NAME`, []any{schema, table}, func(scan func(...any) error) error {
+ORDER BY TABLE_SCHEMA, TABLE_NAME, CONSTRAINT_NAME`, []any{schema, table}, func(scan func(...any) error) (Reference, error) {
 		var r Reference
 		var cols, refCols string
 		if err := scan(&r.Name, &r.Schema, &r.Table, &cols, &refCols); err != nil {
-			return err
+			return r, err
 		}
 		r.Columns, r.RefColumns = splitList(cols), splitList(refCols)
-		out = append(out, r)
-		return nil
+		return r, nil
 	})
-	return out, err
 }

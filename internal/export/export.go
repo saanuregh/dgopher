@@ -4,7 +4,7 @@ package export
 
 import (
 	"bufio"
-	"bytes"
+	"cmp"
 	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
@@ -18,6 +18,8 @@ import (
 	"unicode/utf8"
 
 	"dgopher/internal/db"
+	"dgopher/internal/decode"
+	"dgopher/internal/lists"
 )
 
 type Format string
@@ -274,25 +276,15 @@ func text(v any) string {
 		}
 	}
 	if isCollection(v) {
-		if out, err := marshalJSON(v); err == nil {
+		if out, err := decode.Marshal(v); err == nil {
 			return string(out)
 		}
 	}
 	return fmt.Sprint(v)
 }
 
-func marshalJSON(v any) ([]byte, error) {
-	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
-		return nil, err
-	}
-	return bytes.TrimRight(b.Bytes(), "\n"), nil
-}
-
 func jsonString(s string) string {
-	out, _ := marshalJSON(s)
+	out, _ := decode.Marshal(s)
 	return string(out)
 }
 
@@ -325,7 +317,7 @@ func jsonValue(v any) string {
 	case string:
 		return jsonString(x)
 	case json.Marshaler:
-		if out, err := marshalJSON(x); err == nil {
+		if out, err := decode.Marshal(x); err == nil {
 			return string(out)
 		}
 	}
@@ -333,7 +325,7 @@ func jsonValue(v any) string {
 		return s
 	}
 	if _, ok := v.(fmt.Stringer); !ok && isCollection(v) {
-		if out, err := marshalJSON(v); err == nil {
+		if out, err := decode.Marshal(v); err == nil {
 			return string(out)
 		}
 	}
@@ -528,18 +520,12 @@ func newSQLWriter(base baseWriter) *sqlWriter {
 	if quote == nil {
 		quote = quoteDuckIdent
 	}
-	name := base.opt.Table
-	if name == "" {
-		name = "exported"
-	}
+	name := cmp.Or(base.opt.Table, "exported")
 	table := quote(name)
 	if base.opt.Schema != "" {
 		table = quote(base.opt.Schema) + "." + table
 	}
-	cols := make([]string, len(base.columns))
-	for i, c := range base.columns {
-		cols[i] = quote(c)
-	}
+	cols := lists.Map(base.columns, quote)
 	return &sqlWriter{baseWriter: base, prefix: "INSERT INTO " + table + " (" + strings.Join(cols, ", ") + ") VALUES"}
 }
 

@@ -1,6 +1,7 @@
 package dataview
 
 import (
+	"cmp"
 	"fmt"
 	"reflect"
 	"slices"
@@ -9,6 +10,7 @@ import (
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -77,6 +79,28 @@ func (k *rowKeys) add() {
 func (k *rowKeys) remove(i int) { k.keys = slices.Delete(k.keys, i, i+1) }
 
 func (k *rowKeys) key(prefix string, i int) string { return fmt.Sprint(prefix, k.keys[i]) }
+
+// appendRow adds a row at the end of a list, with a key of its own.
+func appendRow[T any](list *[]T, keys *rowKeys, row T) {
+	*list = append(*list, row)
+	keys.add()
+}
+
+// deleteRow takes the row at i out of a list, with its key.
+func deleteRow[T any](list *[]T, keys *rowKeys, i int) {
+	*list = slices.Delete(*list, i, i+1)
+	keys.remove(i)
+}
+
+// deleteRowsFunc takes out the rows del reports, from the last, with
+// their keys.
+func deleteRowsFunc[T any](list *[]T, keys *rowKeys, del func(T) bool) {
+	for i := len(*list) - 1; i >= 0; i-- {
+		if del((*list)[i]) {
+			deleteRow(list, keys, i)
+		}
+	}
+}
 
 func newDesigner(a Host, cn *connection.Conn, database string, was *db.TableDesign, start db.TableDesign, applied func(db.TableDesign)) *designer {
 	d := &designer{a: a, conn: cn, database: database, engine: cn.Config.Engine, was: was, first: cloneDesign(start), applied: applied}
@@ -339,8 +363,7 @@ func (d *designer) columnsView(c *ui.Context) {
 		})
 	}
 	if remove >= 0 {
-		d.now.Columns = slices.Delete(d.now.Columns, remove, remove+1)
-		d.cols.remove(remove)
+		deleteRow(&d.now.Columns, &d.cols, remove)
 	}
 	ui.Row(c).Gap(8).PaddingY(4).Children(func() {
 		if widgets.ToolButton(c, widgets.IconPlus, "Add Column", "Add a column at the end").Clicked() {
@@ -348,47 +371,36 @@ func (d *designer) columnsView(c *ui.Context) {
 			if len(types) > 0 {
 				typ = types[0]
 			}
-			d.now.Columns = append(d.now.Columns, db.ColumnDesign{Name: fmt.Sprint("column", len(d.now.Columns)+1), Type: typ, Nullable: true})
-			d.cols.add()
+			appendRow(&d.now.Columns, &d.cols, db.ColumnDesign{Name: fmt.Sprint("column", len(d.now.Columns)+1), Type: typ, Nullable: true})
 		}
 	})
 	if d.was != nil {
-		var dropped []db.ColumnDesign
-		for _, w := range d.was.Columns {
-			if !slices.ContainsFunc(d.now.Columns, func(c db.ColumnDesign) bool { return c.Was == w.Name }) {
-				dropped = append(dropped, w)
-			}
-		}
-		droppedRow(c, "Columns dropped", len(dropped), func(i int) string { return dropped[i].Name }, func(i int) {
-			d.now.Columns = append(d.now.Columns, dropped[i])
-			d.cols.add()
-		})
+		droppedRow(c, "Columns dropped", d.was.Columns, &d.now.Columns, &d.cols, func(w db.ColumnDesign) bool {
+			return slices.ContainsFunc(d.now.Columns, func(c db.ColumnDesign) bool { return c.Was == w.Name })
+		}, func(w db.ColumnDesign) string { return w.Name })
 	}
 }
 
 // droppedRow lists what the form dropped of what was read, each with a
-// button bringing it back.
-func droppedRow(c *ui.Context, title string, n int, name func(int) string, restore func(int)) {
-	if n == 0 {
+// button bringing it back: the rows of was that kept does not report.
+func droppedRow[T any](c *ui.Context, title string, was []T, list *[]T, keys *rowKeys, kept func(T) bool, name func(T) string) {
+	dropped := slices.DeleteFunc(slices.Clone(was), kept)
+	if len(dropped) == 0 {
 		return
 	}
 	pal := widgets.PaletteOf(c)
 	ui.Row(c).Gap(8).PaddingY(6).Wrap().Children(func() {
 		ui.Text(c, title+":").FontSize(12).TextColor(pal.Muted)
-		for i := range n {
-			if ui.Link(c, "Restore "+name(i), "").Clicked() {
-				restore(i)
+		for _, row := range dropped {
+			if ui.Link(c, "Restore "+name(row), "").Clicked() {
+				appendRow(list, keys, row)
 			}
 		}
 	})
 }
 
 func (d *designer) columnNames() []string {
-	names := make([]string, len(d.now.Columns))
-	for i, c := range d.now.Columns {
-		names[i] = c.Name
-	}
-	return names
+	return lists.Map(d.now.Columns, func(c db.ColumnDesign) string { return c.Name })
 }
 
 func (d *designer) indexesView(c *ui.Context) {
@@ -420,26 +432,17 @@ func (d *designer) indexesView(c *ui.Context) {
 		})
 	}
 	if remove >= 0 {
-		d.now.Indexes = slices.Delete(d.now.Indexes, remove, remove+1)
-		d.indexes.remove(remove)
+		deleteRow(&d.now.Indexes, &d.indexes, remove)
 	}
 	if widgets.ToolButton(c, widgets.IconPlus, "Add Index", "Add an index of columns").Clicked() {
-		d.now.Indexes = append(d.now.Indexes, db.IndexDesign{Name: d.freeName("idx", func(n string) bool {
+		appendRow(&d.now.Indexes, &d.indexes, db.IndexDesign{Name: d.freeName("idx", func(n string) bool {
 			return slices.ContainsFunc(d.now.Indexes, func(ix db.IndexDesign) bool { return ix.Name == n })
 		})})
-		d.indexes.add()
 	}
 	if d.was != nil {
-		var dropped []db.IndexDesign
-		for _, ix := range d.was.Indexes {
-			if !slices.ContainsFunc(d.now.Indexes, func(n db.IndexDesign) bool { return n.Read && n.Name == ix.Name }) {
-				dropped = append(dropped, ix)
-			}
-		}
-		droppedRow(c, "Indexes dropped", len(dropped), func(i int) string { return dropped[i].Name }, func(i int) {
-			d.now.Indexes = append(d.now.Indexes, dropped[i])
-			d.indexes.add()
-		})
+		droppedRow(c, "Indexes dropped", d.was.Indexes, &d.now.Indexes, &d.indexes, func(ix db.IndexDesign) bool {
+			return slices.ContainsFunc(d.now.Indexes, func(n db.IndexDesign) bool { return n.Read && n.Name == ix.Name })
+		}, func(ix db.IndexDesign) string { return ix.Name })
 	}
 }
 
@@ -457,25 +460,19 @@ func (d *designer) freeName(suffix string, taken func(string) bool) string {
 // actionLabels name the referential actions, the default first.
 var actionLabels = []string{"Default", "Restrict", "Cascade", "Set null", "Set default"}
 
+// actionClauses are the actions of actionLabels as SQL, in their order.
+var actionClauses = []string{"", "RESTRICT", "CASCADE", "SET NULL", "SET DEFAULT"}
+
 func actionOf(label string) string {
-	switch label {
-	case "Restrict":
-		return "RESTRICT"
-	case "Cascade":
-		return "CASCADE"
-	case "Set null":
-		return "SET NULL"
-	case "Set default":
-		return "SET DEFAULT"
+	if i := slices.Index(actionLabels, label); i >= 0 {
+		return actionClauses[i]
 	}
 	return ""
 }
 
 func actionLabel(action string) string {
-	for _, l := range actionLabels {
-		if actionOf(l) == action {
-			return l
-		}
+	if i := slices.Index(actionClauses, action); i >= 0 {
+		return actionLabels[i]
 	}
 	return actionLabels[0]
 }
@@ -517,26 +514,17 @@ func (d *designer) keysView(c *ui.Context) {
 		})
 	}
 	if remove >= 0 {
-		d.now.ForeignKeys = slices.Delete(d.now.ForeignKeys, remove, remove+1)
-		d.fks.remove(remove)
+		deleteRow(&d.now.ForeignKeys, &d.fks, remove)
 	}
 	if fixed == "" && widgets.ToolButton(c, widgets.IconPlus, "Add Foreign Key", "Point columns at another table's").Clicked() {
-		d.now.ForeignKeys = append(d.now.ForeignKeys, db.ForeignKeyDesign{RefSchema: d.now.Schema, Name: d.freeName("fkey", func(n string) bool {
+		appendRow(&d.now.ForeignKeys, &d.fks, db.ForeignKeyDesign{RefSchema: d.now.Schema, Name: d.freeName("fkey", func(n string) bool {
 			return slices.ContainsFunc(d.now.ForeignKeys, func(fk db.ForeignKeyDesign) bool { return fk.Name == n })
 		})})
-		d.fks.add()
 	}
 	if d.was != nil {
-		var dropped []db.ForeignKeyDesign
-		for _, fk := range d.was.ForeignKeys {
-			if !slices.ContainsFunc(d.now.ForeignKeys, func(n db.ForeignKeyDesign) bool { return n.Read && n.Name == fk.Name }) {
-				dropped = append(dropped, fk)
-			}
-		}
-		droppedRow(c, "Foreign keys dropped", len(dropped), func(i int) string { return dropped[i].Name }, func(i int) {
-			d.now.ForeignKeys = append(d.now.ForeignKeys, dropped[i])
-			d.fks.add()
-		})
+		droppedRow(c, "Foreign keys dropped", d.was.ForeignKeys, &d.now.ForeignKeys, &d.fks, func(fk db.ForeignKeyDesign) bool {
+			return slices.ContainsFunc(d.now.ForeignKeys, func(n db.ForeignKeyDesign) bool { return n.Read && n.Name == fk.Name })
+		}, func(fk db.ForeignKeyDesign) string { return fk.Name })
 	}
 }
 
@@ -551,10 +539,7 @@ func (d *designer) checksView(c *ui.Context) {
 		ch := &d.now.Checks[i]
 		ui.Row(c.Key(d.chks.key("check-", i))).Gap(8).AlignItems(ui.Center).Children(func() {
 			if ch.Read {
-				name := ch.Name
-				if name == "" {
-					name = "unnamed"
-				}
+				name := cmp.Or(ch.Name, "unnamed")
 				ui.Text(c, name).Bold().Font(widgets.MonoFont).SingleLine()
 				ui.Text(c, ch.Expression).Font(widgets.MonoFont).FontSize(12).TextColor(pal.Muted).SingleLine().Grow(1).Shrink(1)
 			} else {
@@ -567,26 +552,17 @@ func (d *designer) checksView(c *ui.Context) {
 		})
 	}
 	if remove >= 0 {
-		d.now.Checks = slices.Delete(d.now.Checks, remove, remove+1)
-		d.chks.remove(remove)
+		deleteRow(&d.now.Checks, &d.chks, remove)
 	}
 	if fixed == "" && widgets.ToolButton(c, widgets.IconPlus, "Add Check", "Add a condition every row must meet").Clicked() {
-		d.now.Checks = append(d.now.Checks, db.CheckDesign{Name: d.freeName("check", func(n string) bool {
+		appendRow(&d.now.Checks, &d.chks, db.CheckDesign{Name: d.freeName("check", func(n string) bool {
 			return slices.ContainsFunc(d.now.Checks, func(ch db.CheckDesign) bool { return ch.Name == n })
 		})})
-		d.chks.add()
 	}
 	if d.was != nil {
-		var dropped []db.CheckDesign
-		for _, ch := range d.was.Checks {
-			if !slices.ContainsFunc(d.now.Checks, func(n db.CheckDesign) bool { return n.Read && n.Name == ch.Name && n.Expression == ch.Expression }) {
-				dropped = append(dropped, ch)
-			}
-		}
-		droppedRow(c, "Checks dropped", len(dropped), func(i int) string { return dropped[i].Expression }, func(i int) {
-			d.now.Checks = append(d.now.Checks, dropped[i])
-			d.chks.add()
-		})
+		droppedRow(c, "Checks dropped", d.was.Checks, &d.now.Checks, &d.chks, func(ch db.CheckDesign) bool {
+			return slices.ContainsFunc(d.now.Checks, func(n db.CheckDesign) bool { return n.Read && n.Name == ch.Name && n.Expression == ch.Expression })
+		}, func(ch db.CheckDesign) string { return ch.Expression })
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
+	"dgopher/internal/lists"
 	"dgopher/internal/sqltext"
 	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
@@ -282,10 +283,7 @@ func unknownNames(stmt []sqltext.Token, d sqltext.Dialect, cat catalog) []editor
 		}
 		i := slices.IndexFunc(objs, func(o db.Object) bool { return sameIdent(o.Name, ref.name, ref.quoted) })
 		if i < 0 {
-			names := make([]string, len(objs))
-			for k, o := range objs {
-				names[k] = o.Name
-			}
+			names := lists.Map(objs, func(o db.Object) string { return o.Name })
 			out = append(out, unknown(ref.start, ref.end, "table or view", ref.name, schema, names, cat.quote))
 			continue
 		}
@@ -312,10 +310,7 @@ func unknownNames(stmt []sqltext.Token, d sqltext.Dialect, cat catalog) []editor
 		if slices.ContainsFunc(cols, func(c db.Column) bool { return sameIdent(c.Name, col, stmt[i+2].Kind == sqltext.QuotedIdent) }) {
 			continue
 		}
-		names := make([]string, len(cols))
-		for k, c := range cols {
-			names[k] = c.Name
-		}
+		names := lists.Map(cols, func(c db.Column) string { return c.Name })
 		out = append(out, unknown(stmt[i+2].Start, stmt[i+2].End, "column", col, ref.name, names, cat.quote))
 	}
 	return out

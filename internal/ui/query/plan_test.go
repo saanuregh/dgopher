@@ -6,18 +6,13 @@ import (
 
 	"dgopher/internal/db"
 	"dgopher/internal/testutil"
-
-	"github.com/egoist/mygo/ui"
 )
 
 // Explain shows the plan's steps with the advice about them, as a flame
 // graph too; Explain Analyze refuses an engine that explains without
 // running, and a statement that writes.
 func TestPlanView(t *testing.T) {
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
-	tt := ui.NewTester(a.view, 1200, 800)
-	q := newEditor(t, a, tt, cn, "SELECT * FROM things WHERE kind = 'a' ORDER BY name")
+	_, tt, cn, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1200, 800, "SELECT * FROM things WHERE kind = 'a' ORDER BY name")
 	cn.DB.SQL.Exec(`CREATE TABLE things (name TEXT, kind TEXT)`)
 	q.Run(RunExplain)
 	testutil.WaitFor(t, tt, "the plan", func() bool { r := q.current(); return !q.Running && r != nil && r.plan != nil })

@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -31,11 +33,7 @@ type MonitorLine struct {
 func (k *KV) monitorAddrs(ctx context.Context) ([]string, error) {
 	nodes := k.Client.Nodes()
 	if k.Client.Mode() != rueidis.ClientModeCluster {
-		addrs := make([]string, 0, len(nodes))
-		for addr := range nodes {
-			addrs = append(addrs, addr)
-		}
-		sort.Strings(addrs)
+		addrs := slices.Sorted(maps.Keys(nodes))
 		return addrs[:min(len(addrs), 1)], nil
 	}
 	masters, err := k.mastersFor(ctx, false)

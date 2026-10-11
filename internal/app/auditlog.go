@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"fmt"
 	"log"
 	"strings"
@@ -51,10 +52,7 @@ func connectionSummary(cfg *db.Config) string {
 		parts = append(parts, "file "+cfg.Database)
 	} else {
 		parts = append(parts, fmt.Sprintf("%s@%s:%d", cfg.User, cfg.Host, cfg.Port))
-		tls := string(cfg.TLS)
-		if tls == "" {
-			tls = "disable"
-		}
+		tls := cmp.Or(string(cfg.TLS), "disable")
 		parts = append(parts, "tls "+tls)
 	}
 	switch cfg.Redis.Mode {

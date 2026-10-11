@@ -1,6 +1,7 @@
 package query
 
 import (
+	"cmp"
 	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
 
@@ -28,10 +29,7 @@ func (q *Tab) vimBar(c *ui.Context) {
 		return
 	}
 	pal := widgets.PaletteOf(c)
-	status := v.Status()
-	if status == "" {
-		status = "-- NORMAL --"
-	}
+	status := cmp.Or(v.Status(), "-- NORMAL --")
 	ui.Row(c).Padding(2, 12).BorderWidth(1, 0, 0, 0).BorderColor(c.Theme().Border).Children(func() {
 		ui.Text(c, status).Font(widgets.MonoFont).FontSize(11.5).TextColor(pal.Muted).SingleLine()
 	})

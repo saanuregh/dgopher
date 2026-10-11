@@ -1,6 +1,7 @@
 package redis
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strconv"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 
@@ -51,13 +53,7 @@ func (r *Tab) loadSeries() {
 	s.reads++
 	kv, key, span, read := r.conn.KV, r.selected, seriesSpans[s.span].span, s.reads
 	s.readFor = key + "\x00" + seriesSpans[s.span].label
-	dataview.BackgroundResetOnPanic(r.a, func() {
-		if read == s.reads {
-			s.loading = false
-		}
-	}, func() func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+	r.loadLatest(func() bool { return read == s.reads }, &s.loading, &s.err, 30*time.Second, func(ctx context.Context) (func(), error) {
 		first, last, props, err := kv.SeriesInfo(ctx, key)
 		var samples []db.Sample
 		var bucket time.Duration
@@ -70,21 +66,10 @@ func (r *Tab) loadSeries() {
 			samples, err = kv.SeriesRange(ctx, key, from, last, bucket)
 		}
 		return func() {
-			if read != s.reads {
-				return
-			}
-			s.loading = false
-			if err != nil {
-				s.err = err.Error()
-				return
-			}
 			s.first, s.last, s.props, s.bucket = first, last, props, bucket
-			rows := make([][]any, len(samples))
-			for i, p := range samples {
-				rows[i] = []any{p.At, p.Value}
-			}
+			rows := lists.Map(samples, func(p db.Sample) []any { return []any{p.At, p.Value} })
 			s.source = &dataview.Source{Cols: []db.ColumnInfo{{Name: "time", Type: "TIMESTAMP"}, {Name: "average", Type: "DOUBLE"}}, Rows: rows}
-		}
+		}, err
 	})
 }
 
@@ -148,10 +133,7 @@ func (r *Tab) seriesView(c *ui.Context, ro bool) {
 // addSample adds a sample to the series shown.
 func (r *Tab) addSample() {
 	s := &r.series
-	at := strings.TrimSpace(s.newAt)
-	if at == "" {
-		at = "*"
-	}
+	at := cmp.Or(strings.TrimSpace(s.newAt), "*")
 	value := strings.TrimSpace(s.newValue)
 	if _, err := strconv.ParseFloat(value, 64); err != nil {
 		r.a.ShowError("Not added", fmt.Sprintf("%q is not a number.", value))

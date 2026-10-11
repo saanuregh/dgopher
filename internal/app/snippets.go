@@ -53,36 +53,31 @@ func (a *App) snippetFormView(c *ui.Context) {
 			if f.err != "" {
 				ui.Text(c, f.err).FontSize(12).TextColor(c.Theme().Danger)
 			}
-			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				if ui.Button(c, "Cancel").Clicked() {
-					f.open = false
+			if widgets.DialogFooter(c, &f.open, "Save", submit) && strings.TrimSpace(f.name) != "" {
+				keyword := strings.TrimSpace(f.keyword)
+				if strings.ContainsFunc(keyword, func(r rune) bool { return !query.IsIdentRune(r) }) {
+					f.err = "A keyword is one word: letters, digits and _."
+					return
 				}
-				if (widgets.Activated(c, ui.PrimaryButton(c, "Save")) || submit) && strings.TrimSpace(f.name) != "" {
-					keyword := strings.TrimSpace(f.keyword)
-					if strings.ContainsFunc(keyword, func(r rune) bool { return !query.IsIdentRune(r) }) {
-						f.err = "A keyword is one word: letters, digits and _."
-						return
-					}
-					if err := f.project.Writable(); err != nil {
-						a.ShowError("Could not save the snippet", err.Error())
-						return
-					}
-					name := strings.TrimSpace(f.name)
-					replaced := false
-					p := f.project
-					for i := range p.Snippets {
-						if p.Snippets[i].Name == name {
-							p.Snippets[i].SQL, p.Snippets[i].Keyword, replaced = f.sql, keyword, true
-						}
-					}
-					if !replaced {
-						p.Snippets = append(p.Snippets, project.Snippet{Name: name, SQL: f.sql, Keyword: keyword})
-					}
-					a.saveProject(p)
-					f.open = false
-					a.toast = &pendingToast{text: "Saved snippet " + name}
+				if err := f.project.Writable(); err != nil {
+					a.ShowError("Could not save the snippet", err.Error())
+					return
 				}
-			})
+				name := strings.TrimSpace(f.name)
+				replaced := false
+				p := f.project
+				for i := range p.Snippets {
+					if p.Snippets[i].Name == name {
+						p.Snippets[i].SQL, p.Snippets[i].Keyword, replaced = f.sql, keyword, true
+					}
+				}
+				if !replaced {
+					p.Snippets = append(p.Snippets, project.Snippet{Name: name, SQL: f.sql, Keyword: keyword})
+				}
+				a.saveProject(p)
+				f.open = false
+				a.toast = &pendingToast{text: "Saved snippet " + name}
+			}
 		})
 	})
 	if !f.open {
@@ -113,7 +108,6 @@ func (a *App) snippetItems() []paletteItem {
 		return nil
 	}
 	for _, s := range p.Snippets {
-		s := s
 		out = append(out, paletteItem{title: s.Name, detail: widgets.OneLine(s.SQL, 60), group: "Snippet", icon: widgets.IconCode, run: func() { a.insertSnippet(s) }})
 	}
 	return out

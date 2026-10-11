@@ -37,6 +37,13 @@ func DialogsView(a Host, c *ui.Context) {
 	}
 }
 
+// dropClosed clears a dialog's slot once the dialog d in it has closed.
+func dropClosed[T any](slot **T, d *T, open bool) {
+	if !open && *slot == d {
+		*slot = nil
+	}
+}
+
 // ExportOpen reports whether the export dialog is open.
 func ExportOpen(a Host) bool { return a.Dialogs().export != nil }
 

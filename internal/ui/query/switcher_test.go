@@ -5,17 +5,12 @@ import (
 
 	"dgopher/internal/db"
 	"dgopher/internal/testutil"
-
-	"github.com/egoist/mygo/ui"
 )
 
 // The schema an editor finds names in is chosen in its toolbar, and
 // follows a USE typed in it; DuckDB switches as MySQL and ClickHouse do.
 func TestSchemaSwitcher(t *testing.T) {
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"})
-	tt := ui.NewTester(a.view, 1000, 700)
-	q := newEditor(t, a, tt, cn, "CREATE SCHEMA sales;")
+	a, tt, cn, q := openEditor(t, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"}, 1000, 700, "CREATE SCHEMA sales;")
 	q.Run(RunStatement)
 	testutil.WaitFor(t, tt, "the schema made", func() bool { return !q.Running && len(q.results) > 0 })
 	delete(cn.Schemas, "") // read again, with the new schema
@@ -43,10 +38,7 @@ func TestSchemaSwitcher(t *testing.T) {
 // session of its own there, never with a transaction open.
 func TestDatabaseSwitcher(t *testing.T) {
 	testutil.Integration(t)
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(testutil.PGConfig())
-	tt := ui.NewTester(a.view, 1000, 700)
-	q := newEditor(t, a, tt, cn, "BEGIN;")
+	a, tt, _, q := openEditor(t, testutil.PGConfig(), 1000, 700, "BEGIN;")
 	q.Run(RunStatement)
 	testutil.WaitFor(t, tt, "the transaction", func() bool { return !q.Running && q.Tx != db.TxNone })
 	q.switchDatabase("template1")

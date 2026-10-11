@@ -3,6 +3,7 @@ package dataview
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -148,5 +149,33 @@ func TestModelTableForm(t *testing.T) {
 	f.d.apply()
 	if len(saved) != 1 || len(saved[0].Columns) != 2 || saved[0].Indexes[0].Definition == "" || f.Changed() {
 		t.Fatalf("saved %+v", saved)
+	}
+}
+
+// A referential action and its label in the form map to each other; an
+// unknown one shows as the default.
+func TestReferentialActions(t *testing.T) {
+	if want := []string{"Default", "Restrict", "Cascade", "Set null", "Set default"}; !slices.Equal(actionLabels, want) {
+		t.Fatalf("labels %q", actionLabels)
+	}
+	for _, c := range []struct{ label, action string }{
+		{"Default", ""}, {"Restrict", "RESTRICT"}, {"Cascade", "CASCADE"}, {"Set null", "SET NULL"}, {"Set default", "SET DEFAULT"},
+	} {
+		if got := actionOf(c.label); got != c.action {
+			t.Errorf("actionOf(%q) = %q, want %q", c.label, got, c.action)
+		}
+		if got := actionLabel(c.action); got != c.label {
+			t.Errorf("actionLabel(%q) = %q, want %q", c.action, got, c.label)
+		}
+	}
+	for _, label := range []string{"", "restrict", "No action"} {
+		if got := actionOf(label); got != "" {
+			t.Errorf("actionOf(%q) = %q", label, got)
+		}
+	}
+	for _, action := range []string{"NO ACTION", "cascade", "unknown"} {
+		if got := actionLabel(action); got != "Default" {
+			t.Errorf("actionLabel(%q) = %q", action, got)
+		}
 	}
 }

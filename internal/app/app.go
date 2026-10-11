@@ -23,6 +23,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
+	"dgopher/internal/lists"
 	"dgopher/internal/project"
 	"dgopher/internal/safety"
 	"dgopher/internal/secretcmd"
@@ -623,12 +624,7 @@ func (a *App) open(cn *connection.Conn, cfg db.Config) {
 	var sqldb *db.DB
 	var kv *db.KV
 	dataview.BackgroundResetOnPanic(a, func() {
-		if sqldb != nil {
-			go sqldb.Close()
-		}
-		if kv != nil {
-			go kv.Close()
-		}
+		go closePools(sqldb, kv)
 		if gen == cn.Generation {
 			cn.Status, cn.Err = connection.StatusFailed, "stopped on an internal error"
 			cn.Waiters = nil
@@ -655,12 +651,7 @@ func (a *App) open(cn *connection.Conn, cfg db.Config) {
 			if gen != cn.Generation {
 				// Disconnected, or edited, meanwhile: this pool is not the
 				// connection's any more.
-				if sqldb != nil {
-					go sqldb.Close()
-				}
-				if kv != nil {
-					go kv.Close()
-				}
+				go closePools(sqldb, kv)
 				return
 			}
 			ev := audit.Event{Kind: audit.KindConnect, Detail: connectionSummary(&cfg)}
@@ -741,13 +732,18 @@ func (a *App) disconnect(cn *connection.Conn) {
 		// The work running on the pool ends first, rolling back what it
 		// left open there.
 		stopJobs(jobs)
-		if sqldb != nil {
-			sqldb.Close()
-		}
-		if kv != nil {
-			kv.Close()
-		}
+		closePools(sqldb, kv)
 	}()
+}
+
+// closePools closes whichever of a connection's pools is open.
+func closePools(d *db.DB, kv *db.KV) {
+	if d != nil {
+		d.Close()
+	}
+	if kv != nil {
+		kv.Close()
+	}
 }
 
 // loadSchemas reads the schemas of a connection's database, and opens its
@@ -995,11 +991,7 @@ func trustSnapshot(cfg *db.Config) settings.TrustedDetail {
 
 // detailRows are details as a snapshot keeps them, "Label: value".
 func detailRows(details []widgets.ConfirmDetail) []string {
-	rows := make([]string, len(details))
-	for i, d := range details {
-		rows[i] = d.Label + ": " + d.Value
-	}
-	return rows
+	return lists.Map(details, func(d widgets.ConfirmDetail) string { return d.Label + ": " + d.Value })
 }
 
 // trustCheck compares a connection with what the user last agreed to:
@@ -1170,12 +1162,9 @@ func tlsText(m db.TLSMode) string {
 func commandText(argv []string) string {
 	words := make([]string, len(argv))
 	for i, w := range argv {
-		plain := w != ""
-		for _, r := range w {
-			if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_./:=@,+%", r)) {
-				plain = false
-			}
-		}
+		plain := w != "" && !strings.ContainsFunc(w, func(r rune) bool {
+			return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_./:=@,+%", r))
+		})
 		if plain {
 			words[i] = w
 		} else {

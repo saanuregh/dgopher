@@ -4,8 +4,8 @@
 package db
 
 import (
+	"cmp"
 	"context"
-	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"dgopher/internal/netproxy"
+	"dgopher/internal/sqltext"
 	"dgopher/internal/sshtunnel"
 )
 
@@ -35,52 +36,37 @@ const (
 // Engines lists the supported engines in the order the UI offers them.
 func Engines() []Engine { return []Engine{Postgres, MySQL, ClickHouse, Redis, SQLite, DuckDB} }
 
-// Label is the engine's display name.
-func (e Engine) Label() string {
-	switch e {
-	case Postgres:
-		return "PostgreSQL"
-	case MySQL:
-		return "MySQL"
-	case ClickHouse:
-		return "ClickHouse"
-	case Redis:
-		return "Redis"
-	case SQLite:
-		return "SQLite"
-	case DuckDB:
-		return "DuckDB"
-	}
-	return string(e)
+// engineInfo holds an engine's fixed facts; an unknown engine reads the zero value.
+type engineInfo struct {
+	label, defaultUser, versionQuery string
+	defaultPort                      int
+	lex                              sqltext.Dialect
+	dialect                          Dialect
+	backups                          []BackupFormat
 }
+
+var engineInfos = map[Engine]engineInfo{
+	Postgres: {label: "PostgreSQL", defaultPort: 5432, defaultUser: "postgres", versionQuery: "SHOW server_version",
+		lex: sqltext.Postgres, dialect: postgresDialect{}, backups: []BackupFormat{BackupArchive, BackupSQL}},
+	MySQL: {label: "MySQL", defaultPort: 3306, defaultUser: "root", versionQuery: "SELECT VERSION()",
+		lex: sqltext.MySQL, dialect: mysqlDialect{}, backups: []BackupFormat{BackupSQL}},
+	ClickHouse: {label: "ClickHouse", defaultPort: 9000, defaultUser: "default", versionQuery: "SELECT version()",
+		lex: sqltext.ClickHouse, dialect: clickhouseDialect{}},
+	Redis: {label: "Redis", defaultPort: 6379},
+	SQLite: {label: "SQLite", versionQuery: "SELECT sqlite_version()", lex: sqltext.SQLite, dialect: sqliteDialect{},
+		backups: []BackupFormat{BackupCopy}},
+	DuckDB: {label: "DuckDB", versionQuery: "SELECT version()", lex: sqltext.Postgres, dialect: duckdbDialect{},
+		backups: []BackupFormat{BackupParquet}},
+}
+
+// Label is the engine's display name.
+func (e Engine) Label() string { return cmp.Or(engineInfos[e].label, string(e)) }
 
 // DefaultPort is the port the engine listens on unless configured otherwise.
-func (e Engine) DefaultPort() int {
-	switch e {
-	case Postgres:
-		return 5432
-	case MySQL:
-		return 3306
-	case ClickHouse:
-		return 9000
-	case Redis:
-		return 6379
-	}
-	return 0
-}
+func (e Engine) DefaultPort() int { return engineInfos[e].defaultPort }
 
 // DefaultUser is the user most installations of the engine start with.
-func (e Engine) DefaultUser() string {
-	switch e {
-	case Postgres:
-		return "postgres"
-	case MySQL:
-		return "root"
-	case ClickHouse:
-		return "default"
-	}
-	return ""
-}
+func (e Engine) DefaultUser() string { return engineInfos[e].defaultUser }
 
 // IsSQL reports whether the engine speaks SQL.
 func (e Engine) IsSQL() bool { return e != Redis }
@@ -380,22 +366,13 @@ func (c *Config) RedisAddrs() ([]string, error) {
 			continue
 		}
 		host, port, err := net.SplitHostPort(n)
-		if err != nil {
-			return nil, fmt.Errorf("the node %q is not host:port", n)
-		}
-		if p, err := strconv.Atoi(port); err != nil || p < 1 || p > 65535 || host == "" {
+		p, portErr := strconv.Atoi(port)
+		if err != nil || portErr != nil || p < 1 || p > 65535 || host == "" {
 			return nil, fmt.Errorf("the node %q is not host:port", n)
 		}
 		addrs = append(addrs, n)
 	}
 	return addrs, nil
-}
-
-// NewID returns a random connection ID.
-func NewID() string {
-	var b [8]byte
-	rand.Read(b[:])
-	return hex.EncodeToString(b[:])
 }
 
 // ManualCommit reports whether writes wait for an explicit commit.
@@ -574,13 +551,6 @@ func (c *Config) port() int {
 
 // SentinelPort is the port Redis Sentinel listens on unless told another.
 const SentinelPort = 26379
-
-func (c *Config) env() Environment {
-	if c.Env == "" {
-		return Development
-	}
-	return c.Env
-}
 
 // NormalizeEnvironment reads an environment as a person may write it in a
 // file: in any case, or shortened. A value it does not know is

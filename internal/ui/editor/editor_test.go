@@ -54,3 +54,14 @@ func TestReplaceAt(t *testing.T) {
 		t.Errorf("no matches changed the text: %q", got)
 	}
 }
+
+func TestLineCol(t *testing.T) {
+	e := &Editor{Text: "ab\nécd\n\nx"}
+	for _, c := range []struct{ at, line, col int }{
+		{0, 0, 0}, {1, 0, 1}, {2, 0, 2}, {3, 1, 0}, {5, 1, 2}, {7, 2, 0}, {8, 3, 0}, {9, 3, 1}, {50, 3, 1},
+	} {
+		if line, col := e.LineCol(c.at); line != c.line || col != c.col {
+			t.Errorf("LineCol(%d) = %d, %d, want %d, %d", c.at, line, col, c.line, c.col)
+		}
+	}
+}

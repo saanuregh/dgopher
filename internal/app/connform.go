@@ -17,6 +17,7 @@ import (
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 	"dgopher/internal/netproxy"
 	"dgopher/internal/project"
 	"dgopher/internal/secretcmd"
@@ -68,6 +69,7 @@ type connForm struct {
 }
 
 var commitLabels = []string{"Default (manual on production)", "Auto-commit", "Manual commit"}
+var commitModes = []db.CommitMode{db.CommitDefault, db.CommitAuto, db.CommitManual}
 
 // redisModes are the ways a Redis connection reaches its data, as the
 // form offers them, with their labels.
@@ -138,42 +140,33 @@ func (a *App) openConnForm(cn *connection.Conn) {
 		f.sshSource = sshSources[1]
 	}
 	f.engine = f.cfg.Engine.Label()
-	for i, e := range db.Engines() {
-		if e == f.cfg.Engine {
-			f.engineIdx = i
-		}
-	}
-	f.port = ""
-	if f.cfg.Port > 0 {
-		f.port = strconv.Itoa(f.cfg.Port)
-	}
-	if f.cfg.SSH.Port > 0 {
-		f.sshPort = strconv.Itoa(f.cfg.SSH.Port)
-	}
+	f.engineIdx = max(0, slices.Index(db.Engines(), f.cfg.Engine))
+	f.port, f.sshPort = portText(f.cfg.Port), portText(f.cfg.SSH.Port)
 	f.proxy = max(0, slices.Index(proxyKinds, f.cfg.Proxy.Kind))
-	if f.cfg.Proxy.Port > 0 {
-		f.proxyPort = strconv.Itoa(f.cfg.Proxy.Port)
-	}
-	for i, e := range db.Environments() {
-		if e == f.cfg.Env {
-			f.env = i
-		}
-	}
+	f.proxyPort = portText(f.cfg.Proxy.Port)
+	f.env = max(0, slices.Index(db.Environments(), f.cfg.Env))
 	if f.cfg.TLS == "" {
 		f.cfg.TLS = db.TLSDisable
 	}
 	f.tls = tlsLabels[f.cfg.TLS]
-	f.commit = commitLabels[0]
-	switch f.cfg.Commit {
-	case db.CommitAuto:
-		f.commit = commitLabels[1]
-	case db.CommitManual:
-		f.commit = commitLabels[2]
-	}
+	f.commit = commitLabels[max(0, slices.Index(commitModes, f.cfg.Commit))]
 	if cn != nil {
 		f.loaded = f.config()
 	}
 	a.connForm = f
+}
+
+// textField is a labeled text input with a placeholder.
+func textField(c *ui.Context, label string, value *string, placeholder string) ui.Element {
+	return ui.Field(c, label, func() { ui.TextInput(c, value).Placeholder(placeholder) })
+}
+
+// portText shows a port in the form, empty when unset.
+func portText(port int) string {
+	if port > 0 {
+		return strconv.Itoa(port)
+	}
+	return ""
 }
 
 // config returns the connection the form describes.
@@ -188,14 +181,7 @@ func (f *connForm) config() db.Config {
 			cfg.TLS = mode
 		}
 	}
-	switch f.commit {
-	case commitLabels[1]:
-		cfg.Commit = db.CommitAuto
-	case commitLabels[2]:
-		cfg.Commit = db.CommitManual
-	default:
-		cfg.Commit = db.CommitDefault
-	}
+	cfg.Commit = commitModes[max(0, slices.Index(commitLabels, f.commit))]
 	cfg.Name = strings.TrimSpace(cfg.Name)
 	cfg.Host = strings.TrimSpace(cfg.Host)
 	cfg.StatementTimeout = int(f.timeout)
@@ -306,10 +292,7 @@ func (a *App) connFormView(c *ui.Context) {
 		if f.page >= len(pages) {
 			f.page = pageGeneral
 		}
-		labels := make([]string, len(pages))
-		for i, pg := range pages {
-			labels[i] = f.pageLabel(pg)
-		}
+		labels := lists.Map(pages, f.pageLabel)
 		ui.Row(c).Padding(0, 20).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 			ui.Tabs(c, &f.page, labels...).Label("Settings")
 		})
@@ -456,13 +439,9 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 			}).Description("Any one that answers is enough; more keep the connection working when one is down.")
 		}
 		if mode == db.RedisSentinel {
-			ui.Field(c, "Master name", func() {
-				ui.TextInput(c, &f.cfg.Redis.Master).Placeholder("mymaster")
-			}).Description("The master the sentinels watch: the connection follows it to its replacement after a failover.")
+			textField(c, "Master name", &f.cfg.Redis.Master, "mymaster").Description("The master the sentinels watch: the connection follows it to its replacement after a failover.")
 		}
-		ui.Field(c, "User", func() {
-			ui.TextInput(c, &f.cfg.User).Placeholder(engine.DefaultUser())
-		})
+		textField(c, "User", &f.cfg.User, engine.DefaultUser())
 		ui.Field(c, "Password from", func() {
 			ui.Select(c, &f.source, passwordSourcesOf(engine)).Label("Password from")
 		})
@@ -476,9 +455,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 			placeholder = "postgres"
 		}
 		if mode != db.RedisCluster { // a cluster has database 0 only
-			ui.Field(c, label, func() {
-				ui.TextInput(c, &f.cfg.Database).Placeholder(placeholder)
-			})
+			textField(c, label, &f.cfg.Database, placeholder)
 		}
 		if mode == db.RedisSentinel {
 			a.sentinelFields(c, f)
@@ -602,9 +579,7 @@ func (a *App) networkPage(c *ui.Context, f *connForm) {
 			ui.TextInput(c, &f.sshPort).Placeholder("22").Width(70).Label("SSH port")
 		})
 	})
-	ui.Field(c, "SSH user", func() {
-		ui.TextInput(c, &f.cfg.SSH.User).Placeholder("ubuntu")
-	})
+	textField(c, "SSH user", &f.cfg.SSH.User, "ubuntu")
 	ui.Field(c, "Jump hosts", func() {
 		ui.TextInput(c, &f.cfg.SSH.Jump).Placeholder("none, or user@jump.example.com, jump2:2222").Grow(1)
 	}).Description("SSH servers reached in turn before the SSH host, as ssh -J does; each logs in with the private key or the SSH agent, never the SSH password, and its host key is checked.")
@@ -672,11 +647,7 @@ func envHelp(e db.Environment) string {
 }
 
 func engineLabels() []string {
-	var out []string
-	for _, e := range db.Engines() {
-		out = append(out, e.Label())
-	}
-	return out
+	return lists.Map(db.Engines(), db.Engine.Label)
 }
 
 // syncEngineChoice follows a new engine with the defaults of host, port
@@ -704,20 +675,14 @@ func (a *App) chooseFile(e db.Engine) {
 	if e == db.DuckDB {
 		exts = []string{"duckdb", "ddb", "db"}
 	}
-	go func() {
-		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
-			Title:   "Open " + e.Label() + " Database",
-			Filters: []mygo.FileFilter{{Name: e.Label() + " databases", Extensions: exts}, {Name: "All files", Extensions: []string{"*"}}},
-		})
-		if err != nil || len(paths) == 0 {
-			return
+	widgets.ChoosePath(a.Post, mygo.OpenDialogOptions{
+		Title:   "Open " + e.Label() + " Database",
+		Filters: []mygo.FileFilter{{Name: e.Label() + " databases", Extensions: exts}, {Name: "All files", Extensions: []string{"*"}}},
+	}, func(path string) {
+		if a.connForm != nil {
+			a.connForm.cfg.Database = path
 		}
-		a.Post(func() {
-			if a.connForm != nil {
-				a.connForm.cfg.Database = paths[0]
-			}
-		})
-	}()
+	})
 }
 
 // newDatabaseFile asks where to make an empty database of a file engine,
@@ -759,17 +724,11 @@ func (a *App) fileField(c *ui.Context, path *string, placeholder, title string) 
 				home, _ := os.UserHomeDir()
 				start = filepath.Join(home, ".ssh")
 			}
-			go func() {
-				paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: title, DefaultPath: start, ShowHiddenFiles: true})
-				if err != nil || len(paths) == 0 {
-					return
+			widgets.ChoosePath(a.Post, mygo.OpenDialogOptions{Title: title, DefaultPath: start, ShowHiddenFiles: true}, func(chosen string) {
+				if a.connForm == form {
+					*path = chosen // the form's field, while the form is open
 				}
-				a.Post(func() {
-					if a.connForm == form {
-						*path = paths[0] // the form's field, while the form is open
-					}
-				})
-			}()
+			})
 		}
 	})
 }
@@ -1042,15 +1001,8 @@ func (a *App) fillFromURL(f *connForm) {
 		f.cfg.Name = cfg.Name
 	}
 	f.engine = cfg.Engine.Label()
-	for i, e := range db.Engines() {
-		if e == cfg.Engine {
-			f.engineIdx = i
-		}
-	}
-	f.port = ""
-	if cfg.Port > 0 {
-		f.port = strconv.Itoa(cfg.Port)
-	}
+	f.engineIdx = max(0, slices.Index(db.Engines(), cfg.Engine))
+	f.port = portText(cfg.Port)
 	if cfg.TLS != "" {
 		f.tls = tlsLabels[cfg.TLS]
 	}
@@ -1127,10 +1079,7 @@ func keychainName() string {
 // keychainNote says where secrets go in the keychain, and how they are
 // kept, by their accounts there.
 func keychainNote(accounts ...string) string {
-	quoted := make([]string, len(accounts))
-	for i, acc := range accounts {
-		quoted[i] = strconv.Quote(acc)
-	}
+	quoted := lists.Map(accounts, strconv.Quote)
 	what := "account " + quoted[0]
 	if len(quoted) > 1 {
 		what = "accounts " + strings.Join(quoted, " and ")
@@ -1249,33 +1198,29 @@ func (a *App) proxyFields(c *ui.Context, f *connForm) {
 	ui.Field(c, "Proxy user", func() {
 		ui.TextInput(c, &f.cfg.Proxy.User).Placeholder("none").Label("Proxy user")
 	})
-	note := "Not needed when the proxy asks for no password."
-	switch {
-	case f.cfg.Proxy.Password == "":
-	case !a.st.Secrets().Available():
-		note = "No system keychain is available on this computer to keep it."
-	default:
-		note = keychainNote(secretKey(a.formID(f, &f.cfg), "proxy-password"))
-	}
+	note := a.optionalSecretNote(f, f.cfg.Proxy.Password, "proxy-password", "Not needed when the proxy asks for no password.")
 	ui.Field(c, "Proxy password", func() {
 		ui.TextInput(c, &f.cfg.Proxy.Password).Password().Placeholder("If the proxy asks for one").Label("Proxy password")
 	}).Description(note)
 }
 
+// optionalSecretNote says where a password the server may not need is
+// kept: unneeded while it is empty, else the keychain entry.
+func (a *App) optionalSecretNote(f *connForm, password, account, unneeded string) string {
+	switch {
+	case password == "":
+		return unneeded
+	case !a.st.Secrets().Available():
+		return "No system keychain is available on this computer to keep it."
+	}
+	return keychainNote(secretKey(a.formID(f, &f.cfg), account))
+}
+
 // sentinelFields show how the connection logs in to the sentinels, which
 // keep credentials of their own, and where their password would be kept.
 func (a *App) sentinelFields(c *ui.Context, f *connForm) {
-	ui.Field(c, "Sentinel user", func() {
-		ui.TextInput(c, &f.cfg.Redis.SentinelUser).Placeholder("none")
-	})
-	note := "Not needed when the sentinels ask for no password."
-	switch {
-	case f.cfg.Redis.SentinelPassword == "":
-	case !a.st.Secrets().Available():
-		note = "No system keychain is available on this computer to keep it."
-	default:
-		note = keychainNote(secretKey(a.formID(f, &f.cfg), "sentinel-password"))
-	}
+	textField(c, "Sentinel user", &f.cfg.Redis.SentinelUser, "none")
+	note := a.optionalSecretNote(f, f.cfg.Redis.SentinelPassword, "sentinel-password", "Not needed when the sentinels ask for no password.")
 	ui.Field(c, "Sentinel password", func() {
 		ui.TextInput(c, &f.cfg.Redis.SentinelPassword).Password().Placeholder("If the sentinels ask for one")
 	}).Description(note)
@@ -1345,11 +1290,7 @@ func (a *App) projectLabel(p *project.Project) string {
 }
 
 func (a *App) projectLabels() []string {
-	var out []string
-	for _, p := range a.usableProjects() {
-		out = append(out, a.projectLabel(p))
-	}
-	return out
+	return lists.Map(a.usableProjects(), a.projectLabel)
 }
 
 func (a *App) projectByLabel(label string) *project.Project {

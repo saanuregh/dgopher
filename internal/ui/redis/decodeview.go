@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"dgopher/internal/decode"
+	"dgopher/internal/lists"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -73,10 +74,7 @@ func (d *decodeView) decode(value string, run func(work func() func())) {
 			if at != d.runs {
 				return
 			}
-			steps := make([]string, len(shown.Steps))
-			for i, s := range shown.Steps {
-				steps[i] = string(s)
-			}
+			steps := lists.Map(shown.Steps, func(s decode.Format) string { return string(s) })
 			d.running, d.shown, d.display = false, shown, display
 			d.steps = strings.Join(steps, " → ")
 			if err != nil {

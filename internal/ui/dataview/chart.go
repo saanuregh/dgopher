@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -99,11 +100,8 @@ func (s *Chart) detect(src *Source) {
 	s.colsOf = columnsKey(src.Cols)
 	s.ys = make([]bool, len(src.Cols))
 	s.x, s.hover = "", -1
-	for _, c := range src.Cols {
-		if isTimeType(c.Type) {
-			s.x = c.Name
-			break
-		}
+	if i := slices.IndexFunc(src.Cols, func(c db.ColumnInfo) bool { return isTimeType(c.Type) }); i >= 0 {
+		s.x = src.Cols[i].Name
 	}
 	if s.x == "" {
 		for i, c := range src.Cols {
@@ -130,12 +128,7 @@ func (s *Chart) detect(src *Source) {
 }
 
 func (s *Chart) xIndex(src *Source) int {
-	for i, c := range src.Cols {
-		if c.Name == s.x {
-			return i
-		}
-	}
-	return -1
+	return slices.IndexFunc(src.Cols, func(c db.ColumnInfo) bool { return c.Name == s.x })
 }
 
 // series lists the columns charted, in order, up to the kind's limit.
@@ -274,10 +267,7 @@ func ChartControls(c *ui.Context, s *Chart, src *Source) {
 	if s.colsOf != columnsKey(src.Cols) {
 		s.detect(src)
 	}
-	names := make([]string, len(src.Cols))
-	for i, col := range src.Cols {
-		names[i] = col.Name
-	}
+	names := lists.Map(src.Cols, func(col db.ColumnInfo) string { return col.Name })
 	ui.Row(c).Padding(6, 10).Gap(10).Wrap().BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 		if ui.Segmented(c, &s.kind, chartKinds...).Label("Chart type").Changed() {
 			s.hover = -1
@@ -325,10 +315,7 @@ func ChartPlot(c *ui.Context, s *Chart, src *Source) {
 		if len(src.Rows) > maxChartPoints {
 			ui.Text(c, fmt.Sprintf("Charting the first %d rows.", maxChartPoints)).FontSize(12).TextColor(pal.Muted).Padding(4, 16)
 		}
-		names := make([]string, len(series))
-		for j, col := range series {
-			names[j] = src.Cols[col].Name
-		}
+		names := lists.Map(series, func(col int) string { return src.Cols[col].Name })
 		kind := s.kind
 		switch kind {
 		case chartPie:

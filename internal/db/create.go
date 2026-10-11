@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"dgopher/internal/lists"
 )
 
 // NewColumn is a column of a table to create.
@@ -103,10 +105,7 @@ func InsertBatch(e Engine, cols int) int {
 // InsertRows writes one INSERT of rows into cols, whose values are Typed
 // text the statement casts to their columns, or nil for NULL.
 func (t *EditTarget) InsertRows(cols []Column, rows [][]any) Statement {
-	names := make([]string, len(cols))
-	for i, c := range cols {
-		names[i] = t.Dialect.Quote(c.Name)
-	}
+	names := lists.Map(cols, func(c Column) string { return t.Dialect.Quote(c.Name) })
 	var args []any
 	tuples := make([]string, len(rows))
 	vals := make([]string, len(cols))

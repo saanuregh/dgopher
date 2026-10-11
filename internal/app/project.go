@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -436,18 +437,12 @@ func (a *App) newQueryFile(cn *connection.Conn, database, text string, then func
 
 // addExistingProject asks for a folder to list as a project.
 func (a *App) addExistingProject() {
-	go func() {
-		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "Add Existing Folder", Directory: true,
-			Message: "A folder, such as a Git repository. Its " + project.File + " is created if it has none."})
-		if err != nil || len(paths) == 0 {
-			return
+	widgets.ChoosePath(a.Post, mygo.OpenDialogOptions{Title: "Add Existing Folder", Directory: true,
+		Message: "A folder, such as a Git repository. Its " + project.File + " is created if it has none."}, func(path string) {
+		if _, err := a.addProject(path); err != nil {
+			a.ShowError("Could not add the project", err.Error())
 		}
-		a.Post(func() {
-			if _, err := a.addProject(paths[0]); err != nil {
-				a.ShowError("Could not add the project", err.Error())
-			}
-		})
-	}()
+	})
 }
 
 // newProjectForm asks for a new project's name and the folder to make it
@@ -523,13 +518,8 @@ func (a *App) newProjectView(c *ui.Context) {
 					ui.Row(c).Gap(6).Children(func() {
 						ui.TextInput(c, &f.parent).Grow(1).Font(widgets.MonoFont).FontSize(12.5)
 						if ui.Button(c, "Choose…").Clicked() {
-							go func() {
-								paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "Create the Project In", Directory: true, CreateDirectories: true})
-								if err != nil || len(paths) == 0 {
-									return
-								}
-								a.Post(func() { f.parent = paths[0] })
-							}()
+							opts := mygo.OpenDialogOptions{Title: "Create the Project In", Directory: true, CreateDirectories: true}
+							widgets.ChoosePath(a.Post, opts, func(path string) { f.parent = path })
 						}
 					})
 				}).Description(filepath.Join(db.ExpandPath(strings.TrimSpace(f.parent)), strings.TrimSpace(f.name)))
@@ -537,14 +527,9 @@ func (a *App) newProjectView(c *ui.Context) {
 			if f.err != "" {
 				ui.Text(c, f.err).FontSize(12).TextColor(c.Theme().Danger)
 			}
-			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				if ui.Button(c, "Cancel").Clicked() {
-					f.open = false
-				}
-				if widgets.Activated(c, ui.PrimaryButton(c, "Create Project")) || submit {
-					a.createProject(f)
-				}
-			})
+			if widgets.DialogFooter(c, &f.open, "Create Project", submit) {
+				a.createProject(f)
+			}
 		})
 	})
 	if !f.open {
@@ -615,22 +600,13 @@ func (a *App) renameView(c *ui.Context) {
 			if f.err != "" {
 				ui.Text(c, f.err).FontSize(12).TextColor(c.Theme().Danger)
 			}
-			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				if ui.Button(c, "Cancel").Clicked() {
+			if widgets.DialogFooter(c, &f.open, cmp.Or(f.action, "Rename"), submit) {
+				if err := f.rename(f.name); err != nil {
+					f.err = err.Error()
+				} else {
 					f.open = false
 				}
-				action := f.action
-				if action == "" {
-					action = "Rename"
-				}
-				if widgets.Activated(c, ui.PrimaryButton(c, action)) || submit {
-					if err := f.rename(f.name); err != nil {
-						f.err = err.Error()
-					} else {
-						f.open = false
-					}
-				}
-			})
+			}
 		})
 	})
 	if !f.open {

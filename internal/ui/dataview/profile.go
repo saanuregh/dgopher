@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -89,10 +90,7 @@ func profileRows(src *Source, format func(any) string) []columnProfile {
 			slices.SortFunc(times, func(a, b time.Time) int { return a.Compare(b) })
 			p.min, p.max = format(times[0]), format(times[len(times)-1])
 			p.median = format(times[len(times)/2])
-			secs := make([]float64, len(times))
-			for i, t := range times {
-				secs[i] = float64(t.UnixNano()) / 1e9
-			}
+			secs := lists.Map(times, func(t time.Time) float64 { return float64(t.UnixNano()) / 1e9 })
 			p.bins = histogram(secs)
 		default:
 			p.top = topValues(counts, 5)
@@ -163,11 +161,7 @@ func comparable(e db.Engine, typ string) bool {
 // compare.
 func profileQuery(d db.Dialect, cols []db.ColumnInfo, from, where string) string {
 	if d.Engine() == db.DuckDB {
-		q := "SUMMARIZE SELECT * FROM " + from
-		if where != "" {
-			q += " WHERE " + where
-		}
-		return q
+		return "SUMMARIZE SELECT * FROM " + from + whereClause(where)
 	}
 	parts := []string{"count(*)"}
 	for _, c := range cols {
@@ -183,11 +177,15 @@ func profileQuery(d db.Dialect, cols []db.ColumnInfo, from, where string) string
 			parts = append(parts, "NULL")
 		}
 	}
-	q := "SELECT " + strings.Join(parts, ", ") + " FROM " + from
-	if where != "" {
-		q += " WHERE " + where
+	return "SELECT " + strings.Join(parts, ", ") + " FROM " + from + whereClause(where)
+}
+
+// whereClause is "" for no filter, or " WHERE " and the trimmed filter.
+func whereClause(w string) string {
+	if w = strings.TrimSpace(w); w == "" {
+		return ""
 	}
-	return q
+	return " WHERE " + w
 }
 
 // serverProfiles reads the rows of profileQuery.

@@ -109,19 +109,18 @@ func postgresObjects(ctx context.Context, q Querier, schema string, sized bool) 
 		size = "CASE WHEN c.relkind IN ('r','m','p') THEN pg_total_relation_size(c.oid) ELSE -1 END"
 		comment = "COALESCE(obj_description(c.oid, 'pg_class'), '')"
 	}
-	var out []Object
-	err := scanRows(ctx, q, `SELECT c.relname, c.relkind::text,
+	return scanAll(ctx, q, `SELECT c.relname, c.relkind::text,
   GREATEST(c.reltuples, -1)::bigint,
   `+size+`,
   `+comment+`,
   CASE WHEN c.relkind = 'p' THEN pg_get_partkeydef(c.oid) ELSE '' END
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = $1 AND c.relkind IN ('r','p','v','m','f') AND NOT c.relispartition
-ORDER BY c.relname`, []any{schema}, func(scan func(...any) error) error {
+ORDER BY c.relname`, []any{schema}, func(scan func(...any) error) (Object, error) {
 		o := Object{Schema: schema}
 		var kind string
 		if err := scan(&o.Name, &kind, &o.Rows, &o.Bytes, &o.Comment, &o.Partitioning); err != nil {
-			return err
+			return o, err
 		}
 		switch kind {
 		case "v":
@@ -133,10 +132,8 @@ ORDER BY c.relname`, []any{schema}, func(scan func(...any) error) error {
 		default:
 			o.Kind = KindTable
 		}
-		out = append(out, o)
-		return nil
+		return o, nil
 	})
-	return out, err
 }
 
 func (postgresDialect) Columns(ctx context.Context, q Querier, schema, table string) ([]Column, error) {
@@ -155,8 +152,7 @@ func postgresColumns(ctx context.Context, q Querier, schema, table string) (map[
 	if table != "" {
 		which, args = "c.relname = $2", append(args, table)
 	}
-	out := map[string][]Column{}
-	err := scanRows(ctx, q, `SELECT c.relname, a.attname, format_type(a.atttypid, a.atttypmod), NOT a.attnotnull,
+	return scanColumns(ctx, q, `SELECT c.relname, a.attname, format_type(a.atttypid, a.atttypmod), NOT a.attnotnull,
   COALESCE(pg_get_expr(d.adbin, d.adrelid), ''), d.adbin IS NOT NULL,
   EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND i.indisprimary AND a.attnum = ANY(i.indkey)),
   a.attidentity <> '' OR COALESCE(pg_get_expr(d.adbin, d.adrelid), '') LIKE 'nextval(%',
@@ -166,21 +162,11 @@ JOIN pg_class c ON c.oid = a.attrelid
 JOIN pg_namespace n ON n.oid = c.relnamespace
 LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
 WHERE n.nspname = $1 AND `+which+` AND a.attnum > 0 AND NOT a.attisdropped
-ORDER BY c.relname, a.attnum`, args, func(scan func(...any) error) error {
-		var t string
-		var c Column
-		if err := scan(&t, &c.Name, &c.Type, &c.Nullable, &c.Default, &c.HasDefault, &c.PrimaryKey, &c.AutoIncrement, &c.Comment); err != nil {
-			return err
-		}
-		out[t] = append(out[t], c)
-		return nil
-	})
-	return out, err
+ORDER BY c.relname, a.attnum`, args)
 }
 
 func (postgresDialect) Indexes(ctx context.Context, q Querier, schema, table string) ([]Index, error) {
-	var out []Index
-	err := scanRows(ctx, q, `SELECT i.relname, ix.indisunique, ix.indisprimary, pg_get_indexdef(ix.indexrelid),
+	return scanAll(ctx, q, `SELECT i.relname, ix.indisunique, ix.indisprimary, pg_get_indexdef(ix.indexrelid),
   array_to_string(ARRAY(SELECT pg_get_indexdef(ix.indexrelid, k + 1, true)
     FROM generate_subscripts(ix.indkey, 1) k ORDER BY k), chr(31))
 FROM pg_index ix
@@ -188,17 +174,15 @@ JOIN pg_class i ON i.oid = ix.indexrelid
 JOIN pg_class t ON t.oid = ix.indrelid
 JOIN pg_namespace n ON n.oid = t.relnamespace
 WHERE n.nspname = $1 AND t.relname = $2
-ORDER BY ix.indisprimary DESC, i.relname`, []any{schema, table}, func(scan func(...any) error) error {
+ORDER BY ix.indisprimary DESC, i.relname`, []any{schema, table}, func(scan func(...any) error) (Index, error) {
 		var ix Index
 		var cols string
 		if err := scan(&ix.Name, &ix.Unique, &ix.Primary, &ix.Definition, &cols); err != nil {
-			return err
+			return ix, err
 		}
 		ix.Columns = splitList(cols)
-		out = append(out, ix)
-		return nil
+		return ix, nil
 	})
-	return out, err
 }
 
 // postgresAction is a foreign key's action by pg_constraint's letter for
@@ -206,8 +190,7 @@ ORDER BY ix.indisprimary DESC, i.relname`, []any{schema, table}, func(scan func(
 var postgresAction = map[string]string{"r": "RESTRICT", "c": "CASCADE", "n": "SET NULL", "d": "SET DEFAULT"}
 
 func (postgresDialect) ForeignKeys(ctx context.Context, q Querier, schema, table string) ([]ForeignKey, error) {
-	var out []ForeignKey
-	err := scanRows(ctx, q, `SELECT con.conname, pg_get_constraintdef(con.oid), nf.nspname, cf.relname, con.confdeltype, con.confupdtype,
+	return scanAll(ctx, q, `SELECT con.conname, pg_get_constraintdef(con.oid), nf.nspname, cf.relname, con.confdeltype, con.confupdtype,
   array_to_string(ARRAY(SELECT a.attname FROM unnest(con.conkey) WITH ORDINALITY k(n, o)
     JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.n ORDER BY k.o), chr(31)),
   array_to_string(ARRAY(SELECT a.attname FROM unnest(con.confkey) WITH ORDINALITY k(n, o)
@@ -218,18 +201,16 @@ JOIN pg_namespace n ON n.oid = c.relnamespace
 JOIN pg_class cf ON cf.oid = con.confrelid
 JOIN pg_namespace nf ON nf.oid = cf.relnamespace
 WHERE con.contype = 'f' AND n.nspname = $1 AND c.relname = $2
-ORDER BY con.conname`, []any{schema, table}, func(scan func(...any) error) error {
+ORDER BY con.conname`, []any{schema, table}, func(scan func(...any) error) (ForeignKey, error) {
 		var fk ForeignKey
 		var cols, refCols, onDelete, onUpdate string
 		if err := scan(&fk.Name, &fk.Definition, &fk.RefSchema, &fk.RefTable, &onDelete, &onUpdate, &cols, &refCols); err != nil {
-			return err
+			return fk, err
 		}
 		fk.Columns, fk.RefColumns = splitList(cols), splitList(refCols)
 		fk.OnDelete, fk.OnUpdate = postgresAction[onDelete], postgresAction[onUpdate]
-		out = append(out, fk)
-		return nil
+		return fk, nil
 	})
-	return out, err
 }
 
 func (d postgresDialect) DDL(ctx context.Context, q Querier, schema string, obj Object) (string, error) {
@@ -289,11 +270,8 @@ WHERE conrelid = $1::regclass ORDER BY contype = 'p' DESC, contype, conname`, []
 
 func quoteString(s string) string { return Literal(Postgres, s) }
 
-var _ = sql.ErrNoRows
-
 func (postgresDialect) ReferencedBy(ctx context.Context, q Querier, schema, table string) ([]Reference, error) {
-	var out []Reference
-	err := scanRows(ctx, q, `SELECT con.conname, n.nspname, c.relname,
+	return scanAll(ctx, q, `SELECT con.conname, n.nspname, c.relname,
   array_to_string(ARRAY(SELECT a.attname FROM unnest(con.conkey) WITH ORDINALITY k(n, o)
     JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = k.n ORDER BY k.o), chr(31)),
   array_to_string(ARRAY(SELECT a.attname FROM unnest(con.confkey) WITH ORDINALITY k(n, o)
@@ -304,17 +282,15 @@ JOIN pg_namespace n ON n.oid = c.relnamespace
 JOIN pg_class cf ON cf.oid = con.confrelid
 JOIN pg_namespace nf ON nf.oid = cf.relnamespace
 WHERE con.contype = 'f' AND nf.nspname = $1 AND cf.relname = $2
-ORDER BY n.nspname, c.relname, con.conname`, []any{schema, table}, func(scan func(...any) error) error {
+ORDER BY n.nspname, c.relname, con.conname`, []any{schema, table}, func(scan func(...any) error) (Reference, error) {
 		var r Reference
 		var cols, refCols string
 		if err := scan(&r.Name, &r.Schema, &r.Table, &cols, &refCols); err != nil {
-			return err
+			return r, err
 		}
 		r.Columns, r.RefColumns = splitList(cols), splitList(refCols)
-		out = append(out, r)
-		return nil
+		return r, nil
 	})
-	return out, err
 }
 
 // Items lists routines (but those of extensions), triggers, sequences

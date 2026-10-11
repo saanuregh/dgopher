@@ -441,11 +441,11 @@ func (b bytesValue) String() string {
 	return "0x" + hex.EncodeToString(b)
 }
 
-func (b bytesValue) MarshalJSON() ([]byte, error) { return marshal(b.String()) }
+func (b bytesValue) MarshalJSON() ([]byte, error) { return Marshal(b.String()) }
 
-// marshal writes a value as JSON as it is shown: <, > and & as they are,
+// Marshal writes a value as JSON as it is shown: <, > and & as they are,
 // where json.Marshal would escape them for HTML.
-func marshal(v any) ([]byte, error) {
+func Marshal(v any) ([]byte, error) {
 	var b bytes.Buffer
 	enc := json.NewEncoder(&b)
 	enc.SetEscapeHTML(false)

@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"dgopher/internal/lists"
 )
 
 // Plan is how a server runs a query, as its EXPLAIN tells.
@@ -32,6 +34,18 @@ type PlanNode struct {
 }
 
 func newNode() *PlanNode { return &PlanNode{Cost: -1, Rows: -1, ActualRows: -1, Time: -1, Loops: -1} }
+
+// childNodes builds a node of each object in the list under key of m, in order.
+func childNodes(m map[string]any, key string, build func(map[string]any) *PlanNode) []*PlanNode {
+	var out []*PlanNode
+	kids, _ := m[key].([]any)
+	for _, k := range kids {
+		if km, ok := k.(map[string]any); ok {
+			out = append(out, build(km))
+		}
+	}
+	return out
+}
 
 // Walk calls fn for the node and every node below it, depth first.
 func (n *PlanNode) Walk(fn func(*PlanNode, int)) { n.walk(fn, 0) }
@@ -180,10 +194,7 @@ func parsePostgresPlan(text string) (*Plan, bool) {
 		if n.Detail == "" {
 			for _, key := range []string{"Sort Key", "Group Key"} {
 				if keys, ok := m[key].([]any); ok {
-					parts := make([]string, len(keys))
-					for i, k := range keys {
-						parts[i] = fmt.Sprint(k)
-					}
+					parts := lists.Map(keys, func(k any) string { return fmt.Sprint(k) })
 					n.Detail = key + ": " + strings.Join(parts, ", ")
 					break
 				}
@@ -198,13 +209,7 @@ func parsePostgresPlan(text string) (*Plan, bool) {
 			n.ActualRows = jsonNumber(m["Actual Rows"]) * loops
 		}
 		n.Props = props(m, "Plans")
-		if kids, ok := m["Plans"].([]any); ok {
-			for _, k := range kids {
-				if km, ok := k.(map[string]any); ok {
-					n.Children = append(n.Children, build(km))
-				}
-			}
-		}
+		n.Children = childNodes(m, "Plans", build)
 		return n
 	}
 	p.Root = build(root)
@@ -339,13 +344,7 @@ func parseDuckDBPlan(text string) (*Plan, bool) {
 			n.ActualRows = jsonNumber(m["operator_cardinality"])
 		}
 		n.Props = props(m, "children")
-		if kids, ok := m["children"].([]any); ok {
-			for _, k := range kids {
-				if km, ok := k.(map[string]any); ok {
-					n.Children = append(n.Children, build(km))
-				}
-			}
-		}
+		n.Children = childNodes(m, "children", build)
 		return n
 	}
 	switch doc := doc.(type) {
@@ -413,13 +412,7 @@ func parseClickHousePlan(text string) (*Plan, bool) {
 			n.Target = n.Detail
 		}
 		n.Props = props(m, "Plans")
-		if kids, ok := m["Plans"].([]any); ok {
-			for _, k := range kids {
-				if km, ok := k.(map[string]any); ok {
-					n.Children = append(n.Children, build(km))
-				}
-			}
-		}
+		n.Children = childNodes(m, "Plans", build)
 		return n
 	}
 	return &Plan{Root: build(root)}, true

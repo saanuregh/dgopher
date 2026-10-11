@@ -69,10 +69,7 @@ func TestCheckText(t *testing.T) {
 // The editor marks a table it does not know, says why at the caret, and
 // Alt+Enter mends it.
 func TestProblemsInEditor(t *testing.T) {
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
-	tt := ui.NewTester(a.view, 1000, 700)
-	q := newEditor(t, a, tt, cn, "")
+	_, tt, cn, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "")
 	cn.DB.SQL.Exec(`CREATE TABLE invoices (id INTEGER)`)
 	q.Editor.Text = "SELECT * FROM invoces"
 	q.GoTo(len(q.Editor.Text))

@@ -38,23 +38,19 @@ func (g *Grid) checkpoint() {
 	g.redoStack = nil
 }
 
-func (g *Grid) undo() {
-	if g.edits == nil || len(g.undoStack) == 0 {
-		return
-	}
-	g.redoStack = append(g.redoStack, g.edits.clone())
-	*g.edits = *g.undoStack[len(g.undoStack)-1]
-	g.undoStack = g.undoStack[:len(g.undoStack)-1]
-	g.editing, g.orderKey = nil, ""
-}
+func (g *Grid) undo() { g.swapHistory(&g.undoStack, &g.redoStack) }
 
-func (g *Grid) redo() {
-	if g.edits == nil || len(g.redoStack) == 0 {
+func (g *Grid) redo() { g.swapHistory(&g.redoStack, &g.undoStack) }
+
+// swapHistory takes the edits back to the last of from, keeping the
+// current ones on to.
+func (g *Grid) swapHistory(from, to *[]*pendingEdits) {
+	if g.edits == nil || len(*from) == 0 {
 		return
 	}
-	g.undoStack = append(g.undoStack, g.edits.clone())
-	*g.edits = *g.redoStack[len(g.redoStack)-1]
-	g.redoStack = g.redoStack[:len(g.redoStack)-1]
+	*to = append(*to, g.edits.clone())
+	*g.edits = *(*from)[len(*from)-1]
+	*from = (*from)[:len(*from)-1]
 	g.editing, g.orderKey = nil, ""
 }
 
@@ -163,20 +159,13 @@ func goToView(a Host, c *ui.Context) {
 		ui.Column(c).Width(360).Gap(10).Children(func() {
 			ui.Text(c, title).FontSize(15).Bold()
 			submit := ui.TextInput(c, &f.text).Placeholder(hint).AutoFocus().Label(hint).Submitted()
-			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				if ui.Button(c, "Cancel").Clicked() {
-					f.open = false
-				}
-				if widgets.Activated(c, ui.PrimaryButton(c, "Go")) || submit {
-					f.open = false
-					f.g.goTo(f.src, f.text, f.column)
-				}
-			})
+			if widgets.DialogFooter(c, &f.open, "Go", submit) {
+				f.open = false
+				f.g.goTo(f.src, f.text, f.column)
+			}
 		})
 	})
-	if !f.open && a.Dialogs().goTo == f {
-		a.Dialogs().goTo = nil
-	}
+	dropClosed(&a.Dialogs().goTo, f, f.open)
 }
 
 // goTo chooses the row of a number, or the first column whose name starts

@@ -12,6 +12,7 @@ import (
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -172,10 +173,7 @@ func (b *queryBuilder) candidates() []qbCandidate {
 	var out []qbCandidate
 	for _, t := range b.tables {
 		for _, fk := range t.fks {
-			schema := fk.RefSchema
-			if schema == "" {
-				schema = t.schema
-			}
+			schema := cmp.Or(fk.RefSchema, t.schema)
 			c := qbCandidate{label: fmt.Sprintf("%s, which %s.%s refers to", fk.RefTable, t.alias, strings.Join(fk.Columns, ", ")), schema: schema, name: fk.RefTable}
 			for i, col := range fk.Columns {
 				if i < len(fk.RefColumns) {
@@ -389,9 +387,6 @@ func (b *queryBuilder) sortChoices() []string {
 // sortExpr writes what the rows are sorted by: a column named in the
 // result by its name, else as alias.column.
 func (b *queryBuilder) sortExpr(choice string) (string, error) {
-	if b.conn.DB == nil {
-		return "", errors.New(b.conn.Config.Name + " is not connected")
-	}
 	cols, err := b.outputs()
 	if err != nil {
 		return "", err
@@ -416,12 +411,7 @@ func (b *queryBuilder) pruneSorts(choices []string) {
 	if slices.ContainsFunc(b.tables, func(t *qbTable) bool { return t.loading }) {
 		return
 	}
-	for i := len(b.sorts) - 1; i >= 0; i-- {
-		if !slices.Contains(choices, b.sorts[i].label) {
-			b.sorts = slices.Delete(b.sorts, i, i+1)
-			b.sortKeys.remove(i)
-		}
-	}
+	deleteRowsFunc(&b.sorts, &b.sortKeys, func(s qbSort) bool { return !slices.Contains(choices, s.label) })
 }
 
 // setChosen adds a table's column to the result, or takes it out.
@@ -429,24 +419,20 @@ func (b *queryBuilder) setChosen(label string, on bool) {
 	i := slices.IndexFunc(b.columns, func(c qbColumn) bool { return c.label == label })
 	switch {
 	case on && i < 0:
-		b.columns = append(b.columns, qbColumn{label: label})
-		b.colKeys.add()
+		appendRow(&b.columns, &b.colKeys, qbColumn{label: label})
 	case !on && i >= 0:
-		b.columns = slices.Delete(b.columns, i, i+1)
-		b.colKeys.remove(i)
+		deleteRow(&b.columns, &b.colKeys, i)
 	}
 }
 
 // addCond adds a condition on the rows.
 func (b *queryBuilder) addCond(c builderCond) {
-	b.conds = append(b.conds, c)
-	b.condKeys.add()
+	appendRow(&b.conds, &b.condKeys, c)
 }
 
 // addSort sorts the rows by one more column.
 func (b *queryBuilder) addSort(s qbSort) {
-	b.sorts = append(b.sorts, s)
-	b.sortKeys.add()
+	appendRow(&b.sorts, &b.sortKeys, s)
 }
 
 // removeTable takes a table out, and what refers to it: the columns,
@@ -461,24 +447,9 @@ func (b *queryBuilder) removeTable(t *qbTable) {
 		owner, _, ok := b.find(label)
 		return ok && owner == t
 	}
-	for j := len(b.columns) - 1; j >= 0; j-- {
-		if mine(b.columns[j].label) {
-			b.columns = slices.Delete(b.columns, j, j+1)
-			b.colKeys.remove(j)
-		}
-	}
-	for j := len(b.conds) - 1; j >= 0; j-- {
-		if mine(b.conds[j].column) {
-			b.conds = slices.Delete(b.conds, j, j+1)
-			b.condKeys.remove(j)
-		}
-	}
-	for j := len(b.sorts) - 1; j >= 0; j-- {
-		if mine(b.sorts[j].label) {
-			b.sorts = slices.Delete(b.sorts, j, j+1)
-			b.sortKeys.remove(j)
-		}
-	}
+	deleteRowsFunc(&b.columns, &b.colKeys, func(c qbColumn) bool { return mine(c.label) })
+	deleteRowsFunc(&b.conds, &b.condKeys, func(c builderCond) bool { return mine(c.column) })
+	deleteRowsFunc(&b.sorts, &b.sortKeys, func(s qbSort) bool { return mine(s.label) })
 	later := slices.Clone(b.tables[i+1:])
 	for _, o := range later {
 		o.on = slices.DeleteFunc(o.on, func(on qbOn) bool { return mine(on.other) })
@@ -570,10 +541,7 @@ func (b *queryBuilder) tablesView(a Host, c *ui.Context) {
 			if i == 0 {
 				return
 			}
-			names := make([]string, len(t.cols))
-			for k, col := range t.cols {
-				names[k] = col.Name
-			}
+			names := lists.Map(t.cols, func(col db.Column) string { return col.Name })
 			others := b.labels(t)
 			remove := -1
 			for k := range t.on {
@@ -605,10 +573,7 @@ func (b *queryBuilder) tablesView(a Host, c *ui.Context) {
 		b.removeTable(drop)
 	}
 	cands := b.candidates()
-	labels := make([]string, len(cands))
-	for i, cand := range cands {
-		labels[i] = cand.label
-	}
+	labels := lists.Map(cands, func(cand qbCandidate) string { return cand.label })
 	if len(labels) == 0 {
 		return
 	}
@@ -702,8 +667,7 @@ func (b *queryBuilder) condsView(c *ui.Context) {
 		})
 	}
 	if remove >= 0 {
-		b.conds = slices.Delete(b.conds, remove, remove+1)
-		b.condKeys.remove(remove)
+		deleteRow(&b.conds, &b.condKeys, remove)
 	}
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 		if len(columns) > 0 && widgets.ToolButton(c, widgets.IconPlus, "Condition", "Add a condition").Clicked() {
@@ -730,8 +694,7 @@ func (b *queryBuilder) orderView(c *ui.Context) {
 		})
 	}
 	if remove >= 0 {
-		b.sorts = slices.Delete(b.sorts, remove, remove+1)
-		b.sortKeys.remove(remove)
+		deleteRow(&b.sorts, &b.sortKeys, remove)
 	}
 	ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
 		if len(choices) > 0 && widgets.ToolButton(c, widgets.IconPlus, "Order", "Sort the rows by a column").Clicked() {

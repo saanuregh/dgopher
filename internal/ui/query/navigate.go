@@ -318,21 +318,16 @@ func renameView(a Host, c *ui.Context) {
 			if f.err != "" {
 				ui.Text(c, f.err).FontSize(12).TextColor(th.Danger)
 			}
-			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				if ui.Button(c, "Cancel").Clicked() {
-					f.open = false
+			if widgets.DialogFooter(c, &f.open, "Rename", submit) {
+				name := strings.TrimSpace(f.name)
+				if name == "" {
+					f.err = "A name may not be empty."
+					return
 				}
-				if widgets.Activated(c, ui.PrimaryButton(c, "Rename")) || submit {
-					name := strings.TrimSpace(f.name)
-					if name == "" {
-						f.err = "A name may not be empty."
-						return
-					}
-					q.Editor.Text = renameInText(q.Editor.Text, f.id, name, q.Editor.Dialect, db.DialectOf(q.Conn.Config.Engine).Quote)
-					q.ac.lastText = q.Editor.Text
-					f.open = false
-				}
-			})
+				q.Editor.Text = renameInText(q.Editor.Text, f.id, name, q.Editor.Dialect, db.DialectOf(q.Conn.Config.Engine).Quote)
+				q.ac.lastText = q.Editor.Text
+				f.open = false
+			}
 		})
 	})
 	if !f.open {

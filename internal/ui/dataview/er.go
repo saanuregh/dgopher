@@ -1,9 +1,11 @@
 package dataview
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"time"
 
@@ -233,13 +235,18 @@ func (e *ERTab) layout() {
 	for _, col := range columns {
 		sort.SliceStable(col, func(i, j int) bool { return len(col[i].fks) > len(col[j].fks) })
 		for start := 0; start < len(col); start += limit {
-			y := float32(24)
-			for _, t := range col[start:min(start+limit, len(col))] {
-				t.x, t.y = x, y
-				y += t.height() + erGapY
-			}
+			stackTables(col[start:min(start+limit, len(col))], x)
 			x += erBoxW + erGapX
 		}
+	}
+}
+
+// stackTables places tables one under another in a column at x.
+func stackTables(ts []*erTable, x float32) {
+	y := float32(24)
+	for _, t := range ts {
+		t.x, t.y = x, y
+		y += t.height() + erGapY
 	}
 }
 
@@ -465,14 +472,7 @@ func (e *ERTab) box(c *ui.Context, a Host, t *erTable) {
 }
 
 func isFKColumn(t *erTable, name string) bool {
-	for _, fk := range t.fks {
-		for _, c := range fk.Columns {
-			if c == name {
-				return true
-			}
-		}
-	}
-	return false
+	return slices.ContainsFunc(t.fks, func(fk db.ForeignKey) bool { return slices.Contains(fk.Columns, name) })
 }
 
 // OpenER opens the ER diagram of a schema, or brings it forward.
@@ -488,10 +488,7 @@ func OpenER(a Host, cn *connection.Conn, database, schema string) {
 
 // refOf is the table a foreign key points at, among those drawn.
 func (e *ERTab) refOf(t *erTable, fk db.ForeignKey) *erTable {
-	schema := fk.RefSchema
-	if schema == "" {
-		schema = t.schema
-	}
+	schema := cmp.Or(fk.RefSchema, t.schema)
 	return e.byName[erKey(schema, fk.RefTable)]
 }
 
@@ -518,10 +515,7 @@ func loadNeighbours(ctx context.Context, d *db.DB, focus db.Object) ([]*erTable,
 		return nil, err
 	}
 	for _, fk := range tables[0].fks {
-		schema := fk.RefSchema
-		if schema == "" {
-			schema = focus.Schema
-		}
+		schema := cmp.Or(fk.RefSchema, focus.Schema)
 		if err := add(schema, db.Object{Schema: schema, Name: fk.RefTable, Kind: db.KindTable, Rows: -1}); err != nil {
 			return nil, err
 		}
@@ -547,31 +541,17 @@ func (e *ERTab) layoutFocus() {
 	focus := e.tables[0]
 	var left, right []*erTable
 	for _, t := range e.tables[1:] {
-		pointsAtFocus := false
-		for _, fk := range t.fks {
-			if e.refOf(t, fk) == focus {
-				pointsAtFocus = true
-			}
-		}
-		if pointsAtFocus {
+		if slices.ContainsFunc(t.fks, func(fk db.ForeignKey) bool { return e.refOf(t, fk) == focus }) {
 			left = append(left, t)
 		} else {
 			right = append(right, t)
 		}
 	}
-	stack := func(ts []*erTable, x float32) float32 {
-		y := float32(24)
-		for _, t := range ts {
-			t.x, t.y = x, y
-			y += t.height() + erGapY
-		}
-		return y
-	}
 	x := float32(24)
 	if len(left) > 0 {
-		stack(left, x)
+		stackTables(left, x)
 		x += erBoxW + erGapX
 	}
 	focus.x, focus.y = x, 24
-	stack(right, x+erBoxW+erGapX)
+	stackTables(right, x+erBoxW+erGapX)
 }

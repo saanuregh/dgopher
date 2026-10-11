@@ -71,23 +71,12 @@ func (g *Grid) addCond(c rowCond) {
 
 // clearConds drops the filters of a column, or all of them for -1.
 func (g *Grid) clearConds(col int) {
-	kept := g.conds[:0]
-	for _, c := range g.conds {
-		if col >= 0 && c.col != col {
-			kept = append(kept, c)
-		}
-	}
-	g.conds = kept
+	g.conds = slices.DeleteFunc(g.conds, func(c rowCond) bool { return col < 0 || c.col == col })
 	g.orderKey = ""
 }
 
 func (g *Grid) passes(row []any) bool {
-	for _, c := range g.conds {
-		if !c.matches(row) {
-			return false
-		}
-	}
-	return true
+	return !slices.ContainsFunc(g.conds, func(c rowCond) bool { return !c.matches(row) })
 }
 
 // condSQL writes a filter of a column as SQL of an engine.
@@ -163,13 +152,7 @@ func likeSQL(e db.Engine, col, before string, value any, after string, not bool)
 // filterMenu is the Filter submenu of a cell: its value, or the values
 // of the rows chosen, against the column.
 func (g *Grid) filterMenu(m *ui.Menu, a Host, src *Source, row, col int, apply func(rowCond), clear func(col int)) {
-	v, _ := g.value(src, row, col)
-	if v == unset || v == db.Default {
-		v = nil
-	}
-	if typed, ok := v.(db.Typed); ok {
-		v = string(typed)
-	}
+	v := g.plainValue(src, row, col)
 	name := src.Cols[col].Name
 	shown := cellText(db.Display(v), 40)
 	m.Submenu("Filter", func(m *ui.Menu) {
@@ -257,13 +240,7 @@ func (g *Grid) orderMenu(m *ui.Menu, col int) {
 }
 
 func withoutSortKey(keys []ui.SortKey, id string) []ui.SortKey {
-	var out []ui.SortKey
-	for _, k := range keys {
-		if k.Column != id {
-			out = append(out, k)
-		}
-	}
-	return out
+	return slices.DeleteFunc(slices.Clone(keys), func(k ui.SortKey) bool { return k.Column == id })
 }
 
 // sortKeys is an order as columns and directions, the first one first.
@@ -370,20 +347,13 @@ func filterPromptView(a Host, c *ui.Context) {
 			ui.Text(c, "Filter: "+f.label).FontSize(15).Bold()
 			submit := ui.TextInput(c, &f.value).AutoFocus().Font(widgets.MonoFont).Label("Value").Submitted()
 			ui.Text(c, "A number when it reads as one, else text.").FontSize(12).TextColor(widgets.PaletteOf(c).Muted)
-			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				if ui.Button(c, "Cancel").Clicked() {
-					f.open = false
-				}
-				if widgets.Activated(c, ui.PrimaryButton(c, "Filter")) || submit {
-					f.open = false
-					f.apply(f.value)
-				}
-			})
+			if widgets.DialogFooter(c, &f.open, "Filter", submit) {
+				f.open = false
+				f.apply(f.value)
+			}
 		})
 	})
-	if !f.open && a.Dialogs().filterPrompt == f {
-		a.Dialogs().filterPrompt = nil
-	}
+	dropClosed(&a.Dialogs().filterPrompt, f, f.open)
 }
 
 // distinctValue is a value of a column and how many rows hold it.
@@ -504,9 +474,7 @@ func distinctView(a Host, c *ui.Context) {
 			})
 		})
 	})
-	if !f.open && a.Dialogs().distinct == f {
-		a.Dialogs().distinct = nil
-	}
+	dropClosed(&a.Dialogs().distinct, f, f.open)
 }
 
 // filterFuncs are how the grid filters: on the server for a table, else

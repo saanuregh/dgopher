@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"dgopher/internal/audit"
-	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/testutil"
 
@@ -45,8 +44,7 @@ func TestRestoreRefusedWithOpenTransaction(t *testing.T) {
 	t.Setenv("TMPDIR", stages)
 	cn := addConn(a, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1200, 800)
-	a.Connect(cn, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	connectNow(t, a, tt, cn)
 	editor, err := cn.DB.Session(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -146,10 +144,7 @@ func TestSQLRestoreConfirms(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, env := range []db.Environment{db.Development, db.Production} {
-		file := filepath.Join(t.TempDir(), "x.sqlite")
-		if err := os.WriteFile(file, nil, 0o600); err != nil {
-			t.Fatal(err)
-		}
+		file := writeSQL(t, "x.sqlite", "")
 		cn := addConn(a, db.Config{ID: "lite-" + string(env), Name: "lite " + string(env), Engine: db.SQLite, Database: file, Env: env})
 		a.openBackup(cn, "", true)
 		a.backup.path = sql

@@ -54,19 +54,18 @@ func accountName(d Dialect, a Account) string {
 // ListAccounts lists the users and roles of a server, the system's own
 // roles of PostgreSQL left out.
 func ListAccounts(ctx context.Context, d Dialect, q Querier) ([]Account, error) {
-	var out []Account
 	switch d.Engine() {
 	case Postgres:
-		err := scanRows(ctx, q, `SELECT r.rolname, r.rolcanlogin, r.rolsuper, r.rolcreatedb, r.rolcreaterole, r.rolreplication, r.rolbypassrls,
+		return scanAll(ctx, q, `SELECT r.rolname, r.rolcanlogin, r.rolsuper, r.rolcreatedb, r.rolcreaterole, r.rolreplication, r.rolbypassrls,
   r.rolconnlimit, coalesce(r.rolvaliduntil::text, ''),
   coalesce((SELECT string_agg(b.rolname, ',' ORDER BY b.rolname) FROM pg_auth_members m JOIN pg_roles b ON b.oid = m.roleid WHERE m.member = r.oid), '')
-FROM pg_roles r WHERE r.rolname !~ '^pg_' ORDER BY r.rolname`, nil, func(scan func(...any) error) error {
+FROM pg_roles r WHERE r.rolname !~ '^pg_' ORDER BY r.rolname`, nil, func(scan func(...any) error) (Account, error) {
 			var a Account
 			var login, super, createDB, createRole, replication, bypass bool
 			var limit int
 			var until, member string
 			if err := scan(&a.Name, &login, &super, &createDB, &createRole, &replication, &bypass, &limit, &until, &member); err != nil {
-				return err
+				return a, err
 			}
 			a.Role = !login
 			for _, f := range []struct {
@@ -85,10 +84,8 @@ FROM pg_roles r WHERE r.rolname !~ '^pg_' ORDER BY r.rolname`, nil, func(scan fu
 				a.Attributes = append(a.Attributes, "password valid until "+until)
 			}
 			a.MemberOf = splitList(member)
-			out = append(out, a)
-			return nil
+			return a, nil
 		})
-		return out, err
 	case MySQL:
 		members := map[string][]string{}
 		err := scanRows(ctx, q, `SELECT TO_USER, TO_HOST, FROM_USER, FROM_HOST FROM mysql.role_edges`, nil, func(scan func(...any) error) error {
@@ -103,13 +100,13 @@ FROM pg_roles r WHERE r.rolname !~ '^pg_' ORDER BY r.rolname`, nil, func(scan fu
 		if err != nil {
 			return nil, err
 		}
-		err = scanRows(ctx, q, `SELECT User, Host, account_locked, password_expired, plugin, authentication_string = '' FROM mysql.user ORDER BY User, Host`, nil,
-			func(scan func(...any) error) error {
+		return scanAll(ctx, q, `SELECT User, Host, account_locked, password_expired, plugin, authentication_string = '' FROM mysql.user ORDER BY User, Host`, nil,
+			func(scan func(...any) error) (Account, error) {
 				var a Account
 				var locked, expired, plugin string
 				var noPassword bool
 				if err := scan(&a.Name, &a.Host, &locked, &expired, &plugin, &noPassword); err != nil {
-					return err
+					return a, err
 				}
 				// A role of MySQL is an account locked and without a password.
 				a.Role = locked == "Y" && noPassword
@@ -121,10 +118,8 @@ FROM pg_roles r WHERE r.rolname !~ '^pg_' ORDER BY r.rolname`, nil, func(scan fu
 				}
 				a.Attributes = append(a.Attributes, "logs in with "+plugin)
 				a.MemberOf = members[a.Name+"@"+a.Host]
-				out = append(out, a)
-				return nil
+				return a, nil
 			})
-		return out, err
 	case ClickHouse:
 		members := map[string][]string{}
 		err := scanRows(ctx, q, `SELECT coalesce(user_name, role_name), granted_role_name FROM system.role_grants`, nil, func(scan func(...any) error) error {
@@ -138,23 +133,21 @@ FROM pg_roles r WHERE r.rolname !~ '^pg_' ORDER BY r.rolname`, nil, func(scan fu
 		if err != nil {
 			return nil, err
 		}
-		err = scanRows(ctx, q, `SELECT name, 0, toString(auth_type) FROM system.users UNION ALL SELECT name, 1, '' FROM system.roles ORDER BY 1`, nil,
-			func(scan func(...any) error) error {
+		return scanAll(ctx, q, `SELECT name, 0, toString(auth_type) FROM system.users UNION ALL SELECT name, 1, '' FROM system.roles ORDER BY 1`, nil,
+			func(scan func(...any) error) (Account, error) {
 				var a Account
 				var role uint8
 				var auth string
 				if err := scan(&a.Name, &role, &auth); err != nil {
-					return err
+					return a, err
 				}
 				a.Role = role == 1
 				if auth != "" {
 					a.Attributes = append(a.Attributes, "logs in with "+strings.Trim(auth, "[]'"))
 				}
 				a.MemberOf = members[a.Name]
-				out = append(out, a)
-				return nil
+				return a, nil
 			})
-		return out, err
 	}
 	return nil, fmt.Errorf("%s has no users the app manages", d.Engine().Label())
 }
@@ -162,10 +155,9 @@ FROM pg_roles r WHERE r.rolname !~ '^pg_' ORDER BY r.rolname`, nil, func(scan fu
 // AccountPrivileges lists what an account may do, each with the
 // statement that takes it back.
 func AccountPrivileges(ctx context.Context, d Dialect, q Querier, a Account) ([]Privilege, error) {
-	var out []Privilege
 	switch d.Engine() {
 	case Postgres:
-		err := scanRows(ctx, q, `SELECT kind, name, string_agg(privilege_type, ', ' ORDER BY privilege_type) FROM (
+		out, err := scanAll(ctx, q, `SELECT kind, name, string_agg(privilege_type, ', ' ORDER BY privilege_type) FROM (
   SELECT 'TABLE' AS kind, quote_ident(n.nspname) || '.' || quote_ident(c.relname) AS name, x.privilege_type, x.grantee
   FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace CROSS JOIN LATERAL aclexplode(c.relacl) x
   WHERE c.relkind IN ('r', 'v', 'm', 'p', 'f')
@@ -174,14 +166,13 @@ func AccountPrivileges(ctx context.Context, d Dialect, q Querier, a Account) ([]
   UNION ALL
   SELECT 'DATABASE', quote_ident(d.datname), x.privilege_type, x.grantee FROM pg_database d CROSS JOIN LATERAL aclexplode(d.datacl) x
 ) p JOIN pg_roles r ON r.oid = p.grantee WHERE r.rolname = $1
-GROUP BY kind, name ORDER BY kind = 'TABLE', kind, name`, []any{a.Name}, func(scan func(...any) error) error {
+GROUP BY kind, name ORDER BY kind = 'TABLE', kind, name`, []any{a.Name}, func(scan func(...any) error) (Privilege, error) {
 			var kind, name, privs string
 			if err := scan(&kind, &name, &privs); err != nil {
-				return err
+				return Privilege{}, err
 			}
-			out = append(out, Privilege{Text: privs + " on " + strings.ToLower(kind) + " " + name,
-				Revoke: "REVOKE " + privs + " ON " + kind + " " + name + " FROM " + accountName(d, a)})
-			return nil
+			return Privilege{Text: privs + " on " + strings.ToLower(kind) + " " + name,
+				Revoke: "REVOKE " + privs + " ON " + kind + " " + name + " FROM " + accountName(d, a)}, nil
 		})
 		if err != nil {
 			return nil, err
@@ -191,15 +182,13 @@ GROUP BY kind, name ORDER BY kind = 'TABLE', kind, name`, []any{a.Name}, func(sc
 		}
 		return out, nil
 	case MySQL, ClickHouse:
-		err := scanRows(ctx, q, "SHOW GRANTS FOR "+accountName(d, a), nil, func(scan func(...any) error) error {
+		return scanAll(ctx, q, "SHOW GRANTS FOR "+accountName(d, a), nil, func(scan func(...any) error) (Privilege, error) {
 			var grant string
 			if err := scan(&grant); err != nil {
-				return err
+				return Privilege{}, err
 			}
-			out = append(out, Privilege{Text: grant, Revoke: revokeOf(grant)})
-			return nil
+			return Privilege{Text: grant, Revoke: revokeOf(grant)}, nil
 		})
-		return out, err
 	}
 	return nil, fmt.Errorf("%s has no users the app manages", d.Engine().Label())
 }

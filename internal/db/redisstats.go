@@ -1,9 +1,11 @@
 package db
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -205,11 +207,8 @@ func (k *KV) AnalyseMemory(ctx context.Context, sep string, limit int64, largest
 	for _, ns := range spaces {
 		r.Namespaces = append(r.Namespaces, *ns)
 	}
-	sort.Slice(r.Namespaces, func(i, j int) bool {
-		if r.Namespaces[i].Memory != r.Namespaces[j].Memory {
-			return r.Namespaces[i].Memory > r.Namespaces[j].Memory
-		}
-		return r.Namespaces[i].Prefix < r.Namespaces[j].Prefix
+	slices.SortFunc(r.Namespaces, func(a, b NamespaceStat) int {
+		return cmp.Or(cmp.Compare(b.Memory, a.Memory), strings.Compare(a.Prefix, b.Prefix))
 	})
 	r.Total, err = k.DBSize(ctx)
 	return r, err

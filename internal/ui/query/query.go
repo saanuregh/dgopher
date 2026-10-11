@@ -3,6 +3,7 @@
 package query
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
+	"dgopher/internal/lists"
 	"dgopher/internal/params"
 	"dgopher/internal/project"
 	"dgopher/internal/redact"
@@ -252,24 +254,23 @@ func (q *Tab) pendingCount() int {
 
 // pendingTable names the table of the first result with changes pending.
 func (q *Tab) pendingTable() string {
-	for _, r := range q.results {
-		if r.view != nil && r.view.PendingCount() > 0 {
-			return r.view.TableName()
-		}
+	if i := slices.IndexFunc(q.results, hasPending); i >= 0 {
+		return q.results[i].view.TableName()
 	}
 	return ""
 }
+
+// hasPending says a result has changes not applied yet.
+func hasPending(r *result) bool { return r.view != nil && r.view.PendingCount() > 0 }
 
 // settlePending asks, result by result, what becomes of the changes
 // pending in results, then runs then: after they are applied or
 // discarded, never when the user cancels.
 func (q *Tab) settlePending(results []*result, then func()) {
-	for i, r := range results {
-		if r.view != nil && r.view.PendingCount() > 0 {
-			rest := results[i+1:]
-			r.view.CheckPending(func() { q.settlePending(rest, then) }, nil)
-			return
-		}
+	if i := slices.IndexFunc(results, hasPending); i >= 0 {
+		rest := results[i+1:]
+		results[i].view.CheckPending(func() { q.settlePending(rest, then) }, nil)
+		return
 	}
 	then()
 }
@@ -327,11 +328,9 @@ func (q *Tab) resultsBusy() bool {
 // save applies the changes pending in results, reviewed one result after
 // the other, then saves the file, as DBeaver's ⌘S does in an editor.
 func (q *Tab) save() {
-	for _, r := range q.results {
-		if r.view != nil && r.view.PendingCount() > 0 {
-			r.view.Review(q.save)
-			return
-		}
+	if i := slices.IndexFunc(q.results, hasPending); i >= 0 {
+		q.results[i].view.Review(q.save)
+		return
 	}
 	q.a.SaveSQLFile(q, false)
 }
@@ -357,7 +356,7 @@ const (
 	RunStatement      RunMode = iota // the selection, or the statement at the caret
 	RunScript                        // every statement
 	RunExplain                       // the plan of the statement at the caret
-	RunNewTab                        // as runStatement, keeping the results shown
+	RunNewTab                        // as RunStatement, keeping the results shown
 	RunExplainAnalyze                // the plan of the statement at the caret, as it runs
 )
 
@@ -463,9 +462,6 @@ func (q *Tab) refuseAnotherConnection() bool {
 	return true
 }
 
-// runStatement runs the statement at the caret.
-func (q *Tab) runStatement() { q.Run(RunStatement) }
-
 // statementLines are the first lines of the text's statements, which
 // have run buttons, found again as the text changes.
 func (q *Tab) statementLines() []int {
@@ -497,7 +493,7 @@ func (q *Tab) runLine(line int) {
 	}
 	at := q.stmtStarts[i]
 	q.Editor.SelStart, q.Editor.SelEnd, q.Editor.PendingSel = at, at, &[2]int{at, at}
-	q.runStatement()
+	q.Run(RunStatement)
 }
 
 // Run runs statements of the editor, through the safety policy, once
@@ -561,25 +557,31 @@ func (q *Tab) run(mode RunMode) {
 	if explaining(mode) {
 		skip = len([]rune(db.ExplainPrefix(q.Conn.Config.Engine, mode == RunExplainAnalyze)))
 	}
+	newTab := q.newTab
+	q.withParams(stmts, func(values map[string]params.Input) {
+		q.newTab = newTab
+		q.runBound(stmts, starts, values, skip)
+	})
+}
+
+// withParams runs then with the values of the statements' parameters,
+// asked in the parameter form and remembered for the next ask; with none,
+// it runs then(nil) at once.
+func (q *Tab) withParams(stmts []string, then func(map[string]params.Input)) {
 	keys := params.Keys(stmts, q.Editor.Dialect)
 	if len(keys) == 0 {
-		q.runBound(stmts, starts, nil, skip)
+		then(nil)
 		return
 	}
-	f := &paramForm{open: true}
-	for _, k := range keys {
-		f.fields = append(f.fields, paramField{key: k, value: q.paramValues[k].Value, kind: max(slices.Index(params.Kinds, q.paramValues[k].Kind), 0)})
-	}
-	newTab := q.newTab
-	f.run = func(values map[string]params.Input) {
+	f := &paramForm{open: true, run: func(values map[string]params.Input) {
 		if q.paramValues == nil {
 			q.paramValues = map[string]params.Input{}
 		}
-		for k, v := range values {
-			q.paramValues[k] = v
-		}
-		q.newTab = newTab
-		q.runBound(stmts, starts, values, skip)
+		maps.Copy(q.paramValues, values)
+		then(values)
+	}}
+	for _, k := range keys {
+		f.fields = append(f.fields, paramField{key: k, value: q.paramValues[k].Value, kind: max(slices.Index(params.Kinds, q.paramValues[k].Kind), 0)})
 	}
 	q.a.QueryDialogs().params = f
 }
@@ -836,10 +838,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 						res.affected = -1
 					}
 					if strings.EqualFold(res.verb, "EXPLAIN") {
-						names := make([]string, len(cursor.Columns))
-						for i, col := range cursor.Columns {
-							names[i] = col.Name
-						}
+						names := lists.Map(cursor.Columns, func(col db.ColumnInfo) string { return col.Name })
 						if plan, ok := db.ParsePlan(cfg.Engine, names, first); ok {
 							res.plan, res.advice = plan, db.Advise(cfg.Engine, plan)
 						}
@@ -1128,7 +1127,9 @@ func (q *Tab) currentStatement() (int, int, bool) {
 		q.stmtRange = [2]int{st.Start, st.End}
 		q.stmtOK = ok
 		if ok {
-			q.Editor.CurrentLines = [2]int{editor.LineOf(q.Editor.Text, st.Start), editor.LineOf(q.Editor.Text, max(st.Start, st.End-1))}
+			first, _ := q.Editor.LineCol(st.Start)
+			last, _ := q.Editor.LineCol(max(st.Start, st.End-1))
+			q.Editor.CurrentLines = [2]int{first, last}
 		}
 	}
 	return q.stmtRange[0], q.stmtRange[1], q.stmtOK
@@ -1466,10 +1467,7 @@ func (q *Tab) newView(res *result, c *db.Cursor, rows [][]any, done bool, stop c
 	})
 	v.Adopt(c, rows, done, res.elapsed, stop)
 	if res.tableWhy == "" && reads && res.schemaErr == nil {
-		schema := res.table.Schema
-		if schema == "" {
-			schema = res.schema
-		}
+		schema := cmp.Or(res.table.Schema, res.schema)
 		q.bindTable(v, res.table, schema)
 	}
 	return v
@@ -1536,10 +1534,7 @@ func (q *Tab) bindTable(v *dataview.Viewer, ref sqltext.TableRef, schema string)
 
 // findObject finds a table by its name, as matchName does.
 func findObject(objs []db.Object, name string, quoted bool, engine db.Engine) (db.Object, bool) {
-	names := make([]string, len(objs))
-	for i, o := range objs {
-		names[i] = o.Name
-	}
+	names := lists.Map(objs, func(o db.Object) string { return o.Name })
 	if i := matchName(names, name, quoted, engine); i >= 0 {
 		return objs[i], true
 	}
@@ -1809,8 +1804,8 @@ func (q *Tab) errorPanel(c *ui.Context, r *result) {
 			field("Hint", info.Hint)
 			where := ""
 			if at := errorOffset(r.sql, r.start, r.skip, info); at >= 0 {
-				line, col := lineCol(q.Editor.Text, at)
-				where = fmt.Sprintf("line %d, column %d", line, col)
+				line, col := q.Editor.LineCol(at)
+				where = fmt.Sprintf("line %d, column %d", line+1, col+1)
 			}
 			field("Where", where)
 			ui.Text(c, r.sql).Font(widgets.MonoFont).FontSize(12).Padding(10).Radius(6).Background(pal.EditorBg).Selectable()
@@ -1830,22 +1825,6 @@ func (q *Tab) errorPanel(c *ui.Context, r *result) {
 			})
 		})
 	})
-}
-
-// lineCol is the 1-based line and column of a rune offset.
-func lineCol(text string, at int) (int, int) {
-	line, col := 1, 1
-	for i, r := range []rune(text) {
-		if i >= at {
-			break
-		}
-		if r == '\n' {
-			line, col = line+1, 1
-		} else {
-			col++
-		}
-	}
-	return line, col
 }
 
 // closeResult drops a result, closing its cursor.
@@ -2240,28 +2219,12 @@ func (q *Tab) exportFromQuery() {
 		return
 	}
 	stmt := stmts[0]
-	open := func(values map[string]params.Input) {
+	q.withParams(stmts, func(values map[string]params.Input) {
 		sql, args, _, err := params.Bind(stmt, q.Conn.Config.Engine, q.Editor.Dialect, values)
 		if err != nil {
 			q.a.ShowError("Could not bind the parameters", err.Error())
 			return
 		}
 		dataview.OpenExport(q.a, dataview.ExportSource{Conn: q.Conn, Database: q.Database, Name: "query", SQL: sql, Args: args, OnSession: q.lendSession})
-	}
-	keys := params.Keys(stmts, q.Editor.Dialect)
-	if len(keys) == 0 {
-		open(nil)
-		return
-	}
-	f := &paramForm{open: true, run: func(values map[string]params.Input) {
-		if q.paramValues == nil {
-			q.paramValues = map[string]params.Input{}
-		}
-		maps.Copy(q.paramValues, values)
-		open(values)
-	}}
-	for _, k := range keys {
-		f.fields = append(f.fields, paramField{key: k, value: q.paramValues[k].Value, kind: max(slices.Index(params.Kinds, q.paramValues[k].Kind), 0)})
-	}
-	q.a.QueryDialogs().params = f
+	})
 }

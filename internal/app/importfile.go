@@ -76,14 +76,8 @@ func (a *App) openImport(cn *connection.Conn, database, schema string, obj *db.O
 	if obj != nil {
 		title = "Import into " + obj.Name
 	}
-	go func() {
-		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: title,
-			Filters: []mygo.FileFilter{{Name: "Data files", Extensions: fileimport.Extensions}}})
-		if err != nil || len(paths) == 0 {
-			return
-		}
-		a.Post(func() { a.startImport(cn, database, schema, obj, paths[0]) })
-	}()
+	opts := mygo.OpenDialogOptions{Title: title, Filters: []mygo.FileFilter{{Name: "Data files", Extensions: fileimport.Extensions}}}
+	widgets.ChoosePath(a.Post, opts, func(path string) { a.startImport(cn, database, schema, obj, path) })
 }
 
 // openImportOf imports a file already chosen, as one dropped on the
@@ -339,8 +333,7 @@ func (a *App) runImport(x *importState) {
 			},
 			progress: func(done int64) { a.Post(func() { x.done = done }) }})
 		ev := audit.Event{Kind: audit.KindImport, Database: database, Rows: n,
-			Statement: "INSERT INTO " + target.Table, Detail: "imported from " + path}
-		ev.Err = err
+			Statement: "INSERT INTO " + target.Table, Detail: "imported from " + path, Err: err}
 		a.Record(&cfg, ev)
 		return func() {
 			x.running = false

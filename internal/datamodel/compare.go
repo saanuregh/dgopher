@@ -526,30 +526,24 @@ func target(e db.Engine, a, b db.TableDesign, drop bool) db.TableDesign {
 	if drop {
 		return now
 	}
-	for _, c := range b.Columns {
-		if !slices.ContainsFunc(now.Columns, func(o db.ColumnDesign) bool { return o.Name == c.Name }) {
-			// Kept as it is; in the key only when A has none.
-			c.Was, c.PrimaryKey = c.Name, c.PrimaryKey && keyless
-			now.Columns = append(now.Columns, c)
-		}
-	}
-	for _, ix := range b.Indexes {
-		if !slices.ContainsFunc(now.Indexes, func(o db.IndexDesign) bool { return indexName(o) == indexName(ix) }) {
-			ix.Read = true
-			now.Indexes = append(now.Indexes, ix)
-		}
-	}
-	for _, fk := range b.ForeignKeys {
-		if !slices.ContainsFunc(now.ForeignKeys, func(o db.ForeignKeyDesign) bool { return keyName(o) == keyName(fk) }) {
-			fk.Read = true
-			now.ForeignKeys = append(now.ForeignKeys, fk)
-		}
-	}
-	for _, c := range b.Checks {
-		if !slices.ContainsFunc(now.Checks, func(o db.CheckDesign) bool { return checkName(o) == checkName(c) }) {
-			c.Read = true
-			now.Checks = append(now.Checks, c)
-		}
-	}
+	now.Columns = appendMissing(now.Columns, b.Columns, func(c db.ColumnDesign) string { return c.Name }, func(c *db.ColumnDesign) {
+		// Kept as it is; in the key only when A has none.
+		c.Was, c.PrimaryKey = c.Name, c.PrimaryKey && keyless
+	})
+	now.Indexes = appendMissing(now.Indexes, b.Indexes, indexName, func(ix *db.IndexDesign) { ix.Read = true })
+	now.ForeignKeys = appendMissing(now.ForeignKeys, b.ForeignKeys, keyName, func(fk *db.ForeignKeyDesign) { fk.Read = true })
+	now.Checks = appendMissing(now.Checks, b.Checks, checkName, func(c *db.CheckDesign) { c.Read = true })
 	return now
+}
+
+// appendMissing appends to have, changed by mark, each of b's parts whose
+// name none of have's has.
+func appendMissing[T any](have, b []T, name func(T) string, mark func(*T)) []T {
+	for _, x := range b {
+		if !slices.ContainsFunc(have, func(o T) bool { return name(o) == name(x) }) {
+			mark(&x)
+			have = append(have, x)
+		}
+	}
+	return have
 }

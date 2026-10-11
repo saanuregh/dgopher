@@ -21,7 +21,7 @@ func TestLineComment(t *testing.T) {
 	}
 	for _, end := range []string{"\n", "\r", "\r\n", "\v", "\f", "\u0085", " ", " "} {
 		for _, d := range []Dialect{Generic, Postgres, MySQL, ClickHouse} {
-			if stmts := Split(LineComment("a"+end+"DROP TABLE victims;")+"\n", d); len(stmts) != 0 {
+			if stmts := SplitWith(LineComment("a"+end+"DROP TABLE victims;")+"\n", d, SplitOptions{}); len(stmts) != 0 {
 				t.Errorf("%q, dialect %v: the comment ended, leaving %q", end, d, stmts[0].Text)
 			}
 		}

@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"dgopher/internal/keymap"
+	"dgopher/internal/lists"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -112,10 +113,7 @@ func (g *Grid) plainText(a Host, src *Source, order []int, limit int) string {
 	}
 	rows := order[:min(len(order), limit)]
 	cells := make([][]string, len(rows))
-	widths := make([]int, len(cols))
-	for j, col := range cols {
-		widths[j] = utf8.RuneCountInString(src.Cols[col].Name)
-	}
+	widths := lists.Map(cols, func(col int) int { return utf8.RuneCountInString(src.Cols[col].Name) })
 	for i, r := range rows {
 		cells[i] = make([]string, len(cols))
 		for j, col := range cols {
@@ -143,10 +141,7 @@ func (g *Grid) plainText(a Host, src *Source, order []int, limit int) string {
 		}
 		b.WriteString("\n")
 	}
-	names := make([]string, len(cols))
-	for j, col := range cols {
-		names[j] = src.Cols[col].Name
-	}
+	names := lists.Map(cols, func(col int) string { return src.Cols[col].Name })
 	line(names)
 	for j := range cols {
 		if j > 0 {

@@ -47,7 +47,7 @@ func TestSplitBlankLines(t *testing.T) {
 			}
 		})
 	}
-	if got := Split("select 1\n\nselect 2", Generic); len(got) != 2 {
+	if got := SplitWith("select 1\n\nselect 2", Generic, SplitOptions{}); len(got) != 2 {
 		t.Fatalf("Split must default to BlankLineAndSemicolon, got %+v", got)
 	}
 }
@@ -154,7 +154,7 @@ func TestFormatKeepsBlankLines(t *testing.T) {
 		{"-- head\n\nselect 1", "-- head\n\nSELECT\n  1"},
 	}
 	for _, tt := range tests {
-		if got := Format(tt.src, Generic); got != tt.want {
+		if got := FormatWith(tt.src, Generic, SplitOptions{}); got != tt.want {
 			t.Fatalf("%q: got %q want %q", tt.src, got, tt.want)
 		}
 	}
@@ -288,7 +288,7 @@ func TestSplitDelimiter(t *testing.T) {
 	if got := splitTexts("DELIMITER //\nSELECT 1//", Postgres, SemicolonOnly); len(got) != 1 {
 		t.Fatalf("DELIMITER is MySQL only, got %q", got)
 	}
-	if got := Format("DELIMITER //\nCREATE PROCEDURE p() BEGIN SELECT 1; END//\nDELIMITER ;\nSELECT 2;", MySQL); !strings.Contains(got, "END//") || !strings.HasPrefix(got, "DELIMITER //") {
+	if got := FormatWith("DELIMITER //\nCREATE PROCEDURE p() BEGIN SELECT 1; END//\nDELIMITER ;\nSELECT 2;", MySQL, SplitOptions{}); !strings.Contains(got, "END//") || !strings.HasPrefix(got, "DELIMITER //") {
 		t.Fatalf("Format must keep the delimiter lines, got %q", got)
 	}
 }

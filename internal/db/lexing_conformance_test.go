@@ -164,7 +164,7 @@ func valueIsString(value, tokText string, d sqltext.Dialect, query string) func(
 		if !hasToken(toks, sqltext.String, tokText) {
 			t.Errorf("want one String %q, got %s", tokText, describe(toks))
 		}
-		if n := len(sqltext.Split(query, d)); n != 1 {
+		if n := len(sqltext.SplitWith(query, d, sqltext.SplitOptions{})); n != 1 {
 			t.Errorf("Split gives %d statements, want 1", n)
 		}
 	}
@@ -330,7 +330,7 @@ func TestIntegrationLexingClickHouseNames(t *testing.T) {
 	dialect := db.DialectOf(db.ClickHouse)
 	run := func(t *testing.T, query string) {
 		t.Helper()
-		if n := len(sqltext.Split(query+";\n", sqltext.ClickHouse)); n != 1 {
+		if n := len(sqltext.SplitWith(query+";\n", sqltext.ClickHouse, sqltext.SplitOptions{})); n != 1 {
 			t.Fatalf("%q splits into %d statements", query, n)
 		}
 		if _, err := d.SQL.ExecContext(ctx, query); err != nil {

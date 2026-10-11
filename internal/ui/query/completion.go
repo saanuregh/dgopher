@@ -1,6 +1,7 @@
 package query
 
 import (
+	"cmp"
 	"slices"
 	"strings"
 	"unicode"
@@ -138,33 +139,16 @@ func (q *Tab) completionKey(mods ui.Modifiers, key ui.Key) bool {
 	return true
 }
 
-func kindGlyph(kind string) string {
-	switch kind {
-	case "table":
-		return "T"
-	case "view":
-		return "V"
-	case "column":
-		return "c"
-	case "schema":
-		return "S"
-	case "connection":
-		return "C"
-	case "function":
-		return "ƒ"
-	case "snippet":
-		return "≡"
-	}
-	return "k"
+// kindGlyphs are the glyphs that mark a suggestion's kind.
+var kindGlyphs = map[string]string{
+	"table": "T", "view": "V", "column": "c", "schema": "S", "connection": "C", "function": "ƒ", "snippet": "≡",
 }
+
+func kindGlyph(kind string) string { return cmp.Or(kindGlyphs[kind], "k") }
 
 func (q *Tab) accept() {
 	ac := &q.ac
-	if ac.index < 0 || ac.index >= len(ac.items) {
-		ac.open = false
-		return
-	}
-	if !q.caretInWord() {
+	if ac.index < 0 || ac.index >= len(ac.items) || !q.caretInWord() {
 		ac.open = false
 		return
 	}
@@ -196,11 +180,8 @@ func (q *Tab) accept() {
 func (q *Tab) suggest(a Host, force bool) {
 	ac := &q.ac
 	e := &q.Editor
-	caret := e.SelEnd
 	runes := []rune(e.Text)
-	if caret > len(runes) {
-		caret = len(runes)
-	}
+	caret := min(e.SelEnd, len(runes))
 	if start, typed, ok := project.HeaderAt(e.Text, caret); ok {
 		ac.start, ac.header, ac.retry = start, true, false
 		ac.items, ac.index = filterSuggestions(q.connectionSuggestions(a), typed), 0

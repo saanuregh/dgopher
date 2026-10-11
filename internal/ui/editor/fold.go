@@ -172,8 +172,7 @@ func (e *Editor) blockAt(at int) (block, bool) {
 // Fold folds the innermost block the caret is in.
 func (e *Editor) Fold() {
 	if b, ok := e.blockAt(e.SelEnd); ok {
-		e.startFolding()
-		e.folds = e.folds.add(b)
+		e.fold(b)
 	}
 }
 
@@ -184,21 +183,19 @@ func (e *Editor) Unfold() {
 }
 
 // FoldAll folds every block, the outermost.
-func (e *Editor) FoldAll() {
-	e.startFolding()
-	for _, b := range e.foldable() {
-		e.folds = e.folds.add(b)
-	}
-}
+func (e *Editor) FoldAll() { e.fold(e.foldable()...) }
 
 // UnfoldAll opens every fold.
 func (e *Editor) UnfoldAll() { e.folds = nil }
 
-// startFolding leaves the carets but the editor's own, which folding does
-// not keep.
-func (e *Editor) startFolding() {
+// fold folds blocks, and leaves the carets but the editor's own, which
+// folding does not keep.
+func (e *Editor) fold(bs ...block) {
 	e.ClearCursors()
 	e.foldedText = e.Text
+	for _, b := range bs {
+		e.folds = e.folds.add(b)
+	}
 }
 
 // syncFolds brings the folds up to date as the editor is built: what the
@@ -257,14 +254,7 @@ func (e *Editor) foldedNumbers() string {
 // it takes the fold's lines with it. The caret goes after what was typed.
 func (e *Editor) typedFolded() {
 	before, after := []rune(e.builtShown), []rune(e.shown)
-	p := 0
-	for p < len(before) && p < len(after) && before[p] == after[p] {
-		p++
-	}
-	s := 0
-	for s < len(before)-p && s < len(after)-p && before[len(before)-1-s] == after[len(after)-1-s] {
-		s++
-	}
+	p, s := commonEnds(before, after, len(before), 0)
 	from := e.builtFolds.toText(p, false)
 	to := from
 	if end := len(before) - s; end > p {
@@ -306,8 +296,8 @@ func (c *lineCache) of(text string) *lineCache {
 	return c
 }
 
-// lineCol is the line and column, 0-based, of a rune, as lineCol has
-// them: a rune outside the text is at its end.
+// lineCol is the line and column, 0-based, of a rune: a rune outside the
+// text is at its end.
 func (c *lineCache) lineCol(at int) (int, int) {
 	if at < 0 || at > c.runes {
 		at = c.runes
@@ -339,14 +329,6 @@ func (e *Editor) toView(at int) int {
 		return at
 	}
 	return e.folds.toShown(at)
-}
-
-// viewText is what the editor shows: the text, folded.
-func (e *Editor) viewText() string {
-	if len(e.folds) == 0 {
-		return e.Text
-	}
-	return e.shown
 }
 
 // ViewLine is the line, 0-based, of what the editor shows that a rune of
@@ -436,6 +418,5 @@ func (e *Editor) toggleFold(b block) {
 		e.folds = slices.Delete(e.folds, i, i+1)
 		return
 	}
-	e.startFolding()
-	e.folds = e.folds.add(b)
+	e.fold(b)
 }

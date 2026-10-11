@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
+	"dgopher/internal/lists"
 	"dgopher/internal/params"
 	"dgopher/internal/project"
 	"dgopher/internal/safety"
@@ -394,10 +396,7 @@ func (t *Tab) View(c *ui.Context) {
 				ui.Text(c, "Read at "+t.lastRun.Format(time.TimeOnly)).FontSize(12).TextColor(pal.Muted)
 			}
 			ui.Spacer(c)
-			labels := make([]string, len(Refreshes))
-			for i, r := range Refreshes {
-				labels[i] = refreshLabel(r)
-			}
+			labels := lists.Map(Refreshes, refreshLabel)
 			if ui.Select(c, &t.refresh, labels).Label("Refresh").Width(180).Changed() {
 				t.d.Refresh = Refreshes[max(slices.Index(labels, t.refresh), 0)]
 				t.save()
@@ -562,10 +561,8 @@ func (t *Tab) panelView(c *ui.Context, i int, height float32) {
 			})
 		}
 		switch {
-		case failed != "":
-			ui.Text(c, failed).FontSize(12.5).TextColor(th.Danger).Padding(10).Selectable()
-		case s.err != "":
-			ui.Text(c, s.err).FontSize(12.5).TextColor(th.Danger).Padding(10).Selectable()
+		case failed != "" || s.err != "":
+			ui.Text(c, cmp.Or(failed, s.err)).FontSize(12.5).TextColor(th.Danger).Padding(10).Selectable()
 		case s.src == nil:
 		case p.View == ViewValue:
 			valueView(c, s)

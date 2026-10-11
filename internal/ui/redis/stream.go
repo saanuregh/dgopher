@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"dgopher/internal/db"
-	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -60,13 +59,7 @@ func (r *Tab) loadGroups() {
 	s.loads++
 	kv, key, chosen, load := r.conn.KV, r.selected, s.chosenGroup(), s.loads
 	gen := r.valueGen
-	dataview.BackgroundResetOnPanic(r.a, func() {
-		if gen == r.valueGen && load == s.loads {
-			s.loading = false
-		}
-	}, func() func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+	r.loadLatest(func() bool { return gen == r.valueGen && load == s.loads }, &s.loading, &s.err, 30*time.Second, func(ctx context.Context) (func(), error) {
 		groups, err := kv.StreamGroups(ctx, key)
 		var consumers []db.StreamConsumer
 		var pending []db.PendingEntry
@@ -81,14 +74,6 @@ func (r *Tab) loadGroups() {
 			pending, err = kv.PendingEntries(ctx, key, chosen, pendingRead)
 		}
 		return func() {
-			if gen != r.valueGen || load != s.loads {
-				return
-			}
-			s.loading = false
-			if err != nil {
-				s.err = err.Error()
-				return
-			}
 			s.groups, s.consumers, s.pending = groups, consumers, pending
 			s.group, s.consumer, s.entry = -1, -1, -1
 			for i, g := range groups {
@@ -96,7 +81,7 @@ func (r *Tab) loadGroups() {
 					s.group = i
 				}
 			}
-		}
+		}, err
 	})
 }
 

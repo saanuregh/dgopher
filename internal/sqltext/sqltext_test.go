@@ -79,6 +79,10 @@ func TestTokenize(t *testing.T) {
 		{"punct", Generic, "(a, b);", []Kind{Punct, Identifier, Punct, Identifier, Punct, Punct}},
 		{"unknown", Generic, "\\", []Kind{Unknown}},
 		{"unicode", Generic, "'héllo — 日本' 名前", []Kind{String, Identifier}},
+		{"pg unicode escape string", Postgres, `U&'d\0061t''a' x`, []Kind{String, Identifier}},
+		{"pg unicode escape ident", Postgres, `u&"x\0079""" x`, []Kind{QuotedIdent, Identifier}},
+		{"pg unicode escape uescape", Postgres, `U&"a" UESCAPE '!'`, []Kind{QuotedIdent, Identifier, String}},
+		{"mysql no unicode escape", MySQL, `U&'a'`, []Kind{Identifier, Operator, String}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -119,26 +123,6 @@ func TestTokenizeNonASCIIIdent(t *testing.T) {
 	}
 	if got := kinds(Tokenize("1abc", Postgres)); !reflect.DeepEqual(got, []Kind{Number, Identifier}) {
 		t.Fatalf("postgres 1abc kinds = %v", got)
-	}
-}
-
-func TestTokenizeUnicodeEscapeTokens(t *testing.T) {
-	tests := []struct {
-		d    Dialect
-		src  string
-		want []Kind
-	}{
-		{Postgres, `U&'d\0061t''a' x`, []Kind{String, Identifier}},
-		{Postgres, `u&"x\0079""" x`, []Kind{QuotedIdent, Identifier}},
-		{Postgres, `U&"a" UESCAPE '!'`, []Kind{QuotedIdent, Identifier, String}},
-		{MySQL, `U&'a'`, []Kind{Identifier, Operator, String}},
-	}
-	for _, tt := range tests {
-		toks := Tokenize(tt.src, tt.d)
-		checkCoverage(t, tt.src, toks)
-		if got := kinds(toks); !reflect.DeepEqual(got, tt.want) {
-			t.Fatalf("%q: kinds = %v, want %v (%+v)", tt.src, got, tt.want, toks)
-		}
 	}
 }
 
@@ -187,7 +171,7 @@ func TestSplit(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			stmts := Split(tt.src, tt.d)
+			stmts := SplitWith(tt.src, tt.d, SplitOptions{})
 			var got []string
 			rs := []rune(tt.src)
 			for _, s := range stmts {
@@ -205,7 +189,7 @@ func TestSplit(t *testing.T) {
 
 func TestSplitUnicodeOffsets(t *testing.T) {
 	src := "select 'héllo — 日本'; select 2"
-	stmts := Split(src, Generic)
+	stmts := SplitWith(src, Generic, SplitOptions{})
 	if len(stmts) != 2 || stmts[1].Start != 21 || stmts[1].Text != "select 2" {
 		t.Fatalf("got %+v", stmts)
 	}
@@ -573,7 +557,7 @@ var formatInputs = []struct {
 
 func TestFormatPreservesTokens(t *testing.T) {
 	for _, in := range formatInputs {
-		out := Format(in.src, in.d)
+		out := FormatWith(in.src, in.d, SplitOptions{})
 		want := significantTexts(in.src, in.d)
 		got := significantTexts(out, in.d)
 		if !reflect.DeepEqual(got, want) {
@@ -583,7 +567,7 @@ func TestFormatPreservesTokens(t *testing.T) {
 }
 
 func TestFormatLayout(t *testing.T) {
-	got := Format("select a, b from t join u on t.id = u.id where x = 1 and y = 2 order by a; delete from t", Generic)
+	got := FormatWith("select a, b from t join u on t.id = u.id where x = 1 and y = 2 order by a; delete from t", Generic, SplitOptions{})
 	want := "SELECT\n  a,\n  b\nFROM t\nJOIN u\n  ON t.id = u.id\nWHERE x = 1\n  AND y = 2\nORDER BY a;\n\nDELETE FROM t"
 	if got != want {
 		t.Fatalf("got\n%s\nwant\n%s", got, want)
@@ -599,12 +583,12 @@ func FuzzTokenize(f *testing.F) {
 		dialect := Dialect(((d % 5) + 5) % 5)
 		toks := Tokenize(src, dialect)
 		checkCoverage(t, src, toks)
-		Split(src, dialect)
+		SplitWith(src, dialect, SplitOptions{})
 		Classify(src, dialect)
 		n := len([]rune(src))
 		CompletionAt(src, n/2, dialect)
 		StatementAt(src, n/2, dialect)
-		if got, want := significantTexts(Format(src, dialect), dialect), significantTexts(src, dialect); !reflect.DeepEqual(got, want) {
+		if got, want := significantTexts(FormatWith(src, dialect, SplitOptions{}), dialect), significantTexts(src, dialect); !reflect.DeepEqual(got, want) {
 			t.Fatalf("Format changed tokens for %q", src)
 		}
 	})
@@ -622,7 +606,7 @@ func TestFormatKeepsCaseSensitiveNames(t *testing.T) {
 			"SELECT\n  first,\n  last,\n  format,\n  filter,\n  settings,\n  final,\n  array,\n  global\nFROM t"},
 	}
 	for _, c := range cases {
-		if got := Format(c.src, c.d); got != c.want {
+		if got := FormatWith(c.src, c.d, SplitOptions{}); got != c.want {
 			t.Errorf("%v %q:\ngot  %q\nwant %q", c.d, c.src, got, c.want)
 		}
 	}
@@ -631,7 +615,7 @@ func TestFormatKeepsCaseSensitiveNames(t *testing.T) {
 		"FROM (SELECT 1 AS first, 1 AS last, 1 AS format, 1 AS filter, 1 AS settings, 1 AS final, 1 AS array, 1 AS global, " +
 		"1 AS nulls, 1 AS semi, 1 AS anti, 1 AS asof, 1 AS paste, 1 AS qualify, 1 AS offset, 1 AS all)"
 	for _, d := range []Dialect{ClickHouse, MySQL} {
-		got := Format(src, d)
+		got := FormatWith(src, d, SplitOptions{})
 		if strings.Join(strings.Fields(got), " ") != src {
 			t.Errorf("%v: names changed: %q", d, got)
 		}
@@ -644,11 +628,11 @@ func TestFormatJoinModifiers(t *testing.T) {
 		"select * from a array join b":                  "\narray JOIN b",
 		"select * from a asof join b on a.x = b.x":      "\nasof JOIN b\n",
 	} {
-		if got := Format(src, ClickHouse); !strings.Contains(got, want) {
+		if got := FormatWith(src, ClickHouse, SplitOptions{}); !strings.Contains(got, want) {
 			t.Errorf("%q: got %q, want it to contain %q", src, got, want)
 		}
 	}
-	if got := Format("select * from a positional join b", Postgres); !strings.Contains(got, "\nPOSITIONAL JOIN b") {
+	if got := FormatWith("select * from a positional join b", Postgres, SplitOptions{}); !strings.Contains(got, "\nPOSITIONAL JOIN b") {
 		t.Errorf("positional: got %q", got)
 	}
 }
@@ -678,13 +662,13 @@ func TestFormatNeverCreatesComment(t *testing.T) {
 		return
 	}
 	for _, c := range cases {
-		out := Format(c.src, c.d)
+		out := FormatWith(c.src, c.d, SplitOptions{})
 		wantT, wantC := nonKeyword(c.src, c.d)
 		gotT, gotC := nonKeyword(out, c.d)
 		if !reflect.DeepEqual(gotT, wantT) || gotC > wantC {
 			t.Errorf("%v %q -> %q: tokens %q (want %q), comments %d (want %d)", c.d, c.src, out, gotT, wantT, gotC, wantC)
 		}
-		if again := Format(out, c.d); again != out {
+		if again := FormatWith(out, c.d, SplitOptions{}); again != out {
 			t.Errorf("%v %q not idempotent: %q -> %q", c.d, c.src, out, again)
 		}
 	}
@@ -705,11 +689,14 @@ func significantTokens(src string, d Dialect) []textKind {
 	return out
 }
 
-func checkTokens(t *testing.T, tests []struct {
+// tokenCase is source in a dialect and the tokens it should give, whitespace left out.
+type tokenCase struct {
 	d    Dialect
 	src  string
 	want []textKind
-}) {
+}
+
+func checkTokens(t *testing.T, tests []tokenCase) {
 	t.Helper()
 	for _, tt := range tests {
 		checkCoverage(t, tt.src, Tokenize(tt.src, tt.d))
@@ -720,11 +707,7 @@ func checkTokens(t *testing.T, tests []struct {
 }
 
 func TestTokenizePostgresOperators(t *testing.T) {
-	checkTokens(t, []struct {
-		d    Dialect
-		src  string
-		want []textKind
-	}{
+	checkTokens(t, []tokenCase{
 		{Postgres, "data ? 'k'", []textKind{{"data", Identifier}, {"?", Operator}, {"'k'", String}}},
 		{Postgres, "data ?| x", []textKind{{"data", Identifier}, {"?|", Operator}, {"x", Identifier}}},
 		{Postgres, "data ?& x", []textKind{{"data", Identifier}, {"?&", Operator}, {"x", Identifier}}},
@@ -743,11 +726,7 @@ func TestTokenizePostgresOperators(t *testing.T) {
 }
 
 func TestTokenizePrefixedStrings(t *testing.T) {
-	checkTokens(t, []struct {
-		d    Dialect
-		src  string
-		want []textKind
-	}{
+	checkTokens(t, []tokenCase{
 		{Postgres, "x'ff'", []textKind{{"x'ff'", String}}},
 		{Postgres, "B'01'", []textKind{{"B'01'", String}}},
 		{Generic, "n'abc'", []textKind{{"n'abc'", String}}},
@@ -760,11 +739,7 @@ func TestTokenizePrefixedStrings(t *testing.T) {
 }
 
 func TestTokenizeNumbers(t *testing.T) {
-	checkTokens(t, []struct {
-		d    Dialect
-		src  string
-		want []textKind
-	}{
+	checkTokens(t, []tokenCase{
 		{Postgres, "0b101", []textKind{{"0b101", Number}}},
 		{Postgres, "0o17", []textKind{{"0o17", Number}}},
 		{Postgres, "1_000", []textKind{{"1_000", Number}}},
@@ -932,7 +907,7 @@ func TestFormatClickHouseClauseWordsAsNames(t *testing.T) {
 		"select a from t settings max_threads = 1 format JSON": "SELECT\n  a\nFROM t\nsettings max_threads = 1\nformat JSON",
 	}
 	for src, want := range cases {
-		if got := Format(src, ClickHouse); got != want {
+		if got := FormatWith(src, ClickHouse, SplitOptions{}); got != want {
 			t.Errorf("%q:\ngot  %q\nwant %q", src, got, want)
 		}
 	}
@@ -1063,26 +1038,19 @@ func TestClassifyDollarBodies(t *testing.T) {
 		}
 	}
 
-	// nest wraps inner in levels of DO blocks, each quoted with its own tag.
-	nest := func(levels int, inner string) string {
-		s := inner
-		for i := range levels {
-			tag := "$t" + strconv.Itoa(i) + "$"
-			s = "DO " + tag + " BEGIN " + s + "; END " + tag
-		}
-		return s
-	}
-	if a := Classify(nest(3, "DROP TABLE t"), Postgres); !a.Dangerous {
+	// doBlocks is one DO block, as nest's template: each level quoted with its own tag.
+	const doBlocks = "DO TAG BEGIN INNER; END TAG"
+	if a := Classify(nest(3, doBlocks, "DROP TABLE t"), Postgres); !a.Dangerous {
 		t.Errorf("a DROP three blocks down: %+v", a)
 	}
 	for _, levels := range []int{3, maxCodeDepth} {
-		if a := Classify(nest(levels, "SELECT 1"), Postgres); a.Dangerous {
+		if a := Classify(nest(levels, doBlocks, "SELECT 1"), Postgres); a.Dangerous {
 			t.Errorf("a SELECT %d blocks down: %+v", levels, a)
 		}
 	}
 	// Past the depth cap the code is not read, and counts as dangerous.
 	for _, levels := range []int{maxCodeDepth + 1, 5000} {
-		if a := Classify(nest(levels, "SELECT 1"), Postgres); !a.Dangerous || !strings.Contains(a.Reason, "too deep") {
+		if a := Classify(nest(levels, doBlocks, "SELECT 1"), Postgres); !a.Dangerous || !strings.Contains(a.Reason, "too deep") {
 			t.Errorf("%d nested blocks: %+v", levels, a)
 		}
 	}
@@ -1174,17 +1142,6 @@ func TestClassifyDuckDBFileSettings(t *testing.T) {
 // could start a statement: hostile text of a few hundred bytes classifies
 // at once, and text read more than that counts as dangerous, unread.
 func TestClassifyNestedCodeTime(t *testing.T) {
-	// nest puts levels of template into one another: each level's TAG is a
-	// dollar quote's tag of its own, and its INNER the level below it, down
-	// to inner.
-	nest := func(levels int, template, inner string) string {
-		s := inner
-		for i := range levels {
-			tag := "$t" + strconv.Itoa(i) + "$"
-			s = strings.ReplaceAll(strings.ReplaceAll(template, "TAG", tag), "INNER", s)
-		}
-		return s
-	}
 	thenElse := "DO TAG BEGIN IF a " + strings.Repeat("THEN DO ELSE DO ", 6) + "THEN INNER; END IF; END TAG"
 	routine := "CREATE FUNCTION f() RETURNS void AS TAG BEGIN " + strings.Repeat("IF a THEN CREATE FUNCTION f() ", 6) + "IF a THEN INNER; END IF; END TAG LANGUAGE plpgsql"
 	for _, c := range []struct {
@@ -1221,4 +1178,16 @@ func TestClassifyNestedCodeTime(t *testing.T) {
 	if a := Classify(nest(maxCodeDepth-1, "DO TAG BEGIN "+body+"INNER; END TAG", "SELECT 1"), Postgres); a.Dangerous {
 		t.Errorf("5000 EXECUTEs a level, %d levels: %+v", maxCodeDepth-1, a)
 	}
+}
+
+// nest puts levels of template into one another: each level's TAG is a
+// dollar quote's tag of its own, and its INNER the level below it, down
+// to inner.
+func nest(levels int, template, inner string) string {
+	s := inner
+	for i := range levels {
+		tag := "$t" + strconv.Itoa(i) + "$"
+		s = strings.ReplaceAll(strings.ReplaceAll(template, "TAG", tag), "INNER", s)
+	}
+	return s
 }

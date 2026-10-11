@@ -19,8 +19,7 @@ func serverApp(t *testing.T, cfg db.Config, setup, cleanup []string) (*App, *ui.
 	a := newTestApp(t)
 	cn := addConn(a, cfg)
 	tt := ui.NewTester(a.view, 1200, 800)
-	a.Connect(cn, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	connectNow(t, a, tt, cn)
 	t.Cleanup(func() {
 		for _, s := range cleanup {
 			cn.DB.SQL.Exec(s)

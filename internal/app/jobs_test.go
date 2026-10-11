@@ -24,12 +24,10 @@ import (
 func liteApp(t *testing.T, env db.Environment) (*App, *ui.Tester, *connection.Conn, string) {
 	t.Helper()
 	a := newTestApp(t)
-	file := filepath.Join(t.TempDir(), "jobs.sqlite")
-	os.WriteFile(file, nil, 0o600)
+	file := writeSQL(t, "jobs.sqlite", "")
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file, Env: env})
 	tt := ui.NewTester(a.view, 1200, 800)
-	a.Connect(cn, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	connectNow(t, a, tt, cn)
 	return a, tt, cn, file
 }
 
@@ -40,6 +38,31 @@ func writeSQL(t *testing.T, name, text string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+// connectNow connects cn and waits until it is connected.
+func connectNow(t *testing.T, a *App, tt *ui.Tester, cn *connection.Conn) {
+	t.Helper()
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+}
+
+// confirmIfAsked answers yes to an open confirmation, if there is one.
+func confirmIfAsked(a *App) {
+	if a.confirm != nil {
+		a.confirm.OnConfirm()
+		a.confirm = nil
+	}
+}
+
+// mustExec runs each statement on d, and stops the test at the first that fails.
+func mustExec(t *testing.T, d *db.DB, stmts ...string) {
+	t.Helper()
+	for _, q := range stmts {
+		if _, err := d.SQL.Exec(q); err != nil {
+			t.Fatal(q, err)
+		}
+	}
 }
 
 // auditEvents reads the audit log of the app's first project.
@@ -105,8 +128,7 @@ func TestSQLFileOpenTransactionRolledBackAndReported(t *testing.T) {
 
 	// DuckDB's one connection, which every session shares.
 	duck := addConn(a, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"})
-	a.Connect(duck, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return duck.Status == connection.StatusConnected })
+	connectNow(t, a, tt, duck)
 	x = runFile(t, a, tt, duck, writeSQL(t, "duck.sql", "CREATE TABLE d (a int);\nBEGIN;\nINSERT INTO d VALUES (1);\n"), nil)
 	if !strings.Contains(x.err, "BEGIN at line 2 was never committed; its changes were rolled back") {
 		t.Fatalf("DuckDB: %q", x.err)
@@ -130,8 +152,7 @@ func TestIntegrationSQLFileOpenTransaction(t *testing.T) {
 			a := newTestApp(t)
 			cn := addConn(a, c.cfg)
 			tt := ui.NewTester(a.view, 1200, 800)
-			a.Connect(cn, nil)
-			testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+			connectNow(t, a, tt, cn)
 			cn.DB.SQL.Exec(`DROP TABLE IF EXISTS it_open_tx`)
 			defer cn.DB.SQL.Exec(`DROP TABLE IF EXISTS it_open_tx`)
 			path := writeSQL(t, "open.sql", "CREATE TABLE it_open_tx (a int);\n"+c.begin+";\nINSERT INTO it_open_tx VALUES (1);\n")
@@ -368,8 +389,7 @@ func TestDisconnectCancelsJobs(t *testing.T) {
 	}
 
 	// Deleting a connection asks about its work too.
-	a.Connect(cn, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	connectNow(t, a, tt, cn)
 	_, cancel := context.WithCancel(context.Background())
 	finish := a.StartJob(cn, "Importing rows.csv into t: stopping it rolls the import back.", cancel)
 	a.askDeleteConn(cn)

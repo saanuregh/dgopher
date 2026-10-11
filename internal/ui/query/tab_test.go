@@ -23,10 +23,7 @@ import (
 func TestAutocomplete(t *testing.T) {
 	testutil.Integration(t)
 	testutil.SeedPostgres(t)
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(testutil.PGConfig())
-	tt := ui.NewTester(a.view, 1200, 760)
-	q := newEditor(t, a, tt, cn, "")
+	_, tt, _, q := openEditor(t, testutil.PGConfig(), 1200, 760, "")
 
 	tt.Frame()
 	tt.Type("SELECT * FROM shop.cu")
@@ -123,10 +120,7 @@ func TestTransactionSurvivesNewRun(t *testing.T) {
 				d.SQL.Exec(fmt.Sprintf("INSERT INTO %s VALUES (%d, 0)", table, i))
 			}
 			d.Close()
-			a := newFakeQueryHost(t)
-			cn := a.AddConn(cfg)
-			tt := ui.NewTester(a.view, 1200, 760)
-			q := newEditor(t, a, tt, cn, "")
+			_, tt, cn, q := openEditor(t, cfg, 1200, 760, "")
 			run := func(sql string) {
 				q.execute(safety.Analyze(&cn.Config, []string{sql}), !strings.HasPrefix(sql, "SELECT"))
 				testutil.WaitFor(t, tt, sql, func() bool { return !q.Running })
@@ -227,10 +221,7 @@ func TestExplain(t *testing.T) {
 		{ID: "sq", Name: "sq", Engine: db.SQLite, Database: file},
 	} {
 		t.Run(string(cfg.Engine), func(t *testing.T) {
-			a := newFakeQueryHost(t)
-			cn := a.AddConn(cfg)
-			tt := ui.NewTester(a.view, 1000, 700)
-			q := newEditor(t, a, tt, cn, "SELECT 1 + 1 AS two;")
+			_, tt, _, q := openEditor(t, cfg, 1000, 700, "SELECT 1 + 1 AS two;")
 			testutil.SetCaret(tt, &q.Editor, 3)
 			q.Run(RunExplain)
 			testutil.WaitFor(t, tt, "plan", func() bool { return !q.Running && len(q.results) == 1 })
@@ -313,10 +304,7 @@ func TestCompleteHeaderConnection(t *testing.T) {
 // The end of a run asks for a notification: what ran and where, and the
 // first error of a failed script, never its SQL.
 func TestRunNotifies(t *testing.T) {
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(db.Config{ID: "lite", Name: "Lite", Engine: db.SQLite, Database: ":memory:"})
-	tt := ui.NewTester(a.view, 1000, 700)
-	q := newEditor(t, a, tt, cn, "SELECT 'secret' AS s;\nSELECT * FROM missing;")
+	a, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "Lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "SELECT 'secret' AS s;\nSELECT * FROM missing;")
 	q.Run(RunScript)
 	testutil.WaitFor(t, tt, "the script", func() bool { return !q.Running && len(a.Notified) == 1 })
 	n := a.Notified[0]
@@ -727,10 +715,7 @@ func TestTransactionKeys(t *testing.T) {
 
 // The palette moves between the result tabs, and closes the one shown.
 func TestResultCommands(t *testing.T) {
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
-	tt := ui.NewTester(a.view, 1000, 700)
-	q := newEditor(t, a, tt, cn, "SELECT 1;\nSELECT 2;")
+	_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "SELECT 1;\nSELECT 2;")
 	q.Run(RunScript)
 	testutil.WaitFor(t, tt, "two results", func() bool { return !q.Running && len(q.results) == 2 })
 	run := func(title string) {
@@ -757,10 +742,7 @@ func TestResultCommands(t *testing.T) {
 
 // The palette moves the editor to another schema, as its switcher does.
 func TestSwitchSchemaCommand(t *testing.T) {
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"})
-	tt := ui.NewTester(a.view, 1000, 700)
-	q := newEditor(t, a, tt, cn, "")
+	a, tt, cn, q := openEditor(t, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"}, 1000, 700, "")
 	testutil.WaitFor(t, tt, "the first schemas", func() bool { _, ok := cn.Schemas[""]; return ok })
 	if _, err := cn.DB.SQL.Exec(`CREATE SCHEMA s2`); err != nil {
 		t.Fatal(err)
@@ -778,10 +760,7 @@ func TestSwitchSchemaCommand(t *testing.T) {
 // The current statement's ▶ in the gutter runs it, the editor keeping
 // the keys.
 func TestGutterRunButton(t *testing.T) {
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
-	tt := ui.NewTester(a.view, 1000, 700)
-	q := newEditor(t, a, tt, cn, "SELECT 1;\n\nSELECT 2 AS two;")
+	_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "SELECT 1;\n\nSELECT 2 AS two;")
 	tt.Frame()
 	// Every statement has one, the caret anywhere; the second runs its own.
 	tip := keymap.Hint("Run the statement", keymap.Run)

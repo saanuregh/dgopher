@@ -209,7 +209,6 @@ func (a *App) editorPage(c *ui.Context, open *bool) {
 
 // resultsPage sets how results read and tell they are done.
 func (a *App) resultsPage(c *ui.Context) {
-	pal := widgets.PaletteOf(c)
 	page := float64(a.settings.PageSize)
 	ui.Field(c, "Rows per page", func() {
 		if ui.NumberInput(c, &page, 50, 10000, 50).Changed() {
@@ -217,30 +216,27 @@ func (a *App) resultsPage(c *ui.Context) {
 			a.SaveSettings()
 		}
 	}).Description("Results load this many rows at a time as you scroll.")
-	notifyAfter := float64(a.settings.NotifyAfter)
 	ui.Field(c, "Notifications", func() {
-		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-			if ui.NumberInput(c, &notifyAfter, 0, 3600, 5).Label("Seconds").Changed() {
-				a.settings.NotifyAfter = int(notifyAfter)
-				a.SaveSettings()
-			}
-			ui.Text(c, "seconds, 0 for never").TextColor(pal.Muted)
-		})
+		a.numberSetting(c, &a.settings.NotifyAfter, 0, 3600, 5, "Seconds", "seconds, 0 for never")
 	}).Description("A statement, script, export or import that takes this long tells the system when it ends, if DGopher is in the background then.")
+}
+
+// numberSetting sets a whole-number setting, with its unit after it.
+func (a *App) numberSetting(c *ui.Context, setting *int, low, high, step float64, label, unit string) {
+	value := float64(*setting)
+	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+		if ui.NumberInput(c, &value, low, high, step).Label(label).Changed() {
+			*setting = int(value)
+			a.SaveSettings()
+		}
+		ui.Text(c, unit).TextColor(widgets.PaletteOf(c).Muted)
+	})
 }
 
 // safetyPage sets what asks before it changes rows, and what values hide.
 func (a *App) safetyPage(c *ui.Context) {
-	pal := widgets.PaletteOf(c)
-	limit := float64(a.settings.ChangeLimit)
 	ui.Field(c, "Large changes", func() {
-		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-			if ui.NumberInput(c, &limit, 0, 1_000_000, 100).Label("Rows a change makes without asking").Changed() {
-				a.settings.ChangeLimit = int(limit)
-				a.SaveSettings()
-			}
-			ui.Text(c, "rows, 0 for no limit").TextColor(pal.Muted)
-		})
+		a.numberSetting(c, &a.settings.ChangeLimit, 0, 1_000_000, 100, "Rows a change makes without asking", "rows, 0 for no limit")
 	}).Description("On staging and production in auto-commit, an UPDATE, DELETE, MERGE, REPLACE or upsert that changes more rows than this asks before it commits; until then it is held in a transaction.")
 	ui.Field(c, "Sensitive values", func() {
 		hide := !a.settings.ShowSensitive

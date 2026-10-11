@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"dgopher/internal/connection"
 	"dgopher/internal/datamodel"
 	"dgopher/internal/db"
 	"dgopher/internal/store"
@@ -25,13 +24,11 @@ func TestAddToDashboard(t *testing.T) {
 	if _, err := a.addProject(newProjectDir(t, "p")); err != nil {
 		t.Fatal(err)
 	}
-	file := filepath.Join(t.TempDir(), "x.sqlite")
-	os.WriteFile(file, nil, 0o600)
+	file := writeSQL(t, "x.sqlite", "")
 	lite := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
 	a.saveProject(a.projects[0])
 	tt := ui.NewTester(a.view, 1280, 800)
-	a.Connect(lite, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return lite.Status == connection.StatusConnected })
+	connectNow(t, a, tt, lite)
 	lite.DB.SQL.Exec(`CREATE TABLE sales (region TEXT, amount INTEGER)`)
 
 	add := func(sql, title string) *addToDashboard {

@@ -56,12 +56,11 @@ ORDER BY name IN ('system', 'INFORMATION_SCHEMA', 'information_schema'), name`)
 }
 
 func (clickhouseDialect) Objects(ctx context.Context, q Querier, schema string) ([]Object, error) {
-	var out []Object
-	err := scanRows(ctx, q, `SELECT name, engine, ifNull(toInt64(total_rows), toInt64(-1)), ifNull(toInt64(total_bytes), toInt64(-1)), comment
-FROM system.tables WHERE database = ? AND NOT is_temporary ORDER BY name`, []any{schema}, func(scan func(...any) error) error {
+	return scanAll(ctx, q, `SELECT name, engine, ifNull(toInt64(total_rows), toInt64(-1)), ifNull(toInt64(total_bytes), toInt64(-1)), comment
+FROM system.tables WHERE database = ? AND NOT is_temporary ORDER BY name`, []any{schema}, func(scan func(...any) error) (Object, error) {
 		o := Object{Schema: schema}
 		if err := scan(&o.Name, &o.Engine, &o.Rows, &o.Bytes, &o.Comment); err != nil {
-			return err
+			return o, err
 		}
 		switch o.Engine {
 		case "View", "LiveView", "WindowView":
@@ -73,10 +72,8 @@ FROM system.tables WHERE database = ? AND NOT is_temporary ORDER BY name`, []any
 		default:
 			o.Kind = KindTable
 		}
-		out = append(out, o)
-		return nil
+		return o, nil
 	})
-	return out, err
 }
 
 func (clickhouseDialect) Columns(ctx context.Context, q Querier, schema, table string) ([]Column, error) {

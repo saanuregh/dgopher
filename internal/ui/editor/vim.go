@@ -162,14 +162,7 @@ func (v *Vim) typeKey(tok string) {
 func (v *Vim) Typed(text []rune, caret int) {
 	if v.change != nil && !v.replaying {
 		was := v.typedFrom
-		p := 0
-		for p < len(was) && p < len(text) && was[p] == text[p] {
-			p++
-		}
-		s := 0
-		for s < len(was)-p && s < len(text)-p && was[len(was)-1-s] == text[len(text)-1-s] {
-			s++
-		}
+		p, s := commonEnds(was, text, len(was), 0)
 		for range len(was) - p - s {
 			v.change = append(v.change, "<BS>")
 		}
@@ -221,7 +214,6 @@ func (v *Vim) run(toks []string) bool {
 		return true
 	case "i", "a", "I", "A", "o", "O":
 		v.startChange(toks)
-		v.snapshot()
 		switch k {
 		case "a":
 			if v.Caret < lineEnd(v.Text, v.Caret) {
@@ -243,10 +235,7 @@ func (v *Vim) run(toks []string) bool {
 		v.Mode = VimInsert
 		return true
 	case "v", "V":
-		v.Anchor, v.Mode = v.Caret, VimVisual
-		if k == "V" {
-			v.Mode = VimVisualLine
-		}
+		v.Anchor, v.Mode = v.Caret, visualModes[k]
 		return true
 	case "u":
 		for range n {
@@ -301,7 +290,6 @@ func (v *Vim) run(toks []string) bool {
 			return true
 		}
 		v.startChange(toks)
-		v.snapshot()
 		for i := range n {
 			v.Text[v.Caret+i] = []rune(rest[1])[0]
 		}
@@ -318,8 +306,15 @@ func (v *Vim) run(toks []string) bool {
 	return done
 }
 
-// startChange begins gathering a change's tokens, for '.'.
-func (v *Vim) startChange(toks []string) { v.change = slices.Clone(toks) }
+// visualModes are the modes v and V begin.
+var visualModes = map[string]VimMode{"v": VimVisual, "V": VimVisualLine}
+
+// startChange begins gathering a change's tokens, for '.', and keeps the
+// text before it, for u.
+func (v *Vim) startChange(toks []string) {
+	v.change = slices.Clone(toks)
+	v.snapshot()
+}
 
 // step undoes from one history into the other.
 func (v *Vim) step(from, to *[]vimSnapshot) {
@@ -338,17 +333,15 @@ func (v *Vim) simple(toks []string, k string, n int) bool {
 	start, end := lineStart(v.Text, v.Caret), lineEnd(v.Text, v.Caret)
 	switch k {
 	case "Y":
-		v.yankLines(v.Caret, n)
+		v.yank(lineStart(v.Text, v.Caret), min(lineEnd(v.Text, lineAt(v.Text, v.Caret, n-1))+1, len(v.Text)), true)
 		return true
 	case "p", "P":
 		v.startChange(toks)
-		v.snapshot()
 		v.put(k == "P", n)
 		v.endChange()
 		return true
 	}
 	v.startChange(toks)
-	v.snapshot()
 	switch k {
 	case "x":
 		v.cut(v.Caret, min(v.Caret+n, end), false)
@@ -473,7 +466,6 @@ func (v *Vim) apply(toks []string, op string, from, to int, lines bool) bool {
 		return true
 	}
 	v.startChange(toks)
-	v.snapshot()
 	switch op {
 	case ">", "<":
 		var starts []int
@@ -549,10 +541,7 @@ func (v *Vim) visual(rest []string, n, count int) bool {
 		v.Mode = VimNormal
 		return true
 	case "v", "V":
-		mode := VimVisual
-		if k == "V" {
-			mode = VimVisualLine
-		}
+		mode := visualModes[k]
 		if v.Mode == mode {
 			v.Mode = VimNormal
 		} else {
@@ -726,10 +715,6 @@ func (v *Vim) yank(from, to int, lines bool) {
 	}
 }
 
-func (v *Vim) yankLines(c, n int) {
-	v.yank(lineStart(v.Text, c), min(lineEnd(v.Text, lineAt(v.Text, c, n-1))+1, len(v.Text)), true)
-}
-
 // put puts the register after the caret, or before it, n times: lines go
 // below or above the caret's line.
 func (v *Vim) put(before bool, n int) {
@@ -747,9 +732,6 @@ func (v *Vim) put(before bool, n int) {
 	switch {
 	case lines && before:
 		v.Caret = lineStart(v.Text, v.Caret)
-		at := v.Caret
-		v.insert(s)
-		v.Caret = firstNonBlank(v.Text, at)
 	case lines:
 		end := lineEnd(v.Text, v.Caret)
 		if end == len(v.Text) {
@@ -759,16 +741,17 @@ func (v *Vim) put(before bool, n int) {
 			return
 		}
 		v.Caret = end + 1
-		at := v.Caret
-		v.insert(s)
-		v.Caret = firstNonBlank(v.Text, at)
 	default:
 		if !before && v.Caret < lineEnd(v.Text, v.Caret) {
 			v.Caret++
 		}
 		v.insert(s)
 		v.Caret = v.clampNormal(v.Caret - 1)
+		return
 	}
+	at := v.Caret
+	v.insert(s)
+	v.Caret = firstNonBlank(v.Text, at)
 }
 
 // join joins the caret's line and the next with one space.
@@ -1081,14 +1064,11 @@ func paragraph(t []rune, c int, down bool) int {
 
 // textObject is the runes of iw, aw, i", a", i(, a( and the like around c.
 func textObject(t []rune, c int, around bool, kind rune) (int, int, bool) {
-	if c >= len(t) && kind != 'w' {
+	if c >= len(t) {
 		return 0, 0, false
 	}
 	switch kind {
 	case 'w', 'W':
-		if c >= len(t) {
-			return 0, 0, false
-		}
 		big := kind == 'W'
 		cl := class(t[c], big)
 		from, to := c, c
@@ -1169,6 +1149,11 @@ var vimKeys = map[ui.Key]string{
 // vimCtrlKeys are the Control keys Vim takes.
 var vimCtrlKeys = map[ui.Key]string{ui.KeyR: "<C-r>", ui.KeyD: "<C-d>", ui.KeyU: "<C-u>", ui.KeyBracketLeft: "<C-[>"}
 
+// vimEditKeys are the Vim keys of the Edit menu's commands.
+var vimEditKeys = map[string][]string{
+	"undo": {"u"}, "redo": {"<C-r>"}, "paste": {"P"}, "copy": {"y"}, "cut": {"d"}, "selectAll": {"<Esc>", "g", "g", "V", "G"},
+}
+
 // vimInput gives Vim an input of the editor in a mode but insert, and
 // reports whether Vim took it: a key it does not, as one of the app's
 // commands, goes on.
@@ -1188,20 +1173,8 @@ func (e *Editor) vimInput(ev ui.InputEvent, lh float32) bool {
 	case ui.InputCommand:
 		// The Edit menu's, as Vim does them.
 		visual := e.Vim.Mode == VimVisual || e.Vim.Mode == VimVisualLine
-		switch {
-		case ev.Text == "undo":
-			toks = []string{"u"}
-		case ev.Text == "redo":
-			toks = []string{"<C-r>"}
-		case ev.Text == "paste":
-			toks = []string{"P"}
-		case ev.Text == "copy" && visual:
-			toks = []string{"y"}
-		case ev.Text == "cut" && visual:
-			toks = []string{"d"}
-		case ev.Text == "selectAll":
-			toks = []string{"<Esc>", "g", "g", "V", "G"}
-		default:
+		toks = vimEditKeys[ev.Text]
+		if toks == nil || (ev.Text == "copy" || ev.Text == "cut") && !visual {
 			return false
 		}
 	default:
@@ -1245,7 +1218,7 @@ func (e *Editor) revealCaret(at int, lh float32) {
 	if e.viewH == 0 {
 		return
 	}
-	line, col := lineCol(e.Text, at)
+	line, col := e.LineCol(at)
 	y, x := float32(line)*lh, float32(col)*e.charW
 	switch {
 	case y < e.Scroll.Y:

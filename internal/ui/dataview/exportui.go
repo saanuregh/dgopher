@@ -1,6 +1,7 @@
 package dataview
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -96,8 +97,11 @@ type exportTable struct {
 	chosen bool
 }
 
-// chosen is the sources of the tables chosen.
+// chosen is the sources of the tables chosen, or the one source.
 func (x *exportState) chosen() []ExportSource {
+	if x.tables == nil {
+		return []ExportSource{x.src}
+	}
 	var out []ExportSource
 	for _, t := range x.tables {
 		if t.chosen {
@@ -111,17 +115,9 @@ const defaultExportPattern = "${table}_${timestamp}"
 
 func OpenExport(a Host, src ExportSource) {
 	p := a.Settings().Export
-	x := &exportState{open: true, src: src, format: p.Format, folder: p.Folder, pattern: p.Pattern, openFolder: p.OpenFolder,
-		header: true, guard: p.FormulaGuard, schema: src.Schema, table: src.Name, perInsert: 1, delim: delimiterIndex(','), limited: p.Limit() > 0, limit: settings.DefaultExportRowLimit}
-	if p.Limit() > 0 {
-		x.limit = float64(p.Limit())
-	}
-	if x.format == "" {
-		x.format = string(export.CSV)
-	}
-	if x.pattern == "" {
-		x.pattern = defaultExportPattern
-	}
+	x := &exportState{open: true, src: src, format: cmp.Or(p.Format, string(export.CSV)), folder: p.Folder, pattern: cmp.Or(p.Pattern, defaultExportPattern),
+		openFolder: p.OpenFolder, header: true, guard: p.FormulaGuard, schema: src.Schema, table: src.Name, perInsert: 1, delim: delimiterIndex(','),
+		limited: p.Limit() > 0, limit: cmp.Or(float64(p.Limit()), settings.DefaultExportRowLimit)}
 	if x.folder == "" {
 		if home, err := os.UserHomeDir(); err == nil {
 			x.folder = filepath.Join(home, "Downloads")
@@ -217,10 +213,7 @@ func ExportView(a Host, c *ui.Context) {
 	if export.NeedsFile(f) || many {
 		x.clipboard = false
 	}
-	chosen := []ExportSource{x.src}
-	if many {
-		chosen = x.chosen()
-	}
+	chosen := x.chosen()
 	example := x.src // the source the file name shows for
 	if len(chosen) > 0 {
 		example = chosen[0]
@@ -301,12 +294,8 @@ func ExportView(a Host, c *ui.Context) {
 						ui.Row(c).Gap(6).Children(func() {
 							ui.TextInput(c, &x.folder).Grow(1).Font(widgets.MonoFont).FontSize(12.5)
 							if ui.Button(c, "Choose…").Clicked() {
-								go func() {
-									paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "Export to", Directory: true, CreateDirectories: true})
-									if err == nil && len(paths) > 0 {
-										a.Post(func() { x.folder = paths[0] })
-									}
-								}()
+								opts := mygo.OpenDialogOptions{Title: "Export to", Directory: true, CreateDirectories: true}
+								widgets.ChoosePath(a.Post, opts, func(path string) { x.folder = path })
 							}
 						})
 					})
@@ -419,10 +408,7 @@ func runExport(a Host, x *exportState) {
 	}
 	a.Settings().Export = prefs
 	a.SaveSettings()
-	srcs := []ExportSource{x.src}
-	if x.tables != nil {
-		srcs = x.chosen()
-	}
+	srcs := x.chosen()
 	f, toClip := export.Format(x.format), x.clipboard
 	paths := make([]string, len(srcs))
 	for i, src := range srcs {
@@ -462,15 +448,15 @@ func runExport(a Host, x *exportState) {
 	if !all {
 		read = x.src.RowsRead()
 	}
-	job := "Exporting " + x.src.Name
+	name := x.src.Name
 	if len(srcs) > 1 {
-		job = fmt.Sprintf("Exporting %d tables", len(srcs))
+		name = fmt.Sprintf("%d tables", len(srcs))
 	}
+	stop := ": stopping it removes the file it is writing."
 	if toClip {
-		job += " of " + cfg.Name + ": stopping it copies nothing."
-	} else {
-		job += " of " + cfg.Name + ": stopping it removes the file it is writing."
+		stop = ": stopping it copies nothing."
 	}
+	job := "Exporting " + name + " of " + cfg.Name + stop
 	stopped := func() { x.running, x.err = false, "The export stopped on an internal error." }
 	RunJob(a, x.src.Conn, job, cancel, stopped, func() func() {
 		defer cancel()
@@ -515,10 +501,6 @@ func runExport(a Host, x *exportState) {
 		n := x.written.Load()
 		return func() {
 			x.running = false
-			name := x.src.Name
-			if len(srcs) > 1 {
-				name = fmt.Sprintf("%d tables", len(srcs))
-			}
 			if err != nil {
 				x.err = "The export stopped: " + err.Error()
 				a.Notify(started, "Export failed", name+" · "+redact.Secrets(widgets.FirstLine(err.Error())), nil)

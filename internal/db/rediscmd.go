@@ -71,7 +71,8 @@ func argsSyntax(args []rueidis.RedisMessage, sep string) string {
 			flags, _ = f.AsStrSlice()
 		}
 		var s string
-		switch typ := text("type"); typ {
+		typ := text("type")
+		switch typ {
 		case "pure-token":
 			s = text("token")
 		case "block", "oneof":
@@ -84,17 +85,14 @@ func argsSyntax(args []rueidis.RedisMessage, sep string) string {
 				inner = " | "
 			}
 			s = argsSyntax(nested, inner)
-			if text("token") != "" {
-				s = text("token") + " " + s
-			}
 		default:
 			s = text("display_text")
 			if s == "" {
 				s = text("name")
 			}
-			if text("token") != "" {
-				s = text("token") + " " + s
-			}
+		}
+		if typ != "pure-token" && text("token") != "" {
+			s = text("token") + " " + s
 		}
 		if slices.Contains(flags, "multiple") {
 			repeat := s

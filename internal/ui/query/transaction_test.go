@@ -14,6 +14,7 @@ import (
 
 	"dgopher/internal/audit"
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 	"dgopher/internal/testutil"
 	"dgopher/internal/ui/dataview"
 
@@ -49,11 +50,7 @@ func sessionLabels(t *testing.T, q *Tab) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var out []string
-	for _, r := range rows {
-		out = append(out, db.Display(r[0]))
-	}
-	return strings.Join(out, ",")
+	return strings.Join(lists.Map(rows, func(r []any) string { return db.Display(r[0]) }), ",")
 }
 
 // sessionValue reads one value on the editor's own session.
@@ -105,10 +102,7 @@ func TestNonReadResultIsReadOnly(t *testing.T) {
 	}
 
 	t.Run("nextval", func(t *testing.T) {
-		a := newFakeQueryHost(t)
-		cn := a.AddConn(db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"})
-		tt := ui.NewTester(a.view, 1200, 760)
-		q := newEditor(t, a, tt, cn, "")
+		a, tt, cn, q := openEditor(t, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"}, 1200, 760, "")
 		testutil.WaitFor(t, tt, "the schemas", func() bool { return cn.DefaultSchema != "" })
 		for _, s := range []string{"CREATE SEQUENCE seq", "CREATE TABLE n (id INTEGER PRIMARY KEY, label TEXT)", "INSERT INTO n VALUES (11, 'row 1'), (12, 'row 2')"} {
 			if _, err := cn.DB.SQL.Exec(s); err != nil {
@@ -121,10 +115,7 @@ func TestNonReadResultIsReadOnly(t *testing.T) {
 	t.Run("for update", func(t *testing.T) {
 		testutil.Integration(t)
 		testutil.SeedPostgres(t)
-		a := newFakeQueryHost(t)
-		cn := a.AddConn(testutil.PGConfig())
-		tt := ui.NewTester(a.view, 1200, 760)
-		q := newEditor(t, a, tt, cn, "")
+		a, tt, cn, q := openEditor(t, testutil.PGConfig(), 1200, 760, "")
 		testutil.WaitFor(t, tt, "the schemas", func() bool { return cn.DefaultSchema != "" })
 		for _, s := range []string{"DROP TABLE IF EXISTS shop.rv_lock", "CREATE TABLE shop.rv_lock (id INT PRIMARY KEY, v TEXT)",
 			"INSERT INTO shop.rv_lock VALUES (1, 'alpha'), (2, 'beta')"} {
@@ -150,10 +141,7 @@ func TestFailedApplyKeepsUserTransaction(t *testing.T) {
 		waitEditable(t, tt)
 		editCell(t, tt, "one", "uno")
 		editCell(t, tt, "two", "three") // taken by row 3: the second UPDATE fails
-		tt.Key(ui.Cmd, ui.KeyS)
-		testutil.WaitFor(t, tt, "the review", func() bool { return a.Confirm != nil })
-		a.Confirm.OnConfirm()
-		a.Confirm = nil
+		applyEdits(t, a, tt)
 		testutil.WaitFor(t, tt, "the apply", func() bool { return !q.Busy() })
 		if len(a.Errors) == 0 {
 			t.Fatal("the failed batch reported nothing")
@@ -199,22 +187,9 @@ func TestFailedApplyKeepsUserTransaction(t *testing.T) {
 	t.Run("mysql", func(t *testing.T) {
 		testutil.Integration(t)
 		cfg := mysqlConfig()
-		d, err := db.Open(context.Background(), cfg, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { d.Close() }) // after the DROP below: cleanups run last first
-		for _, s := range []string{"DROP TABLE IF EXISTS shop.u", "CREATE TABLE shop.u (id INT PRIMARY KEY, label VARCHAR(20) UNIQUE) ENGINE=InnoDB",
-			"INSERT INTO shop.u VALUES (1, 'one'), (2, 'two'), (3, 'three')"} {
-			if _, err := d.SQL.Exec(s); err != nil {
-				t.Fatal(err)
-			}
-		}
-		t.Cleanup(func() { d.SQL.Exec("DROP TABLE IF EXISTS shop.u") })
-		a := newFakeQueryHost(t)
-		cn := a.AddConn(cfg)
-		tt := ui.NewTester(a.view, 1200, 760)
-		q := newEditor(t, a, tt, cn, text)
+		d := serverWith(t, cfg, []string{"DROP TABLE IF EXISTS shop.u", "CREATE TABLE shop.u (id INT PRIMARY KEY, label VARCHAR(20) UNIQUE) ENGINE=InnoDB",
+			"INSERT INTO shop.u VALUES (1, 'one'), (2, 'two'), (3, 'three')"}, "DROP TABLE IF EXISTS shop.u")
+		a, tt, cn, q := openEditor(t, cfg, 1200, 760, text)
 		t.Cleanup(func() { q.sess.Close() })
 		testutil.WaitFor(t, tt, "the schemas", func() bool { return cn.DefaultSchema != "" })
 		try(t, a, tt, q, func() string {
@@ -244,10 +219,7 @@ func TestSchemaReReadAfterReset(t *testing.T) {
 		}},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
-			a := newFakeQueryHost(t)
-			cn := a.AddConn(c.cfg)
-			tt := ui.NewTester(a.view, 1200, 760)
-			q := newEditor(t, a, tt, cn, c.set+";\n\nSELECT 1 AS one;")
+			_, tt, cn, q := openEditor(t, c.cfg, 1200, 760, c.set+";\n\nSELECT 1 AS one;")
 			t.Cleanup(func() { q.sess.Close() })
 			testutil.WaitFor(t, tt, "the schemas", func() bool { return cn.DefaultSchema != "" })
 			runWith(t, tt, q, c.set, RunStatement)
@@ -310,21 +282,8 @@ func TestSchemaReReadAfterReset(t *testing.T) {
 func TestEndsTransactionAsksInEditor(t *testing.T) {
 	testutil.Integration(t)
 	cfg := mysqlConfig()
-	d, err := db.Open(context.Background(), cfg, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { d.Close() }) // after the DROP below: cleanups run last first
-	for _, s := range []string{"DROP TABLE IF EXISTS shop.rv_implicit", "CREATE TABLE shop.rv_implicit (id INT PRIMARY KEY, v INT) ENGINE=InnoDB"} {
-		if _, err := d.SQL.Exec(s); err != nil {
-			t.Fatal(err)
-		}
-	}
-	t.Cleanup(func() { d.SQL.Exec("DROP TABLE IF EXISTS shop.rv_implicit") })
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(cfg)
-	tt := ui.NewTester(a.view, 1200, 760)
-	q := newEditor(t, a, tt, cn, "CREATE INDEX rv_implicit_v ON rv_implicit (v);\n\nBEGIN;\n\nINSERT INTO rv_implicit VALUES (1, 1);")
+	serverWith(t, cfg, []string{"DROP TABLE IF EXISTS shop.rv_implicit", "CREATE TABLE shop.rv_implicit (id INT PRIMARY KEY, v INT) ENGINE=InnoDB"}, "DROP TABLE IF EXISTS shop.rv_implicit")
+	a, tt, _, q := openEditor(t, cfg, 1200, 760, "CREATE INDEX rv_implicit_v ON rv_implicit (v);\n\nBEGIN;\n\nINSERT INTO rv_implicit VALUES (1, 1);")
 	t.Cleanup(func() { q.sess.Close() })
 	runWith(t, tt, q, "CREATE", RunStatement)
 	if a.Confirm != nil || len(q.results) != 1 || q.results[0].err != "" {
@@ -353,10 +312,7 @@ func TestEndsTransactionAsksInEditor(t *testing.T) {
 // Commit refuses, and it holds no transaction of its own, so closing or
 // quitting leaves the transaction to its owner. The owner's end clears it.
 func TestSharedTransactionInsideTab(t *testing.T) {
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"})
-	tt := ui.NewTester(a.view, 1200, 760)
-	owner := newEditor(t, a, tt, cn, "CREATE TABLE t (a INT);\n\nBEGIN;\n\nINSERT INTO t VALUES (1);")
+	a, tt, cn, owner := openEditor(t, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"}, 1200, 760, "CREATE TABLE t (a INT);\n\nBEGIN;\n\nINSERT INTO t VALUES (1);")
 	runWith(t, tt, owner, "CREATE", RunScript)
 	if owner.Tx != db.TxOpen {
 		t.Fatalf("the owner's tx %v; messages %+v", owner.Tx, owner.messages)
@@ -406,22 +362,9 @@ func TestSharedTransactionInsideTab(t *testing.T) {
 func TestApplyLostConnectionResetsSchema(t *testing.T) {
 	testutil.Integration(t)
 	cfg := mysqlConfig()
-	d, err := db.Open(context.Background(), cfg, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { d.Close() }) // after the DROP below: cleanups run last first
-	for _, s := range []string{"DROP TABLE IF EXISTS shop.rv_lost", "CREATE TABLE shop.rv_lost (id INT PRIMARY KEY, v VARCHAR(20)) ENGINE=InnoDB",
-		"INSERT INTO shop.rv_lost VALUES (1, 'alpha'), (2, 'beta')"} {
-		if _, err := d.SQL.Exec(s); err != nil {
-			t.Fatal(err)
-		}
-	}
-	t.Cleanup(func() { d.SQL.Exec("DROP TABLE IF EXISTS shop.rv_lost") })
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(cfg)
-	tt := ui.NewTester(a.view, 1200, 760)
-	q := newEditor(t, a, tt, cn, "USE information_schema;\n\nSELECT * FROM shop.rv_lost ORDER BY id;")
+	d := serverWith(t, cfg, []string{"DROP TABLE IF EXISTS shop.rv_lost", "CREATE TABLE shop.rv_lost (id INT PRIMARY KEY, v VARCHAR(20)) ENGINE=InnoDB",
+		"INSERT INTO shop.rv_lost VALUES (1, 'alpha'), (2, 'beta')"}, "DROP TABLE IF EXISTS shop.rv_lost")
+	a, tt, cn, q := openEditor(t, cfg, 1200, 760, "USE information_schema;\n\nSELECT * FROM shop.rv_lost ORDER BY id;")
 	t.Cleanup(func() { q.sess.Close() })
 	testutil.WaitFor(t, tt, "the schemas", func() bool { return cn.DefaultSchema != "" })
 	runWith(t, tt, q, "USE", RunScript)
@@ -441,10 +384,7 @@ func TestApplyLostConnectionResetsSchema(t *testing.T) {
 			})
 		}
 	}
-	tt.Key(ui.Cmd, ui.KeyS)
-	testutil.WaitFor(t, tt, "the review", func() bool { return a.Confirm != nil })
-	a.Confirm.OnConfirm()
-	a.Confirm = nil
+	applyEdits(t, a, tt)
 	testutil.WaitFor(t, tt, "the apply", func() bool { return !q.Busy() })
 	if len(a.Errors) != 1 || strings.Contains(a.Errors[0], "rollback failed too") || !strings.Contains(a.Errors[0], "lost") {
 		t.Fatalf("errors %q", a.Errors)
@@ -464,26 +404,10 @@ func TestLargeChangeHoldKeepsRefusal(t *testing.T) {
 	testutil.Integration(t)
 	cfg := mysqlConfig()
 	cfg.Env = db.Staging // auto-commit, changes held
-	d, err := db.Open(context.Background(), cfg, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { d.Close() }) // after the DROP below: cleanups run last first
-	for _, s := range []string{"DROP DATABASE IF EXISTS rvguard", "CREATE DATABASE rvguard",
+	d := serverWith(t, cfg, []string{"DROP DATABASE IF EXISTS rvguard", "CREATE DATABASE rvguard",
 		"CREATE TABLE rvguard.rv_guard (id INT PRIMARY KEY, v VARCHAR(20)) ENGINE=InnoDB", "INSERT INTO rvguard.rv_guard VALUES (1, 'kept')",
-		"DROP TABLE IF EXISTS shop.rv_guard", "CREATE TABLE shop.rv_guard (id INT PRIMARY KEY, v VARCHAR(20)) ENGINE=InnoDB", "INSERT INTO shop.rv_guard VALUES (1, 'kept')"} {
-		if _, err := d.SQL.Exec(s); err != nil {
-			t.Fatal(err)
-		}
-	}
-	t.Cleanup(func() {
-		d.SQL.Exec("DROP DATABASE IF EXISTS rvguard")
-		d.SQL.Exec("DROP TABLE IF EXISTS shop.rv_guard")
-	})
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(cfg)
-	tt := ui.NewTester(a.view, 1200, 760)
-	q := newEditor(t, a, tt, cn, "USE rvguard;\n\nUPDATE rv_guard SET v = 'changed' WHERE id = 1;\n\nSELECT 1;")
+		"DROP TABLE IF EXISTS shop.rv_guard", "CREATE TABLE shop.rv_guard (id INT PRIMARY KEY, v VARCHAR(20)) ENGINE=InnoDB", "INSERT INTO shop.rv_guard VALUES (1, 'kept')"}, "DROP DATABASE IF EXISTS rvguard", "DROP TABLE IF EXISTS shop.rv_guard")
+	_, tt, _, q := openEditor(t, cfg, 1200, 760, "USE rvguard;\n\nUPDATE rv_guard SET v = 'changed' WHERE id = 1;\n\nSELECT 1;")
 	t.Cleanup(func() { q.sess.Close() })
 	runWith(t, tt, q, "USE", RunStatement)
 	if _, err := d.SQL.Exec("KILL " + sessionValue(t, q, "SELECT CONNECTION_ID()")); err != nil {
@@ -513,10 +437,7 @@ func TestLargeChangeHoldKeepsRefusal(t *testing.T) {
 // run. A tab that has run nothing since the transaction began is refused
 // too.
 func TestInsideTabRefusesCommit(t *testing.T) {
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"})
-	tt := ui.NewTester(a.view, 1200, 760)
-	owner := newEditor(t, a, tt, cn, "CREATE TABLE t (a INT);\n\nBEGIN;\n\nINSERT INTO t VALUES (1);")
+	a, tt, cn, owner := openEditor(t, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"}, 1200, 760, "CREATE TABLE t (a INT);\n\nBEGIN;\n\nINSERT INTO t VALUES (1);")
 	runWith(t, tt, owner, "CREATE", RunScript)
 	if owner.Tx != db.TxOpen {
 		t.Fatalf("the owner's tx %v; messages %+v", owner.Tx, owner.messages)
@@ -554,10 +475,7 @@ func TestInsideTabRefusesCommit(t *testing.T) {
 // connection every session shares: the refusal before the run is checked
 // again before each such statement.
 func TestInsideTxBegunMidRunStopsRun(t *testing.T) {
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"})
-	tt := ui.NewTester(a.view, 1200, 760)
-	q := newEditor(t, a, tt, cn, "")
+	a, tt, cn, q := openEditor(t, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"}, 1200, 760, "")
 	testutil.WaitFor(t, tt, "the schemas", func() bool { return len(cn.Loading) == 0 })
 	ctx := context.Background()
 	other, err := cn.DB.Session(ctx)
@@ -612,10 +530,7 @@ func TestStoppedWorkReadsTxAgain(t *testing.T) {
 	if err := os.WriteFile(file, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file, Commit: db.CommitManual})
-	tt := ui.NewTester(a.view, 1200, 760)
-	q := newEditor(t, a, tt, cn, "CREATE TABLE t (a INT);\n\nINSERT INTO t VALUES (1);")
+	_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file, Commit: db.CommitManual}, 1200, 760, "CREATE TABLE t (a INT);\n\nINSERT INTO t VALUES (1);")
 	runWith(t, tt, q, "CREATE", RunScript)
 	if q.Tx != db.TxOpen {
 		t.Fatalf("tx %v; messages %+v", q.Tx, q.messages)
@@ -645,10 +560,7 @@ func TestStoppedWorkReadsTxAgain(t *testing.T) {
 // begin the one open now, sends nothing on Commit or Roll Back: it says
 // so, takes the transaction as it is, and audits no COMMIT or ROLLBACK.
 func TestStaleOwnerCannotEnd(t *testing.T) {
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"})
-	tt := ui.NewTester(a.view, 1200, 760)
-	owner := newEditor(t, a, tt, cn, "CREATE TABLE t (a INT);\n\nBEGIN;\n\nINSERT INTO t VALUES (1);")
+	a, tt, cn, owner := openEditor(t, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"}, 1200, 760, "CREATE TABLE t (a INT);\n\nBEGIN;\n\nINSERT INTO t VALUES (1);")
 	runWith(t, tt, owner, "CREATE", RunScript)
 	if owner.Tx != db.TxOpen {
 		t.Fatalf("the owner's tx %v; messages %+v", owner.Tx, owner.messages)
@@ -709,18 +621,27 @@ func TestStaleOwnerCannotEnd(t *testing.T) {
 // only what is committed.
 func mysqlTable(t *testing.T, cfg db.Config, name string) *db.DB {
 	t.Helper()
+	return serverWith(t, cfg, []string{"DROP TABLE IF EXISTS shop." + name, "CREATE TABLE shop." + name + " (id INT PRIMARY KEY, v INT) ENGINE=InnoDB"},
+		"DROP TABLE IF EXISTS shop."+name)
+}
+
+// serverWith opens cfg and runs setup; at cleanup it runs drop, then closes.
+func serverWith(t *testing.T, cfg db.Config, setup []string, drop ...string) *db.DB {
+	t.Helper()
 	d, err := db.Open(context.Background(), cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range []string{"DROP TABLE IF EXISTS shop." + name, "CREATE TABLE shop." + name + " (id INT PRIMARY KEY, v INT) ENGINE=InnoDB"} {
+	t.Cleanup(func() { d.Close() }) // after the DROP below: cleanups run last first
+	for _, s := range setup {
 		if _, err := d.SQL.Exec(s); err != nil {
 			t.Fatal(err)
 		}
 	}
 	t.Cleanup(func() {
-		d.SQL.Exec("DROP TABLE IF EXISTS shop." + name)
-		d.Close()
+		for _, s := range drop {
+			d.SQL.Exec(s)
+		}
 	})
 	return d
 }
@@ -753,10 +674,7 @@ func TestManualCommitReopensAfterImplicitCommit(t *testing.T) {
 	cfg := mysqlConfig()
 	cfg.Commit = db.CommitManual
 	d := mysqlTable(t, cfg, "rv_reopen")
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(cfg)
-	tt := ui.NewTester(a.view, 1200, 760)
-	q := newEditor(t, a, tt, cn, "INSERT INTO rv_reopen VALUES (1, 1);\nCREATE INDEX rv_reopen_v ON rv_reopen (v);\nINSERT INTO rv_reopen VALUES (2, 2);")
+	a, tt, _, q := openEditor(t, cfg, 1200, 760, "INSERT INTO rv_reopen VALUES (1, 1);\nCREATE INDEX rv_reopen_v ON rv_reopen (v);\nINSERT INTO rv_reopen VALUES (2, 2);")
 	t.Cleanup(func() { q.sess.Close() })
 	runWith(t, tt, q, "INSERT", RunScript)
 	if a.Confirm == nil || !slices.ContainsFunc(a.Confirm.Reasons, func(r string) bool { return strings.Contains(r, "CREATE commits the writes before it") }) {
@@ -796,10 +714,7 @@ func TestTypedBeginAsksImplicitCommit(t *testing.T) {
 	testutil.Integration(t)
 	cfg := mysqlConfig() // development, auto-commit
 	d := mysqlTable(t, cfg, "rv_begun")
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(cfg)
-	tt := ui.NewTester(a.view, 1200, 760)
-	q := newEditor(t, a, tt, cn, "BEGIN;\nINSERT INTO rv_begun VALUES (1, 1);\nCREATE INDEX rv_begun_v ON rv_begun (v);\nROLLBACK;")
+	a, tt, _, q := openEditor(t, cfg, 1200, 760, "BEGIN;\nINSERT INTO rv_begun VALUES (1, 1);\nCREATE INDEX rv_begun_v ON rv_begun (v);\nROLLBACK;")
 	t.Cleanup(func() {
 		if q.sess != nil {
 			q.sess.Close()
@@ -825,10 +740,7 @@ func TestProductionRunAllAsksImplicitCommit(t *testing.T) {
 	cfg := mysqlConfig()
 	cfg.Env = db.Production // manual commit
 	d := mysqlTable(t, cfg, "rv_runall")
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(cfg)
-	tt := ui.NewTester(a.view, 1200, 760)
-	q := newEditor(t, a, tt, cn, "INSERT INTO rv_runall VALUES (1, 1);\nINSERT INTO rv_runall VALUES (2, 2);\nCREATE INDEX rv_runall_v ON rv_runall (v);\nINSERT INTO rv_runall VALUES (3, 3);")
+	a, tt, _, q := openEditor(t, cfg, 1200, 760, "INSERT INTO rv_runall VALUES (1, 1);\nINSERT INTO rv_runall VALUES (2, 2);\nCREATE INDEX rv_runall_v ON rv_runall (v);\nINSERT INTO rv_runall VALUES (3, 3);")
 	t.Cleanup(func() { q.sess.Close() })
 	testutil.SetCaret(tt, &q.Editor, 0)
 	q.Run(RunScript)
@@ -867,10 +779,7 @@ func TestAutocommitOffNote(t *testing.T) {
 	testutil.Integration(t)
 	cfg := mysqlConfig()
 	mysqlTable(t, cfg, "rv_acoff")
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(cfg)
-	tt := ui.NewTester(a.view, 1200, 760)
-	q := newEditor(t, a, tt, cn, "SET autocommit = 0;\nCOMMIT;\nSELECT 1;")
+	_, tt, _, q := openEditor(t, cfg, 1200, 760, "SET autocommit = 0;\nCOMMIT;\nSELECT 1;")
 	t.Cleanup(func() { q.sess.Close() })
 	runWith(t, tt, q, "SET", RunScript)
 	tt.Frame()
@@ -906,10 +815,7 @@ func TestAutocommitOffHoldsWrites(t *testing.T) {
 		d.SQL.QueryRow("SELECT v FROM shop.rv_acheld WHERE id = 1").Scan(&v)
 		return v
 	}
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(cfg)
-	tt := ui.NewTester(a.view, 1200, 760)
-	q := newEditor(t, a, tt, cn, "SET autocommit = 0;\nCOMMIT;")
+	a, tt, _, q := openEditor(t, cfg, 1200, 760, "SET autocommit = 0;\nCOMMIT;")
 	t.Cleanup(func() { q.sess.Close() })
 	runWith(t, tt, q, "SET", RunScript)
 
@@ -929,10 +835,7 @@ func TestAutocommitOffHoldsWrites(t *testing.T) {
 	testutil.WaitFor(t, tt, "the commit", func() bool { return !q.Running && q.Tx == db.TxNone })
 	waitEditable(t, tt)
 	editCell(t, tt, "10", "11")
-	tt.Key(ui.Cmd, ui.KeyS)
-	testutil.WaitFor(t, tt, "the review", func() bool { return a.Confirm != nil })
-	a.Confirm.OnConfirm()
-	a.Confirm = nil
+	applyEdits(t, a, tt)
 	r := q.results[0]
 	testutil.WaitFor(t, tt, "the apply", func() bool { return !r.view.Applying() })
 	if got := committed(); got != "10" || q.sess.Tx() != db.TxOpen {

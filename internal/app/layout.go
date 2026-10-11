@@ -316,7 +316,6 @@ func (a *App) tabBar(c *ui.Context) {
 	ui.ScrollHorizontal(c).Shrink(1).Children(func() {
 		ui.Row(c).AlignItems(ui.Stretch).Children(func() {
 			for i, tb := range a.tabs {
-				i, tb := i, tb
 				on := i == a.active
 				cn := tb.Connection()
 				item := ui.ButtonBase(c.Key(tabKey(tb))).Padding(0, 6, 0, 12).Height(height).MaxWidth(260).Label(tb.Title())
@@ -493,7 +492,6 @@ func (a *App) welcome(c *ui.Context) {
 					ui.Text(c, "Connections").Bold().TextColor(pal.Muted).FontSize(12)
 					ui.Grid(c).Columns(2).GapX(10).GapY(8).Children(func() {
 						for _, cn := range a.conns {
-							cn := cn
 							row := ui.ButtonBase(c.Key("welcome-"+cn.Config.ID)).Padding(10, 14).Radius(8).Border(1, t.Border).Label("Open " + cn.Config.Name)
 							if row.Hovered() {
 								row.Background(pal.Hover)

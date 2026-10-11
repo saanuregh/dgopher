@@ -2,8 +2,6 @@ package app
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -23,8 +21,7 @@ import (
 func txApp(t *testing.T, idle int) (*App, *ui.Tester, *query.Tab, string) {
 	t.Helper()
 	a := newTestApp(t)
-	file := filepath.Join(t.TempDir(), "tx.sqlite")
-	os.WriteFile(file, nil, 0o600)
+	file := writeSQL(t, "tx.sqlite", "")
 	setup, err := db.Open(context.Background(), db.Config{Name: "s", Engine: db.SQLite, Database: file}, nil)
 	if err != nil {
 		t.Fatal(err)

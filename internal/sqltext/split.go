@@ -432,11 +432,6 @@ func resumeAt(rs []rune, toks []Token, p int, d Dialect) []Token {
 	return tokenizeAt(rs, p, len(rs), d)
 }
 
-// Split is SplitWith in BlankLineAndSemicolon mode.
-func Split(src string, d Dialect) []Statement {
-	return SplitWith(src, d, SplitOptions{Mode: BlankLineAndSemicolon})
-}
-
 // SplitWith splits on ';' outside strings, comments, quoted identifiers and
 // dollar quotes, and in BlankLineAndSemicolon mode also at a line holding only
 // whitespace, except inside parentheses and BEGIN … END (or CASE … END)

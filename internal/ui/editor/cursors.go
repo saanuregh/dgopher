@@ -191,15 +191,21 @@ func (e *Editor) replicate(was string, primary span) {
 	before, after := []rune(was), []rune(e.Text)
 	// The change, as near the primary as it reads: typing "a" after an
 	// "a" changes the text at the caret, not after the next one.
-	p := 0
-	for p < primary.start && p < len(before) && p < len(after) && before[p] == after[p] {
+	p, s := commonEnds(before, after, primary.start, primary.end)
+	e.atCursors(before, primary, span{p, len(before) - s}, after[p:len(after)-s])
+}
+
+// commonEnds are how many runes before and after share at their start, at
+// most prefixMax, and then at their end, in before not reaching back past
+// suffixFrom.
+func commonEnds(before, after []rune, prefixMax, suffixFrom int) (p, s int) {
+	for p < prefixMax && p < len(before) && p < len(after) && before[p] == after[p] {
 		p++
 	}
-	s := 0
-	for s < len(before)-max(p, primary.end) && s < len(after)-p && before[len(before)-1-s] == after[len(after)-1-s] {
+	for s < len(before)-max(p, suffixFrom) && s < len(after)-p && before[len(before)-1-s] == after[len(after)-1-s] {
 		s++
 	}
-	e.atCursors(before, primary, span{p, len(before) - s}, after[p:len(after)-s])
+	return p, s
 }
 
 // TypeAtCarets replaces runes [start, end) of the text, about the primary

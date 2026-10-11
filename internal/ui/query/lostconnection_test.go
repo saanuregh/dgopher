@@ -98,10 +98,7 @@ func TestResetStopsContinueOnError(t *testing.T) {
 func TestApplyLostConnectionKeepsRefusal(t *testing.T) {
 	testutil.Integration(t)
 	d := lostSchema(t, "zz_fix_apply", "zz_fix_apply_rows", "INSERT INTO zz_fix_apply.zz_fix_apply_rows VALUES (1, 'alpha'), (2, 'beta')")
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(testutil.PGConfig())
-	tt := ui.NewTester(a.view, 1200, 760)
-	q := newEditor(t, a, tt, cn, "SET search_path TO zz_fix_apply;\n\nSELECT * FROM zz_fix_apply_rows ORDER BY id;\n\nINSERT INTO zz_fix_apply_rows VALUES (3, 'gamma');")
+	a, tt, cn, q := openEditor(t, testutil.PGConfig(), 1200, 760, "SET search_path TO zz_fix_apply;\n\nSELECT * FROM zz_fix_apply_rows ORDER BY id;\n\nINSERT INTO zz_fix_apply_rows VALUES (3, 'gamma');")
 	t.Cleanup(func() { q.sess.Close() })
 	testutil.WaitFor(t, tt, "the schemas", func() bool { return cn.DefaultSchema != "" })
 	runWith(t, tt, q, "SET", RunStatement)
@@ -119,10 +116,7 @@ func TestApplyLostConnectionKeepsRefusal(t *testing.T) {
 			})
 		}
 	}
-	tt.Key(ui.Cmd, ui.KeyS)
-	testutil.WaitFor(t, tt, "the review", func() bool { return a.Confirm != nil })
-	a.Confirm.OnConfirm()
-	a.Confirm = nil
+	applyEdits(t, a, tt)
 	testutil.WaitFor(t, tt, "the apply", func() bool { return !q.Busy() })
 	if len(a.Errors) != 1 || !strings.Contains(a.Errors[0], "lost") {
 		t.Fatalf("errors %q", a.Errors)

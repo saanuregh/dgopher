@@ -3,12 +3,15 @@ package db
 import (
 	"context"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/redis/rueidis"
+
+	"dgopher/internal/lists"
 )
 
 // Field is an item of a key: a list's (its index in Name), a hash's, a
@@ -53,10 +56,7 @@ func (k *KV) ReadItems(ctx context.Context, key, typ string, pos ItemsPos, n int
 		if err != nil {
 			return nil, pos, false, err
 		}
-		out := make([]Field, len(items))
-		for i, z := range items {
-			out[i] = Field{Value: z.Member, Score: z.Score}
-		}
+		out := lists.Map(items, func(z rueidis.ZScore) Field { return Field{Value: z.Member, Score: z.Score} })
 		pos.offset += int64(len(items))
 		return out, pos, int64(len(items)) < n, nil
 	case "set", "hash":
@@ -104,11 +104,7 @@ func (k *KV) ReadItems(ctx context.Context, key, typ string, pos ItemsPos, n int
 		}
 		out := make([]Field, len(msgs))
 		for i, m := range msgs {
-			names := make([]string, 0, len(m.FieldValues))
-			for n := range m.FieldValues {
-				names = append(names, n)
-			}
-			sort.Strings(names)
+			names := slices.Sorted(maps.Keys(m.FieldValues))
 			var sb strings.Builder
 			for j, n := range names {
 				if j > 0 {

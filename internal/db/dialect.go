@@ -119,21 +119,7 @@ type Dialect interface {
 }
 
 // DialectOf returns the dialect of an engine.
-func DialectOf(e Engine) Dialect {
-	switch e {
-	case Postgres:
-		return postgresDialect{}
-	case MySQL:
-		return mysqlDialect{}
-	case ClickHouse:
-		return clickhouseDialect{}
-	case SQLite:
-		return sqliteDialect{}
-	case DuckDB:
-		return duckdbDialect{}
-	}
-	return nil
-}
+func DialectOf(e Engine) Dialect { return engineInfos[e].dialect }
 
 // QualifiedName quotes a table name with its schema.
 func QualifiedName(d Dialect, schema, table string) string {
@@ -205,6 +191,35 @@ func scanRows(ctx context.Context, q Querier, query string, args []any, fn func(
 		}
 	}
 	return rows.Err()
+}
+
+// scanAll reads one value per row with row, in order. On error it returns the rows read so far
+// with the error.
+func scanAll[T any](ctx context.Context, q Querier, query string, args []any, row func(scan func(...any) error) (T, error)) ([]T, error) {
+	var out []T
+	err := scanRows(ctx, q, query, args, func(scan func(...any) error) error {
+		v, err := row(scan)
+		if err == nil {
+			out = append(out, v)
+		}
+		return err
+	})
+	return out, err
+}
+
+// scanColumns reads columns by their table, from rows of the table name and the fields scanned below.
+func scanColumns(ctx context.Context, q Querier, query string, args []any) (map[string][]Column, error) {
+	out := map[string][]Column{}
+	err := scanRows(ctx, q, query, args, func(scan func(...any) error) error {
+		var t string
+		var c Column
+		if err := scan(&t, &c.Name, &c.Type, &c.Nullable, &c.Default, &c.HasDefault, &c.PrimaryKey, &c.AutoIncrement, &c.Comment); err != nil {
+			return err
+		}
+		out[t] = append(out[t], c)
+		return nil
+	})
+	return out, err
 }
 
 // columnsDDL writes the column lines of a CREATE TABLE.

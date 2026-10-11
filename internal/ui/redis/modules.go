@@ -12,6 +12,7 @@ import (
 
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
+	"dgopher/internal/lists"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 
@@ -133,30 +134,16 @@ func (r *Tab) loadVector(element string) {
 	v := &r.vector
 	v.element, v.loading, v.err, v.vector, v.similar = element, true, "", nil, nil
 	kv, key, gen := r.conn.KV, r.selected, r.valueGen
-	dataview.BackgroundResetOnPanic(r.a, func() {
-		if gen == r.valueGen && v.element == element {
-			v.loading = false
-		}
-	}, func() func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+	r.loadLatest(func() bool { return gen == r.valueGen && v.element == element }, &v.loading, &v.err, 30*time.Second, func(ctx context.Context) (func(), error) {
 		vector, err := kv.VectorOf(ctx, key, element)
 		var similar []db.Field
 		if err == nil {
 			similar, err = kv.Similar(ctx, key, element, similarShown+1)
 		}
 		return func() {
-			if gen != r.valueGen || v.element != element {
-				return
-			}
-			v.loading = false
-			if err != nil {
-				v.err = err.Error()
-				return
-			}
 			// Not the element itself, which is the most like it.
 			v.vector, v.similar = vector, slices.DeleteFunc(similar, func(f db.Field) bool { return f.Name == element })
-		}
+		}, err
 	})
 }
 
@@ -198,10 +185,7 @@ func (r *Tab) vectorDetail(c *ui.Context, f db.Field) {
 				ui.Text(c, v.err).FontSize(12).TextColor(th.Danger).Selectable()
 				return
 			}
-			parts := make([]string, len(v.vector))
-			for i, x := range v.vector {
-				parts[i] = strconv.FormatFloat(x, 'g', 4, 64)
-			}
+			parts := lists.Map(v.vector, func(x float64) string { return strconv.FormatFloat(x, 'g', 4, 64) })
 			ui.Text(c, fmt.Sprintf("Vector, %d dimensions", len(v.vector))).FontSize(12).Bold()
 			ui.Text(c, "["+widgets.OneLine(strings.Join(parts, ", "), 400)+"]").Font(widgets.MonoFont).FontSize(11.5).TextColor(pal.Muted).Selectable()
 			ui.Text(c, "Most like it").FontSize(12).Bold()

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -25,11 +26,7 @@ var builderOps = []builderOp{
 }
 
 func builderOpLabels() []string {
-	out := make([]string, len(builderOps))
-	for i, o := range builderOps {
-		out[i] = o.label
-	}
-	return out
+	return lists.Map(builderOps, func(o builderOp) string { return o.label })
 }
 
 // filterBuilder builds the filter of the rows from conditions chosen
@@ -53,8 +50,7 @@ func newFilterBuilder(firstColumn string) *filterBuilder {
 }
 
 func (b *filterBuilder) add(column string) {
-	b.conds = append(b.conds, builderCond{column: column, op: builderOps[0].label})
-	b.keys.add()
+	appendRow(&b.conds, &b.keys, builderCond{column: column, op: builderOps[0].label})
 }
 
 // where writes the conditions as the filter of the rows.
@@ -112,10 +108,7 @@ func (v *Viewer) builderView(c *ui.Context) {
 	b := v.builder
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	columns := make([]string, len(v.src.Cols))
-	for i, col := range v.src.Cols {
-		columns[i] = col.Name
-	}
+	columns := lists.Map(v.src.Cols, func(col db.ColumnInfo) string { return col.Name })
 	ops := builderOpLabels()
 	where, err := b.where(v)
 	ui.Column(c).Padding(8, 12).Gap(6).Background(th.Surface).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
@@ -151,8 +144,7 @@ func (v *Viewer) builderView(c *ui.Context) {
 			})
 		}
 		if remove >= 0 {
-			b.conds = slices.Delete(b.conds, remove, remove+1)
-			b.keys.remove(remove)
+			deleteRow(&b.conds, &b.keys, remove)
 		}
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			if widgets.ToolButton(c, widgets.IconPlus, "Condition", "Add a condition").Clicked() {

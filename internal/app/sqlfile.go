@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -17,6 +18,7 @@ import (
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 	"dgopher/internal/redact"
 	"dgopher/internal/safety"
 	"dgopher/internal/sqlfile"
@@ -36,20 +38,12 @@ type sqlFileRun struct {
 	conn     *connection.Conn
 	database string
 	path     string
-	size     int64
-	modTime  time.Time
 	// restore is what a restore writes into, "" for a plain run.
 	restore string
 
 	// What the first reading found.
-	reading    bool
-	statements int
-	verbs      map[string]int
-	dangerous  []string // the first destructive statements, by line
-	more       int      // destructive statements past those
-	txControl  bool     // the file holds BEGIN, COMMIT and the like
-	verdict    safety.Verdict
-	hash       string
+	reading bool
+	fileSurvey
 
 	stopOnError bool
 	oneTx       bool
@@ -68,21 +62,16 @@ const maxDangerous = 20
 
 // openSQLFileRun asks for a file of SQL to run on a connection's database.
 func (a *App) openSQLFileRun(cn *connection.Conn, database string) {
-	go func() {
-		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "Run SQL File on " + cn.Config.Name,
-			Filters: []mygo.FileFilter{{Name: "SQL files", Extensions: []string{"sql"}}, {Name: "All files", Extensions: []string{"*"}}}})
-		if err != nil || len(paths) == 0 {
-			return
-		}
-		a.Post(func() { a.Connect(cn, func() { a.startSQLFileRun(cn, database, paths[0], "") }) })
-	}()
+	widgets.ChoosePath(a.Post, mygo.OpenDialogOptions{Title: "Run SQL File on " + cn.Config.Name,
+		Filters: []mygo.FileFilter{{Name: "SQL files", Extensions: []string{"sql"}}, {Name: "All files", Extensions: []string{"*"}}}},
+		func(path string) { a.Connect(cn, func() { a.startSQLFileRun(cn, database, path, "") }) })
 }
 
 // startSQLFileRun reads a file of SQL through, then shows what it holds
 // and asks to run it; restore, when set, is what a restore writes into,
 // and the run is asked for as that restore is.
 func (a *App) startSQLFileRun(cn *connection.Conn, database, path, restore string) {
-	x := &sqlFileRun{open: true, conn: cn, database: database, path: path, restore: restore, stopOnError: true, reading: true, verbs: map[string]int{}}
+	x := &sqlFileRun{open: true, conn: cn, database: database, path: path, restore: restore, stopOnError: true, reading: true, fileSurvey: fileSurvey{verbs: map[string]int{}}}
 	a.sqlFile = x
 	ctx, cancel := context.WithCancel(context.Background())
 	x.cancel = cancel
@@ -96,8 +85,7 @@ func (a *App) startSQLFileRun(cn *connection.Conn, database, path, restore strin
 				x.err = err.Error()
 				return
 			}
-			x.size, x.modTime, x.hash = sum.size, sum.modTime, sum.hash
-			x.statements, x.verbs, x.dangerous, x.more, x.txControl, x.verdict = sum.statements, sum.verbs, sum.dangerous, sum.more, sum.txControl, sum.verdict
+			x.fileSurvey = sum
 			// All or nothing where it can be: safer, and on SQLite, which
 			// syncs each statement it commits, far faster.
 			x.oneTx = cfg.Engine.TransactionalDDL() && !x.txControl
@@ -112,9 +100,9 @@ type fileSurvey struct {
 	hash       string
 	statements int
 	verbs      map[string]int
-	dangerous  []string
-	more       int
-	txControl  bool
+	dangerous  []string // the first destructive statements, by line
+	more       int      // destructive statements past those
+	txControl  bool     // the file holds BEGIN, COMMIT and the like
 	verdict    safety.Verdict
 }
 
@@ -154,10 +142,7 @@ func surveySQLFile(ctx context.Context, cfg *db.Config, path string, progress *a
 		}
 		an := safety.Analyze(cfg, []string{st.SQL})
 		sum.statements++
-		verb := an[0].Analysis.Verb
-		if verb == "" {
-			verb = "other"
-		}
+		verb := cmp.Or(an[0].Analysis.Verb, "other")
 		sum.verbs[verb]++
 		sum.txControl = sum.txControl || an[0].Analysis.Class == sqltext.Transaction
 		if an[0].Analysis.Dangerous {
@@ -281,10 +266,7 @@ func (a *App) sqlFileSummary(c *ui.Context, x *sqlFileRun) {
 	sort.Slice(verbs, func(i, j int) bool {
 		return x.verbs[verbs[i]] > x.verbs[verbs[j]] || x.verbs[verbs[i]] == x.verbs[verbs[j]] && verbs[i] < verbs[j]
 	})
-	parts := make([]string, len(verbs))
-	for i, v := range verbs {
-		parts[i] = fmt.Sprintf("%d %s", x.verbs[v], v)
-	}
+	parts := lists.Map(verbs, func(v string) string { return fmt.Sprintf("%d %s", x.verbs[v], v) })
 	ui.Text(c, fmt.Sprintf("%s in %s: %s.", widgets.Count(x.statements, "statement"), widgets.HumanBytes(x.size), strings.Join(parts, ", "))).FontSize(13)
 	if len(x.dangerous) > 0 {
 		ui.Column(c).Gap(2).Padding(8, 10).Radius(6).Background(th.Danger.Alpha(0.1)).Children(func() {
@@ -434,17 +416,14 @@ func (a *App) runSQLFile(x *sqlFileRun) {
 				}
 				// The rows a dump loads are counted below; what else ran is
 				// recorded as from an editor.
-				if verb == "INSERT" || verb == "COPY" {
-					if err == nil {
-						loaded[verb] += max(n, 0)
-					}
-				} else {
+				loads := verb == "INSERT" || verb == "COPY"
+				if loads && err == nil {
+					loaded[verb] += max(n, 0)
+				}
+				if !loads || err != nil {
 					a.RecordRun(cfg, audit.KindStatement, database, st.SQL, n, time.Since(start), err)
 				}
 				if err != nil {
-					if verb == "INSERT" || verb == "COPY" {
-						a.RecordRun(cfg, audit.KindStatement, database, st.SQL, n, time.Since(start), err)
-					}
 					failures = append(failures, fmt.Sprintf("Line %d: %s\n%s", st.Line, err.Error(), widgets.OneLine(redact.Secrets(st.SQL), 160)))
 					if ctx.Err() != nil {
 						return errors.New("cancelled")
@@ -471,8 +450,7 @@ func (a *App) runSQLFile(x *sqlFileRun) {
 			err = fmt.Errorf("%w: the transaction was rolled back, and nothing of the file stays", err)
 		}
 		ev := audit.Event{Kind: audit.KindScript, Database: database, Statement: path, Rows: loaded["INSERT"] + loaded["COPY"],
-			Detail: fmt.Sprintf("ran the file %s (sha256 %s): %d statements, %d failed", path, hash, x.done.Load(), len(failures))}
-		ev.Err = err
+			Detail: fmt.Sprintf("ran the file %s (sha256 %s): %d statements, %d failed", path, hash, x.done.Load(), len(failures)), Err: err}
 		a.Record(&cfg, ev)
 		return func() {
 			x.running, x.finished, x.cancel = false, true, nil
@@ -501,11 +479,10 @@ func (a *App) rollBackFile(sess *db.Session, cfg db.Config, database, path strin
 	start := time.Now()
 	rerr := sess.Rollback(ctx)
 	ev := audit.Event{Kind: audit.KindStatement, Database: database, Statement: "ROLLBACK", DurationMS: time.Since(start).Milliseconds(),
-		Detail: "Run SQL File: " + path + " did not finish its one transaction"}
+		Detail: "Run SQL File: " + path + " did not finish its one transaction", Err: rerr}
 	if begun > 0 {
 		ev.Detail = fmt.Sprintf("Run SQL File: %s left the transaction begun at line %d open", path, begun)
 	}
-	ev.Err = rerr
 	a.Record(&cfg, ev)
 	if begun == 0 {
 		// The caller says the one transaction was rolled back: closing the

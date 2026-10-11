@@ -13,6 +13,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/datamodel"
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 	"dgopher/internal/project"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
@@ -354,11 +355,7 @@ func (t *Tab) edit(i int) {
 	}
 	columns := func(table string) []string {
 		tb, _ := t.m.Table(start.Schema, table)
-		var out []string
-		for _, col := range tb.Columns {
-			out = append(out, col.Name)
-		}
-		return out
+		return lists.Map(tb.Columns, func(col db.ColumnDesign) string { return col.Name })
 	}
 	t.form = dataview.NewModelTableForm(t.h, t.m.Engine, start, tables, columns, t.saveTable)
 }
@@ -420,6 +417,12 @@ func tableDetail(c *ui.Context, e db.Engine, tb db.TableDesign) {
 	pal := widgets.PaletteOf(c)
 	heading := func(s string) { ui.Text(c, s).Bold().FontSize(12.5).Padding(8, 0, 2, 0) }
 	mono := func(s string) ui.Element { return ui.Text(c, s).Font(widgets.MonoFont).FontSize(12.5) }
+	pair := func(name, what string) {
+		ui.Row(c).Gap(12).Children(func() {
+			mono(name).Width(200).SingleLine()
+			mono(what).TextColor(pal.Muted).SingleLine().Shrink(1)
+		})
+	}
 	ui.Column(c).Padding(12, 16).Gap(4).Children(func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, tb.Name).Bold().FontSize(15).Font(widgets.MonoFont)
@@ -467,10 +470,7 @@ func tableDetail(c *ui.Context, e db.Engine, tb db.TableDesign) {
 				if ix.Unique {
 					what = "unique " + what
 				}
-				ui.Row(c).Gap(12).Children(func() {
-					mono(ix.Name).Width(200).SingleLine()
-					mono(what).TextColor(pal.Muted).SingleLine().Shrink(1)
-				})
+				pair(ix.Name, what)
 			}
 		}
 		if len(tb.ForeignKeys) > 0 {
@@ -483,19 +483,13 @@ func tableDetail(c *ui.Context, e db.Engine, tb db.TableDesign) {
 				if fk.OnUpdate != "" {
 					what += " on update " + strings.ToLower(fk.OnUpdate)
 				}
-				ui.Row(c).Gap(12).Children(func() {
-					mono(fk.Name).Width(200).SingleLine()
-					mono(what).TextColor(pal.Muted).SingleLine().Shrink(1)
-				})
+				pair(fk.Name, what)
 			}
 		}
 		if len(tb.Checks) > 0 {
 			heading("Checks")
 			for _, ch := range tb.Checks {
-				ui.Row(c).Gap(12).Children(func() {
-					mono(ch.Name).Width(200).SingleLine()
-					mono(ch.Expression).TextColor(pal.Muted).SingleLine().Shrink(1)
-				})
+				pair(ch.Name, ch.Expression)
 			}
 		}
 		heading("DDL")

@@ -5,8 +5,10 @@ import (
 	"slices"
 	"strings"
 
+	"dgopher/internal/connection"
 	"dgopher/internal/datamodel"
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -69,10 +71,7 @@ func (t *Tab) generateView(c *ui.Context) {
 	}
 	text := f.text
 	conns := t.conns(to)
-	names := make([]string, len(conns))
-	for i, cn := range conns {
-		names[i] = cn.Config.Name
-	}
+	names := lists.Map(conns, func(cn *connection.Conn) string { return cn.Config.Name })
 	if !slices.Contains(names, f.conn) && len(names) > 0 {
 		f.conn = names[0]
 	}

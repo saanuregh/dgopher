@@ -1,9 +1,10 @@
 package db
 
 import (
+	"cmp"
 	"context"
 	"errors"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -107,11 +108,8 @@ func (k *KV) Channels(ctx context.Context, pattern string) ([]ChannelInfo, error
 	for name, n := range listeners {
 		out = append(out, ChannelInfo{Name: name, Subscribers: n})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Subscribers != out[j].Subscribers {
-			return out[i].Subscribers > out[j].Subscribers
-		}
-		return out[i].Name < out[j].Name
+	slices.SortFunc(out, func(a, b ChannelInfo) int {
+		return cmp.Or(cmp.Compare(b.Subscribers, a.Subscribers), strings.Compare(a.Name, b.Name))
 	})
 	return out, nil
 }

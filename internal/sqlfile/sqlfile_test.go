@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"dgopher/internal/lists"
 	"dgopher/internal/sqltext"
 )
 
@@ -86,10 +87,7 @@ SELECT pg_catalog.setval('public.t_seq', 3, true);
 \unrestrict abc123
 `
 	got, data := all(t, src, sqltext.Postgres)
-	var sqls []string
-	for _, st := range got {
-		sqls = append(sqls, fmt.Sprintf("%d:%s", st.Line, st.SQL))
-	}
+	sqls := lists.Map(got, func(st Statement) string { return fmt.Sprintf("%d:%s", st.Line, st.SQL) })
 	want := []string{"7:SET statement_timeout = 0", "9:CREATE TABLE public.t (a integer, b text)",
 		"11:COPY public.t (a, b) FROM stdin", "17:SELECT pg_catalog.setval('public.t_seq', 3, true)"}
 	if fmt.Sprint(sqls) != fmt.Sprint(want) {

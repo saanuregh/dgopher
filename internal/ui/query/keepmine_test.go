@@ -7,17 +7,12 @@ import (
 	"testing"
 
 	"dgopher/internal/db"
-
-	"github.com/egoist/mygo/ui"
 )
 
 // Keep Mine writes a file inside the project at once, and asks first, with
 // the full path, for one outside it.
 func TestKeepMineOutsideAsks(t *testing.T) {
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
-	tt := ui.NewTester(a.view, 1000, 700)
-	q := newEditor(t, a, tt, cn, "SELECT 1;")
+	a, _, cn, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "SELECT 1;")
 	conflicted := func(path string) {
 		os.WriteFile(path, []byte("theirs"), 0o644)
 		q.Path, q.Saved, q.Editor.Text, q.DiskConflict = path, "old", "mine", "changed on disk"
@@ -49,10 +44,7 @@ func TestKeepMineOutsideAsks(t *testing.T) {
 // as a clone may hold, counts as outside: Keep Mine asks, naming where
 // the link goes, before writing through it.
 func TestKeepMineDanglingSymlinkAsks(t *testing.T) {
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
-	tt := ui.NewTester(a.view, 1000, 700)
-	q := newEditor(t, a, tt, cn, "SELECT 1;")
+	a, _, cn, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "SELECT 1;")
 	planted := filepath.Join(t.TempDir(), "planted.txt")
 	link := filepath.Join(cn.Project.Dir, "notes.sql")
 	if err := os.Symlink(planted, link); err != nil {

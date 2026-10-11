@@ -104,15 +104,10 @@ func (a *App) dialogs(c *ui.Context) {
 				if p.offerKeep {
 					ui.Checkbox(c, &p.keep, "Keep it in the keychain")
 				}
-				ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-					if ui.Button(c, "Cancel").Clicked() {
-						p.open = false
-					}
-					if widgets.Activated(c, ui.PrimaryButton(c, p.action)) || submit {
-						p.open, p.answered = false, true
-						p.onSubmit(p.password)
-					}
-				})
+				if widgets.DialogFooter(c, &p.open, p.action, submit) {
+					p.open, p.answered = false, true
+					p.onSubmit(p.password)
+				}
 			})
 		})
 		if !p.open {

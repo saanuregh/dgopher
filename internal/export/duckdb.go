@@ -2,6 +2,7 @@ package export
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"database/sql/driver"
 	"encoding/hex"
@@ -22,6 +23,7 @@ import (
 	"github.com/duckdb/duckdb-go/v2"
 
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 )
 
 // Column describes one result column; DatabaseType picks the Parquet or DuckDB column type.
@@ -40,10 +42,7 @@ func NewFileWriter(path string, f Format, cols []Column, opt Options) (RowWriter
 	if err != nil {
 		return nil, err
 	}
-	names := make([]string, len(cols))
-	for i, c := range cols {
-		names[i] = c.Name
-	}
+	names := lists.Map(cols, func(c Column) string { return c.Name })
 	buf := bufio.NewWriterSize(file, 1<<16)
 	w, err := NewWriter(buf, f, names, opt)
 	if err != nil {
@@ -228,10 +227,7 @@ func newDuckWriter(path string, f Format, cols []Column, opt Options) (*duckWrit
 		}
 		return nil, err
 	}
-	table := opt.Table
-	if table == "" {
-		table = "export"
-	}
+	table := cmp.Or(opt.Table, "export")
 	w := &duckWriter{format: f, path: path, table: table, conn: conn, connector: connector}
 	for _, c := range cols {
 		w.names = append(w.names, c.Name)

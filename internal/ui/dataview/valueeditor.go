@@ -302,9 +302,7 @@ func valueEditorView(a Host, c *ui.Context) {
 			})
 		})
 	})
-	if !e.open && a.Dialogs().valueEdit == e {
-		a.Dialogs().valueEdit = nil
-	}
+	dropClosed(&a.Dialogs().valueEdit, e, e.open)
 }
 
 // switchForm shows another form, which reads the text as it now is.

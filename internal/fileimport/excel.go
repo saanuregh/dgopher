@@ -17,6 +17,7 @@ import (
 	"github.com/duckdb/duckdb-go/v2"
 
 	"dgopher/internal/export"
+	"dgopher/internal/lists"
 )
 
 // The most of a workbook's part that is read, as its zip entry declares
@@ -652,10 +653,7 @@ func uniqueNames(names []string) []string {
 // createAndAppend creates the table src of the file's columns, and
 // appends the rows fill adds.
 func (f *File) createAndAppend(ctx context.Context, fill func(add func([]any) error) error) error {
-	defs := make([]string, len(f.Columns))
-	for i, c := range f.Columns {
-		defs[i] = quoteIdent(c.Name) + " " + c.Type
-	}
+	defs := lists.Map(f.Columns, func(c Column) string { return quoteIdent(c.Name) + " " + c.Type })
 	if _, err := f.db.ExecContext(ctx, "CREATE TABLE src ("+strings.Join(defs, ", ")+")"); err != nil {
 		return err
 	}
@@ -670,10 +668,7 @@ func (f *File) createAndAppend(ctx context.Context, fill func(add func([]any) er
 			return err
 		}
 		err = fill(func(row []any) error {
-			vals := make([]driver.Value, len(row))
-			for i, v := range row {
-				vals[i] = v
-			}
+			vals := lists.Map(row, func(v any) driver.Value { return v })
 			if err := app.AppendRow(vals...); err != nil {
 				return err
 			}

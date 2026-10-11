@@ -140,17 +140,11 @@ func TestQueryResultEditApply(t *testing.T) {
 			return s
 		}
 		defer d.Close()
-		a := newFakeQueryHost(t)
-		cn := a.AddConn(cfg)
-		tt := ui.NewTester(a.view, 1200, 760)
-		q := newEditor(t, a, tt, cn, "SELECT * FROM shop.rv_edit ORDER BY id")
+		a, tt, _, q := openEditor(t, cfg, 1200, 760, "SELECT * FROM shop.rv_edit ORDER BY id")
 		runWith(t, tt, q, "SELECT", RunStatement)
 		waitEditable(t, tt)
 		editCell(t, tt, "beta", "edited")
-		tt.Key(ui.Cmd, ui.KeyS)
-		testutil.WaitFor(t, tt, "the review", func() bool { return a.Confirm != nil })
-		a.Confirm.OnConfirm()
-		a.Confirm = nil
+		applyEdits(t, a, tt)
 		testutil.WaitFor(t, tt, "the apply", func() bool { return a.saves == 1 && !q.Busy() })
 		if q.Tx == db.TxNone || value() != "beta" {
 			t.Fatalf("manual commit: tx %v, others see %q", q.Tx, value())
@@ -390,18 +384,12 @@ func TestQueryResultEditorSchema(t *testing.T) {
 		d.SQL.QueryRow("SELECT v FROM " + table + " WHERE id = 1").Scan(&s)
 		return s
 	}
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(testutil.PGConfig())
-	tt := ui.NewTester(a.view, 1200, 760)
-	q := newEditor(t, a, tt, cn, "SET search_path TO rvprobe;\n\nSELECT * FROM RVPROBE_T;")
+	a, tt, cn, q := openEditor(t, testutil.PGConfig(), 1200, 760, "SET search_path TO rvprobe;\n\nSELECT * FROM RVPROBE_T;")
 	testutil.WaitFor(t, tt, "the schemas", func() bool { return cn.DefaultSchema != "" })
 	runWith(t, tt, q, "SET", RunScript)
 	waitEditable(t, tt)
 	editCell(t, tt, "probe", "edited")
-	tt.Key(ui.Cmd, ui.KeyS)
-	testutil.WaitFor(t, tt, "the review", func() bool { return a.Confirm != nil })
-	a.Confirm.OnConfirm()
-	a.Confirm = nil
+	applyEdits(t, a, tt)
 	testutil.WaitFor(t, tt, "the apply", func() bool { return !q.Busy() && a.saves == 1 })
 	if value("rvprobe.rvprobe_t") != "edited" || value("public.rvprobe_t") != "public" {
 		t.Fatalf("rvprobe %q, public %q", value("rvprobe.rvprobe_t"), value("public.rvprobe_t"))
@@ -434,10 +422,7 @@ func TestCountSeesEditorState(t *testing.T) {
 		d.SQL.Exec("DROP TABLE IF EXISTS public.rvc_a, public.rvc_b")
 		d.Close()
 	})
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(testutil.PGConfig())
-	tt := ui.NewTester(a.view, 1200, 760)
-	q := newEditor(t, a, tt, cn, "SET search_path TO rvcount;\n\nBEGIN;\n\nINSERT INTO rvc_a VALUES (4);\n\nINSERT INTO rvc_b VALUES (4);\n\n"+
+	_, tt, cn, q := openEditor(t, testutil.PGConfig(), 1200, 760, "SET search_path TO rvcount;\n\nBEGIN;\n\nINSERT INTO rvc_a VALUES (4);\n\nINSERT INTO rvc_b VALUES (4);\n\n"+
 		"CREATE TEMP TABLE rvc_tmp AS SELECT 1 AS x;\n\nSELECT * FROM rvc_a JOIN rvc_b USING (id);\n\nSELECT * FROM rvc_tmp;")
 	t.Cleanup(func() { q.sess.Close() })
 	testutil.WaitFor(t, tt, "the schemas", func() bool { return cn.DefaultSchema != "" })
@@ -459,10 +444,7 @@ func TestCountSeesEditorState(t *testing.T) {
 // end them: Count waits for them all, with the reason.
 func TestCountRefusedWhileCursorOpen(t *testing.T) {
 	testutil.Integration(t)
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(testutil.PGConfig())
-	tt := ui.NewTester(a.view, 1200, 760)
-	q := newEditor(t, a, tt, cn, "SELECT g FROM generate_series(1, 5000) g")
+	_, tt, _, q := openEditor(t, testutil.PGConfig(), 1200, 760, "SELECT g FROM generate_series(1, 5000) g")
 	runWith(t, tt, q, "SELECT", RunStatement)
 	r := q.results[0]
 	if r.view.Done() {
@@ -485,10 +467,7 @@ func TestCountRefusedWhileCursorOpen(t *testing.T) {
 // abort the editor's transaction.
 func TestRunRefusedWhileCounting(t *testing.T) {
 	testutil.Integration(t)
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(testutil.PGConfig())
-	tt := ui.NewTester(a.view, 1200, 760)
-	q := newEditor(t, a, tt, cn, "BEGIN;\n\nSELECT pg_sleep(1)::text AS x;\n\nSELECT 42 AS y")
+	a, tt, _, q := openEditor(t, testutil.PGConfig(), 1200, 760, "BEGIN;\n\nSELECT pg_sleep(1)::text AS x;\n\nSELECT 42 AS y")
 	t.Cleanup(func() { q.sess.Close() })
 	runWith(t, tt, q, "BEGIN", RunScript)
 	q.resultIdx = len(q.results) - 2
@@ -525,10 +504,7 @@ func TestRunRefusedWhileCounting(t *testing.T) {
 // A database of one connection reads its rows ahead: they hold nothing,
 // and Count runs while the grid still pages through them.
 func TestCountWithRowsReadAhead(t *testing.T) {
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(db.Config{ID: "mem", Name: "mem", Engine: db.SQLite, Database: ":memory:"})
-	tt := ui.NewTester(a.view, 1200, 760)
-	q := newEditor(t, a, tt, cn, "WITH RECURSIVE g(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM g WHERE x < 5000) SELECT x FROM g")
+	_, tt, _, q := openEditor(t, db.Config{ID: "mem", Name: "mem", Engine: db.SQLite, Database: ":memory:"}, 1200, 760, "WITH RECURSIVE g(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM g WHERE x < 5000) SELECT x FROM g")
 	runWith(t, tt, q, "WITH", RunStatement)
 	if q.results[0].view.Done() || q.cursorOpen() != "" {
 		t.Fatalf("done %v, cursor %q", q.results[0].view.Done(), q.cursorOpen())
@@ -581,22 +557,9 @@ func TestQueryResultApplyCancelledRollsBack(t *testing.T) {
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
 			ctx := context.Background()
-			d, err := db.Open(ctx, c.cfg, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { d.Close() }) // after the DROP below: cleanups run last first
-			for _, s := range []string{"DROP TABLE IF EXISTS shop.rv_cancel", "CREATE TABLE shop.rv_cancel (id INT PRIMARY KEY, v TEXT)",
-				"INSERT INTO shop.rv_cancel VALUES (1, 'alpha'), (2, 'beta'), (3, 'gamma')"} {
-				if _, err := d.SQL.Exec(s); err != nil {
-					t.Fatal(err)
-				}
-			}
-			t.Cleanup(func() { d.SQL.Exec("DROP TABLE IF EXISTS shop.rv_cancel") })
-			a := newFakeQueryHost(t)
-			cn := a.AddConn(c.cfg)
-			tt := ui.NewTester(a.view, 1200, 760)
-			q := newEditor(t, a, tt, cn, "SELECT * FROM shop.rv_cancel ORDER BY id")
+			d := serverWith(t, c.cfg, []string{"DROP TABLE IF EXISTS shop.rv_cancel", "CREATE TABLE shop.rv_cancel (id INT PRIMARY KEY, v TEXT)",
+				"INSERT INTO shop.rv_cancel VALUES (1, 'alpha'), (2, 'beta'), (3, 'gamma')"}, "DROP TABLE IF EXISTS shop.rv_cancel")
+			a, tt, _, q := openEditor(t, c.cfg, 1200, 760, "SELECT * FROM shop.rv_cancel ORDER BY id")
 			runWith(t, tt, q, "SELECT", RunStatement)
 			waitEditable(t, tt)
 			editCell(t, tt, "alpha", "one")
@@ -610,10 +573,7 @@ func TestQueryResultApplyCancelledRollsBack(t *testing.T) {
 			if _, err := holder.Exec("UPDATE shop.rv_cancel SET v = 'held' WHERE id = 2"); err != nil {
 				t.Fatal(err)
 			}
-			tt.Key(ui.Cmd, ui.KeyS)
-			testutil.WaitFor(t, tt, "the review", func() bool { return a.Confirm != nil })
-			a.Confirm.OnConfirm()
-			a.Confirm = nil
+			applyEdits(t, a, tt)
 			r := q.results[0]
 			testutil.WaitFor(t, tt, "the second row waited for", func() bool {
 				var n int
@@ -662,10 +622,7 @@ func TestQueryResultApplyStoppedBetweenStatements(t *testing.T) {
 			})
 		}
 	}
-	tt.Key(ui.Cmd, ui.KeyS)
-	testutil.WaitFor(t, tt, "the review", func() bool { return a.Confirm != nil })
-	a.Confirm.OnConfirm()
-	a.Confirm = nil
+	applyEdits(t, a, tt)
 	r := q.results[0]
 	<-paused
 	r.view.Release()()

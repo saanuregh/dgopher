@@ -3,6 +3,7 @@
 package redis
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/decode"
 	"dgopher/internal/keymap"
+	"dgopher/internal/lists"
 	"dgopher/internal/redact"
 	"dgopher/internal/safety"
 	"dgopher/internal/ui/dataview"
@@ -210,9 +212,7 @@ func (r *Tab) buildTree() {
 	r.treeKey, r.treeSep = len(r.keys), sep
 	r.children = map[string][]string{}
 	seen := map[string]bool{}
-	sorted := append([]string(nil), r.keys...)
-	sort.Strings(sorted)
-	for _, k := range sorted {
+	for _, k := range slices.Sorted(slices.Values(r.keys)) {
 		parent := ""
 		rest := k
 		for {
@@ -261,13 +261,7 @@ func (r *Tab) loadKey() {
 	r.valueGen++
 	gen := r.valueGen
 	kv := r.conn.KV
-	dataview.BackgroundResetOnPanic(r.a, func() {
-		if gen == r.valueGen {
-			r.loadingKey = false
-		}
-	}, func() func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+	r.loadLatest(func() bool { return gen == r.valueGen }, &r.loadingKey, &r.keyErr, 30*time.Second, func(ctx context.Context) (func(), error) {
 		info, err := kv.Info(ctx, key)
 		var value string
 		var fields []db.Field
@@ -283,14 +277,6 @@ func (r *Tab) loadKey() {
 			fields, pos, done, err = readPage(ctx, kv, key, info.Type, db.ItemsPos{})
 		}
 		return func() {
-			if gen != r.valueGen {
-				return
-			}
-			r.loadingKey = false
-			if err != nil {
-				r.keyErr = err.Error()
-				return
-			}
 			// Whole when shorter than asked: the length read before may
 			// be of another moment.
 			r.info, r.value, r.whole = info, value, len(value) < stringStart
@@ -305,7 +291,7 @@ func (r *Tab) loadKey() {
 			if info.TTL > 0 {
 				r.ttlIn = strconv.Itoa(int(info.TTL.Seconds()))
 			}
-		}
+		}, err
 	})
 }
 
@@ -316,10 +302,7 @@ func readPage(ctx context.Context, kv *db.KV, key, typ string, pos db.ItemsPos) 
 	if err != nil || typ != "hash" || !kv.FieldExpiry() {
 		return fields, next, done, err
 	}
-	names := make([]string, len(fields))
-	for i, f := range fields {
-		names[i] = f.Name
-	}
+	names := lists.Map(fields, func(f db.Field) string { return f.Name })
 	ttls, err := kv.FieldTTLs(ctx, key, names)
 	for i := range ttls {
 		fields[i].TTL = ttls[i]
@@ -366,26 +349,12 @@ func (r *Tab) loadMore() {
 	r.loadingKey = true
 	gen := r.valueGen
 	kv, key, typ, pos := r.conn.KV, r.selected, r.info.Type, r.itemsPos
-	dataview.BackgroundResetOnPanic(r.a, func() {
-		if gen == r.valueGen {
-			r.loadingKey = false
-		}
-	}, func() func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+	r.loadLatest(func() bool { return gen == r.valueGen }, &r.loadingKey, &r.keyErr, 30*time.Second, func(ctx context.Context) (func(), error) {
 		fields, next, done, err := readPage(ctx, kv, key, typ, pos)
 		return func() {
-			if gen != r.valueGen {
-				return
-			}
-			r.loadingKey = false
-			if err != nil {
-				r.keyErr = err.Error()
-				return
-			}
 			r.itemsPos, r.itemsDone = next, done
 			r.addItems(fields)
-		}
+		}, err
 	})
 }
 
@@ -394,24 +363,33 @@ func (r *Tab) loadWhole() {
 	r.loadingKey = true
 	gen := r.valueGen
 	kv, key := r.conn.KV, r.selected
+	r.loadLatest(func() bool { return gen == r.valueGen }, &r.loadingKey, &r.keyErr, 60*time.Second, func(ctx context.Context) (func(), error) {
+		value, err := kv.ReadString(ctx, key, 0)
+		return func() { r.value, r.whole, r.editValue, r.editDirty = value, true, value, false }, err
+	})
+}
+
+// loadLatest runs read in the background within timeout; while current, its
+// result clears loading, then sets errText or applies.
+func (r *Tab) loadLatest(current func() bool, loading *bool, errText *string, timeout time.Duration, read func(context.Context) (apply func(), err error)) {
 	dataview.BackgroundResetOnPanic(r.a, func() {
-		if gen == r.valueGen {
-			r.loadingKey = false
+		if current() {
+			*loading = false
 		}
 	}, func() func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
-		value, err := kv.ReadString(ctx, key, 0)
+		apply, err := read(ctx)
 		return func() {
-			if gen != r.valueGen {
+			if !current() {
 				return
 			}
-			r.loadingKey = false
+			*loading = false
 			if err != nil {
-				r.keyErr = err.Error()
+				*errText = err.Error()
 				return
 			}
-			r.value, r.whole, r.editValue, r.editDirty = value, true, value, false
+			apply()
 		}
 	})
 }
@@ -580,11 +558,8 @@ func (r *Tab) askDelete(key string) {
 	r.a.AskDiscard("Delete "+key+"?", "The key and its value are removed from "+r.conn.Config.Name+".", func() {
 		r.write([]string{"DEL", key}, func() {
 			delete(r.keySet, key)
-			for i, k := range r.keys {
-				if k == key {
-					r.keys = append(r.keys[:i], r.keys[i+1:]...)
-					break
-				}
+			if i := slices.Index(r.keys, key); i >= 0 {
+				r.keys = slices.Delete(r.keys, i, i+1)
 			}
 			r.treeKey = -1
 			r.selected = ""
@@ -948,10 +923,7 @@ func (r *Tab) addEntry() {
 		r.a.ShowError("Not added", "An entry's fields go by pairs: a field, then its value.")
 		return
 	}
-	id := strings.TrimSpace(r.newName)
-	if id == "" {
-		id = "*"
-	}
+	id := cmp.Or(strings.TrimSpace(r.newName), "*")
 	r.write(append([]string{"XADD", r.selected, id}, fields...), func() { r.newName, r.newValue = "", ""; r.loadKey() })
 }
 
@@ -972,36 +944,31 @@ func (r *Tab) newKeyView(c *ui.Context) {
 				ui.TextInput(c, &f.field).Placeholder("Score").Label("Score")
 			}
 			ui.TextArea(c, &f.value).Placeholder("Value").Lines(2, 8).Label("Value")
-			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				if ui.Button(c, "Cancel").Clicked() {
-					f.open = false
+			if widgets.DialogFooter(c, &f.open, "Create", false) && f.key != "" {
+				var args []string
+				switch f.typ {
+				case "string":
+					args = []string{"SET", f.key, f.value, "NX"}
+				case "hash":
+					args = []string{"HSET", f.key, f.field, f.value}
+				case "list":
+					args = []string{"RPUSH", f.key, f.value}
+				case "set":
+					args = []string{"SADD", f.key, f.value}
+				case "zset":
+					args = []string{"ZADD", f.key, f.field, f.value}
 				}
-				if widgets.Activated(c, ui.PrimaryButton(c, "Create")) && f.key != "" {
-					var args []string
-					switch f.typ {
-					case "string":
-						args = []string{"SET", f.key, f.value, "NX"}
-					case "hash":
-						args = []string{"HSET", f.key, f.field, f.value}
-					case "list":
-						args = []string{"RPUSH", f.key, f.value}
-					case "set":
-						args = []string{"SADD", f.key, f.value}
-					case "zset":
-						args = []string{"ZADD", f.key, f.field, f.value}
+				key := f.key
+				f.open = false
+				r.write(args, func() {
+					if !r.keySet[key] {
+						r.keySet[key] = true
+						r.keys = append(r.keys, key)
+						r.treeKey = -1
 					}
-					key := f.key
-					f.open = false
-					r.write(args, func() {
-						if !r.keySet[key] {
-							r.keySet[key] = true
-							r.keys = append(r.keys, key)
-							r.treeKey = -1
-						}
-						r.open(key)
-					})
-				}
-			})
+					r.open(key)
+				})
+			}
 		})
 	})
 	if !f.open {

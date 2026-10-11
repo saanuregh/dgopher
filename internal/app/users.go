@@ -334,14 +334,9 @@ func (t *usersTab) formView(c *ui.Context) {
 			if f.err != "" {
 				ui.Text(c, f.err).TextColor(th.Danger)
 			}
-			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				if ui.Button(c, "Cancel").Clicked() {
-					f.open = false
-				}
-				if widgets.Activated(c, ui.PrimaryButton(c, "Continue")) {
-					t.submit(f)
-				}
-			})
+			if widgets.DialogFooter(c, &f.open, "Continue", false) {
+				t.submit(f)
+			}
 		})
 	})
 	if !f.open && t.form == f {

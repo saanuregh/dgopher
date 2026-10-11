@@ -27,18 +27,17 @@ ORDER BY schema_name <> 'main', schema_name`)
 }
 
 func (duckdbDialect) Objects(ctx context.Context, q Querier, schema string) ([]Object, error) {
-	var out []Object
-	err := scanRows(ctx, q, `SELECT table_name, 'table', estimated_size, COALESCE(comment, '') FROM duckdb_tables()
+	return scanAll(ctx, q, `SELECT table_name, 'table', estimated_size, COALESCE(comment, '') FROM duckdb_tables()
 WHERE database_name = current_database() AND schema_name = ? AND NOT internal
 UNION ALL
 SELECT view_name, 'view', -1, COALESCE(comment, '') FROM duckdb_views()
 WHERE database_name = current_database() AND schema_name = ? AND NOT internal
-ORDER BY 1`, []any{schema, schema}, func(scan func(...any) error) error {
+ORDER BY 1`, []any{schema, schema}, func(scan func(...any) error) (Object, error) {
 		o := Object{Schema: schema, Bytes: -1}
 		var kind string
 		var rows sql.NullInt64
 		if err := scan(&o.Name, &kind, &rows, &o.Comment); err != nil {
-			return err
+			return o, err
 		}
 		o.Rows = -1
 		if rows.Valid {
@@ -48,10 +47,8 @@ ORDER BY 1`, []any{schema, schema}, func(scan func(...any) error) error {
 		if kind == "view" {
 			o.Kind = KindView
 		}
-		out = append(out, o)
-		return nil
+		return o, nil
 	})
-	return out, err
 }
 
 // primaryKey returns the columns of a DuckDB table's primary key.
@@ -154,24 +151,21 @@ WHERE database_name = current_database() AND schema_name = ? AND table_name = ? 
 }
 
 func (duckdbDialect) ForeignKeys(ctx context.Context, q Querier, schema, table string) ([]ForeignKey, error) {
-	var out []ForeignKey
 	// Its constraint_text quotes no names, so the parts are read apart.
-	err := scanRows(ctx, q, `SELECT constraint_name, constraint_text, array_to_string(constraint_column_names, chr(31)), referenced_table,
+	return scanAll(ctx, q, `SELECT constraint_name, constraint_text, array_to_string(constraint_column_names, chr(31)), referenced_table,
   array_to_string(referenced_column_names, chr(31))
 FROM duckdb_constraints()
 WHERE database_name = current_database() AND schema_name = ? AND table_name = ? AND constraint_type = 'FOREIGN KEY'
 ORDER BY constraint_index`,
-		[]any{schema, table}, func(scan func(...any) error) error {
+		[]any{schema, table}, func(scan func(...any) error) (ForeignKey, error) {
 			fk := ForeignKey{RefSchema: schema} // DuckDB's keys point within their schema
 			var cols, refCols string
 			if err := scan(&fk.Name, &fk.Definition, &cols, &fk.RefTable, &refCols); err != nil {
-				return err
+				return fk, err
 			}
 			fk.Columns, fk.RefColumns = splitList(cols), splitList(refCols)
-			out = append(out, fk)
-			return nil
+			return fk, nil
 		})
-	return out, err
 }
 
 func (duckdbDialect) DDL(ctx context.Context, q Querier, schema string, obj Object) (string, error) {
@@ -188,22 +182,19 @@ func (duckdbDialect) DDL(ctx context.Context, q Querier, schema string, obj Obje
 }
 
 func (duckdbDialect) ReferencedBy(ctx context.Context, q Querier, schema, table string) ([]Reference, error) {
-	var out []Reference
-	err := scanRows(ctx, q, `SELECT constraint_name, schema_name, table_name, array_to_string(constraint_column_names, chr(31)),
+	return scanAll(ctx, q, `SELECT constraint_name, schema_name, table_name, array_to_string(constraint_column_names, chr(31)),
   array_to_string(referenced_column_names, chr(31))
 FROM duckdb_constraints()
 WHERE database_name = current_database() AND constraint_type = 'FOREIGN KEY' AND schema_name = ? AND referenced_table = ?
-ORDER BY table_name`, []any{schema, table}, func(scan func(...any) error) error {
+ORDER BY table_name`, []any{schema, table}, func(scan func(...any) error) (Reference, error) {
 		var r Reference
 		var cols, refCols string
 		if err := scan(&r.Name, &r.Schema, &r.Table, &cols, &refCols); err != nil {
-			return err
+			return r, err
 		}
 		r.Columns, r.RefColumns = splitList(cols), splitList(refCols)
-		out = append(out, r)
-		return nil
+		return r, nil
 	})
-	return out, err
 }
 
 // Items lists the schema's macros, sequences and enum types.

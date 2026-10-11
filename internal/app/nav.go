@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -446,7 +447,6 @@ func (a *App) object(n navNode) (*connection.Conn, db.Object, bool) {
 
 // sidebar builds the navigator.
 func (a *App) sidebar(c *ui.Context) {
-	t := c.Theme()
 	pal := widgets.PaletteOf(c)
 	side := ui.Column(c).FillHeight().Width(a.layout.SidebarWidth).Background(pal.Sidebar)
 	a.tourPart(tourSidebar, side)
@@ -497,7 +497,6 @@ func (a *App) sidebar(c *ui.Context) {
 				}
 			}
 		}
-		_ = t
 	})
 }
 
@@ -657,10 +656,7 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 				ui.Icon(c, widgets.IconLock).TextColor(pal.Muted).FontSize(12).Tooltip("Read-only")
 			}
 		case nodeDatabase:
-			name := n.database
-			if name == "" {
-				name = cn.Config.Database
-			}
+			name := cmp.Or(n.database, cn.Config.Database)
 			ui.Icon(c, widgets.IconDatabase).TextColor(pal.Muted).FontSize(13)
 			ui.Text(c, name).SingleLine().Shrink(1)
 			if sn, ok := schemaOf(cn, n); ok {

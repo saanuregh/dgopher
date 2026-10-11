@@ -255,10 +255,9 @@ func (a *App) runSync(x *rowCompareDialog, stmts, shown []db.Statement) {
 		if err != nil && ctx.Err() != nil {
 			err = errors.New("cancelled: the changes were rolled back")
 		}
-		ev := audit.Event{Kind: audit.KindEdit, Database: database, Rows: int64(len(stmts)), DurationMS: time.Since(started).Milliseconds(), Detail: detail}
+		ev := audit.Event{Kind: audit.KindEdit, Database: database, Rows: int64(len(stmts)), DurationMS: time.Since(started).Milliseconds(), Detail: detail, Err: err}
 		if err != nil {
 			ev.Detail += "rolled back"
-			ev.Err = err
 		} else {
 			ev.Detail += "committed"
 		}

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 	"dgopher/internal/safety"
 	"dgopher/internal/ui/dataview"
 )
@@ -108,10 +109,7 @@ func (q *Tab) refuseEndingOthersTx(stmts []safety.Statement) bool {
 		return false
 	}
 	msg := q.insideTxText(stmts[i])
-	sqls := make([]string, len(stmts))
-	for j, s := range stmts {
-		sqls[j] = s.SQL
-	}
+	sqls := lists.Map(stmts, func(s safety.Statement) string { return s.SQL })
 	q.a.RecordBlocked(q.Conn, msg, strings.Join(sqls, ";\n"))
 	q.note(msg, stmts[i].SQL, true)
 	q.a.ShowError("Not run", msg)

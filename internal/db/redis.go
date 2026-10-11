@@ -5,9 +5,10 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"reflect"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -276,12 +277,7 @@ func (k *KV) IsReadOnly(args ...string) bool {
 		if len(args) > 1 {
 			sub = strings.ToUpper(args[1])
 		}
-		for _, s := range subs {
-			if s == sub {
-				return true
-			}
-		}
-		return false
+		return slices.Contains(subs, sub)
 	}
 	switch cmd {
 	case "PING", "INFO", "ROLE", "ECHO", "TIME", "DBSIZE", "LOLWUT":
@@ -442,11 +438,7 @@ func (k *KV) mastersFor(ctx context.Context, fresh bool) ([]rueidis.Client, erro
 		return k.masters, nil
 	}
 	nodes := k.Client.Nodes()
-	addrs := make([]string, 0, len(nodes))
-	for addr := range nodes {
-		addrs = append(addrs, addr)
-	}
-	sort.Strings(addrs)
+	addrs := slices.Sorted(maps.Keys(nodes))
 	var masters []rueidis.Client
 	for _, addr := range addrs {
 		role, err := nodes[addr].Do(ctx, nodes[addr].B().Role().Build()).ToArray()
@@ -540,11 +532,7 @@ func isBlocking(args []string) bool {
 	case "BLPOP", "BRPOP", "BLMOVE", "BRPOPLPUSH", "BZPOPMIN", "BZPOPMAX", "BLMPOP", "BZMPOP", "WAIT", "WAITAOF":
 		return true
 	case "XREAD", "XREADGROUP":
-		for _, a := range args[1:] {
-			if strings.EqualFold(a, "BLOCK") {
-				return true
-			}
-		}
+		return slices.ContainsFunc(args[1:], func(a string) bool { return strings.EqualFold(a, "BLOCK") })
 	}
 	return false
 }

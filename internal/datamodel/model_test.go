@@ -369,7 +369,7 @@ func TestScriptNotesStayComments(t *testing.T) {
 		}{{db.SQLite, sqltext.SQLite}, {db.Postgres, sqltext.Postgres}} {
 			ch, notes := Script(m, to.engine, "main")
 			text := ScriptText(m, to.engine, ch, notes)
-			for _, st := range sqltext.Split(text, to.dialect) {
+			for _, st := range sqltext.SplitWith(text, to.dialect, sqltext.SplitOptions{}) {
 				if strings.Contains(st.Text, "DROP TABLE victims") {
 					t.Errorf("%q to %s: the default runs as %q", end, to.engine.Label(), st.Text)
 				}

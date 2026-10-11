@@ -523,10 +523,8 @@ func (d *DB) Database(ctx context.Context, name string) (*DB, error) {
 	d.mu.Unlock()
 	cfg := d.Config
 	cfg.Database = name
-	ep := endpoint{host: cfg.Host, port: cfg.port(), serverName: cfg.Host}
-	if d.route != nil {
-		ep.host, ep.port = "127.0.0.1", d.route.LocalPort()
-	}
+	ep := endpoint{serverName: cfg.Host}
+	ep.host, ep.port = d.Address()
 	other, err := openWith(ctx, cfg, ep, d.route)
 	if err != nil {
 		return nil, err
@@ -573,25 +571,15 @@ func (d *DB) Ping(ctx context.Context) error {
 
 // ServerVersion returns the server's version string.
 func (d *DB) ServerVersion(ctx context.Context) string {
-	var q string
-	switch d.Config.Engine {
-	case Postgres:
-		q = "SHOW server_version"
-	case MySQL:
-		q = "SELECT VERSION()"
-	case ClickHouse:
-		q = "SELECT version()"
-	case SQLite:
-		q = "SELECT sqlite_version()"
-	case DuckDB:
-		q = "SELECT version()"
-	}
 	var v string
-	if err := d.SQL.QueryRowContext(ctx, q).Scan(&v); err != nil {
+	if err := d.SQL.QueryRowContext(ctx, serverVersionQuery(d.Config.Engine)).Scan(&v); err != nil {
 		return ""
 	}
 	return v
 }
+
+// serverVersionQuery is the statement that reads an engine's server version.
+func serverVersionQuery(e Engine) string { return engineInfos[e].versionQuery }
 
 func isMemory(path string) bool {
 	return path == ":memory:" || strings.Contains(path, "mode=memory")

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -77,38 +78,24 @@ type memoryState struct {
 func (r *Tab) panelView(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
+	panels := [...]struct{ actions, view func(*ui.Context) }{
+		panelConsole: {r.consoleActions, r.consoleView},
+		panelMonitor: {r.monitorActions, r.monitorView},
+		panelSlowLog: {r.slowLogActions, r.slowLogView},
+		panelMemory:  {r.memoryActions, r.memoryView},
+		panelPubSub:  {r.pubSubActions, r.pubSubView},
+		panelSearch:  {r.searchActions, r.searchView},
+	}
 	ui.Column(c).Fill().Background(pal.EditorBg).Children(func() {
 		ui.Row(c).Padding(4, 10).Gap(8).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Segmented(c, &r.panel, "Console", "Monitor", "Slow Log", "Memory", "Pub/Sub", "Search").Label("Panel")
 			ui.Spacer(c)
-			switch r.panel {
-			case panelConsole:
-				r.consoleActions(c)
-			case panelMonitor:
-				r.monitorActions(c)
-			case panelSlowLog:
-				r.slowLogActions(c)
-			case panelMemory:
-				r.memoryActions(c)
-			case panelPubSub:
-				r.pubSubActions(c)
-			case panelSearch:
-				r.searchActions(c)
+			if r.panel >= 0 && r.panel < len(panels) {
+				panels[r.panel].actions(c)
 			}
 		})
-		switch r.panel {
-		case panelConsole:
-			r.consoleView(c)
-		case panelMonitor:
-			r.monitorView(c)
-		case panelSlowLog:
-			r.slowLogView(c)
-		case panelMemory:
-			r.memoryView(c)
-		case panelPubSub:
-			r.pubSubView(c)
-		case panelSearch:
-			r.searchView(c)
+		if r.panel >= 0 && r.panel < len(panels) {
+			panels[r.panel].view(c)
 		}
 	})
 }
@@ -195,10 +182,7 @@ func (r *Tab) monitorView(c *ui.Context) {
 				FontSize(12.5).TextColor(pal.Muted).Padding(8, 12)
 			return
 		}
-		ownDB := r.conn.Config.Database
-		if ownDB == "" {
-			ownDB = "0"
-		}
+		ownDB := cmp.Or(r.conn.Config.Database, "0")
 		filter := strings.ToLower(m.filter)
 		shown := make([]int, 0, len(m.lines))
 		for i, l := range m.lines {
@@ -227,18 +211,9 @@ func (r *Tab) loadSlowLog() {
 	s := &r.slow
 	s.asked, s.loading, s.err = true, true, ""
 	kv := r.conn.KV
-	dataview.BackgroundResetOnPanic(r.a, func() { s.loading = false }, func() func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+	r.loadLatest(func() bool { return true }, &s.loading, &s.err, 30*time.Second, func(ctx context.Context) (func(), error) {
 		entries, err := kv.SlowLog(ctx, slowLogRead)
-		return func() {
-			s.loading = false
-			if err != nil {
-				s.err = err.Error()
-				return
-			}
-			s.entries = entries
-		}
+		return func() { s.entries = entries }, err
 	})
 }
 
@@ -477,10 +452,7 @@ func (r *Tab) memoryView(c *ui.Context) {
 
 // typesBySize is the report's types, the most memory first.
 func typesBySize(rep *db.MemoryReport) []string {
-	types := make([]string, 0, len(rep.ByType))
-	for t := range rep.ByType {
-		types = append(types, t)
-	}
+	types := slices.Collect(maps.Keys(rep.ByType))
 	slices.SortFunc(types, func(a, b string) int {
 		if d := cmp.Compare(rep.ByType[b].Memory, rep.ByType[a].Memory); d != 0 {
 			return d

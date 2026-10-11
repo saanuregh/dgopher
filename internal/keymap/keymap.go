@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo/ui"
+
+	"dgopher/internal/lists"
 )
 
 // Scope is where a command's keys work.
@@ -247,11 +249,7 @@ func Primary(id string) (Chord, bool) {
 
 // Label is a command's keys as the platform shows them, "" for none.
 func Label(id string) string {
-	var out []string
-	for _, ch := range Chords(id) {
-		out = append(out, ch.Label())
-	}
-	return strings.Join(out, "  or  ")
+	return strings.Join(lists.Map(Chords(id), Chord.Label), "  or  ")
 }
 
 // Written are a command's keys as the settings keep them: one of its own

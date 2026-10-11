@@ -127,22 +127,9 @@ func (e *Editor) ProblemAt(at int) (Problem, bool) {
 	return Problem{}, false
 }
 
-// lineCol is the line and column, 0-based, in runes, of a rune offset.
-func lineCol(text string, at int) (line, col int) {
-	i := 0
-	for _, r := range text {
-		if i == at {
-			break
-		}
-		if r == '\n' {
-			line, col = line+1, 0
-		} else {
-			col++
-		}
-		i++
-	}
-	return line, col
-}
+// LineCol is the line and column, 0-based, in runes, of a rune offset of
+// the text: an offset past the end is at the end.
+func (e *Editor) LineCol(at int) (line, col int) { return e.textLines().lineCol(at) }
 
 // drawProblems draws a wavy line under the first line of each problem's
 // text: the font is monospaced and lines do not wrap, so a rune's column
@@ -228,12 +215,6 @@ func (e *Editor) lineNumbers() string {
 	return e.gutter
 }
 
-// currentViewLines are the first and last lines, as the editor shows
-// them, of the current statement.
-func (e *Editor) currentViewLines(folded bool) (int, int) {
-	return e.viewLineOf(e.CurrentLines[0], folded), e.viewLineOf(e.CurrentLines[1], folded)
-}
-
 // viewLineOf is the line, as the editor shows it, of a line of the text.
 func (e *Editor) viewLineOf(line int, folded bool) int {
 	if !folded {
@@ -292,7 +273,7 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 		p.Fill(ui.Rect{X: r.X, Y: r.Y, W: gutterW, H: r.H}, pal.Gutter, 0)
 		// The statement a run would send, across the whole width.
 		if e.HasCurrent {
-			first, last := e.currentViewLines(folded)
+			first, last := e.viewLineOf(e.CurrentLines[0], folded), e.viewLineOf(e.CurrentLines[1], folded)
 			top := r.Y + 8 + float32(first)*lh - e.Scroll.Y
 			p.Fill(ui.Rect{X: r.X + gutterW, Y: top, W: r.W - gutterW, H: float32(last-first+1) * lh}, pal.CurrentStatement, 0)
 		}
@@ -307,7 +288,7 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 	if vim != nil {
 		box.Focusable().Label("SQL editor, Vim keys").HandleInput(func(ev ui.InputEvent) bool { return commands && e.vimInput(ev, lh) })
 		if commands {
-			line, col := lineCol(e.Text, vim.Caret)
+			line, col := e.LineCol(vim.Caret)
 			box.TextCaret(ui.Rect{X: textX + float32(col)*e.charW - e.Scroll.X, Y: 8 + float32(line)*lh - e.Scroll.Y, W: e.charW, H: lh})
 			if box.Focused() {
 				// Vim's Control keys before the app's commands, which on
@@ -454,7 +435,7 @@ func (e *Editor) Selection() string {
 // CaretXY is where the caret is in the editor's content, before its
 // scrolling, in DIPs from the content's top left.
 func (e *Editor) CaretXY(fontSize float32) (x, y float32) {
-	line, col := lineCol(e.viewText(), e.toView(e.SelEnd))
+	line, col := e.viewLines().lineCol(e.toView(e.SelEnd))
 	return e.gutterWidth() + 12 + float32(col)*e.charW, 8 + float32(line+1)*fontSize*LineHeight
 }
 
@@ -464,15 +445,14 @@ func (e *Editor) Replace(start, end int, s string) {
 	r := []rune(e.Text)
 	start, end = max(0, min(start, len(r))), max(0, min(end, len(r)))
 	e.Text = string(r[:start]) + s + string(r[end:])
+	n := utf8.RuneCountInString(s)
 	if len(e.folds) > 0 {
 		// The folds it does not touch stay folded.
-		n := utf8.RuneCountInString(s)
 		e.folds = e.folds.edited(start, end, n)
 		e.builtFolds = e.builtFolds.edited(start, end, n)
 		e.foldedText = e.Text
 	}
-	at := start + utf8.RuneCountInString(s)
-	e.PendingSel = &[2]int{at, at}
+	e.PendingSel = &[2]int{start + n, start + n}
 }
 
 // overlay puts runs over others, which it cuts where they meet: text
@@ -509,20 +489,6 @@ func overlay(base, top []ui.TextRange) []ui.TextRange {
 	out = append(out, top...)
 	slices.SortFunc(out, func(x, y ui.TextRange) int { return x.Start - y.Start })
 	return out
-}
-
-// LineOf is the 0-based line of a rune offset.
-func LineOf(text string, at int) int {
-	line := 0
-	for i, r := range []rune(text) {
-		if i >= at {
-			break
-		}
-		if r == '\n' {
-			line++
-		}
-	}
-	return line
 }
 
 // Find is the find bar of a SQL editor, and its replace row.

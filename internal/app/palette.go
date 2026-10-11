@@ -112,7 +112,6 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 		cmds = append(cmds, paletteItem{title: "Close Tab", key: keymap.CloseTab, group: "Command", icon: widgets.IconX, run: func() { a.closeTab(a.active) }})
 	}
 	for _, cn := range a.conns {
-		cn := cn
 		detail := cn.Config.Engine.Label() + " · " + cn.Config.Env.Label()
 		title := "Open " + cn.Config.Name
 		run := func() { a.NewQueryTab(cn, "", "") }
@@ -122,7 +121,6 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 		conns = append(conns, paletteItem{title: title, detail: detail, group: "Connection", icon: widgets.IconDatabase, run: run})
 		for key, objs := range cn.Objects {
 			for _, o := range objs {
-				o, key := o, key
 				detail := cn.Config.Name + " · " + o.Schema
 				ic := widgets.IconTable
 				if o.Kind != db.KindTable {

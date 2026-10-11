@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"dgopher/internal/lists"
 	"dgopher/internal/netproxy"
 	"dgopher/internal/netproxy/proxytest"
 	"dgopher/internal/sshtunnel"
@@ -141,7 +142,7 @@ func TestIntegrationSchema(t *testing.T) {
 		t.Run(f.cfg.Name, func(t *testing.T) {
 			d := open(t, f)
 			schemas, err := d.Dialect.Schemas(ctx, d.SQL)
-			if err != nil || !contains(schemas, f.schema) {
+			if err != nil || !slices.Contains(schemas, f.schema) {
 				t.Fatalf("schemas %v %v", schemas, err)
 			}
 			objs, err := d.Dialect.Objects(ctx, d.SQL, f.schema)
@@ -204,15 +205,6 @@ func TestIntegrationSchema(t *testing.T) {
 			}
 		})
 	}
-}
-
-func contains(xs []string, x string) bool {
-	for _, s := range xs {
-		if s == x {
-			return true
-		}
-	}
-	return false
 }
 
 func TestIntegrationQueryAndTransactions(t *testing.T) {
@@ -413,18 +405,7 @@ func TestIntegrationRedis(t *testing.T) {
 		}
 	}
 
-	var keys []string
-	var pos ScanPos
-	for {
-		batch, next, done, err := k.Scan(ctx, pos, "*", "", 100)
-		if err != nil {
-			t.Fatal(err)
-		}
-		keys = append(keys, batch...)
-		if pos = next; done {
-			break
-		}
-	}
+	keys := scanKeys(t, k, "*")
 	if len(keys) != 6 {
 		t.Fatalf("keys %v", keys)
 	}
@@ -549,17 +530,13 @@ func TestIntegrationRedisBlockingConsole(t *testing.T) {
 
 func TestIntegrationMySQLCountsMatchedRows(t *testing.T) {
 	integration(t)
-	for _, f := range fixtures(t) {
-		if f.cfg.Engine != MySQL {
-			continue
-		}
-		d := open(t, f)
-		s, _ := d.Session(context.Background())
-		defer s.Close()
-		n, err := s.Exec(context.Background(), "UPDATE customers SET name = name WHERE id = 1")
-		if err != nil || n != 1 {
-			t.Fatalf("an unchanged row reported %d affected (%v): edits would fail", n, err)
-		}
+	f := fixtureOf(t, MySQL)
+	d := open(t, f)
+	s, _ := d.Session(context.Background())
+	defer s.Close()
+	n, err := s.Exec(context.Background(), "UPDATE customers SET name = name WHERE id = 1")
+	if err != nil || n != 1 {
+		t.Fatalf("an unchanged row reported %d affected (%v): edits would fail", n, err)
 	}
 }
 
@@ -634,23 +611,12 @@ func TestIntegrationLostTransactionIsReported(t *testing.T) {
 	}
 }
 
-func postgresFixture(t *testing.T) fixture {
-	t.Helper()
-	for _, f := range fixtures(t) {
-		if f.cfg.Engine == Postgres {
-			return f
-		}
-	}
-	t.Fatal("no Postgres fixture")
-	return fixture{}
-}
-
 // Text holding two statements is refused by the server, so a boundary the
 // splitter missed cannot run a hidden statement.
 func TestIntegrationPostgresRefusesMultiStatementExec(t *testing.T) {
 	integration(t)
 	ctx := context.Background()
-	d := open(t, postgresFixture(t))
+	d := open(t, fixtureOf(t, Postgres))
 	s, err := d.Session(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -685,7 +651,7 @@ func TestIntegrationPostgresRefusesMultiStatementExec(t *testing.T) {
 func TestIntegrationPostgresExtendedExec(t *testing.T) {
 	integration(t)
 	ctx := context.Background()
-	d := open(t, postgresFixture(t))
+	d := open(t, fixtureOf(t, Postgres))
 	s, err := d.Session(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -747,12 +713,7 @@ func TestIntegrationPostgresExtendedExec(t *testing.T) {
 func TestIntegrationClickHouseServerParams(t *testing.T) {
 	integration(t)
 	ctx := context.Background()
-	var cfg Config
-	for _, f := range fixtures(t) {
-		if f.cfg.Engine == ClickHouse {
-			cfg = f.cfg
-		}
-	}
+	cfg := fixtureOf(t, ClickHouse).cfg
 	d, err := Open(ctx, cfg, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -793,38 +754,34 @@ func TestIntegrationClickHouseServerParams(t *testing.T) {
 // lost transaction, and the session no longer counts it as open.
 func TestIntegrationTerminatedTransactionIsLost(t *testing.T) {
 	integration(t)
-	for _, f := range fixtures(t) {
-		if f.cfg.Engine != Postgres {
-			continue
-		}
-		d := open(t, f)
-		bg := context.Background()
-		s, err := d.Session(bg)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer s.Close()
-		if err := s.Begin(bg); err != nil {
-			t.Fatal(err)
-		}
-		var pid int
-		c, err := s.Query(bg, "SELECT pg_backend_pid()")
-		if err != nil {
-			t.Fatal(err)
-		}
-		rows, _ := c.Fetch(1)
-		c.Close()
-		fmt.Sscan(fmt.Sprint(rows[0][0]), &pid)
-		if _, err := d.SQL.Exec("SELECT pg_terminate_backend($1)", pid); err != nil {
-			t.Fatal(err)
-		}
-		err = s.Commit(bg)
-		if !errors.Is(err, ErrTxLost) {
-			t.Fatalf("commit error %v, want ErrTxLost", err)
-		}
-		if s.Tx() != TxNone {
-			t.Fatalf("Tx() = %v after the transaction was lost", s.Tx())
-		}
+	f := fixtureOf(t, Postgres)
+	d := open(t, f)
+	bg := context.Background()
+	s, err := d.Session(bg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.Begin(bg); err != nil {
+		t.Fatal(err)
+	}
+	var pid int
+	c, err := s.Query(bg, "SELECT pg_backend_pid()")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := c.Fetch(1)
+	c.Close()
+	fmt.Sscan(fmt.Sprint(rows[0][0]), &pid)
+	if _, err := d.SQL.Exec("SELECT pg_terminate_backend($1)", pid); err != nil {
+		t.Fatal(err)
+	}
+	err = s.Commit(bg)
+	if !errors.Is(err, ErrTxLost) {
+		t.Fatalf("commit error %v, want ErrTxLost", err)
+	}
+	if s.Tx() != TxNone {
+		t.Fatalf("Tx() = %v after the transaction was lost", s.Tx())
 	}
 }
 
@@ -835,8 +792,8 @@ func redisCluster() Config {
 		Redis: RedisConfig{Mode: RedisCluster, Nodes: "127.0.0.1:17001"}}
 }
 
-// scanAll reads every key a pattern matches.
-func scanAll(t *testing.T, k *KV, match string) []string {
+// scanKeys reads every key a pattern matches.
+func scanKeys(t *testing.T, k *KV, match string) []string {
 	t.Helper()
 	var keys []string
 	var pos ScanPos
@@ -903,7 +860,7 @@ func testCluster(t *testing.T, ctx context.Context, cfg Config, known []string) 
 			k.Do(ctx, []string{"DEL", fmt.Sprintf("dgopher-it:%d", i)})
 		}
 	}()
-	if keys := scanAll(t, k, "dgopher-it:*"); len(keys) != n {
+	if keys := scanKeys(t, k, "dgopher-it:*"); len(keys) != n {
 		t.Fatalf("scanned %d keys of %d", len(keys), n)
 	}
 	if size, err := k.DBSize(ctx); err != nil || size < n {
@@ -999,11 +956,7 @@ func TestIntegrationUsers(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, q := range append([]string{create, stmt}, grants...) {
-				if _, err := d.SQL.ExecContext(ctx, q); err != nil {
-					t.Fatal(q, err)
-				}
-			}
+			mustExec(t, d, append([]string{create, stmt}, grants...)...)
 			accounts, err := ListAccounts(ctx, d.Dialect, d.SQL)
 			if err != nil {
 				t.Fatal(err)
@@ -1046,11 +999,7 @@ func TestIntegrationUsers(t *testing.T) {
 			}
 			// Dropped although it still holds USAGE on the schema, on
 			// PostgreSQL.
-			for _, q := range DropAccountSQL(d.Dialect, ada) {
-				if _, err := d.SQL.ExecContext(ctx, q); err != nil {
-					t.Fatal(q, err)
-				}
-			}
+			mustExec(t, d, DropAccountSQL(d.Dialect, ada)...)
 		})
 	}
 }
@@ -1193,21 +1142,13 @@ func TestIntegrationRename(t *testing.T) {
 			if c.cfg.Engine == ClickHouse {
 				create += " ENGINE = Memory"
 			}
-			for _, q := range []string{"DROP TABLE IF EXISTS " + old, "DROP TABLE IF EXISTS " + renamed, create} {
-				if _, err := d.SQL.ExecContext(ctx, q); err != nil {
-					t.Fatal(q, err)
-				}
-			}
+			mustExec(t, d, "DROP TABLE IF EXISTS "+old, "DROP TABLE IF EXISTS "+renamed, create)
 			defer d.SQL.ExecContext(ctx, "DROP TABLE IF EXISTS "+renamed)
 			table, err := RenameObjectSQL(d.Dialect, Object{Schema: c.schema, Name: "it_rename", Kind: KindTable}, "it_renamed")
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, q := range []string{table, RenameColumnSQL(d.Dialect, c.schema, "it_renamed", "a", "b")} {
-				if _, err := d.SQL.ExecContext(ctx, q); err != nil {
-					t.Fatal(q, err)
-				}
-			}
+			mustExec(t, d, table, RenameColumnSQL(d.Dialect, c.schema, "it_renamed", "a", "b"))
 			cols, err := d.Dialect.Columns(ctx, d.SQL, c.schema, "it_renamed")
 			if err != nil || len(cols) != 1 || cols[0].Name != "b" {
 				t.Fatalf("columns %+v: %v", cols, err)
@@ -1246,11 +1187,7 @@ func TestIntegrationSearch(t *testing.T) {
 				create = "CREATE TABLE " + table + " (it_find_total Int32, note String) ENGINE = Memory"
 			}
 			drop := []string{"DROP VIEW IF EXISTS " + view, "DROP TABLE IF EXISTS " + table}
-			for _, q := range append(drop, create, "CREATE VIEW "+view+" AS SELECT it_find_total FROM "+table+" WHERE note = 'Zebra marker'") {
-				if _, err := d.SQL.ExecContext(ctx, q); err != nil {
-					t.Fatal(q, err)
-				}
-			}
+			mustExec(t, d, append(drop, create, "CREATE VIEW "+view+" AS SELECT it_find_total FROM "+table+" WHERE note = 'Zebra marker'")...)
 			defer func() {
 				for _, q := range drop {
 					d.SQL.ExecContext(ctx, q)
@@ -1399,10 +1336,7 @@ func TestIntegrationTableDesign(t *testing.T) {
 				t.Fatalf("%v:\n%s", err, strings.Join(ran, "\n"))
 			}
 			after := read()
-			names := make([]string, len(after.Columns))
-			for i, col := range after.Columns {
-				names[i] = col.Name
-			}
+			names := lists.Map(after.Columns, func(col ColumnDesign) string { return col.Name })
 			if !slices.Equal(names, []string{"id", "customer", "qty", "remark", "placed"}) || !strings.EqualFold(after.Columns[2].Type, c.big) ||
 				after.Columns[2].Comment != "how many" || !strings.Contains(after.Columns[3].Default, "none") || after.Comment != "the orders" ||
 				after.Columns[1].Nullable != (c.cfg.Engine == MySQL) {
@@ -1616,11 +1550,7 @@ func TestIntegrationPlans(t *testing.T) {
 			table := QualifiedName(d.Dialect, c.schema, "it_plan")
 			d.SQL.ExecContext(ctx, "DROP TABLE IF EXISTS "+table)
 			defer d.SQL.ExecContext(ctx, "DROP TABLE IF EXISTS "+table)
-			for _, q := range c.setup {
-				if _, err := d.SQL.ExecContext(ctx, q); err != nil {
-					t.Fatal(q, err)
-				}
-			}
+			mustExec(t, d, c.setup...)
 			for _, analyze := range []bool{false, true} {
 				prefix := ExplainPrefix(c.cfg.Engine, analyze)
 				if prefix == "" {
@@ -1654,10 +1584,7 @@ func TestIntegrationPlans(t *testing.T) {
 					}
 				})
 				advice := Advise(c.cfg.Engine, p)
-				var texts []string
-				for _, a := range advice {
-					texts = append(texts, a.Text)
-				}
+				texts := lists.Map(advice, func(a Advice) string { return a.Text })
 				wantAdvice := c.advice != "" && (analyze || c.cfg.Engine != Postgres)
 				if got := strings.Join(texts, "\n"); wantAdvice && !strings.Contains(strings.ToLower(got), strings.ToLower(c.advice)) {
 					t.Errorf("%s: %d steps, advice %q, want %q", prefix, steps, got, c.advice)

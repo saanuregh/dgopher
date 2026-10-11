@@ -10,6 +10,7 @@ import (
 	"dgopher/internal/datamodel"
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
+	"dgopher/internal/lists"
 	"dgopher/internal/testutil"
 	"dgopher/internal/ui/dashboard"
 	"dgopher/internal/ui/query"
@@ -36,11 +37,7 @@ func TestPaletteTabCommands(t *testing.T) {
 		t.Fatalf("the palette shows no key of Run: %q", tt.Texts())
 	}
 	titles := func() []string {
-		var out []string
-		for _, it := range a.palette.items {
-			out = append(out, it.title)
-		}
-		return out
+		return lists.Map(a.palette.items, func(it paletteItem) string { return it.title })
 	}
 	if slices.Contains(titles(), "Commit") || slices.Contains(titles(), "Refresh Rows") {
 		t.Fatalf("commands of a transaction or rows not there: %q", titles())

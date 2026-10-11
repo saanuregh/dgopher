@@ -255,19 +255,10 @@ FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER 
 	if err != nil {
 		return err
 	}
-	return scanRows(ctx, d.Catalog(), `SELECT cc.CONSTRAINT_NAME, cc.CHECK_CLAUSE
+	return readChecks(ctx, d, t, `SELECT cc.CONSTRAINT_NAME, cc.CHECK_CLAUSE
 FROM information_schema.TABLE_CONSTRAINTS tc
 JOIN information_schema.CHECK_CONSTRAINTS cc ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
-WHERE tc.TABLE_SCHEMA = ? AND tc.TABLE_NAME = ? AND tc.CONSTRAINT_TYPE = 'CHECK' ORDER BY cc.CONSTRAINT_NAME`, []any{t.Schema, t.Name},
-		func(scan func(...any) error) error {
-			var c CheckDesign
-			if err := scan(&c.Name, &c.Expression); err != nil {
-				return err
-			}
-			c.Read = true
-			t.Checks = append(t.Checks, c)
-			return nil
-		})
+WHERE tc.TABLE_SCHEMA = ? AND tc.TABLE_NAME = ? AND tc.CONSTRAINT_TYPE = 'CHECK' ORDER BY cc.CONSTRAINT_NAME`)
 }
 
 var (
@@ -294,16 +285,20 @@ func mysqlDefault(def *string, dataType, extra string) string {
 	return Literal(MySQL, *def)
 }
 
+// readChecks appends to t's checks the name and expression of each row a statement reads for t.
+func readChecks(ctx context.Context, d *DB, t *TableDesign, query string) error {
+	return scanRows(ctx, d.Catalog(), query, []any{t.Schema, t.Name}, func(scan func(...any) error) error {
+		var c CheckDesign
+		if err := scan(&c.Name, &c.Expression); err != nil {
+			return err
+		}
+		c.Read = true
+		t.Checks = append(t.Checks, c)
+		return nil
+	})
+}
+
 func readDuckDBChecks(ctx context.Context, d *DB, t *TableDesign) error {
-	return scanRows(ctx, d.Catalog(), `SELECT COALESCE(constraint_name, ''), expression FROM duckdb_constraints()
-WHERE database_name = current_database() AND schema_name = ? AND table_name = ? AND constraint_type = 'CHECK'`, []any{t.Schema, t.Name},
-		func(scan func(...any) error) error {
-			var c CheckDesign
-			if err := scan(&c.Name, &c.Expression); err != nil {
-				return err
-			}
-			c.Read = true
-			t.Checks = append(t.Checks, c)
-			return nil
-		})
+	return readChecks(ctx, d, t, `SELECT COALESCE(constraint_name, ''), expression FROM duckdb_constraints()
+WHERE database_name = current_database() AND schema_name = ? AND table_name = ? AND constraint_type = 'CHECK'`)
 }

@@ -1,10 +1,12 @@
 package dataview
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -16,6 +18,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
+	"dgopher/internal/lists"
 	"dgopher/internal/project"
 	"dgopher/internal/safety"
 	"dgopher/internal/sqltext"
@@ -168,8 +171,6 @@ func NewViewer(a Host, src ViewerSource) *Viewer {
 		v.grid.filterSQL, v.grid.clearSQL = v.addFilter, v.clearFilters
 		v.grid.valuesMenu = v.valuesMenu
 		v.grid.columnInfo, v.grid.enumValues = v.columnInfo, v.enumValues
-	}
-	if src.Reads {
 		v.grid.distinctOf = v.distinctValues
 		v.grid.groupOnServer = v.groupOnServer
 		v.grid.profileOnServer = v.profileOnServer
@@ -489,18 +490,12 @@ func (v *Viewer) selectSQL() string {
 	if v.source.Wrap {
 		q = "SELECT * FROM " + v.from()
 	}
-	if w != "" {
-		q += " WHERE " + w
-	}
+	q += whereClause(w)
 	if len(order) > 0 {
 		q += " ORDER BY " + strings.Join(order, ", ")
 	} else if key, _, err := v.keyColumns(); err == nil && !v.source.Wrap && v.source.Conn.Config.Engine != db.ClickHouse {
 		// A stable order, so that pages and edits find the same rows.
-		quoted := make([]string, len(key))
-		for i, k := range key {
-			quoted[i] = v.dialect().Quote(k)
-		}
-		q += " ORDER BY " + strings.Join(quoted, ", ")
+		q += " ORDER BY " + db.QuoteNames(v.dialect(), key)
 	}
 	return q
 }
@@ -540,17 +535,13 @@ func (v *Viewer) reload() {
 	query := v.selectSQL()
 	args := v.source.Args
 	pageSize := v.a.Settings().PageSize
-	var oldCursors []*db.Cursor
-	if v.cursor != nil {
-		oldCursors = append(oldCursors, v.cursor)
-	}
-	oldCancel := v.cancel
+	closeOld := v.closer()
 	ctx, cancel := context.WithCancel(context.Background())
 	v.cancel = cancel
 	sess, pool, database, cfg := v.source.Session(), v.source.Conn.DB, v.source.Database, v.source.Conn.Config
 	go func() {
 		defer RecoverBackground(v.a.Post, v.a.ShowError, func() { v.loading = false })
-		connection.CloseThenCancel(oldCursors, oldCancel)
+		closeOld()
 		start := time.Now()
 		var err error
 		if sess == nil {
@@ -741,10 +732,7 @@ func (v *Viewer) countRows() {
 		v.err = "Filter: " + err.Error()
 		return
 	}
-	query := "SELECT COUNT(*) FROM " + v.from()
-	if w := strings.TrimSpace(v.where); w != "" {
-		query += " WHERE " + w
-	}
+	query := "SELECT COUNT(*) FROM " + v.from() + whereClause(v.where)
 	v.counting = true
 	v.queryRows(query, v.source.Args, 1, func(_ []string, rows [][]any, err error) {
 		v.counting = false
@@ -781,20 +769,11 @@ func (v *Viewer) changes() ([]db.Statement, error) {
 	// duplicated row may hold one.
 	editable := func(col int) bool { return col < len(v.bound) && v.bound[col] != "" && v.grid.readOnlyCols[col] == "" }
 	keyValues := func(row int) []any {
-		vals := make([]any, len(key))
-		for i, k := range key {
-			vals[i] = v.src.Rows[row][colIndex[k]]
-		}
-		return vals
+		return lists.Map(key, func(k string) any { return v.src.Rows[row][colIndex[k]] })
 	}
 	edits := v.grid.edits
 	var changes []db.Change
-	rows := make([]int, 0, len(edits.updates))
-	for r := range edits.updates {
-		rows = append(rows, r)
-	}
-	sort.Ints(rows)
-	for _, r := range rows {
+	for _, r := range slices.Sorted(maps.Keys(edits.updates)) {
 		if edits.deleted[r] || len(edits.updates[r]) == 0 {
 			continue
 		}
@@ -818,12 +797,7 @@ func (v *Viewer) changes() ([]db.Statement, error) {
 		}
 		changes = append(changes, db.Change{Kind: db.ChangeInsert, Values: values})
 	}
-	deleted := make([]int, 0, len(edits.deleted))
-	for r := range edits.deleted {
-		deleted = append(deleted, r)
-	}
-	sort.Ints(deleted)
-	for _, r := range deleted {
+	for _, r := range slices.Sorted(maps.Keys(edits.deleted)) {
 		changes = append(changes, db.Change{Kind: db.ChangeDelete, Key: keyValues(r)})
 	}
 	target := &db.EditTarget{Dialect: v.dialect(), Schema: v.source.Table.Schema, Table: v.source.Table.Name, Columns: v.columns, Key: key}
@@ -1339,9 +1313,7 @@ func (v *Viewer) exportSource() ExportSource {
 // it: once no result reads rows there and nothing else runs on it. The
 // export holds it, as a count does, until it calls done.
 func (v *Viewer) lendSession() (sess *db.Session, done func(), why string) {
-	if why = v.source.CursorOpen(); why == "" {
-		why = v.sessionBusy()
-	}
+	why = cmp.Or(v.source.CursorOpen(), v.sessionBusy())
 	if sess = v.source.Session(); why != "" || sess == nil {
 		return nil, nil, why
 	}
@@ -1446,13 +1418,7 @@ func (v *Viewer) cellMenu(m *ui.Menu, row, col int) {
 
 // selectedReadRows are the chosen rows that were read, not added.
 func (v *Viewer) selectedReadRows() []int {
-	var rows []int
-	for _, r := range v.grid.selectedRows(&v.src) {
-		if r < len(v.src.Rows) {
-			rows = append(rows, r)
-		}
-	}
-	return rows
+	return slices.DeleteFunc(v.grid.selectedRows(&v.src), func(r int) bool { return r >= len(v.src.Rows) })
 }
 
 // sqlGen writes SQL for rows of the table.
@@ -1520,18 +1486,18 @@ func (v *Viewer) openTableWhere(schema, table, where string) {
 		}
 	}
 	v.a.OpenTable(v.source.Conn, v.source.Database, obj, PageData)
-	if rt, ok := v.a.ActiveTab().(*TableTab); ok && rt.view != v {
-		rv := rt.view
-		rv.where, rv.whereIn, rv.typedWhere, rv.menuFilters, rv.count = where, where, where, nil, -1
-		if rv.columns != nil {
-			rv.RequestReload()
-		}
-	}
+	v.filterActiveRef(where)
 }
 
 // openRefWhere opens the table a foreign key refers to, filtered.
 func (v *Viewer) openRefWhere(fk db.ForeignKey, where string) {
 	v.openRef(fk)
+	v.filterActiveRef(where)
+}
+
+// filterActiveRef filters the table tab just opened, when it is another
+// Viewer's, on where.
+func (v *Viewer) filterActiveRef(where string) {
 	if rt, ok := v.a.ActiveTab().(*TableTab); ok && rt.view != v {
 		rv := rt.view
 		rv.where, rv.whereIn, rv.typedWhere, rv.menuFilters, rv.count = where, where, where, nil, -1
@@ -1543,10 +1509,7 @@ func (v *Viewer) openRefWhere(fk db.ForeignKey, where string) {
 
 // openRef opens the table a foreign key refers to.
 func (v *Viewer) openRef(fk db.ForeignKey) {
-	schema := fk.RefSchema
-	if schema == "" {
-		schema = v.source.Table.Schema
-	}
+	schema := cmp.Or(fk.RefSchema, v.source.Table.Schema)
 	for _, o := range v.source.Conn.Objects[connection.SchemaKey{Database: v.source.Database, Schema: schema}] {
 		if o.Name == fk.RefTable {
 			v.a.OpenTable(v.source.Conn, v.source.Database, o, PageData)
@@ -1653,10 +1616,7 @@ func (v *Viewer) distinctValues(col int, then func([]distinctValue, error)) {
 		return
 	}
 	name := v.dialect().Quote(v.src.Cols[col].Name)
-	q := "SELECT " + name + ", count(*) AS n FROM " + v.from()
-	if w := strings.TrimSpace(v.where); w != "" {
-		q += " WHERE " + w
-	}
+	q := "SELECT " + name + ", count(*) AS n FROM " + v.from() + whereClause(v.where)
 	q += " GROUP BY " + name + " ORDER BY n DESC LIMIT " + strconv.Itoa(maxDistinct)
 	v.queryRows(q, v.source.Args, maxDistinct, func(_ []string, rows [][]any, err error) {
 		vals := make([]distinctValue, 0, len(rows))
@@ -1719,10 +1679,7 @@ func (v *Viewer) queryRows(q string, args []any, limit int, then func(cols []str
 // queryOnSession runs queryRows' statement on the session, once no result
 // reads rows there and nothing else runs on it.
 func (v *Viewer) queryOnSession(q string, args []any, limit int, then func(cols []string, rows [][]any, err error)) {
-	why := v.source.CursorOpen()
-	if why == "" {
-		why = v.sessionBusy()
-	}
+	why := cmp.Or(v.source.CursorOpen(), v.sessionBusy())
 	sess := v.source.Session()
 	if why == "" && sess == nil {
 		why = "The editor's connection is not open."
@@ -1801,15 +1758,9 @@ func (v *Viewer) groupOnServer(cols []int, then func([]groupRow, error)) {
 		then(nil, err)
 		return
 	}
-	names := make([]string, len(cols))
-	for i, c := range cols {
-		names[i] = v.dialect().Quote(v.src.Cols[c].Name)
-	}
+	names := lists.Map(cols, func(c int) string { return v.dialect().Quote(v.src.Cols[c].Name) })
 	list := strings.Join(names, ", ")
-	q := "SELECT " + list + ", count(*) AS n FROM " + v.from()
-	if w := strings.TrimSpace(v.where); w != "" {
-		q += " WHERE " + w
-	}
+	q := "SELECT " + list + ", count(*) AS n FROM " + v.from() + whereClause(v.where)
 	q += " GROUP BY " + list + " ORDER BY n DESC LIMIT 1000"
 	v.queryRows(q, v.source.Args, 1000, func(_ []string, rows [][]any, err error) {
 		var out []groupRow
@@ -1966,9 +1917,7 @@ func keyFormView(a Host, c *ui.Context) {
 			})
 		})
 	})
-	if !f.open && a.Dialogs().keyForm == f {
-		a.Dialogs().keyForm = nil
-	}
+	dropClosed(&a.Dialogs().keyForm, f, f.open)
 }
 
 func cloneSort(s ui.SortOrder) ui.SortOrder {

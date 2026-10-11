@@ -73,8 +73,13 @@ func (r *reader) done() error {
 }
 
 func decodeMsgpack(b []byte) (any, error) {
+	return readWhole(b, (*reader).msgpack)
+}
+
+// readWhole reads a value from b with read, and fails when bytes follow it.
+func readWhole(b []byte, read func(*reader, int) (any, error)) (any, error) {
 	r := &reader{b: b}
-	v, err := r.msgpack(0)
+	v, err := read(r, 0)
 	if err != nil {
 		return nil, err
 	}

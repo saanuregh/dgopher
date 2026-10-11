@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 	"dgopher/internal/safety"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
@@ -50,10 +52,7 @@ func (a *App) openBackup(cn *connection.Conn, database string, restore bool) {
 
 // what names the database the dialog works on.
 func (b *backupDialog) what() string {
-	name := b.database
-	if name == "" {
-		name = b.conn.Config.Database
-	}
+	name := cmp.Or(b.database, b.conn.Config.Database)
 	if b.conn.Config.Engine.IsFile() || name == "" {
 		return b.conn.Config.Name
 	}
@@ -161,8 +160,7 @@ func (a *App) startBackup(b *backupDialog) {
 			if restore {
 				kind, detail = audit.KindRestore, "from "+path
 			}
-			ev := audit.Event{Kind: kind, Database: database, Statement: tool.Shown(), Detail: detail, DurationMS: time.Since(started).Milliseconds()}
-			ev.Err = err
+			ev := audit.Event{Kind: kind, Database: database, Statement: tool.Shown(), Detail: detail, DurationMS: time.Since(started).Milliseconds(), Err: err}
 			a.Record(&cfg, ev)
 			return func() {
 				b.running, b.cancel = false, nil
@@ -258,10 +256,7 @@ func (a *App) backupView(c *ui.Context) {
 			ui.Form(c, func() {
 				if !b.restore {
 					if len(formats) > 1 {
-						labels := make([]string, len(formats))
-						for i, f := range formats {
-							labels[i] = f.Label()
-						}
+						labels := lists.Map(formats, db.BackupFormat.Label)
 						ui.Field(c, "Format", func() { ui.Segmented(c, &b.format, labels...).Label("Format").Disabled(b.running) })
 					}
 					if e == db.Postgres || e == db.MySQL {

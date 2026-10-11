@@ -96,14 +96,7 @@ func (t *TableTab) CloseReason() string {
 // block runs on another goroutine.
 func (t *TableTab) Close() {
 	t.closed = true
-	var cursors []*db.Cursor
-	if t.view.cursor != nil {
-		cursors = append(cursors, t.view.cursor)
-	}
-	cancel, sess := t.view.cancel, t.sess
-	if t.view.applyCancel != nil {
-		t.view.applyCancel()
-	}
+	closeCursor, sess := t.view.Release(), t.sess
 	if t.design != nil && t.design.cancel != nil {
 		t.design.cancel()
 	}
@@ -112,7 +105,7 @@ func (t *TableTab) Close() {
 	}
 	go func() {
 		defer RecoverBackground(t.a.Post, t.a.ShowError, nil)
-		connection.CloseThenCancel(cursors, cancel)
+		closeCursor()
 		if sess != nil {
 			sess.Close()
 		}

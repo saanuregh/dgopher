@@ -234,7 +234,7 @@ func sqliteRebuild(d Dialect, was, now TableDesign) (*Rebuild, error) {
 	var unique []string
 	for _, ix := range now.Indexes {
 		if ix.Constraint {
-			unique = append(unique, "UNIQUE ("+quoteNames(d, ix.Columns)+")")
+			unique = append(unique, "UNIQUE ("+QuoteNames(d, ix.Columns)+")")
 		}
 	}
 	var kept []string

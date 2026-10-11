@@ -344,9 +344,7 @@ func commitsImplicitly(e Engine, sql string, words []string) bool {
 		return wordAt(words, 1) == "TABLES" || wordAt(words, 1) == "TABLE"
 	case "INSTALL", "UNINSTALL":
 		return wordAt(words, 1) == "PLUGIN"
-	case "CACHE":
-		return wordAt(words, 1) == "INDEX"
-	case "LOAD":
+	case "CACHE", "LOAD":
 		return wordAt(words, 1) == "INDEX"
 	case "RESET":
 		return wordAt(words, 1) != "PERSIST"
@@ -509,19 +507,7 @@ func statementWords(e Engine, query string, limit int) []string {
 }
 
 // LexDialect is the lexer's dialect of an engine.
-func LexDialect(e Engine) sqltext.Dialect {
-	switch e {
-	case Postgres, DuckDB:
-		return sqltext.Postgres
-	case MySQL:
-		return sqltext.MySQL
-	case ClickHouse:
-		return sqltext.ClickHouse
-	case SQLite:
-		return sqltext.SQLite
-	}
-	return sqltext.Generic
-}
+func LexDialect(e Engine) sqltext.Dialect { return engineInfos[e].lex }
 
 // mysqlErrorNumber is the number of a MySQL server error, 0 for any other
 // error.

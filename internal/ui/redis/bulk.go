@@ -2,6 +2,7 @@ package redis
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -57,10 +58,7 @@ type bulkDialog struct {
 }
 
 func (r *Tab) openBulk(kind bulkKind) {
-	pattern := r.pattern
-	if pattern == "" {
-		pattern = "*"
-	}
+	pattern := cmp.Or(r.pattern, "*")
 	r.bulk = &bulkDialog{open: true, kind: kind, pattern: pattern}
 	if kind == bulkImport {
 		r.chooseImport(r.bulk)
@@ -206,13 +204,7 @@ func exportTo(ctx context.Context, kv *db.KV, pattern, path string, progress fun
 
 // chooseImport asks for the file of keys, then reads it.
 func (r *Tab) chooseImport(b *bulkDialog) {
-	go func() {
-		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "Import Keys"})
-		if err != nil || len(paths) == 0 {
-			return
-		}
-		r.a.Post(func() { r.readImport(b, paths[0]) })
-	}()
+	widgets.ChoosePath(r.a.Post, mygo.OpenDialogOptions{Title: "Import Keys"}, func(path string) { r.readImport(b, path) })
 }
 
 func (r *Tab) readImport(b *bulkDialog, path string) {

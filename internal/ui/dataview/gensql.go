@@ -1,11 +1,13 @@
 package dataview
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -62,10 +64,7 @@ func (s sqlGen) generate(kind string, src *Source, rows []int) string {
 	if s.key == nil && kind != "insert" {
 		note = noKeyNote
 	}
-	cols := make([]string, len(src.Cols))
-	for i, c := range src.Cols {
-		cols[i] = s.dialect.Quote(c.Name)
-	}
+	cols := lists.Map(src.Cols, func(c db.ColumnInfo) string { return s.dialect.Quote(c.Name) })
 	switch kind {
 	case "select":
 		if len(s.key) == 1 {
@@ -75,16 +74,10 @@ func (s sqlGen) generate(kind string, src *Source, rows []int) string {
 					col = i
 				}
 			}
-			var vals []string
-			for _, r := range rows {
-				vals = append(vals, s.lit(src.Rows[r][col]))
-			}
+			vals := lists.Map(rows, func(r int) string { return s.lit(src.Rows[r][col]) })
 			return "SELECT * FROM " + s.name() + " WHERE " + s.dialect.Quote(s.key[0]) + " IN (" + strings.Join(vals, ", ") + ");"
 		}
-		var conds []string
-		for _, r := range rows {
-			conds = append(conds, "("+s.match(src, r)+")")
-		}
+		conds := lists.Map(rows, func(r int) string { return "(" + s.match(src, r) + ")" })
 		return note + "SELECT * FROM " + s.name() + " WHERE " + strings.Join(conds, "\n   OR ") + ";"
 	case "insert":
 		for _, r := range rows {
@@ -150,9 +143,7 @@ func sqlDialogView(a Host, c *ui.Context) {
 			})
 		})
 	})
-	if !d.open && a.Dialogs().sqlShown == d {
-		a.Dialogs().sqlShown = nil
-	}
+	dropClosed(&a.Dialogs().sqlShown, d, d.open)
 }
 
 // template writes a statement for the table, its values as :name
@@ -165,10 +156,7 @@ func (s sqlGen) template(kind string, cols []db.ColumnInfo, fks []db.ForeignKey)
 		quoted[i], params[i] = s.dialect.Quote(c.Name), ":"+paramName(c.Name)
 	}
 	keyMatch := func() string {
-		var parts []string
-		for _, k := range s.key {
-			parts = append(parts, s.dialect.Quote(k)+" = :"+paramName(k))
-		}
+		parts := lists.Map(s.key, func(k string) string { return s.dialect.Quote(k) + " = :" + paramName(k) })
 		return strings.Join(parts, " AND ")
 	}
 	var sets, upserts []string
@@ -214,23 +202,17 @@ func (s sqlGen) template(kind string, cols []db.ColumnInfo, fks []db.ForeignKey)
 		case s.engine == db.MySQL:
 			return insert + "\nON DUPLICATE KEY UPDATE " + strings.Join(upserts, ", ") + ";"
 		}
-		keys := make([]string, len(s.key))
-		for i, k := range s.key {
-			keys[i] = s.dialect.Quote(k)
-		}
+		keys := db.QuoteNames(s.dialect, s.key)
 		if len(upserts) == 0 {
-			return insert + "\nON CONFLICT (" + strings.Join(keys, ", ") + ") DO NOTHING;"
+			return insert + "\nON CONFLICT (" + keys + ") DO NOTHING;"
 		}
-		return insert + "\nON CONFLICT (" + strings.Join(keys, ", ") + ") DO UPDATE SET " + strings.Join(upserts, ", ") + ";"
+		return insert + "\nON CONFLICT (" + keys + ") DO UPDATE SET " + strings.Join(upserts, ", ") + ";"
 	case "join":
 		var b strings.Builder
 		b.WriteString("SELECT *\nFROM " + s.name() + " t")
 		used := map[string]int{"t": 1}
 		for _, fk := range fks {
-			schema := fk.RefSchema
-			if schema == "" {
-				schema = s.schema
-			}
+			schema := cmp.Or(fk.RefSchema, s.schema)
 			// Quoted, as a table may be named as a keyword; numbered when a
 			// table is joined twice.
 			name := fk.RefTable

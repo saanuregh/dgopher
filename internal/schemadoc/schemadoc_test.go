@@ -219,7 +219,7 @@ func TestScriptErrorStaysComment(t *testing.T) {
 	s := &Schema{Engine: db.Postgres, Tables: []Table{
 		{Object: db.Object{Name: "gone\rDROP TABLE victims;", Kind: db.KindTable}, Err: "denied DROP TABLE victims;"},
 	}}
-	for _, st := range sqltext.Split(Script(s), sqltext.Postgres) {
+	for _, st := range sqltext.SplitWith(Script(s), sqltext.Postgres, sqltext.SplitOptions{}) {
 		if strings.Contains(st.Text, "DROP TABLE victims") {
 			t.Errorf("the label runs as %q", st.Text)
 		}

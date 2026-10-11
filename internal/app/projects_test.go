@@ -232,9 +232,7 @@ func TestHistoryPerProject(t *testing.T) {
 	p2, _ := a.addProject(newProjectDir(t, "two"))
 	c1 := a.addConn(p1, db.Config{Name: "a", Engine: db.SQLite, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1000, 700)
-	a.NewQueryTab(c1, "", "SELECT 1;")
-	testutil.WaitFor(t, tt, "the editor", func() bool { _, ok := a.ActiveTab().(*query.Tab); return ok })
-	q := a.ActiveTab().(*query.Tab)
+	q := newAppEditor(t, a, tt, c1, "SELECT 1;")
 	testutil.SetCaret(tt, &q.Editor, len([]rune(q.Editor.Text))-2)
 	q.Run(query.RunStatement)
 	testutil.WaitFor(t, tt, "the run", func() bool { return resultRows(tt, q, 1) })
@@ -398,8 +396,7 @@ func TestChangedCommandAsksAgain(t *testing.T) {
 // A connection the user made is theirs: it connects without a prompt.
 func TestOwnConnectionIsTrusted(t *testing.T) {
 	a := newTestApp(t)
-	file := filepath.Join(t.TempDir(), "own.sqlite")
-	os.WriteFile(file, nil, 0o600)
+	file := writeSQL(t, "own.sqlite", "")
 	a.openConnForm(nil)
 	f := a.connForm
 	f.engine, f.engineIdx = db.SQLite.Label(), 4
@@ -463,17 +460,11 @@ func TestUntouchedEditorFileIsDeleted(t *testing.T) {
 	a := newTestApp(t)
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1000, 700)
-	open := func(text string) *query.Tab {
-		n := len(a.tabs)
-		a.NewQueryTab(cn, "", text)
-		testutil.WaitFor(t, tt, "the editor", func() bool { return len(a.tabs) == n+1 })
-		return a.ActiveTab().(*query.Tab)
-	}
-	look := open("SELECT * FROM t;")
-	kept := open("")
+	look := newAppEditor(t, a, tt, cn, "SELECT * FROM t;")
+	kept := newAppEditor(t, a, tt, cn, "")
 	kept.Editor.Text += "SELECT 'kept';"
-	a.closeTab(slicesIndex(a.tabs, look))
-	a.closeTab(slicesIndex(a.tabs, kept))
+	a.closeTab(slices.Index(a.tabs, widgets.Tab(look)))
+	a.closeTab(slices.Index(a.tabs, widgets.Tab(kept)))
 	if _, err := os.Stat(look.Path); err == nil {
 		t.Fatal("an untouched editor left its file")
 	}
@@ -487,9 +478,7 @@ func TestRenameQueryFile(t *testing.T) {
 	p := a.projects[0]
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1000, 700)
-	a.NewQueryTab(cn, "", "SELECT 1;")
-	testutil.WaitFor(t, tt, "the editor", func() bool { _, ok := a.ActiveTab().(*query.Tab); return ok })
-	q := a.ActiveTab().(*query.Tab)
+	q := newAppEditor(t, a, tt, cn, "SELECT 1;")
 	old := q.Path
 	a.askRename(p, old)
 	if err := a.renaming.rename("monthly report"); err != nil {
@@ -515,24 +504,13 @@ func TestRenameQueryFile(t *testing.T) {
 	}
 }
 
-func slicesIndex(tabs []widgets.Tab, q *query.Tab) int {
-	for i, t := range tabs {
-		if t == q {
-			return i
-		}
-	}
-	return -1
-}
-
 // A file someone else wrote into is not deleted when its untouched
 // editor closes.
 func TestUntouchedEditorKeepsOthersContent(t *testing.T) {
 	a := newTestApp(t)
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1000, 700)
-	a.NewQueryTab(cn, "", "")
-	testutil.WaitFor(t, tt, "the editor", func() bool { _, ok := a.ActiveTab().(*query.Tab); return ok })
-	q := a.ActiveTab().(*query.Tab)
+	q := newAppEditor(t, a, tt, cn, "")
 	os.WriteFile(q.Path, []byte("SELECT 'someone else';"), 0o644)
 	a.closeTab(0)
 	if _, err := os.Stat(q.Path); err != nil {
@@ -644,9 +622,7 @@ func TestConflictedTextSurvivesRestart(t *testing.T) {
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	a.saveProject(a.projects[0])
 	tt := ui.NewTester(a.view, 1000, 700)
-	a.NewQueryTab(cn, "", "SELECT 1;")
-	testutil.WaitFor(t, tt, "the editor", func() bool { _, ok := a.ActiveTab().(*query.Tab); return ok })
-	q := a.ActiveTab().(*query.Tab)
+	q := newAppEditor(t, a, tt, cn, "SELECT 1;")
 	os.WriteFile(q.Path, []byte("SELECT 'pulled';"), 0o644)
 	q.Editor.Text = "SELECT 'mine';"
 	testutil.WaitFor(t, tt, "the conflict", func() bool { return q.DiskConflict != "" })
@@ -782,8 +758,7 @@ func TestRestoredEditorWaitsToConnect(t *testing.T) {
 	if _, err := a.addProject(newProjectDir(t, "p")); err != nil {
 		t.Fatal(err)
 	}
-	file := filepath.Join(t.TempDir(), "x.sqlite")
-	os.WriteFile(file, nil, 0o600)
+	file := writeSQL(t, "x.sqlite", "")
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
 	a.saveProject(a.projects[0])
 	tt := ui.NewTester(a.view, 1000, 700)
@@ -817,9 +792,7 @@ func TestRestoredEditorFollowsItsHeader(t *testing.T) {
 	addConn(a, db.Config{ID: "beta", Name: "beta", Engine: db.SQLite, Database: ":memory:"})
 	a.saveProject(a.projects[0])
 	tt := ui.NewTester(a.view, 1000, 700)
-	a.NewQueryTab(alpha, "", "SELECT 1;")
-	testutil.WaitFor(t, tt, "the editor", func() bool { _, ok := a.ActiveTab().(*query.Tab); return ok })
-	q := a.ActiveTab().(*query.Tab)
+	q := newAppEditor(t, a, tt, alpha, "SELECT 1;")
 	a.saveWorkspace(true)
 	os.WriteFile(q.Path, []byte("-- connection: beta\n\nSELECT 1;"), 0o644)
 
@@ -856,8 +829,7 @@ func TestAutoConnectAtStart(t *testing.T) {
 // ticked.
 func TestConnFormAutoConnect(t *testing.T) {
 	a := newTestApp(t)
-	file := filepath.Join(t.TempDir(), "x.sqlite")
-	os.WriteFile(file, nil, 0o600)
+	file := writeSQL(t, "x.sqlite", "")
 	a.openConnForm(nil)
 	tt := ui.NewTester(a.view, 1000, 1400)
 	tt.Frame()
@@ -904,6 +876,24 @@ func TestConnFormPages(t *testing.T) {
 	tt.Frame()
 	if tt.HasText("Network") || !tt.HasText("File") {
 		t.Fatalf("file form: %q", tt.Texts())
+	}
+}
+
+// Each commit mode loads into the form and saves back as itself; an
+// unknown one loads as the default.
+func TestCommitModeRoundTrip(t *testing.T) {
+	a := newTestApp(t)
+	for _, c := range []struct{ in, out db.CommitMode }{
+		{db.CommitDefault, db.CommitDefault},
+		{db.CommitAuto, db.CommitAuto},
+		{db.CommitManual, db.CommitManual},
+		{"sometimes", db.CommitDefault},
+	} {
+		cn := &connection.Conn{Config: db.Config{ID: "c", Name: "c", Engine: db.SQLite, Database: ":memory:", Env: db.Development, Commit: c.in}}
+		a.openConnForm(cn)
+		if got := a.connForm.config().Commit; got != c.out {
+			t.Errorf("commit %q saved as %q, want %q", c.in, got, c.out)
+		}
 	}
 }
 
@@ -965,8 +955,7 @@ func TestConnectLoadsSecretsInBackground(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt := ui.NewTester(a.view, 1000, 700)
-	file := filepath.Join(t.TempDir(), "x.sqlite")
-	os.WriteFile(file, nil, 0o600)
+	file := writeSQL(t, "x.sqlite", "")
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
 	start := time.Now()
 	a.Connect(cn, nil)
@@ -1455,8 +1444,7 @@ func TestLoweredProtectionAsks(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			a := newTestApp(t)
-			file := filepath.Join(t.TempDir(), "x.sqlite")
-			os.WriteFile(file, nil, 0o600)
+			file := writeSQL(t, "x.sqlite", "")
 			cn := addConn(a, db.Config{ID: "s", Name: "s", Engine: db.SQLite, Database: file, Env: db.Production, ReadOnly: true})
 			lower(&cn.Config)
 			a.Connect(cn, nil)
@@ -1476,8 +1464,7 @@ func TestLoweredProtectionAsks(t *testing.T) {
 func TestRaisedProtectionDoesNot(t *testing.T) {
 	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1000, 700)
-	file := filepath.Join(t.TempDir(), "x.sqlite")
-	os.WriteFile(file, nil, 0o600)
+	file := writeSQL(t, "x.sqlite", "")
 	cn := addConn(a, db.Config{ID: "s", Name: "s", Engine: db.SQLite, Database: file, Env: db.Development})
 	cn.Config.Env, cn.Config.ReadOnly = db.Production, true
 	a.Connect(cn, nil)

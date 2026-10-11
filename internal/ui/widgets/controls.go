@@ -3,6 +3,7 @@ package widgets
 import (
 	"dgopher/internal/keymap"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -111,4 +112,30 @@ func DangerButton(c *ui.Context, label string, disabled bool) ui.Element {
 // enabled.
 func Activated(c *ui.Context, b ui.Element) bool {
 	return b.Clicked() || !b.IsDisabled() && keymap.Pressed(c, keymap.ConfirmDialog)
+}
+
+// DialogFooter draws a dialog's Cancel and main buttons at its end;
+// Cancel sets *open false. It reports whether the main button was
+// activated, or submit is set.
+func DialogFooter(c *ui.Context, open *bool, action string, submit bool) bool {
+	activated := false
+	ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+		if ui.Button(c, "Cancel").Clicked() {
+			*open = false
+		}
+		activated = Activated(c, ui.PrimaryButton(c, action)) || submit
+	})
+	return activated
+}
+
+// ChoosePath asks for one path with the system's open dialog, off the UI
+// goroutine, and posts then with it when one is chosen.
+func ChoosePath(post func(func()), opts mygo.OpenDialogOptions, then func(path string)) {
+	go func() {
+		paths, err := mygo.Dialog.Open(opts)
+		if err != nil || len(paths) == 0 {
+			return
+		}
+		post(func() { then(paths[0]) })
+	}()
 }

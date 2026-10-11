@@ -1,6 +1,7 @@
 package dataview
 
 import (
+	"cmp"
 	"context"
 	"slices"
 	"strconv"
@@ -67,10 +68,7 @@ func (v *Viewer) openRefPicker(row, col int, fk db.ForeignKey) {
 	p := &refPicker{open: true, v: v, fk: fk, row: row, col: col, loading: true}
 	p.list.Selected = &p.sel
 	v.a.Dialogs().refPicker = p
-	schema := fk.RefSchema
-	if schema == "" {
-		schema = v.source.Table.Schema
-	}
+	schema := cmp.Or(fk.RefSchema, v.source.Table.Schema)
 	poolOf := v.source.Conn.PoolFor(v.source.Database)
 	BackgroundResetOnPanic(v.a, func() { p.loading = false }, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -107,16 +105,9 @@ func (p *refPicker) query() {
 			}
 		}
 	}
-	schema := p.fk.RefSchema
-	if schema == "" {
-		schema = v.source.Table.Schema
-	}
-	quoted := make([]string, len(p.cols))
-	for i, c := range p.cols {
-		quoted[i] = d.Quote(c)
-	}
+	schema := cmp.Or(p.fk.RefSchema, v.source.Table.Schema)
 	p.masked = MaskedColumns(v.source.Conn, schema, p.fk.RefTable, p.cols, v.a.Settings().ShowSensitive)
-	q := "SELECT " + strings.Join(quoted, ", ") + " FROM " + db.QualifiedName(d, schema, p.fk.RefTable)
+	q := "SELECT " + db.QuoteNames(d, p.cols) + " FROM " + db.QualifiedName(d, schema, p.fk.RefTable)
 	search := strings.TrimSpace(p.search)
 	if search != "" {
 		conds := []string{likeSQL(e, d.Quote(key), "", search, "%", false)}

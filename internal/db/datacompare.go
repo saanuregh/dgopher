@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"dgopher/internal/lists"
 )
 
 const (
@@ -212,10 +214,7 @@ func (r *RowComparison) keyText(row []any, types []string, table string) (string
 
 // keyLabel writes a row's key as the user reads it.
 func (r *RowComparison) keyLabel(row []any) string {
-	parts := make([]string, len(r.Key))
-	for i, c := range r.Key {
-		parts[i] = r.Columns[c] + " = " + Display(row[c])
-	}
+	parts := lists.Map(r.Key, func(c int) string { return r.Columns[c] + " = " + Display(row[c]) })
 	return strings.Join(parts, ", ")
 }
 
@@ -227,11 +226,7 @@ func eachRow(ctx context.Context, t CompareTable, columns []string, batch func([
 		return err
 	}
 	defer sess.Close()
-	names := make([]string, len(columns))
-	for i, c := range columns {
-		names[i] = t.DB.Dialect.Quote(c)
-	}
-	cursor, err := sess.Query(ctx, "SELECT "+strings.Join(names, ", ")+" FROM "+QualifiedName(t.DB.Dialect, t.Schema, t.Table))
+	cursor, err := sess.Query(ctx, "SELECT "+QuoteNames(t.DB.Dialect, columns)+" FROM "+QualifiedName(t.DB.Dialect, t.Schema, t.Table))
 	if err != nil {
 		return err
 	}
@@ -260,11 +255,7 @@ func eachRow(ctx context.Context, t CompareTable, columns []string, batch func([
 func (r *RowComparison) Changes(add, update, remove bool) []Change {
 	engine := r.Target.Dialect.Engine()
 	key := func(row []any) []any {
-		k := make([]any, len(r.Key))
-		for i, c := range r.Key {
-			k[i] = row[c]
-		}
-		return k
+		return lists.Map(r.Key, func(c int) any { return row[c] })
 	}
 	var out []Change
 	for _, d := range r.Differences {

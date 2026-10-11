@@ -14,12 +14,7 @@ import (
 var phpStart = regexp.MustCompile(`^(?:a:\d+:\{|s:\d+:"|i:-?\d+;|d:[-0-9.EINAF]+;|b:[01];|N;|O:\d+:"|C:\d+:"|E:\d+:")`)
 
 func decodePHP(b []byte) (any, error) {
-	r := &reader{b: b}
-	v, err := r.php(0)
-	if err != nil {
-		return nil, err
-	}
-	return v, r.done()
+	return readWhole(b, (*reader).php)
 }
 
 // until reads up to a byte, which it passes over.

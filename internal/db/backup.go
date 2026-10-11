@@ -56,19 +56,7 @@ func (f BackupFormat) Label() string {
 // BackupFormats are the forms an engine's databases are backed up in, the
 // one the app offers first first; none for ClickHouse, whose BACKUP runs
 // on the server.
-func BackupFormats(e Engine) []BackupFormat {
-	switch e {
-	case Postgres:
-		return []BackupFormat{BackupArchive, BackupSQL}
-	case MySQL:
-		return []BackupFormat{BackupSQL}
-	case SQLite:
-		return []BackupFormat{BackupCopy}
-	case DuckDB:
-		return []BackupFormat{BackupParquet}
-	}
-	return nil
-}
+func BackupFormats(e Engine) []BackupFormat { return slices.Clone(engineInfos[e].backups) }
 
 // BackupContent is what of a database a backup keeps.
 type BackupContent int

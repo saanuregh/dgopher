@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/redis/rueidis"
+
+	"dgopher/internal/lists"
 )
 
 // HasSearch reports whether the server has Redis Search: Redis 8, or the
@@ -159,10 +161,7 @@ func (k *KV) SeriesInfo(ctx context.Context, key string) (first, last time.Time,
 			var parts []string
 			for _, item := range items {
 				fields, _ := item.ToArray()
-				words := make([]string, len(fields))
-				for w, f := range fields {
-					words[w] = messageText(f)
-				}
+				words := lists.Map(fields, messageText)
 				sep := " "
 				if name == "labels" {
 					sep = "="

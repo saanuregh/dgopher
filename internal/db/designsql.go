@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"dgopher/internal/lists"
 )
 
 // NewTableChange writes the statements creating a designed table, its
@@ -19,7 +21,7 @@ func NewTableChange(d Dialect, t TableDesign) (SchemaChange, error) {
 	var unique []string
 	for _, ix := range t.Indexes {
 		if ix.Constraint {
-			s := "UNIQUE (" + quoteNames(d, ix.Columns) + ")"
+			s := "UNIQUE (" + QuoteNames(d, ix.Columns) + ")"
 			if e != SQLite && ix.Name != "" {
 				s = "CONSTRAINT " + d.Quote(ix.Name) + " " + s
 			}
@@ -58,7 +60,7 @@ func createTableSQL(d Dialect, t TableDesign, more []string) string {
 		lines = append(lines, "  "+columnSQL(d, c, inlinePK && c.PrimaryKey))
 	}
 	if len(pk) > 0 && !inlinePK && e != ClickHouse {
-		lines = append(lines, "  PRIMARY KEY ("+quoteNames(d, pk)+")")
+		lines = append(lines, "  PRIMARY KEY ("+QuoteNames(d, pk)+")")
 	}
 	for _, fk := range t.ForeignKeys {
 		lines = append(lines, "  "+foreignKeySQL(d, fk))
@@ -78,7 +80,7 @@ func createTableSQL(d Dialect, t TableDesign, more []string) string {
 	case ClickHouse:
 		order := "tuple()"
 		if len(pk) > 0 {
-			order = "(" + quoteNames(d, pk) + ")"
+			order = "(" + QuoteNames(d, pk) + ")"
 		}
 		create += " ENGINE = MergeTree ORDER BY " + order
 		if t.Comment != "" {
@@ -165,11 +167,11 @@ func AlterTableChange(d Dialect, was, now TableDesign) (SchemaChange, error) {
 		}
 	}
 	if pk := primaryKey(now); diff.primaryKeyChanged && len(pk) > 0 {
-		steps = append(steps, alter("ADD PRIMARY KEY ("+quoteNames(d, pk)+")"))
+		steps = append(steps, alter("ADD PRIMARY KEY ("+QuoteNames(d, pk)+")"))
 	}
 	for _, ix := range diff.addedIndexes {
 		if ix.Constraint && (e == Postgres || e == MySQL) {
-			steps = append(steps, alter("ADD CONSTRAINT "+d.Quote(ix.Name)+" UNIQUE ("+quoteNames(d, ix.Columns)+")"))
+			steps = append(steps, alter("ADD CONSTRAINT "+d.Quote(ix.Name)+" UNIQUE ("+QuoteNames(d, ix.Columns)+")"))
 		} else {
 			steps = append(steps, Step{SQL: createIndexSQL(d, was, ix)})
 		}
@@ -233,12 +235,8 @@ func diffDesigns(was, now TableDesign) designDiff {
 	}
 	// The key is the same when the same columns, renamed or not, make it
 	// in the same order: a column is known by the name it was read with.
-	var wasKey, nowKey []string
-	for _, c := range was.Columns {
-		if c.PrimaryKey {
-			wasKey = append(wasKey, c.Name)
-		}
-	}
+	wasKey := primaryKey(was)
+	var nowKey []string
 	for _, c := range now.Columns {
 		if c.PrimaryKey {
 			id := c.Was
@@ -418,7 +416,7 @@ func foreignKeySQL(d Dialect, fk ForeignKeyDesign) string {
 	if d.Engine() == SQLite {
 		ref = d.Quote(fk.RefTable) // SQLite's keys point within their schema
 	}
-	return s + "FOREIGN KEY (" + quoteNames(d, fk.Columns) + ") REFERENCES " + ref + " (" + quoteNames(d, fk.RefColumns) + ")" +
+	return s + "FOREIGN KEY (" + QuoteNames(d, fk.Columns) + ") REFERENCES " + ref + " (" + QuoteNames(d, fk.RefColumns) + ")" +
 		actionsSQL(fk.OnDelete, fk.OnUpdate)
 }
 
@@ -447,15 +445,12 @@ func createIndexSQL(d Dialect, t TableDesign, ix IndexDesign) string {
 	if ix.Unique {
 		s = "CREATE UNIQUE INDEX "
 	}
-	name := d.Quote(ix.Name)
+	name, table := d.Quote(ix.Name), QualifiedName(d, t.Schema, t.Name)
 	if d.Engine() == SQLite {
 		name = QualifiedName(d, t.Schema, ix.Name) // SQLite names the schema on the index
-	}
-	table := QualifiedName(d, t.Schema, t.Name)
-	if d.Engine() == SQLite {
 		table = d.Quote(t.Name)
 	}
-	return s + name + " ON " + table + " (" + quoteNames(d, ix.Columns) + ")"
+	return s + name + " ON " + table + " (" + QuoteNames(d, ix.Columns) + ")"
 }
 
 // commentsApart reports whether an engine comments on tables and columns
@@ -484,12 +479,9 @@ func primaryKey(t TableDesign) []string {
 	return out
 }
 
-func quoteNames(d Dialect, names []string) string {
-	quoted := make([]string, len(names))
-	for i, n := range names {
-		quoted[i] = d.Quote(n)
-	}
-	return strings.Join(quoted, ", ")
+// QuoteNames quotes each of names in d, joined with ", ".
+func QuoteNames(d Dialect, names []string) string {
+	return strings.Join(lists.Map(names, func(n string) string { return d.Quote(n) }), ", ")
 }
 
 // validateDesign says what in a design no engine would take, or the

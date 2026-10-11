@@ -17,6 +17,8 @@ import (
 	"github.com/klauspost/compress/s2"
 	"github.com/klauspost/compress/zstd"
 	"github.com/pierrec/lz4/v4"
+
+	"dgopher/internal/lists"
 )
 
 func unhex(t *testing.T, s string) []byte {
@@ -229,13 +231,13 @@ func (m *wholeMap) MarshalJSON() ([]byte, error) {
 		if i > 0 {
 			b.WriteByte(',')
 		}
-		key, err := marshal(k)
+		key, err := Marshal(k)
 		if err != nil {
 			return nil, err
 		}
 		b.Write(key)
 		b.WriteByte(':')
-		val, err := marshal(m.values[i])
+		val, err := Marshal(m.values[i])
 		if err != nil {
 			return nil, err
 		}
@@ -255,11 +257,7 @@ func whole(v any) any {
 		}
 		return m
 	case []any:
-		out := make([]any, len(x))
-		for i, item := range x {
-			out[i] = whole(item)
-		}
-		return out
+		return lists.Map(x, whole)
 	}
 	return v
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 
@@ -51,13 +52,7 @@ func (r *Tab) loadIndexes() {
 	s.asked, s.loading, s.err = true, true, ""
 	s.reads++
 	kv, chosen, read := r.conn.KV, s.chosen(), s.reads
-	dataview.BackgroundResetOnPanic(r.a, func() {
-		if read == s.reads {
-			s.loading = false
-		}
-	}, func() func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
+	r.loadLatest(func() bool { return read == s.reads }, &s.loading, &s.err, 30*time.Second, func(ctx context.Context) (func(), error) {
 		indexes, err := kv.SearchIndexes(ctx)
 		var info *db.SearchIndex
 		if err == nil && chosen != "" {
@@ -68,14 +63,6 @@ func (r *Tab) loadIndexes() {
 			}
 		}
 		return func() {
-			if read != s.reads {
-				return
-			}
-			s.loading = false
-			if err != nil {
-				s.err = err.Error()
-				return
-			}
 			s.indexes, s.info, s.index = indexes, info, -1
 			for i, name := range indexes {
 				if name == chosen {
@@ -85,7 +72,7 @@ func (r *Tab) loadIndexes() {
 			if s.index < 0 {
 				s.info = nil
 			}
-		}
+		}, err
 	})
 }
 
@@ -182,10 +169,7 @@ func (r *Tab) searchView(c *ui.Context) {
 				}
 				return
 			}
-			fields := make([]string, len(s.info.Fields))
-			for i, f := range s.info.Fields {
-				fields[i] = f.As + " " + f.Type
-			}
+			fields := lists.Map(s.info.Fields, func(f db.IndexField) string { return f.As + " " + f.Type })
 			ui.Text(c, fmt.Sprintf("%s keys starting %s · %s documents · %s", s.info.On, strings.Join(s.info.Prefixes, ", "), widgets.HumanCount(s.info.Docs), strings.Join(fields, ", "))).
 				FontSize(12).TextColor(pal.Muted).SingleLine().Tooltip(strings.Join(fields, ", "))
 			ui.Row(c).Gap(6).Children(func() {
@@ -203,10 +187,7 @@ func (r *Tab) searchView(c *ui.Context) {
 				row.Children(func() {
 					ui.Row(c).Gap(10).FillWidth().Children(func() {
 						ui.Text(c, h.Key).Font(widgets.MonoFont).FontSize(12).Width(220).SingleLine()
-						parts := make([]string, len(h.Fields))
-						for j, f := range h.Fields {
-							parts[j] = f[0] + "=" + f[1]
-						}
+						parts := lists.Map(h.Fields, func(f [2]string) string { return f[0] + "=" + f[1] })
 						ui.Text(c, widgets.OneLine(strings.Join(parts, "  "), 300)).Font(widgets.MonoFont).FontSize(12).TextColor(pal.Muted).SingleLine().Grow(1).Shrink(1)
 					})
 				})

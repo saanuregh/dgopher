@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"dgopher/internal/lists"
 )
 
 // Dialect selects lexing and keyword rules.
@@ -56,11 +58,7 @@ var (
 )
 
 func operatorRunes(ops []string) [][]rune {
-	out := make([][]rune, len(ops))
-	for k, op := range ops {
-		out[k] = []rune(op)
-	}
-	return out
+	return lists.Map(ops, func(op string) []rune { return []rune(op) })
 }
 
 // isIdentStart treats every rune >= 0x80 as a name character, as the servers

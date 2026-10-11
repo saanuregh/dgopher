@@ -308,9 +308,7 @@ func TestWorkspaceRestore(t *testing.T) {
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	a.saveProject(p)
 	tt := ui.NewTester(a.view, 900, 600)
-	a.NewQueryTab(cn, "", "SELECT 42;")
-	testutil.WaitFor(t, tt, "the editor", func() bool { _, ok := a.ActiveTab().(*query.Tab); return ok })
-	q := a.ActiveTab().(*query.Tab)
+	q := newAppEditor(t, a, tt, cn, "SELECT 42;")
 	want := "-- connection: lite\n\nSELECT 42;"
 	if disk, _ := os.ReadFile(q.Path); string(disk) != want || filepath.Dir(q.Path) != filepath.Join(projDir, "queries") {
 		t.Fatalf("new editor's file %s: %q", q.Path, disk)
@@ -352,8 +350,7 @@ func TestImportCSV(t *testing.T) {
 	a := newTestApp(t)
 	cn := addConn(a, testutil.PGConfig())
 	tt := ui.NewTester(a.view, 1200, 760)
-	a.Connect(cn, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	connectNow(t, a, tt, cn)
 	path := t.TempDir() + "/people.csv"
 	os.WriteFile(path, []byte("\uFEFFName,EMAIL,ignored,country\nAda,ada@csv.test,x,GB\n\"Lovelace, A.\",,y,\nGrace,grace@csv.test,z,US\n"), 0o600)
 	obj := db.Object{Schema: "shop", Name: "customers", Kind: db.KindTable}
@@ -399,23 +396,14 @@ func importNew(t *testing.T, a *App, tt *ui.Tester, cn *connection.Conn, schema,
 		edit(x)
 	}
 	a.confirmImport(x)
-	if a.confirm != nil {
-		a.confirm.OnConfirm()
-		a.confirm = nil
-	}
+	confirmIfAsked(a)
 	testutil.WaitFor(t, tt, "the import", func() bool { return !x.running })
 	return x
 }
 
 // Each format becomes a new table, its columns typed as the file's.
 func TestImportNewTables(t *testing.T) {
-	a := newTestApp(t)
-	file := filepath.Join(t.TempDir(), "x.sqlite")
-	os.WriteFile(file, nil, 0o600)
-	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
-	tt := ui.NewTester(a.view, 1200, 800)
-	a.Connect(cn, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	a, tt, cn, _ := liteApp(t, "")
 	dir := t.TempDir()
 	csv := filepath.Join(dir, "2024 Sales (EU).csv")
 	os.WriteFile(csv, []byte("id,amount,paid\n1,9.50,true\n2,3.25,false\n"), 0o600)
@@ -478,8 +466,7 @@ func TestImportNewTableServers(t *testing.T) {
 			a := newTestApp(t)
 			cn := addConn(a, cfg)
 			tt := ui.NewTester(a.view, 1200, 800)
-			a.Connect(cn, nil)
-			testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+			connectNow(t, a, tt, cn)
 			schema := map[db.Engine]string{db.Postgres: "public", db.MySQL: "shop", db.ClickHouse: "default"}[cfg.Engine]
 			table := db.QualifiedName(cn.DB.Dialect, schema, "it_orders")
 			cn.DB.SQL.Exec("DROP TABLE IF EXISTS " + table)
@@ -671,12 +658,10 @@ func TestProjectFolder(t *testing.T) {
 
 func TestKeyboard(t *testing.T) {
 	a := newTestApp(t)
-	file := t.TempDir() + "/k.sqlite"
-	os.WriteFile(file, nil, 0o600)
+	file := writeSQL(t, "k.sqlite", "")
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
 	tt := ui.NewTester(a.view, 1200, 760)
-	a.Connect(cn, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	connectNow(t, a, tt, cn)
 	cn.DB.SQL.Exec("CREATE TABLE notes (id INTEGER PRIMARY KEY, title TEXT)")
 	cn.DB.SQL.Exec("INSERT INTO notes (title) VALUES ('a'), ('b')")
 	a.NewQueryTab(cn, "", "SELECT * FROM notes;")
@@ -841,13 +826,11 @@ func TestDropFiles(t *testing.T) {
 
 func TestAuditTrail(t *testing.T) {
 	a := newTestApp(t)
-	file := t.TempDir() + "/audited.sqlite"
-	os.WriteFile(file, nil, 0o600)
+	file := writeSQL(t, "audited.sqlite", "")
 	cfg := db.Config{ID: "lite", Name: "Ledger", Engine: db.SQLite, Database: file, Env: db.Production}
 	cn := addConn(a, cfg)
 	tt := ui.NewTester(a.view, 1280, 820)
-	a.Connect(cn, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	connectNow(t, a, tt, cn)
 	a.NewQueryTab(cn, "", "CREATE TABLE accounts (id INTEGER PRIMARY KEY, owner TEXT, balance INT);")
 	testutil.WaitFor(t, tt, "tab", func() bool { return len(a.tabs) == 1 })
 	q := a.tabs[0].(*query.Tab)
@@ -877,10 +860,7 @@ func TestAuditTrail(t *testing.T) {
 	a.alert = nil
 	cn.Config = ro
 
-	events, err := a.projects[0].Audit.Read(0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	events := auditEvents(t, a)
 	kinds := map[string]int{}
 	for _, e := range events {
 		kinds[e.Kind]++
@@ -953,12 +933,10 @@ func TestProjectSecretsStayWithTheirHost(t *testing.T) {
 // its host asks before closing tabs that would lose work.
 func TestEditingAConnectionKeepsWork(t *testing.T) {
 	a := newTestApp(t)
-	file := t.TempDir() + "/k.sqlite"
-	os.WriteFile(file, nil, 0o600)
+	file := writeSQL(t, "k.sqlite", "")
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file, Env: db.Development})
 	tt := ui.NewTester(a.view, 1000, 700)
-	a.Connect(cn, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	connectNow(t, a, tt, cn)
 	q := query.New(a, cn, "", "q", "SELECT 1;")
 	q.Path, q.Saved = file+".sql", ""
 	q.DiskConflict = "changed on disk" // edits that cannot be saved
@@ -970,8 +948,7 @@ func TestEditingAConnectionKeepsWork(t *testing.T) {
 	if cn.Status != connection.StatusConnected || len(a.tabs) != 1 || cn.Config.Env != db.Production {
 		t.Fatalf("a rename disconnected: status %v, tabs %d", cn.Status, len(a.tabs))
 	}
-	other := t.TempDir() + "/other.sqlite"
-	os.WriteFile(other, nil, 0o600)
+	other := writeSQL(t, "other.sqlite", "")
 	a.openConnForm(cn)
 	a.connForm.cfg.Database = other
 	a.saveConnForm(a.connForm, false)
@@ -1069,8 +1046,7 @@ func TestSwitchConnection(t *testing.T) {
 // project file sends it elsewhere.
 func TestSharedConnectionAsksBeforeConnecting(t *testing.T) {
 	a := newTestApp(t)
-	file := t.TempDir() + "/shared.sqlite"
-	os.WriteFile(file, nil, 0o600)
+	file := writeSQL(t, "shared.sqlite", "")
 	cn := addConn(a, db.Config{ID: "s", Name: "shared", Engine: db.SQLite, Database: file})
 	a.settings.TrustedShared = nil // as if it arrived in a pull
 	tt := ui.NewTester(a.view, 1000, 700)
@@ -1100,8 +1076,7 @@ func TestSharedConnectionAsksBeforeConnecting(t *testing.T) {
 // A connect that finishes after a disconnect is dropped.
 func TestLateConnectIsDropped(t *testing.T) {
 	a := newTestApp(t)
-	file := t.TempDir() + "/late.sqlite"
-	os.WriteFile(file, nil, 0o600)
+	file := writeSQL(t, "late.sqlite", "")
 	cn := addConn(a, db.Config{ID: "late", Name: "late", Engine: db.SQLite, Database: file})
 	tt := ui.NewTester(a.view, 1000, 700)
 	a.Connect(cn, nil)
@@ -1224,8 +1199,7 @@ func TestPendingChangesDialog(t *testing.T) {
 // starts after the last answer.
 func TestPendingChangesOfTwoResults(t *testing.T) {
 	a := newTestApp(t)
-	file := t.TempDir() + "/two.sqlite"
-	os.WriteFile(file, nil, 0o600)
+	file := writeSQL(t, "two.sqlite", "")
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
 	tt := ui.NewTester(a.view, 1280, 800)
 	a.Connect(cn, nil)
@@ -1329,10 +1303,7 @@ func runFile(t *testing.T, a *App, tt *ui.Tester, cn *connection.Conn, path stri
 		edit(x)
 	}
 	a.confirmSQLFile(x)
-	if a.confirm != nil {
-		a.confirm.OnConfirm()
-		a.confirm = nil
-	}
+	confirmIfAsked(a)
 	testutil.WaitFor(t, tt, "the run", func() bool { return !x.running })
 	return x
 }
@@ -1340,13 +1311,7 @@ func runFile(t *testing.T, a *App, tt *ui.Tester, cn *connection.Conn, path stri
 // A file of SQL runs without an editor: read through once to say what it
 // holds and ask once, then run as it streams; all or nothing when asked.
 func TestRunSQLFile(t *testing.T) {
-	a := newTestApp(t)
-	file := filepath.Join(t.TempDir(), "x.sqlite")
-	os.WriteFile(file, nil, 0o600)
-	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
-	tt := ui.NewTester(a.view, 1200, 800)
-	a.Connect(cn, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	a, tt, cn, _ := liteApp(t, "")
 	var b strings.Builder
 	b.WriteString("CREATE TABLE gone (a int);\nDROP TABLE gone;\nCREATE TABLE t (id integer primary key, note text);\n")
 	for i := range 3000 {
@@ -1372,10 +1337,7 @@ func TestRunSQLFile(t *testing.T) {
 		t.Fatalf("run: %q, %d rows, %d statements", x.err, n, x.done.Load())
 	}
 	var script, drops int
-	events, err := a.projects[0].Audit.Read(0)
-	if err != nil {
-		t.Fatal(err)
-	}
+	events := auditEvents(t, a)
 	for _, e := range events {
 		if e.Kind == audit.KindScript && strings.Contains(e.Detail, "sha256 "+x.hash) && e.Rows == 3000 {
 			script++
@@ -1415,8 +1377,7 @@ func TestRunPostgresDump(t *testing.T) {
 	a := newTestApp(t)
 	cn := addConn(a, testutil.PGConfig())
 	tt := ui.NewTester(a.view, 1200, 800)
-	a.Connect(cn, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	connectNow(t, a, tt, cn)
 	cn.DB.SQL.Exec(`DROP TABLE IF EXISTS public.it_dump`)
 	defer cn.DB.SQL.Exec(`DROP TABLE IF EXISTS public.it_dump`)
 	dump := "\\restrict k\n\nSET client_encoding = 'UTF8';\nCREATE TABLE public.it_dump (a integer, b text);\n\nCOPY public.it_dump (a, b) FROM stdin;\n1\tsemi; colon\n2\t\\N\n\\.\n\n\\unrestrict k\n"
@@ -1517,8 +1478,7 @@ func TestMaintenanceOnProduction(t *testing.T) {
 	cfg.Env = db.Production
 	cn := addConn(a, cfg)
 	tt := ui.NewTester(a.view, 1200, 800)
-	a.Connect(cn, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	connectNow(t, a, tt, cn)
 	cmds := maintenanceCommands(db.Postgres, db.QualifiedName(cn.DB.Dialect, "shop", "orders"))
 	vacuum := cmds[slices.IndexFunc(cmds, func(m maintenance) bool { return m.label == "Vacuum and Analyze" })]
 	a.runInEditor(cn, "", vacuum.sql)
@@ -1535,13 +1495,7 @@ func TestMaintenanceOnProduction(t *testing.T) {
 // A table and a column are renamed from the navigator, through the
 // policy: at once in development, once agreed on production.
 func TestRenameInDatabase(t *testing.T) {
-	a := newTestApp(t)
-	file := filepath.Join(t.TempDir(), "x.sqlite")
-	os.WriteFile(file, nil, 0o600)
-	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file, Env: db.Development})
-	tt := ui.NewTester(a.view, 1200, 800)
-	a.Connect(cn, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	a, tt, cn, _ := liteApp(t, db.Development)
 	if _, err := cn.DB.SQL.Exec(`CREATE TABLE orders (id INTEGER PRIMARY KEY, total REAL)`); err != nil {
 		t.Fatal(err)
 	}
@@ -1581,13 +1535,7 @@ func TestRenameInDatabase(t *testing.T) {
 // The search of a database finds objects by name, and views by their
 // query, and opens what it found.
 func TestSearchObjects(t *testing.T) {
-	a := newTestApp(t)
-	file := filepath.Join(t.TempDir(), "x.sqlite")
-	os.WriteFile(file, nil, 0o600)
-	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
-	tt := ui.NewTester(a.view, 1200, 800)
-	a.Connect(cn, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	a, tt, cn, _ := liteApp(t, "")
 	for _, q := range []string{`CREATE TABLE invoices (id INTEGER PRIMARY KEY, customer TEXT)`,
 		`CREATE VIEW unpaid AS SELECT id FROM invoices WHERE customer = 'acme'`} {
 		if _, err := cn.DB.SQL.Exec(q); err != nil {
@@ -1620,13 +1568,7 @@ func TestSearchObjects(t *testing.T) {
 // The generate dialog writes the script of the objects chosen into an
 // editor, in an order that runs.
 func TestGenerateScript(t *testing.T) {
-	a := newTestApp(t)
-	file := filepath.Join(t.TempDir(), "x.sqlite")
-	os.WriteFile(file, nil, 0o600)
-	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
-	tt := ui.NewTester(a.view, 1200, 800)
-	a.Connect(cn, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	a, tt, cn, _ := liteApp(t, "")
 	for _, q := range []string{`CREATE TABLE lines (order_id INTEGER REFERENCES orders (id))`,
 		`CREATE TABLE orders (id INTEGER PRIMARY KEY)`, `CREATE TABLE scratch (x)`} {
 		if _, err := cn.DB.SQL.Exec(q); err != nil {
@@ -1662,8 +1604,7 @@ func TestCatalogQueries(t *testing.T) {
 	a := newTestApp(t)
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1200, 800)
-	a.Connect(cn, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	connectNow(t, a, tt, cn)
 	connection.LoadObjects(a, cn, "", "main")
 	testutil.WaitFor(t, tt, "the tables", func() bool { _, ok := cn.Objects[connection.SchemaKey{Schema: "main"}]; return ok })
 	a.openCatalogQueries(cn)
@@ -1677,8 +1618,7 @@ func TestSideBySide(t *testing.T) {
 	a := newTestApp(t)
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1300, 800)
-	a.Connect(cn, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	connectNow(t, a, tt, cn)
 	left := query.New(a, cn, "", "left", "SELECT 'left one';")
 	right := query.New(a, cn, "", "right", "SELECT 'right one';")
 	a.AddTab(right)
@@ -1715,13 +1655,7 @@ func TestSideBySide(t *testing.T) {
 // A SQLite database backs up as a copy, audited; a SQL file restores as
 // Run SQL File runs it.
 func TestBackup(t *testing.T) {
-	a := newTestApp(t)
-	file := filepath.Join(t.TempDir(), "x.sqlite")
-	os.WriteFile(file, nil, 0o600)
-	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
-	tt := ui.NewTester(a.view, 1200, 800)
-	a.Connect(cn, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	a, tt, cn, _ := liteApp(t, "")
 	cn.DB.SQL.Exec(`CREATE TABLE t (a INT)`)
 	a.openBackup(cn, "", false)
 	b := a.backup
@@ -1776,10 +1710,7 @@ func copyTables(t *testing.T, a *App, tt *ui.Tester, from *connection.Conn, sche
 	x.target.schema, x.mode = toSchema, mode
 	tt.Frame()
 	a.startCopy(x)
-	if a.confirm != nil {
-		a.confirm.OnConfirm()
-		a.confirm = nil
-	}
+	confirmIfAsked(a)
 	testutil.WaitFor(t, tt, "the copy", func() bool { return !x.running && (x.done || x.err != "") })
 	return x
 }
@@ -1788,21 +1719,15 @@ func copyTables(t *testing.T, a *App, tt *ui.Tester, from *connection.Conn, sche
 // or into one there already, their rows added or replaced.
 func TestCopyTables(t *testing.T) {
 	a := newTestApp(t)
-	file := filepath.Join(t.TempDir(), "x.sqlite")
-	os.WriteFile(file, nil, 0o600)
+	file := writeSQL(t, "x.sqlite", "")
 	lite := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
 	duck := addConn(a, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1200, 800)
 	for _, cn := range []*connection.Conn{lite, duck} {
-		a.Connect(cn, nil)
-		testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+		connectNow(t, a, tt, cn)
 	}
-	for _, q := range []string{`CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, price REAL, sold BOOLEAN, at DATE, raw BLOB)`,
-		`INSERT INTO items VALUES (1, 'pen', 1.5, 1, '2026-01-31', x'0102'), (2, 'ink', NULL, 0, NULL, NULL)`} {
-		if _, err := lite.DB.SQL.Exec(q); err != nil {
-			t.Fatal(q, err)
-		}
-	}
+	mustExec(t, lite.DB, `CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, price REAL, sold BOOLEAN, at DATE, raw BLOB)`,
+		`INSERT INTO items VALUES (1, 'pen', 1.5, 1, '2026-01-31', x'0102'), (2, 'ink', NULL, 0, NULL, NULL)`)
 	x := copyTables(t, a, tt, lite, "main", []string{"items"}, duck, "main", copyCreate)
 	testutil.Snapshot(t, tt, "copy-tables")
 	if x.err != "" {
@@ -1838,8 +1763,7 @@ func TestCopyTablesAcrossServers(t *testing.T) {
 	ch := addConn(a, db.Config{ID: "ch", Name: "ch", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher", Env: db.Development})
 	tt := ui.NewTester(a.view, 1200, 800)
 	for _, cn := range []*connection.Conn{pg, my, ch} {
-		a.Connect(cn, nil)
-		testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+		connectNow(t, a, tt, cn)
 	}
 	drop := func() {
 		pg.DB.SQL.Exec(`DROP TABLE IF EXISTS public.it_copy`)
@@ -1848,12 +1772,8 @@ func TestCopyTablesAcrossServers(t *testing.T) {
 	}
 	drop()
 	defer drop()
-	for _, q := range []string{`CREATE TABLE public.it_copy (id int PRIMARY KEY, amount numeric(10,2), at timestamptz, ok boolean, note text)`,
-		`INSERT INTO public.it_copy VALUES (1, 12345678.91, '2026-01-31 10:20:30.123456+00', true, 'it''s'), (2, NULL, NULL, NULL, NULL)`} {
-		if _, err := pg.DB.SQL.Exec(q); err != nil {
-			t.Fatal(q, err)
-		}
-	}
+	mustExec(t, pg.DB, `CREATE TABLE public.it_copy (id int PRIMARY KEY, amount numeric(10,2), at timestamptz, ok boolean, note text)`,
+		`INSERT INTO public.it_copy VALUES (1, 12345678.91, '2026-01-31 10:20:30.123456+00', true, 'it''s'), (2, NULL, NULL, NULL, NULL)`)
 	for _, c := range []struct {
 		to     *connection.Conn
 		schema string
@@ -1951,16 +1871,11 @@ func TestNavigatorItems(t *testing.T) {
 	a := newTestApp(t)
 	cn := addConn(a, testutil.PGConfig())
 	tt := ui.NewTester(a.view, 1200, 900)
-	a.Connect(cn, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
-	for _, q := range []string{"DROP SCHEMA IF EXISTS it_nav CASCADE", "CREATE SCHEMA it_nav",
+	connectNow(t, a, tt, cn)
+	mustExec(t, cn.DB, "DROP SCHEMA IF EXISTS it_nav CASCADE", "CREATE SCHEMA it_nav",
 		"CREATE FUNCTION it_nav.twice(a int) RETURNS int LANGUAGE sql AS 'SELECT a * 2'",
 		"CREATE TABLE it_nav.events (id int, at date) PARTITION BY RANGE (at)",
-		"CREATE TABLE it_nav.events_2026 PARTITION OF it_nav.events FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')"} {
-		if _, err := cn.DB.SQL.Exec(q); err != nil {
-			t.Fatal(q, err)
-		}
-	}
+		"CREATE TABLE it_nav.events_2026 PARTITION OF it_nav.events FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')")
 	defer cn.DB.SQL.Exec("DROP SCHEMA IF EXISTS it_nav CASCADE")
 	a.refresh(cn)
 	schema := navNode{kind: nodeSchema, conn: cn.Config.ID, schema: "it_nav"}
@@ -2002,27 +1917,17 @@ func TestPartitionTemplate(t *testing.T) {
 // made as the first's, in one transaction, or open as SQL.
 func TestCompareRows(t *testing.T) {
 	a := newTestApp(t)
-	file := filepath.Join(t.TempDir(), "x.sqlite")
-	os.WriteFile(file, nil, 0o600)
+	file := writeSQL(t, "x.sqlite", "")
 	lite := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
 	duck := addConn(a, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1200, 800)
 	for _, cn := range []*connection.Conn{lite, duck} {
-		a.Connect(cn, nil)
-		testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+		connectNow(t, a, tt, cn)
 	}
-	for _, q := range []string{`CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, secret_token TEXT)`,
-		`INSERT INTO items VALUES (1, 'pen', 'a'), (2, 'ink', 'b'), (3, 'pad', 'c')`} {
-		if _, err := lite.DB.SQL.Exec(q); err != nil {
-			t.Fatal(q, err)
-		}
-	}
-	for _, q := range []string{`CREATE TABLE items (id INTEGER PRIMARY KEY, name VARCHAR, secret_token VARCHAR)`,
-		`INSERT INTO items VALUES (1, 'pen', 'a'), (2, 'quill', 'z'), (4, 'nib', 'd')`} {
-		if _, err := duck.DB.SQL.Exec(q); err != nil {
-			t.Fatal(q, err)
-		}
-	}
+	mustExec(t, lite.DB, `CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, secret_token TEXT)`,
+		`INSERT INTO items VALUES (1, 'pen', 'a'), (2, 'ink', 'b'), (3, 'pad', 'c')`)
+	mustExec(t, duck.DB, `CREATE TABLE items (id INTEGER PRIMARY KEY, name VARCHAR, secret_token VARCHAR)`,
+		`INSERT INTO items VALUES (1, 'pen', 'a'), (2, 'quill', 'z'), (4, 'nib', 'd')`)
 	a.openRowCompare(lite, "", db.Object{Schema: "main", Name: "items", Kind: db.KindTable})
 	x := a.rowCompare
 	x.target.label = targetLabel(duck)
@@ -2095,10 +2000,7 @@ func fillTable(t *testing.T, a *App, tt *ui.Tester, cn *connection.Conn, schema,
 	}
 	tt.Frame()
 	a.startFill(x)
-	if a.confirm != nil {
-		a.confirm.OnConfirm()
-		a.confirm = nil
-	}
+	confirmIfAsked(a)
 	testutil.WaitFor(t, tt, "the fill", func() bool { return !x.running })
 	return x
 }
@@ -2116,21 +2018,15 @@ func queryInt(t *testing.T, d *db.DB, q string) int {
 // ranges, foreign keys taking the values of the table they refer to.
 func TestFillTables(t *testing.T) {
 	a := newTestApp(t)
-	file := filepath.Join(t.TempDir(), "x.sqlite")
-	os.WriteFile(file, nil, 0o600)
+	file := writeSQL(t, "x.sqlite", "")
 	lite := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
 	tt := ui.NewTester(a.view, 1200, 800)
-	a.Connect(lite, nil)
-	testutil.WaitFor(t, tt, "connect", func() bool { return lite.Status == connection.StatusConnected })
-	for _, q := range []string{
+	connectNow(t, a, tt, lite)
+	mustExec(t, lite.DB,
 		`PRAGMA foreign_keys = ON`,
 		`CREATE TABLE customers (id INTEGER PRIMARY KEY, email TEXT NOT NULL UNIQUE, name VARCHAR(12), age INTEGER, born DATE, active BOOLEAN, note TEXT)`,
 		`CREATE TABLE orders (code TEXT PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customers (id), total NUMERIC(6,2))`,
-	} {
-		if _, err := lite.DB.SQL.Exec(q); err != nil {
-			t.Fatal(q, err)
-		}
-	}
+	)
 	x := fillTable(t, a, tt, lite, "main", "orders", "5", nil)
 	if !strings.Contains(x.err, "no rows to refer to") {
 		t.Fatalf("orders without customers: %q", x.err)
@@ -2188,8 +2084,7 @@ func TestFillTablesOnServers(t *testing.T) {
 	my := addConn(a, db.Config{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop", Env: db.Development})
 	tt := ui.NewTester(a.view, 1200, 800)
 	for _, cn := range []*connection.Conn{pg, my} {
-		a.Connect(cn, nil)
-		testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+		connectNow(t, a, tt, cn)
 	}
 	setup := map[*connection.Conn][]string{
 		pg: {`DROP TABLE IF EXISTS public.it_fill`, `DROP TYPE IF EXISTS it_mood`, `CREATE TYPE it_mood AS ENUM ('calm', 'busy')`,
@@ -2216,4 +2111,14 @@ func TestFillTablesOnServers(t *testing.T) {
 	pg.DB.SQL.Exec(`DROP TABLE IF EXISTS public.it_fill`)
 	pg.DB.SQL.Exec(`DROP TYPE IF EXISTS it_mood`)
 	my.DB.SQL.Exec(`DROP TABLE IF EXISTS shop.it_fill`)
+}
+
+// A command's words read back as a shell would split them: plain words
+// stay bare, anything else is single-quoted.
+func TestCommandText(t *testing.T) {
+	got := commandText([]string{"pg_dump", "--host=db.example.com", "-U", "user@x", "a b", "it's", "", "naïve", "50%", "$HOME", "a,b+c:d", "x;y"})
+	want := `pg_dump --host=db.example.com -U user@x 'a b' 'it'\''s' '' 'naïve' 50% '$HOME' a,b+c:d 'x;y'`
+	if got != want {
+		t.Fatalf("commandText:\n got %s\nwant %s", got, want)
+	}
 }

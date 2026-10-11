@@ -3,6 +3,8 @@ package editor
 import (
 	"strings"
 	"testing"
+
+	"github.com/egoist/mygo/ui"
 )
 
 // keys splits typed keys into tokens: a rune each, a <name> whole.
@@ -178,5 +180,39 @@ func TestVimPromptAndModes(t *testing.T) {
 	v.typeIn("<Esc>d")
 	if v.Status() != "d" {
 		t.Fatalf("pending %q", v.Status())
+	}
+}
+
+// The Edit menu's commands are the Vim keys they stand for; copy and cut
+// only in Visual mode.
+func TestVimEditMenu(t *testing.T) {
+	cases := []struct{ command, keys string }{
+		{"undo", "u"}, {"redo", "<C-r>"}, {"paste", "P"}, {"copy", "y"}, {"cut", "d"},
+		{"selectAll", "<Esc>ggVG"}, {"find", ""},
+	}
+	for _, mode := range []string{"", "v", "V"} {
+		for _, c := range cases {
+			want := c.keys
+			if mode == "" && (c.command == "copy" || c.command == "cut") {
+				want = ""
+			}
+			on := func() (*Editor, *string) {
+				v, clip := vimOn("se|lect a\nfrom t")
+				*clip = "pasted"
+				v.typeIn("xu<C-r>" + mode + "l")
+				return &Editor{Text: string(v.Text), Vim: v}, clip
+			}
+			got, gotClip := on()
+			took := got.vimInput(ui.InputEvent{Kind: ui.InputCommand, Text: c.command}, 16)
+			fed, fedClip := on()
+			fed.vimFeed(keys(want), 16)
+			gs, ge := got.Vim.Selection()
+			fs, fe := fed.Vim.Selection()
+			if took != (want != "") || got.Text != fed.Text || got.Vim.Caret != fed.Vim.Caret || got.Vim.Mode != fed.Vim.Mode ||
+				*gotClip != *fedClip || gs != fs || ge != fe {
+				t.Errorf("%q in mode %q: took %v, text %q caret %d mode %v clip %q; want as keys %q: text %q caret %d mode %v clip %q",
+					c.command, mode, took, got.Text, got.Vim.Caret, got.Vim.Mode, *gotClip, want, fed.Text, fed.Vim.Caret, fed.Vim.Mode, *fedClip)
+			}
+		}
 	}
 }

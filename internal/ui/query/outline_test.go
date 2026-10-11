@@ -21,10 +21,7 @@ func TestOutline(t *testing.T) {
 
 // ⌘⇧O lists the statements; one chosen puts the caret at its start.
 func TestGoToStatement(t *testing.T) {
-	a := newFakeQueryHost(t)
-	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
-	tt := ui.NewTester(a.view, 1000, 700)
-	q := newEditor(t, a, tt, cn, "SELECT 1;\n\nSELECT 2;\n\n-- the third\nSELECT 3;")
+	a, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "SELECT 1;\n\nSELECT 2;\n\n-- the third\nSELECT 3;")
 	tt.Key(ui.Cmd|ui.Shift, ui.KeyO)
 	tt.Frame()
 	d := a.QueryDialogs().outline

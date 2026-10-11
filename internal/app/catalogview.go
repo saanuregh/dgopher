@@ -7,6 +7,7 @@ import (
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 	"dgopher/internal/redact"
 	"dgopher/internal/ui/widgets"
 
@@ -110,10 +111,7 @@ func (a *App) catalogQueriesView(c *ui.Context) {
 			e := shown[v.sel]
 			text := v.redactedSQL(e.SQL)
 			if len(e.Args) > 0 {
-				args := make([]string, len(e.Args))
-				for i, arg := range e.Args {
-					args[i] = db.Display(arg)
-				}
+				args := lists.Map(e.Args, db.Display)
 				text += "\n-- arguments: " + strings.Join(args, ", ")
 			}
 			if e.Err != "" {

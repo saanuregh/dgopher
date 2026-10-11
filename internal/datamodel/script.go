@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 	"dgopher/internal/sqltext"
 )
 
@@ -215,10 +216,7 @@ func convert(from, to db.Engine, t db.TableDesign, inPlace bool, n *notes) db.Ta
 			}
 		}
 		if len(t.Checks) > 0 {
-			names := make([]string, len(t.Checks))
-			for i, ch := range t.Checks {
-				names[i] = checkName(ch)
-			}
+			names := lists.Map(t.Checks, checkName)
 			n.add(fmt.Sprintf("%s's checks are written in %s's SQL, and are left out: %s.", t.Name, from.Label(), strings.Join(names, ", ")))
 			t.Checks = nil
 		}

@@ -89,19 +89,17 @@ WHERE instr(lower(name), ?) > 0 OR (? AND instr(lower(def), ?) > 0)`
 		return nil, false, nil
 	}
 	query += " ORDER BY 1, 3, 4 LIMIT " + strconv.Itoa(SearchLimit+1)
-	var hits []SearchHit
-	err := scanRows(ctx, d.Catalog(), query, args, func(scan func(...any) error) error {
+	hits, err := scanAll(ctx, d.Catalog(), query, args, func(scan func(...any) error) (SearchHit, error) {
 		var h SearchHit
 		var tableKind, def string
 		if err := scan(&h.Schema, &h.Kind, &h.Name, &h.Table, &tableKind, &h.Detail, &h.ID, &def); err != nil {
-			return err
+			return h, err
 		}
 		h.TableKind = ObjectKind(tableKind)
 		if !strings.Contains(strings.ToLower(h.Name), text) {
 			h.Excerpt = excerpt(def, text)
 		}
-		hits = append(hits, h)
-		return nil
+		return h, nil
 	})
 	if len(hits) > SearchLimit {
 		return hits[:SearchLimit], true, err

@@ -11,6 +11,7 @@ import (
 
 	"dgopher/internal/audit"
 	"dgopher/internal/db"
+	"dgopher/internal/lists"
 	"dgopher/internal/redact"
 	"dgopher/internal/safety"
 	"dgopher/internal/secretcmd"
@@ -252,13 +253,7 @@ func storeHistory(cfg db.Config, sql string, d time.Duration, err error) store.H
 
 // chooseCommandFile asks for a file of commands, then runs it.
 func (r *Tab) chooseCommandFile() {
-	go func() {
-		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "Run Commands File"})
-		if err != nil || len(paths) == 0 {
-			return
-		}
-		r.a.Post(func() { r.runCommandFile(paths[0]) })
-	}()
+	widgets.ChoosePath(r.a.Post, mygo.OpenDialogOptions{Title: "Run Commands File"}, r.runCommandFile)
 }
 
 // runCommandFile runs a file of commands in the console, one after the
@@ -381,9 +376,5 @@ func (r *Tab) logConsole(lines ...consoleLine) {
 // replyLines is a reply as the console shows it, a line each.
 func replyLines(out any) []consoleLine {
 	split := strings.Split(db.FormatReply(out), "\n")
-	lines := make([]consoleLine, len(split))
-	for i, l := range split {
-		lines[i] = consoleLine{text: l}
-	}
-	return lines
+	return lists.Map(split, func(l string) consoleLine { return consoleLine{text: l} })
 }

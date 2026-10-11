@@ -65,18 +65,15 @@ func (it Item) Label() string {
 // scanItems reads items from a statement giving kind, name, table, detail
 // and ID, in that order.
 func scanItems(ctx context.Context, q Querier, schema, query string, args ...any) ([]Item, error) {
-	var out []Item
-	err := scanRows(ctx, q, query, args, func(scan func(...any) error) error {
+	return scanAll(ctx, q, query, args, func(scan func(...any) error) (Item, error) {
 		it := Item{Schema: schema}
 		var kind string
 		if err := scan(&kind, &it.Name, &it.Table, &it.Detail, &it.ID); err != nil {
-			return err
+			return it, err
 		}
 		it.Kind = ItemKind(kind)
-		out = append(out, it)
-		return nil
+		return it, nil
 	})
-	return out, err
 }
 
 // errNoDefinition is the error of an item kind a dialect cannot write the

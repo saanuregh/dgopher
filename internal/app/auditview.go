@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -195,10 +196,7 @@ func (a *App) auditViewer(c *ui.Context) {
 					ui.Text(c, e.Connection).FontSize(12.5).SingleLine()
 				})
 			case 3:
-				what := e.Statement
-				if what == "" {
-					what = e.Detail
-				}
+				what := cmp.Or(e.Statement, e.Detail)
 				txt := ui.Text(c, widgets.OneLine(what, 200)).FontSize(12).Font(widgets.MonoFont).SingleLine()
 				if e.Error != "" {
 					txt.TextColor(widgets.RowColor(c, th.Danger, chosen))

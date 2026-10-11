@@ -24,11 +24,6 @@ func init() {
 	}
 }
 
-// Format is FormatWith in BlankLineAndSemicolon mode.
-func Format(src string, d Dialect) string {
-	return FormatWith(src, d, SplitOptions{Mode: BlankLineAndSemicolon})
-}
-
 // FormatWith pretty-prints SQL conservatively. It only changes whitespace and
 // keyword case; every other token is emitted unchanged and in order. Each
 // statement found by SplitWith is formatted separately, with one blank line
