@@ -6,8 +6,10 @@ import (
 	"log"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"dgopher/internal/audit"
+	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/project"
 	"dgopher/internal/redact"
@@ -27,19 +29,7 @@ func (a *App) record(cfg *db.Config, e audit.Event) (*project.Project, audit.Eve
 	if p == nil {
 		return nil, e
 	}
-	if cfg != nil {
-		e.Connection, e.ConnectionID = cfg.Name, cfg.ID
-		e.Engine, e.Environment = string(cfg.Engine), string(cfg.Env)
-		if e.Database == "" {
-			e.Database = cfg.Database
-		}
-	}
-	if e.Err != nil && e.Error == "" {
-		e.Error = secretcmd.AuditText(e.Err)
-	}
-	e = e.WithOrigin()
-	e.Error = redact.Error(redact.Error(e.Error, e.Statement), e.Typed)
-	e.Statement, e.Typed, e.Params = redact.Secrets(e.Statement), redact.Secrets(e.Typed), redact.Secrets(e.Params)
+	e = sealed(cfg, e.WithOrigin())
 	if p.Audit != nil {
 		seq, err := p.Audit.Record(e)
 		if err != nil {
@@ -74,6 +64,80 @@ func (a *App) RecordTyped(cfg db.Config, t audit.TypedRun) {
 	if err := p.Local.AppendHistory(h); err != nil {
 		log.Println("history:", err)
 	}
+}
+
+// sealed is an event as the audit log keeps it: with its connection, and
+// its secrets redacted.
+func sealed(cfg *db.Config, e audit.Event) audit.Event {
+	if cfg != nil {
+		e.Connection, e.ConnectionID = cfg.Name, cfg.ID
+		e.Engine, e.Environment = string(cfg.Engine), string(cfg.Env)
+		e.Database = cmp.Or(e.Database, cfg.Database)
+	}
+	if e.Err != nil && e.Error == "" {
+		e.Error = secretcmd.AuditText(e.Err)
+	}
+	e.Error = redact.Error(redact.Error(e.Error, e.Statement), e.Typed)
+	e.Statement, e.Typed, e.Params = redact.Secrets(e.Statement), redact.Secrets(e.Typed), redact.Secrets(e.Params)
+	return e
+}
+
+// relabel has an open connection's traffic recorded under its name, ID
+// and environment as they are now, changed without connecting again.
+func relabel(cn *connection.Conn) {
+	if cn.DB != nil {
+		cn.DB.RecordAs(cn.Config)
+	}
+	if cn.KV != nil {
+		cn.KV.RecordAs(cn.Config)
+	}
+}
+
+// trafficTextMax is how many bytes of a statement sent the traffic
+// keeps: a large import's statements would otherwise fill the log with
+// their values.
+const trafficTextMax = 4096
+
+// recordSent keeps what a connection sent as its project's audit traffic,
+// redacted as it is written, not as it is sent; the values sent apart are
+// counted, not kept.
+func (a *App) recordSent(cfg *db.Config, s db.Sent) {
+	p := a.projectOf(cfg)
+	if p == nil || p.Audit == nil {
+		return
+	}
+	connConfig := *cfg
+	if s.Redis != nil {
+		// Each argument is redacted on its own, so it may be cut first:
+		// a large value is not kept, nor redacted whole.
+		for i, arg := range s.Redis {
+			s.Redis[i] = cutText(arg)
+		}
+	}
+	p.Audit.Traffic(func() audit.Event {
+		e := audit.Event{Database: s.Database, Statement: s.Text, DurationMS: s.Took.Milliseconds(), Err: s.Err}
+		if s.Args > 0 {
+			e.Params = fmt.Sprintf("%d sent apart", s.Args)
+		}
+		if s.Redis != nil {
+			e.Statement = redact.Redis(s.Redis)
+		}
+		e = sealed(&connConfig, e)
+		e.Statement = cutText(e.Statement)
+		return e
+	})
+}
+
+// cutText keeps the first trafficTextMax bytes of text, and its length.
+func cutText(text string) string {
+	if len(text) <= trafficTextMax {
+		return text
+	}
+	cut := trafficTextMax
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return fmt.Sprintf("%s… (%d bytes)", text[:cut], len(text))
 }
 
 // connectionSummary describes the settings of a connection that matter to

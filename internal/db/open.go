@@ -25,14 +25,14 @@ import (
 	"dgopher/internal/sshtunnel"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	_ "github.com/duckdb/duckdb-go/v2"
+	"github.com/duckdb/duckdb-go/v2"
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgconn/ctxwatch"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/otan/gopgkrb5"
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
 )
 
 // appName is how the app introduces itself to servers that ask.
@@ -44,6 +44,10 @@ type DB struct {
 	Config  Config
 	Dialect Dialect
 	SQL     *sql.DB
+
+	// who is the connection the pool's sends are recorded as, shared with
+	// the pools of its other databases.
+	who *sendsAs
 
 	// route is the local port the driver reaches the server by, through
 	// an SSH tunnel or a proxy, nil when it connects directly; the DB
@@ -203,7 +207,13 @@ func Open(ctx context.Context, cfg Config, knownHosts []string) (*DB, error) {
 	return d, nil
 }
 
+// openWith opens the pool of a connection's own database.
 func openWith(ctx context.Context, cfg Config, ep endpoint, r route) (*DB, error) {
+	return openWire(ctx, cfg, ep, r, wire{who: newSendsAs(cfg), engine: cfg.Engine})
+}
+
+// openWire opens a pool that records its sends as w's.
+func openWire(ctx context.Context, cfg Config, ep endpoint, r route, w wire) (*DB, error) {
 	tc, err := tlsConfig(&cfg, ep.serverName)
 	if err != nil {
 		return nil, err
@@ -213,19 +223,19 @@ func openWith(ctx context.Context, cfg Config, ep endpoint, r route) (*DB, error
 	single := false
 	switch cfg.Engine {
 	case Postgres:
-		sqldb, err = openPostgres(cfg, ep, tc)
+		sqldb, err = openPostgres(cfg, ep, tc, w)
 	case MySQL:
-		sqldb, mysqlConnector, err = openMySQL(cfg, ep, tc)
+		sqldb, mysqlConnector, err = openMySQL(cfg, ep, tc, w)
 	case ClickHouse:
 		if cfg.TLS == TLSPrefer && !speaksTLS(ctx, ep, tc) {
 			tc = nil
 		}
-		sqldb = openClickHouse(cfg, ep, tc)
+		sqldb = openClickHouse(cfg, ep, tc, w)
 	case SQLite:
-		sqldb, err = openSQLite(cfg)
+		sqldb, err = openSQLite(cfg, w)
 		single = isMemory(cfg.Database)
 	case DuckDB:
-		sqldb, err = openDuckDB(cfg)
+		sqldb, err = openDuckDB(cfg, w)
 		single = true
 	}
 	if err != nil {
@@ -245,7 +255,7 @@ func openWith(ctx context.Context, cfg Config, ep endpoint, r route) (*DB, error
 		sqldb.Close()
 		return nil, redact(err, cfg)
 	}
-	d := &DB{Config: cfg, Dialect: DialectOf(cfg.Engine), SQL: sqldb, route: r, single: single, mysqlConnector: mysqlConnector, used: new(atomic.Int64)}
+	d := &DB{Config: cfg, Dialect: DialectOf(cfg.Engine), SQL: sqldb, who: w.who, route: r, single: single, mysqlConnector: mysqlConnector, used: new(atomic.Int64)}
 	d.touch()
 	switch {
 	case cfg.Engine == Postgres, cfg.Engine == MySQL && cfg.TLS == TLSPrefer:
@@ -287,7 +297,7 @@ func negotiatedTLS(ctx context.Context, sqldb *sql.DB, e Engine) string {
 	defer conn.Close()
 	state := ""
 	conn.Raw(func(dc any) error {
-		if c, ok := dc.(*stdlib.Conn); ok {
+		if c, ok := driverConn(dc).(*stdlib.Conn); ok {
 			_, on := c.Conn().PgConn().Conn().(*tls.Conn)
 			state = tlsWord(on)
 		}
@@ -309,12 +319,12 @@ func init() {
 	})
 }
 
-func openPostgres(cfg Config, ep endpoint, tc *tls.Config) (*sql.DB, error) {
+func openPostgres(cfg Config, ep endpoint, tc *tls.Config, w wire) (*sql.DB, error) {
 	pc, err := postgresConfig(cfg, ep, tc)
 	if err != nil {
 		return nil, err
 	}
-	var opts []stdlib.OptionOpenDB
+	opts := []stdlib.OptionOpenDB{stdlib.OptionShouldPing(postgresShouldPing)}
 	if cfg.Identity != "" {
 		opts = append(opts, stdlib.OptionBeforeConnect(func(ctx context.Context, cc *pgx.ConnConfig) error {
 			token, err := identityToken(ctx, cfg)
@@ -322,7 +332,7 @@ func openPostgres(cfg Config, ep endpoint, tc *tls.Config) (*sql.DB, error) {
 			return err
 		}))
 	}
-	return stdlib.OpenDB(*pc, opts...), nil
+	return sql.OpenDB(w.connector(stdlib.GetConnector(*pc, opts...))), nil
 }
 
 // postgresConfig is the pgx configuration of a connection, made of the
@@ -419,7 +429,7 @@ func osUserName() string {
 
 // openMySQL returns the pool of a MySQL server, and the connector that
 // makes its connections.
-func openMySQL(cfg Config, ep endpoint, tc *tls.Config) (*sql.DB, driver.Connector, error) {
+func openMySQL(cfg Config, ep endpoint, tc *tls.Config, w wire) (*sql.DB, driver.Connector, error) {
 	mc := mysql.NewConfig()
 	mc.User = cfg.User
 	mc.Passwd = cfg.Password
@@ -452,18 +462,21 @@ func openMySQL(cfg Config, ep endpoint, tc *tls.Config) (*sql.DB, driver.Connect
 	if err := mc.Apply(mysql.BeforeConnect(beforeConnect)); err != nil {
 		return nil, nil, err
 	}
+	var onConnect []string
 	if cfg.ReadOnly {
 		// Sent as SET on every new connection.
 		mc.Params = map[string]string{"transaction_read_only": "1"}
+		onConnect = append(onConnect, "SET transaction_read_only = 1")
 	}
-	conn, err := mysql.NewConnector(mc)
+	inner, err := mysql.NewConnector(mc)
 	if err != nil {
 		return nil, nil, err
 	}
+	conn := w.connector(inner, onConnect...)
 	return sql.OpenDB(conn), conn, nil
 }
 
-func openClickHouse(cfg Config, ep endpoint, tc *tls.Config) *sql.DB {
+func openClickHouse(cfg Config, ep endpoint, tc *tls.Config, w wire) *sql.DB {
 	opt := &clickhouse.Options{
 		Addr: []string{net.JoinHostPort(ep.host, strconv.Itoa(ep.port))},
 		Auth: clickhouse.Auth{
@@ -485,7 +498,10 @@ func openClickHouse(cfg Config, ep endpoint, tc *tls.Config) *sql.DB {
 		// 2: reads, and changes of settings, which the driver makes.
 		opt.Settings = clickhouse.Settings{"readonly": 2}
 	}
-	return clickhouse.OpenDB(opt)
+	sqldb := sql.OpenDB(w.connector(clickhouse.Connector(opt)))
+	// The driver's default, which its OpenDB gives the pool too.
+	sqldb.SetConnMaxLifetime(time.Hour)
+	return sqldb
 }
 
 // clickhouseTransport makes ClickHouse's HTTP transport go only to addr,
@@ -533,7 +549,7 @@ func (d *DB) Database(ctx context.Context, name string) (*DB, error) {
 	cfg.Database = name
 	ep := endpoint{serverName: cfg.Host}
 	ep.host, ep.port = d.Address()
-	other, err := openWith(ctx, cfg, ep, d.route)
+	other, err := openWire(ctx, cfg, ep, d.route, wire{who: d.who, engine: cfg.Engine, database: name})
 	if err != nil {
 		return nil, err
 	}
@@ -625,7 +641,7 @@ func ExpandPath(p string) string {
 	return p
 }
 
-func openSQLite(cfg Config) (*sql.DB, error) {
+func openSQLite(cfg Config, w wire) (*sql.DB, error) {
 	path := ExpandPath(cfg.Database)
 	q := url.Values{}
 	q.Add("_pragma", "busy_timeout(5000)")
@@ -649,7 +665,11 @@ func openSQLite(cfg Config) (*sql.DB, error) {
 	} else {
 		dsn += "?" + q.Encode()
 	}
-	return sql.Open("sqlite", dsn)
+	connector, err := sqlite.NewConnector(dsn)
+	if err != nil {
+		return nil, err
+	}
+	return sql.OpenDB(w.connector(connector)), nil
 }
 
 // CreateFile makes an empty database of a file engine at path. A file
@@ -682,7 +702,7 @@ func CreateFile(ctx context.Context, e Engine, path string) error {
 	return fmt.Errorf("%s keeps no database in a file", e.Label())
 }
 
-func openDuckDB(cfg Config) (*sql.DB, error) {
+func openDuckDB(cfg Config, w wire) (*sql.DB, error) {
 	path := ExpandPath(cfg.Database)
 	if path != ":memory:" && !cfg.ReadOnly {
 		if _, err := os.Stat(path); err != nil {
@@ -698,7 +718,11 @@ func openDuckDB(cfg Config) (*sql.DB, error) {
 	if cfg.ReadOnly {
 		dsn = path + "?access_mode=READ_ONLY"
 	}
-	return sql.Open("duckdb", dsn)
+	connector, err := duckdb.NewConnector(dsn, nil)
+	if err != nil {
+		return nil, err
+	}
+	return sql.OpenDB(w.connector(connector)), nil
 }
 
 // speaksTLS reports whether the server completes a TLS handshake, which

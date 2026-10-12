@@ -24,6 +24,8 @@ import (
 type KV struct {
 	Config Config
 	Client rueidis.Client
+	// who is the connection the client's commands are recorded as.
+	who    *sendsAs
 	tunnel *sshtunnel.Tunnel
 	// readOnly holds the names of the server's read-only commands, from
 	// COMMAND; nil when the server does not list them.
@@ -146,13 +148,14 @@ func OpenRedis(ctx context.Context, cfg Config, knownHosts []string) (*KV, error
 		}
 		ch <- dialed{client, err}
 	}()
+	who := newSendsAs(cfg)
 	var client rueidis.Client
 	select {
 	case d := <-ch:
 		if d.err != nil {
 			return fail(d.err)
 		}
-		client = d.client
+		client = wiredClient{d.client, who}
 	case <-pctx.Done():
 		go func() {
 			if d := <-ch; d.client != nil {
@@ -169,7 +172,7 @@ func OpenRedis(ctx context.Context, cfg Config, knownHosts []string) (*KV, error
 		client.Close()
 		return fail(err)
 	}
-	k := &KV{Config: cfg, Client: client, tunnel: tunnel, tlsState: tlsWord(tc != nil),
+	k := &KV{Config: cfg, Client: client, who: who, tunnel: tunnel, tlsState: tlsWord(tc != nil),
 		dial: func(ctx context.Context, addr string) (net.Conn, error) { return dialNode(ctx, dialTCP, addr, tc) }}
 	// Each COMMAND entry is [name, arity, flags, ...].
 	if cmds, err := client.Do(pctx, client.B().Command().Build()).ToArray(); err == nil {

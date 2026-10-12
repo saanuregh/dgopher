@@ -36,7 +36,7 @@ func TestKerberosProvider(t *testing.T) {
 	}()
 	port := l.Addr().(*net.TCPAddr).Port
 	cfg := Config{Name: "k", Engine: Postgres, Host: "127.0.0.1", Port: port, User: "alice", Database: "x"}
-	sqldb, err := openPostgres(cfg, endpoint{host: "127.0.0.1", port: port, serverName: "127.0.0.1"}, nil)
+	sqldb, err := openPostgres(cfg, endpoint{host: "127.0.0.1", port: port, serverName: "127.0.0.1"}, nil, wire{who: newSendsAs(cfg), engine: cfg.Engine})
 	if err != nil {
 		t.Fatal(err)
 	}

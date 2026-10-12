@@ -1025,6 +1025,7 @@ func (a *App) finishConnForm(f *connForm, cfg db.Config, connect bool) {
 	}
 	untrusted := f.editing != nil && !a.trusted(f.editing)
 	cn.Config = cfg
+	relabel(cn)
 	// Typed here: the user chose where it goes and what it runs. A
 	// connection from the file that is only renamed is not.
 	if !untrusted || reconnectNeeded(f.loaded, cfg) {

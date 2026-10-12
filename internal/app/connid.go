@@ -176,6 +176,7 @@ func (a *App) renameConn(cn *connection.Conn, id string) error {
 	}
 	a.deleteSecrets(&was)
 	a.moveTrust(&was, &renamed, p.Dir)
+	relabel(cn)
 
 	errs := []error{localErr}
 	errs = append(errs, a.renameInQueries(p, old, id)...)

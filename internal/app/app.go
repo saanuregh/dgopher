@@ -165,6 +165,7 @@ func newApp(st *store.Store, uiState *state.DB) *App {
 	}
 	a.appKnownHosts = filepath.Join(st.Dir(), "known_hosts")
 	a.recordProjects = map[string]*project.Project{}
+	db.SetOnSend(a.recordSent)
 	a.nav.init()
 	// Before the editors are restored, which take its height above their
 	// results.

@@ -883,8 +883,9 @@ func TestAuditTrail(t *testing.T) {
 			t.Errorf("no %s entry: %v", k, kinds)
 		}
 	}
-	if v, err := a.projects[0].Audit.Verify(); err != nil || v.Broken != 0 {
-		t.Fatalf("verify: %+v %v", v, err)
+	whole, err := a.projects[0].Audit.Verify()
+	if err != nil || whole.Broken != 0 {
+		t.Fatalf("verify: %+v %v", whole, err)
 	}
 	a.openAudit()
 	testutil.WaitFor(t, tt, "audit viewer", func() bool { return len(a.history.audit.events) == len(events) })
@@ -894,7 +895,7 @@ func TestAuditTrail(t *testing.T) {
 	if err := tt.Click("Verify Integrity"); err != nil {
 		t.Fatal(err)
 	}
-	testutil.WaitFor(t, tt, "the check", func() bool { return tt.HasText(fmt.Sprintf("✓ Chain intact: %d entries", len(events))) })
+	testutil.WaitFor(t, tt, "the check", func() bool { return tt.HasText(fmt.Sprintf("✓ Chain intact: %d entries", whole.Entries)) })
 	a.projects[0].Local.SQL().Exec("UPDATE audit SET event = replace(event, 'Ledger', 'Ledgr') WHERE seq = 2")
 	tt.Click("Verify Integrity")
 	testutil.WaitFor(t, tt, "the broken chain", func() bool {
@@ -1683,7 +1684,7 @@ func TestSideBySide(t *testing.T) {
 		t.Fatalf("after focusing the side: active %v, side %v, left %v", a.ActiveTab(), a.tabs.Side(), a.tabs.SideLeft())
 	}
 	ran := func(sql string) bool {
-		events, _ := cn.Project.Audit.Read(0)
+		events, _ := cn.Project.Audit.Read(0, false)
 		return slices.ContainsFunc(events, func(e audit.Event) bool { return strings.Contains(e.Statement, sql) })
 	}
 	tt.Key(ui.Cmd, ui.KeyEnter)
@@ -1718,7 +1719,7 @@ func TestBackup(t *testing.T) {
 	if _, err := os.Stat(b.path); err != nil {
 		t.Fatal(err)
 	}
-	events, _ := cn.Project.Audit.Read(0)
+	events, _ := cn.Project.Audit.Read(0, false)
 	if last := events[0]; last.Kind != audit.KindBackup || !strings.Contains(last.Statement, "VACUUM INTO") {
 		t.Fatalf("audited %+v", last)
 	}
@@ -1913,7 +1914,7 @@ func TestUsersTab(t *testing.T) {
 		return !ut.loading && !slices.ContainsFunc(ut.accounts, func(acc db.Account) bool { return acc.Name == "dgopher_it_grace" })
 	})
 
-	events, _ := a.projects[0].Audit.Read(0)
+	events, _ := a.projects[0].Audit.Read(0, true)
 	for _, e := range events {
 		if strings.Contains(e.Statement, secret) || strings.Contains(e.Detail, secret) {
 			t.Fatalf("the audit log holds the password: %+v", e)

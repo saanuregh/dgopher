@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
@@ -117,7 +118,7 @@ func TestProjectLocalStateIsIgnored(t *testing.T) {
 	if h, _ := p.Local.History(0); len(h) != 1 || p.Local.LoadJSON(workspaceFile, &ws) != nil {
 		t.Errorf("history %v, workspace %s", h, ws)
 	}
-	if events, _ := p.Audit.Read(0); len(events) != 1 {
+	if events, _ := p.Audit.Read(0, false); len(events) != 1 {
 		t.Errorf("audit %v", events)
 	}
 	entries, _ := os.ReadDir(a.st.Dir())
@@ -209,7 +210,7 @@ func TestAuditGoesToTheConnectionsProject(t *testing.T) {
 		p    *project.Project
 		want string
 	}{{p1, "one"}, {p2, "two"}} {
-		events, err := tc.p.Audit.Read(0)
+		events, err := tc.p.Audit.Read(0, false)
 		if err != nil || len(events) != 1 || !strings.Contains(events[0].Statement, tc.want) {
 			t.Fatalf("%s: %+v %v", tc.p.Name, events, err)
 		}
@@ -221,7 +222,7 @@ func TestAuditGoesToTheConnectionsProject(t *testing.T) {
 		t.Fatal("the state file of a removed project is still open")
 	}
 	a.Record(&c1.Config, audit.Event{Kind: audit.KindStatement, Statement: "SELECT 'late'"})
-	if events, _ := p2.Audit.Read(0); len(events) != 1 {
+	if events, _ := p2.Audit.Read(0, false); len(events) != 1 {
 		t.Fatalf("an entry went to another project: %+v", events)
 	}
 }
@@ -1150,7 +1151,7 @@ func TestAuditAfterReload(t *testing.T) {
 		t.Fatalf("not reloaded: %+v", q)
 	}
 	a.Record(&a.conns[0].Config, audit.Event{Kind: audit.KindStatement, Statement: "SELECT 'after'"})
-	events, err := q.Audit.Read(0)
+	events, err := q.Audit.Read(0, false)
 	if err != nil || len(events) < 2 || !strings.Contains(events[0].Statement, "after") {
 		t.Fatalf("%+v %v", events, err)
 	}
@@ -1746,7 +1747,7 @@ func TestRecordErrNotAudited(t *testing.T) {
 	cn := addConn(a, db.Config{ID: "r", Name: "r", Engine: db.Redis, Host: "127.0.0.1", Port: 1})
 	a.Record(&cn.Config, audit.Event{Kind: audit.KindBackup, Detail: "to a file",
 		Err: fmt.Errorf("backup: %w", &secretcmd.CommandError{Command: "pg_dump", Status: 2, Stderr: "refused hunter2"})})
-	events, err := a.projects[0].Audit.Read(1)
+	events, err := a.projects[0].Audit.Read(1, false)
 	if err != nil || len(events) != 1 {
 		t.Fatalf("read %d events: %v", len(events), err)
 	}
@@ -1787,7 +1788,7 @@ func TestRecordTypedLinksHistoryToAudit(t *testing.T) {
 	a.RecordTyped(cfg, audit.TypedRun{Kind: audit.KindStatement, Sent: "SELECT 2", Err: err, History: true})
 	a.RecordTyped(cfg, audit.TypedRun{Kind: audit.KindStatement, Sent: "SELECT 3"})
 	h, _ := p.Local.History(0)
-	events, _ := p.Audit.Read(0)
+	events, _ := p.Audit.Read(0, false)
 	if len(h) != 2 || len(events) != 3 {
 		t.Fatalf("history %+v, audit %+v", h, events)
 	}
@@ -1856,5 +1857,97 @@ func TestHistoryOfUnreadProject(t *testing.T) {
 	tt.Frame()
 	if a.closing != nil || !tt.HasText("The project could not be read: dgopher.json: not valid JSON") {
 		t.Fatalf("clearing an unread project's history was offered: %+v", a.closing)
+	}
+}
+
+// Every statement a connection sends is its project's traffic, the
+// editor's and the app's own reads alike, redacted, in order before what
+// is recorded after it.
+func TestEverySendIsTraffic(t *testing.T) {
+	a := newTestApp(t)
+	p := a.projects[0]
+	cn := a.addConn(p, db.Config{Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1000, 700)
+	q := newAppEditor(t, a, tt, cn, "SELECT 41 + 1 AS v;")
+	testutil.SetCaret(tt, &q.Editor, len([]rune(q.Editor.Text))-2)
+	q.Run(query.RunStatement)
+	testutil.WaitFor(t, tt, "the run", func() bool { return resultRows(tt, q, 1) })
+	a.recordSent(&cn.Config, db.Sent{Text: "ALTER USER u PASSWORD 'hunter2'", Args: 2})
+	a.recordSent(&cn.Config, db.Sent{Redis: []string{"AUTH", "u", "hunter2"}})
+	a.recordSent(&cn.Config, db.Sent{Text: "INSERT INTO t VALUES " + strings.Repeat("('é'),", 2000)})
+	events, err := p.Audit.Read(0, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sent, typed int64
+	for _, e := range events {
+		if strings.Contains(e.Statement, "hunter2") {
+			t.Errorf("a secret reached the traffic: %q", e.Statement)
+		}
+		switch {
+		case e.Kind == audit.KindTraffic && e.Statement == "SELECT 41 + 1 AS v" && e.Connection == "lite" && e.ConnectionID == cn.Config.ID:
+			sent = e.Seq
+		case e.Kind == audit.KindStatement && e.Statement == "SELECT 41 + 1 AS v":
+			typed = e.Seq
+		case e.Kind == audit.KindTraffic && strings.HasPrefix(e.Statement, "ALTER USER") && e.Params != "2 sent apart":
+			t.Errorf("values sent apart: %+v", e)
+		}
+	}
+	if long := events[0].Statement; len(long) > trafficTextMax+40 || !strings.HasSuffix(long, "… (14021 bytes)") || !utf8.ValidString(long) {
+		t.Errorf("a long statement kept as %d bytes: …%q", len(long), long[max(0, len(long)-40):])
+	}
+	if sent == 0 || typed == 0 || sent > typed {
+		t.Fatalf("traffic entry %d, typed entry %d: %+v", sent, typed, events)
+	}
+	if shown, _ := p.Audit.Read(0, false); slices.ContainsFunc(shown, func(e audit.Event) bool { return e.Kind == audit.KindTraffic }) {
+		t.Fatal("traffic read without asking for it")
+	}
+	if v, err := p.Audit.Verify(); err != nil || !v.Intact() {
+		t.Fatalf("%+v %v", v, err)
+	}
+}
+
+// The audit log hides traffic until its box is ticked.
+func TestAuditTrafficToggle(t *testing.T) {
+	a := newTestApp(t)
+	p := a.projects[0]
+	cfg := db.Config{ID: p.Prefix + "pg", Name: "pg", Engine: db.Postgres}
+	a.recordSent(&cfg, db.Sent{Text: "SELECT relname FROM pg_class", Took: 3 * time.Millisecond})
+	a.recordSent(&cfg, db.Sent{Text: "-- ping"})
+	a.RecordTyped(cfg, audit.TypedRun{Kind: audit.KindStatement, Sent: "SELECT 1"})
+	tt := ui.NewTester(a.view, 1200, 800)
+	a.openAudit()
+	v := a.history.audit
+	testutil.WaitFor(t, tt, "the log", func() bool { return v.read })
+	if len(v.events) != 1 {
+		t.Fatalf("traffic shown before it was asked for: %+v", v.events)
+	}
+	if err := tt.Click("Traffic"); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WaitFor(t, tt, "the traffic", func() bool { return len(v.events) == 3 })
+	tt.Frame()
+	if !tt.HasText("SELECT relname FROM pg_class") {
+		t.Fatal("the traffic does not show")
+	}
+	testutil.Snapshot(t, tt, "audit-traffic")
+}
+
+// A connection renamed while connected sends under its new name.
+func TestTrafficFollowsRename(t *testing.T) {
+	a := newTestApp(t)
+	p := a.projects[0]
+	cn := a.addConn(p, db.Config{Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1000, 700)
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "the connection", func() bool { return cn.DB != nil })
+	cn.Config.Name, cn.Config.Env = "ledger", db.Production
+	relabel(cn)
+	if _, err := cn.DB.SQL.Exec("SELECT 1"); err != nil {
+		t.Fatal(err)
+	}
+	events, _ := p.Audit.Read(1, true)
+	if len(events) != 1 || events[0].Connection != "ledger" || events[0].Environment != string(db.Production) {
+		t.Fatalf("%+v", events)
 	}
 }

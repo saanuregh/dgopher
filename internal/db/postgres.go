@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -21,7 +22,7 @@ import (
 func execExtended(ctx context.Context, conn *sql.Conn, query string) (int64, error) {
 	var tag pgconn.CommandTag
 	err := conn.Raw(func(dc any) error {
-		c, ok := dc.(*stdlib.Conn)
+		c, ok := driverConn(dc).(*stdlib.Conn)
 		if !ok {
 			return fmt.Errorf("unexpected PostgreSQL driver connection %T", dc)
 		}
@@ -30,7 +31,9 @@ func execExtended(ctx context.Context, conn *sql.Conn, query string) (int64, err
 			return driver.ErrBadConn
 		}
 		var err error
+		start := time.Now()
 		tag, err = pc.ExecParams(ctx, query, nil, nil, nil, nil).Close()
+		recordOn(dc, query, start, err)
 		if err != nil && pgconn.SafeToRetry(err) {
 			return driver.ErrBadConn
 		}
@@ -57,12 +60,14 @@ func (s *Session) CopyFrom(ctx context.Context, query string, data io.Reader) (i
 	wasTx := s.txState()
 	var tag pgconn.CommandTag
 	err := s.conn.Raw(func(dc any) error {
-		c, ok := dc.(*stdlib.Conn)
+		c, ok := driverConn(dc).(*stdlib.Conn)
 		if !ok {
 			return fmt.Errorf("unexpected PostgreSQL driver connection %T", dc)
 		}
 		var err error
+		start := time.Now()
 		tag, err = c.Conn().PgConn().CopyFrom(ctx, data, query)
+		recordOn(dc, query, start, err)
 		return err
 	})
 	if err != nil {
