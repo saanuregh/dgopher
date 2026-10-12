@@ -509,13 +509,22 @@ func (g *Grid) cell(c *ui.Context, a Host, src *Source, viewRow, data, col int) 
 		box.Background(ui.Hex(color).Alpha(0.45))
 	}
 	if g.edits != nil {
+		// A chosen row's accent hides the faint tints: there, the edit
+		// shows in the theme's own color.
+		chosen := g.selection.Has(data)
+		tint := func(faint, strong ui.Color) ui.Color {
+			if chosen {
+				return strong.Alpha(0.55)
+			}
+			return faint
+		}
 		switch {
 		case data >= len(src.Rows):
-			box.Background(pal.Inserted)
+			box.Background(tint(pal.Inserted, t.Success))
 		case g.edits.deleted[data]:
-			box.Background(pal.Deleted)
+			box.Background(tint(pal.Deleted, t.Danger))
 		case changed:
-			box.Background(pal.Modified)
+			box.Background(tint(pal.Modified, t.Warning))
 		}
 	}
 	box.Children(func() {

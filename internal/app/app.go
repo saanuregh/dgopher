@@ -905,7 +905,8 @@ type pendingAsk struct {
 type closeRequest struct {
 	open          bool
 	title, reason string
-	// action is the button that agrees, "Close" when empty.
+	// action is the button that agrees, "Close" when empty; with txs, the
+	// buttons roll back or commit and then do it.
 	action  string
 	onClose func()
 	// txs are the open transactions closing would end: the dialog offers
@@ -939,13 +940,18 @@ func (a *App) losses(conns ...*connection.Conn) []string {
 // requestDisconnect runs then, which disconnects, once the user agrees to
 // lose what the tabs of the connections hold and to stop the work running
 // on them; at once when there is none.
-func (a *App) requestDisconnect(title string, conns []*connection.Conn, then func()) {
+func (a *App) requestDisconnect(title, action string, conns []*connection.Conn, then func()) {
 	lost := a.losses(conns...)
 	if len(lost) == 0 {
 		then()
 		return
 	}
-	a.closing = &closeRequest{open: true, title: title, reason: strings.Join(lost, "\n\n"), onClose: then, txs: a.openTxTabs(conns...)}
+	a.closing = &closeRequest{open: true, title: title, reason: strings.Join(lost, "\n\n"), action: action, onClose: then, txs: a.openTxTabs(conns...)}
+}
+
+// askDisconnect disconnects cn once the user agrees to what it loses.
+func (a *App) askDisconnect(cn *connection.Conn) {
+	a.requestDisconnect("Disconnect "+cn.Config.Name+"?", "Disconnect", []*connection.Conn{cn}, func() { a.disconnect(cn) })
 }
 
 // requestQuit reports whether the app may quit now. When tabs would lose
@@ -956,7 +962,7 @@ func (a *App) requestQuit(quit func()) bool {
 		return true
 	}
 	if a.closing == nil {
-		a.requestDisconnect("Quit DGopher?", a.conns, func() {
+		a.requestDisconnect("Quit DGopher?", "Quit", a.conns, func() {
 			a.quitting = true
 			quit()
 		})

@@ -124,7 +124,7 @@ func (a *App) adoptProject(p *project.Project, pc project.Config, i int) {
 // removeProject takes a project off the sidebar, once its tabs may close.
 // Its folder is not touched.
 func (a *App) removeProject(p *project.Project) {
-	a.requestDisconnect("Remove "+p.Name+" from the sidebar?", a.projectConns(p), func() { a.dropProject(p) })
+	a.requestDisconnect("Remove "+p.Name+" from the sidebar?", "Remove", a.projectConns(p), func() { a.dropProject(p) })
 }
 
 // dropProject forgets a project: its connections, tabs and audit log.
@@ -154,7 +154,7 @@ func (a *App) dropProject(p *project.Project) int {
 // reloadProject reads a project's folder again, as after a git pull,
 // once its tabs may close.
 func (a *App) reloadProject(p *project.Project) {
-	a.requestDisconnect("Reload "+p.Name+"?", a.projectConns(p), func() {
+	a.requestDisconnect("Reload "+p.Name+"?", "Reload", a.projectConns(p), func() {
 		i := a.dropProject(p)
 		q, pc, err := project.Load(p.Dir, false)
 		if err != nil {

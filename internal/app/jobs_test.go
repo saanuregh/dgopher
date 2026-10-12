@@ -418,7 +418,7 @@ func TestDisconnectCancelsJobs(t *testing.T) {
 	a, tt, cn, file := liteApp(t, db.Development)
 	x := startLongFile(t, a, tt, cn)
 	pool := cn.DB
-	a.requestDisconnect("Disconnect lite?", []*connection.Conn{cn}, func() { a.disconnect(cn) })
+	a.requestDisconnect("Disconnect lite?", "Disconnect", []*connection.Conn{cn}, func() { a.disconnect(cn) })
 	if a.closing == nil || !strings.Contains(a.closing.reason, "long.sql") {
 		t.Fatalf("disconnected without asking: %+v", a.closing)
 	}

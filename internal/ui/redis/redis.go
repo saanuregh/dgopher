@@ -558,7 +558,7 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 
 // askDelete deletes a key once the user agrees.
 func (r *Tab) askDelete(key string) {
-	r.a.AskDiscard("Delete "+key+"?", "The key and its value are removed from "+r.conn.Config.Name+".", func() {
+	r.a.AskDiscard("Delete "+key+"?", "The key and its value are removed from "+r.conn.Config.Name+".", "Delete", func() {
 		r.write([]string{"DEL", key}, func() {
 			delete(r.keySet, key)
 			if i := slices.Index(r.keys, key); i >= 0 {

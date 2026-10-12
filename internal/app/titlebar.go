@@ -93,22 +93,22 @@ func (a *App) titleMenu(m *ui.Menu) {
 // projectHeader names the only project, as its node would, with its menu.
 func (a *App) projectHeader(c *ui.Context, p *project.Project) {
 	head := ui.Row(c).Gap(6).Grow(1).Shrink(1)
-	head.Children(func() { a.projectName(c, p) })
+	head.Children(func() { a.projectName(c, p, false) })
 	head.ContextMenu(func(m *ui.Menu) { a.navMenu(m, navNode{kind: nodeProject, projectDir: p.Dir}) })
 }
 
 // projectName shows a project's folder and name, muted with why when it
 // cannot be read.
-func (a *App) projectName(c *ui.Context, p *project.Project) {
+func (a *App) projectName(c *ui.Context, p *project.Project, chosen bool) {
 	pal := widgets.PaletteOf(c)
 	col := c.Theme().Accent
 	if p.Err != "" {
 		col = pal.Muted
 	}
-	ui.Icon(c, widgets.IconFolder).TextColor(col).FontSize(14)
+	ui.Icon(c, widgets.IconFolder).TextColor(widgets.RowColor(c, col, chosen)).FontSize(14)
 	name := ui.Text(c, a.projectLabel(p)).Bold().SingleLine().Grow(1).Shrink(1).Tooltip(p.Dir)
 	if p.Err != "" {
-		name.TextColor(pal.Muted)
-		ui.Icon(c, widgets.IconAlert).TextColor(c.Theme().Danger).FontSize(12).Tooltip(p.Err)
+		name.TextColor(widgets.RowColor(c, pal.Muted, chosen))
+		ui.Icon(c, widgets.IconAlert).TextColor(widgets.RowColor(c, c.Theme().Danger, chosen)).FontSize(12).Tooltip(p.Err)
 	}
 }

@@ -266,7 +266,7 @@ func TestRenameConnThenAsks(t *testing.T) {
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	a.saveProject(a.projects[0])
 	tt := ui.NewTester(a.view, 1000, 760)
-	a.askRenameConn(cn, "lite", "lite2", func() { a.AskDiscard("Next question?", "", func() {}) })
+	a.askRenameConn(cn, "lite", "lite2", func() { a.AskDiscard("Next question?", "", "Next", func() {}) })
 	tt.Frame()
 	if err := tt.Click("Change ID"); err != nil {
 		t.Fatal(err)
