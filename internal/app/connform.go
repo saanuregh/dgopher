@@ -33,6 +33,8 @@ type connForm struct {
 	open    bool
 	editing *connection.Conn // nil for a new connection
 	cfg     db.Config
+	// id is the edited connection's ID, without the project's prefix.
+	id string
 
 	engine    string
 	engineIdx int
@@ -102,6 +104,7 @@ func (a *App) openConnForm(cn *connection.Conn) {
 	if cn != nil {
 		f.project = cn.Project
 		f.cfg = cn.Config
+		f.id = strings.TrimPrefix(cn.Config.ID, cn.Project.Prefix)
 		// The password shows only from the keychain: one from a variable
 		// must not end up there if the source changes.
 		loaded := cn.Config
@@ -400,6 +403,11 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 			name.AutoFocus()
 		}
 	})
+	if f.editing != nil {
+		ui.Field(c, "ID", func() {
+			ui.TextInput(c, &f.id).Font(widgets.MonoFont).Label("ID")
+		}).Description("Query files name the connection by it, in their first lines: -- connection: " + f.id)
+	}
 	if engine.IsFile() {
 		ui.Field(c, "File", func() {
 			ui.Row(c).Gap(6).Children(func() {
@@ -850,6 +858,20 @@ func (a *App) saveConnForm(f *connForm, connect bool) {
 		f.err = err.Error()
 		return
 	}
+	if cn := f.editing; cn != nil {
+		if id, old := strings.TrimSpace(f.id), strings.TrimPrefix(cn.Config.ID, cn.Project.Prefix); id != old {
+			if why := a.connIDProblem(cn, id); why != "" {
+				f.err = why
+				return
+			}
+			a.askRenameConn(cn, old, id, func() {
+				// The secrets the form read, under the old ID, moved too.
+				f.cfg.ID, f.loaded.ID, f.id = cn.Config.ID, cn.Config.ID, id
+				a.saveConnForm(f, connect)
+			})
+			return
+		}
+	}
 	if !f.envChosen && remote(&cfg) && (f.editing == nil || destination(f.loaded) != destination(cfg)) {
 		// A server elsewhere may be production: development, the
 		// default, asks nothing before a write.
@@ -913,10 +935,10 @@ func remote(cfg *db.Config) bool {
 }
 
 // reconnectNeeded reports whether an edit changes how the app reaches the
-// database, rather than only its name, color or safety prompts.
+// database, rather than only its ID, name, color or safety prompts.
 func reconnectNeeded(old, cfg db.Config) bool {
 	strip := func(c db.Config) db.Config {
-		c.Name, c.Color, c.Env, c.Commit = "", "", "", ""
+		c.ID, c.Name, c.Color, c.Env, c.Commit = "", "", "", "", ""
 		c.StatementTimeout, c.IdleTxTimeout = 0, 0
 		c.KeySeparator, c.Catalog = "", nil
 		return c

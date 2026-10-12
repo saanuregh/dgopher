@@ -260,6 +260,11 @@ Each connection takes its password from one place.
   no password for the new destination, so none is sent there; enter it in
   the connection's form. A password kept before this rule asks to be typed
   once, and can be kept again.
+- A connection whose ID changes keeps its password and the trust given to
+  it: they move to the new ID, and the old ones go only once the new ones
+  and `dgopher.json` are written. A password kept before the rule above
+  moves as it is, and still asks to be typed once. Teammates who pull the
+  new ID are asked again whether to trust it.
 - Jump hosts log in with the key file or the SSH agent; the SSH password goes
   only to the SSH host.
 - A connection uses only the password its source gives: PostgreSQL

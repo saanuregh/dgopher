@@ -1026,7 +1026,7 @@ func TestCommitModeRoundTrip(t *testing.T) {
 		{db.CommitManual, db.CommitManual},
 		{"sometimes", db.CommitDefault},
 	} {
-		cn := &connection.Conn{Config: db.Config{ID: "c", Name: "c", Engine: db.SQLite, Database: ":memory:", Env: db.Development, Commit: c.in}}
+		cn := &connection.Conn{Config: db.Config{ID: "c", Name: "c", Engine: db.SQLite, Database: ":memory:", Env: db.Development, Commit: c.in}, Project: a.projects[0]}
 		a.openConnForm(cn)
 		if got := a.connForm.config().Commit; got != c.out {
 			t.Errorf("commit %q saved as %q, want %q", c.in, got, c.out)

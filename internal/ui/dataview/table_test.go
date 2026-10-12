@@ -317,3 +317,33 @@ func TestStoppedEndTxReadsTxAgain(t *testing.T) {
 	tb.endTx(false)
 	testutil.WaitFor(t, tt, "the rollback", func() bool { return tb.Tx == db.TxNone && !tb.Busy() })
 }
+
+// A table tab open as its connection's ID changes follows the new ID: the
+// values the project hides for the table stay hidden under the moved key.
+func TestTableTabFollowsConnectionID(t *testing.T) {
+	a := NewFakeHost(t)
+	cn := a.AddConn(db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"})
+	tt := ui.NewTester(a.View, 1200, 700)
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	for _, s := range []string{"CREATE TABLE n (id INTEGER PRIMARY KEY, note TEXT)", "INSERT INTO n VALUES (1, 'kept')"} {
+		if _, err := cn.DB.SQL.Exec(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a.Project.HiddenValues = map[string][]string{"duck/main.n": {"note"}}
+	tb := NewTableTab(a, cn, "", db.Object{Schema: "main", Name: "n", Kind: db.KindTable, Rows: -1}, PageData)
+	a.AddTab(tb)
+	testutil.WaitFor(t, tt, "rows", func() bool { return tb.view.src.Rows != nil && !tb.view.loading })
+	if !tb.view.grid.isMasked(1) {
+		t.Fatal("the hidden column shows")
+	}
+	cn.Config.ID = a.Project.Prefix + "duck2"
+	if err := RenameConnection(a.Project, "duck", "duck2"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if tb.view.historyKey() != "duck2/main.n" || !tb.view.grid.isMasked(1) {
+		t.Fatalf("after the new ID: key %q, hidden %v", tb.view.historyKey(), tb.view.grid.isMasked(1))
+	}
+}

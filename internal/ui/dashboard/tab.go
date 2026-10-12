@@ -269,6 +269,13 @@ func (t *Tab) saveIfDirty() {
 	}
 }
 
+// SaveEdits writes the titles edited and not saved yet, as closing the
+// tab does, and reports whether none is left unsaved.
+func (t *Tab) SaveEdits() bool {
+	t.saveIfDirty()
+	return !t.dirty
+}
+
 // applyParams keeps the parameters as typed, and runs the panels again.
 func (t *Tab) applyParams() {
 	t.values = map[string]params.Input{}
