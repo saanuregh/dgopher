@@ -374,9 +374,13 @@
     be pinned.
   - A script stops at its first error, or goes on, as a setting says.
   - `:name` parameters (also `@name` and `$name` on SQLite), ClickHouse
-    `{name:Type}` parameters and `${var}` variables ask for their values
-    first; all but `${var}` are sent apart from the SQL. A statement that
-    mixes `:name` with `$1` or `?` placeholders is refused.
+    `{name:Type}` parameters and `${var}` variables take their values from
+    the Parameters bar above the editor, which lists those of its text;
+    a run asks only for one left empty there. The values are kept for the
+    connection's editors, each user's own, across restarts; all but
+    `${var}` are sent apart from the SQL, and Messages lists those a
+    statement ran with. A statement that mixes `:name` with `$1` or `?`
+    placeholders is refused.
   - A failed statement shows the database's message, code, detail, hint and
     where it went wrong; "Go to Error" puts the caret there.
   - A right-click menu: execute, cut/copy/paste, format, upper or lower case,

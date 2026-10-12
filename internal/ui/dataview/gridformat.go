@@ -210,7 +210,8 @@ func saveRowColors(p *project.Project, key string, rules []colorRule) {
 // RenameConnection moves a project's settings of a connection's tables,
 // kept by "connection/schema.table", from the ID old to new: the virtual
 // keys and hidden values of its file, which is the caller's to save, and
-// the recent filters and row colors of its own folder.
+// the recent filters, row colors and editors' parameter values of its
+// own folder.
 func RenameConnection(p *project.Project, old, new string) error {
 	rekey := func(keys []string, move func(from, to string)) {
 		for _, k := range keys {
@@ -225,8 +226,9 @@ func RenameConnection(p *project.Project, old, new string) error {
 	if p.Local == nil {
 		return nil
 	}
+	defer paramsVersion.Add(1)
 	var errs []error
-	for _, name := range []string{filterHistoryFile, rowColorsFile} {
+	for _, name := range []string{filterHistoryFile, rowColorsFile, queryParamsFile} {
 		var all map[string]json.RawMessage
 		if err := p.Local.LoadJSON(name, &all); err != nil || all == nil {
 			continue

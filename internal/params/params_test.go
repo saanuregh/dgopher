@@ -100,3 +100,16 @@ func TestKeysSQLiteSigils(t *testing.T) {
 		t.Fatalf("keys %q", keys)
 	}
 }
+
+func TestIsSet(t *testing.T) {
+	for in, want := range map[Input]bool{
+		{Kind: "auto"}:             false,
+		{Kind: "text"}:             false,
+		{Kind: "null"}:             true,
+		{Value: "x", Kind: "auto"}: true,
+	} {
+		if in.IsSet() != want {
+			t.Errorf("%+v: %v", in, !want)
+		}
+	}
+}

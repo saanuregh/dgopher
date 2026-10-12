@@ -51,6 +51,10 @@ type Input struct {
 
 var Kinds = []string{"auto", "text", "number", "null"}
 
+// IsSet reports whether a run takes the value without asking: one with
+// a value, or of kind NULL.
+func (in Input) IsSet() bool { return in.Value != "" || in.Kind == "null" }
+
 // NumberOf reads a number as a parameter or a filter sends it: an int64,
 // else a finite float; ok is false for text, and for codes such as
 // "0123" that a number would change.
