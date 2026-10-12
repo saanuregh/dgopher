@@ -67,7 +67,6 @@ func NewTableTab(a Host, cn *connection.Conn, database string, obj db.Object, pa
 		AdoptSession: t.adoptSession,
 		TxChanged:    t.setTx,
 		TxOwner:      t.TxOwner,
-		HistoryKey:   t.historyKey(),
 		Bars:         t.txBar,
 		ShowDDL:      func() { t.Page = PageDDL },
 	})
@@ -277,9 +276,6 @@ func txOwnerName(owner string) string {
 // RequestReload reads the Data page's rows again, once the user agrees to
 // drop the pending changes, if any.
 func (t *TableTab) RequestReload() { t.view.RequestReload() }
-
-// historyKey names the table among the project's recent filters.
-func (t *TableTab) historyKey() string { return tableHistoryKey(t.Conn, t.Object) }
 
 // tableHistoryKey names a table among its project's recent filters, row
 // colors and virtual keys, for its table tab and the query results read

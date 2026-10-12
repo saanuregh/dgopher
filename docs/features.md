@@ -142,6 +142,12 @@
     it; a file naming a connection the project lacks opens, unconnected,
     for its line to be fixed. A restored editor follows its file's line,
     as after a pull that changed it.
+  - A connection's ID changes in its form, once you agree to what it
+    rewrites: `dgopher.json` and its tables' settings, the query files,
+    dashboards and data models that name it, open editors (their unsaved
+    text kept), and its saved password and trust, which move with it. The
+    query history and audit log keep the old ID; teammates who pull are
+    asked again whether to trust it, and for its password.
   - SQLite and DuckDB files inside the project are stored by relative path,
     so they open in every clone.
 

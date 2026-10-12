@@ -988,7 +988,9 @@ func (a *App) trust(cn *connection.Conn) {
 
 // trustKey is what the details a user agreed to are kept by: the project
 // folder and the connection's ID.
-func trustKey(cn *connection.Conn) string { return cn.Project.Dir + "\x00" + cn.Config.ID }
+func trustKey(cn *connection.Conn) string { return trustKeyOf(cn.Project.Dir, cn.Config.ID) }
+
+func trustKeyOf(projectDir, id string) string { return projectDir + "\x00" + id }
 
 // trustSnapshot is a connection as the user agrees to it, without a
 // secret.

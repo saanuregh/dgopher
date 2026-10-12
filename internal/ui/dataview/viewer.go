@@ -70,8 +70,7 @@ type ViewerSource struct {
 	SessionReset func()
 	// Rerun runs the statement again for a refresh of a statement that writes, through the
 	// owner's safety review; nil for a table.
-	Rerun      func()
-	HistoryKey string // filter history, row colors, virtual keys
+	Rerun func()
 	// Bars draws the owner's bars between the toolbar and the pending changes.
 	Bars func(c *ui.Context)
 	// ShowDDL opens the table's definition from the cell menu.
@@ -206,7 +205,7 @@ func (v *Viewer) bindTable() {
 // from, with its columns and foreign keys, for them to edit as the
 // table's, with its table tab's filters, row colors and virtual key.
 func (v *Viewer) BindTable(obj db.Object, cols []db.Column, fks []db.ForeignKey) {
-	v.source.Table, v.source.HistoryKey, v.source.ReadOnly = &obj, tableHistoryKey(v.source.Conn, obj), ""
+	v.source.Table, v.source.ReadOnly = &obj, ""
 	v.bindTable()
 	v.SetColumns(cols, fks)
 }
@@ -1649,7 +1648,15 @@ func (v *Viewer) tableName(i int) string {
 
 // historyKey names the rows among the project's recent filters, row
 // colors and virtual keys.
-func (v *Viewer) historyKey() string { return v.source.HistoryKey }
+// historyKey names the rows' table among its project's recent filters,
+// row colors, virtual keys and hidden values, by its connection's ID as it
+// is now; "" for rows of no table.
+func (v *Viewer) historyKey() string {
+	if v.source.Table == nil {
+		return ""
+	}
+	return tableHistoryKey(v.source.Conn, *v.source.Table)
+}
 
 // distinctValues reads a column's most frequent values, under the
 // rows' filter, on the server.

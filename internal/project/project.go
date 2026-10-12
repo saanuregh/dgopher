@@ -429,6 +429,26 @@ func HeaderConnection(text string) string {
 	return ""
 }
 
+// RenameHeaderConnection points a text's header line at the connection
+// new when it names old, and reports whether it did; the rest of the text
+// keeps.
+func RenameHeaderConnection(text, old, new string) (string, bool) {
+	at := 0
+	for i, line := range strings.SplitN(text, "\n", headerLines+1) {
+		if i == headerLines {
+			break
+		}
+		if m := connHeader.FindStringSubmatchIndex(line); m != nil {
+			if line[m[2]:m[3]] != old {
+				return text, false
+			}
+			return text[:at+m[2]] + new + text[at+m[3]:], true
+		}
+		at += len(line) + 1
+	}
+	return text, false
+}
+
 // HeaderAt reports whether caret, a rune offset into text, is at the end
 // of the connection a header line names, as while typing it, and where
 // that name starts and what of it is typed.

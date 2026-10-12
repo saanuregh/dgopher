@@ -1,8 +1,12 @@
 package dataview
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"math/big"
+	"slices"
 	"strings"
 
 	"dgopher/internal/db"
@@ -201,4 +205,37 @@ func saveRowColors(p *project.Project, key string, rules []colorRule) {
 		all[key] = rules
 	}
 	p.Local.SaveJSON(rowColorsFile, all)
+}
+
+// RenameConnection moves a project's settings of a connection's tables,
+// kept by "connection/schema.table", from the ID old to new: the virtual
+// keys and hidden values of its file, which is the caller's to save, and
+// the recent filters and row colors of its own folder.
+func RenameConnection(p *project.Project, old, new string) error {
+	rekey := func(keys []string, move func(from, to string)) {
+		for _, k := range keys {
+			if rest, ok := strings.CutPrefix(k, old+"/"); ok {
+				move(k, new+"/"+rest)
+			}
+		}
+	}
+	for _, m := range []map[string][]string{p.VirtualKeys, p.HiddenValues} {
+		rekey(slices.Collect(maps.Keys(m)), func(from, to string) { m[to] = m[from]; delete(m, from) })
+	}
+	if p.Local == nil {
+		return nil
+	}
+	var errs []error
+	for _, name := range []string{filterHistoryFile, rowColorsFile} {
+		var all map[string]json.RawMessage
+		if err := p.Local.LoadJSON(name, &all); err != nil || all == nil {
+			continue
+		}
+		changed := false
+		rekey(slices.Collect(maps.Keys(all)), func(from, to string) { all[to] = all[from]; delete(all, from); changed = true })
+		if changed {
+			errs = append(errs, p.Local.SaveJSON(name, all))
+		}
+	}
+	return errors.Join(errs...)
 }
