@@ -19,7 +19,8 @@ SQLite file, `.dgopher/state.sqlite`.
 - `kv`: which query files were open, each one's connection and database,
   and the one in front, with the unsaved text of an editor whose file
   changed on disk (`workspace.json`); each table's recent grid filters
-  (`filters.json`) and row colours (`colors.json`).
+  (`filters.json`) and row colours (`colors.json`); the values of the
+  editors' parameters, per connection (`query-parameters.json`).
 - `history`: query history (secrets redacted; trimmed to the newest 4,000
   once it passes 5,000; clearable).
 - `audit`: the [audit log](audit-log.md), append-only and hash-chained.

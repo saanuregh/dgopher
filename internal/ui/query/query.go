@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -112,8 +111,11 @@ type Tab struct {
 	newTab bool
 	// stepConfirm asks before each write of the next run.
 	stepConfirm bool
-	// paramValues are the last values given to parameters, by key.
-	paramValues map[string]params.Input
+	// paramKeys are the parameters of paramKeysText, the text as last
+	// read for them.
+	paramKeysText  string
+	paramKeys      []string
+	paramsBarState paramsBarState
 
 	Editor  editor.Editor
 	editorH float32
@@ -229,6 +231,7 @@ func (q *Tab) CloseReason() string {
 func (q *Tab) Close() {
 	q.closed = true
 	q.Flush(false)
+	q.keepParamEdits()
 	if q.Created != "" && q.DiskConflict == "" && q.Saved == q.Created && q.Editor.Text == q.Created {
 		// Only what the app wrote goes: someone may have written there since.
 		if disk, err := os.ReadFile(q.Path); err == nil && string(disk) == q.Created && os.Remove(q.Path) == nil {
@@ -474,7 +477,7 @@ func (q *Tab) refuseAnotherConnection() bool {
 		return false
 	}
 	q.a.ShowError("Not run", fmt.Sprintf("%s names the connection %s on its first lines, and this editor is on %s. A file runs only on the connection it names: switch the editor to %s, or change the line.",
-		q.Name, id, strings.TrimPrefix(q.Conn.Config.ID, q.Conn.Project.Prefix), id))
+		q.Name, id, q.connID(), id))
 	return true
 }
 
@@ -580,26 +583,49 @@ func (q *Tab) run(mode RunMode) {
 	})
 }
 
-// withParams runs then with the values of the statements' parameters,
-// asked in the parameter form and remembered for the next ask; with none,
-// it runs then(nil) at once.
+// withParams runs then with the values of the statements' parameters:
+// those kept for the connection, and the others asked in the parameter
+// form, then kept for the next run; with none, it runs then(nil) at once.
 func (q *Tab) withParams(stmts []string, then func(map[string]params.Input)) {
 	keys := params.Keys(stmts, q.Editor.Dialect)
 	if len(keys) == 0 {
 		then(nil)
 		return
 	}
-	f := &paramForm{open: true, run: func(values map[string]params.Input) {
-		if q.paramValues == nil {
-			q.paramValues = map[string]params.Input{}
-		}
-		maps.Copy(q.paramValues, values)
-		then(values)
-	}}
+	q.keepParamEdits()
+	id := q.connID()
+	kept := dataview.ParamValues(q.Conn.Project, id)
+	values := map[string]params.Input{}
+	f := &paramForm{open: true}
 	for _, k := range keys {
-		f.fields = append(f.fields, paramField{key: k, value: q.paramValues[k].Value, kind: max(slices.Index(params.Kinds, q.paramValues[k].Kind), 0)})
+		if kept[k].IsSet() {
+			values[k] = kept[k]
+		} else {
+			f.fields = append(f.fields, paramField{key: k, kind: max(slices.Index(params.Kinds, kept[k].Kind), 0)})
+		}
+	}
+	if len(f.fields) == 0 {
+		then(values)
+		return
+	}
+	f.run = func(given map[string]params.Input) {
+		for k, in := range given {
+			q.keepParam(id, k, in)
+			values[k] = in
+		}
+		then(values)
 	}
 	q.a.QueryDialogs().params = f
+}
+
+// connID is the editor's connection's ID in its project's file.
+func (q *Tab) connID() string { return strings.TrimPrefix(q.Conn.Config.ID, q.Conn.Project.Prefix) }
+
+// keepParam keeps a parameter's value for a connection's editors.
+func (q *Tab) keepParam(connID, key string, in params.Input) {
+	if err := dataview.SaveParamValue(q.Conn.Project, connID, key, in); err != nil {
+		q.a.ShowError("Could not keep the parameter's value", err.Error())
+	}
 }
 
 // runBound reviews statements whose parameters have their values, then
@@ -933,18 +959,27 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 					res.view = q.newView(res, cursor, first, done, stop)
 				}
 				q.results = append(q.results, res)
-				switch {
-				case res.err != "":
-					q.note(res.err, res.sql, true)
-				case res.rowsMode:
+				// The values it ran with: a run takes those kept without
+				// asking.
+				with := ""
+				if s.Shown != "" {
+					with = " · " + widgets.OneLine(s.Shown, 120)
+				}
+				if res.err != "" {
+					q.note(res.err+with, res.sql, true)
+					return
+				}
+				var text string
+				if res.rowsMode {
 					more := ""
 					if !done {
 						more = "+"
 					}
-					q.note(fmt.Sprintf("%s · %d%s rows · %s", verbLabel(res.verb), len(first), more, widgets.FormatDuration(res.elapsed)), res.sql, false)
-				default:
-					q.note(fmt.Sprintf("%s · %s · %s", verbLabel(res.verb), affectedLabel(res.affected), widgets.FormatDuration(res.elapsed)), res.sql, false)
+					text = fmt.Sprintf("%s · %d%s rows · %s", verbLabel(res.verb), len(first), more, widgets.FormatDuration(res.elapsed))
+				} else {
+					text = fmt.Sprintf("%s · %s · %s", verbLabel(res.verb), affectedLabel(res.affected), widgets.FormatDuration(res.elapsed))
 				}
+				q.note(text+with, res.sql, false)
 			})
 			if manual {
 				// A statement that ran in the session's transaction and left
@@ -1296,6 +1331,9 @@ func (q *Tab) View(c *ui.Context) {
 			}
 			if q.Conn.Status == connection.StatusFailed || q.Conn.Status == connection.StatusIdle {
 				q.connectBar(c)
+			}
+			if keys := q.textParams(); len(keys) > 0 {
+				q.paramsBar(c, keys)
 			}
 		})
 		split := ui.SplitVertical(c, &q.editorH, func() {

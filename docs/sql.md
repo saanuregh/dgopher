@@ -131,6 +131,13 @@ loads under `NO_BACKSLASH_ESCAPES` too.
 | `${var}` | all | written into the text, then reviewed again |
 
 A statement that mixes `:name` with `$1` or `?` placeholders is refused.
+
+Values are typed in the editor's Parameters bar, or asked at a run for
+those left empty there, and kept per connection in the project's own state
+(`.dgopher/state.sqlite`), never in `dgopher.json`; they follow a change of
+the connection's ID. A run asks for a value left empty, unless its kind is
+NULL; the kind chosen is kept. Dashboards keep theirs apart, per dashboard.
+
 The code is [`internal/sqltext/params.go`](../internal/sqltext/params.go)
 and [`internal/params`](../internal/params/params.go).
 
