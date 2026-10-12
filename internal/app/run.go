@@ -45,6 +45,13 @@ func Run(args []string) error {
 		log.Println("ui state:", err)
 	}
 	a := newApp(st, uiState)
+	// The windows' places are kept with the layout, and without it last
+	// the run too: never in a file of MyGo's own.
+	if uiState != nil {
+		mygo.App.SetWindowStateStore(windowStateStore(uiState))
+	} else {
+		mygo.App.SetWindowStateStore(func() ([]byte, error) { return nil, nil }, func([]byte) error { return nil })
+	}
 	// dgopher <folder> opens a project folder, as a repository's.
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		if _, err := a.addProject(args[0]); err != nil {

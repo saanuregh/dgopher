@@ -109,3 +109,29 @@ func TestRestoredEditorTakesSavedHeight(t *testing.T) {
 		t.Fatalf("the restored editor's results start at %v, %v before: want 150 lower", after, before)
 	}
 }
+
+// MyGo's window states are kept in the UI state file: nothing saved loads
+// as none, and what is saved, the next run loads back.
+func TestWindowStateInUIState(t *testing.T) {
+	data := t.TempDir()
+	open := func() *state.DB {
+		uiDB, err := state.OpenUI(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { uiDB.Close() })
+		return uiDB
+	}
+	load, save := windowStateStore(open())
+	if got, err := load(); got != nil || err != nil {
+		t.Fatalf("nothing saved loads %q, %v", got, err)
+	}
+	saved := `{"main":{"x":40,"y":50,"width":800,"height":600,"maximized":true}}`
+	if err := save([]byte(saved)); err != nil {
+		t.Fatal(err)
+	}
+	load, _ = windowStateStore(open())
+	if got, err := load(); err != nil || string(got) != saved {
+		t.Fatalf("the next run loads %q, %v; want %q", got, err, saved)
+	}
+}
