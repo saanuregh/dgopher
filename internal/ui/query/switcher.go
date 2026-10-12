@@ -82,6 +82,11 @@ func (q *Tab) switchSchema(schema string) {
 		return
 	}
 	cn := q.Conn
+	if cn.Status != connection.StatusConnected || cn.DB == nil {
+		// Closed since the command was offered, as when left unused.
+		q.a.ShowError("Not switched", cn.Config.Name+" is not connected.")
+		return
+	}
 	cfg := cn.Config
 	stmt := schemaStatement(cfg.Engine, cn.DB.Dialect, schema)
 	v := safety.ReviewSQL(&cfg, safety.Analyze(&cfg, []string{stmt}))
@@ -169,8 +174,15 @@ func (q *Tab) switchDatabase(name string) {
 		q.a.ShowError("Not switched", q.Name+" is still running a statement.")
 		return
 	}
-	// The results' rows end where they were read; their cursors close
-	// before the session they are on.
+	q.releaseConnection()
+	q.Database = name
+	q.note("The editor works in the database "+name+" now.", "", false)
+}
+
+// releaseConnection closes the editor's session and keeps the editor: the
+// next run opens another. The results' rows end where they were read;
+// their cursors close before the session they are on.
+func (q *Tab) releaseConnection() {
 	var closers []func()
 	for _, r := range q.results {
 		if r.view != nil {
@@ -187,6 +199,20 @@ func (q *Tab) switchDatabase(name string) {
 			sess.Close()
 		}
 	}()
-	q.sess, q.Database, q.schema = nil, name, ""
-	q.note("The editor works in the database "+name+" now.", "", false)
+	q.sess, q.schema, q.autocommitOff = nil, "", false
+}
+
+// ConnectionClosed lets the session go with its connection, closed as
+// unused. The next run is refused once, as after a lost connection: it
+// would run without what the session had set, as USE or search_path.
+func (q *Tab) ConnectionClosed() {
+	q.sessionLost = q.sessionLost || q.sess != nil
+	q.releaseConnection()
+}
+
+// HoldsConnection reports work that needs the editor's session as it is:
+// a statement or export running, a transaction or rows to commit, or
+// grid changes not applied.
+func (q *Tab) HoldsConnection() bool {
+	return q.Busy() || q.Tx != db.TxNone || q.uncommitted > 0 || q.pendingCount() > 0
 }

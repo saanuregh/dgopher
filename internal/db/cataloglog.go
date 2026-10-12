@@ -46,6 +46,7 @@ func (d *DB) Catalog() Querier { return catalogQuerier{d} }
 type catalogQuerier struct{ d *DB }
 
 func (q catalogQuerier) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	q.d.touch()
 	start := time.Now()
 	rows, err := q.d.SQL.QueryContext(ctx, query, args...)
 	entry := CatalogQuery{At: start, Database: q.d.Config.Database, SQL: query, Args: args, Took: time.Since(start)}

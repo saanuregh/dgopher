@@ -207,6 +207,16 @@ func (t *Tab) syncFields() {
 
 func (t *Tab) conn(p Panel) *connection.Conn { return t.h.ConnByID(t.Project.Prefix + p.Connection) }
 
+// RunsOn reports whether a panel's query runs on cn.
+func (t *Tab) RunsOn(cn *connection.Conn) bool {
+	for i, s := range t.panels {
+		if s.running && t.conn(t.d.Panels[i]) == cn {
+			return true
+		}
+	}
+	return false
+}
+
 // valuesKey is the dashboard's in the user's state of its parameters.
 func (t *Tab) valuesKey() string { return t.Project.StoredPath(t.Path) }
 

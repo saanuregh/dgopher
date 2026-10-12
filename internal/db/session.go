@@ -63,6 +63,7 @@ var ErrSessionReset = errors.New("the connection was lost and made again: USE, s
 
 // Session starts a session on a connection of its own.
 func (d *DB) Session(ctx context.Context) (*Session, error) {
+	d.touch()
 	s := &Session{db: d}
 	if err := s.connect(ctx); err != nil {
 		return nil, err
@@ -585,6 +586,7 @@ func (s *Session) Query(ctx context.Context, query string, args ...any) (*Cursor
 	}
 	c, err := newCursor(rows, watch, s.db.Config.Engine == SQLite)
 	if err == nil {
+		c.pool = s.db
 		if err = watch.ranPastCancel(); err != nil {
 			c.Close() // its rows go unread
 		}
@@ -624,6 +626,7 @@ func (s *Session) CurrentSchema(ctx context.Context) (string, error) {
 // refuses the statement once when the connection was made again after
 // statements had run on the lost one.
 func (s *Session) ready(ctx context.Context) error {
+	s.db.touch()
 	if err := s.ensureConnection(ctx); err != nil {
 		return err
 	}
@@ -920,6 +923,8 @@ type Cursor struct {
 	// finished is set once the cursor let its connection go, read
 	// without the lock, which a page being read holds.
 	finished atomic.Bool
+	// pool is the pool whose use a page read counts as (DB.LastUsed).
+	pool *DB
 }
 
 // newCursor reads rows. bytesAreBinary is set for a driver whose []byte
@@ -955,6 +960,9 @@ func isBinaryType(name string) bool {
 // Fetch reads up to n more rows; it returns fewer at the end, after which
 // Done reports true.
 func (c *Cursor) Fetch(n int) ([][]any, error) {
+	if c.pool != nil {
+		c.pool.touch()
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(c.buffered) > 0 {

@@ -212,7 +212,8 @@
     opened as it is, never replaced.
   - Test Connection reports the server version and how long connecting took.
   - Each connection has an environment, and can be read-only, with its own
-    commit mode and idle-transaction limit: see [Safety model](safety.md).
+    commit mode, idle-transaction limit and idle-connection limit: see
+    [Safety model](safety.md).
 - **Navigator:** each project in sections, Connections (open at first),
   Queries, Dashboards and Data Models, each with its count and a + that
   makes another, shown as the row is pointed at; one project alone is

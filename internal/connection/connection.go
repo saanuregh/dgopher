@@ -42,6 +42,13 @@ type Conn struct {
 	KV               *db.KV
 	Version          string
 	Waiters          []func()
+	// HeldAt is when something last held the connection, as a tab open
+	// on it; its pool keeps when it last sent something (db.DB.LastUsed).
+	HeldAt time.Time
+	// ClosedIdle is set when the connection was disconnected for going
+	// unused: its editors wait for a run to connect it again, even with
+	// auto-connect.
+	ClosedIdle bool
 
 	// The schema, as far as it was read.
 	DefaultSchema string
@@ -395,6 +402,31 @@ func IdleTxLimit(cfg *db.Config) time.Duration {
 		return time.Duration(cfg.IdleTxTimeout) * time.Second
 	}
 	return DefaultIdleTx(cfg.Env)
+}
+
+// DefaultIdleConnection is how long a connection may go unused on an
+// environment before it is disconnected: DBeaver's defaults.
+func DefaultIdleConnection(e db.Environment) time.Duration {
+	switch e {
+	case db.Production:
+		return time.Hour
+	case db.Staging:
+		return 2 * time.Hour
+	}
+	return 4 * time.Hour
+}
+
+// IdleConnectionLimit is how long a connection may go unused before it
+// is disconnected; 0 for never, as for DuckDB and SQLite: they hold
+// nothing on a server, and an in-memory database would lose its data.
+func IdleConnectionLimit(cfg *db.Config) time.Duration {
+	switch {
+	case cfg.Engine.IsFile() || cfg.IdleConnectionTimeout < 0:
+		return 0
+	case cfg.IdleConnectionTimeout > 0:
+		return time.Duration(cfg.IdleConnectionTimeout) * time.Second
+	}
+	return DefaultIdleConnection(cfg.Env)
 }
 
 // HeaderLine is what starts a query file of a connection.

@@ -157,6 +157,9 @@ type Tab struct {
 	named, namedText string
 	// exports counts the exports reading on the session.
 	exports int
+	// sessionLost is set when the session closed with its connection, left
+	// unused (ConnectionClosed): the next run is refused once.
+	sessionLost bool
 }
 
 // key reports whether mods+key was pressed for this editor: while its
@@ -681,6 +684,16 @@ func wantsRows(s safety.Statement, d sqltext.Dialect) bool {
 }
 
 func (q *Tab) execute(stmts []safety.Statement, writes bool) {
+	if q.Conn.Status != connection.StatusConnected {
+		// It closed while a confirmation or the parameters waited.
+		q.a.Connect(q.Conn, func() { q.execute(stmts, writes) })
+		return
+	}
+	if q.sessionLost {
+		q.sessionLost = false
+		q.note("The connection was closed while idle and made again: USE, search_path, role, variables and temporary tables were reset. Run the statement again to run it on the new connection.", "", true)
+		return
+	}
 	// The context lives as long as the cursors of the results it reads:
 	// the next run, or closing the tab, ends it.
 	oldCancel := q.cancel
@@ -1221,8 +1234,9 @@ func (q *Tab) View(c *ui.Context) {
 		q.endOpenTx(false)
 	}
 	// Editors of a connection set to auto-connect open it as they are
-	// shown; the others wait for Connect or a run.
-	if q.Conn.Status == connection.StatusIdle && q.Conn.Config.AutoConnect {
+	// shown, unless it was closed for going unused; the others wait for
+	// Connect or a run.
+	if q.Conn.Status == connection.StatusIdle && q.Conn.Config.AutoConnect && !q.Conn.ClosedIdle {
 		a.Connect(q.Conn, nil)
 	}
 	ui.Column(c).Grow(1).Children(func() {

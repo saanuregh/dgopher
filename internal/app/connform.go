@@ -60,6 +60,11 @@ type connForm struct {
 	timeout    float64          // statement timeout, seconds, 0 for none
 	idleMin    float64          // idle transaction timeout, minutes, 0 for the environment's
 	idleNever  bool
+	// idleConnMin is the idle connection timeout, minutes, 0 for the
+	// environment's.
+	idleConnMin   float64
+	idleConnNever bool
+
 	loaded     db.Config // the connection as it was, secrets included
 	url        string
 	urlErr     string
@@ -132,6 +137,10 @@ func (a *App) openConnForm(cn *connection.Conn) {
 	if f.cfg.IdleTxTimeout > 0 {
 		f.idleMin = float64(f.cfg.IdleTxTimeout) / 60
 	}
+	f.idleConnNever = f.cfg.IdleConnectionTimeout < 0
+	if f.cfg.IdleConnectionTimeout > 0 {
+		f.idleConnMin = float64(f.cfg.IdleConnectionTimeout) / 60
+	}
 	f.source = passwordSources[sourceOf(&f.cfg)]
 	f.identity = db.IdentityAWS.Label()
 	if f.cfg.Identity != "" {
@@ -195,6 +204,14 @@ func (f *connForm) config() db.Config {
 		cfg.IdleTxTimeout = int(f.idleMin * 60)
 	default:
 		cfg.IdleTxTimeout = 0
+	}
+	switch {
+	case f.idleConnNever:
+		cfg.IdleConnectionTimeout = -1
+	case f.idleConnMin > 0:
+		cfg.IdleConnectionTimeout = int(f.idleConnMin * 60)
+	default:
+		cfg.IdleConnectionTimeout = 0
 	}
 	// Only the chosen source is kept: a password typed, then a switch to
 	// a command, is not saved.
@@ -369,7 +386,7 @@ func (f *connForm) pageLabel(page int) string {
 		}
 		return "Network"
 	case pageOptions:
-		if f.cfg.AutoConnect || f.commit != commitLabels[0] || f.idleNever || f.idleMin > 0 || f.timeout > 0 {
+		if f.cfg.AutoConnect || f.commit != commitLabels[0] || f.idleNever || f.idleMin > 0 || f.idleConnNever || f.idleConnMin > 0 || f.timeout > 0 {
 			return "Options •"
 		}
 		return "Options"
@@ -622,6 +639,18 @@ func optionsPage(c *ui.Context, f *connForm, engine db.Engine) {
 			})
 		}).Description(fmt.Sprintf("A transaction left idle this long is rolled back, after a warning you can cancel. 0 takes the environment's default: %d minutes on %s.",
 			int(connection.DefaultIdleTx(db.Environments()[f.env]).Minutes()), db.Environments()[f.env].Label()))
+	}
+	if !engine.IsFile() {
+		ui.Field(c, "Idle connection", func() {
+			ui.Row(c).Gap(8).Children(func() {
+				if !f.idleConnNever {
+					ui.NumberInput(c, &f.idleConnMin, 0, 1440, 5).Label("Minutes")
+					ui.Text(c, "minutes").TextColor(pal.Muted)
+				}
+				ui.Checkbox(c, &f.idleConnNever, "Never disconnect")
+			})
+		}).Description(fmt.Sprintf("A connection unused this long disconnects; its editors stay, and connect it again when you run. 0 takes the environment's default: %s on %s.",
+			idleSpan(connection.DefaultIdleConnection(db.Environments()[f.env])), db.Environments()[f.env].Label()))
 	}
 	if engine != db.Redis {
 		ui.Field(c, "Statement timeout", func() {
@@ -939,7 +968,7 @@ func remote(cfg *db.Config) bool {
 func reconnectNeeded(old, cfg db.Config) bool {
 	strip := func(c db.Config) db.Config {
 		c.ID, c.Name, c.Color, c.Env, c.Commit = "", "", "", "", ""
-		c.StatementTimeout, c.IdleTxTimeout = 0, 0
+		c.StatementTimeout, c.IdleTxTimeout, c.IdleConnectionTimeout = 0, 0, 0
 		c.KeySeparator, c.Catalog = "", nil
 		return c
 	}
