@@ -36,16 +36,15 @@ func Run(args []string) error {
 	if err != nil {
 		return err
 	}
-	a := newApp(st)
 	// The layout without a file of its own lasts the run: never a reason
 	// not to start.
+	var uiState *state.DB
 	if dir, err := store.DefaultDataDir(); err != nil {
 		log.Println("ui state:", err)
-	} else if ui, err := state.OpenUI(dir); err != nil {
+	} else if uiState, err = state.OpenUI(dir); err != nil {
 		log.Println("ui state:", err)
-	} else {
-		a.useUIState(ui)
 	}
+	a := newApp(st, uiState)
 	// dgopher <folder> opens a project folder, as a repository's.
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		if _, err := a.addProject(args[0]); err != nil {
