@@ -27,10 +27,12 @@ With Nix, `nix develop` gives a shell with Go, the GTK libraries the
 window needs and `CGO_ENABLED=1`. Elsewhere on Linux the window needs GTK
 3 and OpenGL; no WebKitGTK is needed.
 
-- **MyGo:** `go.mod` replaces MyGo with the `dbgopher` branch of
-  [saanuregh/mygo](https://github.com/saanuregh/mygo/commits/dbgopher): upstream plus table
-  header menus, frozen columns and multi-column sort, which the data view needs, and a paste fix
-  (egoist/mygo#153). To update it, rebase that branch onto a new MyGo release and run
+- **MyGo:** `go.mod` replaces MyGo with a commit of a `dbgopher-v<minor>` branch of
+  [saanuregh/mygo](https://github.com/saanuregh/mygo/branches/all?query=dbgopher), named for the
+  MyGo release it is on: upstream plus table header menus, frozen columns and multi-column sort,
+  which the data view needs, and faster styling of long texts, not yet upstream. To update it,
+  rebase those commits onto a new MyGo release as a new branch, so the commit `go.mod` pins now
+  stays reachable, and run
   `go mod edit -replace=github.com/egoist/mygo=github.com/saanuregh/mygo@<commit> && go mod tidy`.
 - **Other platforms:** with cgo, building for macOS or Windows needs a C
   toolchain for that platform, or a machine of that system. For Windows,
