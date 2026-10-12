@@ -124,7 +124,7 @@ func TestRestoreRefusedWithOpenTransaction(t *testing.T) {
 	if err := cn.DB.SQL.QueryRow(`SELECT a FROM t`).Scan(&v); err != nil || v != 7 {
 		t.Fatalf("restored %d: %v", v, err)
 	}
-	events, _ := cn.Project.Audit.Read(0)
+	events, _ := cn.Project.Audit.Read(0, false)
 	if last := events[0]; last.Kind != audit.KindRestore || !strings.Contains(last.Statement, "COPY FROM DATABASE") || last.Error != "" {
 		t.Fatalf("audited %+v", last)
 	}

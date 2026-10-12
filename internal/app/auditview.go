@@ -36,6 +36,8 @@ type auditState struct {
 	want int64
 	// missing says the entry asked for is not among those read.
 	missing string
+	// traffic shows every statement and command as sent, read with them.
+	traffic bool
 }
 
 var auditKinds = []string{"All kinds", audit.KindStatement, audit.KindEdit, audit.KindCommand, audit.KindScript, audit.KindImport, audit.KindExport,
@@ -63,11 +65,20 @@ func (a *App) readAudit(p *project.Project) *auditState {
 		return v
 	}
 	v.file = p.Local.Path()
-	l := p.Audit
+	v.reload(a)
+	return v
+}
+
+// reload reads the newest entries again, with the traffic or without.
+func (v *auditState) reload(a *App) {
+	l, traffic := v.log, v.traffic
 	a.Background(func() func() {
-		events, err := l.Read(auditShown)
+		events, err := l.Read(auditShown, traffic)
 		return func() {
-			v.events, v.read = events, true
+			if traffic != v.traffic {
+				return // asked again since
+			}
+			v.events, v.read, v.err = events, true, ""
 			if err != nil {
 				v.err = err.Error()
 			}
@@ -77,7 +88,6 @@ func (a *App) readAudit(p *project.Project) *auditState {
 			}
 		}
 	})
-	return v
 }
 
 // choose shows every entry and chooses the one numbered seq, once read.
@@ -152,6 +162,10 @@ func (a *App) auditTab(c *ui.Context, h *historyState) {
 		ui.Icon(c, widgets.IconShield).FontSize(16).TextColor(th.Accent)
 		widgets.SearchBox(c, &v.filter, "Filter by statement, connection, user or error", 0).AutoFocus()
 		ui.Select(c, &v.kind, auditKinds).Label("Kind")
+		if ui.Checkbox(c, &v.traffic, "Traffic").Disabled(v.log == nil).
+			Tooltip("Every statement and command as it went to a server, the app's own reads of schemas and its probes too. Hidden by default: there is a lot of it.").Changed() {
+			v.reload(a)
+		}
 		ui.Segmented(c, &v.origin, auditOrigins...).Label("Written by").
 			Tooltip("Typed: what a person wrote, in an editor, the console, a file or a dashboard. App: what the app sent for what was asked of it.")
 	})
@@ -226,8 +240,11 @@ func (a *App) auditTab(c *ui.Context, h *historyState) {
 		case 4:
 			what := cmp.Or(e.Statement, e.Detail)
 			txt := ui.Text(c, widgets.OneLine(what, 200)).FontSize(12).Font(widgets.MonoFont).SingleLine()
-			if e.Error != "" {
+			switch {
+			case e.Error != "":
 				txt.TextColor(widgets.RowColor(c, th.Danger, chosen))
+			case e.Kind == audit.KindTraffic:
+				txt.TextColor(widgets.RowColor(c, pal.Muted, chosen))
 			}
 		case 5:
 			if e.Rows > 0 {

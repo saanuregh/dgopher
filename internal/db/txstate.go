@@ -32,6 +32,7 @@ func readTxState(ctx context.Context, conn *sql.Conn) (state TxState, ok bool) {
 func readTxStateWithLastID(ctx context.Context, conn *sql.Conn, lastTxID *int64) (state TxState, ok bool) {
 	duck := false
 	err := conn.Raw(func(dc any) error {
+		dc = driverConn(dc)
 		switch c := dc.(type) {
 		case *stdlib.Conn:
 			state, ok = postgresTxState(c), true
@@ -143,7 +144,7 @@ func mysqlStatus(c reflect.Value) (uint64, bool) {
 // when the driver cannot tell.
 func readMySQLAutocommitOff(conn *sql.Conn) (off, ok bool) {
 	conn.Raw(func(dc any) error {
-		c, isMySQL := mysqlConnValue(dc)
+		c, isMySQL := mysqlConnValue(driverConn(dc))
 		if !isMySQL {
 			return nil
 		}

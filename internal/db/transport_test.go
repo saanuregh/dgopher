@@ -116,7 +116,7 @@ func TestMySQLEachConnectionNegotiatesTLS(t *testing.T) {
 	cfg := Config{Name: "m", Engine: MySQL, Host: "127.0.0.1", Port: port, User: "root", Password: "pw", TLS: TLSPrefer}
 	ep := endpoint{host: "127.0.0.1", port: port, serverName: "127.0.0.1"}
 	tc, _ := tlsConfig(&cfg, ep.serverName)
-	sqldb, _, err := openMySQL(cfg, ep, tc)
+	sqldb, _, err := openMySQL(cfg, ep, tc, wire{who: newSendsAs(cfg), engine: cfg.Engine})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestPreferRefusesCleartextPassword(t *testing.T) {
 	cfg := Config{Name: "p", Engine: Postgres, Host: "127.0.0.1", Port: port, User: "alice", Password: "s3cret", Database: "x", TLS: TLSPrefer}
 	ep := endpoint{host: "127.0.0.1", port: port, serverName: "127.0.0.1"}
 	tc, _ := tlsConfig(&cfg, ep.serverName)
-	sqldb, err := openPostgres(cfg, ep, tc)
+	sqldb, err := openPostgres(cfg, ep, tc, wire{who: newSendsAs(cfg), engine: cfg.Engine})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +299,7 @@ func TestClickHouseHTTPNoRedirectNoEnvProxy(t *testing.T) {
 	cfg := Config{Name: "c", Engine: ClickHouse, Host: "127.0.0.1", Port: 8443, User: "default", Password: "s3cret", TLS: TLSRequire}
 	ep := endpoint{host: "127.0.0.1", port: port, serverName: "127.0.0.1"}
 	tc, _ := tlsConfig(&cfg, ep.serverName)
-	sqldb := openClickHouse(cfg, ep, tc)
+	sqldb := openClickHouse(cfg, ep, tc, wire{who: newSendsAs(cfg), engine: cfg.Engine})
 	defer sqldb.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

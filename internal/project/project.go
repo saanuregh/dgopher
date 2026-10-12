@@ -184,6 +184,7 @@ func (p *Project) Close() error {
 	if p.Local == nil {
 		return nil
 	}
+	p.Audit.Flush() // the traffic waiting goes to the file before it closes
 	return p.Local.Close()
 }
 

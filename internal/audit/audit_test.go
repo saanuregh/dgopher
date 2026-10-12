@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"dgopher/internal/audit"
 	"dgopher/internal/state"
@@ -60,7 +61,7 @@ func TestDBChainAcrossWindows(t *testing.T) {
 	if seq, hash := b.Head(); seq != 20 || hash == "" {
 		t.Fatalf("head %d %q", seq, hash)
 	}
-	events, _ := a.Read(3)
+	events, _ := a.Read(3, false)
 	if len(events) != 3 || events[0].Seq != 20 || events[2].Seq != 18 {
 		t.Fatalf("read %+v", events)
 	}
@@ -148,7 +149,7 @@ func TestImportFiles(t *testing.T) {
 	if err != nil || v.Broken != 0 || v.Entries != 8 {
 		t.Fatalf("%+v %v", v, err)
 	}
-	events, _ := l.Read(2)
+	events, _ := l.Read(2, false)
 	if events[1].Kind != audit.KindRecovered || !strings.Contains(events[1].Detail, "damaged bytes after entry 6") {
 		t.Fatalf("recovered %+v", events[1])
 	}
@@ -201,7 +202,7 @@ func TestImportLastLineWithoutNewline(t *testing.T) {
 		t.Fatalf("%d %v", n, err)
 	}
 	tx.Commit()
-	if events, _ := openLog(t, d).Read(0); len(events) != 2 || events[0].Kind == audit.KindRecovered {
+	if events, _ := openLog(t, d).Read(0, false); len(events) != 2 || events[0].Kind == audit.KindRecovered {
 		t.Fatalf("%+v", events)
 	}
 }
@@ -235,8 +236,98 @@ func TestRecordReturnsSeq(t *testing.T) {
 			t.Fatalf("seq %d, want %d: %v", seq, want, err)
 		}
 	}
-	events, _ := l.Read(1)
+	events, _ := l.Read(1, false)
 	if len(events) != 1 || events[0].Seq != 3 {
 		t.Fatalf("%+v", events)
+	}
+}
+
+// Traffic waits, then is written in the order it was sent, before an
+// entry recorded after it; the chain holds across both.
+func TestTrafficBeforeRecordInOrder(t *testing.T) {
+	l := openLog(t, openState(t, t.TempDir()))
+	for i := range 3 {
+		l.Traffic(func() audit.Event { return audit.Event{Statement: fmt.Sprint("SELECT ", i)} })
+	}
+	seq, err := l.Record(audit.Event{Kind: audit.KindStatement, Statement: "DELETE FROM t"})
+	if err != nil || seq != 4 {
+		t.Fatalf("seq %d: %v", seq, err)
+	}
+	all, _ := l.Read(0, true)
+	if len(all) != 4 || all[0].Statement != "DELETE FROM t" || all[3].Statement != "SELECT 0" || all[3].Kind != audit.KindTraffic {
+		t.Fatalf("%+v", all)
+	}
+	if v, err := l.Verify(); err != nil || !v.Intact() || v.Entries != 4 {
+		t.Fatalf("%+v %v", v, err)
+	}
+	if shown, _ := l.Read(0, false); len(shown) != 1 || shown[0].Seq != 4 {
+		t.Fatalf("without traffic: %+v", shown)
+	}
+}
+
+// Traffic is written on its own soon after it is sent, and at once on
+// Flush.
+func TestTrafficWrittenWithoutRecord(t *testing.T) {
+	d := openState(t, t.TempDir())
+	l := openLog(t, d)
+	l.Traffic(func() audit.Event { return audit.Event{Statement: "SELECT 1"} })
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		// Not by Read, which writes what waits first.
+		var n int
+		if d.SQL().QueryRow("SELECT count(*) FROM audit").Scan(&n); n == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("traffic not written")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	l.Traffic(func() audit.Event { return audit.Event{Statement: "SELECT 2"} })
+	if err := l.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if all, _ := l.Read(0, true); len(all) != 2 {
+		t.Fatalf("after Flush: %+v", all)
+	}
+}
+
+// Traffic beyond what may wait is counted, not kept, and the count is an
+// entry of its own.
+func TestTrafficOverflowCounted(t *testing.T) {
+	defer audit.SetTrafficLimits(3, 100)()
+	l := openLog(t, openState(t, t.TempDir()))
+	for i := range 5 {
+		l.Traffic(func() audit.Event { return audit.Event{Statement: fmt.Sprint(i)} })
+	}
+	if err := l.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	all, _ := l.Read(0, true)
+	if len(all) != 4 || !strings.Contains(all[0].Detail, "2 ") || all[0].Kind != audit.KindTraffic {
+		t.Fatalf("%+v", all)
+	}
+}
+
+// Traffic a failed write loses is counted with what was not kept before,
+// once, by the next write.
+func TestTrafficLostToFailedWriteCounted(t *testing.T) {
+	defer audit.SetTrafficLimits(3, 100)()
+	d := openState(t, t.TempDir())
+	l := openLog(t, d)
+	for i := range 5 {
+		l.Traffic(func() audit.Event { return audit.Event{Statement: fmt.Sprint(i)} })
+	}
+	d.SQL().Exec("CREATE TRIGGER no_writes BEFORE INSERT ON audit BEGIN SELECT RAISE(FAIL, 'disk full'); END")
+	if err := l.Flush(); err == nil {
+		t.Fatal("the write did not fail")
+	}
+	d.SQL().Exec("DROP TRIGGER no_writes")
+	if _, err := l.Record(audit.Event{Kind: audit.KindConnect}); err != nil {
+		t.Fatal(err)
+	}
+	all, _ := l.Read(0, true)
+	if len(all) != 2 || !strings.HasPrefix(all[1].Detail, "5 statements") {
+		t.Fatalf("%+v", all)
 	}
 }

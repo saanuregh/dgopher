@@ -67,6 +67,12 @@ CREATE TABLE audit (
 		_, err := tx.Exec(`ALTER TABLE history ADD COLUMN audit_seq INTEGER NOT NULL DEFAULT 0`)
 		return err
 	},
+	func(tx *sql.Tx) error {
+		// The entries apart from traffic, newest first, as package audit
+		// reads them without it: traffic outnumbers them.
+		_, err := tx.Exec(`CREATE INDEX audit_entries ON audit (id) WHERE kind != 'traffic'`)
+		return err
+	},
 }
 
 // uiMigrations are the UI state's, as migrations a project state's.

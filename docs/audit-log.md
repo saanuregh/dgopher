@@ -23,11 +23,36 @@ of the project's History, beside its queries.
   both tables of a row comparison, the source of a copy, and the value of
   a Redis key opened.
 
-**Not recorded:** what the app reads to describe a database (its
-schemas, tables, columns and completions), probes of the server's version
-and of a session's transaction, the server activity and account lists, and
-the `BEGIN`, `SAVEPOINT` and `COMMIT` inside a batch that one entry sums up
-(grid edits, imports, copies). None of these reads a table's rows.
+**Traffic:** besides those entries, every statement and Redis command
+DGopher itself sends to a server is recorded as it was sent, as
+**traffic**: what the app reads to describe a database (schemas, tables,
+columns, completions), probes of the server's version and of a session's
+transaction, pings, the `BEGIN`, `SAVEPOINT` and `COMMIT` inside a
+batch, the server activity and account lists, a Redis key's reads, and
+the statements already recorded above, again. A connection renamed, or
+given another environment, is recorded under its new name from then on.
+Parameter values are not kept, only how many were sent; secrets are
+redacted as in other entries, and a statement or Redis argument longer
+than 4 KB keeps its first 4 KB and its length. The Audit Log hides
+traffic until **Traffic** is ticked. Traffic is written in batches,
+within a quarter of a second of being sent and before any other entry
+after it, so a crash can lose the last moment of it; what cannot be kept
+(more than 10,000 entries waiting, or a write that failed) is counted in
+an entry instead.
+
+**Not recorded, as no hook sees it:**
+- what a driver sends to connect (Redis `HELLO`, `AUTH` and `SELECT`,
+  MySQL's handshake, ClickHouse's first query over HTTP) and to
+  disconnect;
+- Redis's keep-alive pings, cluster topology reads and Sentinel's
+  subscription;
+- protocol messages that carry no statement text: MySQL's statement
+  prepare and close, PostgreSQL's prepare, deallocate and cancel
+  requests, ClickHouse's batch data, and SQLite's rollback after a
+  failed commit;
+- what `pg_dump`, `pg_restore`, `mysqldump` and the `mysql` client send
+  for a backup or restore, which their one entry sums up;
+- local DuckDB files the app makes to import, export or restore.
 
 **Who wrote it, and what was sent.** A statement's entry says who wrote
 it: **typed**, by a person (in an editor, the console, a SQL or commands

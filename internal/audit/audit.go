@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -32,6 +33,7 @@ const (
 	KindBackup     = "backup"    // a database backed up
 	KindRestore    = "restore"   // a backup restored into a database
 	KindRecovered  = "recovered" // a damaged end of the log set aside
+	KindTraffic    = "traffic"   // a statement or command as it went to the server
 )
 
 // Who wrote a statement or command.
@@ -56,7 +58,8 @@ type Event struct {
 	// Typed is the text as written, when the app changed it before
 	// sending it, as with a ${var} or :name.
 	Typed string `json:"typed,omitempty"`
-	// Params lists the values sent with the statement, apart from it.
+	// Params lists the values sent apart from the statement, or, for
+	// traffic, how many there were.
 	Params string `json:"params,omitempty"`
 	// Purpose says why the app sent a statement of its own.
 	Purpose    string `json:"purpose,omitempty"`
@@ -116,7 +119,25 @@ func hashOf(e Event) string {
 type Log struct {
 	db   *sql.DB
 	user string
+
+	// write keeps one writer at a time, so traffic waiting is written
+	// before an entry recorded after it.
+	write sync.Mutex
+	// mu guards the traffic waiting to be written.
+	mu      sync.Mutex
+	pending []waiting
+	dropped int
+	writing bool // a write of a full batch has started
+	timer   *time.Timer
 }
+
+// How traffic waits: written within trafficDelay, or at once when
+// trafficBatch entries wait; past trafficMax, it is counted, not kept.
+var (
+	trafficDelay = 250 * time.Millisecond
+	trafficBatch = 256
+	trafficMax   = 10000
+)
 
 // Verification is what Verify found.
 type Verification struct {

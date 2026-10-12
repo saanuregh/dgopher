@@ -68,7 +68,7 @@ func mustExec(t *testing.T, d *db.DB, stmts ...string) {
 // auditEvents reads the audit log of the app's first project.
 func auditEvents(t *testing.T, a *App) []audit.Event {
 	t.Helper()
-	events, err := a.projects[0].Audit.Read(0)
+	events, err := a.projects[0].Audit.Read(0, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +398,7 @@ func TestQuitListsRunningJobs(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer p.Close()
-	events, err := p.Audit.Read(0)
+	events, err := p.Audit.Read(0, false)
 	if err != nil {
 		t.Fatal(err)
 	}

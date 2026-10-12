@@ -99,11 +99,11 @@ func (k *KV) monitorNode(ctx context.Context, addr string, line func(MonitorLine
 		if user != "" {
 			auth = []string{"AUTH", user, pw}
 		}
-		if err := sendCommand(conn, r, auth); err != nil {
+		if err := k.sendRecorded(conn, r, auth); err != nil {
 			return err
 		}
 	}
-	if err := sendCommand(conn, r, []string{"MONITOR"}); err != nil {
+	if err := k.sendRecorded(conn, r, []string{"MONITOR"}); err != nil {
 		return err
 	}
 	for {
@@ -140,6 +140,15 @@ func readLine(r *bufio.Reader, max int) (string, error) {
 			return string(b), nil
 		}
 	}
+}
+
+// sendRecorded is sendCommand, given to the hook as the client's commands
+// are.
+func (k *KV) sendRecorded(conn net.Conn, r *bufio.Reader, args []string) error {
+	start := time.Now()
+	err := sendCommand(conn, r, args)
+	recordRedis(k.who, args, time.Since(start), err)
+	return err
 }
 
 // sendCommand writes a command and reads its simple reply: OK, or the

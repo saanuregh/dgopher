@@ -792,6 +792,13 @@ func redisCluster() Config {
 		Redis: RedisConfig{Mode: RedisCluster, Nodes: "127.0.0.1:17001"}}
 }
 
+// redisSentinel is the test Sentinel, on the ports of the
+// dgopher-redis-sentinel container (docs/development.md).
+func redisSentinel() Config {
+	return Config{Name: "sentinel", Engine: Redis, Host: "127.0.0.1", Port: 26379, Password: "dgopher",
+		Redis: RedisConfig{Mode: RedisSentinel, Master: "mymaster", SentinelPassword: "sentinelpw"}}
+}
+
 // scanKeys reads every key a pattern matches.
 func scanKeys(t *testing.T, k *KV, match string) []string {
 	t.Helper()
@@ -882,8 +889,7 @@ func testCluster(t *testing.T, ctx context.Context, cfg Config, known []string) 
 func TestIntegrationRedisSentinel(t *testing.T) {
 	integration(t)
 	ctx := context.Background()
-	cfg := Config{Name: "sentinel", Engine: Redis, Host: "127.0.0.1", Port: 26379, Password: "dgopher",
-		Redis: RedisConfig{Mode: RedisSentinel, Master: "mymaster", SentinelPassword: "sentinelpw"}}
+	cfg := redisSentinel()
 	k, err := OpenRedis(ctx, cfg, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -1492,7 +1498,7 @@ func TestIntegrationCloudIdentity(t *testing.T) {
 	// connections are opened as Open would.
 	pg := Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Database: "postgres", Identity: IdentityAWS, IdentityRegion: "eu-west-1"}
 	fakeCLI(t, "aws", "dgopher")
-	sqldb, err := openPostgres(pg, endpoint{host: pg.Host, port: pg.Port, serverName: pg.Host}, nil)
+	sqldb, err := openPostgres(pg, endpoint{host: pg.Host, port: pg.Port, serverName: pg.Host}, nil, wire{who: newSendsAs(pg), engine: pg.Engine})
 	if err != nil {
 		t.Fatal(err)
 	}

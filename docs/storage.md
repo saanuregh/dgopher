@@ -24,7 +24,9 @@ SQLite file, `.dgopher/state.sqlite`.
 - `history`: query history (secrets redacted; trimmed to the newest 4,000
   once it passes 5,000; clearable), each entry with the number of its
   audit entry.
-- `audit`: the [audit log](audit-log.md), append-only and hash-chained.
+- `audit`: the [audit log](audit-log.md), append-only and hash-chained,
+  with every statement and command sent as its traffic, so it grows with
+  use and is never trimmed.
 
 Its schema has a version (`PRAGMA user_version`); a newer DGopher
 upgrades it, and an older one refuses a file it does not know. On the first
