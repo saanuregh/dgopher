@@ -1198,6 +1198,44 @@ func TestPendingChangesDialog(t *testing.T) {
 	testutil.WaitFor(t, tt, "the rows read again", func() bool { return !tt.HasText("1 pending change") && a.pending == nil })
 }
 
+// Escape answers the pending-changes question as Cancel does: what asked
+// is undone, nothing is applied or dropped.
+func TestPendingChangesEscapeCancels(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1280, 800)
+	var answers []string
+	a.AskPending(1, func() { answers = append(answers, "apply") }, func() { answers = append(answers, "discard") }, func() { answers = append(answers, "cancel") })
+	tt.Frame()
+	if !tt.HasText("Apply 1 pending change first?") {
+		t.Fatalf("no question: %q", tt.Texts())
+	}
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if len(answers) != 1 || answers[0] != "cancel" || a.pending != nil {
+		t.Fatalf("after Escape: answers %q, question %v", answers, a.pending)
+	}
+}
+
+// Escape on a question to close leaves things as they are: it neither
+// closes nor, with transactions open, commits or rolls them back.
+func TestCloseQuestionEscapeClosesNothing(t *testing.T) {
+	for _, txs := range [][]txHolder{nil, {nil}} {
+		a := newTestApp(t)
+		tt := ui.NewTester(a.view, 1280, 800)
+		closed := false
+		a.closing = &closeRequest{open: true, title: "Close the tab?", reason: "Its work goes.", onClose: func() { closed = true }, txs: txs}
+		tt.Frame()
+		if !tt.HasText("Close the tab?") {
+			t.Fatalf("no question: %q", tt.Texts())
+		}
+		tt.Key(0, ui.KeyEscape)
+		tt.Frame()
+		if closed || a.closing != nil {
+			t.Fatalf("after Escape with %d transactions: closed %v, question %v", len(txs), closed, a.closing)
+		}
+	}
+}
+
 // A run that drops two results with changes asks for each in turn: a
 // Discard that asks the next question keeps it on screen, and the run
 // starts after the last answer.

@@ -155,7 +155,7 @@ func (a *App) questions(c *ui.Context) {
 	if p := a.pending; p != nil {
 		title := "Apply " + widgets.Count(p.n, "pending change") + " first?"
 		switch ui.AlertDialog(c, &p.open, title, "Reading the rows again shows them as the database has them: the changes not applied yet are written first, or dropped.", "Cancel", "Discard", "Apply…") {
-		case 0:
+		case 0, ui.AlertDismissed:
 			p.cancel()
 		case 1:
 			p.discard()
