@@ -501,11 +501,12 @@ func (a *App) addExistingProject() {
 // newProjectForm asks for a new project's name and the folder to make it
 // in.
 type newProjectForm struct {
-	open   bool
-	name   string
-	parent string
-	err    string
-	then   func(*project.Project) // what asked for a project, to go on with it
+	open    bool
+	name    string
+	parent  string
+	err     string
+	then    func(*project.Project) // what asked for a project, to go on with it
+	dismiss widgets.DismissGuard
 }
 
 func defaultProjectsFolder() string {
@@ -558,7 +559,7 @@ func (a *App) createProject(f *newProjectForm) {
 func (a *App) newProjectView(c *ui.Context) {
 	f := a.newProject
 	pal := widgets.PaletteOf(c)
-	ui.Modal(c, &f.open, func() {
+	dlg := ui.Modal(c, &f.open, func() {
 		ui.Column(c).Width(520).Gap(12).Children(func() {
 			ui.Text(c, "New Project").FontSize(15).Bold()
 			ui.Text(c, "A project is a folder to keep in Git: its "+project.File+" lists connections without passwords, and its queries are .sql files.").FontSize(12).TextColor(pal.Muted)
@@ -585,6 +586,7 @@ func (a *App) newProjectView(c *ui.Context) {
 			}
 		})
 	})
+	f.dismiss.Keep(c, dlg, &f.open, [2]string{f.name, f.parent}, false)
 	if !f.open {
 		a.newProject = nil
 	}

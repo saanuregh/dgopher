@@ -55,6 +55,7 @@ type sqlFileRun struct {
 	finished bool
 	cancel   context.CancelFunc
 	err      string
+	dismiss  widgets.DismissGuard
 }
 
 // maxDangerous is how many destructive statements the summary names.
@@ -80,6 +81,12 @@ func (a *App) startSQLFileRun(cn *connection.Conn, database, path, restore strin
 		defer cancel()
 		sum, err := surveySQLFile(ctx, &cfg, path, &x.progress)
 		return func() {
+			untouched := !x.dismiss.Edited([2]bool{x.stopOnError, x.oneTx})
+			defer func() {
+				if untouched {
+					x.dismiss.Used() // what reading the file sets is the dialog's
+				}
+			}()
 			x.reading, x.cancel = false, nil
 			if err != nil {
 				x.err = err.Error()
@@ -184,7 +191,7 @@ func (a *App) sqlFileView(c *ui.Context) {
 	x := a.sqlFile
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	ui.Modal(c, &x.open, func() {
+	dlg := ui.Modal(c, &x.open, func() {
 		ui.Column(c).Width(640).Gap(12).Children(func() {
 			ui.Text(c, "Run "+filepath.Base(x.path)+" on "+x.conn.Config.Name).FontSize(15).Bold()
 			ui.Text(c, x.path).Font(widgets.MonoFont).FontSize(12).TextColor(pal.Muted).SingleLine()
@@ -247,6 +254,7 @@ func (a *App) sqlFileView(c *ui.Context) {
 			})
 		})
 	})
+	x.dismiss.Keep(c, dlg, &x.open, [2]bool{x.stopOnError, x.oneTx}, x.running)
 	if !x.open && !x.running {
 		if x.cancel != nil {
 			x.cancel()
@@ -339,6 +347,7 @@ func (a *App) runSQLFile(x *sqlFileRun) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	x.running, x.cancel, x.err, x.failures = true, cancel, "", nil
+	x.dismiss.Used()
 	x.done.Store(0)
 	x.progress.Store(0)
 	cn, cfg, database := x.conn, x.conn.Config, x.database

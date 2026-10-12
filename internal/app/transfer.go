@@ -40,6 +40,23 @@ type copyDialog struct {
 	cancel  context.CancelFunc
 	err     string
 	done    bool
+	dismiss widgets.DismissGuard
+}
+
+// inputs are what the user chose in the dialog (DismissGuard): the tables
+// left out, the target and what to do with tables there.
+func (x *copyDialog) inputs(a *App) any {
+	var left []string
+	for _, t := range x.tables {
+		if !t.chosen {
+			left = append(left, t.name)
+		}
+	}
+	return struct {
+		left   []string
+		target [3]string
+		mode   int
+	}{left, x.target.chosen(a), x.mode}
 }
 
 type copyTable struct {
@@ -143,6 +160,7 @@ func (a *App) startCopy(x *copyDialog) {
 func (a *App) runCopy(x *copyDialog, to *connection.Conn, tables []string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	x.running, x.cancel, x.err, x.done = true, cancel, "", false
+	x.dismiss.Used()
 	for i := range x.tables {
 		x.tables[i].status = ""
 	}
@@ -311,7 +329,7 @@ func (a *App) copyView(c *ui.Context) {
 	x := a.copying
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	ui.Modal(c, &x.open, func() {
+	dlg := ui.Modal(c, &x.open, func() {
 		ui.Column(c).Width(640).Gap(12).Children(func() {
 			ui.Text(c, "Copy Tables of "+x.fromSchema+" · "+x.from.Config.Name).FontSize(15).Bold().SingleLine()
 			ui.Scroll(c).MaxHeight(200).Border(1, th.Border).Radius(6).Children(func() {
@@ -358,6 +376,7 @@ func (a *App) copyView(c *ui.Context) {
 			})
 		})
 	})
+	x.dismiss.Keep(c, dlg, &x.open, x.inputs(a), x.running)
 	if !x.open {
 		if x.cancel != nil {
 			x.cancel()

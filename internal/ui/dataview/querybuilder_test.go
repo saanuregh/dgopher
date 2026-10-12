@@ -174,3 +174,39 @@ func TestQueryBuilderDottedName(t *testing.T) {
 		t.Fatalf("after removing a.b, columns %+v", b.columns)
 	}
 }
+
+// The builder closes at Escape as it opened, once its table is read, and
+// asks once a column is chosen.
+func TestQueryBuilderKeepsEdits(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "b.sqlite")
+	os.WriteFile(file, nil, 0o600)
+	a := NewFakeHost(t)
+	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
+	tt := ui.NewTester(a.View, 1000, 800)
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	if _, err := cn.DB.SQL.Exec(`CREATE TABLE orders (id INTEGER PRIMARY KEY, total REAL)`); err != nil {
+		t.Fatal(err)
+	}
+	open := func() *queryBuilder {
+		OpenQueryBuilder(a, cn, "", db.Object{Schema: "main", Name: "orders", Kind: db.KindTable})
+		b := a.Dialogs().builder
+		testutil.WaitFor(t, tt, "the table", func() bool { return !b.tables[0].loading })
+		return b
+	}
+	open()
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if a.Dialogs().builder != nil {
+		t.Fatalf("an untouched builder asks: %q", tt.Texts())
+	}
+	b := open()
+	b.tables[0].chosen[1] = true
+	b.setChosen("orders.total", true)
+	tt.Frame()
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if a.Dialogs().builder != b || !tt.HasText("Discard your changes?") {
+		t.Fatalf("an edited builder closed: %q", tt.Texts())
+	}
+}

@@ -1905,10 +1905,11 @@ func setVirtualKey(a Host, v *Viewer, cols []string) error {
 
 // keyForm chooses the columns of a virtual key.
 type keyForm struct {
-	open bool
-	v    *Viewer
-	on   []bool
-	err  string
+	open    bool
+	v       *Viewer
+	on      []bool
+	err     string
+	dismiss widgets.DismissGuard
 }
 
 func openKeyForm(a Host, v *Viewer) {
@@ -1923,7 +1924,7 @@ func openKeyForm(a Host, v *Viewer) {
 func keyFormView(a Host, c *ui.Context) {
 	f := a.Dialogs().keyForm
 	pal := widgets.PaletteOf(c)
-	ui.Modal(c, &f.open, func() {
+	dlg := ui.Modal(c, &f.open, func() {
 		ui.Column(c).Width(460).Gap(10).Children(func() {
 			ui.Text(c, "Virtual Key of "+f.v.source.Table.Name).FontSize(15).Bold()
 			ui.Text(c, "Choose the columns whose values tell each row apart. The key is kept in "+project.File+" for the team; each change must still match exactly one row.").FontSize(12).TextColor(pal.Muted)
@@ -1969,6 +1970,7 @@ func keyFormView(a Host, c *ui.Context) {
 			})
 		})
 	})
+	f.dismiss.Keep(c, dlg, &f.open, f.on, false)
 	dropClosed(&a.Dialogs().keyForm, f, f.open)
 }
 

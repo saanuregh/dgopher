@@ -89,6 +89,27 @@ type exportState struct {
 	current atomic.Int64 // the index of the source being exported
 	cancel  context.CancelFunc
 	err     string
+	dismiss widgets.DismissGuard
+}
+
+// exportInputs are what the user sets in the export dialog
+// (widgets.DismissGuard).
+type exportInputs struct {
+	all, limited                                        bool
+	limit, perInsert                                    float64
+	format, nullText, schema, table, folder, pattern    string
+	delim, quote                                        int
+	quoteAll, header, bom, guard, clipboard, openFolder bool
+	chosen                                              []bool
+}
+
+func (x *exportState) inputs() exportInputs {
+	chosen := make([]bool, len(x.tables))
+	for i, t := range x.tables {
+		chosen[i] = t.chosen
+	}
+	return exportInputs{x.all, x.limited, x.limit, x.perInsert, x.format, x.nullText, x.schema, x.table, x.folder, x.pattern,
+		x.delim, x.quote, x.quoteAll, x.header, x.bom, x.guard, x.clipboard, x.openFolder, chosen}
 }
 
 // exportTable is a table the user may choose to export.
@@ -218,7 +239,7 @@ func ExportView(a Host, c *ui.Context) {
 	if len(chosen) > 0 {
 		example = chosen[0]
 	}
-	ui.Modal(c, &x.open, func() {
+	dlg := ui.Modal(c, &x.open, func() {
 		ui.Column(c).Width(620).Gap(12).Children(func() {
 			ui.Text(c, x.title).FontSize(15).Bold().SingleLine()
 			if many {
@@ -332,6 +353,7 @@ func ExportView(a Host, c *ui.Context) {
 			})
 		})
 	})
+	x.dismiss.Keep(c, dlg, &x.open, x.inputs(), x.running)
 	if !x.open && a.Dialogs().export == x {
 		if x.cancel != nil {
 			x.cancel()
@@ -436,6 +458,7 @@ func runExport(a Host, x *exportState) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	x.running, x.cancel, x.err = true, cancel, ""
+	x.dismiss.Used()
 	x.written.Store(0)
 	x.current.Store(0)
 	started := time.Now()

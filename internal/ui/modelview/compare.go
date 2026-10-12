@@ -38,6 +38,15 @@ type compareForm struct {
 	model    string             // the name of the model chosen
 	running  bool
 	err      string
+	dismiss  widgets.DismissGuard
+}
+
+// inputs are what the user chose in the form (widgets.DismissGuard).
+func (f *compareForm) inputs() any {
+	return struct {
+		with                          int
+		conn, database, schema, model string
+	}{f.with, f.conn, f.database, f.schema, f.model}
 }
 
 func newCompareForm(t *Tab) *compareForm {
@@ -74,7 +83,7 @@ func (t *Tab) compareView(c *ui.Context) {
 	f := t.comparing
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	ui.Modal(c, &f.open, func() {
+	dlg := ui.Modal(c, &f.open, func() {
 		ui.Column(c).Width(480).Gap(12).Children(func() {
 			ui.Text(c, "Compare "+t.m.Name).FontSize(15).Bold()
 			ui.Segmented(c, &f.with, "A Database", "Another Model").Label("Compare with").AutoFocus()
@@ -136,6 +145,7 @@ func (t *Tab) compareView(c *ui.Context) {
 			})
 		})
 	})
+	f.dismiss.Keep(c, dlg, &f.open, f.inputs(), f.running)
 	if !f.open {
 		t.comparing = nil
 	}

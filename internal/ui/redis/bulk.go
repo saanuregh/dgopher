@@ -55,6 +55,15 @@ type bulkDialog struct {
 	done    int64
 	err     string
 	result  string
+	dismiss widgets.DismissGuard
+}
+
+// inputs are what the user set in the dialog (widgets.DismissGuard).
+func (b *bulkDialog) inputs() any {
+	return struct {
+		pattern, path string
+		replace       bool
+	}{b.pattern, b.path, b.replace}
 }
 
 func (r *Tab) openBulk(kind bulkKind) {
@@ -72,6 +81,7 @@ func (r *Tab) openBulk(kind bulkKind) {
 func (r *Tab) background(b *bulkDialog, job string, work func(ctx context.Context) func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	b.running, b.cancel, b.done, b.err, b.result = true, cancel, 0, "", ""
+	b.dismiss.Used()
 	// A panic: the app shows it, and the dialog stops waiting.
 	stopped := func() { b.running, b.cancel, b.err = false, nil, "It stopped on an internal error." }
 	run := func() func() {
@@ -289,7 +299,7 @@ func (r *Tab) bulkView(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	ro := r.conn.Config.ReadOnly
-	ui.Modal(c, &b.open, func() {
+	dlg := ui.Modal(c, &b.open, func() {
 		ui.Column(c).Width(560).Gap(12).Children(func() {
 			title := map[bulkKind]string{bulkDelete: "Delete Keys", bulkExport: "Export Keys", bulkImport: "Import Keys"}[b.kind]
 			ui.Text(c, title+" · "+r.conn.Config.Name).FontSize(15).Bold()
@@ -367,6 +377,7 @@ func (r *Tab) bulkView(c *ui.Context) {
 			})
 		})
 	})
+	b.dismiss.Keep(c, dlg, &b.open, b.inputs(), b.running)
 	if !b.open {
 		if b.cancel != nil {
 			b.cancel()

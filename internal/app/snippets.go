@@ -20,6 +20,7 @@ type snippetForm struct {
 	keyword string
 	sql     string
 	err     string
+	dismiss widgets.DismissGuard
 }
 
 // AskSnippet keeps the selection of an editor, or its statement at the
@@ -41,7 +42,7 @@ func (a *App) AskSnippet(q *query.Tab) {
 func (a *App) snippetFormView(c *ui.Context) {
 	f := a.snippetForm
 	pal := widgets.PaletteOf(c)
-	ui.Modal(c, &f.open, func() {
+	dlg := ui.Modal(c, &f.open, func() {
 		ui.Column(c).Width(520).Gap(10).Children(func() {
 			ui.Text(c, "Save as Snippet").FontSize(15).Bold()
 			submit := ui.TextInput(c, &f.name).AutoFocus().Label("Name").Placeholder("Name").Submitted()
@@ -80,6 +81,7 @@ func (a *App) snippetFormView(c *ui.Context) {
 			}
 		})
 	})
+	f.dismiss.Keep(c, dlg, &f.open, [3]string{f.name, f.keyword, f.sql}, false)
 	if !f.open {
 		a.snippetForm = nil
 	}

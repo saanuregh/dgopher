@@ -36,6 +36,16 @@ type backupDialog struct {
 	lines   []string // the tool's progress, the latest last
 	err     string
 	done    bool
+	dismiss widgets.DismissGuard
+}
+
+// inputs are what the user chose in the dialog (DismissGuard).
+func (b *backupDialog) inputs() any {
+	return struct {
+		format, content int
+		path            string
+		clean           bool
+	}{b.format, b.content, b.path, b.clean}
 }
 
 // backupSupported says whether a connection's databases are backed up by
@@ -121,6 +131,7 @@ func (a *App) startBackup(b *backupDialog) {
 	run := func(planned *db.ToolRun) {
 		ctx, cancel := context.WithCancel(context.Background())
 		b.running, b.cancel, b.err, b.lines, b.done = true, cancel, "", nil, false
+		b.dismiss.Used()
 		started := time.Now()
 		restore, path, clean, database := b.restore, b.path, b.clean, b.database
 		job := "Backing up " + b.what() + ": stopping it leaves the backup unfinished."
@@ -202,6 +213,7 @@ func (a *App) startBackup(b *backupDialog) {
 	// connection to be reviewed as they will run.
 	ctx, cancel := context.WithCancel(context.Background())
 	b.running, b.cancel, b.err, b.lines, b.done = true, cancel, "", nil, false
+	b.dismiss.Used()
 	path := b.path
 	dataview.BackgroundResetOnPanic(a, func() { b.running, b.cancel = false, nil }, func() func() {
 		defer cancel()
@@ -248,7 +260,7 @@ func (a *App) backupView(c *ui.Context) {
 	if !b.restore && b.conn.DB != nil && db.MysqldumpChecksCAOnly(b.conn.DB) {
 		note += " Through the tunnel or proxy, verify-full checks the server's certificate against the CA file only, not the server's name, which mysqldump cannot be told."
 	}
-	ui.Modal(c, &b.open, func() {
+	dlg := ui.Modal(c, &b.open, func() {
 		ui.Column(c).Width(620).Gap(12).Children(func() {
 			title := "Back Up " + b.what()
 			if b.restore {
@@ -320,6 +332,7 @@ func (a *App) backupView(c *ui.Context) {
 			})
 		})
 	})
+	b.dismiss.Keep(c, dlg, &b.open, b.inputs(), b.running)
 	if !b.open {
 		if b.cancel != nil {
 			b.cancel()

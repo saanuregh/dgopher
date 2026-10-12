@@ -45,6 +45,7 @@ type valueEditor struct {
 	date     dateLayout // how the value spells its date
 	truth    int        // the switch: 0 true, 1 false
 	jsonOpen map[string]*bool
+	dismiss  widgets.DismissGuard
 
 	// The tree's JSON, decoded once for treeText, its objects as jsonObject.
 	treeText string
@@ -238,7 +239,7 @@ func valueEditorView(a Host, c *ui.Context) {
 	e := a.Dialogs().valueEdit
 	pal := widgets.PaletteOf(c)
 	th := c.Theme()
-	ui.Modal(c, &e.open, func() {
+	dlg := ui.Modal(c, &e.open, func() {
 		ui.Column(c).Width(640).Gap(10).Children(func() {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, e.src.Cols[e.col].Name).FontSize(15).Bold()
@@ -302,6 +303,15 @@ func valueEditorView(a Host, c *ui.Context) {
 			})
 		})
 	})
+	var edits any // a value only shown has none
+	if e.editable {
+		edits = struct {
+			text, choice string
+			when         time.Time
+			truth        int
+		}{e.text, e.choice, e.when, e.truth}
+	}
+	e.dismiss.Keep(c, dlg, &e.open, edits, false)
 	dropClosed(&a.Dialogs().valueEdit, e, e.open)
 }
 

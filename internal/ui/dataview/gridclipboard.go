@@ -190,6 +190,7 @@ type clipForm struct {
 	delim     int
 	copy      settings.CopyOptions
 	pasteOpts pasteOptions
+	dismiss   widgets.DismissGuard
 }
 
 func openAdvancedCopy(a Host, g *Grid, src *Source) {
@@ -227,7 +228,7 @@ func clipView(a Host, c *ui.Context) {
 	if f.paste {
 		title = "Advanced Paste"
 	}
-	ui.Modal(c, &f.open, func() {
+	dlg := ui.Modal(c, &f.open, func() {
 		ui.Column(c).Width(460).Gap(12).Children(func() {
 			ui.Text(c, title).FontSize(15).Bold()
 			ui.Form(c, func() {
@@ -268,6 +269,11 @@ func clipView(a Host, c *ui.Context) {
 			}
 		})
 	})
+	f.dismiss.Keep(c, dlg, &f.open, struct {
+		delim int
+		copy  settings.CopyOptions
+		paste pasteOptions
+	}{f.delim, f.copy, f.pasteOpts}, false)
 	dropClosed(&a.Dialogs().clip, f, f.open)
 }
 

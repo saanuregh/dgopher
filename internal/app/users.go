@@ -43,6 +43,24 @@ type accountForm struct {
 	schema, table      string
 	role               string
 	err                string
+	dismiss            widgets.DismissGuard
+}
+
+// inputs are what the user entered in the form (widgets.DismissGuard): of
+// the privileges, those ticked, a box ticked then unticked as never.
+func (f *accountForm) inputs() any {
+	var granted []string
+	for p, on := range f.privileges {
+		if on {
+			granted = append(granted, p)
+		}
+	}
+	slices.Sort(granted)
+	return struct {
+		name, host, password, repeated, schema, table, role string
+		createDB, create                                    bool
+		granted                                             []string
+	}{f.name, f.host, f.password, f.repeated, f.schema, f.table, f.role, f.createDB, f.create, granted}
 }
 
 type accountFormKind int
@@ -278,7 +296,7 @@ func (t *usersTab) formView(c *ui.Context) {
 	titles := map[accountFormKind]string{formNewUser: "New User", formNewRole: "New Role",
 		formPassword: "Change the Password of " + f.account.Label(), formGrant: "Grant to " + f.account.Label(),
 		formJoinRole: "Add " + f.account.Label() + " to a Role"}
-	ui.Modal(c, &f.open, func() {
+	dlg := ui.Modal(c, &f.open, func() {
 		ui.Column(c).Width(520).Gap(12).Children(func() {
 			ui.Text(c, titles[f.kind]).FontSize(15).Bold()
 			ui.Form(c, func() {
@@ -339,6 +357,7 @@ func (t *usersTab) formView(c *ui.Context) {
 			}
 		})
 	})
+	f.dismiss.Keep(c, dlg, &f.open, f.inputs(), false)
 	if !f.open && t.form == f {
 		t.form = nil
 	}

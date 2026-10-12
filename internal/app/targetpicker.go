@@ -29,6 +29,21 @@ func (p *targetPicker) conn(a *App) *connection.Conn {
 	return nil
 }
 
+// chosen is what the user chose in the picker, without the defaults it
+// fills in itself (DismissGuard).
+func (p *targetPicker) chosen(a *App) [3]string {
+	database, schema := p.database, p.schema
+	if cn := p.conn(a); cn != nil {
+		if database == cn.Config.Database {
+			database = ""
+		}
+		if schema == cn.DefaultSchema {
+			schema = ""
+		}
+	}
+	return [3]string{p.label, database, schema}
+}
+
 // fields draws the connection's, the database's and the schema's fields,
 // connecting the connection chosen; another connection starts at its own
 // database and its default schema. It returns the connection chosen.

@@ -103,11 +103,12 @@ type Tab struct {
 }
 
 type newKeyForm struct {
-	open  bool
-	typ   string
-	key   string
-	field string
-	value string
+	open    bool
+	typ     string
+	key     string
+	field   string
+	value   string
+	dismiss widgets.DismissGuard
 }
 
 // newKeyTypes are the types of the keys the new key form makes.
@@ -932,7 +933,7 @@ func (r *Tab) newKeyView(c *ui.Context) {
 	if f == nil {
 		return
 	}
-	ui.Modal(c, &f.open, func() {
+	dlg := ui.Modal(c, &f.open, func() {
 		ui.Column(c).Width(420).Gap(10).Children(func() {
 			ui.Text(c, "New Key").FontSize(15).Bold()
 			ui.Select(c, &f.typ, newKeyTypes).Label("Type")
@@ -971,6 +972,7 @@ func (r *Tab) newKeyView(c *ui.Context) {
 			}
 		})
 	})
+	f.dismiss.Keep(c, dlg, &f.open, [4]string{f.typ, f.key, f.field, f.value}, false)
 	if !f.open {
 		r.newKey = nil
 	}
