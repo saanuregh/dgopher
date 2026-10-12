@@ -1,6 +1,10 @@
 package sqltext
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+	"unicode"
+)
 
 // TableRef is a table referenced by a statement; names are unquoted.
 type TableRef struct {
@@ -16,6 +20,9 @@ type CompletionContext struct {
 	PrefixStart int
 	Qualifier   string
 	WantTable   bool
+	// InQueryFrom says the table goes in a query's FROM or JOIN, where an
+	// alias may follow it.
+	InQueryFrom bool
 	Tables      []TableRef
 }
 
@@ -84,7 +91,8 @@ func CompletionAt(src string, caret int, d Dialect) CompletionContext {
 			before = append(before, t)
 		}
 	}
-	ctx.WantTable = wantTable(before)
+	k := tableKeyword(before)
+	ctx.WantTable, ctx.InQueryFrom = k >= 0, queryFrom(before, k)
 
 	for _, ref := range tableRefs(toks, cut) {
 		dup := false
@@ -113,24 +121,58 @@ func unquote(t Token) string {
 	return strings.ReplaceAll(inner, q+q, q)
 }
 
-func wantTable(before []Token) bool {
+// tableKeyword returns the index in before of the keyword whose table is
+// typed next, as FROM, JOIN or INTO, the FROM of a list of them, or -1
+// where no table goes.
+func tableKeyword(before []Token) int {
 	if len(before) == 0 {
-		return false
+		return -1
 	}
-	last := before[len(before)-1]
-	if len(before) > 1 && last.Kind == Keyword && (word(last) == "LATERAL" || word(last) == "ONLY") {
-		if prev := before[len(before)-2]; prev.Kind == Keyword && (word(prev) == "FROM" || word(prev) == "JOIN") {
-			return true
+	n := len(before) - 1
+	last := before[n]
+	if n > 0 && last.Kind == Keyword && (word(last) == "LATERAL" || word(last) == "ONLY") {
+		if prev := before[n-1]; prev.Kind == Keyword && (word(prev) == "FROM" || word(prev) == "JOIN") {
+			return n - 1
 		}
 	}
 	if tableKeywords[word(last)] && last.Kind == Keyword {
-		return true
+		return n
 	}
 	if !isPunct(last, ",") {
+		return -1
+	}
+	depth := 0
+	for i := n - 1; i >= 0; i-- {
+		t := before[i]
+		switch {
+		case isPunct(t, ")"):
+			depth++
+		case isPunct(t, "("):
+			if depth == 0 {
+				return -1
+			}
+			depth--
+		case depth == 0 && t.Kind == Keyword:
+			switch word(t) {
+			case "FROM":
+				return i
+			case "AS", "ONLY", "LATERAL":
+			default:
+				return -1
+			}
+		}
+	}
+	return -1
+}
+
+// queryFrom reports whether the keyword at k is a query's FROM or JOIN:
+// one after a SELECT within the same parentheses, not DELETE's or SHOW's.
+func queryFrom(before []Token, k int) bool {
+	if k < 0 || before[k].Kind != Keyword || word(before[k]) != "FROM" && word(before[k]) != "JOIN" {
 		return false
 	}
 	depth := 0
-	for i := len(before) - 2; i >= 0; i-- {
+	for i := k - 1; i >= 0; i-- {
 		t := before[i]
 		switch {
 		case isPunct(t, ")"):
@@ -140,17 +182,59 @@ func wantTable(before []Token) bool {
 				return false
 			}
 			depth--
-		case depth == 0 && t.Kind == Keyword:
-			switch word(t) {
-			case "FROM":
-				return true
-			case "AS", "ONLY", "LATERAL":
-			default:
-				return false
-			}
+		case depth == 0 && t.Kind == Keyword && word(t) == "SELECT":
+			return true
 		}
 	}
 	return false
+}
+
+// TableAlias is a short alias for the table name, as DBeaver gives: the
+// first letters of its words, which start after what is not a letter or
+// digit and where camel case starts one, in lower case. One that is a
+// keyword, or in taken in any case, takes the first number from 2 that
+// sets it apart.
+func TableAlias(name string, taken []string, d Dialect) string {
+	rs := []rune(name)
+	var b strings.Builder
+	for i, r := range rs {
+		if !unicode.IsLetter(r) {
+			continue
+		}
+		prev, next := ' ', ' '
+		if i > 0 {
+			prev = rs[i-1]
+		}
+		if i+1 < len(rs) {
+			next = rs[i+1]
+		}
+		after := !unicode.IsLetter(prev) && !unicode.IsDigit(prev)
+		camel := unicode.IsUpper(r) && (unicode.IsLower(prev) || unicode.IsUpper(prev) && unicode.IsLower(next))
+		if after || camel {
+			b.WriteRune(unicode.ToLower(r))
+		}
+	}
+	alias := b.String()
+	if alias == "" {
+		alias = "t"
+	}
+	free := func(s string) bool {
+		if keywordSet(d)[strings.ToUpper(s)] {
+			return false
+		}
+		for _, t := range taken {
+			if strings.EqualFold(t, s) {
+				return false
+			}
+		}
+		return true
+	}
+	for n := 2; !free(alias); n++ {
+		if s := alias + strconv.Itoa(n); free(s) {
+			return s
+		}
+	}
+	return alias
 }
 
 // IsName reports whether a token may name a table, column or alias.

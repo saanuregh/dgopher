@@ -1,7 +1,10 @@
 package query
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -381,6 +384,47 @@ func TestCompletionPopupPastEditor(t *testing.T) {
 	tt.Frame()
 	if !strings.Contains(q.Editor.Text, label) {
 		t.Fatalf("a click on %q past the editor's bottom: text %q, popup open %v", label, q.Editor.Text, q.ac.open)
+	}
+}
+
+// A table completed in a query's FROM or JOIN takes a short alias, apart
+// from the statement's others; elsewhere, or with one after it, none.
+func TestCompletingTableAddsAlias(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "x.sqlite")
+	os.WriteFile(file, nil, 0o600)
+	setup, _ := db.Open(context.Background(), db.Config{Name: "s", Engine: db.SQLite, Database: file}, nil)
+	setup.SQL.Exec("CREATE TABLE reflex_order (id INTEGER)")
+	setup.Close()
+	a, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file}, 1000, 700, "")
+	complete := func(before, after string) string {
+		t.Helper()
+		q.Editor.Text = before + after
+		q.ac.lastText = q.Editor.Text
+		testutil.SetCaret(tt, &q.Editor, len([]rune(before)))
+		testutil.WaitFor(t, tt, "the table's suggestion", func() bool {
+			q.suggest(a, true)
+			for i, it := range q.ac.items {
+				if it.label == "reflex_order" {
+					q.ac.index = i
+					return true
+				}
+			}
+			return false
+		})
+		q.accept()
+		return q.Editor.Text
+	}
+	for _, c := range []struct{ before, after, want string }{
+		{"SELECT * FROM refl", "", "SELECT * FROM reflex_order ro"},
+		{"SELECT * FROM reflex_order ro JOIN refl", "", "SELECT * FROM reflex_order ro JOIN reflex_order ro2"},
+		{"SELECT * FROM refl", "\nWHERE ro.id = 1", "SELECT * FROM reflex_order ro\nWHERE ro.id = 1"},
+		{"SELECT * FROM refl", " r WHERE r.id = 1", "SELECT * FROM reflex_order r WHERE r.id = 1"},
+		{"INSERT INTO refl", "", "INSERT INTO reflex_order"},
+		{"DELETE FROM refl", "", "DELETE FROM reflex_order"},
+	} {
+		if got := complete(c.before, c.after); got != c.want {
+			t.Errorf("completing %q|%q: %q, want %q", c.before, c.after, got, c.want)
+		}
 	}
 }
 

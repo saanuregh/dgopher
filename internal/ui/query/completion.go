@@ -38,8 +38,12 @@ type completion struct {
 	// header is set while the popup completes the connection a header
 	// line names, whose IDs hold more than an identifier's characters.
 	header bool
-	list   ui.ListState
-	row    int
+	// inQueryFrom is set where a table completed takes an alias, apart
+	// from those of tables, the statement's others.
+	inQueryFrom bool
+	tables      []sqltext.TableRef
+	list        ui.ListState
+	row         int
 }
 
 // IsIdentRune reports whether a rune may be part of a word completion
@@ -178,9 +182,36 @@ func (q *Tab) accept() {
 			q.Editor.PendingSel = &[2]int{at, at}
 		}
 	default:
-		q.Editor.TypeAtCarets(ac.start, q.Editor.SelEnd, it.text)
+		text := it.text
+		if (it.kind == "table" || it.kind == "view") && ac.inQueryFrom && !q.aliasFollows(q.Editor.SelEnd) {
+			var taken []string
+			for _, t := range ac.tables {
+				taken = append(taken, t.Name, t.Alias)
+			}
+			text += " " + sqltext.TableAlias(it.label, taken, q.Editor.Dialect)
+		}
+		q.Editor.TypeAtCarets(ac.start, q.Editor.SelEnd, text)
 	}
 	ac.lastText = q.Editor.Text
+}
+
+// aliasFollows reports whether the table name ending at rune end has an
+// alias after it already, or goes on: a name, AS, or a dot.
+func (q *Tab) aliasFollows(end int) bool {
+	runes := []rune(q.Editor.Text)
+	rest := string(runes[min(end, len(runes)):])
+	for _, t := range sqltext.Tokenize(rest, q.Editor.Dialect) {
+		switch {
+		case t.Kind == sqltext.Whitespace || t.Kind == sqltext.Comment:
+		case sqltext.IsName(t):
+			return true
+		case t.Kind == sqltext.Keyword:
+			return strings.EqualFold(t.Text, "AS")
+		default:
+			return t.Kind == sqltext.Punct && t.Text == "."
+		}
+	}
+	return false
 }
 
 // suggest finds what may complete the word at the caret. With force, it
@@ -196,7 +227,7 @@ func (q *Tab) suggest(a Host, force bool) {
 		ac.open = len(ac.items) > 0
 		return
 	}
-	ac.header = false
+	ac.header, ac.inQueryFrom, ac.tables = false, false, nil
 	if !force {
 		if caret == 0 || !(IsIdentRune(runes[caret-1]) || runes[caret-1] == '.') {
 			ac.open = false
@@ -207,6 +238,7 @@ func (q *Tab) suggest(a Host, force bool) {
 	cc := sqltext.CompletionAt(e.Text, caret, d)
 	ac.start = cc.PrefixStart
 	ac.retry = false
+	ac.inQueryFrom, ac.tables = cc.InQueryFrom, cc.Tables
 	if !force && cc.Prefix == "" && cc.Qualifier == "" {
 		ac.open = false
 		return
