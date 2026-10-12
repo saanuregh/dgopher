@@ -802,6 +802,42 @@ func TestRestoredEditorWaitsToConnect(t *testing.T) {
 	testutil.WaitFor(t, tt, "the run", func() bool { return resultRows(tt, q, 1) })
 }
 
+// Opening a query file shows it at once on the connection its header
+// names, without connecting, as a restored editor does: one that asks for
+// its password asks when the editor runs, not to open the file.
+func TestOpenQueryFileWaitsToConnect(t *testing.T) {
+	st, _ := store.Open(t.TempDir(), store.MemorySecrets())
+	a := startApp(t, st)
+	if _, err := a.addProject(newProjectDir(t, "p")); err != nil {
+		t.Fatal(err)
+	}
+	p := a.projects[0]
+	addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: writeSQL(t, "x.sqlite", "")})
+	addConn(a, db.Config{ID: "uat", Name: "UAT 2", Engine: db.Postgres, Host: "127.0.0.1", Port: 1, User: "u", AskPassword: true})
+	a.saveProject(p)
+	os.MkdirAll(p.Queries, 0o755)
+	for name, id := range map[string]string{"uat.sql": "uat", "lite.sql": "lite"} {
+		os.WriteFile(filepath.Join(p.Queries, name), []byte("-- connection: "+id+"\n\nSELECT 1 AS one;"), 0o644)
+	}
+	tt := ui.NewTester(a.view, 1000, 700)
+	var q *query.Tab
+	for _, name := range []string{"uat.sql", "lite.sql"} {
+		a.openQueryFile(p, name, nil)
+		tt.Frame()
+		var ok bool
+		if q, ok = a.ActiveTab().(*query.Tab); !ok || filepath.Base(q.Path) != name {
+			t.Fatalf("opening %s: no editor of it, password asked %v", name, a.prompt != nil)
+		}
+		if q.Conn.Status != connection.StatusIdle || a.prompt != nil {
+			t.Fatalf("opening %s: status %v, password asked %v", name, q.Conn.Status, a.prompt != nil)
+		}
+	}
+	// Running connects it.
+	testutil.SetCaret(tt, &q.Editor, len([]rune(q.Editor.Text))-2)
+	q.Run(query.RunStatement)
+	testutil.WaitFor(t, tt, "the run", func() bool { return resultRows(tt, q, 1) })
+}
+
 // A restored editor opens on the connection its file names, as after a
 // pull that changed the header, not on the one it last had.
 func TestRestoredEditorFollowsItsHeader(t *testing.T) {

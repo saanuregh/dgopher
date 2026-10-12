@@ -360,8 +360,8 @@
   - Each editor has its own session, so `SET`, temporary tables and
     transactions persist between statements.
   - Editors are restored on the next launch, and `.sql` files can be opened
-    and saved. A restored editor does not connect on its own: Connect, or
-    running a statement, opens its connection.
+    and saved. A restored editor, or a file opened, does not connect on its
+    own: Connect, or running a statement, opens its connection.
   - Auto-connect, off by default per connection: the connection opens as
     DGopher starts, and its editors connect as they are shown.
 
