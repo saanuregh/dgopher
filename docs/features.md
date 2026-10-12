@@ -323,6 +323,9 @@
   - Completion of tables, columns (alias-aware), schemas, keywords, the
     engine's common functions and the schema's own, which complete with
     their parentheses, and snippets by their keyword.
+    A table completed in a query's `FROM` or `JOIN` takes a short alias of
+    its words' first letters, as DBeaver gives (`reflex_order ro`), apart
+    from the statement's others and from keywords (`ro2`).
   - A statement ends at `;` or at a blank line, so ⌘↵ runs the statement
     around the caret without selecting it; a band shows which. A setting
     keeps `;` only. A procedure, function or trigger body (`BEGIN … END`,

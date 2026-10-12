@@ -36,10 +36,11 @@ func TestAutocomplete(t *testing.T) {
 	testutil.Snapshot(t, tt, "autocomplete-table")
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
-	if !strings.HasSuffix(q.Editor.Text, "shop.customers") || q.ac.open {
+	// The table takes an alias, which its columns complete after.
+	if !strings.HasSuffix(q.Editor.Text, "shop.customers c") || q.ac.open {
 		t.Fatalf("after accepting: %q open %v", q.Editor.Text, q.ac.open)
 	}
-	tt.Type(" c WHERE c.em")
+	tt.Type(" WHERE c.em")
 	testutil.WaitFor(t, tt, "column suggestions", func() bool { return q.ac.open && len(q.ac.items) > 0 && q.ac.items[0].label == "email" })
 	testutil.Snapshot(t, tt, "autocomplete-column")
 	tt.Key(0, ui.KeyTab)
