@@ -142,7 +142,9 @@ type App struct {
 	workspaceSaved time.Time
 }
 
-func newApp(st *store.Store) *App {
+// newApp starts the app on st, with the windows' layout of uiState when
+// it has one.
+func newApp(st *store.Store, uiState *state.DB) *App {
 	a := &App{st: st, settings: settings.Default(), layout: widgets.DefaultLayout()}
 	a.layoutSaved = a.layout
 	a.main = &window{}
@@ -162,6 +164,11 @@ func newApp(st *store.Store) *App {
 	a.appKnownHosts = filepath.Join(st.Dir(), "known_hosts")
 	a.auditLogs = map[string]*audit.Log{}
 	a.nav.init()
+	// Before the editors are restored, which take its height above their
+	// results.
+	if uiState != nil {
+		a.useUIState(uiState)
+	}
 	a.loadProjects()
 	for _, p := range a.projects {
 		if p.Err == "" {

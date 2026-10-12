@@ -53,7 +53,7 @@ func newBareApp(t *testing.T) *App {
 // ends: before the test's folders are removed, as Windows cannot remove
 // a file still open.
 func startApp(t *testing.T, st *store.Store) *App {
-	a := newApp(st)
+	a := newApp(st, nil)
 	t.Cleanup(a.shutdown)
 	return a
 }

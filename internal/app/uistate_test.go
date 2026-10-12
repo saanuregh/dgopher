@@ -1,10 +1,16 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
+	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 	"dgopher/internal/state"
 	"dgopher/internal/store"
+	"dgopher/internal/testutil"
+	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -48,5 +54,58 @@ func TestLayoutPersists(t *testing.T) {
 	want.SidebarWidth, want.SidebarHidden, want.EditorHeight, want.RedisConsoleHeight = 333, true, 410, 300
 	if a.layout != want {
 		t.Fatalf("the next run's layout %+v, want %+v", a.layout, want)
+	}
+}
+
+// An editor the next run restores takes the height above its results
+// dragged last, as a new one does.
+func TestRestoredEditorTakesSavedHeight(t *testing.T) {
+	cfg, data, projDir := t.TempDir(), t.TempDir(), filepath.Join(t.TempDir(), "proj")
+	os.MkdirAll(projDir, 0o755)
+	hint := keymap.Hint("Run a statement", keymap.Run) + ", or " + keymap.Hint("the whole script", keymap.RunScript) + "."
+	run := func() (*App, *ui.Tester) {
+		st, err := store.Open(cfg, store.MemorySecrets())
+		if err != nil {
+			t.Fatal(err)
+		}
+		uiDB, err := state.OpenUI(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { uiDB.Close() })
+		a := newApp(st, uiDB)
+		t.Cleanup(a.shutdown)
+		return a, ui.NewTester(a.view, 1000, 700)
+	}
+	// resultsTop is where the results under the editor start, once it
+	// connects.
+	resultsTop := func(a *App, tt *ui.Tester) float32 {
+		t.Helper()
+		q := a.ActiveTab().(*query.Tab)
+		q.Conn.Config.AutoConnect = true
+		testutil.WaitFor(t, tt, "the results' hint", func() bool { return tt.HasText(hint) })
+		r, _ := tt.Find(hint)
+		return float32(r.Y)
+	}
+
+	a, tt := run()
+	p, err := a.addProject(projDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	a.saveProject(p)
+	newAppEditor(t, a, tt, cn, "SELECT 1;")
+	before := resultsTop(a, tt)
+	a.layout.EditorHeight += 150 // as dragged
+	tt.Frame()
+	a.saveWorkspace(true)
+
+	b, tt2 := run()
+	if len(b.tabs) != 1 {
+		t.Fatalf("restored %d tabs", len(b.tabs))
+	}
+	if after := resultsTop(b, tt2); after < before+149 || after > before+151 {
+		t.Fatalf("the restored editor's results start at %v, %v before: want 150 lower", after, before)
 	}
 }
