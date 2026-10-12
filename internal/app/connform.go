@@ -64,6 +64,7 @@ type connForm struct {
 	// environment's.
 	idleConnMin   float64
 	idleConnNever bool
+	dismiss       widgets.DismissGuard
 
 	loaded     db.Config // the connection as it was, secrets included
 	url        string
@@ -296,7 +297,7 @@ func (a *App) connFormView(c *ui.Context) {
 	f := a.connForm
 	t := c.Theme()
 	engine := engineByLabel(f.engine)
-	ui.DialogBase(c, &f.open, func(backdrop, panel ui.Element) {
+	dlg := ui.DialogBase(c, &f.open, func(backdrop, panel ui.Element) {
 		backdrop.Background(widgets.Backdrop)
 		_, winH := c.Size()
 		panel.Width(680).Height(min(800, winH-40)).Radius(12).Background(t.Background).Border(1, t.Border).
@@ -356,6 +357,16 @@ func (a *App) connFormView(c *ui.Context) {
 			ui.Text(c, f.err).TextColor(t.Danger).Padding(0, 20, 12, 20)
 		}
 	})
+	f.dismiss.Keep(c, dlg, &f.open, f.inputs(), f.testing)
+}
+
+// inputs are what the user entered in the form, which Escape or a click
+// outside does not drop unasked.
+func (f *connForm) inputs() any {
+	return struct {
+		cfg            db.Config
+		id, projectSel string
+	}{f.config(), f.id, f.projectSel}
 }
 
 // The pages of the connection form, in order: what most connections need

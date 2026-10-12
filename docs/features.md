@@ -63,6 +63,11 @@
     main button; Esc closes it. A dialog whose button changes data or
     trusts a server (rolling back, dropping, deleting keys, importing,
     copying, restoring, running a file) takes a click.
+  - Esc or a click outside a form changed since it opened (a connection,
+    the query builder, a user, a value…) asks "Discard your changes?"
+    first; one as it opened closes at once. A dialog whose work runs, as
+    a copy, a backup, an import or Test Connection, stays open: its own
+    Stop or Cancel ends the work.
   - Every command's keys can be changed: Customize Keyboard Shortcuts…
     (in Settings, the Help menu or the palette) records a key for it,
     removes one, or resets it.

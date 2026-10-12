@@ -51,6 +51,21 @@ type fillDialog struct {
 	cancel  context.CancelFunc
 	done    int64
 	err     string
+	dismiss widgets.DismissGuard
+}
+
+// inputs are what the user set in the dialog (DismissGuard): the count,
+// and how each column's values are made.
+func (x *fillDialog) inputs() any {
+	type column struct{ kind, values, nulls string }
+	cols := make([]column, len(x.cols))
+	for i, fc := range x.cols {
+		cols[i] = column{fc.kind, fc.values, fc.nulls}
+	}
+	return struct {
+		count string
+		cols  []column
+	}{x.count, cols}
 }
 
 // fillColumn is a column of the table and how its values are made.
@@ -84,12 +99,16 @@ func (a *App) openFill(cn *connection.Conn, database string, obj db.Object) {
 		defer cancel()
 		cols, err := readFillColumns(ctx, poolOf, engine, obj)
 		return func() {
+			untouched := !x.dismiss.Edited(x.inputs())
 			x.loading = false
 			if err != nil {
 				x.err = err.Error()
 				return
 			}
 			x.cols = cols
+			if untouched {
+				x.dismiss.Used() // the columns read are the dialog's, not the user's
+			}
 		}
 	})
 }
@@ -325,6 +344,7 @@ func (a *App) runFill(x *fillDialog) {
 	target := &db.EditTarget{Dialect: cn.DB.Dialect, Schema: obj.Schema, Table: obj.Name, Columns: p.cols}
 	ctx, cancel := context.WithCancel(context.Background())
 	x.running, x.cancel, x.done, x.err = true, cancel, 0, ""
+	x.dismiss.Used()
 	pool, cfg, database := cn.DB, cn.Config, x.database
 	started := time.Now()
 	job := fmt.Sprintf("Adding %s generated rows to %s on %s: %s", widgets.HumanCount(int64(n)), obj.Name, cfg.Name, writeStopLoss(cfg.Engine, false))
@@ -372,7 +392,7 @@ func (a *App) fillView(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	_, winH := c.Size()
-	ui.Modal(c, &x.open, func() {
+	dlg := ui.Modal(c, &x.open, func() {
 		ui.Column(c).Width(980).MaxHeight(winH - 80).Gap(12).Children(func() {
 			ui.Text(c, "Generate Test Data for "+x.obj.Schema+"."+x.obj.Name).FontSize(15).Bold().SingleLine()
 			if x.loading {
@@ -424,6 +444,7 @@ func (a *App) fillView(c *ui.Context) {
 			})
 		})
 	})
+	x.dismiss.Keep(c, dlg, &x.open, x.inputs(), x.running)
 	if !x.open {
 		if x.cancel != nil {
 			x.cancel()

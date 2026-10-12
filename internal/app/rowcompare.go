@@ -43,6 +43,21 @@ type rowCompareDialog struct {
 
 	add, update, remove bool
 	applied             string // what the last sync did
+	dismiss             widgets.DismissGuard
+}
+
+// inputs are what the user chose in the dialog (DismissGuard): the table
+// compared with, when not the source's name, and what a sync does.
+func (x *rowCompareDialog) inputs(a *App) any {
+	table := x.table
+	if table == x.fromTable {
+		table = ""
+	}
+	return struct {
+		target              [3]string
+		table               string
+		add, update, remove bool
+	}{x.target.chosen(a), table, x.add, x.update, x.remove}
 }
 
 func (a *App) openRowCompare(cn *connection.Conn, database string, obj db.Object) {
@@ -65,6 +80,7 @@ func (a *App) startCompare(x *rowCompareDialog) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	x.running, x.cancel, x.progress, x.err, x.result, x.applied = true, cancel, "Reading the rows…", "", nil, ""
+	x.dismiss.Used()
 	from, toDB, toSchema, toTable := x.from, x.target.database, x.target.schema, x.table
 	fromPool, toPool := from.PoolFor(x.fromDB), to.PoolFor(toDB)
 	source := db.CompareTable{Schema: x.fromSchema, Table: x.fromTable}
@@ -232,6 +248,7 @@ func (a *App) startSync(x *rowCompareDialog) {
 func (a *App) runSync(x *rowCompareDialog, stmts, shown []db.Statement) {
 	ctx, cancel := context.WithCancel(context.Background())
 	x.running, x.cancel, x.err = true, cancel, ""
+	x.dismiss.Used()
 	x.progress = fmt.Sprintf("Applying %s change%s…", widgets.HumanCount(int64(len(stmts))), widgets.Plural(len(stmts)))
 	pool, cfg, database := x.to.PoolFor(x.toDB), x.to.Config, x.toDB
 	to, toSchema, toTable := x.to, x.toSchema, x.toTable
@@ -287,7 +304,7 @@ func (a *App) rowCompareView(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	_, winH := c.Size()
-	ui.Modal(c, &x.open, func() {
+	dlg := ui.Modal(c, &x.open, func() {
 		ui.Column(c).Width(900).MaxHeight(winH - 80).Gap(12).Children(func() {
 			ui.Text(c, "Compare the Rows of "+x.fromSchema+"."+x.fromTable+" · "+x.from.Config.Name).FontSize(15).Bold().SingleLine()
 			ui.Form(c, func() {
@@ -363,6 +380,7 @@ func (a *App) rowCompareView(c *ui.Context) {
 			})
 		})
 	})
+	x.dismiss.Keep(c, dlg, &x.open, x.inputs(a), x.running)
 	if !x.open {
 		if x.cancel != nil {
 			x.cancel()

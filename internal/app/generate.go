@@ -47,6 +47,20 @@ type generateState struct {
 	running     bool
 	done, total atomic.Int64
 	cancel      context.CancelFunc
+	dismiss     widgets.DismissGuard
+}
+
+// inputs are what the user chose in the dialog (DismissGuard): what to
+// write, how, and which objects.
+func (g *generateState) inputs() any {
+	chosen := make([]bool, len(g.choices))
+	for i, ch := range g.choices {
+		chosen[i] = ch.chosen
+	}
+	return struct {
+		output, format int
+		chosen         []bool
+	}{g.output, g.format, chosen}
 }
 
 // generateChoice is an object the user may choose to write.
@@ -88,6 +102,12 @@ func (a *App) openGenerate(cn *connection.Conn, database, schema string, output 
 			items, err = d.Dialect.Items(ctx, d.Catalog(), schema)
 		}
 		return func() {
+			untouched := !g.dismiss.Edited(g.inputs())
+			defer func() {
+				if untouched {
+					g.dismiss.Used() // the objects read are the dialog's, not the user's
+				}
+			}()
 			g.loading = false
 			if err != nil {
 				g.err = err.Error()
@@ -141,6 +161,7 @@ func (a *App) generate(g *generateState) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	g.running, g.cancel, g.err = true, cancel, ""
+	g.dismiss.Used()
 	g.done.Store(0)
 	g.total.Store(int64(len(objs) + len(items)))
 	poolOf, output, format, title := g.conn.PoolFor(g.database), g.output, g.format, g.title()
@@ -213,7 +234,7 @@ func (a *App) generateView(c *ui.Context) {
 	g := a.generating
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	ui.Modal(c, &g.open, func() {
+	dlg := ui.Modal(c, &g.open, func() {
 		ui.Column(c).Width(620).Gap(12).Children(func() {
 			ui.Text(c, "Generate from "+g.title()).FontSize(15).Bold().SingleLine()
 			ui.Row(c).Gap(12).Children(func() {
@@ -290,6 +311,7 @@ func (a *App) generateView(c *ui.Context) {
 			})
 		})
 	})
+	g.dismiss.Keep(c, dlg, &g.open, g.inputs(), g.running)
 	if !g.open {
 		if g.cancel != nil {
 			g.cancel()

@@ -26,6 +26,8 @@ type generateForm struct {
 	wrote string // the engine and schema it was written for
 	text  string
 	notes bool
+
+	dismiss widgets.DismissGuard
 }
 
 // previewBytes is how much of a script the dialog shows.
@@ -75,7 +77,7 @@ func (t *Tab) generateView(c *ui.Context) {
 	if !slices.Contains(names, f.conn) && len(names) > 0 {
 		f.conn = names[0]
 	}
-	ui.Modal(c, &f.open, func() {
+	dlg := ui.Modal(c, &f.open, func() {
 		ui.Column(c).Width(720).Height(560).Gap(12).Children(func() {
 			ui.Text(c, "Generate DDL").FontSize(15).Bold()
 			ui.Row(c).Gap(12).Children(func() {
@@ -114,6 +116,7 @@ func (t *Tab) generateView(c *ui.Context) {
 			})
 		})
 	})
+	f.dismiss.Keep(c, dlg, &f.open, [3]string{f.engine, f.schema, f.conn}, false)
 	if !f.open {
 		t.generating = nil
 	}

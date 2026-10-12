@@ -96,6 +96,7 @@ type addToDashboard struct {
 	title    string
 	view     int // an index of dashboard.Views
 	err      string
+	dismiss  widgets.DismissGuard
 }
 
 func (a *App) openAddToDashboard(q *query.Tab) {
@@ -159,7 +160,7 @@ func (a *App) addPanel(x *addToDashboard) {
 func (a *App) addToDashboardView(c *ui.Context) {
 	x := a.addingPanel
 	th := c.Theme()
-	ui.Modal(c, &x.open, func() {
+	dlg := ui.Modal(c, &x.open, func() {
 		ui.Column(c).Width(520).Gap(12).Children(func() {
 			ui.Text(c, "Add to Dashboard").FontSize(15).Bold()
 			ui.Form(c, func() {
@@ -193,6 +194,10 @@ func (a *App) addToDashboardView(c *ui.Context) {
 			})
 		})
 	})
+	x.dismiss.Keep(c, dlg, &x.open, struct {
+		target, newName, title string
+		view                   int
+	}{x.target, x.newName, x.title, x.view}, false)
 	if !x.open {
 		a.addingPanel = nil
 	}

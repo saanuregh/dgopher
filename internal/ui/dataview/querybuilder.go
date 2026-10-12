@@ -82,6 +82,37 @@ type queryBuilder struct {
 	colKeys      rowKeys
 	condKeys     rowKeys
 	sortKeys     rowKeys
+	dismiss      widgets.DismissGuard
+}
+
+// inputs are what the user chose in the builder (widgets.DismissGuard):
+// its tables and their columns chosen, as read, and the rest.
+func (b *queryBuilder) inputs() any {
+	type table struct {
+		schema, name, alias string
+		chosen              []string
+		left                int
+		on                  []qbOn
+	}
+	tables := make([]table, len(b.tables))
+	for i, t := range b.tables {
+		var chosen []string
+		for k, on := range t.chosen {
+			if on {
+				chosen = append(chosen, t.cols[k].Name)
+			}
+		}
+		tables[i] = table{t.schema, t.name, t.alias, chosen, t.left, t.on}
+	}
+	return struct {
+		tables   []table
+		columns  []qbColumn
+		conds    []builderCond
+		any      int
+		sorts    []qbSort
+		limit    string
+		distinct bool
+	}{tables, b.columns, b.conds, b.any, b.sorts, b.limit, b.distinct}
 }
 
 // OpenQueryBuilder builds a query of a table, which can then join others.
@@ -471,7 +502,7 @@ func queryBuilderView(a Host, c *ui.Context) {
 	section := func(title string) {
 		ui.Text(c, title).FontSize(12).Bold().TextColor(pal.Muted).Padding(6, 0, 0, 0)
 	}
-	ui.Modal(c, &b.open, func() {
+	dlg := ui.Modal(c, &b.open, func() {
 		// A height of its own, for its sections to scroll in.
 		ui.Column(c).Width(1000).Height(min(winH-60, 860)).Gap(8).Children(func() {
 			ui.Text(c, "Build a Query · "+b.conn.Config.Name).FontSize(15).Bold()
@@ -509,6 +540,7 @@ func queryBuilderView(a Host, c *ui.Context) {
 			})
 		})
 	})
+	b.dismiss.Keep(c, dlg, &b.open, b.inputs(), false)
 	if !b.open {
 		a.Dialogs().builder = nil
 	}

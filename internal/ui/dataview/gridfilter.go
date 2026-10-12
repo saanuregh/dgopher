@@ -374,6 +374,7 @@ type distinctForm struct {
 	list    ui.ListState
 	apply   func(rowCond)
 	col     int
+	dismiss widgets.DismissGuard
 }
 
 // maxDistinct is how many values the distinct-values filter lists.
@@ -384,6 +385,7 @@ func openDistinct(a Host, g *Grid, src *Source, col int, apply func(rowCond)) {
 	a.Dialogs().distinct = f
 	done := func(vals []distinctValue, err error) {
 		f.loading, f.values = false, vals
+		f.dismiss.Used() // the values read are the dialog's; none can be ticked before
 		if err != nil {
 			f.err = err.Error()
 		}
@@ -421,7 +423,7 @@ func distinctView(a Host, c *ui.Context) {
 			shown = append(shown, i)
 		}
 	}
-	ui.Modal(c, &f.open, func() {
+	dlg := ui.Modal(c, &f.open, func() {
 		ui.Column(c).Width(520).Height(520).Gap(10).Children(func() {
 			ui.Text(c, "Filter "+f.name+" by its values").FontSize(15).Bold()
 			ui.Row(c).Children(func() { widgets.SearchBox(c, &f.search, "Find a value", 0).AutoFocus() })
@@ -474,6 +476,11 @@ func distinctView(a Host, c *ui.Context) {
 			})
 		})
 	})
+	checked := make([]bool, len(f.values))
+	for i, v := range f.values {
+		checked[i] = v.checked
+	}
+	f.dismiss.Keep(c, dlg, &f.open, checked, false)
 	dropClosed(&a.Dialogs().distinct, f, f.open)
 }
 

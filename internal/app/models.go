@@ -55,6 +55,7 @@ type newModelForm struct {
 	name    string
 	engine  string // its label
 	err     string
+	dismiss widgets.DismissGuard
 }
 
 func (a *App) newModelView(c *ui.Context) {
@@ -66,7 +67,7 @@ func (a *App) newModelView(c *ui.Context) {
 			labels, engines = append(labels, e.Label()), append(engines, e)
 		}
 	}
-	ui.Modal(c, &f.open, func() {
+	dlg := ui.Modal(c, &f.open, func() {
 		ui.Column(c).Width(420).Gap(12).Children(func() {
 			ui.Text(c, "New Data Model").FontSize(15).Bold()
 			ui.Form(c, func() {
@@ -107,6 +108,7 @@ func (a *App) newModelView(c *ui.Context) {
 			})
 		})
 	})
+	f.dismiss.Keep(c, dlg, &f.open, [2]string{f.name, f.engine}, false)
 	if !f.open {
 		a.newModel = nil
 	}
@@ -136,6 +138,7 @@ type saveModelForm struct {
 	read     int // the tables read so far
 	err      string
 	cancel   context.CancelFunc
+	dismiss  widgets.DismissGuard
 }
 
 func (a *App) openSaveModel(cn *connection.Conn, database, schema string) {
@@ -162,6 +165,7 @@ func (a *App) buildModel(f *saveModelForm) {
 	pool := cn.PoolFor(f.database)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	f.building, f.read, f.cancel = true, 0, cancel
+	f.dismiss.Used()
 	dataview.BackgroundResetOnPanic(a, func() { f.building, f.cancel = false, nil }, func() func() {
 		defer cancel()
 		var tables []db.TableDesign
@@ -198,7 +202,7 @@ func (a *App) saveModelView(c *ui.Context) {
 	f := a.savingModel
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	ui.Modal(c, &f.open, func() {
+	dlg := ui.Modal(c, &f.open, func() {
 		ui.Column(c).Width(460).Gap(12).Children(func() {
 			ui.Text(c, "Save as Data Model").FontSize(15).Bold()
 			ui.Text(c, "The tables of "+f.schema+", with their columns, keys, indexes and checks, in a file of the project's "+datamodel.Folder+
@@ -227,6 +231,7 @@ func (a *App) saveModelView(c *ui.Context) {
 			})
 		})
 	})
+	f.dismiss.Keep(c, dlg, &f.open, f.name, f.building)
 	if !f.open {
 		if f.cancel != nil {
 			f.cancel()

@@ -11,9 +11,10 @@ import (
 
 // paramForm asks the values of a run's parameters.
 type paramForm struct {
-	open   bool
-	fields []paramField
-	run    func(values map[string]params.Input)
+	open    bool
+	fields  []paramField
+	run     func(values map[string]params.Input)
+	dismiss widgets.DismissGuard
 }
 
 type paramField struct {
@@ -33,7 +34,7 @@ func (f *paramForm) submit() {
 func paramsView(a Host, c *ui.Context) {
 	f := a.QueryDialogs().params
 	pal := widgets.PaletteOf(c)
-	ui.Modal(c, &f.open, func() {
+	dlg := ui.Modal(c, &f.open, func() {
 		ui.Column(c).Width(520).Gap(12).Children(func() {
 			ui.Text(c, "Parameters").FontSize(15).Bold()
 			ui.Text(c, ":name values are sent apart from the SQL, as text, numbers or NULL; ${name} values are written into it.").FontSize(12).TextColor(pal.Muted)
@@ -62,6 +63,7 @@ func paramsView(a Host, c *ui.Context) {
 			}
 		})
 	})
+	f.dismiss.Keep(c, dlg, &f.open, f.fields, false)
 	if !f.open && a.QueryDialogs().params == f {
 		a.QueryDialogs().params = nil
 	}

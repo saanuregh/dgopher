@@ -51,6 +51,19 @@ type importState struct {
 	done    int64
 	cancel  context.CancelFunc
 	err     string
+	dismiss widgets.DismissGuard
+}
+
+// inputs are what the user set in the dialog (widgets.DismissGuard), past
+// what reading the file filled in.
+func (x *importState) inputs() any {
+	return struct {
+		table, delimiter, xmlRows string
+		opt                       fileimport.Options
+		header                    bool
+		mapping                   []string
+		newCols                   []newColumn
+	}{x.table, x.delimiter, x.xmlRows, x.opt, x.header, x.mapping, x.newCols}
 }
 
 // newColumn is a file's column as a column of the table an import
@@ -101,8 +114,12 @@ func (a *App) startImport(cn *connection.Conn, database, schema string, obj *db.
 	if obj != nil {
 		x.schema = obj.Schema
 		connection.LoadColumns(a, cn, database, obj.Schema, obj.Name, func(cols []db.Column) {
+			untouched := !x.dismiss.Edited(x.inputs())
 			x.columns = cols
 			x.mapColumns()
+			if untouched {
+				x.dismiss.Used() // the mapping the columns give is the dialog's
+			}
 		})
 	} else {
 		x.table = tableNameOf(path)
@@ -152,6 +169,14 @@ func (a *App) readImportFile(x *importState) {
 				}
 				return
 			}
+			// What reading fills in is the dialog's, unless the user changed
+			// an option, which read the file again.
+			untouched := !x.dismiss.Edited(x.inputs())
+			defer func() {
+				if untouched {
+					x.dismiss.Used()
+				}
+			}()
 			x.loading = false
 			if err != nil {
 				if f != nil {
@@ -309,6 +334,7 @@ func (a *App) runImport(x *importState) {
 	target := &db.EditTarget{Dialect: cn.DB.Dialect, Schema: x.schema, Table: x.targetName(), Columns: cols}
 	ctx, cancel := context.WithCancel(context.Background())
 	x.running, x.cancel, x.done, x.err = true, cancel, 0, ""
+	x.dismiss.Used()
 	f, pool, cfg, database, path := x.file, cn.DB, cn.Config, x.database, x.path
 	started := time.Now()
 	job := fmt.Sprintf("Importing %s into %s on %s: %s", filepath.Base(path), target.Table, cfg.Name, writeStopLoss(cfg.Engine, create != ""))
@@ -497,7 +523,7 @@ func (a *App) importView(c *ui.Context) {
 	x := a.importing
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	ui.DialogBase(c, &x.open, func(backdrop, panel ui.Element) {
+	dlg := ui.DialogBase(c, &x.open, func(backdrop, panel ui.Element) {
 		backdrop.Background(widgets.Backdrop)
 		_, winH := c.Size()
 		panel.Width(860).MaxHeight(winH-40).Radius(12).Background(th.Background).Border(1, th.Border).Clip().Label("Import")
@@ -563,6 +589,7 @@ func (a *App) importView(c *ui.Context) {
 			})
 		})
 	})
+	x.dismiss.Keep(c, dlg, &x.open, x.inputs(), x.running)
 	if !x.open && !x.running {
 		if x.file != nil {
 			x.file.Close()
