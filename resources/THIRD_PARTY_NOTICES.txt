@@ -3819,7 +3819,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-github.com/saanuregh/mygo v0.3.4-0.20261012054255-cc41e9f085d9
+github.com/saanuregh/mygo v0.3.4-0.20261012081834-e9a4ecd88851
 ==============================================================================
 
 --- LICENSE ---

@@ -74,3 +74,24 @@ func layoutValues(l any) (map[string]json.RawMessage, error) {
 	var values map[string]json.RawMessage
 	return values, json.Unmarshal(data, &values)
 }
+
+// windowStateKey names the windows' places in the UI state file.
+const windowStateKey = "windowState"
+
+// windowStateStore keeps MyGo's window states, the places of the windows
+// opened with a StateKey, in the UI state file with the layout, rather than
+// in a file of MyGo's own (mygo.App.SetWindowStateStore).
+func windowStateStore(ui *state.DB) (load func() ([]byte, error), save func([]byte) error) {
+	load = func() ([]byte, error) {
+		var v json.RawMessage
+		switch err := ui.LoadJSON(windowStateKey, &v); {
+		case errors.Is(err, store.ErrNotFound):
+			return nil, nil
+		case err != nil:
+			return nil, err
+		}
+		return v, nil
+	}
+	save = func(data []byte) error { return ui.SaveJSON(windowStateKey, json.RawMessage(data)) }
+	return load, save
+}
