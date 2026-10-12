@@ -802,6 +802,85 @@ func TestRestoredEditorWaitsToConnect(t *testing.T) {
 	testutil.WaitFor(t, tt, "the run", func() bool { return resultRows(tt, q, 1) })
 }
 
+// Duplicate opens a copy of an editor in a new file of its project, with
+// its text as it is now, unsaved edits too, on its connection; the copy
+// keeps its file when closed untouched.
+func TestDuplicateEditor(t *testing.T) {
+	a := newTestApp(t)
+	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: writeSQL(t, "x.sqlite", "")})
+	a.saveProject(a.projects[0])
+	tt := ui.NewTester(a.view, 1000, 700)
+	q := newAppEditor(t, a, tt, cn, "SELECT 1;")
+	saved := q.Editor.Text
+	q.Editor.Text += " -- edited"
+	a.duplicateQuery(q)
+	tt.Frame()
+	d, ok := a.ActiveTab().(*query.Tab)
+	if !ok || d == q || d.Conn != cn || d.Editor.Text != q.Editor.Text || d.Path == q.Path || filepath.Dir(d.Path) != filepath.Dir(q.Path) {
+		t.Fatalf("the copy: %+v", d)
+	}
+	if disk, _ := os.ReadFile(d.Path); string(disk) != q.Editor.Text {
+		t.Fatalf("the copy's file holds %q, want %q", disk, q.Editor.Text)
+	}
+	if disk, _ := os.ReadFile(q.Path); string(disk) != saved {
+		t.Fatalf("the original's file now holds %q", disk)
+	}
+	// Closed untouched, a copy keeps its file: it may hold the only text.
+	a.closeTabOf(d)
+	tt.Frame()
+	if _, err := os.Stat(d.Path); err != nil {
+		t.Fatalf("the copy closed untouched lost its file: %v", err)
+	}
+	a.duplicateQuery(q)
+	tt.Frame()
+	d = a.ActiveTab().(*query.Tab)
+	// From the tab's menu, the sidebar hidden: it names the file too.
+	a.layout.SidebarHidden = true
+	tt.Frame()
+	if err := tt.RightClick(d.Title()); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ChooseMenuItem("Duplicate"); err != nil {
+		t.Fatalf("%v: menu %q", err, tt.Menu())
+	}
+	testutil.WaitFor(t, tt, "the third copy", func() bool { return len(a.tabs) == 3 })
+	// From the palette.
+	for _, it := range a.paletteItems(false) {
+		if it.title == "Duplicate Editor" {
+			it.run()
+		}
+	}
+	testutil.WaitFor(t, tt, "the fourth copy", func() bool { return len(a.tabs) == 4 })
+}
+
+// The sidebar's menu of a query file duplicates it too: a file no editor
+// has open is copied as it is on disk, on the connection its line names,
+// without opening the original.
+func TestDuplicateQueryFileFromSidebar(t *testing.T) {
+	a := newTestApp(t)
+	p := a.projects[0]
+	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: writeSQL(t, "x.sqlite", "")})
+	a.saveProject(p)
+	os.MkdirAll(p.Queries, 0o755)
+	text := "-- connection: lite\n\nSELECT 7;"
+	os.WriteFile(filepath.Join(p.Queries, "report.sql"), []byte(text), 0o644)
+	a.ScanQueries(p, true)
+	a.nav.expand(navNode{kind: nodeQueries, projectDir: p.Dir})
+	tt := ui.NewTester(a.view, 1000, 700)
+	tt.Frame()
+	if err := tt.RightClick("report.sql"); err != nil {
+		t.Fatalf("%v: %q", err, tt.Texts())
+	}
+	if err := tt.ChooseMenuItem("Duplicate"); err != nil {
+		t.Fatalf("%v: menu %q", err, tt.Menu())
+	}
+	testutil.WaitFor(t, tt, "the copy", func() bool { return len(a.tabs) == 1 })
+	d := a.ActiveTab().(*query.Tab)
+	if d.Conn != cn || d.Editor.Text != text || filepath.Base(d.Path) == "report.sql" {
+		t.Fatalf("the copy: %s on %s, %q", d.Path, d.Conn.Config.ID, d.Editor.Text)
+	}
+}
+
 // Opening a query file shows it at once on the connection its header
 // names, without connecting, as a restored editor does: one that asks for
 // its password asks when the editor runs, not to open the file.

@@ -362,6 +362,9 @@
   - Editors are restored on the next launch, and `.sql` files can be opened
     and saved. A restored editor, or a file opened, does not connect on its
     own: Connect, or running a statement, opens its connection.
+  - Duplicate, in an editor tab's menu, a query file's menu in the sidebar
+    or the palette, opens a copy of the editor, its unsaved edits too, or of
+    the file, in a new query file on its connection.
   - Auto-connect, off by default per connection: the connection opens as
     DGopher starts, and its editors connect as they are shown.
 

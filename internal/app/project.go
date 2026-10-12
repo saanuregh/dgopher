@@ -403,37 +403,89 @@ func (a *App) firstProjectSlug(p *project.Project) string {
 // query-N.sql, holding text after the connection's header; then, when
 // set, goes on with the editor.
 func (a *App) newQueryFile(cn *connection.Conn, database, text string, then func(*query.Tab)) {
-	p := cn.Project
 	a.Connect(cn, func() {
-		if err := os.MkdirAll(p.Queries, 0o755); err != nil {
-			a.ShowError("Could not create the queries folder", err.Error())
-			return
-		}
-		content := connection.HeaderLine(cn) + text
-		var path string
-		for n := 1; ; n++ {
-			path = filepath.Join(p.Queries, fmt.Sprintf("query-%d.sql", n))
-			f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-			if errors.Is(err, fs.ErrExist) {
-				continue
-			}
-			if err == nil {
-				_, err = f.WriteString(content)
-				err = errors.Join(err, f.Close())
-			}
-			if err != nil {
-				a.ShowError("Could not create the query file", err.Error())
-				return
-			}
-			break
-		}
-		a.ScanQueries(p, true)
-		q := a.openFileTab(cn, database, path, content)
-		q.Created = content
-		if then != nil {
+		q := a.createQueryFile(cn, database, connection.HeaderLine(cn)+text)
+		if q != nil && then != nil {
 			then(q)
 		}
 	})
+}
+
+// createQueryFile writes content in the next free query-N.sql of the
+// connection's project and opens an editor on it, which closed with only
+// that removes the file; nil when it could not be written.
+func (a *App) createQueryFile(cn *connection.Conn, database, content string) *query.Tab {
+	p := cn.Project
+	if err := os.MkdirAll(p.Queries, 0o755); err != nil {
+		a.ShowError("Could not create the queries folder", err.Error())
+		return nil
+	}
+	var path string
+	for n := 1; ; n++ {
+		path = filepath.Join(p.Queries, fmt.Sprintf("query-%d.sql", n))
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if errors.Is(err, fs.ErrExist) {
+			continue
+		}
+		if err == nil {
+			_, err = f.WriteString(content)
+			err = errors.Join(err, f.Close())
+		}
+		if err != nil {
+			a.ShowError("Could not create the query file", err.Error())
+			return nil
+		}
+		break
+	}
+	a.ScanQueries(p, true)
+	q := a.openFileTab(cn, database, path, content)
+	q.Created = content
+	return q
+}
+
+// duplicateQuery opens a copy of an editor in a new file of its project,
+// with its text as it is now, on its connection and database; a text
+// that names no connection takes the line naming the editor's. The copy
+// keeps its file when closed untouched: it may hold the only copy of what
+// the editor had, as when the editor then took its file's text instead.
+func (a *App) duplicateQuery(q *query.Tab) { a.copyQuery(q.Conn, q.Database, q.Editor.Text) }
+
+// duplicateQueryFile opens a copy of a project's query file, as Duplicate
+// does an editor's: of what its open editor holds, else of the file, on
+// the connection its line names, else the project's first one, without
+// opening the original.
+func (a *App) duplicateQueryFile(p *project.Project, rel string) {
+	path := filepath.Join(p.Queries, filepath.FromSlash(rel))
+	if t, ok := a.findTab(func(t widgets.Tab) bool { q, ok := t.(*query.Tab); return ok && q.Path == path }); ok {
+		a.duplicateQuery(t.(*query.Tab))
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		a.ShowError("Could not duplicate "+rel, err.Error())
+		return
+	}
+	text := string(data)
+	cn := a.connByID(p.Prefix + project.HeaderConnection(text))
+	if cn == nil || !cn.Config.Engine.IsSQL() {
+		cn = a.firstSQLConn(p)
+	}
+	if cn == nil {
+		a.ShowError("Could not duplicate "+rel, "Add a connection to "+p.Name+" first: the copy opens in an editor of one.")
+		return
+	}
+	a.copyQuery(cn, "", text)
+}
+
+// copyQuery opens text in a new query file of the connection's project; a
+// text that names no connection takes the line naming cn.
+func (a *App) copyQuery(cn *connection.Conn, database, text string) {
+	if project.HeaderConnection(text) == "" {
+		text = connection.HeaderLine(cn) + text
+	}
+	if d := a.createQueryFile(cn, database, text); d != nil {
+		d.Created = ""
+	}
 }
 
 // addExistingProject asks for a folder to list as a project.

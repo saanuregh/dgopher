@@ -1204,6 +1204,9 @@ func (a *App) projectMenu(m *ui.Menu, n navNode) {
 			if keymap.Item(m.Item("Rename…"), keymap.NavigatorRename).Chosen() {
 				rename()
 			}
+			if n.kind == nodeQueryFile && m.Item("Duplicate").Chosen() {
+				a.duplicateQueryFile(p, n.name)
+			}
 			if keymap.Item(m.Item("Delete…"), keymap.NavigatorDrop).Chosen() {
 				del()
 			}

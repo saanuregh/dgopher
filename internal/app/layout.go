@@ -397,6 +397,9 @@ func (a *App) tabBar(c *ui.Context) {
 					if q, ok := tb.(*query.Tab); ok && q.Path != "" && m.Item("Rename…").Chosen() {
 						a.askRename(q.Conn.Project, q.Path)
 					}
+					if q, ok := tb.(*query.Tab); ok && m.Item("Duplicate").Chosen() {
+						a.Post(func() { a.duplicateQuery(q) })
+					}
 					if m.Item("Move to New Window").Disabled(a.window != a.main && len(a.tabs) == 1).Chosen() {
 						a.Post(func() { a.moveToWindow(tb, nil) })
 					}
