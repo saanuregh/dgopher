@@ -4,6 +4,7 @@ import (
 	"iter"
 	"slices"
 
+	"dgopher/internal/ui/tablist"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo"
@@ -16,43 +17,25 @@ import (
 type window struct {
 	native *mygo.Window // nil before it is made, as in tests
 	title  string       // what the system's window was last titled
-	tabs   []widgets.Tab
-	active int
-	// side is the tab shown beside the active one, nil for none; it shows
-	// left of it when sideLeft is set, and the left pane is splitW wide.
-	side     widgets.Tab
-	sideLeft bool
-	splitW   float32
+	tabs   tablist.List
+	// splitW is how wide the left pane is, of a tab shown beside the one
+	// in front.
+	splitW float32
 	// focusWant is where a key asked the keyboard focus to go: "nav",
 	// "filter", "editor" or "results". The view that holds that place
 	// takes it, and clears it once it has the focus.
 	focusWant string
+	// tabScroll is the tab bar's, whose overflow shows the list of tabs;
+	// revealTab scrolls the tab in front into view once.
+	tabScroll ui.ScrollState
+	revealTab bool
+	// inView are the tabs the window showed in its last frame: in front,
+	// and beside it.
+	inView [2]widgets.Tab
 }
 
 // ActiveTab is the tab in front of the window, nil for none.
-func (w *window) ActiveTab() widgets.Tab {
-	if w.active >= 0 && w.active < len(w.tabs) {
-		return w.tabs[w.active]
-	}
-	return nil
-}
-
-// remove takes a tab out of the window, and reports the place it had.
-func (w *window) remove(t widgets.Tab) (int, bool) {
-	i := slices.Index(w.tabs, t)
-	if i < 0 {
-		return 0, false
-	}
-	w.tabs = slices.Delete(w.tabs, i, i+1)
-	if w.active >= len(w.tabs) || w.active > i {
-		w.active--
-	}
-	w.active = max(0, min(w.active, len(w.tabs)-1))
-	if w.side == t {
-		w.side = nil
-	}
-	return i, true
-}
+func (w *window) ActiveTab() widgets.Tab { return w.tabs.Active() }
 
 // windowView draws a window. What was posted runs first with the focused
 // window current, so that a tab it opens shows where the user is.
@@ -64,6 +47,19 @@ func (a *App) windowView(w *window) func(*ui.Context) {
 		a.view(c)
 		a.drawing = nil
 	}
+}
+
+// noteShown tells the tabs that came into view since the window's last
+// frame that they did (widgets.ShownNotifier), and draws again after.
+func (a *App) noteShown(c *ui.Context) {
+	now := [2]widgets.Tab{a.ActiveTab(), a.tabs.Side()}
+	for _, t := range now {
+		if s, ok := t.(widgets.ShownNotifier); ok && !slices.Contains(a.window.inView[:], t) {
+			s.Shown()
+			c.Invalidate()
+		}
+	}
+	a.window.inView = now
 }
 
 // focusedWindow is the window the user last used.
@@ -78,7 +74,7 @@ func (a *App) focusedWindow() *window {
 func (a *App) everyTab() iter.Seq2[*window, widgets.Tab] {
 	return func(yield func(*window, widgets.Tab) bool) {
 		for _, w := range slices.Clone(a.windows) {
-			for _, t := range slices.Clone(w.tabs) {
+			for _, t := range w.tabs.Tabs() {
 				if !yield(w, t) {
 					return
 				}
@@ -93,7 +89,7 @@ func (a *App) everyTab() iter.Seq2[*window, widgets.Tab] {
 func (a *App) findTab(match func(widgets.Tab) bool) (widgets.Tab, bool) {
 	for w, t := range a.everyTab() {
 		if match(t) {
-			w.active = slices.Index(w.tabs, t)
+			w.tabs.Select(t)
 			if a.drawing == nil {
 				a.window = w
 			}
@@ -113,10 +109,10 @@ func (a *App) findTab(match func(widgets.Tab) bool) (widgets.Tab, bool) {
 // a window closing while it draws would draw no more.
 func (a *App) removeTab(t widgets.Tab) (*window, int, bool) {
 	for _, w := range a.windows {
-		if i, ok := w.remove(t); ok {
-			if len(w.tabs) == 0 && w != a.main {
+		if i, ok := w.tabs.Remove(t); ok {
+			if w.tabs.Len() == 0 && w != a.main {
 				a.Post(func() {
-					if len(w.tabs) == 0 {
+					if w.tabs.Len() == 0 {
 						a.closeWindow(w)
 					}
 				})
@@ -130,7 +126,7 @@ func (a *App) removeTab(t widgets.Tab) (*window, int, bool) {
 // moveToWindow moves a tab to a window, in front there; nil makes a new
 // window for it.
 func (a *App) moveToWindow(t widgets.Tab, to *window) {
-	if !slices.ContainsFunc(a.windows, func(w *window) bool { return slices.Contains(w.tabs, t) }) {
+	if !slices.ContainsFunc(a.windows, func(w *window) bool { return w.tabs.Contains(t) }) {
 		return // closed since the move was asked
 	}
 	if to == nil {
@@ -140,8 +136,7 @@ func (a *App) moveToWindow(t widgets.Tab, to *window) {
 	if !ok {
 		return
 	}
-	to.tabs = append(to.tabs, t)
-	to.active = len(to.tabs) - 1
+	to.tabs.Add(t)
 	a.window = to
 	if to.native != nil && to != from {
 		to.native.Show()
@@ -151,7 +146,7 @@ func (a *App) moveToWindow(t widgets.Tab, to *window) {
 
 // openWindow makes a window of tabs, empty until a tab moves there.
 func (a *App) openWindow() *window {
-	w := &window{active: -1}
+	w := &window{}
 	a.windows = append(a.windows, w)
 	if a.makeWindow != nil {
 		a.makeWindow(w)
@@ -166,10 +161,8 @@ func (a *App) closeWindow(w *window) {
 		return
 	}
 	a.windows = slices.DeleteFunc(a.windows, func(o *window) bool { return o == w })
-	if len(w.tabs) > 0 {
-		a.main.tabs = append(a.main.tabs, w.tabs...)
-		a.main.active = len(a.main.tabs) - 1
-		w.tabs = nil
+	for _, t := range w.tabs.TakeAll() {
+		a.main.tabs.Add(t)
 	}
 	if a.window == w {
 		a.window = a.main

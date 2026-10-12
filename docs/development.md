@@ -121,7 +121,8 @@ alone ([Where things are kept](storage.md)).
 | `internal/params` | query parameters: finding, typing and binding them |
 | `internal/project` | project folders and their shared connections and snippets |
 | `internal/connection` | a connection's live state: its pool, sessions, status and the schema read so far |
-| `internal/ui/widgets` | the theme, icons, small controls, the confirm dialog and the tab contract |
+| `internal/ui/widgets` | the theme, icons, small controls, the confirm dialog and the tab contract, with what a tab may say of itself (icon, places, holding its connection, coming into view) |
+| `internal/ui/tablist` | a window's tabs: their order, pins, the one in front and the one beside it, changed only through its methods |
 | `internal/ui/editor` | the SQL editor |
 | `internal/ui/dataview` | the result grid and its panels, table tabs, export, charts and the ER diagram |
 | `internal/ui/query` | SQL editor tabs: running statements, scripts, plans and parameters |

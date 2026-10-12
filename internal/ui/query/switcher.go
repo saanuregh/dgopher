@@ -210,9 +210,9 @@ func (q *Tab) ConnectionClosed() {
 	q.releaseConnection()
 }
 
-// HoldsConnection reports work that needs the editor's session as it is:
-// a statement or export running, a transaction or rows to commit, or
-// grid changes not applied.
-func (q *Tab) HoldsConnection() bool {
-	return q.Busy() || q.Tx != db.TxNone || q.uncommitted > 0 || q.pendingCount() > 0
+// HoldsConnection reports work that needs the editor's session on cn as
+// it is: a statement or export running, a transaction or rows to commit,
+// or grid changes not applied. An editor alone does not hold it.
+func (q *Tab) HoldsConnection(cn *connection.Conn) bool {
+	return cn == q.Conn && (q.Busy() || q.Tx != db.TxNone || q.uncommitted > 0 || q.pendingCount() > 0)
 }

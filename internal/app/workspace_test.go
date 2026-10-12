@@ -41,18 +41,18 @@ func TestRestoreSkipsOutsidePaths(t *testing.T) {
 	if err := p.Local.SaveJSON(workspaceFile, savedWorkspace{Editors: editors, Active: -1, Dashboards: []string{"../x"}, Models: []string{outside}}); err != nil {
 		t.Fatal(err)
 	}
-	a.main.tabs = nil
+	a.main.tabs.TakeAll()
 	a.restoreWorkspace(p)
-	if len(a.main.tabs) != 1 {
+	if a.main.tabs.Len() != 1 {
 		var paths []string
-		for _, tab := range a.main.tabs {
+		for _, tab := range a.main.tabs.All() {
 			if q, ok := tab.(*query.Tab); ok {
 				paths = append(paths, q.Path)
 			}
 		}
-		t.Fatalf("restored %d tabs, want only %s: %v", len(a.main.tabs), inside, paths)
+		t.Fatalf("restored %d tabs, want only %s: %v", a.main.tabs.Len(), inside, paths)
 	}
-	if q, ok := a.main.tabs[0].(*query.Tab); !ok || q.Path != inside {
-		t.Fatalf("restored %v", a.main.tabs[0])
+	if q, ok := a.main.tabs.At(0).(*query.Tab); !ok || q.Path != inside {
+		t.Fatalf("restored %v", a.main.tabs.At(0))
 	}
 }

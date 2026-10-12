@@ -84,6 +84,10 @@ func (e *ERTab) Title() string { return e.schema + " · ER diagram" }
 
 func (e *ERTab) Connection() *connection.Conn { return e.conn }
 
+func (e *ERTab) Icon() *ui.SVG { return widgets.IconSchema }
+
+func (e *ERTab) Places() []connection.Place { return []connection.Place{e.conn.PlaceOf(e.database)} }
+
 func (e *ERTab) CloseReason() string { return "" }
 
 func (e *ERTab) Close() {}
@@ -485,6 +489,9 @@ func OpenER(a Host, cn *connection.Conn, database, schema string) {
 	}
 	a.Connect(cn, func() { a.AddTab(newERTab(a, cn, database, schema)) })
 }
+
+// Where is the database and schema the diagram draws.
+func (e *ERTab) Where() (database, schema string) { return e.database, e.schema }
 
 // refOf is the table a foreign key points at, among those drawn.
 func (e *ERTab) refOf(t *erTable, fk db.ForeignKey) *erTable {

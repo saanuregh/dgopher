@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
 	"dgopher/internal/state"
@@ -82,8 +83,8 @@ func TestRestoredEditorTakesSavedHeight(t *testing.T) {
 	resultsTop := func(a *App, tt *ui.Tester) float32 {
 		t.Helper()
 		q := a.ActiveTab().(*query.Tab)
-		q.Conn.Config.AutoConnect = true
-		testutil.WaitFor(t, tt, "the results' hint", func() bool { return tt.HasText(hint) })
+		a.Connect(q.Conn, nil)
+		testutil.WaitFor(t, tt, "the results' hint", func() bool { return q.Conn.Status == connection.StatusConnected && tt.HasText(hint) })
 		r, _ := tt.Find(hint)
 		return float32(r.Y)
 	}
@@ -102,8 +103,8 @@ func TestRestoredEditorTakesSavedHeight(t *testing.T) {
 	a.saveWorkspace(true)
 
 	b, tt2 := run()
-	if len(b.tabs) != 1 {
-		t.Fatalf("restored %d tabs", len(b.tabs))
+	if b.tabs.Len() != 1 {
+		t.Fatalf("restored %d tabs", b.tabs.Len())
 	}
 	if after := resultsTop(b, tt2); after < before+149 || after > before+151 {
 		t.Fatalf("the restored editor's results start at %v, %v before: want 150 lower", after, before)

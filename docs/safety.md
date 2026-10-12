@@ -150,11 +150,13 @@ and the run fails naming the line that began it.
   transaction, uncommitted rows, grid changes not applied, a statement,
   export, job or dashboard panel running, a table, diagram, Redis,
   activity, users or search tab, or a copy or row comparison dialog. Its
-  editors stay, with the rows they show; a shown editor does not connect
-  it again, even with auto-connect, and its tree in the sidebar closes.
-  The next run connects it, and is refused once, as after a lost
-  connection: the new session has none of the old one's `USE`,
-  `search_path`, role, variables or temporary tables.
+  editors stay, with the rows they show, and its tree in the sidebar
+  stays open, saying Not connected: neither connects it again while it
+  shows. An editor brought back into view connects it with auto-connect,
+  as does opening it in the sidebar again. The next run connects it, and
+  is refused once, as after a lost connection: the new session has none
+  of the old one's `USE`, `search_path`, role, variables or temporary
+  tables.
 - The status bar lists every open transaction and how long it has been
   open.
 - Deleting rows from the grid names the tables whose foreign keys point at

@@ -1,8 +1,10 @@
 package dashboard
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -162,5 +164,256 @@ func TestLoadRefuses(t *testing.T) {
 		if _, err := Load(path); err == nil {
 			t.Errorf("%s: loaded", name)
 		}
+	}
+}
+
+// A panel shows its connection under its title; its query's editor moves
+// it to another connection of the project, saved with the query.
+func TestPanelConnection(t *testing.T) {
+	h := dataview.NewFakeHost(t)
+	dir := t.TempDir()
+	lite := h.AddConn(db.Config{ID: "lite", Name: "Lite DB", Engine: db.SQLite, Database: filepath.Join(dir, "a.sqlite")})
+	other := h.AddConn(db.Config{ID: "other", Name: "Other DB", Engine: db.SQLite, Database: filepath.Join(dir, "b.sqlite")})
+	for _, cn := range []*connection.Conn{lite, other} {
+		os.WriteFile(cn.Config.Database, nil, 0o600)
+	}
+	tt := ui.NewTester(h.View, 1280, 800)
+	d := &Dashboard{Name: "D", Panels: []Panel{{Title: "P", Connection: "lite", SQL: "SELECT 1 AS one", View: ViewTable, Width: Columns}}}
+	path := File(h.Project, d.Name)
+	if _, err := d.Save(path, nil); err != nil {
+		t.Fatal(err)
+	}
+	tab, err := Open(h, h.Project, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.AddTab(tab)
+	testutil.WaitFor(t, tt, "the panel", func() bool { return tab.panels[0].src != nil })
+	if !tt.HasText("Lite DB") {
+		t.Fatalf("no connection under the title: %q", tt.Texts())
+	}
+	tab.editing = true
+	tt.Frame()
+	if err := tt.Click("SQL"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	s := tab.panels[0]
+	if s.connID != lite.Config.ID {
+		t.Fatalf("editing on %q", s.connID)
+	}
+	s.connID = other.Config.ID // as the select chooses it
+	tt.Frame()
+	testutil.Snapshot(t, tt, "dashboard-panel-connection")
+	if err := tt.Click("Run and Keep"); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WaitFor(t, tt, "the run on the other", func() bool { return other.Status == connection.StatusConnected && s.src != nil && !s.running })
+	saved, _ := os.ReadFile(path)
+	if tab.d.Panels[0].Connection != "other" || !strings.Contains(string(saved), `"connection": "other"`) {
+		t.Fatalf("panel %+v, file %s", tab.d.Panels[0], saved)
+	}
+}
+
+// Two connections of one name are told apart by their IDs: the panel runs
+// on the one chosen.
+func TestPanelSameNameConnections(t *testing.T) {
+	h := dataview.NewFakeHost(t)
+	dir := t.TempDir()
+	first := h.AddConn(db.Config{ID: "first", Name: "DB", Engine: db.SQLite, Database: filepath.Join(dir, "a.sqlite")})
+	second := h.AddConn(db.Config{ID: "second", Name: "DB", Engine: db.SQLite, Database: filepath.Join(dir, "b.sqlite")})
+	for _, cn := range []*connection.Conn{first, second} {
+		os.WriteFile(cn.Config.Database, nil, 0o600)
+	}
+	tt := ui.NewTester(h.View, 1280, 800)
+	d := &Dashboard{Name: "D", Panels: []Panel{{Title: "P", Connection: "first", SQL: "SELECT 1 AS one", View: ViewTable, Width: Columns}}}
+	path := File(h.Project, d.Name)
+	if _, err := d.Save(path, nil); err != nil {
+		t.Fatal(err)
+	}
+	tab, err := Open(h, h.Project, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.AddTab(tab)
+	tab.editing = true
+	tt.Frame()
+	if err := tt.Click("SQL"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if err := tt.Click("DB (first)"); err != nil {
+		t.Fatalf("%v: %q", err, tt.Texts())
+	}
+	tt.Frame()
+	if err := tt.Click("DB (second)"); err != nil {
+		t.Fatalf("%v: %q", err, tt.Texts())
+	}
+	tt.Frame()
+	s := tab.panels[0]
+	if err := tt.Click("Run and Keep"); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WaitFor(t, tt, "the run on the second", func() bool { return second.Status == connection.StatusConnected && s.src != nil && !s.running })
+	if tab.d.Panels[0].Connection != "second" {
+		t.Fatalf("panel %+v", tab.d.Panels[0])
+	}
+}
+
+// On PostgreSQL, the panel's query editor chooses its database too.
+func TestPanelDatabase(t *testing.T) {
+	testutil.Integration(t)
+	h := dataview.NewFakeHost(t)
+	cfg := testutil.PGConfig()
+	cn := h.AddConn(cfg)
+	tt := ui.NewTester(h.View, 1280, 800)
+	h.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
+	// Another database, gone after: other tests find one alone.
+	cn.DB.SQL.Exec("DROP DATABASE IF EXISTS it_panel WITH (FORCE)")
+	if _, err := cn.DB.SQL.Exec("CREATE DATABASE it_panel"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		d, err := db.Open(context.Background(), cfg, nil)
+		if err == nil {
+			d.SQL.Exec("DROP DATABASE IF EXISTS it_panel WITH (FORCE)")
+			d.Close()
+		}
+	})
+	// Read again, with it.
+	testutil.WaitFor(t, tt, "the first read", func() bool { return len(cn.Loading) == 0 })
+	cn.Reset()
+	connection.LoadSchemas(h, cn, "", nil)
+	testutil.WaitFor(t, tt, "the databases", func() bool { return slices.Contains(cn.Databases, "it_panel") })
+	other := "it_panel"
+	id := strings.TrimPrefix(cn.Config.ID, h.Project.Prefix)
+	d := &Dashboard{Name: "D", Panels: []Panel{{Title: "P", Connection: id, SQL: "SELECT current_database() AS db", View: ViewTable, Width: Columns}}}
+	path := File(h.Project, d.Name)
+	d.Save(path, nil)
+	tab, err := Open(h, h.Project, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.AddTab(tab)
+	tab.editing = true
+	tt.Frame()
+	if err := tt.Click("SQL"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if _, ok := tt.Find("Panel database"); !ok {
+		t.Fatalf("no database to choose: %q", tt.Texts())
+	}
+	s := tab.panels[0]
+	s.database = other // as the select chooses it
+	if err := tt.Click("Run and Keep"); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WaitFor(t, tt, "the run", func() bool { return s.src != nil && !s.running })
+	if tab.d.Panels[0].Database != other || db.Display(s.src.Rows[0][0]) != other {
+		t.Fatalf("panel %+v, ran in %v", tab.d.Panels[0], s.src.Rows[0][0])
+	}
+}
+
+// A panel one column wide shows all its tools in edit mode, wrapped
+// under its title, and each takes a click.
+func TestNarrowPanelTools(t *testing.T) {
+	h := dataview.NewFakeHost(t)
+	file := filepath.Join(t.TempDir(), "n.sqlite")
+	os.WriteFile(file, nil, 0o600)
+	h.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
+	tt := ui.NewTester(h.View, 1280, 800)
+	d := &Dashboard{Name: "N", Panels: []Panel{{Title: "P", Connection: "lite", SQL: "SELECT 1 AS one", View: ViewTable, Width: 1}}}
+	path := File(h.Project, d.Name)
+	d.Save(path, nil)
+	tab, err := Open(h, h.Project, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.AddTab(tab)
+	tab.editing = true
+	tt.Frame()
+	tt.Frame()
+	testutil.Snapshot(t, tt, "dashboard-narrow-panel-edit")
+	panel, _ := tt.Find("P")
+	for _, tool := range []string{"SQL", "Editor", "Remove"} {
+		r, ok := tt.Find(tool)
+		if !ok || r.X+r.W > 1280/Columns+20 {
+			t.Fatalf("%s at %+v, past the panel at %+v", tool, r, panel)
+		}
+	}
+	if err := tt.Click("SQL"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tab.panels[0].editSQL {
+		t.Fatal("the SQL button took no click")
+	}
+	testutil.Snapshot(t, tt, "dashboard-narrow-panel-sql")
+	if err := tt.Click("Run and Keep"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if tab.panels[0].editSQL {
+		t.Fatal("Run and Keep took no click")
+	}
+}
+
+// Add Panel opens a panel's query editor on the project's connection; the
+// panel is kept once its query runs, and Cancel leaves none.
+func TestAddPanel(t *testing.T) {
+	h := dataview.NewFakeHost(t)
+	file := filepath.Join(t.TempDir(), "a.sqlite")
+	os.WriteFile(file, nil, 0o600)
+	cn := h.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
+	tt := ui.NewTester(h.View, 1280, 800)
+	d := &Dashboard{Name: "A", Panels: []Panel{}}
+	path := File(h.Project, d.Name)
+	d.Save(path, nil)
+	tab, err := Open(h, h.Project, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.AddTab(tab)
+	tt.Frame()
+	add := func() *panelState {
+		t.Helper()
+		if err := tt.Click("Add Panel"); err != nil {
+			t.Fatalf("%v: %q", err, tt.Texts())
+		}
+		tt.Frame()
+		if len(tab.panels) != 1 || !tab.panels[0].editSQL || tab.panels[0].connID != cn.Config.ID || !tab.editing {
+			t.Fatalf("added: %d panels, editing %v", len(tab.panels), tab.editing)
+		}
+		return tab.panels[0]
+	}
+	added := add()
+	tab.refreshAll(true) // as a refresh while it is written
+	tt.Frame()
+	if added.running || added.err != "" {
+		t.Fatalf("ran with no query: %q", added.err)
+	}
+	tab.save() // as another change saves the dashboard
+	if saved, _ := os.ReadFile(path); strings.Contains(string(saved), `"title"`) {
+		t.Fatalf("saved before its query ran: %s", saved)
+	}
+	if err := tt.Click("Cancel"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if len(tab.d.Panels) != 0 {
+		t.Fatalf("Cancel left %d panels", len(tab.d.Panels))
+	}
+	s := add()
+	s.sql = "SELECT 1 AS one"
+	tt.Frame()
+	testutil.Snapshot(t, tt, "dashboard-add-panel")
+	if err := tt.Click("Run and Keep"); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WaitFor(t, tt, "the panel's rows", func() bool { return s.src != nil && !s.running })
+	if saved, _ := os.ReadFile(path); !strings.Contains(string(saved), "SELECT 1 AS one") {
+		t.Fatalf("not saved: %s", saved)
 	}
 }

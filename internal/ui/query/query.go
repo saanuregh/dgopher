@@ -192,6 +192,16 @@ func (q *Tab) Title() string { return q.Name }
 
 func (q *Tab) Connection() *connection.Conn { return q.Conn }
 
+func (q *Tab) Places() []connection.Place { return []connection.Place{q.Conn.PlaceOf(q.Database)} }
+
+// Shown connects the editor's connection as the editor comes into view,
+// when it is set to auto-connect; the others wait for Connect or a run.
+func (q *Tab) Shown() {
+	if q.Conn.Status == connection.StatusIdle && q.Conn.Config.AutoConnect {
+		q.a.Connect(q.Conn, nil)
+	}
+}
+
 // Unsaved reports text of the editor its file does not hold yet: typed
 // in the last second, or not written for a conflict.
 func (q *Tab) Unsaved() bool { return q.Path != "" && q.Editor.Text != q.Saved }
@@ -1232,12 +1242,6 @@ func (q *Tab) View(c *ui.Context) {
 	}
 	if q.pressed(c, keymap.Rollback) {
 		q.endOpenTx(false)
-	}
-	// Editors of a connection set to auto-connect open it as they are
-	// shown, unless it was closed for going unused; the others wait for
-	// Connect or a run.
-	if q.Conn.Status == connection.StatusIdle && q.Conn.Config.AutoConnect && !q.Conn.ClosedIdle {
-		a.Connect(q.Conn, nil)
 	}
 	ui.Column(c).Grow(1).Children(func() {
 		ui.Toolbar(c, func() {

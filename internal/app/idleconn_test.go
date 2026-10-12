@@ -55,7 +55,8 @@ func stillConnected(t *testing.T, tt *ui.Tester, cn *connection.Conn, d time.Dur
 }
 
 // A connection unused past its limit disconnects; its editor stays, with
-// its rows, and connects it again at the next run, not as it shows.
+// its rows, and does not connect it again while it shows: brought to the
+// front again, or at the next run, it does.
 func TestIdleConnectionDisconnects(t *testing.T) {
 	idleAfter(t, time.Second)
 	a, tt, cn := idleApp(t, true)
@@ -84,14 +85,21 @@ func TestIdleConnectionDisconnects(t *testing.T) {
 	if cn.Status != connection.StatusIdle {
 		t.Fatal("connected again by its editor showing")
 	}
-	// The next run connects it, and is refused once: the new session has
-	// none of what the old one had set.
+	other := addConn(a, db.Config{ID: "other", Name: "other", Engine: db.SQLite, Database: writeSQL(t, "other.sqlite", "")})
+	newAppEditor(t, a, tt, other, "SELECT 1")
+	for range 5 {
+		tt.Frame()
+	}
+	if cn.Status != connection.StatusIdle {
+		t.Fatal("connected again with its editor behind")
+	}
+	a.tabs.Select(q)
+	testutil.WaitFor(t, tt, "the editor brought back connecting", func() bool { return cn.Status == connection.StatusConnected })
+	// The next run is refused once: the new session has none of what the
+	// old one had set.
 	q.Editor.Text = strings.Replace(text, "FROM t", "FROM t WHERE a = 1", 1)
 	q.Run(query.RunStatement)
 	testutil.WaitFor(t, tt, "the refusal", func() bool { return testutil.HasTextContaining(tt, "closed while idle") })
-	if cn.Status != connection.StatusConnected || cn.ClosedIdle {
-		t.Fatalf("not connected again: %v, %v", cn.Status, cn.ClosedIdle)
-	}
 	q.Run(query.RunStatement)
 	testutil.WaitFor(t, tt, "the run on the new connection", func() bool { return !q.Running && resultRows(tt, q, 1) })
 }
@@ -128,23 +136,42 @@ func TestIdleConnectionWaitsForTransaction(t *testing.T) {
 func TestIdleConnectionKeptByOtherTab(t *testing.T) {
 	idleAfter(t, time.Second)
 	a, tt, cn := idleApp(t, false)
+	node := navNode{kind: nodeConn, conn: cn.Config.ID}
+	a.nav.expand(node)
 	a.OpenTable(cn, "", db.Object{Schema: "main", Name: "t", Kind: db.KindTable}, 0)
-	testutil.WaitFor(t, tt, "the table", func() bool { return len(a.tabs) == 1 })
+	testutil.WaitFor(t, tt, "the table", func() bool { return a.tabs.Len() == 1 })
 	stillConnected(t, tt, cn, 2500*time.Millisecond, "under an open table")
-	a.closeTab(a.active)
+	a.closeTab(a.tabs.ActiveIndex())
 	testutil.WaitFor(t, tt, "the idle disconnect", func() bool { return cn.Status == connection.StatusIdle })
-	// Its tree in the sidebar closes, which would connect it as it draws;
-	// opened again, it connects.
+	sidebarStaysDisconnected(t, a, tt, cn)
+}
+
+// An open connection disconnected in the sidebar stays open there, and
+// disconnected: closed and opened again, it connects.
+func TestSidebarDisconnectStays(t *testing.T) {
+	a, tt, cn := idleApp(t, false)
+	a.nav.expand(navNode{kind: nodeConn, conn: cn.Config.ID})
+	testutil.WaitFor(t, tt, "the connection as it opens", func() bool { return cn.Status == connection.StatusConnected })
+	a.disconnect(cn)
+	sidebarStaysDisconnected(t, a, tt, cn)
+}
+
+// sidebarStaysDisconnected checks that cn, disconnected while open in the
+// sidebar, stays so as it draws, and connects once closed and opened.
+func sidebarStaysDisconnected(t *testing.T, a *App, tt *ui.Tester, cn *connection.Conn) {
+	t.Helper()
 	node := navNode{kind: nodeConn, conn: cn.Config.ID}
 	for range 10 {
 		tt.Frame()
 		time.Sleep(20 * time.Millisecond)
 	}
-	if cn.Status != connection.StatusIdle || a.nav.tree.Open.Has(node) {
-		t.Fatalf("connected again by the sidebar: %v, open %v", cn.Status, a.nav.tree.Open.Has(node))
+	if cn.Status != connection.StatusIdle || !a.nav.tree.Open.Has(node) || !slices.Contains(tt.Texts(), "Not connected") {
+		t.Fatalf("connected again by the sidebar, or closed there: %v, open %v, %q", cn.Status, a.nav.tree.Open.Has(node), tt.Texts())
 	}
+	a.nav.tree.Open.Remove(node)
+	tt.Frame()
 	a.nav.expand(node)
-	testutil.WaitFor(t, tt, "the connection", func() bool { return cn.Status == connection.StatusConnected })
+	testutil.WaitFor(t, tt, "the connection opened again", func() bool { return cn.Status == connection.StatusConnected })
 }
 
 // An open copy dialog keeps the connections it copies between.

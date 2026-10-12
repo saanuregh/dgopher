@@ -32,6 +32,7 @@ type savedEditor struct {
 	// Unsaved is the text of an editor whose file changed on disk, kept
 	// until the user chooses between the two.
 	Unsaved string `json:"unsaved,omitempty"`
+	Pinned  bool   `json:"pinned,omitempty"`
 }
 
 type savedWorkspace struct {
@@ -60,7 +61,7 @@ func (a *App) workspaceOf(p *project.Project) savedWorkspace {
 		if win == a.main && t == a.main.ActiveTab() {
 			w.Active = len(w.Editors)
 		}
-		e := savedEditor{Connection: strings.TrimPrefix(q.Conn.Config.ID, p.Prefix), Database: q.Database, Path: p.StoredPath(q.Path)}
+		e := savedEditor{Connection: strings.TrimPrefix(q.Conn.Config.ID, p.Prefix), Database: q.Database, Path: p.StoredPath(q.Path), Pinned: win.tabs.Pinned(q)}
 		if q.DiskConflict != "" && q.Editor.Text != q.Saved {
 			e.Unsaved = q.Editor.Text
 		}
@@ -138,9 +139,13 @@ func (a *App) restoreWorkspace(p *project.Project) {
 				q.DiskConflict = "was deleted on disk"
 			}
 		}
-		a.main.tabs = append(a.main.tabs, q)
 		if i == w.Active {
-			a.main.active = len(a.main.tabs) - 1
+			a.main.tabs.Add(q)
+		} else {
+			a.main.tabs.Append(q)
+		}
+		if e.Pinned {
+			a.main.tabs.SetPinned(q, true)
 		}
 	}
 	for _, path := range w.Dashboards {
@@ -149,7 +154,7 @@ func (a *App) restoreWorkspace(p *project.Project) {
 			continue
 		}
 		if d, err := dashboard.Open(a, p, p.ResolvePath(path)); err == nil {
-			a.main.tabs = append(a.main.tabs, d)
+			a.main.tabs.Append(d)
 		}
 	}
 	for _, path := range w.Models {
@@ -157,7 +162,7 @@ func (a *App) restoreWorkspace(p *project.Project) {
 			continue
 		}
 		if m, err := modelview.Open(a, p, p.ResolvePath(path)); err == nil {
-			a.main.tabs = append(a.main.tabs, m)
+			a.main.tabs.Append(m)
 		}
 	}
 }

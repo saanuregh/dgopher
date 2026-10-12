@@ -5,6 +5,7 @@ package widgets
 import (
 	"fmt"
 
+	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/sqltext"
 
@@ -172,3 +173,23 @@ var (
 	Backdrop       = ui.RGBA(0, 0, 0, 0.4)
 	PickerBackdrop = ui.RGBA(0, 0, 0, 0.25)
 )
+
+// ConnState shows how a connection stands: its dot, with a warning when
+// it failed.
+func ConnState(c *ui.Context, cn *connection.Conn) {
+	ConnDot(c, cn)
+	if cn.Status == connection.StatusFailed {
+		ui.Icon(c, IconAlert).FontSize(10).TextColor(c.Theme().Danger)
+	}
+}
+
+// ConnDot is a connection's dot, in its color: filled while the
+// connection is open, a ring while it is not.
+func ConnDot(c *ui.Context, cn *connection.Conn) ui.Element {
+	col := EnvColor(&cn.Config)
+	dot := ui.Box(c).Size(7, 7).Radius(4)
+	if cn.Status == connection.StatusConnected {
+		return dot.Background(col)
+	}
+	return dot.Border(1.5, col)
+}

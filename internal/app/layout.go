@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -11,9 +12,7 @@ import (
 	"dgopher/internal/keymap"
 	"dgopher/internal/ui/dashboard"
 	"dgopher/internal/ui/dataview"
-	"dgopher/internal/ui/modelview"
 	"dgopher/internal/ui/query"
-	"dgopher/internal/ui/redis"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -74,6 +73,7 @@ func (a *App) view(c *ui.Context) {
 	if a.window == a.main && !a.layout.SidebarHidden && a.ActiveTab() != a.nav.shown {
 		c.Invalidate()
 	}
+	a.noteShown(c)
 	a.titleWindow()
 	a.checkIdleTransactions(c)
 	a.checkIdleConnections(c)
@@ -198,11 +198,12 @@ func (a *App) shortcuts(c *ui.Context) {
 		}
 	}
 	for i, k := range []ui.Key{ui.Key1, ui.Key2, ui.Key3, ui.Key4, ui.Key5, ui.Key6, ui.Key7, ui.Key8, ui.Key9} {
-		if c.Shortcut(ui.Cmd, k) && len(a.tabs) > 0 {
-			a.active = min(i, len(a.tabs)-1) // ⌘9 is the last, as in browsers
+		if c.Shortcut(ui.Cmd, k) && a.tabs.Len() > 0 {
+			at := i
 			if i == 8 {
-				a.active = len(a.tabs) - 1
+				at = a.tabs.Len() - 1 // ⌘9 is the last, as in browsers
 			}
+			a.tabs.SelectAt(at)
 			a.focusWant = "editor" // the keys go on in the tab chosen
 		}
 	}
@@ -215,13 +216,13 @@ func (a *App) shortcuts(c *ui.Context) {
 	case keymap.Pressed(c, keymap.ShortcutsList):
 		a.shortcutsOpen = !a.shortcutsOpen
 	case keymap.Pressed(c, keymap.NextTab):
-		if len(a.tabs) > 0 {
-			a.active = (a.active + 1) % len(a.tabs)
+		if a.tabs.Len() > 0 {
+			a.tabs.Next()
 			a.focusWant = "editor"
 		}
 	case keymap.Pressed(c, keymap.PreviousTab):
-		if len(a.tabs) > 0 {
-			a.active = (a.active + len(a.tabs) - 1) % len(a.tabs)
+		if a.tabs.Len() > 0 {
+			a.tabs.Previous()
 			a.focusWant = "editor"
 		}
 	}
@@ -233,16 +234,16 @@ func (a *App) workspace(c *ui.Context) {
 	a.tourPart(tourWorkspace, space)
 	space.Children(func() {
 		a.workspaceBar(c)
-		if len(a.tabs) == 0 {
+		if a.tabs.Len() == 0 {
 			a.welcome(c)
 			return
 		}
-		at, side := a.ActiveTab(), a.sideTab()
+		at, side := a.ActiveTab(), a.tabs.Side()
 		if side == nil {
 			a.pane(c, at, false)
 		} else {
 			left, right := at, side
-			if a.sideLeft {
+			if a.tabs.SideLeft() {
 				left, right = side, at
 			}
 			if a.splitW == 0 {
@@ -279,87 +280,102 @@ func (a *App) pane(c *ui.Context, t widgets.Tab, split bool) {
 		}
 		ui.Column(c).Grow(1).Children(func() { t.View(c) })
 	})
-	if split && t == a.side && col.FocusWithin() {
-		a.bringSide()
+	if split && t == a.tabs.Side() && col.FocusWithin() {
+		a.tabs.BringSide()
 	}
 }
 
-// sideTab is the tab shown beside the active one, nil for none, as one
-// closed or brought in front ends the split.
-func (a *App) sideTab() widgets.Tab {
-	if a.side != nil && (a.side == a.ActiveTab() || !slices.Contains(a.tabs, a.side)) {
-		a.side = nil
+// chooseTab brings the tab at i in front, as a click on it does: the tab
+// shown beside the one in front changes places with it.
+func (a *App) chooseTab(i int) {
+	if a.tabs.At(i) == a.tabs.Side() {
+		a.tabs.BringSide()
+	} else {
+		a.tabs.SelectAt(i)
 	}
-	return a.side
-}
-
-// openToSide shows a tab beside the active one, right of it.
-func (a *App) openToSide(t widgets.Tab) {
-	if t != a.ActiveTab() {
-		a.side, a.sideLeft = t, false
-	}
-}
-
-// bringSide makes the side tab the active one, which stays where it is:
-// the one in front before goes to its side.
-func (a *App) bringSide() {
-	i := slices.Index(a.tabs, a.side)
-	if i < 0 {
-		return
-	}
-	a.side, a.active, a.sideLeft = a.ActiveTab(), i, !a.sideLeft
 }
 
 func (a *App) tabBar(c *ui.Context) {
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
+	w := a.window
 	closed := -1
+	var dropped *tabDrag // and where to, after the tabs are drawn
+	droppedAt := 0
 	height := barHeight(c)
-	ui.ScrollHorizontal(c).Shrink(1).Children(func() {
+	ui.ScrollHorizontal(c).TrackScroll(&w.tabScroll).Shrink(1).Children(func() {
 		ui.Row(c).AlignItems(ui.Stretch).Children(func() {
-			for i, tb := range a.tabs {
-				on := i == a.active
-				cn := tb.Connection()
-				item := ui.ButtonBase(c.Key(tabKey(tb))).Padding(0, 6, 0, 12).Height(height).MaxWidth(260).Label(tb.Title())
+			for i, tb := range a.tabs.All() {
+				on := i == a.tabs.ActiveIndex()
+				pinned := w.tabs.Pinned(tb)
+				groups := byConnection(tabPlaces(tb))
+				item := ui.ButtonBase(c.Key(tabKey(tb))).Padding(0, 6, 0, 12).Height(height).MaxWidth(260).Label(tb.Title()).
+					Drag(tabDrag{tb})
+				if len(groups) > 0 {
+					item.Tooltip(placesTooltip(groups))
+				}
 				switch {
 				case on:
 					item.Background(t.Background)
-				case tb == a.side:
+				case tb == a.tabs.Side():
 					item.Background(t.Background.Alpha(0.6)) // shown beside the one in front
 				case item.Hovered():
 					item.Background(pal.Hover)
 				}
+				if on && w.revealTab {
+					item.ScrollIntoView()
+					w.revealTab = false
+				}
 				hovered := item.Hovered()
 				item.BorderWidth(0, 1, 0, 0).BorderColor(t.Border)
+				// A tab dropped on another takes its place, which the side it
+				// comes from shows.
+				dragged, over := ui.DragOver[tabDrag](item)
+				over = over && dragged.tab != tb && w.tabs.Pinned(dragged.tab) == pinned
+				if d, ok := ui.Drop[tabDrag](item); ok {
+					dropped, droppedAt = &d, i
+				}
+				item.HandleInput(func(ev ui.InputEvent) bool { return a.closeOnMiddlePress(w, tb, ev) })
 				item.Children(func() {
+					if over {
+						bar := ui.Box(c).Absolute().Top(0).Bottom(0).Width(2).Background(t.Accent)
+						if a.tabs.Index(dragged.tab) > i {
+							bar.Left(0)
+						} else {
+							bar.Right(0)
+						}
+					}
 					ui.Row(c).Gap(7).Grow(1).Children(func() {
-						if cn != nil {
-							ui.Box(c).Size(7, 7).Radius(4).Background(widgets.EnvColor(&cn.Config)).Tooltip(cn.Config.Env.Label())
+						if len(groups) > 0 {
+							tabDots(c, groups)
 						}
 						ic := widgets.IconCode
-						switch tb.(type) {
-						case *dataview.TableTab:
-							ic = widgets.IconTable
-						case *redis.Tab:
-							ic = widgets.IconKey
-						case *dataview.ERTab:
-							ic = widgets.IconSchema
-						case *activityTab:
-							ic = widgets.IconClock
-						case *usersTab:
-							ic = widgets.IconUsers
-						case *dashboard.Tab:
-							ic = widgets.IconLayers
-						case *modelview.Tab:
-							ic = widgets.IconSchema
+						if i, ok := tb.(widgets.Iconed); ok {
+							ic = i.Icon()
 						}
 						ui.Icon(c, ic).FontSize(12).TextColor(pal.Muted)
-						txt := ui.Text(c, tb.Title()).SingleLine().Shrink(1).FontSize(12.5)
-						if on {
-							txt.Bold()
-						}
+						ui.Column(c).Shrink(1).Children(func() {
+							txt := ui.Text(c, tb.Title()).SingleLine().FontSize(12.5)
+							if on {
+								txt.Bold()
+							}
+							if sub := tabSubtitle(tb); sub != "" {
+								ui.Text(c, sub).SingleLine().FontSize(10.5).TextColor(pal.Muted)
+							}
+						})
 						if tb.CloseReason() != "" {
 							ui.Box(c).Size(6, 6).Radius(3).Background(t.Warning).Tooltip("Unsaved changes or an open transaction")
+						}
+						if pinned {
+							pin := ui.ButtonBase(c).Padding(3).Radius(4).Label("Unpin " + tb.Title()).Tooltip("Pinned: click to unpin")
+							if pin.Hovered() {
+								pin.Background(pal.Hover)
+							}
+							pin.Children(func() { ui.Icon(c, widgets.IconPin).FontSize(11).TextColor(pal.Muted) })
+							if pin.Clicked() {
+								a.Post(func() { w.tabs.SetPinned(tb, false) }) // after the tabs are drawn
+							}
+							return
 						}
 						x := ui.ButtonBase(c).Padding(3).Radius(4).Label("Close " + tb.Title())
 						// A file not saved yet shows a dot where the button
@@ -388,57 +404,185 @@ func (a *App) tabBar(c *ui.Context) {
 					})
 				})
 				if item.Clicked() {
-					if tb == a.side {
-						a.bringSide()
-					} else {
-						a.active = i
-					}
+					a.chooseTab(i)
 				}
-				item.ContextMenu(func(m *ui.Menu) {
-					if q, ok := tb.(*query.Tab); ok && q.Path != "" && m.Item("Rename…").Chosen() {
-						a.askRename(q.Conn.Project, q.Path)
-					}
-					if q, ok := tb.(*query.Tab); ok && m.Item("Duplicate").Chosen() {
-						a.Post(func() { a.duplicateQuery(q) })
-					}
-					if m.Item("Move to New Window").Disabled(a.window != a.main && len(a.tabs) == 1).Chosen() {
-						a.Post(func() { a.moveToWindow(tb, nil) })
-					}
-					if a.window != a.main && m.Item("Move to Main Window").Chosen() {
-						a.Post(func() { a.moveToWindow(tb, a.main) })
-					}
-					if m.Item("Open to the Side").Disabled(on || tb == a.side).Chosen() {
-						a.openToSide(tb)
-					}
-					if a.side != nil && m.Item("Close the Side").Chosen() {
-						a.side = nil
-					}
-					m.Separator()
-					if keymap.Item(m.Item("Close"), keymap.CloseTab).Chosen() {
-						closed = i
-					}
-					if m.Item("Close Others").Chosen() {
-						a.closeOthers(a.window, tb)
-					}
-				})
+				item.ContextMenu(func(m *ui.Menu) { a.tabMenu(m, w, tb, i, on, &closed) })
 			}
 		})
 	})
+	if w.tabScroll.MaxX > 0 {
+		widgets.IconButton(c, widgets.IconDropdown, "Open Tabs").Menu(func(m *ui.Menu) {
+			for i, tb := range a.tabs.All() {
+				label := tb.Title()
+				if sub := tabSubtitle(tb); sub != "" {
+					label += " — " + sub
+				}
+				if m.Item(label).Checked(i == a.tabs.ActiveIndex()).Chosen() {
+					a.chooseTab(i)
+					w.revealTab = true
+				}
+			}
+		})
+	}
+	if dropped != nil {
+		w.tabs.Move(dropped.tab, droppedAt)
+	}
 	if closed >= 0 {
 		a.closeTab(closed)
 	}
 }
 
-// closeOthers closes a window's tabs but one, each once the user agrees
-// to what closing it loses.
-func (a *App) closeOthers(w *window, keep widgets.Tab) {
-	a.Post(func() {
-		for _, t := range slices.Backward(slices.Clone(w.tabs)) {
-			if t != keep {
-				a.closeTabOf(t)
-			}
+// tabDots are a tab's connections, problems first: a dot each, up to
+// maxChips, then how many more, and a warning when the first failed.
+func tabDots(c *ui.Context, groups []connPlaces) {
+	ui.Row(c).Gap(2).AlignItems(ui.Center).Children(func() {
+		for _, g := range groups[:min(maxChips, len(groups))] {
+			widgets.ConnDot(c, g.conn)
+		}
+		if n := len(groups) - maxChips; n > 0 {
+			ui.Text(c, fmt.Sprintf("+%d", n)).FontSize(10).TextColor(widgets.PaletteOf(c).Muted)
+		}
+		if groups[0].conn.Status == connection.StatusFailed {
+			ui.Icon(c, widgets.IconAlert).FontSize(10).TextColor(c.Theme().Danger)
 		}
 	})
+}
+
+// middleButton is the pointer's middle button, as input events number it.
+const middleButton = 2
+
+// closeOnMiddlePress closes a tab of w pressed with the middle button,
+// but a pinned one, and reports whether it took the press.
+func (a *App) closeOnMiddlePress(w *window, tb widgets.Tab, ev ui.InputEvent) bool {
+	if ev.Kind != ui.InputPointerDown || ev.Button != middleButton || w.tabs.Pinned(tb) {
+		return false
+	}
+	a.Post(func() { a.closeTabOf(tb) })
+	return true
+}
+
+// tabDrag is a tab dragged along its window's tab bar.
+type tabDrag struct{ tab widgets.Tab }
+
+// tabMenu is a tab's menu; Close sets closed to the tab's place.
+func (a *App) tabMenu(m *ui.Menu, w *window, tb widgets.Tab, i int, on bool, closed *int) {
+	if q, ok := tb.(*query.Tab); ok && q.Path != "" && m.Item("Rename…").Chosen() {
+		a.askRename(q.Conn.Project, q.Path)
+	}
+	if q, ok := tb.(*query.Tab); ok && m.Item("Duplicate").Chosen() {
+		a.Post(func() { a.duplicateQuery(q) })
+	}
+	pinned := w.tabs.Pinned(tb)
+	pin := "Pin"
+	if pinned {
+		pin = "Unpin"
+	}
+	if m.Item(pin).Chosen() {
+		a.Post(func() { w.tabs.SetPinned(tb, !pinned) }) // after the tabs are drawn
+	}
+	if m.Item("Move to New Window").Disabled(a.window != a.main && a.tabs.Len() == 1).Chosen() {
+		a.Post(func() { a.moveToWindow(tb, nil) })
+	}
+	if a.window != a.main && m.Item("Move to Main Window").Chosen() {
+		a.Post(func() { a.moveToWindow(tb, a.main) })
+	}
+	if m.Item("Open to the Side").Disabled(on || tb == a.tabs.Side()).Chosen() {
+		a.tabs.SetSide(tb, false)
+	}
+	if a.tabs.Side() != nil && m.Item("Close the Side").Chosen() {
+		a.tabs.SetSide(nil, false)
+	}
+	m.Separator()
+	if keymap.Item(m.Item("Close"), keymap.CloseTab).Chosen() {
+		*closed = i
+	}
+	for _, bulk := range bulkCloses(tb, i) {
+		if m.Item(bulk.label).Disabled(!w.anyUnpinned(bulk.which)).Chosen() {
+			a.closeTabs(w, bulk.which)
+		}
+	}
+	m.Separator()
+	if keymap.Item(m.Item("Reopen Closed Tab"), keymap.ReopenTab).Disabled(len(a.closedTabs) == 0).Chosen() {
+		a.Post(a.reopenTab)
+	}
+}
+
+// bulkClose is a command closing several tabs: those which says, of
+// those not pinned.
+type bulkClose struct {
+	label, command string // in a tab's menu, in the palette
+	which          func(i int, t widgets.Tab) bool
+}
+
+// bulkCloses are the commands closing others than tab tb, at i, those to
+// its right, or all.
+func bulkCloses(tb widgets.Tab, i int) []bulkClose {
+	return []bulkClose{
+		{"Close Others", "Close Other Tabs", func(_ int, t widgets.Tab) bool { return t != tb }},
+		{"Close to the Right", "Close Tabs to the Right", func(j int, _ widgets.Tab) bool { return j > i }},
+		{"Close All", "Close All Tabs", func(int, widgets.Tab) bool { return true }},
+	}
+}
+
+// anyUnpinned reports whether a tab not pinned is one which says.
+func (w *window) anyUnpinned(which func(i int, t widgets.Tab) bool) bool {
+	for j, t := range w.tabs.All() {
+		if !w.tabs.Pinned(t) && which(j, t) {
+			return true
+		}
+	}
+	return false
+}
+
+// closeTabs closes the tabs of a window which says, but the pinned ones,
+// from the right.
+func (a *App) closeTabs(w *window, which func(i int, t widgets.Tab) bool) {
+	a.Post(func() {
+		var tabs []widgets.Tab
+		for j, t := range slices.Backward(w.tabs.Tabs()) {
+			if !w.tabs.Pinned(t) && which(j, t) {
+				tabs = append(tabs, t)
+			}
+		}
+		a.closeTogether(tabs)
+	})
+}
+
+// closeTogether closes tabs, the first first, once the user agrees to what
+// closing them loses, asked once for them all, and at once when none
+// loses anything; one closed meanwhile is skipped. Reopen Closed Tab opens
+// them again, the last first.
+func (a *App) closeTogether(tabs []widgets.Tab) {
+	if len(tabs) == 0 {
+		return
+	}
+	var lost []string
+	var txs []txHolder
+	for _, t := range tabs {
+		if r := t.CloseReason(); r != "" {
+			lost = append(lost, t.Title()+": "+r)
+		}
+		if h, ok := t.(txHolder); ok && h.OpenTx() {
+			txs = append(txs, h)
+		}
+	}
+	end := func() {
+		for _, t := range tabs {
+			if _, at, ok := a.removeTab(t); ok {
+				t.Close()
+				a.rememberClosed(t, at)
+			}
+		}
+	}
+	if len(lost) == 0 {
+		end()
+		return
+	}
+	title, reason := "Close "+widgets.Count(len(tabs), "tab")+"?", strings.Join(lost, "\n\n")
+	if len(tabs) == 1 {
+		title, reason = "Close "+tabs[0].Title()+"?", tabs[0].CloseReason()
+	}
+	a.closing = &closeRequest{open: true, title: title, reason: reason, onClose: end, txs: txs}
 }
 
 func (a *App) welcome(c *ui.Context) {
@@ -576,30 +720,31 @@ func connSummary(cfg *db.Config) string {
 func (a *App) statusBar(c *ui.Context) {
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
-	cn := a.activeConn()
-	var several []*connection.Conn // a dashboard's panels'
-	if d, ok := a.ActiveTab().(*dashboard.Tab); ok {
-		if conns := d.Connections(); len(conns) == 1 {
-			cn = conns[0]
-		} else {
-			several = conns
-		}
+	var groups []connPlaces
+	if tab := a.ActiveTab(); tab != nil {
+		groups = byConnection(tabPlaces(tab))
+	} else if cn := a.activeConn(); cn != nil {
+		groups = []connPlaces{{conn: cn, databases: []string{""}}}
 	}
 	ui.Row(c).Height(26).Padding(0, 10).Gap(12).Background(pal.Sidebar).BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
 		a.txIndicator(c)
-		if len(several) > 0 {
-			for _, cn := range several {
-				ui.Row(c).Gap(6).Children(func() { connBadge(c, cn) })
-			}
-			ui.Spacer(c)
-			return
-		}
-		if cn == nil {
+		switch len(groups) {
+		case 0:
 			ui.Text(c, "No connection").FontSize(12).TextColor(pal.Muted)
 			ui.Spacer(c)
 			return
+		case 1:
+		default:
+			a.connChips(c, groups)
+			ui.Spacer(c)
+			return
 		}
+		g := groups[0]
+		cn := g.conn
 		connBadge(c, cn)
+		if w := g.where(); w != "" {
+			ui.Text(c, "· "+w).FontSize(12).TextColor(pal.Muted).SingleLine()
+		}
 		status := "disconnected"
 		switch cn.Status {
 		case connection.StatusConnected:
@@ -646,6 +791,73 @@ func (a *App) statusBar(c *ui.Context) {
 			ui.Text(c, mode).FontSize(12).TextColor(pal.Muted)
 		}
 	})
+}
+
+// maxChips is how many connections the status bar shows of a tab running
+// on several, problems first; a button lists the others.
+const maxChips = 3
+
+// connChips shows each connection of a tab running on several: its
+// environment, name, databases and state, which its menu acts on.
+func (a *App) connChips(c *ui.Context, groups []connPlaces) {
+	pal := widgets.PaletteOf(c)
+	shown := groups[:min(maxChips, len(groups))]
+	for _, g := range shown {
+		chip := ui.ButtonBase(c).Padding(1, 4).Radius(4).Label(g.label()).Tooltip(placesTooltip([]connPlaces{g}))
+		if chip.Hovered() {
+			chip.Background(pal.Hover)
+		}
+		chip.Children(func() {
+			ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
+				connBadge(c, g.conn)
+				if w := g.where(); w != "" {
+					ui.Text(c, "· "+w).FontSize(12).TextColor(pal.Muted).SingleLine()
+				}
+				widgets.ConnState(c, g.conn)
+			})
+		})
+		chip.Menu(func(m *ui.Menu) { a.connMenu(m, g) })
+	}
+	if rest := groups[len(shown):]; len(rest) > 0 {
+		label := fmt.Sprintf("+%d more", len(rest))
+		more := ui.ButtonBase(c).Padding(1, 6).Radius(4).Label(label).Tooltip(placesTooltip(rest))
+		more.Children(func() { ui.Text(c, label).FontSize(12).TextColor(pal.Muted) })
+		more.Menu(func(m *ui.Menu) {
+			for _, g := range rest {
+				m.Submenu(g.label()+" — "+connStateText(g.conn), func(m *ui.Menu) { a.connMenu(m, g) })
+			}
+		})
+	}
+}
+
+// connMenu is a status bar chip's menu: the connection's databases the tab
+// runs on, with the dashboard's panels on each, then what connects or
+// disconnects it.
+func (a *App) connMenu(m *ui.Menu, g connPlaces) {
+	cn := g.conn
+	d, _ := a.ActiveTab().(*dashboard.Tab)
+	for _, database := range g.databases {
+		label := cmp.Or(database, cn.Config.Database, cn.Config.Name)
+		if d != nil {
+			label += " — " + strings.Join(d.PanelsOn(connection.Place{Conn: cn, Database: database}), ", ")
+		}
+		m.Item(label).Disabled(true)
+	}
+	m.Separator()
+	switch cn.Status {
+	case connection.StatusConnected:
+		if m.Item("Disconnect").Chosen() {
+			a.requestDisconnect("Disconnect "+cn.Config.Name+"?", []*connection.Conn{cn}, func() { a.disconnect(cn) })
+		}
+	case connection.StatusFailed:
+		if m.Item("Retry").Chosen() {
+			a.Connect(cn, nil)
+		}
+	case connection.StatusIdle:
+		if m.Item("Connect").Chosen() {
+			a.Connect(cn, nil)
+		}
+	}
 }
 
 // connBadge shows a connection's environment and name.

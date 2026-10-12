@@ -86,6 +86,27 @@
   navigator, tabs and grids by their keys, context menus by the menu key
   or Shift+F10, and the ER diagram's changes through the navigator's
   menus and the table form.
+- **Tabs:** each shows where it runs: an editor's or a table's
+  connection and database, a dashboard's panels', a data model's source.
+  A dot per connection, up to three then a count, in its color: filled
+  while open, a ring while not, with a warning when one failed, which
+  comes first. Under the title, the connection, with its database when
+  not its own or how many it uses, or the first and how many more; the
+  tooltip lists them all with their state. The status bar shows the
+  connection in front, its database too; for a tab on several, a chip
+  per connection, problems first, up to three and "+N more", each
+  listing its databases (and a dashboard's panels on them) and
+  connecting, retrying or disconnecting it. Drag one along the bar to
+  reorder; the middle button closes it. A tab's menu pins it (first,
+  with a pin for its close button, which unpins; Close Others, Close to
+  the Right, Close All, ⌘W and the middle button leave it, its menu's
+  Close closes it; a pinned editor stays pinned after a restart), and
+  closes others, those to its right or all, asking once about everything
+  they would lose, with Commit for open transactions. Reopen Closed Tab
+  (⇧⌘T) opens the tabs closed, the last first, up to 20, as editors by
+  their file, tables at their page, diagrams, dashboards and models; one
+  whose file or connection is gone says so. Tabs that do not fit are
+  listed by a button at the bar's end.
 - **Window:** closing the last tab leaves the start page. On macOS,
   closing the window keeps DGopher running with its tabs and connections,
   and its Dock icon shows the window again.
@@ -224,11 +245,14 @@
 - **Navigator:** each project in sections, Connections (open at first),
   Queries, Dashboards and Data Models, each with its count and a + that
   makes another, shown as the row is pointed at; one project alone is
-  named in the sidebar's top row, its sections at the top. A query file,
-  dashboard or data model is renamed (F2) or deleted (Delete) from its
-  menu, an open tab following it; a dashboard's or a model's file is
-  named after it. A connection is a lazy tree of databases, schemas,
-  tables, views and columns (a database of one schema names it on its
+  named in the sidebar's top row, its sections at the top. A query file
+  shows under its name the connection its `-- connection:` line names,
+  with its environment's color (an ID no connection has, in the warning
+  color). A query file, dashboard or data model is renamed (F2) or
+  deleted (Delete) from its menu, an open tab following it; a
+  dashboard's or a model's file is named after it. A connection is a
+  lazy tree of databases, schemas, tables, views and columns (a
+  database of one schema names it on its
   row and shows its folders, the schema's menu in its own), with
   row estimates. It has context menus, and quick open (⌘P) for tables,
   routines and query files. It follows the tab in front, choosing its
@@ -380,7 +404,7 @@
     or the palette, opens a copy of the editor, its unsaved edits too, or of
     the file, in a new query file on its connection.
   - Auto-connect, off by default per connection: the connection opens as
-    DGopher starts, and its editors connect as they are shown.
+    DGopher starts, and its editors connect as they come into view.
 
 ## Results grid and table tabs
 
@@ -583,7 +607,9 @@
   The SQL shows as it is built, and opens in an editor.
 - **Dashboards:** an editor's statement, Add to Dashboard, becomes a
   panel of a dashboard of its project, shown as a chart, rows or a single
-  value; panels of any of the project's connections sit in a grid of four
+  value; Add Panel, in the dashboard's bar, writes one's query there, on
+  the connection of its first panel or the project's first, kept once it
+  runs; panels of any of the project's connections sit in a grid of four
   columns, each one to four wide. Panels share their parameters, edited
   in a bar above them, their values each user's own, kept apart from the
   file; the dashboard refreshes by hand or every 1, 5 or 15 minutes or
@@ -591,11 +617,14 @@
   when asked. A panel runs one read only, its
   statement through the safety policy, refused when it writes or would be
   asked about; on PostgreSQL and MySQL, in a read-only transaction, which
-  the server enforces. Each run is audited as an editor's. Edit arranges,
-  resizes, retitles and changes the panels, their queries and charts; a
-  dashboard is a file in the project's `dashboards` folder, for its team,
-  never written over once it changed on disk, as by a pull, and opens
-  again with the workspace.
+  the server enforces. Each run is audited as an editor's. A panel shows
+  under its title the connection it runs on, and the database when not
+  the connection's own. Edit arranges, resizes, retitles and changes the
+  panels, their queries and charts; a panel's SQL also chooses its
+  connection and, on PostgreSQL, its database. A dashboard is a file in
+  the project's `dashboards` folder, for its team, never written over
+  once it changed on disk, as by a pull, and opens again with the
+  workspace.
 
   ![A dashboard of the sample shop: revenue, orders, customers and
   products as numbers, revenue by month and customers by country as

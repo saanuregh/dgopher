@@ -45,10 +45,6 @@ type Conn struct {
 	// HeldAt is when something last held the connection, as a tab open
 	// on it; its pool keeps when it last sent something (db.DB.LastUsed).
 	HeldAt time.Time
-	// ClosedIdle is set when the connection was disconnected for going
-	// unused: its editors wait for a run to connect it again, even with
-	// auto-connect.
-	ClosedIdle bool
 
 	// The schema, as far as it was read.
 	DefaultSchema string
@@ -59,6 +55,34 @@ type Conn struct {
 	Columns       map[ObjectKey][]db.Column
 	Loading       map[any]bool
 	LoadErr       map[any]string
+}
+
+// Place is where work runs: a connection, and a database of it, "" for
+// the connection's own.
+type Place struct {
+	Conn     *Conn
+	Database string
+}
+
+// PlaceOf is a place of the connection, its database "" when it is the
+// connection's own.
+func (cn *Conn) PlaceOf(database string) Place {
+	if database == cn.Config.Database {
+		database = ""
+	}
+	return Place{Conn: cn, Database: database}
+}
+
+// Rank orders connections problems first: failed, then not open, then
+// open.
+func (cn *Conn) Rank() int {
+	switch cn.Status {
+	case StatusFailed:
+		return 0
+	case StatusConnected:
+		return 2
+	}
+	return 1
 }
 
 // SwitchesDatabase reports whether a tab of the connection can switch

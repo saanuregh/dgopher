@@ -109,6 +109,17 @@ func NewFakeHost(t TB) *FakeHost {
 	return h
 }
 
+// ProjectConns are the connections of a project.
+func (h *FakeHost) ProjectConns(p *project.Project) []*connection.Conn {
+	var out []*connection.Conn
+	for _, cn := range h.Conns {
+		if cn.Project == p {
+			out = append(out, cn)
+		}
+	}
+	return out
+}
+
 // AddConn adds a connection of the host's project, not yet connected.
 func (h *FakeHost) AddConn(cfg db.Config) *connection.Conn {
 	cfg.ID = h.Project.Prefix + cfg.ID

@@ -208,7 +208,7 @@ func accelerator(id string) string {
 // menu bar takes the first key of each, where there is one, and the window
 // the others.
 var menuCommands = []string{keymap.Settings, keymap.NewConnection, keymap.NewEditor, keymap.OpenScript, keymap.AddFolder,
-	keymap.CloseTab, keymap.Palette, keymap.OpenTable, keymap.History, keymap.AuditLog, keymap.ToggleSidebar, keymap.FullScreen, keymap.Quit}
+	keymap.CloseTab, keymap.ReopenTab, keymap.Palette, keymap.OpenTable, keymap.History, keymap.AuditLog, keymap.ToggleSidebar, keymap.FullScreen, keymap.Quit}
 
 // menuAction is what a command of the menu bar does.
 func (a *App) menuAction(id string) func() {
@@ -244,11 +244,9 @@ func (a *App) menuAction(id string) func() {
 	case keymap.AddFolder:
 		return a.addExistingProject
 	case keymap.CloseTab:
-		return func() {
-			if len(a.tabs) > 0 {
-				a.closeTab(a.active)
-			}
-		}
+		return a.closeActive
+	case keymap.ReopenTab:
+		return a.reopenTab
 	case keymap.Palette:
 		return func() { a.openPalette(false) }
 	case keymap.OpenTable:
@@ -312,6 +310,7 @@ func (a *App) appMenus() []menuGroup {
 			cmd("Add Existing Folder…", keymap.AddFolder),
 			{},
 			cmd("Close Tab", keymap.CloseTab),
+			cmd("Reopen Closed Tab", keymap.ReopenTab),
 		}},
 		{"View", []menuEntry{
 			cmd("Command Palette", keymap.Palette),

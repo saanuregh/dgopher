@@ -57,6 +57,9 @@ type Project struct {
 	Prefix  string // what the IDs of its connections start with, in the app
 	Files   []string
 	Scanned time.Time
+	// FileConnections are, by file of Files, the connection each one's
+	// header names, as last read.
+	FileConnections map[string]FileConnection
 	// Err says why the folder could not be read: the project stays in
 	// the sidebar, without connections, until it is removed or reloaded.
 	Err string
@@ -403,6 +406,14 @@ func writeProjectFile(path string, data []byte) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// FileConnection is the connection a query file's header names, ""
+// for none, as read when the file had its modification time and size.
+type FileConnection struct {
+	ID   string
+	Mod  time.Time
+	Size int64
 }
 
 // headerLines is how many lines at the top of a query file may name its
