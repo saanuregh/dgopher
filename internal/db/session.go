@@ -257,7 +257,7 @@ func (s *Session) txState() TxState {
 // transaction another session began is open, it is refused (ErrNotOwner)
 // and nothing is sent, as ExecTransactionControl refuses one.
 func (s *Session) Begin(ctx context.Context) error {
-	_, err := s.exec(ctx, beginStatement(s.db.Config.Engine), s.mayControlSharedTx)
+	_, err := s.exec(ctx, BeginStatement(s.db.Config.Engine), s.mayControlSharedTx)
 	return err
 }
 

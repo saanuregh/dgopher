@@ -887,8 +887,8 @@ func TestAuditTrail(t *testing.T) {
 		t.Fatalf("verify: %+v %v", v, err)
 	}
 	a.openAudit()
-	testutil.WaitFor(t, tt, "audit viewer", func() bool { return len(a.auditView.events) == len(events) })
-	a.auditView.row = 1
+	testutil.WaitFor(t, tt, "audit viewer", func() bool { return len(a.history.audit.events) == len(events) })
+	a.history.audit.row = 1
 	tt.Frame()
 	testutil.Snapshot(t, tt, "audit")
 	if err := tt.Click("Verify Integrity"); err != nil {

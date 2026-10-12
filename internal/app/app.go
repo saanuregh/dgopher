@@ -116,7 +116,6 @@ type App struct {
 	fileLists   map[string]namedFiles
 	quitting    bool // the user agreed to what quitting loses
 	idleWarn    *idleWarning
-	auditView   *auditState
 	snippetForm *snippetForm
 	history     *historyState
 	toast       *pendingToast
@@ -134,10 +133,11 @@ type App struct {
 	clipboard           func(string)
 	readClip            func() string
 
-	// auditLogs are the projects' audit logs by the prefix of their
-	// connections' IDs, for record, which may run on any goroutine.
-	auditMu   sync.Mutex
-	auditLogs map[string]*audit.Log
+	// recordProjects are the projects by the prefix of their
+	// connections' IDs, for Record and RecordTyped, which may run on any
+	// goroutine.
+	auditMu        sync.Mutex
+	recordProjects map[string]*project.Project
 
 	appKnownHosts  string
 	now            time.Time
@@ -164,7 +164,7 @@ func newApp(st *store.Store, uiState *state.DB) *App {
 		a.settings.EditorFont = 13
 	}
 	a.appKnownHosts = filepath.Join(st.Dir(), "known_hosts")
-	a.auditLogs = map[string]*audit.Log{}
+	a.recordProjects = map[string]*project.Project{}
 	a.nav.init()
 	// Before the editors are restored, which take its height above their
 	// results.

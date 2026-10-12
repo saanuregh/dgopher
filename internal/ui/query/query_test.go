@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"dgopher/internal/audit"
 	"dgopher/internal/db"
 	"dgopher/internal/safety"
 	"dgopher/internal/testutil"
@@ -483,5 +484,43 @@ func TestWantsRowsForWritingSelects(t *testing.T) {
 		if got := wantsRows(s, safety.Dialect(c.engine)); got != c.want {
 			t.Errorf("%s: wantsRows %v, want %v (%+v)", c.sql, got, c.want, s.Analysis)
 		}
+	}
+}
+
+// The audit log keeps what was sent, apart from its parameters' values,
+// and what was typed when binding changed it; Explain sends what the
+// history keeps, EXPLAIN and all.
+func TestEditorAuditTypedAndSent(t *testing.T) {
+	a, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "SELECT :n + 1 AS v")
+	last := func() audit.Event {
+		for i := len(a.Events) - 1; i >= 0; i-- {
+			if e := a.Events[i]; e.Kind == audit.KindStatement {
+				return e
+			}
+		}
+		t.Fatal("no statement recorded")
+		return audit.Event{}
+	}
+	run := func(text, value string, mode RunMode) audit.Event {
+		t.Helper()
+		q.Editor.Text = "-- connection: lite\n\n" + text
+		testutil.SetCaret(tt, &q.Editor, len([]rune(q.Editor.Text)))
+		n := len(a.Events)
+		q.Run(mode)
+		if value != "" {
+			a.dialogs.params.fields[0].value = value
+			a.dialogs.params.submit()
+		}
+		testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running && len(a.Events) > n })
+		return last()
+	}
+	if e := run("SELECT :n + 1 AS v", "41", RunStatement); e.Statement != "SELECT ? + 1 AS v" || e.Typed != "SELECT :n + 1 AS v" || e.Params != ":n = 41" || e.Origin != audit.OriginTyped {
+		t.Errorf("bound: %+v", e)
+	}
+	if e := run("SELECT ${c} AS v", "2", RunStatement); e.Statement != "SELECT 2 AS v" || e.Typed != "SELECT ${c} AS v" {
+		t.Errorf("substituted: %+v", e)
+	}
+	if e := run("SELECT 3 AS v", "", RunExplain); !strings.HasPrefix(e.Statement, "EXPLAIN") || e.Typed != "" {
+		t.Errorf("explained: %+v", e)
 	}
 }

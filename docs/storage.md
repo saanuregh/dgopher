@@ -22,7 +22,8 @@ SQLite file, `.dgopher/state.sqlite`.
   (`filters.json`) and row colours (`colors.json`); the values of the
   editors' parameters, per connection (`query-parameters.json`).
 - `history`: query history (secrets redacted; trimmed to the newest 4,000
-  once it passes 5,000; clearable).
+  once it passes 5,000; clearable), each entry with the number of its
+  audit entry.
 - `audit`: the [audit log](audit-log.md), append-only and hash-chained.
 
 Its schema has a version (`PRAGMA user_version`); a newer DGopher

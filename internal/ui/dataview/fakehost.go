@@ -323,17 +323,19 @@ func (h *FakeHost) RecordBlocked(cn *connection.Conn, why, what string) {
 	h.Events = append(h.Events, audit.Event{Kind: audit.KindBlocked, Statement: what, Detail: why})
 }
 
-// Record writes the error as the app's does.
+// Record writes the error, and who wrote the statement, as the app's does.
 func (h *FakeHost) Record(cfg *db.Config, e audit.Event) {
 	if e.Err != nil && e.Error == "" {
 		e.Error = secretcmd.AuditText(e.Err)
 	}
-	h.Events = append(h.Events, e)
+	h.Events = append(h.Events, e.WithOrigin())
 }
 
 func (h *FakeHost) RecordRun(cfg db.Config, kind, database, stmt string, rows int64, d time.Duration, err error) {
 	h.Record(&cfg, audit.Event{Kind: kind, Statement: stmt, Rows: rows, Err: err})
 }
+
+func (h *FakeHost) RecordTyped(cfg db.Config, t audit.TypedRun) { h.Record(&cfg, t.Event()) }
 
 // ConnByID finds a connection of the host by its ID, as the app does.
 func (h *FakeHost) ConnByID(id string) *connection.Conn {

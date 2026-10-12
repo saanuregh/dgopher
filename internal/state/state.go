@@ -63,6 +63,10 @@ CREATE TABLE audit (
 );`)
 		return err
 	},
+	func(tx *sql.Tx) error {
+		_, err := tx.Exec(`ALTER TABLE history ADD COLUMN audit_seq INTEGER NOT NULL DEFAULT 0`)
+		return err
+	},
 }
 
 // uiMigrations are the UI state's, as migrations a project state's.
@@ -242,8 +246,8 @@ type execer interface {
 }
 
 func insertHistory(x execer, e store.HistoryEntry) error {
-	_, err := x.Exec(`INSERT INTO history (time, connection_id, connection, database, sql, duration_ns, rows, error)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, e.Time.UTC().Format(time.RFC3339Nano), e.ConnectionID, e.Connection, e.Database, e.SQL, int64(e.Duration), e.Rows, e.Error)
+	_, err := x.Exec(`INSERT INTO history (time, connection_id, connection, database, sql, duration_ns, rows, error, audit_seq)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, e.Time.UTC().Format(time.RFC3339Nano), e.ConnectionID, e.Connection, e.Database, e.SQL, int64(e.Duration), e.Rows, e.Error, e.AuditSeq)
 	return err
 }
 
@@ -252,7 +256,7 @@ func (d *DB) History(limit int) ([]store.HistoryEntry, error) {
 	if limit <= 0 {
 		limit = -1
 	}
-	rows, err := d.sql.Query(`SELECT time, connection_id, connection, database, sql, duration_ns, rows, error
+	rows, err := d.sql.Query(`SELECT time, connection_id, connection, database, sql, duration_ns, rows, error, audit_seq
 FROM history ORDER BY id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -263,7 +267,7 @@ FROM history ORDER BY id DESC LIMIT ?`, limit)
 		var e store.HistoryEntry
 		var at string
 		var dur int64
-		if err := rows.Scan(&at, &e.ConnectionID, &e.Connection, &e.Database, &e.SQL, &dur, &e.Rows, &e.Error); err != nil {
+		if err := rows.Scan(&at, &e.ConnectionID, &e.Connection, &e.Database, &e.SQL, &dur, &e.Rows, &e.Error, &e.AuditSeq); err != nil {
 			return out, err
 		}
 		e.Time, _ = time.Parse(time.RFC3339Nano, at)

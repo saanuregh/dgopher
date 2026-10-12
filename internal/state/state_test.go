@@ -174,3 +174,26 @@ func TestOpenUI(t *testing.T) {
 		t.Fatalf("mode %v, %v", info.Mode(), err)
 	}
 }
+
+// A history entry keeps the number of its audit entry, and a file of the
+// first schema gains the column with its entries kept.
+func TestHistoryAuditSeq(t *testing.T) {
+	dir := t.TempDir()
+	old, err := openFile(dir, FileName, migrations[:1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := old.SQL().Exec(`INSERT INTO history (time, connection_id, connection, database, sql, duration_ns, rows, error)
+VALUES ('2026-10-01T10:00:00Z', '', '', '', 'SELECT 1', 0, 0, '')`); err != nil {
+		t.Fatal(err)
+	}
+	old.Close()
+	d := open(t, dir)
+	if err := d.AppendHistory(store.HistoryEntry{SQL: "SELECT 2", AuditSeq: 7}); err != nil {
+		t.Fatal(err)
+	}
+	h, err := d.History(0)
+	if err != nil || len(h) != 2 || h[0].AuditSeq != 7 || h[1].AuditSeq != 0 || h[1].SQL != "SELECT 1" {
+		t.Fatalf("%+v %v", h, err)
+	}
+}

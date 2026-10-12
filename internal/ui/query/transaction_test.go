@@ -689,8 +689,14 @@ func TestManualCommitReopensAfterImplicitCommit(t *testing.T) {
 			t.Fatalf("%s: %s", r.sql, r.err)
 		}
 	}
-	if q.Tx != db.TxOpen || ranTimes(a, "BEGIN -- manual commit") != 2 {
-		t.Fatalf("tx %v, %d BEGINs; messages %+v", q.Tx, ranTimes(a, "BEGIN -- manual commit"), q.messages)
+	begins := 0
+	for _, e := range a.Events {
+		if e.Purpose == purposeManualCommit {
+			begins++
+		}
+	}
+	if q.Tx != db.TxOpen || begins != 2 {
+		t.Fatalf("tx %v, %d BEGINs; messages %+v", q.Tx, begins, q.messages)
 	}
 	if !slices.ContainsFunc(q.messages, func(m message) bool {
 		return strings.Contains(m.text, "CREATE committed the transaction") && strings.Contains(m.text, "A new one opens before the next write")

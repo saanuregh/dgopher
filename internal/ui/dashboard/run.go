@@ -24,9 +24,10 @@ const (
 
 // prepared is a panel's statement, bound and reviewed, ready to run.
 type prepared struct {
-	sql    string
-	args   []any
-	logged string // as the audit log and an error show it
+	sql   string
+	args  []any
+	typed string // the panel's statement as written, when ${var} values changed it
+	shown string // the parameters' values
 }
 
 // prepare binds a panel's parameters and puts its statement through the
@@ -57,11 +58,11 @@ func prepare(cn *connection.Conn, sql string, values map[string]params.Input) (p
 	case v.Confirm:
 		return prepared{}, errors.New("the safety policy asks before this query runs, which a dashboard cannot: run it in an editor")
 	}
-	logged := bound
-	if shown != "" {
-		logged += "\n-- parameters: " + shown
+	p := prepared{sql: bound, args: args, shown: shown}
+	if bound != stmts[0].Text {
+		p.typed = stmts[0].Text
 	}
-	return prepared{sql: bound, args: args, logged: logged}, nil
+	return p, nil
 }
 
 // CheckRead says why a statement cannot be a panel's: a panel runs one
@@ -144,5 +145,5 @@ func audited(h Host, cfg db.Config, database string, p prepared, src *dataview.S
 	if src != nil {
 		rows = int64(len(src.Rows))
 	}
-	h.RecordRun(cfg, audit.KindStatement, database, p.logged, rows, took, err)
+	h.RecordTyped(cfg, audit.TypedRun{Kind: audit.KindStatement, Database: database, Sent: p.sql, Typed: p.typed, Params: p.shown, Rows: rows, Took: took, Err: err})
 }

@@ -191,7 +191,7 @@ func (a *App) runCopy(x *copyDialog, to *connection.Conn, tables []string) {
 		var err error
 		for _, table := range tables {
 			var n int64
-			n, err = a.copyTable(ctx, from, fromPool, fromSchema, to, toPool, toDB, toSchema, table, mode, func(done int64) {
+			n, err = a.copyTable(ctx, from, fromPool, fromDB, fromSchema, to, toPool, toDB, toSchema, table, mode, func(done int64) {
 				status(table, widgets.Count(done, "row")+"…")
 			})
 			ev := audit.Event{Kind: audit.KindImport, Database: toDB, Rows: n, Statement: "INSERT INTO " + table,
@@ -222,7 +222,7 @@ func (a *App) runCopy(x *copyDialog, to *connection.Conn, tables []string) {
 
 // copyTable copies a table's rows into the target's schema, making the
 // table there first when it is not.
-func (a *App) copyTable(ctx context.Context, from *connection.Conn, fromPool func(context.Context) (*db.DB, error), fromSchema string,
+func (a *App) copyTable(ctx context.Context, from *connection.Conn, fromPool func(context.Context) (*db.DB, error), fromDB, fromSchema string,
 	to *connection.Conn, toPool func(context.Context) (*db.DB, error), toDB, toSchema, table string, mode int, progress func(int64)) (int64, error) {
 	src, err := fromPool(ctx)
 	if err != nil {
@@ -292,11 +292,19 @@ func (a *App) copyTable(ctx context.Context, from *connection.Conn, fromPool fun
 		names[i] = src.Dialect.Quote(c.Name)
 		canonical[i] = db.CanonicalType(from.Config.Engine, c.Type)
 	}
-	cursor, err := sess.Query(ctx, "SELECT "+strings.Join(names, ", ")+" FROM "+db.QualifiedName(src.Dialect, fromSchema, table))
-	if err != nil {
-		return 0, err
+	// The read is audited on the source's connection; the import, on the target's.
+	selectRows := "SELECT " + strings.Join(names, ", ") + " FROM " + db.QualifiedName(src.Dialect, fromSchema, table)
+	started := time.Now()
+	rowsRead := int64(-1)
+	cursor, readErr := sess.Query(ctx, selectRows)
+	defer func() {
+		a.RecordRun(from.Config, audit.KindStatement, fromDB, selectRows, rowsRead, time.Since(started), readErr)
+	}()
+	if readErr != nil {
+		return 0, readErr
 	}
 	defer cursor.Close()
+	rowsRead = 0
 	target := &db.EditTarget{Dialect: dst.Dialect, Schema: toSchema, Table: table, Columns: dstCols}
 	toEngine := to.Config.Engine
 	return writeRows(ctx, a, to.DB, to.Config, toDB, rowWrite{target: target, cols: dstCols, create: create, empty: empty, verb: "copied",
@@ -304,14 +312,17 @@ func (a *App) copyTable(ctx context.Context, from *connection.Conn, fromPool fun
 			for {
 				rows, err := cursor.Fetch(batch)
 				if err != nil {
+					readErr = err
 					return err
 				}
 				if len(rows) == 0 {
 					if cursor.Truncated() {
-						return errors.New("the source keeps one connection, whose rows are read ahead up to a limit: copy in parts")
+						readErr = errors.New("the source keeps one connection, whose rows are read ahead up to a limit: copy in parts")
+						return readErr
 					}
 					return nil
 				}
+				rowsRead += int64(len(rows))
 				for _, row := range rows {
 					for i, v := range row {
 						row[i] = db.InsertValue(toEngine, v, canonical[i])

@@ -82,6 +82,7 @@ func (a *App) startCompare(x *rowCompareDialog) {
 	x.running, x.cancel, x.progress, x.err, x.result, x.applied = true, cancel, "Reading the rows…", "", nil, ""
 	x.dismiss.Used()
 	from, toDB, toSchema, toTable := x.from, x.target.database, x.target.schema, x.table
+	fromCfg, toCfg := from.Config, to.Config
 	fromPool, toPool := from.PoolFor(x.fromDB), to.PoolFor(toDB)
 	source := db.CompareTable{Schema: x.fromSchema, Table: x.fromTable}
 	target := db.CompareTable{Schema: toSchema, Table: toTable}
@@ -90,15 +91,29 @@ func (a *App) startCompare(x *rowCompareDialog) {
 		defer cancel()
 		var r *db.RowComparison
 		var err error
+		var compared bool
+		var took time.Duration
 		if source.DB, err = fromPool(ctx); err == nil {
 			if target.DB, err = toPool(ctx); err == nil {
+				started := time.Now()
 				r, err = db.CompareRows(ctx, source, target, func(n int64) {
 					a.Post(func() { x.progress = widgets.HumanCount(n) + " rows read…" })
 				})
+				compared = true
+				took = time.Since(started)
 			}
 		}
 		if ctx.Err() != nil {
 			err = errors.New("cancelled")
+		}
+		if compared {
+			sourceRows, targetRows := int64(-1), int64(-1)
+			if r != nil {
+				sourceRows, targetRows = r.Same+r.Changed+r.OnlyInSource, r.Same+r.Changed+r.OnlyInTarget
+			}
+			sourceName, targetName := source.Schema+"."+source.Table, target.Schema+"."+target.Table
+			a.recordCompareRead(&fromCfg, x.fromDB, sourceName, targetName+" of "+toCfg.Name, sourceRows, took, err)
+			a.recordCompareRead(&toCfg, toDB, targetName, sourceName+" of "+fromCfg.Name, targetRows, took, err)
 		}
 		return func() {
 			x.running, x.cancel = false, nil
@@ -115,6 +130,14 @@ func (a *App) startCompare(x *rowCompareDialog) {
 			}
 		}
 	})
+}
+
+// recordCompareRead audits one side's read of a table's rows for a
+// comparison: the reads are the user's data, and happen as the comparison
+// asks for them, so the entry says what they were for.
+func (a *App) recordCompareRead(cfg *db.Config, database, table, other string, rows int64, took time.Duration, err error) {
+	a.Record(cfg, audit.Event{Kind: audit.KindStatement, Database: database, Rows: rows, DurationMS: took.Milliseconds(), Err: err,
+		Detail: "read the rows of " + table + " to compare them with " + other})
 }
 
 // syncStatements are the statements making the target's rows as the

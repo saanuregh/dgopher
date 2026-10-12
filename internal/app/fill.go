@@ -93,11 +93,18 @@ func (a *App) openFill(cn *connection.Conn, database string, obj db.Object) {
 		run: fillRunMark(), seed: rand.Uint64()}
 	a.filling = x
 	poolOf := cn.PoolFor(database)
-	engine := cn.Config.Engine
+	cfg := cn.Config
+	engine := cfg.Engine
+	// The values the fill reads of the tables' rows are audited: they are
+	// the user's data, though no statement text comes back from the read.
+	record := func(detail string, rows int64, took time.Duration, err error) {
+		a.Record(&cfg, audit.Event{Kind: audit.KindStatement, Database: database, Detail: detail, Rows: rows,
+			DurationMS: took.Milliseconds(), Err: err})
+	}
 	dataview.BackgroundResetOnPanic(a, func() { x.loading = false }, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
-		cols, err := readFillColumns(ctx, poolOf, engine, obj)
+		cols, err := readFillColumns(ctx, poolOf, engine, obj, record)
 		return func() {
 			untouched := !x.dismiss.Edited(x.inputs())
 			x.loading = false
@@ -125,8 +132,10 @@ func fillRunMark() string {
 
 // readFillColumns reads a table's columns with what suggests their
 // generators: keys, unique indexes, enums, foreign keys and the values
-// they may take, where new keys start.
-func readFillColumns(ctx context.Context, poolOf func(context.Context) (*db.DB, error), engine db.Engine, obj db.Object) ([]fillColumn, error) {
+// they may take, where new keys start. record tells each read of a table's
+// rows: what it read, the rows it got, and how it went.
+func readFillColumns(ctx context.Context, poolOf func(context.Context) (*db.DB, error), engine db.Engine, obj db.Object,
+	record func(detail string, rows int64, took time.Duration, err error)) ([]fillColumn, error) {
 	d, err := poolOf(ctx)
 	if err != nil {
 		return nil, err
@@ -187,7 +196,9 @@ func readFillColumns(ctx context.Context, poolOf func(context.Context) (*db.DB, 
 			ref := fks[fk]
 			schema := cmp.Or(ref.RefSchema, obj.Schema)
 			fc.refTo = ref.RefTable + "." + ref.RefColumns[0]
+			start := time.Now()
 			fc.gen.Values, err = db.DistinctValues(ctx, d, schema, ref.RefTable, db.Column{Name: ref.RefColumns[0], Type: c.Type}, referenceLimit)
+			record("read the values of "+fc.refTo+" to fill "+obj.Name, int64(len(fc.gen.Values)), time.Since(start), err)
 			if err != nil {
 				return nil, err
 			}
@@ -195,7 +206,9 @@ func readFillColumns(ctx context.Context, poolOf func(context.Context) (*db.DB, 
 				fc.gen.Kind = testdata.Null
 			}
 		case testdata.Sequence:
+			start := time.Now()
 			next, err := db.NextNumber(ctx, d, obj.Schema, obj.Name, c.Name)
+			record("read the highest "+obj.Name+"."+c.Name+" to continue its keys", -1, time.Since(start), err)
 			if err != nil {
 				return nil, err
 			}
