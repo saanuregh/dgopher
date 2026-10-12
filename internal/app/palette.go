@@ -101,18 +101,34 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 				}})
 		}
 	}
-	if tab := a.ActiveTab(); tab != nil && len(a.tabs) > 1 {
+	if tab := a.ActiveTab(); tab != nil {
 		w := a.window
-		cmds = append(cmds, paletteItem{title: "Close Other Tabs", group: "Command", icon: widgets.IconX, run: func() { a.closeOthers(w, tab) }})
+		for _, bulk := range bulkCloses(tab, a.tabs.ActiveIndex()) {
+			if w.anyUnpinned(bulk.which) {
+				cmds = append(cmds, paletteItem{title: bulk.command, group: "Command", icon: widgets.IconX,
+					run: func() { a.closeTabs(w, bulk.which) }})
+			}
+		}
 	}
-	if tab := a.ActiveTab(); tab != nil && (a.window == a.main || len(a.tabs) > 1) {
+	if tab := a.ActiveTab(); tab != nil {
+		w, pinned := a.window, a.tabs.Pinned(tab)
+		title := "Pin Tab"
+		if pinned {
+			title = "Unpin Tab"
+		}
+		cmds = append(cmds, paletteItem{title: title, group: "Command", icon: widgets.IconPin, run: func() { w.tabs.SetPinned(tab, !pinned) }})
+	}
+	if len(a.closedTabs) > 0 {
+		cmds = append(cmds, paletteItem{title: "Reopen Closed Tab", key: keymap.ReopenTab, group: "Command", icon: widgets.IconUndo, run: a.reopenTab})
+	}
+	if tab := a.ActiveTab(); tab != nil && (a.window == a.main || a.tabs.Len() > 1) {
 		cmds = append(cmds, paletteItem{title: "Move Tab to New Window", group: "Command", icon: widgets.IconLayers, run: func() { a.Post(func() { a.moveToWindow(tab, nil) }) }})
 	}
 	if q, ok := a.ActiveTab().(*query.Tab); ok {
 		cmds = append(cmds, paletteItem{title: "Duplicate Editor", group: "Command", icon: widgets.IconFile, run: func() { a.Post(func() { a.duplicateQuery(q) }) }})
 	}
-	if len(a.tabs) > 0 {
-		cmds = append(cmds, paletteItem{title: "Close Tab", key: keymap.CloseTab, group: "Command", icon: widgets.IconX, run: func() { a.closeTab(a.active) }})
+	if a.tabs.Len() > 0 {
+		cmds = append(cmds, paletteItem{title: "Close Tab", key: keymap.CloseTab, group: "Command", icon: widgets.IconX, run: a.closeActive})
 	}
 	for _, cn := range a.conns {
 		detail := cn.Config.Engine.Label() + " · " + cn.Config.Env.Label()

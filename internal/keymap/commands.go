@@ -10,6 +10,7 @@ const (
 	OpenScript     = "openScript"
 	AddFolder      = "addFolder"
 	CloseTab       = "closeTab"
+	ReopenTab      = "reopenTab"
 	History        = "history"
 	AuditLog       = "auditLog"
 	Settings       = "settings"
@@ -110,6 +111,7 @@ var Commands = []Command{
 	command(OpenScript, Global, "Open a SQL script", "Cmd+O"),
 	command(AddFolder, Global, "Add an existing folder as a project"),
 	command(CloseTab, Global, "Close the tab", "Cmd+W"),
+	command(ReopenTab, Global, "Reopen the tab closed last", "Cmd+Shift+T"),
 	command(History, Global, "Query history", "Cmd+Y"),
 	command(AuditLog, Global, "Audit log", "Cmd+Shift+A"),
 	command(Settings, Global, "Settings", "Cmd+,"),

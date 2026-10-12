@@ -53,7 +53,7 @@ func rowsIn(t *testing.T, file string) string {
 func TestCloseAsksCommitOrRollback(t *testing.T) {
 	for _, commit := range []bool{true, false} {
 		a, tt, q, file := txApp(t, 0)
-		a.closeTab(a.active)
+		a.closeTab(a.tabs.ActiveIndex())
 		if a.closing == nil || len(a.closing.txs) != 1 || a.closing.txs[0] != q {
 			t.Fatalf("closing %+v", a.closing)
 		}
@@ -70,7 +70,7 @@ func TestCloseAsksCommitOrRollback(t *testing.T) {
 		} else {
 			r.onClose()
 		}
-		testutil.WaitFor(t, tt, "the tab to close", func() bool { return len(a.tabs) == 0 })
+		testutil.WaitFor(t, tt, "the tab to close", func() bool { return a.tabs.Len() == 0 })
 		want := "0"
 		if commit {
 			want = "1"

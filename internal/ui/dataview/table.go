@@ -79,6 +79,10 @@ func (t *TableTab) Title() string { return t.Object.Name }
 
 func (t *TableTab) Connection() *connection.Conn { return t.Conn }
 
+func (t *TableTab) Icon() *ui.SVG { return widgets.IconTable }
+
+func (t *TableTab) Places() []connection.Place { return []connection.Place{t.Conn.PlaceOf(t.Database)} }
+
 func (t *TableTab) CloseReason() string {
 	switch {
 	case t.design != nil && t.design.changed():

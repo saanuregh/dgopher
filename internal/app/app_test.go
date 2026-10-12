@@ -143,8 +143,8 @@ func TestQueryFlow(t *testing.T) {
 	testutil.WaitFor(t, tt, "tables", func() bool { return cn.Objects[connection.SchemaKey{Database: "", Schema: "shop"}] != nil })
 
 	a.NewQueryTab(cn, "", "SELECT c.id, c.name, c.email, c.country, count(o.id) AS orders, sum(o.total) AS spent\nFROM shop.customers c\nLEFT JOIN shop.orders o ON o.customer_id = c.id\nGROUP BY c.id\nORDER BY spent DESC NULLS LAST;\n")
-	testutil.WaitFor(t, tt, "query tab", func() bool { return len(a.tabs) == 1 })
-	q := a.tabs[0].(*query.Tab)
+	testutil.WaitFor(t, tt, "query tab", func() bool { return a.tabs.Len() == 1 })
+	q := a.tabs.At(0).(*query.Tab)
 	testutil.SetCaret(tt, &q.Editor, 10)
 	q.Run(query.RunStatement)
 	page := a.Settings().PageSize
@@ -174,8 +174,8 @@ func TestQueryFlow(t *testing.T) {
 
 	// On production, it needs the connection's name typed.
 	a.NewQueryTab(a.conns[1], "", "DELETE FROM shop.orders;")
-	testutil.WaitFor(t, tt, "prod tab", func() bool { return len(a.tabs) == 2 })
-	pq := a.tabs[1].(*query.Tab)
+	testutil.WaitFor(t, tt, "prod tab", func() bool { return a.tabs.Len() == 2 })
+	pq := a.tabs.At(1).(*query.Tab)
 	testutil.SetCaret(tt, &pq.Editor, 3)
 	pq.Run(query.RunStatement)
 	tt.Frame()
@@ -282,8 +282,8 @@ func TestEnginesSmoke(t *testing.T) {
 			}
 			testutil.Snapshot(t, tt, "engine-"+string(ec.cfg.Engine))
 			a.NewQueryTab(cn, "", "SELECT title, body FROM notes WHERE body IS NOT NULL ORDER BY title;")
-			testutil.WaitFor(t, tt, "query tab", func() bool { return len(a.tabs) == 2 })
-			q := a.tabs[1].(*query.Tab)
+			testutil.WaitFor(t, tt, "query tab", func() bool { return a.tabs.Len() == 2 })
+			q := a.tabs.At(1).(*query.Tab)
 			testutil.SetCaret(tt, &q.Editor, 3)
 			q.Run(query.RunStatement)
 			testutil.WaitFor(t, tt, "the query's 2 rows", func() bool { return resultRows(tt, q, 2) })
@@ -324,15 +324,15 @@ func TestWorkspaceRestore(t *testing.T) {
 
 	st2, _ := store.Open(cfgDir, store.MemorySecrets())
 	b := startApp(t, st2)
-	if len(b.projects) != 1 || len(b.tabs) != 1 {
-		t.Fatalf("restored %d projects, %d tabs", len(b.projects), len(b.tabs))
+	if len(b.projects) != 1 || b.tabs.Len() != 1 {
+		t.Fatalf("restored %d projects, %d tabs", len(b.projects), b.tabs.Len())
 	}
-	r := b.tabs[0].(*query.Tab)
+	r := b.tabs.At(0).(*query.Tab)
 	if r.Editor.Text != want+" -- edited" || r.Path != q.Path || r.Conn.Config.Name != "lite" {
 		t.Fatalf("restored %q at %s", r.Editor.Text, r.Path)
 	}
-	// Shown, it waits to be asked; set to auto-connect, it connects by
-	// itself.
+	// Shown, it waits to be asked; set to auto-connect, it connects as it
+	// comes into view again.
 	tt2 := ui.NewTester(b.view, 900, 600)
 	for range 5 {
 		tt2.Frame()
@@ -341,6 +341,9 @@ func TestWorkspaceRestore(t *testing.T) {
 		t.Fatalf("restored editor connected on its own: %v", r.Conn.Status)
 	}
 	r.Conn.Config.AutoConnect = true
+	b.AddTab(&plainTab{"other"})
+	tt2.Frame()
+	b.tabs.SelectAt(0)
 	testutil.WaitFor(t, tt2, "connect", func() bool { return r.Conn.Status == connection.StatusConnected })
 }
 
@@ -669,13 +672,13 @@ func TestKeyboard(t *testing.T) {
 	tt.Frame()
 	tt.Key(ui.Cmd, ui.Key1)
 	tt.Frame()
-	if a.active != 0 {
-		t.Fatalf("⌘1: tab %d", a.active)
+	if a.tabs.ActiveIndex() != 0 {
+		t.Fatalf("⌘1: tab %d", a.tabs.ActiveIndex())
 	}
 	tt.Key(ui.Cmd, ui.Key9)
 	tt.Frame()
-	if a.active != 1 {
-		t.Fatalf("⌘9: tab %d", a.active)
+	if a.tabs.ActiveIndex() != 1 {
+		t.Fatalf("⌘9: tab %d", a.tabs.ActiveIndex())
 	}
 	// ⌘0: the navigator has the keyboard; ↵ connects and opens.
 	tt.Key(ui.Cmd, ui.Key0)
@@ -687,7 +690,7 @@ func TestKeyboard(t *testing.T) {
 	// ⌘J goes from the editor to the results and back.
 	tt.Key(ui.Cmd, ui.Key1)
 	tt.Frame()
-	q := a.tabs[0].(*query.Tab)
+	q := a.tabs.At(0).(*query.Tab)
 	testutil.SetCaret(tt, &q.Editor, 3)
 	tt.Key(ui.Cmd, ui.KeyEnter)
 	testutil.WaitFor(t, tt, "results", func() bool { return resultRows(tt, q, -1) })
@@ -737,8 +740,8 @@ func TestSampleDatabase(t *testing.T) {
 	if err := tt.Click("Try the sample"); err != nil {
 		t.Fatal(err)
 	}
-	testutil.WaitFor(t, tt, "sample editor", func() bool { return len(a.tabs) == 1 })
-	q := a.tabs[0].(*query.Tab)
+	testutil.WaitFor(t, tt, "sample editor", func() bool { return a.tabs.Len() == 1 })
+	q := a.tabs.At(0).(*query.Tab)
 	testutil.SetCaret(tt, &q.Editor, 80)
 	q.Run(query.RunStatement)
 	testutil.WaitFor(t, tt, "the sample query's 8 rows", func() bool { return resultRows(tt, q, 8) })
@@ -752,8 +755,8 @@ func TestDarkMode(t *testing.T) {
 	tt := ui.NewTester(a.view, 1280, 800)
 	tt.SetDark(true)
 	a.openSample()
-	testutil.WaitFor(t, tt, "sample editor", func() bool { return len(a.tabs) == 1 })
-	q := a.tabs[0].(*query.Tab)
+	testutil.WaitFor(t, tt, "sample editor", func() bool { return a.tabs.Len() == 1 })
+	q := a.tabs.At(0).(*query.Tab)
 	testutil.SetCaret(tt, &q.Editor, 80)
 	q.Run(query.RunStatement)
 	testutil.WaitFor(t, tt, "sample query", func() bool { return resultRows(tt, q, -1) })
@@ -806,8 +809,8 @@ func TestDropFiles(t *testing.T) {
 	os.WriteFile(sqlFile, []byte("SELECT 42 AS answer;"), 0o600)
 	a.nav.row = -1
 	a.openDropped([]string{sqlFile})
-	testutil.WaitFor(t, tt, "editor", func() bool { return len(a.tabs) == 1 })
-	if q := a.tabs[0].(*query.Tab); q.Path != sqlFile || q.Editor.Text != "SELECT 42 AS answer;" {
+	testutil.WaitFor(t, tt, "editor", func() bool { return a.tabs.Len() == 1 })
+	if q := a.tabs.At(0).(*query.Tab); q.Path != sqlFile || q.Editor.Text != "SELECT 42 AS answer;" {
 		t.Fatalf("editor %q %q", q.Path, q.Editor.Text)
 	}
 	csv := dir + "/people's data\nDROP TABLE x;.csv" // a quote and a newline in the name
@@ -832,8 +835,8 @@ func TestAuditTrail(t *testing.T) {
 	tt := ui.NewTester(a.view, 1280, 820)
 	connectNow(t, a, tt, cn)
 	a.NewQueryTab(cn, "", "CREATE TABLE accounts (id INTEGER PRIMARY KEY, owner TEXT, balance INT);")
-	testutil.WaitFor(t, tt, "tab", func() bool { return len(a.tabs) == 1 })
-	q := a.tabs[0].(*query.Tab)
+	testutil.WaitFor(t, tt, "tab", func() bool { return a.tabs.Len() == 1 })
+	q := a.tabs.At(0).(*query.Tab)
 	testutil.SetCaret(tt, &q.Editor, 3)
 	q.Run(query.RunStatement)
 	tt.Frame()
@@ -949,19 +952,19 @@ func TestEditingAConnectionKeepsWork(t *testing.T) {
 	a.connForm.cfg.Name = "renamed"
 	a.connForm.env = 2
 	a.saveConnForm(a.connForm, false)
-	if cn.Status != connection.StatusConnected || len(a.tabs) != 1 || cn.Config.Env != db.Production {
-		t.Fatalf("a rename disconnected: status %v, tabs %d", cn.Status, len(a.tabs))
+	if cn.Status != connection.StatusConnected || a.tabs.Len() != 1 || cn.Config.Env != db.Production {
+		t.Fatalf("a rename disconnected: status %v, tabs %d", cn.Status, a.tabs.Len())
 	}
 	other := writeSQL(t, "other.sqlite", "")
 	a.openConnForm(cn)
 	a.connForm.cfg.Database = other
 	a.saveConnForm(a.connForm, false)
-	if a.closing == nil || len(a.tabs) != 1 {
-		t.Fatalf("changing the file closed tabs without asking: closing %v, tabs %d", a.closing, len(a.tabs))
+	if a.closing == nil || a.tabs.Len() != 1 {
+		t.Fatalf("changing the file closed tabs without asking: closing %v, tabs %d", a.closing, a.tabs.Len())
 	}
 	a.closing.onClose()
-	if len(a.tabs) != 0 || cn.Config.Database != other {
-		t.Fatalf("after agreeing: tabs %d, database %q", len(a.tabs), cn.Config.Database)
+	if a.tabs.Len() != 0 || cn.Config.Database != other {
+		t.Fatalf("after agreeing: tabs %d, database %q", a.tabs.Len(), cn.Config.Database)
 	}
 }
 
@@ -1025,18 +1028,18 @@ func TestSwitchConnection(t *testing.T) {
 	a.NewQueryTab(alpha, "", "SELECT 1;")
 	testutil.WaitFor(t, tt, "the editor", func() bool { _, ok := a.ActiveTab().(*query.Tab); return ok })
 	a.NewQueryTab(alpha, "", "SELECT 2;")
-	testutil.WaitFor(t, tt, "the second editor", func() bool { return len(a.tabs) == 2 })
-	q := a.tabs[0].(*query.Tab)
-	a.active = 0
+	testutil.WaitFor(t, tt, "the second editor", func() bool { return a.tabs.Len() == 2 })
+	q := a.tabs.At(0).(*query.Tab)
+	a.tabs.SelectAt(0)
 	q.Editor.Text = strings.Replace(q.Editor.Text, "connection: alpha", "connection: beta", 1)
 	tt.Frame()
 	if err := tt.Click("Switch to beta"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	nq, ok := a.tabs[0].(*query.Tab)
-	if !ok || nq == q || nq.Conn != beta || nq.Path != q.Path || a.active != 0 || len(a.tabs) != 2 {
-		t.Fatalf("after switching: %v %v", ok, a.tabs)
+	nq, ok := a.tabs.At(0).(*query.Tab)
+	if !ok || nq == q || nq.Conn != beta || nq.Path != q.Path || a.tabs.ActiveIndex() != 0 || a.tabs.Len() != 2 {
+		t.Fatalf("after switching: %v %v", ok, a.tabs.Tabs())
 	}
 	if data, _ := os.ReadFile(q.Path); string(data) != nq.Editor.Text || !strings.HasPrefix(nq.Editor.Text, "-- connection: beta") {
 		t.Fatalf("the file holds %q, the editor %q", data, nq.Editor.Text)
@@ -1114,9 +1117,9 @@ func TestSettingsCloseWithEscape(t *testing.T) {
 // the active tab.
 func newAppEditor(t *testing.T, a *App, tt *ui.Tester, cn *connection.Conn, text string) *query.Tab {
 	t.Helper()
-	n := len(a.tabs)
+	n := a.tabs.Len()
 	a.NewQueryTab(cn, "", text)
-	testutil.WaitFor(t, tt, "the editor", func() bool { return len(a.tabs) == n+1 })
+	testutil.WaitFor(t, tt, "the editor", func() bool { return a.tabs.Len() == n+1 })
 	return a.ActiveTab().(*query.Tab)
 }
 
@@ -1150,14 +1153,14 @@ func TestRedisTab(t *testing.T) {
 	cn := addConn(a, db.Config{ID: "r", Name: "Cache", Engine: db.Redis, Host: "127.0.0.1", Port: 16379, Database: "2", Env: db.Staging})
 	tt := ui.NewTester(a.view, 1100, 760)
 	a.NewQueryTab(cn, "", "")
-	testutil.WaitFor(t, tt, "the redis tab", func() bool { return len(a.tabs) == 1 })
-	if _, ok := a.tabs[0].(*redis.Tab); !ok {
-		t.Fatalf("tab %T", a.tabs[0])
+	testutil.WaitFor(t, tt, "the redis tab", func() bool { return a.tabs.Len() == 1 })
+	if _, ok := a.tabs.At(0).(*redis.Tab); !ok {
+		t.Fatalf("tab %T", a.tabs.At(0))
 	}
 	a.NewQueryTab(cn, "", "")
 	tt.Frame()
-	if len(a.tabs) != 1 || a.active != 0 {
-		t.Fatalf("%d tabs, active %d", len(a.tabs), a.active)
+	if a.tabs.Len() != 1 || a.tabs.ActiveIndex() != 0 {
+		t.Fatalf("%d tabs, active %d", a.tabs.Len(), a.tabs.ActiveIndex())
 	}
 }
 
@@ -1167,8 +1170,8 @@ func TestPendingChangesDialog(t *testing.T) {
 	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1280, 800)
 	a.openSample()
-	testutil.WaitFor(t, tt, "sample editor", func() bool { return len(a.tabs) == 1 })
-	cn := a.tabs[0].(*query.Tab).Conn
+	testutil.WaitFor(t, tt, "sample editor", func() bool { return a.tabs.Len() == 1 })
+	cn := a.tabs.At(0).(*query.Tab).Conn
 	testutil.WaitFor(t, tt, "objects", func() bool { return cn.Objects[connection.SchemaKey{Database: "", Schema: "main"}] != nil })
 	for _, o := range cn.Objects[connection.SchemaKey{Database: "", Schema: "main"}] {
 		if o.Name == "orders" {
@@ -1312,7 +1315,8 @@ func TestNotifyLongWork(t *testing.T) {
 	a.windowFocused = func() bool { return focused }
 	a.notify = func(title, body string, onClick func()) { shown, click = append(shown, title+": "+body), onClick }
 	tt := ui.NewTester(a.view, 1000, 700)
-	a.Notify(time.Now().Add(-time.Minute), "Query finished", "q on lite", func() { a.active = 7 })
+	shownAgain := false
+	a.Notify(time.Now().Add(-time.Minute), "Query finished", "q on lite", func() { shownAgain = true })
 	focused = true
 	a.Notify(time.Now().Add(-time.Minute), "Query finished", "seen", nil)
 	focused = false
@@ -1322,7 +1326,7 @@ func TestNotifyLongWork(t *testing.T) {
 	}
 	click()
 	tt.Frame()
-	if a.active != 7 {
+	if !shownAgain {
 		t.Fatal("the click did not show what ended")
 	}
 
@@ -1665,18 +1669,18 @@ func TestSideBySide(t *testing.T) {
 	right := query.New(a, cn, "", "right", "SELECT 'right one';")
 	a.AddTab(right)
 	a.AddTab(left)
-	a.openToSide(right)
+	a.tabs.SetSide(right, false)
 	tt.Frame()
 	testutil.Snapshot(t, tt, "side-by-side")
-	if a.ActiveTab() != left || !a.KeysTo(left) || a.KeysTo(right) || a.sideTab() != right {
-		t.Fatalf("active %v, side %v", a.ActiveTab(), a.side)
+	if a.ActiveTab() != left || !a.KeysTo(left) || a.KeysTo(right) || a.tabs.Side() != right {
+		t.Fatalf("active %v, side %v", a.ActiveTab(), a.tabs.Side())
 	}
 	// A click in the text of the editor beside, on the right pane's first
 	// line at this window's size, puts the focus there.
 	tt.ClickAt(950, 97)
 	tt.Frame()
-	if a.ActiveTab() != right || a.side != left || !a.sideLeft {
-		t.Fatalf("after focusing the side: active %v, side %v, left %v", a.ActiveTab(), a.side, a.sideLeft)
+	if a.ActiveTab() != right || a.tabs.Side() != left || !a.tabs.SideLeft() {
+		t.Fatalf("after focusing the side: active %v, side %v, left %v", a.ActiveTab(), a.tabs.Side(), a.tabs.SideLeft())
 	}
 	ran := func(sql string) bool {
 		events, _ := cn.Project.Audit.Read(0)
@@ -1687,10 +1691,10 @@ func TestSideBySide(t *testing.T) {
 	if ran("left one") {
 		t.Fatal("the editor beside ran too")
 	}
-	a.closeTab(slices.IndexFunc(a.tabs, func(t widgets.Tab) bool { return t == left }))
+	a.closeTab(a.tabs.Index(left))
 	tt.Frame()
-	if a.sideTab() != nil || a.ActiveTab() != right {
-		t.Fatalf("after closing the side: side %v", a.side)
+	if a.tabs.Side() != nil || a.ActiveTab() != right {
+		t.Fatalf("after closing the side: side %v", a.tabs.Side())
 	}
 }
 
@@ -1755,6 +1759,22 @@ func copyTables(t *testing.T, a *App, tt *ui.Tester, from *connection.Conn, sche
 	confirmIfAsked(a)
 	testutil.WaitFor(t, tt, "the copy", func() bool { return !x.running && (x.done || x.err != "") })
 	return x
+}
+
+// The copy dialog connects a connection as it is chosen as the target.
+func TestCopyTargetConnectsAsChosen(t *testing.T) {
+	a := newTestApp(t)
+	lite := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: writeSQL(t, "x.sqlite", "")})
+	duck := addConn(a, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1200, 800)
+	connectNow(t, a, tt, lite)
+	a.openCopy(lite, "", "main", nil)
+	tt.Frame()
+	if duck.Status != connection.StatusIdle {
+		t.Fatalf("connected before chosen: %v", duck.Status)
+	}
+	a.copying.target.label = targetLabel(duck)
+	testutil.WaitFor(t, tt, "the target connecting", func() bool { return duck.Status == connection.StatusConnected })
 }
 
 // Tables copy into another engine, made there with their types mapped,

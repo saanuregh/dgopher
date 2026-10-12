@@ -180,6 +180,7 @@ func newActivityTab(a *App, cn *connection.Conn) *activityTab {
 
 func (t *activityTab) Title() string                { return t.conn.Config.Name + " · activity" }
 func (t *activityTab) Connection() *connection.Conn { return t.conn }
+func (t *activityTab) Icon() *ui.SVG                { return widgets.IconClock }
 func (t *activityTab) CloseReason() string          { return "" }
 func (t *activityTab) Close()                       {}
 

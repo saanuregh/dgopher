@@ -51,7 +51,7 @@ func TestScreenshots(t *testing.T) {
 	tt.SetDark(true)
 	tt.SetScale(2)
 	a.openSampleIn(p)
-	testutil.WaitFor(t, tt, "the sample", func() bool { return len(a.tabs) == 1 })
+	testutil.WaitFor(t, tt, "the sample", func() bool { return a.tabs.Len() == 1 })
 	a.closeTab(0)
 	shop := a.projectConns(p)[0]
 	shop.Config.Name = "shop"

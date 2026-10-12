@@ -135,6 +135,8 @@ func (r *Tab) Title() string { return r.conn.Config.Name + " · keys" }
 
 func (r *Tab) Connection() *connection.Conn { return r.conn }
 
+func (r *Tab) Icon() *ui.SVG { return widgets.IconKey }
+
 // CloseReason says what closing the tab stops: a file of commands running.
 func (r *Tab) CloseReason() string {
 	if r.file != nil {

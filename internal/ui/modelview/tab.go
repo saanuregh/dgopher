@@ -66,7 +66,18 @@ func Open(h Host, p *project.Project, path string) (*Tab, error) {
 	return &Tab{h: h, Project: p, Path: path, m: m, was: was}, nil
 }
 
-func (t *Tab) Title() string { return t.m.Name + " · model" }
+func (t *Tab) Title() string { return t.m.Name }
+
+// Places are where the model is read from, its source; none without one.
+func (t *Tab) Places() []connection.Place {
+	cn := t.source()
+	if cn == nil {
+		return nil
+	}
+	return []connection.Place{cn.PlaceOf(t.m.Source.Database)}
+}
+
+func (t *Tab) Icon() *ui.SVG { return widgets.IconSchema }
 
 // Connection is none: a model is a project's, not a connection's.
 func (t *Tab) Connection() *connection.Conn { return nil }

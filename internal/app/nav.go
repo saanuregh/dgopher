@@ -84,10 +84,14 @@ type navState struct {
 	// listed are the projects shown already, whose Connections were
 	// opened as they first showed.
 	listed map[string]bool
+	// openConns are the IDs of the connections open in the tree as it
+	// last drew, and openConnsNow as it draws: one opened since connects.
+	openConns, openConnsNow map[string]bool
 }
 
 func (n *navState) init() {
 	n.row, n.chose = -1, -1
+	n.openConnsNow = map[string]bool{}
 	n.tree.List.Selected = &n.row
 	// A catalog goes deep: a table is six levels below its project.
 	n.tree.Indent = 10
@@ -272,15 +276,22 @@ func (a *App) navChildren(n navNode) []navNode {
 		if cn.Config.Engine == db.Redis {
 			return nil
 		}
+		opened := open && !a.nav.openConns[n.conn]
+		if open {
+			a.nav.openConnsNow[n.conn] = true
+		}
 		switch cn.Status {
 		case connection.StatusConnecting:
 			return info(cn, "Connecting…")
 		case connection.StatusFailed:
 			return info(cn, "Failed: "+widgets.FirstLine(cn.Err))
 		case connection.StatusIdle:
-			if open {
+			switch {
+			case opened:
 				a.Connect(cn, nil)
 				return info(cn, "Connecting…")
+			case open:
+				return info(cn, "Not connected")
 			}
 			return info(cn, "")
 		}
@@ -467,6 +478,7 @@ func (a *App) sidebar(c *ui.Context) {
 			ui.Spacer(c)
 			return
 		}
+		a.nav.openConns, a.nav.openConnsNow = a.nav.openConnsNow, map[string]bool{}
 		a.followTab()
 		a.openToReveal()
 		tree := ui.Outline(c, &a.nav.tree, a.navRoots(), a.navChildren, func(n navNode) {
@@ -1122,7 +1134,10 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 			}
 		case nodeQueryFile:
 			ui.Icon(c, widgets.IconFile).TextColor(pal.Muted).FontSize(12)
-			ui.Text(c, n.name).SingleLine().Shrink(1).Tooltip(filepath.Join(p.Queries, filepath.FromSlash(n.name)))
+			ui.Column(c).Shrink(1).Children(func() {
+				ui.Text(c, n.name).SingleLine().Tooltip(filepath.Join(p.Queries, filepath.FromSlash(n.name)))
+				a.fileConnectionLine(c, p, p.FileConnections[n.name].ID)
+			})
 		case nodeDashboard, nodeModel:
 			ic, names, paths := widgets.IconLayers, []string(nil), []string(nil)
 			if n.kind == nodeDashboard {
@@ -1286,4 +1301,23 @@ func (a *App) setCatalogDepth(cn *connection.Conn, database, schema string, d db
 	delete(cn.Items, key)
 	maps.DeleteFunc(cn.Columns, func(k connection.ObjectKey, _ []db.Column) bool { return k.Database == database && k.Schema == schema })
 	connection.LoadObjects(a, cn, database, schema)
+}
+
+// fileConnectionLine shows under a query file the connection its header
+// names, with its environment's color; an ID no connection of the project
+// has shows as it is, in the warning color, and none shows nothing.
+func (a *App) fileConnectionLine(c *ui.Context, p *project.Project, id string) {
+	if id == "" {
+		return
+	}
+	pal := widgets.PaletteOf(c)
+	cn := a.connByID(p.Prefix + id)
+	ui.Row(c).Gap(5).Children(func() {
+		if cn == nil {
+			ui.Text(c, id).SingleLine().FontSize(10.5).TextColor(c.Theme().Warning).Tooltip("No connection of " + p.Name + " has this ID")
+			return
+		}
+		ui.Box(c).Size(6, 6).Radius(3).Background(widgets.EnvColor(&cn.Config))
+		ui.Text(c, cn.Config.Name).SingleLine().FontSize(10.5).TextColor(pal.Muted)
+	})
 }

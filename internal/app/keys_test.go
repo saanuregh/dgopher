@@ -84,8 +84,8 @@ func TestTabKeyFocus(t *testing.T) {
 	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1280, 800)
 	a.openSample()
-	testutil.WaitFor(t, tt, "sample editor", func() bool { return len(a.tabs) == 1 })
-	cn := a.tabs[0].(*query.Tab).Conn
+	testutil.WaitFor(t, tt, "sample editor", func() bool { return a.tabs.Len() == 1 })
+	cn := a.tabs.At(0).(*query.Tab).Conn
 	testutil.WaitFor(t, tt, "objects", func() bool { return cn.Objects[connection.SchemaKey{Database: "", Schema: "main"}] != nil })
 	for _, o := range cn.Objects[connection.SchemaKey{Database: "", Schema: "main"}] {
 		if o.Name == "orders" {
@@ -96,7 +96,7 @@ func TestTabKeyFocus(t *testing.T) {
 	tt.Key(ui.Cmd, ui.Key1)
 	tt.Frame()
 	tt.Frame()
-	if !a.tabs[0].(*query.Tab).Editor.HasFocus {
+	if !a.tabs.At(0).(*query.Tab).Editor.HasFocus {
 		t.Fatal("⌘1 left the editor without the keys")
 	}
 	tt.Key(ui.Cmd, ui.Key2)
@@ -112,8 +112,8 @@ func TestNavigatorObjectKeys(t *testing.T) {
 	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1280, 800)
 	a.openSample()
-	testutil.WaitFor(t, tt, "sample editor", func() bool { return len(a.tabs) == 1 })
-	cn := a.tabs[0].(*query.Tab).Conn
+	testutil.WaitFor(t, tt, "sample editor", func() bool { return a.tabs.Len() == 1 })
+	cn := a.tabs.At(0).(*query.Tab).Conn
 	testutil.WaitFor(t, tt, "objects", func() bool { return cn.Objects[connection.SchemaKey{Database: "", Schema: "main"}] != nil })
 	a.nav.expand(navNode{kind: nodeConn, conn: cn.Config.ID})
 	a.nav.expand(navNode{kind: nodeSchema, conn: cn.Config.ID, schema: "main"})
@@ -158,8 +158,8 @@ func TestFilterKeyTwice(t *testing.T) {
 	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1280, 800)
 	a.openSample()
-	testutil.WaitFor(t, tt, "sample editor", func() bool { return len(a.tabs) == 1 })
-	cn := a.tabs[0].(*query.Tab).Conn
+	testutil.WaitFor(t, tt, "sample editor", func() bool { return a.tabs.Len() == 1 })
+	cn := a.tabs.At(0).(*query.Tab).Conn
 	testutil.WaitFor(t, tt, "objects", func() bool { return cn.Objects[connection.SchemaKey{Database: "", Schema: "main"}] != nil })
 	for _, o := range cn.Objects[connection.SchemaKey{Database: "", Schema: "main"}] {
 		if o.Name == "orders" {

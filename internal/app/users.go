@@ -81,6 +81,7 @@ func newUsersTab(a *App, cn *connection.Conn) *usersTab {
 
 func (t *usersTab) Title() string                { return t.conn.Config.Name + " · users" }
 func (t *usersTab) Connection() *connection.Conn { return t.conn }
+func (t *usersTab) Icon() *ui.SVG                { return widgets.IconUsers }
 func (t *usersTab) CloseReason() string          { return "" }
 func (t *usersTab) Close()                       {}
 

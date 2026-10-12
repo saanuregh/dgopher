@@ -71,7 +71,7 @@ func TestAddToDashboard(t *testing.T) {
 
 	a.saveWorkspace(true) // as on quit
 	b := startApp(t, st)
-	for _, tab := range b.tabs {
+	for _, tab := range b.tabs.All() {
 		if d, ok := tab.(*dashboard.Tab); ok && d.Path == path {
 			return
 		}
@@ -119,8 +119,8 @@ func TestRenameAndDeleteProjectFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if _, err := os.Stat(renamed); !os.IsNotExist(err) || len(a.tabs) != 0 {
-		t.Fatalf("the file stayed (%v), or its tab: %d", err, len(a.tabs))
+	if _, err := os.Stat(renamed); !os.IsNotExist(err) || a.tabs.Len() != 0 {
+		t.Fatalf("the file stayed (%v), or its tab: %d", err, a.tabs.Len())
 	}
 
 	model := datamodel.File(p, "Shop")

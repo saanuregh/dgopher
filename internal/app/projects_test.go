@@ -485,8 +485,8 @@ func TestUntouchedEditorFileIsDeleted(t *testing.T) {
 	look := newAppEditor(t, a, tt, cn, "SELECT * FROM t;")
 	kept := newAppEditor(t, a, tt, cn, "")
 	kept.Editor.Text += "SELECT 'kept';"
-	a.closeTab(slices.Index(a.tabs, widgets.Tab(look)))
-	a.closeTab(slices.Index(a.tabs, widgets.Tab(kept)))
+	a.closeTab(a.tabs.Index(widgets.Tab(look)))
+	a.closeTab(a.tabs.Index(widgets.Tab(kept)))
 	if _, err := os.Stat(look.Path); err == nil {
 		t.Fatal("an untouched editor left its file")
 	}
@@ -546,7 +546,7 @@ func TestDeclinedTrustPromptSticks(t *testing.T) {
 	a := newTestApp(t)
 	cn := addConn(a, db.Config{ID: "r", Name: "r", Engine: db.SQLite, Database: filepath.Join(t.TempDir(), "x.sqlite"), AutoConnect: true})
 	a.settings.TrustedShared = nil
-	a.tabs = append(a.tabs, query.New(a, cn, "", "q.sql", "SELECT 1;"))
+	a.tabs.Add(query.New(a, cn, "", "q.sql", "SELECT 1;"))
 	tt := ui.NewTester(a.view, 1000, 700)
 	tt.Frame()
 	first := a.confirm
@@ -650,7 +650,7 @@ func TestConflictedTextSurvivesRestart(t *testing.T) {
 	testutil.WaitFor(t, tt, "the conflict", func() bool { return q.DiskConflict != "" })
 	a.saveWorkspace(true) // as on quit
 	b := startApp(t, st)
-	r := b.tabs[0].(*query.Tab)
+	r := b.tabs.At(0).(*query.Tab)
 	if r.Editor.Text != "SELECT 'mine';" || r.Saved != "SELECT 'pulled';" || r.DiskConflict == "" {
 		t.Fatalf("restored %q over %q, conflict %q", r.Editor.Text, r.Saved, r.DiskConflict)
 	}
@@ -683,7 +683,7 @@ func TestNewConnectionFromProjectMenu(t *testing.T) {
 	a := newTestApp(t)
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	other, _ := a.addProject(newProjectDir(t, "other"))
-	a.tabs = append(a.tabs, query.New(a, cn, "", "q.sql", ""))
+	a.tabs.Add(query.New(a, cn, "", "q.sql", ""))
 	tt := ui.NewTester(a.view, 1000, 700)
 	tt.Frame()
 	if err := tt.RightClick("other"); err != nil {
@@ -793,7 +793,7 @@ func TestRestoredEditorWaitsToConnect(t *testing.T) {
 	for range 5 {
 		tt.Frame()
 	}
-	q := b.tabs[0].(*query.Tab)
+	q := b.tabs.At(0).(*query.Tab)
 	if q.Conn.Status != connection.StatusIdle || !tt.HasText("Not connected.") {
 		t.Fatalf("restored editor: status %v, %q", q.Conn.Status, tt.Texts())
 	}
@@ -843,14 +843,14 @@ func TestDuplicateEditor(t *testing.T) {
 	if err := tt.ChooseMenuItem("Duplicate"); err != nil {
 		t.Fatalf("%v: menu %q", err, tt.Menu())
 	}
-	testutil.WaitFor(t, tt, "the third copy", func() bool { return len(a.tabs) == 3 })
+	testutil.WaitFor(t, tt, "the third copy", func() bool { return a.tabs.Len() == 3 })
 	// From the palette.
 	for _, it := range a.paletteItems(false) {
 		if it.title == "Duplicate Editor" {
 			it.run()
 		}
 	}
-	testutil.WaitFor(t, tt, "the fourth copy", func() bool { return len(a.tabs) == 4 })
+	testutil.WaitFor(t, tt, "the fourth copy", func() bool { return a.tabs.Len() == 4 })
 }
 
 // The sidebar's menu of a query file duplicates it too: a file no editor
@@ -874,7 +874,7 @@ func TestDuplicateQueryFileFromSidebar(t *testing.T) {
 	if err := tt.ChooseMenuItem("Duplicate"); err != nil {
 		t.Fatalf("%v: menu %q", err, tt.Menu())
 	}
-	testutil.WaitFor(t, tt, "the copy", func() bool { return len(a.tabs) == 1 })
+	testutil.WaitFor(t, tt, "the copy", func() bool { return a.tabs.Len() == 1 })
 	d := a.ActiveTab().(*query.Tab)
 	if d.Conn != cn || d.Editor.Text != text || filepath.Base(d.Path) == "report.sql" {
 		t.Fatalf("the copy: %s on %s, %q", d.Path, d.Conn.Config.ID, d.Editor.Text)
@@ -934,8 +934,8 @@ func TestRestoredEditorFollowsItsHeader(t *testing.T) {
 	os.WriteFile(q.Path, []byte("-- connection: beta\n\nSELECT 1;"), 0o644)
 
 	b := startApp(t, st)
-	if len(b.tabs) != 1 || b.tabs[0].Connection().Config.ID != b.projects[0].Prefix+"beta" {
-		t.Fatalf("restored %v", b.tabs)
+	if b.tabs.Len() != 1 || b.tabs.At(0).Connection().Config.ID != b.projects[0].Prefix+"beta" {
+		t.Fatalf("restored %v", b.tabs.Tabs())
 	}
 }
 
@@ -1391,8 +1391,8 @@ func TestNavigatorShallow(t *testing.T) {
 	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1000, 700)
 	a.openSample()
-	testutil.WaitFor(t, tt, "sample editor", func() bool { return len(a.tabs) == 1 })
-	cn := a.tabs[0].(*query.Tab).Conn
+	testutil.WaitFor(t, tt, "sample editor", func() bool { return a.tabs.Len() == 1 })
+	cn := a.tabs.At(0).(*query.Tab).Conn
 	conn := navNode{kind: nodeConn, conn: cn.Config.ID}
 	a.nav.expand(conn)
 	testutil.WaitFor(t, tt, "the schema's folders", func() bool {

@@ -59,10 +59,10 @@ func (p *targetPicker) fields(c *ui.Context, a *App, label string, disabled bool
 		p.shown, p.database, p.schema = cn, "", ""
 		if cn != nil {
 			p.database = cn.Config.Database
+			if cn.Status == connection.StatusIdle {
+				a.Connect(cn, nil)
+			}
 		}
-	}
-	if cn != nil && cn.Status == connection.StatusIdle {
-		a.Connect(cn, nil)
 	}
 	ui.Field(c, label, func() {
 		ui.Select(c, &p.label, labels).Label(label).Disabled(disabled)

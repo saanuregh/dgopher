@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"os"
@@ -76,6 +77,9 @@ func (a *App) ProjectConfigs(p *project.Project) []db.Config {
 	}
 	return out
 }
+
+// ProjectConns are the connections of a project.
+func (a *App) ProjectConns(p *project.Project) []*connection.Conn { return a.projectConns(p) }
 
 func (a *App) projectConns(p *project.Project) []*connection.Conn {
 	var out []*connection.Conn
@@ -248,9 +252,10 @@ func (a *App) ScanQueries(p *project.Project, now bool) {
 		return
 	}
 	p.Scanned = time.Now()
-	root := p.Queries
+	root, known := p.Queries, p.FileConnections // replaced, never changed
 	a.Background(func() func() {
 		var files []string
+		connections := map[string]project.FileConnection{}
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -260,7 +265,9 @@ func (a *App) ScanQueries(p *project.Project, now bool) {
 			}
 			if !d.IsDir() && strings.EqualFold(filepath.Ext(path), ".sql") {
 				rel, _ := filepath.Rel(root, path)
-				files = append(files, filepath.ToSlash(rel))
+				rel = filepath.ToSlash(rel)
+				files = append(files, rel)
+				connections[rel] = fileConnection(path, known[rel])
 			}
 			return nil
 		})
@@ -273,13 +280,35 @@ func (a *App) ScanQueries(p *project.Project, now bool) {
 				// Files added since the palette opened are offered too.
 				defer func() { pl.items, pl.shownQ = a.paletteItems(pl.tables), "\x00" }()
 			}
-			p.Files = files
+			p.Files, p.FileConnections = files, connections
 			p.ScanErr = ""
 			if err != nil {
 				p.ScanErr = err.Error()
 			}
 		}
 	})
+}
+
+// fileConnection is the connection a query file's header names, read
+// again only when the file changed since was.
+func fileConnection(path string, was project.FileConnection) project.FileConnection {
+	info, err := os.Stat(path)
+	if err != nil {
+		return project.FileConnection{}
+	}
+	if info.ModTime().Equal(was.Mod) && info.Size() == was.Size {
+		return was
+	}
+	now := project.FileConnection{Mod: info.ModTime(), Size: info.Size()}
+	f, err := os.Open(path)
+	if err != nil {
+		return now
+	}
+	defer f.Close()
+	head := make([]byte, 4096) // more than the header's lines take
+	n, _ := io.ReadFull(f, head)
+	now.ID = project.HeaderConnection(string(head[:n]))
+	return now
 }
 
 // openQueryFile opens a .sql file of a project in an editor of the
@@ -371,6 +400,7 @@ func (a *App) SwitchConnection(q *query.Tab, id string) {
 	if cn == nil || !cn.Config.Engine.IsSQL() {
 		return
 	}
+	pinned := slices.ContainsFunc(a.windows, func(w *window) bool { return w.tabs.Pinned(q) })
 	a.endTab(q, "Switch "+q.Title()+" to "+cn.Config.Name+"?", func(w *window, at int) {
 		// Closing saved the editor's text, unless the user chose to lose
 		// it to the file on disk: the file is what reopens, or the text
@@ -387,8 +417,8 @@ func (a *App) SwitchConnection(q *query.Tab, id string) {
 		}
 		nq := query.New(a, cn, "", q.Name, text)
 		nq.Path, nq.Saved = q.Path, text
-		w.tabs = slices.Insert(w.tabs, at, widgets.Tab(nq))
-		w.active, a.window = at, w
+		w.tabs.Insert(nq, at, pinned)
+		a.window = w
 	})
 }
 

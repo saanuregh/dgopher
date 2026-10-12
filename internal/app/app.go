@@ -93,6 +93,8 @@ type App struct {
 	newProject  *newProjectForm
 	renaming    *renameForm
 	generating  *generateState
+	// closedTabs are the tabs the user closed, the latest last (rememberClosed).
+	closedTabs []closedTab
 	// catalogQueries shows the catalog queries of a connection.
 	catalogQueries *catalogView
 	backup         *backupDialog
@@ -538,7 +540,6 @@ func (a *App) Connect(cn *connection.Conn, then func()) {
 	if then != nil {
 		cn.Waiters = append(cn.Waiters, then)
 	}
-	cn.ClosedIdle = false
 	cfg := cn.Config
 	if ask, details := a.trustCheck(cn); ask {
 		// A file from a repository chose this destination: the user says
@@ -553,8 +554,8 @@ func (a *App) Connect(cn *connection.Conn, then func()) {
 		})
 		r.Trust = true
 		r.OnCancel = func() {
-			// Not idle: what connects as it shows, as a restored editor,
-			// would ask again at once.
+			// Not idle: what connects as it comes into view, as an
+			// editor, would ask again each time.
 			cn.Status, cn.Err = connection.StatusFailed, "not connected: you did not agree to its destination"
 		}
 		return
@@ -605,7 +606,8 @@ func (a *App) askPasswordOrOpen(cn *connection.Conn, cfg db.Config, lost bool) {
 		}
 		p.onCancel = func() {
 			cn.Waiters = nil
-			// Not idle: what connects as it shows would ask again at once.
+			// Not idle: what connects as it comes into view would ask
+			// again each time.
 			cn.Status, cn.Err = connection.StatusFailed, "no password was given"
 		}
 		a.askPassword(p)
@@ -786,16 +788,12 @@ func (a *App) refresh(cn *connection.Conn) {
 
 // Tabs.
 
-func (a *App) AddTab(t widgets.Tab) {
-	a.tabs = append(a.tabs, t)
-	a.active = len(a.tabs) - 1
-}
+func (a *App) AddTab(t widgets.Tab) { a.tabs.Add(t) }
 
 // ReplaceTab puts a tab in the place of another, which closes.
 func (a *App) ReplaceTab(old, next widgets.Tab) {
-	for w, t := range a.everyTab() {
-		if t == old {
-			w.tabs[slices.Index(w.tabs, old)] = next
+	for _, w := range a.windows {
+		if w.tabs.Replace(old, next) {
 			old.Close()
 			return
 		}
@@ -809,16 +807,27 @@ func (a *App) KeysTo(t widgets.Tab) bool { return t != nil && t == a.ActiveTab()
 func (a *App) ActiveTab() widgets.Tab { return a.window.ActiveTab() }
 
 func (a *App) closeTab(i int) {
-	if i < 0 || i >= len(a.tabs) {
+	if i < 0 || i >= a.tabs.Len() {
 		return
 	}
-	a.closeTabOf(a.tabs[i])
+	a.closeTabOf(a.tabs.At(i))
 }
 
 // closeTabOf closes a tab of any window, once the user agrees to what
-// closing it loses.
-func (a *App) closeTabOf(t widgets.Tab) {
-	a.endTab(t, "Close "+t.Title()+"?", func(*window, int) {})
+// closing it loses; Reopen Closed Tab opens it again.
+func (a *App) closeTabOf(t widgets.Tab) { a.closeTogether([]widgets.Tab{t}) }
+
+// closeActive closes the tab in front, as its key does: a pinned one
+// stays, closed from its menu.
+func (a *App) closeActive() {
+	t := a.ActiveTab()
+	switch {
+	case t == nil:
+	case a.tabs.Pinned(t):
+		a.toast = &pendingToast{text: t.Title() + " is pinned: close it from its menu, or unpin it first"}
+	default:
+		a.closeTabOf(t)
+	}
 }
 
 // endTab closes a tab once the user agrees to what closing it loses, at

@@ -28,6 +28,9 @@ type Host interface {
 	connection.Runner
 	// ConnByID finds a connection by its ID in the app.
 	ConnByID(id string) *connection.Conn
+	// ProjectConns are the connections of a project, which its panels
+	// may run on.
+	ProjectConns(p *project.Project) []*connection.Conn
 	Connect(cn *connection.Conn, then func())
 	ShowError(title, message string)
 	Toast(text, action string, run func())
@@ -88,6 +91,15 @@ type panelState struct {
 	sql     string
 	view    string
 	editSQL bool
+	// connID and database are the connection, by its ID, and the
+	// database the query being edited runs on: "" for its own. picked is
+	// the connection the editor showed chosen last, nil as it opens:
+	// another chosen connects.
+	connID, database string
+	picked           *connection.Conn
+	// isNew is set for a panel added whose query has not run yet: it is
+	// not saved, and Cancel takes it away.
+	isNew bool
 }
 
 type paramField struct {
@@ -108,17 +120,24 @@ func Open(h Host, p *project.Project, path string) (*Tab, error) {
 	return t, nil
 }
 
-func (t *Tab) Title() string { return t.d.Name + " · dashboard" }
+func (t *Tab) Title() string { return t.d.Name }
 
 // Connection is none: a dashboard's panels are of any connection.
 func (t *Tab) Connection() *connection.Conn { return nil }
 
-// Connections are those of the panels, each once, in the panels' order.
-func (t *Tab) Connections() []*connection.Conn {
-	var out []*connection.Conn
+func (t *Tab) Icon() *ui.SVG { return widgets.IconLayers }
+
+// Places are where the panels run, each once, in the panels' order; a
+// panel on a connection the project lacks runs nowhere.
+func (t *Tab) Places() []connection.Place {
+	var out []connection.Place
 	for _, p := range t.d.Panels {
-		if cn := t.conn(p); cn != nil && !slices.Contains(out, cn) {
-			out = append(out, cn)
+		cn := t.conn(p)
+		if cn == nil {
+			continue
+		}
+		if pl := cn.PlaceOf(p.Database); !slices.Contains(out, pl) {
+			out = append(out, pl)
 		}
 	}
 	return out
@@ -207,8 +226,19 @@ func (t *Tab) syncFields() {
 
 func (t *Tab) conn(p Panel) *connection.Conn { return t.h.ConnByID(t.Project.Prefix + p.Connection) }
 
-// RunsOn reports whether a panel's query runs on cn.
-func (t *Tab) RunsOn(cn *connection.Conn) bool {
+// PanelsOn are the titles of the panels running on a place.
+func (t *Tab) PanelsOn(pl connection.Place) []string {
+	var out []string
+	for _, p := range t.d.Panels {
+		if cn := t.conn(p); cn != nil && cn.PlaceOf(p.Database) == pl {
+			out = append(out, p.Title)
+		}
+	}
+	return out
+}
+
+// HoldsConnection reports whether a panel's query runs on cn.
+func (t *Tab) HoldsConnection(cn *connection.Conn) bool {
 	for i, s := range t.panels {
 		if s.running && t.conn(t.d.Panels[i]) == cn {
 			return true
@@ -250,7 +280,7 @@ func (t *Tab) saveValues() {
 // save writes the dashboard's file, as its panels and settings now are,
 // unless the file changed since it was read.
 func (t *Tab) save() {
-	disk, err := t.d.Save(t.Path, t.disk)
+	disk, err := t.kept().Save(t.Path, t.disk)
 	if err != nil {
 		t.err = "Could not save the dashboard: " + err.Error()
 		return
@@ -263,7 +293,7 @@ func (t *Tab) save() {
 func (t *Tab) Rename(name, to string) error {
 	was := t.d.Name
 	t.d.Name = name
-	disk, err := t.d.Move(t.Path, to, t.disk)
+	disk, err := t.kept().Move(t.Path, to, t.disk)
 	if disk == nil {
 		t.d.Name = was
 		return err
@@ -271,6 +301,49 @@ func (t *Tab) Rename(name, to string) error {
 	t.Path, t.disk, t.dirty = to, disk, false
 	t.saveValues()
 	return err
+}
+
+// kept is the dashboard as its file keeps it: without the panels added
+// whose query has not run yet.
+func (t *Tab) kept() *Dashboard {
+	d := *t.d
+	d.Panels = nil
+	for i, p := range t.d.Panels {
+		if !t.panels[i].isNew {
+			d.Panels = append(d.Panels, p)
+		}
+	}
+	return &d
+}
+
+// addPanel adds a panel and opens its query's editor, on the connection of
+// the first panel, else the project's first SQL connection.
+func (t *Tab) addPanel() {
+	var cn *connection.Conn
+	if len(t.d.Panels) > 0 {
+		cn = t.conn(t.d.Panels[0])
+	}
+	if cn == nil {
+		i := slices.IndexFunc(t.h.ProjectConns(t.Project), func(cn *connection.Conn) bool { return cn.Config.Engine.IsSQL() })
+		if i < 0 {
+			t.h.ShowError("No connection to run on", "Add a SQL connection to "+t.Project.Name+" first.")
+			return
+		}
+		cn = t.h.ProjectConns(t.Project)[i]
+	}
+	t.d.Panels = append(t.d.Panels, Panel{Title: "New panel", Connection: strings.TrimPrefix(cn.Config.ID, t.Project.Prefix), View: ViewTable, Width: 2})
+	t.syncPanels()
+	s := t.panels[len(t.panels)-1]
+	s.isNew, s.editSQL, s.connID, s.database = true, true, cn.Config.ID, ""
+	t.editing = true
+}
+
+// dropNew takes away a panel added whose query never ran.
+func (t *Tab) dropNew(s *panelState) {
+	if i := slices.Index(t.panels, s); i >= 0 {
+		t.d.Panels = slices.Delete(t.d.Panels, i, i+1)
+		t.panels = slices.Delete(t.panels, i, i+1)
+	}
 }
 
 func (t *Tab) saveIfDirty() {
@@ -311,8 +384,8 @@ func (t *Tab) refreshAll(asked bool) {
 // runPanel runs a panel's query, connecting first when it must: when its
 // connection never tried, or when asked.
 func (t *Tab) runPanel(i int, asked bool) {
-	if t.closed {
-		return
+	if t.closed || t.panels[i].isNew {
+		return // a panel added runs once its query is written
 	}
 	p, s := t.d.Panels[i], t.panels[i]
 	cn := t.conn(p)
@@ -422,6 +495,9 @@ func (t *Tab) View(c *ui.Context) {
 				!t.editing && t.h.KeysTo(t) && keymap.Pressed(c, keymap.Refresh) {
 				t.refreshAll(true)
 			}
+			if widgets.ToolButton(c, widgets.IconPlus, "Add Panel", "A panel of a query you write here").Clicked() {
+				t.addPanel()
+			}
 			label := "Edit"
 			if t.editing {
 				label = "Done"
@@ -445,7 +521,7 @@ func (t *Tab) View(c *ui.Context) {
 			})
 		}
 		if len(t.d.Panels) == 0 {
-			ui.Text(c, "No panels yet: in an editor, Add to Dashboard puts the statement at its caret here.").TextColor(pal.Muted).Padding(16)
+			ui.Text(c, "No panels yet: Add Panel writes one's query here, or, in an editor, Add to Dashboard puts the statement at its caret here.").TextColor(pal.Muted).Padding(16)
 			return
 		}
 		ui.Scroll(c).Grow(1).Background(pal.EditorBg).Children(func() {
@@ -542,34 +618,50 @@ func (t *Tab) panelView(c *ui.Context, i int, height float32) {
 	p, s := &t.d.Panels[i], t.panels[i]
 	connecting, failed := t.connState(*p)
 	ui.Column(c.Key(s.key)).Grow(float32(p.Width)).Basis(0).Height(height).Radius(8).Background(th.Background).Border(1, th.Border).Clip().Children(func() {
-		ui.Row(c).Padding(6, 10).Gap(6).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			if t.editing {
-				if ui.TextInput(c, &s.title).FontSize(12.5).Grow(1).Label("Panel title").Changed() {
-					p.Title, t.dirty = strings.TrimSpace(s.title), true
+		ui.Column(c).Padding(6, 10).Gap(6).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+				ui.Column(c).Grow(1).Shrink(1).Children(func() {
+					if t.editing {
+						if ui.TextInput(c, &s.title).FontSize(12.5).Label("Panel title").Changed() {
+							p.Title, t.dirty = strings.TrimSpace(s.title), true
+						}
+					} else {
+						ui.Text(c, p.Title).Bold().FontSize(12.5).SingleLine()
+					}
+					ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
+						if cn := t.conn(*p); cn != nil {
+							widgets.ConnState(c, cn)
+						}
+						ui.Text(c, t.where(*p)).FontSize(10.5).TextColor(pal.Muted).SingleLine().Shrink(1)
+					})
+				})
+				switch {
+				case s.running || connecting:
+					ui.Spinner(c).Size(12, 12)
+				case s.src != nil:
+					ui.Text(c, widgets.Count(len(s.src.Rows), "row")+" · "+s.took.Round(time.Millisecond).String()).FontSize(11.5).TextColor(pal.Muted).Tooltip("Read at " + s.at.Format(time.TimeOnly))
 				}
-			} else {
-				ui.Text(c, p.Title).Bold().FontSize(12.5).SingleLine().Grow(1).Shrink(1)
-			}
-			switch {
-			case s.running || connecting:
-				ui.Spinner(c).Size(12, 12)
-			case s.src != nil:
-				ui.Text(c, widgets.Count(len(s.src.Rows), "row")+" · "+s.took.Round(time.Millisecond).String()).FontSize(11.5).TextColor(pal.Muted).Tooltip("Read at " + s.at.Format(time.TimeOnly))
-			}
+			})
+			// Under the title, wrapping in a narrow panel.
 			if t.editing {
-				t.panelTools(c, i)
+				ui.Row(c).Gap(6).Wrap().AlignItems(ui.Center).Children(func() { t.panelTools(c, i) })
 			}
 		})
 		if s.editSQL {
-			ui.Column(c).Height(160).Padding(6, 10).Gap(6).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+			ui.Column(c).Height(196).Padding(6, 10).Gap(6).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+				cn := t.whereView(c, s)
 				ui.TextArea(c, &s.sql).Font(widgets.MonoFont).FontSize(12).Grow(1).Label("Panel query")
 				ui.Row(c).Gap(6).Children(func() {
 					ui.Spacer(c)
 					if ui.Button(c, "Cancel").Clicked() {
 						s.sql, s.editSQL = p.SQL, false
+						if s.isNew {
+							t.later = append(t.later, func() { t.dropNew(s) })
+						}
 					}
-					if ui.PrimaryButton(c, "Run and Keep").Disabled(strings.TrimSpace(s.sql) == "").Clicked() {
-						p.SQL, s.editSQL = s.sql, false
+					if ui.PrimaryButton(c, "Run and Keep").Disabled(strings.TrimSpace(s.sql) == "" || cn == nil).Clicked() {
+						p.SQL, s.editSQL, s.isNew = s.sql, false, false
+						p.Connection, p.Database = strings.TrimPrefix(cn.Config.ID, t.Project.Prefix), s.database
 						t.save()
 						t.syncFields()
 						t.runPanel(i, true)
@@ -589,6 +681,79 @@ func (t *Tab) panelView(c *ui.Context, i int, height float32) {
 			t.chartView(c, p, s)
 		}
 	})
+}
+
+// where is where a panel runs, as its header shows it: its connection,
+// and its database when not the connection's own; the ID of a connection
+// the project lacks.
+func (t *Tab) where(p Panel) string {
+	cn := t.conn(p)
+	switch {
+	case cn == nil:
+		return p.Connection
+	case p.Database != "" && p.Database != cn.Config.Database:
+		return cn.Config.Name + " · " + p.Database
+	}
+	return cn.Config.Name
+}
+
+// whereView chooses the connection and database a panel's query being
+// edited runs on, and returns the connection chosen, nil for none. A
+// connection's other databases list once it is open: choosing it opens it.
+func (t *Tab) whereView(c *ui.Context, s *panelState) *connection.Conn {
+	var conns []*connection.Conn
+	for _, cn := range t.h.ProjectConns(t.Project) {
+		if cn.Config.Engine.IsSQL() {
+			conns = append(conns, cn)
+		}
+	}
+	labels := t.connLabels(conns)
+	var chosen *connection.Conn
+	label := ""
+	if i := slices.IndexFunc(conns, func(cn *connection.Conn) bool { return cn.Config.ID == s.connID }); i >= 0 {
+		chosen, label = conns[i], labels[i]
+	}
+	ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+		ui.Text(c, "Runs on").FontSize(12).TextColor(widgets.PaletteOf(c).Muted)
+		if ui.Select(c, &label, labels).Width(220).Label("Panel connection").Changed() {
+			if i := slices.Index(labels, label); i >= 0 {
+				s.connID = conns[i].Config.ID
+			}
+			s.database = "" // the new one's own
+		}
+		if chosen != s.picked {
+			s.picked = chosen
+			if chosen != nil && chosen.Status == connection.StatusIdle {
+				t.h.Connect(chosen, nil)
+			}
+		}
+		if chosen == nil {
+			return
+		}
+		if chosen.SwitchesDatabase() {
+			database := cmp.Or(s.database, chosen.Config.Database)
+			if ui.Select(c, &database, chosen.Databases).Width(200).Label("Panel database").Changed() {
+				s.database = database
+				if database == chosen.Config.Database {
+					s.database = ""
+				}
+			}
+		}
+	})
+	return chosen
+}
+
+// connLabels name connections by their names, a name two share with
+// their IDs in the project too.
+func (t *Tab) connLabels(conns []*connection.Conn) []string {
+	out := make([]string, len(conns))
+	for i, cn := range conns {
+		out[i] = cn.Config.Name
+		if slices.ContainsFunc(conns, func(o *connection.Conn) bool { return o != cn && o.Config.Name == cn.Config.Name }) {
+			out[i] += " (" + strings.TrimPrefix(cn.Config.ID, t.Project.Prefix) + ")"
+		}
+	}
+	return out
 }
 
 // panelTools are a panel's settings in edit mode: its view, its width,
@@ -617,8 +782,11 @@ func (t *Tab) panelTools(c *ui.Context, i int) {
 	if button("→", "Later", i == len(t.d.Panels)-1) {
 		t.later = append(t.later, func() { t.swap(s, 1) })
 	}
-	if button("SQL", "Change the panel's query", false) {
-		s.editSQL, s.sql = !s.editSQL, p.SQL
+	if button("SQL", "Change the panel's query, and where it runs", false) {
+		s.editSQL, s.sql, s.connID, s.database, s.picked = !s.editSQL, p.SQL, "", p.Database, nil
+		if cn := t.conn(*p); cn != nil {
+			s.connID = cn.Config.ID
+		}
 	}
 	if cn := t.conn(*p); cn != nil && button("Editor", "Open the panel's query in an editor", false) {
 		t.h.NewQueryTab(cn, p.Database, p.SQL)

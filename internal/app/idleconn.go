@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"dgopher/internal/connection"
-	"dgopher/internal/ui/dashboard"
 	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/widgets"
 
@@ -65,13 +64,11 @@ func (a *App) connectionHeld(cn *connection.Conn) bool {
 		return true
 	}
 	for _, t := range a.everyTab() {
-		if d, ok := t.(*dashboard.Tab); ok && d.RunsOn(cn) {
-			return true
-		}
-		if t.Connection() != cn {
-			continue
-		}
-		if q, ok := t.(*query.Tab); !ok || q.HoldsConnection() {
+		if h, ok := t.(widgets.ConnectionHolder); ok {
+			if h.HoldsConnection(cn) {
+				return true
+			}
+		} else if t.Connection() == cn {
 			return true
 		}
 	}
@@ -79,8 +76,8 @@ func (a *App) connectionHeld(cn *connection.Conn) bool {
 }
 
 // disconnectIdle disconnects a connection unused for idle. Its editors
-// stay, and connect it again at their next run, not as they show; its
-// tree in the sidebar closes, which would connect it as it draws.
+// stay, and connect it again at their next run, or as one comes into
+// view with auto-connect.
 func (a *App) disconnectIdle(cn *connection.Conn, idle time.Duration) {
 	for _, t := range a.everyTab() {
 		if q, ok := t.(*query.Tab); ok && q.Conn == cn {
@@ -89,8 +86,6 @@ func (a *App) disconnectIdle(cn *connection.Conn, idle time.Duration) {
 	}
 	span := idleSpan(idle)
 	a.dropConnection(cn, "idle for "+span)
-	cn.ClosedIdle = true
-	a.nav.tree.Open.Remove(navNode{kind: nodeConn, conn: cn.Config.ID})
 	a.toast = &pendingToast{text: "Disconnected " + cn.Config.Name + " after " + span + " idle"}
 }
 
