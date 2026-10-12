@@ -12,6 +12,7 @@ import (
 	"dgopher/internal/keymap"
 	"dgopher/internal/project"
 	"dgopher/internal/sqltext"
+	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -81,38 +82,45 @@ func (q *Tab) completionView(c *ui.Context, a Host) {
 	}
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
-	x, y := e.CaretXY(a.Settings().EditorFont)
+	fontSize := a.Settings().EditorFont
+	x, y := e.CaretXY(fontSize)
 	x -= e.Scroll.X
 	y -= e.Scroll.Y
-	ui.Box(c).Absolute().Left(max(0, x-8)).Top(y+4).Width(380).MaxHeight(260).
-		Radius(8).Background(t.Background).Border(1, t.Border).Shadow(0, 6, 20, 0, ui.RGBA(0, 0, 0, 0.18)).Clip().
-		Children(func() {
-			ac.row = ac.index
-			ac.list.Selected = &ac.row
-			ui.List(c, &ac.list, len(ac.items), func(i int) {
-				it := ac.items[i]
-				row := ui.Row(c).Padding(3, 10).Gap(8)
-				if i == ac.index {
-					row.Background(t.Accent)
-				}
-				row.Children(func() {
-					col := pal.Muted
+	// The popup shows over the window, below the caret's line or above it
+	// where the window ends: inside the editor, the editor would cut it.
+	lh := fontSize * editor.LineHeight
+	line := ui.Box(c).Absolute().Left(max(0, x-8)).Top(y-lh).Size(1, lh).PassThrough()
+	ui.Overlay(c, func() {
+		ui.Box(c).AttachTo(line, ui.AnchorBottomLeft, ui.AnchorTopLeft).Margin(4, 0).Width(380).MaxHeight(260).
+			Radius(8).Background(t.Background).Border(1, t.Border).Shadow(0, 6, 20, 0, ui.RGBA(0, 0, 0, 0.18)).Clip().
+			Children(func() {
+				ac.row = ac.index
+				ac.list.Selected = &ac.row
+				ui.List(c, &ac.list, len(ac.items), func(i int) {
+					it := ac.items[i]
+					row := ui.Row(c).Padding(3, 10).Gap(8)
 					if i == ac.index {
-						col = t.AccentText
+						row.Background(t.Accent)
 					}
-					ui.Text(c, kindGlyph(it.kind)).FontSize(11).TextColor(col).Width(14)
-					lbl := ui.Text(c, it.label).Font(widgets.MonoFont).FontSize(12.5).SingleLine().Grow(1).Shrink(1)
-					if i == ac.index {
-						lbl.TextColor(t.AccentText)
+					row.Children(func() {
+						col := pal.Muted
+						if i == ac.index {
+							col = t.AccentText
+						}
+						ui.Text(c, kindGlyph(it.kind)).FontSize(11).TextColor(col).Width(14)
+						lbl := ui.Text(c, it.label).Font(widgets.MonoFont).FontSize(12.5).SingleLine().Grow(1).Shrink(1)
+						if i == ac.index {
+							lbl.TextColor(t.AccentText)
+						}
+						ui.Text(c, it.detail).FontSize(11).TextColor(col).SingleLine().Shrink(1)
+					})
+					if row.Clicked() {
+						ac.index = i
+						q.accept()
 					}
-					ui.Text(c, it.detail).FontSize(11).TextColor(col).SingleLine().Shrink(1)
-				})
-				if row.Clicked() {
-					ac.index = i
-					q.accept()
-				}
-			}).MaxHeight(260)
-		})
+				}).MaxHeight(260)
+			})
+	})
 }
 
 // completionKey takes the keys of the popup while it shows, before the

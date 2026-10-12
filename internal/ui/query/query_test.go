@@ -351,6 +351,39 @@ func TestPasteDoesNotComplete(t *testing.T) {
 	}
 }
 
+// The completion popup shows over the window rather than inside the
+// editor: past the editor's bottom, over the results, it takes a click.
+func TestCompletionPopupPastEditor(t *testing.T) {
+	_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "SELECT 1")
+	q.editorH = 80
+	tt.Frame()
+	tt.Type(" C")
+	tt.Frame()
+	if !q.ac.open || len(q.ac.items) < 5 {
+		t.Fatalf("completions: open %v, %d items", q.ac.open, len(q.ac.items))
+	}
+	caret, _ := tt.TextCaret()
+	editorBottom := float32(caret.Y) - 8 + q.editorH
+	label := ""
+	for _, it := range q.ac.items {
+		if r, ok := tt.Find(it.label); ok && float32(r.Y) > editorBottom {
+			label = it.label
+			break
+		}
+	}
+	if label == "" {
+		t.Fatalf("no suggestion past the editor's bottom at %v", editorBottom)
+	}
+	testutil.Snapshot(t, tt, "completion-past-editor")
+	if err := tt.Click(label); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !strings.Contains(q.Editor.Text, label) {
+		t.Fatalf("a click on %q past the editor's bottom: text %q, popup open %v", label, q.Editor.Text, q.ac.open)
+	}
+}
+
 // Find glides to a match out of sight rather than jumping there, and
 // tells whether the next match shows by where the glide ends.
 func TestFindScrollsSmoothly(t *testing.T) {
