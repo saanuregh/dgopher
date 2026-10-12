@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Catalog reads are kept, the newest first, at most catalogLogSize.
@@ -30,5 +31,17 @@ func TestCatalogLog(t *testing.T) {
 	}
 	if n := len(d.CatalogQueries()); n != catalogLogSize {
 		t.Fatalf("kept %d", n)
+	}
+}
+
+// Queries in a row can read the same time, as on Windows, whose clock
+// moves in steps: the later one is still listed first.
+func TestCatalogLogSameTime(t *testing.T) {
+	d := newSQLiteDB(t)
+	at := time.Now()
+	d.catalog.add(CatalogQuery{At: at, SQL: "first"})
+	d.catalog.add(CatalogQuery{At: at, SQL: "second"})
+	if got := d.CatalogQueries(); len(got) != 2 || got[0].SQL != "second" || got[1].SQL != "first" {
+		t.Fatalf("%+v", got)
 	}
 }

@@ -73,6 +73,10 @@ func (d *DB) CatalogQueries() []CatalogQuery {
 		out = append(out, o.catalog.entries...)
 		o.catalog.mu.Unlock()
 	}
-	slices.SortFunc(out, func(a, b CatalogQuery) int { return b.At.Compare(a.At) })
+	// Queries in a row can read the same time, as on Windows, whose clock
+	// moves in steps: reversed and sorted stably, each log's ties stay the
+	// newest first.
+	slices.Reverse(out)
+	slices.SortStableFunc(out, func(a, b CatalogQuery) int { return b.At.Compare(a.At) })
 	return out
 }
