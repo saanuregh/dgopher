@@ -308,3 +308,30 @@ func TestConnFormIDAndHostLeaveNoSecret(t *testing.T) {
 		t.Errorf("the password for the new server: %q, %v", pw, err)
 	}
 }
+
+// The ID field remakes the ID from the name, kept apart from the project's
+// other connections' but not from the connection's own.
+func TestConnFormIDFromName(t *testing.T) {
+	a := newTestApp(t)
+	cn := addConn(a, db.Config{ID: "pg", Name: "Billing Prod", Engine: db.SQLite, Database: writeSQL(t, "b.sqlite", "")})
+	addConn(a, db.Config{ID: "billing-prod", Name: "Billing", Engine: db.SQLite, Database: writeSQL(t, "c.sqlite", "")})
+	a.openConnForm(cn)
+	tt := ui.NewTester(a.view, 1000, 900)
+	tt.Frame()
+	if err := tt.Click("ID from the name"); err != nil {
+		t.Fatalf("%v: %q", err, tt.Texts())
+	}
+	tt.Frame()
+	if a.connForm.id != "billing-prod-2" {
+		t.Fatalf("id %q", a.connForm.id)
+	}
+	a.connForm.cfg.Name = "pg"
+	tt.Frame()
+	if err := tt.Click("ID from the name"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if a.connForm.id != "pg" {
+		t.Fatalf("its own ID taken as another's: %q", a.connForm.id)
+	}
+}

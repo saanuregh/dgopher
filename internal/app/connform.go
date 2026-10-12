@@ -433,7 +433,15 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 	})
 	if f.editing != nil {
 		ui.Field(c, "ID", func() {
-			ui.TextInput(c, &f.id).Font(widgets.MonoFont).Label("ID")
+			ui.Row(c).Gap(6).Children(func() {
+				ui.TextInput(c, &f.id).Font(widgets.MonoFont).Label("ID").Grow(1)
+				fromName := a.idFromName(f.editing.Project, f.cfg.Name, f.editing)
+				b := widgets.IconButton(c, widgets.IconRefresh, "ID from the name").Disabled(fromName == strings.TrimSpace(f.id))
+				b.Tooltip("Make the ID from the name: " + fromName)
+				if b.Clicked() {
+					f.id = fromName
+				}
+			})
 		}).Description("Query files name the connection by it, in their first lines: -- connection: " + f.id)
 	}
 	if engine.IsFile() {

@@ -152,7 +152,9 @@
     dashboards and data models that name it, open editors (their unsaved
     text kept), and its saved password and trust, which move with it. The
     query history and audit log keep the old ID; teammates who pull are
-    asked again whether to trust it, and for its password.
+    asked again whether to trust it, and for its password. The button
+    beside the ID makes it again from the name, numbered when another
+    connection of the project has it.
   - SQLite and DuckDB files inside the project are stored by relative path,
     so they open in every clone.
 
