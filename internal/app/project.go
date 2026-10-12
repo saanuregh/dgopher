@@ -207,12 +207,21 @@ func (a *App) saveProject(p *project.Project) {
 
 // uniqueConnID returns an ID for a new connection of a project.
 func (a *App) uniqueConnID(p *project.Project, name string) string {
-	base := p.Prefix + project.Slug(name)
+	return p.Prefix + a.idFromName(p, name, nil)
+}
+
+// idFromName is the ID a name gives a connection of a project, as the
+// project's file keeps it: numbered when another connection than self
+// has it.
+func (a *App) idFromName(p *project.Project, name string, self *connection.Conn) string {
+	base := project.Slug(name)
 	id := base
-	for n := 2; a.connByID(id) != nil; n++ {
+	for n := 2; ; n++ {
+		if other := a.connByID(p.Prefix + id); other == nil || other == self {
+			return id
+		}
 		id = fmt.Sprintf("%s-%d", base, n)
 	}
-	return id
 }
 
 // addConn adds a connection the user made to a project. The user chose
