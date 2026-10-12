@@ -1,6 +1,7 @@
 package query
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/safety"
 	"dgopher/internal/testutil"
+	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -325,6 +327,56 @@ func TestOpeningDoesNotComplete(t *testing.T) {
 	tt.Frame()
 	if !q.ac.open {
 		t.Fatal("typing offers no completion")
+	}
+}
+
+// A paste does not offer completions, however short; typing after it
+// does.
+func TestPasteDoesNotComplete(t *testing.T) {
+	_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "SELECT 1 AS v")
+	tt.Frame()
+	tt.SetClipboard(" FR")
+	tt.Key(ui.Cmd, ui.KeyV)
+	tt.Frame()
+	if q.Editor.Text != "SELECT 1 AS v FR" {
+		t.Fatalf("after the paste: %q", q.Editor.Text)
+	}
+	if q.ac.open {
+		t.Fatalf("a paste offers completions: %d items", len(q.ac.items))
+	}
+	tt.Type("O")
+	tt.Frame()
+	if !q.ac.open {
+		t.Fatal("typing after a paste offers no completion")
+	}
+}
+
+// Find glides to a match out of sight rather than jumping there, and
+// tells whether the next match shows by where the glide ends.
+func TestFindScrollsSmoothly(t *testing.T) {
+	var b strings.Builder
+	for i := range 400 {
+		fmt.Fprintf(&b, "select %d;\n", i)
+	}
+	_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, b.String())
+	tt.Frame()
+	e := &q.Editor
+	fontSize := q.a.Settings().EditorFont
+	lh := fontSize * editor.LineHeight
+	lineAt := func(n int) int { return strings.Index(e.Text, fmt.Sprintf("select %d;", n)) }
+	target := func(n int) float32 { return max(0, float32(n)*lh-q.editorH/3) }
+
+	q.reveal(lineAt(300), fontSize, true)
+	if !e.Scroll.Scrolling() || e.Scroll.Y != 0 {
+		t.Fatalf("revealing line 300: scrolling %v at %v, want a glide from 0", e.Scroll.Scrolling(), e.Scroll.Y)
+	}
+	// The last line in sight now, but not where the glide ends: it heads
+	// there instead.
+	shown := int((q.editorH-3*lh)/lh) - 1
+	q.reveal(lineAt(shown), fontSize, true)
+	testutil.WaitFor(t, tt, "the glide", func() bool { return !e.Scroll.Scrolling() })
+	if want := target(shown); e.Scroll.Y < want-1 || e.Scroll.Y > want+1 {
+		t.Fatalf("the glide ended at %v, want %v, to show line %d", e.Scroll.Y, want, shown)
 	}
 }
 

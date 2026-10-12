@@ -65,7 +65,7 @@ func occurrences(text string, id identifier, d sqltext.Dialect) [][2]int {
 func (q *Tab) GoTo(at int) {
 	q.Editor.PendingSel = &[2]int{at, at}
 	q.Editor.WantFocus = true
-	q.reveal(at, q.a.Settings().EditorFont)
+	q.reveal(at, q.a.Settings().EditorFont, false)
 }
 
 // goToDefinition opens what the name at the caret names: a table's or a

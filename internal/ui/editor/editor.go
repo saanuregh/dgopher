@@ -48,6 +48,9 @@ type Editor struct {
 	// KeyHook takes keys before the text area does, as a completion
 	// popup's arrows and Enter; it reports whether it took the key.
 	KeyHook func(ui.Modifiers, ui.Key) bool
+	// Pasted is set as the user pastes text, for the owner to tell the
+	// change from typing; the owner clears it.
+	Pasted bool
 	// Marks color runs over the highlighting, as the matches of a find.
 	Marks []ui.TextRange
 	// CurrentLines are the first and last lines, 0-based, of the
@@ -334,6 +337,10 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 			area = ui.TextAreaBase(c, bound).Font(widgets.MonoFont).FontSize(fontSize).FixedLineHeight(lh).
 				NoWrap().Padding(8, 12).Grow(1).MinWidth(float32(e.longest+2)*e.charW + 24).Label("SQL editor")
 			area.TextRanges(e.foldRanges(overlay(e.highlight(pal), e.Marks), pal.Muted)...)
+			area.OnPaste(func(text string) bool {
+				e.Pasted = e.Pasted || text != ""
+				return false
+			})
 			area.HandleInput(func(ev ui.InputEvent) bool {
 				if ev.Kind != ui.InputKeyDown {
 					return false
