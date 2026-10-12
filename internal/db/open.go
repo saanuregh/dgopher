@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"dgopher/internal/netproxy"
@@ -77,6 +78,10 @@ type DB struct {
 	databases map[string]*DB // other databases of a PostgreSQL server
 
 	catalog catalogLog
+
+	// used is when the pool, or one of its other databases', last sent
+	// something to the server, since clockStart (LastUsed).
+	used *atomic.Int64
 }
 
 // route is a local port leading to the server: an SSH tunnel's or a
@@ -240,7 +245,8 @@ func openWith(ctx context.Context, cfg Config, ep endpoint, r route) (*DB, error
 		sqldb.Close()
 		return nil, redact(err, cfg)
 	}
-	d := &DB{Config: cfg, Dialect: DialectOf(cfg.Engine), SQL: sqldb, route: r, single: single, mysqlConnector: mysqlConnector}
+	d := &DB{Config: cfg, Dialect: DialectOf(cfg.Engine), SQL: sqldb, route: r, single: single, mysqlConnector: mysqlConnector, used: new(atomic.Int64)}
+	d.touch()
 	switch {
 	case cfg.Engine == Postgres, cfg.Engine == MySQL && cfg.TLS == TLSPrefer:
 		d.tlsState = negotiatedTLS(pingCtx, sqldb, cfg.Engine)
@@ -513,6 +519,7 @@ func (o onlyHost) RoundTrip(r *http.Request) (*http.Response, error) {
 // server, which needs a connection of its own; for other engines, where
 // databases are schemas of one connection, it returns d.
 func (d *DB) Database(ctx context.Context, name string) (*DB, error) {
+	d.touch()
 	if d.Config.Engine != Postgres || name == "" || name == d.Config.Database {
 		return d, nil
 	}
@@ -530,6 +537,7 @@ func (d *DB) Database(ctx context.Context, name string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	other.used = d.used
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if existing, ok := d.databases[name]; ok {
@@ -557,6 +565,27 @@ func (d *DB) Close() error {
 		d.route.Close()
 	}
 	return err
+}
+
+// clockStart is what the pools' uses are kept from: a time read since it,
+// kept as a duration, compares on the monotonic clock, which a change of
+// the wall clock does not move.
+var clockStart = time.Now()
+
+// touch records a use of the pool, now.
+func (d *DB) touch() {
+	if d.used != nil {
+		d.used.Store(int64(time.Since(clockStart)))
+	}
+}
+
+// LastUsed is when the pool, or one of its other databases', last opened
+// a session, ran a statement, read rows or read the catalog; or opened.
+func (d *DB) LastUsed() time.Time {
+	if d.used == nil {
+		return time.Time{}
+	}
+	return clockStart.Add(time.Duration(d.used.Load()))
 }
 
 // Single reports whether the pool is one connection every session shares,

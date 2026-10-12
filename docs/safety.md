@@ -144,6 +144,17 @@ and the run fails naming the line that began it.
 - A transaction left idle rolls back, after a warning you can cancel:
   after 10 minutes on production, 15 on staging and 30 on development, or
   as the connection says.
+- A connection left unused disconnects: after 1 hour on production, 2 on
+  staging and 4 on development, or as the connection says; DuckDB and
+  SQLite stay connected. Never while it holds something: an open
+  transaction, uncommitted rows, grid changes not applied, a statement,
+  export, job or dashboard panel running, a table, diagram, Redis,
+  activity, users or search tab, or a copy or row comparison dialog. Its
+  editors stay, with the rows they show; a shown editor does not connect
+  it again, even with auto-connect, and its tree in the sidebar closes.
+  The next run connects it, and is refused once, as after a lost
+  connection: the new session has none of the old one's `USE`,
+  `search_path`, role, variables or temporary tables.
 - The status bar lists every open transaction and how long it has been
   open.
 - Deleting rows from the grid names the tables whose foreign keys point at

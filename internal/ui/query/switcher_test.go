@@ -1,8 +1,10 @@
 package query
 
 import (
+	"strings"
 	"testing"
 
+	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/testutil"
 )
@@ -32,6 +34,19 @@ func TestSchemaSwitcher(t *testing.T) {
 	tt.Frame()
 	q.Run(RunStatement)
 	testutil.WaitFor(t, tt, "USE typed", func() bool { return !q.Running && q.schema == "main" })
+}
+
+// A switch chosen after the connection closed, as from a palette left
+// open while it went unused, says so.
+func TestSchemaSwitchClosedConnection(t *testing.T) {
+	a, tt, cn, q := openEditor(t, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"}, 1000, 700, "SELECT 1;")
+	testutil.WaitFor(t, tt, "the connection", func() bool { return cn.DB != nil })
+	cn.DB.Close()
+	cn.DB, cn.Status = nil, connection.StatusIdle
+	q.switchSchema("sales")
+	if len(a.Errors) == 0 || !strings.Contains(a.Errors[len(a.Errors)-1], "not connected") {
+		t.Fatalf("errors %q", a.Errors)
+	}
 }
 
 // A PostgreSQL editor moves to another database of its server on a

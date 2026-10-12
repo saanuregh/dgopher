@@ -538,6 +538,7 @@ func (a *App) Connect(cn *connection.Conn, then func()) {
 	if then != nil {
 		cn.Waiters = append(cn.Waiters, then)
 	}
+	cn.ClosedIdle = false
 	cfg := cn.Config
 	if ask, details := a.trustCheck(cn); ask {
 		// A file from a repository chose this destination: the user says
@@ -688,6 +689,7 @@ func (a *App) open(cn *connection.Conn, cfg db.Config) {
 			}
 			cn.Reset()
 			cn.Status, cn.DB, cn.KV, cn.Version = connection.StatusConnected, sqldb, kv, version
+			cn.HeldAt = time.Now()
 			waiters := cn.Waiters
 			cn.Waiters = nil
 			if cn.DB != nil {
@@ -726,11 +728,18 @@ func (a *App) disconnect(cn *connection.Conn) {
 			t.Close()
 		}
 	}
+	a.dropConnection(cn, "")
+}
+
+// dropConnection closes a connection whose tabs let it go: its jobs stop,
+// its pools close, and what is known of its schema goes. detail, in the
+// audit log, says why when it is not asked.
+func (a *App) dropConnection(cn *connection.Conn, detail string) {
 	jobs := a.jobsOf(cn)
 	cn.Generation++
 	sqldb, kv := cn.DB, cn.KV
 	if sqldb != nil || kv != nil {
-		a.Record(&cn.Config, audit.Event{Kind: audit.KindDisconnect})
+		a.Record(&cn.Config, audit.Event{Kind: audit.KindDisconnect, Detail: detail})
 	}
 	cn.DB, cn.KV, cn.Status, cn.Err = nil, nil, connection.StatusIdle, ""
 	cn.Reset()

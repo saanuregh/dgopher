@@ -158,3 +158,12 @@ func TestEngineSavepoints(t *testing.T) {
 		d.Close()
 	}
 }
+
+func TestValidateIdleConnectionTimeout(t *testing.T) {
+	for timeout, bad := range map[int]bool{-2: true, -1: false, 0: false, 3600: false} {
+		c := Config{Name: "x", Engine: Postgres, Host: "h", IdleConnectionTimeout: timeout}
+		if err := c.Validate(); (err != nil) != bad {
+			t.Errorf("%d: %v", timeout, err)
+		}
+	}
+}

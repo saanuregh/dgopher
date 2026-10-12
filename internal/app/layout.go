@@ -76,6 +76,7 @@ func (a *App) view(c *ui.Context) {
 	}
 	a.titleWindow()
 	a.checkIdleTransactions(c)
+	a.checkIdleConnections(c)
 	// The dialogs and toasts show in the window the user uses.
 	if a.window == a.focusedWindow() {
 		a.overlays(c)

@@ -412,7 +412,9 @@ func (v *Viewer) FetchAll() {
 	}, nil)
 }
 
-func (v *Viewer) dialect() db.Dialect { return v.source.Conn.DB.Dialect }
+// dialect is the engine's, which the pool's is: read so, it holds while
+// the connection is closed, as under an editor left unused.
+func (v *Viewer) dialect() db.Dialect { return db.DialectOf(v.source.Conn.Config.Engine) }
 
 func (v *Viewer) qualified() string {
 	return db.QualifiedName(v.dialect(), v.source.Table.Schema, v.source.Table.Name)

@@ -222,6 +222,9 @@ type Config struct {
 	// IdleTxTimeout rolls back a transaction left idle for so many
 	// seconds; 0 takes the environment's default, -1 never.
 	IdleTxTimeout int `json:"idleTxTimeout,omitempty"`
+	// IdleConnectionTimeout disconnects the connection after so many
+	// seconds without use; 0 takes the environment's default, -1 never.
+	IdleConnectionTimeout int `json:"idleConnectionTimeout,omitempty"`
 	// AutoConnect opens the connection as the app starts, and lets an
 	// editor shown while it is closed open it; off, it opens when asked.
 	AutoConnect bool `json:"autoConnect,omitempty"`
@@ -475,6 +478,9 @@ func (c *Config) Validate() error {
 	}
 	if c.IdleTxTimeout < -1 {
 		errs = append(errs, "the idle transaction timeout must be -1 (never), 0 (default) or more")
+	}
+	if c.IdleConnectionTimeout < -1 {
+		errs = append(errs, "the idle connection timeout must be -1 (never), 0 (default) or more")
 	}
 	if sources > 1 {
 		errs = append(errs, "choose one way to get the password: ask, an environment variable, a command or a cloud identity")
