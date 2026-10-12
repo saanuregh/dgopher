@@ -450,8 +450,20 @@ func TestCountRefusedWhileCursorOpen(t *testing.T) {
 	if r.view.Done() {
 		t.Fatal("the rows were all read at once")
 	}
-	if _, ok := tt.Find("Count"); ok || !strings.Contains(q.cursorOpen(), "Fetch All") {
-		t.Fatalf("Count offered while the cursor is open: %q", q.cursorOpen())
+	if !strings.Contains(q.cursorOpen(), "Fetch All") {
+		t.Fatalf("no reason to wait while the cursor is open: %q", q.cursorOpen())
+	}
+	// The footer shows Count unavailable, with the reason; it counts nothing.
+	at, ok := tt.Find("Count")
+	if !ok {
+		t.Fatal("no Count in the footer")
+	}
+	tt.Move(at.X+at.W/2, at.Y+at.H/2)
+	testutil.WaitFor(t, tt, "the reason", func() bool { return tt.HasText("Count waits: " + q.cursorOpen()) })
+	tt.Click("Count")
+	tt.Frame()
+	if q.Busy() || r.view.Done() || tt.HasText("of 5000") {
+		t.Fatal("Count ran while the cursor is open")
 	}
 	if err := tt.Click("Fetch All"); err != nil {
 		t.Fatal(err)
