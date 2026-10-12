@@ -275,7 +275,8 @@ func (a *App) ScanQueries(p *project.Project, now bool) {
 
 // openQueryFile opens a .sql file of a project in an editor of the
 // connection its header names, or of the active one of the project; then,
-// when set, goes on with the editor.
+// when set, goes on with the editor. It opens unconnected, as a restored
+// editor does: running connects it, asking then for a password.
 func (a *App) openQueryFile(p *project.Project, rel string, then func(*query.Tab)) {
 	path := filepath.Join(p.Queries, filepath.FromSlash(rel))
 	if t, ok := a.findTab(func(t widgets.Tab) bool { q, ok := t.(*query.Tab); return ok && q.Path == path }); ok {
@@ -302,7 +303,7 @@ func (a *App) openQueryFile(p *project.Project, rel string, then func(*query.Tab
 	}
 	id := project.HeaderConnection(text)
 	if named := a.connByID(p.Prefix + id); id != "" && named != nil && named.Config.Engine.IsSQL() {
-		a.Connect(named, func() { open(named) })
+		open(named)
 		return
 	}
 	if cn != nil && !cn.Config.Engine.IsSQL() {
@@ -328,7 +329,7 @@ func (a *App) openQueryFile(p *project.Project, rel string, then func(*query.Tab
 		a.ShowError("Which connection?", "Add a line such as\n\n-- connection: "+a.firstProjectSlug(p)+"\n\nat the top of "+rel+", or choose a connection of "+p.Name+" in the sidebar first.")
 		return
 	}
-	a.Connect(cn, func() { open(cn) })
+	open(cn)
 }
 
 // OpenQueryFile opens a query file of a project at a rune offset.
