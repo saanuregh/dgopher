@@ -86,7 +86,8 @@ and the run fails naming the line that began it.
   before its first statement when none is open, and again after a
   statement that committed it implicitly, saying so.
 - Closing a tab, disconnecting, removing a project or quitting with an
-  open transaction asks: Commit, Roll Back or Cancel.
+  open transaction asks: Commit or Roll Back, each then doing what was
+  asked (as Commit and Quit), or Cancel.
 - Disconnecting, removing a project, deleting a connection or quitting
   while work runs on it (Run SQL File, an import, a copy, generated rows, a
   row comparison's apply, a backup or restore, an export, a schema change

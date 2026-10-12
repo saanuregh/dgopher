@@ -313,7 +313,7 @@ func (h *FakeHost) AskConfirm(cn *connection.Conn, v safety.Verdict, title, acti
 }
 
 // AskDiscard is the Redis tab's, whose tests use this host too.
-func (h *FakeHost) AskDiscard(title, reason string, onDiscard func()) { h.Discard = onDiscard }
+func (h *FakeHost) AskDiscard(title, reason, action string, onDiscard func()) { h.Discard = onDiscard }
 
 func (h *FakeHost) AskPending(n int, apply, discard, cancel func()) {
 	h.Pending = &PendingRequest{N: n, Apply: apply, Discard: discard, Cancel: cancel}

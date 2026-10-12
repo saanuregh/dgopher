@@ -1,8 +1,10 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
+	"dgopher/internal/keymap"
 	"dgopher/internal/testutil"
 
 	"github.com/egoist/mygo/ui"
@@ -27,6 +29,10 @@ func TestTour(t *testing.T) {
 		t.Fatalf("the sidebar's stop: %q, parts %+v", tt.Texts(), a.tourParts)
 	}
 	testutil.Snapshot(t, tt, "tour-sidebar")
+	// Keys show as they are set on this system, never as macOS's alone.
+	if open := keymap.Hint("Open Table", keymap.OpenTable); !strings.Contains(tourStops()[1].text, open) {
+		t.Fatalf("the sidebar's stop names Open Table's key otherwise than %q: %q", open, tourStops()[1].text)
+	}
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
 	if a.touring || !a.settings.TourDone || tt.HasText("Take the Tour") {

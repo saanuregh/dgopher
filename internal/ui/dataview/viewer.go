@@ -1284,7 +1284,7 @@ func (v *Viewer) View(c *ui.Context) {
 		switch {
 		case !v.source.Reads:
 		case v.source.CountOnSession && v.source.CursorOpen() != "":
-			ui.Icon(c, widgets.IconAlert).TextColor(pal.Muted).FontSize(12).Tooltip("Count: " + v.source.CursorOpen())
+			ui.Text(c, "Count").FontSize(12).TextColor(pal.Muted).Tooltip("Count waits: " + v.source.CursorOpen())
 		case v.count >= 0:
 			ui.Text(c, fmt.Sprintf("of %d", v.count)).FontSize(12).TextColor(pal.Muted)
 		case v.counting:

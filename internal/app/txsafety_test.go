@@ -59,7 +59,7 @@ func TestCloseAsksCommitOrRollback(t *testing.T) {
 		}
 		tt.Frame()
 		texts := strings.Join(tt.Texts(), "|")
-		if !strings.HasSuffix(texts, "Cancel|Roll Back|Commit") {
+		if !strings.HasSuffix(texts, "Cancel|Roll Back and Close|Commit and Close") {
 			t.Fatalf("the dialog's buttons: %s", texts)
 		}
 		// As the dialog's buttons do (the editor's bar has a Commit too).
@@ -87,6 +87,9 @@ func TestQuitAsksAboutOpenTransactions(t *testing.T) {
 	}
 	tt.Frame()
 	testutil.Snapshot(t, tt, "quit-open-transaction")
+	if texts := strings.Join(tt.Texts(), "|"); !strings.HasSuffix(texts, "Cancel|Roll Back and Quit|Commit and Quit") {
+		t.Fatalf("the dialog's buttons: %s", texts)
+	}
 	r := a.closing
 	r.open = false
 	a.commitThen(r.txs, r.onClose)
@@ -96,6 +99,26 @@ func TestQuitAsksAboutOpenTransactions(t *testing.T) {
 	}
 	if rowsIn(t, file) != "1" {
 		t.Fatal("not committed")
+	}
+}
+
+// A question that ends something names what ends on its button, never a
+// bare "Close".
+func TestAskDiscardNamesItsAction(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1000, 700)
+	deleted := false
+	a.AskDiscard("Delete session:1?", "The key and its value are removed.", "Delete", func() { deleted = true })
+	tt.Frame()
+	if texts := strings.Join(tt.Texts(), "|"); !strings.HasSuffix(texts, "Cancel|Delete") {
+		t.Fatalf("the dialog's buttons: %s", texts)
+	}
+	if err := tt.Click("Delete"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !deleted {
+		t.Fatal("Delete did not delete")
 	}
 }
 

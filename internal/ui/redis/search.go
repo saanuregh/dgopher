@@ -125,7 +125,7 @@ func (r *Tab) searchActions(c *ui.Context) {
 		r.panel, r.consoleIn, r.caretToEnd = panelConsole, newIndexTemplate, true
 	}
 	if index := s.chosen(); index != "" && ui.Link(c, "Drop Index", "").FontSize(12).Clicked() {
-		r.a.AskDiscard("Drop the index "+index+"?", "The index goes; the keys it indexes stay.", func() {
+		r.a.AskDiscard("Drop the index "+index+"?", "The index goes; the keys it indexes stay.", "Drop Index", func() {
 			r.write([]string{"FT.DROPINDEX", index}, r.loadIndexes)
 		})
 	}

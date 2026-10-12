@@ -141,7 +141,7 @@ func (r *Tab) groupsView(c *ui.Context) {
 				}
 				ui.Spacer(c)
 				if g := s.chosenGroup(); g != "" && ui.Button(c, "Destroy Group").Clicked() {
-					r.a.AskDiscard("Destroy the group "+g+"?", "Its consumers and the entries pending with them go; the stream's entries stay.", func() {
+					r.a.AskDiscard("Destroy the group "+g+"?", "Its consumers and the entries pending with them go; the stream's entries stay.", "Destroy Group", func() {
 						r.groupWrite("XGROUP", "DESTROY", key, g)
 					})
 				}
@@ -170,7 +170,7 @@ func (r *Tab) groupsView(c *ui.Context) {
 				}).Grow(1).Label("Consumers")
 				if !ro && s.consumer >= 0 && s.consumer < len(s.consumers) && ui.Button(c, "Delete Consumer").Clicked() {
 					name := s.consumers[s.consumer].Name
-					r.a.AskDiscard("Delete the consumer "+name+"?", "The entries pending with it are no longer pending with any.", func() {
+					r.a.AskDiscard("Delete the consumer "+name+"?", "The entries pending with it are no longer pending with any.", "Delete Consumer", func() {
 						r.groupWrite("XGROUP", "DELCONSUMER", key, group, name)
 					})
 				}

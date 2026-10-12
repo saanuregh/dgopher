@@ -45,8 +45,8 @@ func notifyWanted(took time.Duration, notifyAfter int, focused bool) bool {
 	return notifyAfter > 0 && !focused && took >= time.Duration(notifyAfter)*time.Second
 }
 
-func (a *App) AskDiscard(title, reason string, onDiscard func()) {
-	a.closing = &closeRequest{open: true, title: title, reason: reason, onClose: onDiscard}
+func (a *App) AskDiscard(title, reason, action string, onDiscard func()) {
+	a.closing = &closeRequest{open: true, title: title, reason: reason, action: action, onClose: onDiscard}
 }
 
 func (a *App) AskPending(n int, apply, discard, cancel func()) {

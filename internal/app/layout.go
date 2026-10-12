@@ -363,8 +363,8 @@ func (a *App) tabBar(c *ui.Context) {
 								ui.Text(c, sub).SingleLine().FontSize(10.5).TextColor(pal.Muted)
 							}
 						})
-						if tb.CloseReason() != "" {
-							ui.Box(c).Size(6, 6).Radius(3).Background(t.Warning).Tooltip("Unsaved changes or an open transaction")
+						if r := tb.CloseReason(); r != "" {
+							ui.Box(c).Size(6, 6).Radius(3).Background(t.Warning).Tooltip(r)
 						}
 						if pinned {
 							pin := ui.ButtonBase(c).Padding(3).Radius(4).Label("Unpin " + tb.Title()).Tooltip("Pinned: click to unpin")
@@ -797,8 +797,9 @@ func (a *App) statusBar(c *ui.Context) {
 // on several, problems first; a button lists the others.
 const maxChips = 3
 
-// connChips shows each connection of a tab running on several: its
-// environment, name, databases and state, which its menu acts on.
+// connChips shows each connection of a tab running on several: its state,
+// its environment when staging or production, its name and databases,
+// which its menu acts on.
 func (a *App) connChips(c *ui.Context, groups []connPlaces) {
 	pal := widgets.PaletteOf(c)
 	shown := groups[:min(maxChips, len(groups))]
@@ -809,11 +810,16 @@ func (a *App) connChips(c *ui.Context, groups []connPlaces) {
 		}
 		chip.Children(func() {
 			ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
-				connBadge(c, g.conn)
+				// Staging and production keep their word, which the safety
+				// model leans on; the default environment needs none.
+				widgets.ConnState(c, g.conn)
+				if env := g.conn.Config.Env; env == db.Staging || env == db.Production {
+					envBadge(c, g.conn)
+				}
+				connName(c, g.conn)
 				if w := g.where(); w != "" {
 					ui.Text(c, "· "+w).FontSize(12).TextColor(pal.Muted).SingleLine()
 				}
-				widgets.ConnState(c, g.conn)
 			})
 		})
 		chip.Menu(func(m *ui.Menu) { a.connMenu(m, g) })
@@ -847,7 +853,7 @@ func (a *App) connMenu(m *ui.Menu, g connPlaces) {
 	switch cn.Status {
 	case connection.StatusConnected:
 		if m.Item("Disconnect").Chosen() {
-			a.requestDisconnect("Disconnect "+cn.Config.Name+"?", []*connection.Conn{cn}, func() { a.disconnect(cn) })
+			a.askDisconnect(cn)
 		}
 	case connection.StatusFailed:
 		if m.Item("Retry").Chosen() {
@@ -862,9 +868,19 @@ func (a *App) connMenu(m *ui.Menu, g connPlaces) {
 
 // connBadge shows a connection's environment and name.
 func connBadge(c *ui.Context, cn *connection.Conn) {
+	envBadge(c, cn)
+	connName(c, cn)
+}
+
+// envBadge names a connection's environment in its color.
+func envBadge(c *ui.Context, cn *connection.Conn) {
 	ui.Row(c).Gap(5).Padding(1, 8).Radius(4).Background(widgets.EnvironmentColor(cn.Config.Env)).Children(func() {
 		ui.Text(c, cn.Config.Env.Label()).FontSize(11).Bold().TextColor(ui.RGB(255, 255, 255))
 	})
+}
+
+// connName is a connection's name as the status bar shows it.
+func connName(c *ui.Context, cn *connection.Conn) {
 	ui.Text(c, cn.Config.Name).FontSize(12).Bold()
 }
 

@@ -18,9 +18,9 @@ type Host interface {
 	// Layout is the windows' layout, which the app keeps as it changes.
 	Layout() *widgets.Layout
 	AskConfirm(cn *connection.Conn, v safety.Verdict, title, action, preview string, onConfirm func()) *widgets.ConfirmRequest
-	// AskDiscard asks whether to drop what reason says, then calls
-	// onDiscard.
-	AskDiscard(title, reason string, onDiscard func())
+	// AskDiscard asks whether to drop what reason says, on a button named
+	// action, then calls onDiscard.
+	AskDiscard(title, reason, action string, onDiscard func())
 	RecordBlocked(cn *connection.Conn, why, what string)
 	RecordRun(cfg db.Config, kind, database, stmt string, rows int64, d time.Duration, err error)
 	// KeysTo reports whether a tab takes the shortcuts pressed.

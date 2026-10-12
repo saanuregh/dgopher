@@ -97,7 +97,7 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 			}
 			cmds = append(cmds, paletteItem{title: "Refresh Schema", detail: active.Config.Name, group: "Command", icon: widgets.IconRefresh, run: func() { a.refresh(active) }},
 				paletteItem{title: "Disconnect", detail: active.Config.Name, group: "Command", icon: widgets.IconUnplug, run: func() {
-					a.requestDisconnect("Disconnect "+active.Config.Name+"?", []*connection.Conn{active}, func() { a.disconnect(active) })
+					a.askDisconnect(active)
 				}})
 		}
 	}

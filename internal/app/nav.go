@@ -632,7 +632,6 @@ func (a *App) expandDefaults(cn *connection.Conn) {
 }
 
 func (a *App) navRow(c *ui.Context, n navNode) {
-	pal := widgets.PaletteOf(c)
 	t := c.Theme()
 	if n.projectDir != "" {
 		a.projectRow(c, n)
@@ -642,42 +641,49 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 	if cn == nil {
 		return
 	}
+	// On the chosen row, which the accent fills, colors give way to the
+	// accent's text, so that no icon or note disappears into it.
+	chosen := a.navChosen(n)
+	muted := widgets.RowColor(c, widgets.PaletteOf(c).Muted, chosen)
 	row := ui.Row(c).Gap(6).Grow(1).PaddingY(1)
 	row.Children(func() {
 		switch n.kind {
 		case nodeConn:
-			ui.Box(c).Size(8, 8).Radius(4).Background(widgets.EnvColor(&cn.Config))
-			ui.Icon(c, widgets.IconDatabase).TextColor(widgets.EngineColor(cn.Config.Engine)).FontSize(14)
+			// The dot keeps its color on the chosen row: production's red
+			// is a warning, not decoration.
+			dot := widgets.ConnDot(c, cn)
+			if cn.Status == connection.StatusConnected {
+				tip := "Connected " + cn.Version
+				if s := tlsStateOf(cn.DB, cn.KV); s != "" {
+					tip += ", " + s
+				}
+				dot.Tooltip(tip)
+			}
+			ui.Icon(c, widgets.IconDatabase).TextColor(widgets.RowColor(c, widgets.EngineColor(cn.Config.Engine), chosen)).FontSize(14)
 			name := ui.Text(c, cn.Config.Name).SingleLine().Shrink(1)
 			if sn, ok := schemaOf(cn, n); ok {
-				ui.Text(c, sn.schema).FontSize(12).TextColor(pal.Muted).SingleLine().Grow(1).Shrink(1).Tooltip("Its schema")
+				ui.Text(c, sn.schema).FontSize(12).TextColor(muted).SingleLine().Grow(1).Shrink(1).Tooltip("Its schema")
 			} else {
 				name.Grow(1)
 			}
 			switch cn.Status {
 			case connection.StatusConnecting:
 				ui.Spinner(c).Size(12, 12)
-			case connection.StatusConnected:
-				tip := "Connected " + cn.Version
-				if s := tlsStateOf(cn.DB, cn.KV); s != "" {
-					tip += ", " + s
-				}
-				ui.Box(c).Size(6, 6).Radius(3).Background(t.Success).Tooltip(tip)
 			case connection.StatusFailed:
-				ui.Icon(c, widgets.IconAlert).TextColor(t.Danger).FontSize(12).Tooltip(cn.Err)
+				ui.Icon(c, widgets.IconAlert).TextColor(widgets.RowColor(c, t.Danger, chosen)).FontSize(12).Tooltip(cn.Err)
 			}
 			if cn.Config.ReadOnly {
-				ui.Icon(c, widgets.IconLock).TextColor(pal.Muted).FontSize(12).Tooltip("Read-only")
+				ui.Icon(c, widgets.IconLock).TextColor(muted).FontSize(12).Tooltip("Read-only")
 			}
 		case nodeDatabase:
 			name := cmp.Or(n.database, cn.Config.Database)
-			ui.Icon(c, widgets.IconDatabase).TextColor(pal.Muted).FontSize(13)
+			ui.Icon(c, widgets.IconDatabase).TextColor(muted).FontSize(13)
 			ui.Text(c, name).SingleLine().Shrink(1)
 			if sn, ok := schemaOf(cn, n); ok {
-				ui.Text(c, sn.schema).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1).Tooltip("Its schema")
+				ui.Text(c, sn.schema).FontSize(12).TextColor(muted).SingleLine().Shrink(1).Tooltip("Its schema")
 			}
 		case nodeSchema:
-			ui.Icon(c, widgets.IconSchema).TextColor(pal.Muted).FontSize(13)
+			ui.Icon(c, widgets.IconSchema).TextColor(muted).FontSize(13)
 			ui.Text(c, n.schema).SingleLine()
 		case nodeFolder:
 			key := connection.SchemaKey{Database: n.database, Schema: n.schema}
@@ -698,17 +704,17 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 				}
 			}
 			ui.Text(c, label).SingleLine()
-			ui.Text(c, fmt.Sprint(count)).FontSize(11).TextColor(pal.Muted)
+			ui.Text(c, fmt.Sprint(count)).FontSize(11).TextColor(muted)
 		case nodeObject:
 			_, obj, _ := a.object(n)
 			ic := widgets.IconTable
 			if obj.Kind == db.KindView || obj.Kind == db.KindMaterializedView {
 				ic = widgets.IconView
 			}
-			ui.Icon(c, ic).TextColor(pal.Muted).FontSize(13)
+			ui.Icon(c, ic).TextColor(muted).FontSize(13)
 			ui.Text(c, n.name).SingleLine().Grow(1).Shrink(1)
 			if obj.Rows >= 0 && obj.Kind == db.KindTable {
-				ui.Text(c, widgets.HumanCount(obj.Rows)).FontSize(11).TextColor(pal.Muted)
+				ui.Text(c, widgets.HumanCount(obj.Rows)).FontSize(11).TextColor(muted)
 			}
 		case nodeColumn:
 			table, col, _ := strings.Cut(n.name, "\x00")
@@ -719,28 +725,34 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 				}
 			}
 			if column.PrimaryKey {
-				ui.Icon(c, widgets.IconKey).TextColor(c.Theme().Warning).FontSize(12)
+				ui.Icon(c, widgets.IconKey).TextColor(widgets.RowColor(c, t.Warning, chosen)).FontSize(12)
 			} else {
-				ui.Icon(c, widgets.IconColumns).TextColor(pal.Muted).FontSize(12)
+				ui.Icon(c, widgets.IconColumns).TextColor(muted).FontSize(12)
 			}
 			ui.Text(c, col).SingleLine()
-			ui.Text(c, column.Type).FontSize(11).TextColor(pal.Muted).SingleLine().Shrink(1)
+			ui.Text(c, column.Type).FontSize(11).TextColor(muted).SingleLine().Shrink(1)
 		case nodeItem:
 			_, it, _ := a.item(n)
-			ui.Icon(c, itemIcon(it.Kind)).TextColor(pal.Muted).FontSize(12)
+			ui.Icon(c, itemIcon(it.Kind)).TextColor(muted).FontSize(12)
 			label := it.Label()
 			if it.Kind == db.ItemPartition {
 				label = it.Name
 			}
 			ui.Text(c, label).SingleLine().Grow(1).Shrink(1).Tooltip(label)
 			if it.Kind != db.ItemFunction && it.Kind != db.ItemProcedure && it.Detail != "" {
-				ui.Text(c, it.Detail).FontSize(11).TextColor(pal.Muted).SingleLine().Shrink(1)
+				ui.Text(c, it.Detail).FontSize(11).TextColor(muted).SingleLine().Shrink(1)
 			}
 		case nodeInfo:
-			ui.Text(c, n.name).FontSize(12).TextColor(pal.Muted).Italic().SingleLine()
+			ui.Text(c, n.name).FontSize(12).TextColor(muted).Italic().SingleLine()
 		}
 	})
 	row.ContextMenu(func(m *ui.Menu) { a.navMenu(m, n) })
+}
+
+// navChosen reports whether n is the navigator's chosen row.
+func (a *App) navChosen(n navNode) bool {
+	r := a.nav.row
+	return r >= 0 && r < a.nav.tree.Rows() && a.nav.tree.Item(r) == n
 }
 
 // navMenu is the context menu of a node.
@@ -757,7 +769,7 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 	case nodeConn:
 		if cn.Status == connection.StatusConnected {
 			if m.Item("Disconnect").Chosen() {
-				a.requestDisconnect("Disconnect "+cn.Config.Name+"?", []*connection.Conn{cn}, func() { a.disconnect(cn) })
+				a.askDisconnect(cn)
 			}
 			if keymap.Item(m.Item("Refresh"), keymap.NavigatorRefresh).Chosen() {
 				a.refresh(cn)
@@ -1102,21 +1114,22 @@ func (a *App) runInEditor(cn *connection.Conn, database, sql string) {
 
 // projectRow shows a project, its Queries folder, a query file, or a note.
 func (a *App) projectRow(c *ui.Context, n navNode) {
-	pal := widgets.PaletteOf(c)
 	p := a.projectByDir(n.projectDir)
 	if p == nil {
 		return
 	}
+	chosen := a.navChosen(n)
+	muted := widgets.RowColor(c, widgets.PaletteOf(c).Muted, chosen)
 	row := ui.Row(c).Gap(6).Grow(1).PaddingY(1)
 	row.Children(func() {
 		switch n.kind {
 		case nodeProject:
-			a.projectName(c, p)
+			a.projectName(c, p, chosen)
 		case nodeConnections, nodeQueries, nodeDashboards, nodeModels:
 			ic, label, count := a.section(p, n.kind)
-			ui.Icon(c, ic).TextColor(pal.Muted).FontSize(13)
+			ui.Icon(c, ic).TextColor(muted).FontSize(13)
 			ui.Text(c, label).SingleLine().Grow(1)
-			ui.Text(c, fmt.Sprint(count)).FontSize(11).TextColor(pal.Muted)
+			ui.Text(c, fmt.Sprint(count)).FontSize(11).TextColor(muted)
 			// Another made from the row, shown as the row is pointed at; a
 			// section that cannot have one keeps the room, for the counts
 			// to line up.
@@ -1133,10 +1146,10 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 				run()
 			}
 		case nodeQueryFile:
-			ui.Icon(c, widgets.IconFile).TextColor(pal.Muted).FontSize(12)
+			ui.Icon(c, widgets.IconFile).TextColor(muted).FontSize(12)
 			ui.Column(c).Shrink(1).Children(func() {
 				ui.Text(c, n.name).SingleLine().Tooltip(filepath.Join(p.Queries, filepath.FromSlash(n.name)))
-				a.fileConnectionLine(c, p, p.FileConnections[n.name].ID)
+				a.fileConnectionLine(c, p, p.FileConnections[n.name].ID, chosen)
 			})
 		case nodeDashboard, nodeModel:
 			ic, names, paths := widgets.IconLayers, []string(nil), []string(nil)
@@ -1147,10 +1160,10 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 				names, paths = a.modelNames(p)
 			}
 			name := nameOf(names, paths, n.name)
-			ui.Icon(c, ic).TextColor(pal.Muted).FontSize(12)
+			ui.Icon(c, ic).TextColor(muted).FontSize(12)
 			ui.Text(c, name).SingleLine().Shrink(1).Tooltip(n.name)
 		case nodeInfo:
-			ui.Text(c, n.name).FontSize(12).TextColor(pal.Muted).Italic().SingleLine()
+			ui.Text(c, n.name).FontSize(12).TextColor(muted).Italic().SingleLine()
 		}
 	})
 	row.ContextMenu(func(m *ui.Menu) { a.navMenu(m, n) })
@@ -1306,18 +1319,17 @@ func (a *App) setCatalogDepth(cn *connection.Conn, database, schema string, d db
 // fileConnectionLine shows under a query file the connection its header
 // names, with its environment's color; an ID no connection of the project
 // has shows as it is, in the warning color, and none shows nothing.
-func (a *App) fileConnectionLine(c *ui.Context, p *project.Project, id string) {
+func (a *App) fileConnectionLine(c *ui.Context, p *project.Project, id string, chosen bool) {
 	if id == "" {
 		return
 	}
-	pal := widgets.PaletteOf(c)
 	cn := a.connByID(p.Prefix + id)
 	ui.Row(c).Gap(5).Children(func() {
 		if cn == nil {
-			ui.Text(c, id).SingleLine().FontSize(10.5).TextColor(c.Theme().Warning).Tooltip("No connection of " + p.Name + " has this ID")
+			ui.Text(c, id).SingleLine().FontSize(10.5).TextColor(widgets.RowColor(c, c.Theme().Warning, chosen)).Tooltip("No connection of " + p.Name + " has this ID")
 			return
 		}
 		ui.Box(c).Size(6, 6).Radius(3).Background(widgets.EnvColor(&cn.Config))
-		ui.Text(c, cn.Config.Name).SingleLine().FontSize(10.5).TextColor(pal.Muted)
+		ui.Text(c, cn.Config.Name).SingleLine().FontSize(10.5).TextColor(widgets.RowColor(c, widgets.PaletteOf(c).Muted, chosen))
 	})
 }
