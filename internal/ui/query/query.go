@@ -117,6 +117,9 @@ type Tab struct {
 
 	Editor  editor.Editor
 	editorH float32
+	// revealY is where reveal's glide ends: while it is on its way, a line
+	// shows if it will there.
+	revealY float32
 	ac      completion
 	// snippet is the fields of a snippet being filled in, nil for none.
 	snippet *snippetSession

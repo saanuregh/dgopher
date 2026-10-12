@@ -49,19 +49,32 @@ func (q *Tab) findView(c *ui.Context, fontSize float32) {
 	f.Shown = f.Current
 	at := f.Matches[f.Current]
 	q.Editor.PendingSel = &[2]int{at, at + n}
-	q.reveal(at, fontSize)
+	q.reveal(at, fontSize, true)
 }
 
 // reveal scrolls the editor to the line of a rune offset, unless it
-// shows already.
-func (q *Tab) reveal(at int, fontSize float32) {
+// shows already: smoothly, as for find, or at once.
+func (q *Tab) reveal(at int, fontSize float32, smooth bool) {
 	e := &q.Editor
 	line := e.ViewLine(min(at, utf8.RuneCountInString(e.Text)))
 	lh := fontSize * editor.LineHeight
 	y := float32(line) * lh
-	if y < e.Scroll.Y || y > e.Scroll.Y+q.editorH-3*lh {
-		e.Scroll.Y = max(0, y-q.editorH/3)
+	from := e.Scroll.Y
+	if e.Scroll.Scrolling() {
+		from = q.revealY
 	}
+	if y >= from && y <= from+q.editorH-3*lh {
+		return
+	}
+	to := max(0, y-q.editorH/3)
+	// A glide on its way would undo a place set at once: it turns toward
+	// this one instead.
+	if smooth || e.Scroll.Scrolling() {
+		e.Scroll.ScrollTo(e.Scroll.X, to, ui.Smooth)
+		q.revealY = to
+		return
+	}
+	e.Scroll.Y = to
 }
 
 // replaceRow builds the row under the find bar that replaces its

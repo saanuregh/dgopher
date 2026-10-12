@@ -53,11 +53,11 @@ func (q *Tab) completionView(c *ui.Context, a Host) {
 	e := &q.Editor
 	if e.Text != ac.lastText {
 		// Typing adds a few characters on one line where the caret is; a
-		// long paste or the app replacing the text does not open the popup.
+		// paste or the app replacing the text does not open the popup.
 		grew := utf8.RuneCountInString(e.Text) - utf8.RuneCountInString(ac.lastText)
-		typed := e.HasFocus && e.Typing() && grew >= 1 && grew <= 40 &&
+		typed := e.HasFocus && e.Typing() && !e.Pasted && grew >= 1 && grew <= 40 &&
 			strings.Count(e.Text, "\n") == strings.Count(ac.lastText, "\n")
-		ac.lastText = e.Text
+		ac.lastText, e.Pasted = e.Text, false
 		if typed {
 			q.suggest(a, false)
 		} else if ac.open {
