@@ -89,6 +89,8 @@ type navState struct {
 func (n *navState) init() {
 	n.row, n.chose = -1, -1
 	n.tree.List.Selected = &n.row
+	// A catalog goes deep: a table is six levels below its project.
+	n.tree.Indent = 10
 }
 
 // skipNotes keeps the choice off a note, as "Loading…" or "No tables",
