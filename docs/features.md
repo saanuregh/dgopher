@@ -817,6 +817,9 @@
   keyword; `sel`, `ins`, `upd`, `del` and a few more come with every
   editor. A snippet's fields, written `${1:default}`, `$2` and `$0` for
   where the caret ends, are filled in one after the other with Tab.
-- **History:** every statement and command is recorded, per project, with
-  its timing and error (⌘Y). Open any entry again (↵) in a new editor of
-  its connection.
+- **History:** one dialog per project with two tabs. **Queries** (⌘Y) lists
+  every statement and command run from an editor or the console, with its
+  timing and error: open one again (↵) in a new editor of its connection,
+  or see its entry in the audit log. **Audit Log** (⌘⇧A) is the
+  [audit log](audit-log.md). Clearing the queries leaves the audit log as
+  it is.

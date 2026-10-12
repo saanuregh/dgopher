@@ -1773,3 +1773,88 @@ func TestThemesFolderPrivate(t *testing.T) {
 		t.Fatalf("the themes folder is %v", fi.Mode().Perm())
 	}
 }
+
+// What a person ran goes to the audit log and the history in one record:
+// the history entry names its audit entry, and keeps of an identity
+// command's failure what the audit log keeps, not what it printed.
+func TestRecordTypedLinksHistoryToAudit(t *testing.T) {
+	a := newTestApp(t)
+	p := a.projects[0]
+	cfg := db.Config{ID: p.Prefix + "pg", Name: "pg"}
+	a.RecordTyped(cfg, audit.TypedRun{Kind: audit.KindStatement, Database: "shop", Sent: "SELECT ? + 1", Typed: "SELECT :n + 1", Params: ":n = 1", Rows: 1, History: true})
+	ce := &secretcmd.CommandError{Command: "aws", Status: 254, Stderr: "profile secret-hunter2 has expired"}
+	err := fmt.Errorf("could not connect: %w", fmt.Errorf("%s: %w", db.IdentityAWS.Label(), ce))
+	a.RecordTyped(cfg, audit.TypedRun{Kind: audit.KindStatement, Sent: "SELECT 2", Err: err, History: true})
+	a.RecordTyped(cfg, audit.TypedRun{Kind: audit.KindStatement, Sent: "SELECT 3"})
+	h, _ := p.Local.History(0)
+	events, _ := p.Audit.Read(0)
+	if len(h) != 2 || len(events) != 3 {
+		t.Fatalf("history %+v, audit %+v", h, events)
+	}
+	if h[1].SQL != "SELECT :n + 1\n-- parameters: :n = 1" || h[1].AuditSeq != events[2].Seq || events[2].Typed != "SELECT :n + 1" || events[2].Origin != audit.OriginTyped {
+		t.Errorf("first: %+v, its audit entry %+v", h[1], events[2])
+	}
+	if strings.Contains(h[0].Error, "hunter2") || h[0].Error != secretcmd.AuditText(err) || h[0].Error != events[1].Error || h[0].AuditSeq != events[1].Seq {
+		t.Errorf("failed: %+v, its audit entry %+v", h[0], events[1])
+	}
+}
+
+// A query in the history shows its audit entry, with what was typed and
+// what was sent; ⌘⇧A opens the same dialog on the audit log.
+func TestHistoryShowsAuditEntry(t *testing.T) {
+	a := newTestApp(t)
+	p := a.projects[0]
+	cfg := db.Config{ID: p.Prefix + "pg", Name: "pg"}
+	a.RecordRun(cfg, audit.KindStatement, "", "SELECT version()", 1, 0, nil)
+	a.RecordTyped(cfg, audit.TypedRun{Kind: audit.KindStatement, Sent: "SELECT 2 AS v", Typed: "SELECT ${c} AS v", History: true})
+	a.RecordRun(cfg, audit.KindStatement, "", "SELECT 3", 1, 0, nil)
+	tt := ui.NewTester(a.view, 1200, 800)
+	a.openHistoryOf(p)
+	testutil.WaitFor(t, tt, "entries", func() bool { return len(a.history.entries) == 1 })
+	a.history.row = 0
+	tt.Frame()
+	testutil.Snapshot(t, tt, "history-queries")
+	if err := tt.Click("Show in Audit Log"); err != nil {
+		t.Fatal(err)
+	}
+	v := a.history.audit
+	testutil.WaitFor(t, tt, "the audit entry", func() bool { return v.read && v.row >= 0 })
+	if e := v.shown()[v.row]; a.history.tab != historyAudit || e.Seq != 2 || e.Typed != "SELECT ${c} AS v" {
+		t.Fatalf("tab %d, chosen %+v", a.history.tab, e)
+	}
+	tt.Frame()
+	if !tt.HasText("SELECT ${c} AS v") || !tt.HasText("SELECT 2 AS v") {
+		t.Fatal("the entry does not show what was typed and what was sent")
+	}
+	testutil.Snapshot(t, tt, "history-audit")
+	v.origin = 2
+	if got := v.shown(); len(got) != 2 || got[0].Origin != audit.OriginApp {
+		t.Fatalf("the app's entries: %+v", got)
+	}
+	a.history.open = false
+	tt.Frame()
+	a.openAudit()
+	if a.history == nil || a.history.tab != historyAudit || a.history.audit == nil {
+		t.Fatal("⌘⇧A did not open the audit log's tab")
+	}
+}
+
+// A project that could not be read shows why in both tabs, and has no
+// history to clear.
+func TestHistoryOfUnreadProject(t *testing.T) {
+	a := newBareApp(t)
+	p := &project.Project{Name: "broken", Err: "dgopher.json: not valid JSON"}
+	tt := ui.NewTester(a.view, 1200, 800)
+	a.openAuditOf(p)
+	tt.Frame()
+	if !tt.HasText("The project could not be read: dgopher.json: not valid JSON") {
+		t.Fatal("the audit tab does not say why")
+	}
+	a.history.showQueries(a)
+	tt.Frame()
+	tt.Click("Clear History…")
+	tt.Frame()
+	if a.closing != nil || !tt.HasText("The project could not be read: dgopher.json: not valid JSON") {
+		t.Fatalf("clearing an unread project's history was offered: %+v", a.closing)
+	}
+}

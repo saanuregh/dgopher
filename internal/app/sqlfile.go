@@ -433,7 +433,7 @@ func (a *App) runSQLFile(x *sqlFileRun) {
 					loaded[verb] += max(n, 0)
 				}
 				if !loads || err != nil {
-					a.RecordRun(cfg, audit.KindStatement, database, st.SQL, n, time.Since(start), err)
+					a.RecordTyped(cfg, audit.TypedRun{Kind: audit.KindStatement, Database: database, Sent: st.SQL, Rows: n, Took: time.Since(start), Err: err})
 				}
 				if err != nil {
 					failures = append(failures, fmt.Sprintf("Line %d: %s\n%s", st.Line, err.Error(), widgets.OneLine(redact.Secrets(st.SQL), 160)))

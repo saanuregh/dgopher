@@ -119,7 +119,7 @@ func (s *Session) Apply(ctx context.Context, ch SchemaChange, each func(stmt str
 		}()
 	}
 	if ch.Atomic {
-		if err := execChecked(ctx, beginStatement(s.db.Config.Engine), s.mayControlSharedTx); err != nil {
+		if err := execChecked(ctx, BeginStatement(s.db.Config.Engine), s.mayControlSharedTx); err != nil {
 			return err
 		}
 		defer func() {
@@ -151,7 +151,8 @@ func (s *Session) Apply(ctx context.Context, ch SchemaChange, each func(stmt str
 	return nil
 }
 
-func beginStatement(e Engine) string {
+// BeginStatement is what Begin sends.
+func BeginStatement(e Engine) string {
 	if e == MySQL {
 		return "START TRANSACTION"
 	}

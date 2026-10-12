@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
@@ -34,7 +35,7 @@ type Host interface {
 	Connect(cn *connection.Conn, then func())
 	ShowError(title, message string)
 	Toast(text, action string, run func())
-	RecordRun(cfg db.Config, kind, database, stmt string, rows int64, d time.Duration, err error)
+	RecordTyped(cfg db.Config, t audit.TypedRun)
 	NewQueryTab(cn *connection.Conn, database, text string)
 	// KeysTo reports whether a tab takes the shortcuts pressed.
 	KeysTo(t widgets.Tab) bool

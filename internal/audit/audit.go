@@ -34,6 +34,12 @@ const (
 	KindRecovered  = "recovered" // a damaged end of the log set aside
 )
 
+// Who wrote a statement or command.
+const (
+	OriginTyped = "typed" // a person: in an editor, the console, a file or a dashboard panel
+	OriginApp   = "app"   // the app, for what was asked of it
+)
+
 // Event is an entry of the log.
 type Event struct {
 	Seq          int64     `json:"seq"`
@@ -45,18 +51,55 @@ type Event struct {
 	Engine       string    `json:"engine,omitempty"`
 	Environment  string    `json:"environment,omitempty"`
 	Database     string    `json:"database,omitempty"`
-	Statement    string    `json:"statement,omitempty"`
-	Rows         int64     `json:"rows,omitempty"`
-	DurationMS   int64     `json:"durationMs,omitempty"`
-	Error        string    `json:"error,omitempty"`
-	Detail       string    `json:"detail,omitempty"`
-	Prev         string    `json:"prev"`
-	Hash         string    `json:"hash"`
+	// Statement is the text sent, its secrets redacted.
+	Statement string `json:"statement,omitempty"`
+	// Typed is the text as written, when the app changed it before
+	// sending it, as with a ${var} or :name.
+	Typed string `json:"typed,omitempty"`
+	// Params lists the values sent with the statement, apart from it.
+	Params string `json:"params,omitempty"`
+	// Purpose says why the app sent a statement of its own.
+	Purpose    string `json:"purpose,omitempty"`
+	Origin     string `json:"origin,omitempty"`
+	Rows       int64  `json:"rows,omitempty"`
+	DurationMS int64  `json:"durationMs,omitempty"`
+	Error      string `json:"error,omitempty"`
+	Detail     string `json:"detail,omitempty"`
+	Prev       string `json:"prev"`
+	Hash       string `json:"hash"`
 
 	// Err is the error of what was done, which the sink writes into Error
 	// as secretcmd.AuditText does, without what a command printed to
 	// stderr. It is never stored or hashed.
 	Err error `json:"-"`
+}
+
+// TypedRun is a run of text a person wrote, as the code that ran it knows it.
+type TypedRun struct {
+	Kind, Database string
+	Sent           string // the text sent
+	Typed          string // the text as written, when the app changed it; "" when it is Sent
+	Params         string // the values sent with it, as shown
+	Rows           int64
+	Took           time.Duration
+	Err            error
+	// History keeps it in the project's query history too, to run again.
+	History bool
+}
+
+// Event is the audit entry of a typed run.
+func (t TypedRun) Event() Event {
+	return Event{Kind: t.Kind, Database: t.Database, Statement: t.Sent, Typed: t.Typed, Params: t.Params,
+		Origin: OriginTyped, Rows: t.Rows, DurationMS: t.Took.Milliseconds(), Err: t.Err}
+}
+
+// WithOrigin names the app as the writer of a statement, edit or command
+// whose writer is not named: only what a person typed says so.
+func (e Event) WithOrigin() Event {
+	if e.Origin == "" && (e.Kind == KindStatement || e.Kind == KindEdit || e.Kind == KindCommand) {
+		e.Origin = OriginApp
+	}
+	return e
 }
 
 // hashOf is the hash of an event: of its JSON without the hash itself,

@@ -263,8 +263,9 @@ func (r *Tab) loadKey() {
 	r.loadingKey, r.keyErr = true, ""
 	r.valueGen++
 	gen := r.valueGen
-	kv := r.conn.KV
+	kv, cfg := r.conn.KV, r.conn.Config
 	r.loadLatest(func() bool { return gen == r.valueGen }, &r.loadingKey, &r.keyErr, 30*time.Second, func(ctx context.Context) (func(), error) {
+		start := time.Now()
 		info, err := kv.Info(ctx, key)
 		var value string
 		var fields []db.Field
@@ -279,6 +280,14 @@ func (r *Tab) loadKey() {
 		case slices.Contains(itemTypes, info.Type):
 			fields, pos, done, err = readPage(ctx, kv, key, info.Type, db.ItemsPos{})
 		}
+		rows := int64(-1)
+		if slices.Contains(itemTypes, info.Type) {
+			rows = int64(len(fields))
+		}
+		// Several commands read a value, as its type asks: the entry
+		// says what was read rather than one of them.
+		r.a.Record(&cfg, audit.Event{Kind: audit.KindCommand, Database: cfg.Database, Detail: "read the value of " + cmp.Or(info.Type, "the") + " key " + key,
+			Rows: rows, DurationMS: time.Since(start).Milliseconds(), Err: err})
 		return func() {
 			// Whole when shorter than asked: the length read before may
 			// be of another moment.

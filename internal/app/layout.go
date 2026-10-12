@@ -156,9 +156,6 @@ func (a *App) overlays(c *ui.Context) {
 	if a.keys != nil {
 		a.keysView(c)
 	}
-	if a.auditView != nil {
-		a.auditViewer(c)
-	}
 	a.questions(c)
 	if tst := a.toast; tst != nil {
 		a.toast = nil

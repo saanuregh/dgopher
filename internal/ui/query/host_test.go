@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/project"
@@ -33,6 +34,13 @@ func (h *fakeQueryHost) RecordRun(cfg db.Config, kind, database, stmt string, ro
 	h.FakeHost.RecordRun(cfg, kind, database, stmt, rows, d, err)
 	if h.afterRun != nil {
 		h.afterRun(kind)
+	}
+}
+
+func (h *fakeQueryHost) RecordTyped(cfg db.Config, t audit.TypedRun) {
+	h.FakeHost.RecordTyped(cfg, t)
+	if h.afterRun != nil {
+		h.afterRun(t.Kind)
 	}
 }
 

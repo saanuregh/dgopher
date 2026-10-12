@@ -98,9 +98,7 @@ func (a *App) adoptProject(p *project.Project, pc project.Config, i int) {
 		return
 	}
 	a.auditMu.Lock()
-	if p.Audit != nil {
-		a.auditLogs[p.Prefix] = p.Audit
-	}
+	a.recordProjects[p.Prefix] = p
 	a.auditMu.Unlock()
 	for _, cfg := range pc.Connections {
 		if cfg.ID == "" {
@@ -139,7 +137,7 @@ func (a *App) dropProject(p *project.Project) int {
 		}
 	}
 	a.auditMu.Lock()
-	delete(a.auditLogs, p.Prefix)
+	delete(a.recordProjects, p.Prefix)
 	a.auditMu.Unlock()
 	p.Close()
 	i := slices.Index(a.projects, p)

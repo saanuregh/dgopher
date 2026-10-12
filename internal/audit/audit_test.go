@@ -2,6 +2,8 @@ package audit_test
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -45,7 +47,7 @@ func TestDBChainAcrossWindows(t *testing.T) {
 			if i%2 == 1 {
 				l = b
 			}
-			if err := l.Record(audit.Event{Kind: audit.KindStatement, Statement: fmt.Sprint(i)}); err != nil {
+			if _, err := l.Record(audit.Event{Kind: audit.KindStatement, Statement: fmt.Sprint(i)}); err != nil {
 				t.Error(err)
 			}
 		}()
@@ -200,6 +202,41 @@ func TestImportLastLineWithoutNewline(t *testing.T) {
 	}
 	tx.Commit()
 	if events, _ := openLog(t, d).Read(0); len(events) != 2 || events[0].Kind == audit.KindRecovered {
+		t.Fatalf("%+v", events)
+	}
+}
+
+// An entry written before the fields of what was typed existed hashes as
+// it did: its chain still verifies.
+func TestOldEntryHashUnchanged(t *testing.T) {
+	d := openState(t, t.TempDir())
+	old := `{"seq":1,"time":"2026-10-01T10:00:00Z","user":"u@h","kind":"statement","connection":"c","statement":"SELECT 1","rows":1,"prev":"","hash":"%s"}`
+	sum := sha256.Sum256([]byte(strings.Replace(old, `"hash":"%s"`, `"hash":""`, 1)))
+	if _, err := d.SQL().Exec("INSERT INTO audit (seq, time, kind, hash, event) VALUES (1, '2026-10-01T10:00:00Z', 'statement', ?, ?)",
+		hex.EncodeToString(sum[:]), fmt.Sprintf(old, hex.EncodeToString(sum[:]))); err != nil {
+		t.Fatal(err)
+	}
+	l := openLog(t, d)
+	if _, err := l.Record(audit.Event{Kind: audit.KindStatement, Statement: "SELECT 2", Typed: "SELECT ${n}", Params: "n = 2", Origin: audit.OriginTyped}); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := l.Verify(); err != nil || !v.Intact() || v.Entries != 2 {
+		t.Fatalf("%+v %v", v, err)
+	}
+}
+
+// Record returns the number of the entry it wrote, which the history
+// keeps to find it again.
+func TestRecordReturnsSeq(t *testing.T) {
+	l := openLog(t, openState(t, t.TempDir()))
+	for want := int64(1); want <= 3; want++ {
+		seq, err := l.Record(audit.Event{Kind: audit.KindConnect})
+		if err != nil || seq != want {
+			t.Fatalf("seq %d, want %d: %v", seq, want, err)
+		}
+	}
+	events, _ := l.Read(1)
+	if len(events) != 1 || events[0].Seq != 3 {
 		t.Fatalf("%+v", events)
 	}
 }

@@ -25,10 +25,8 @@ import (
 	"dgopher/internal/project"
 	"dgopher/internal/redact"
 	"dgopher/internal/safety"
-	"dgopher/internal/secretcmd"
 	"dgopher/internal/settings"
 	"dgopher/internal/sqltext"
-	"dgopher/internal/store"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
@@ -379,6 +377,9 @@ const (
 	RunExplainAnalyze                // the plan of the statement at the caret, as it runs
 )
 
+// purposeManualCommit is why a manual-commit editor begins a transaction.
+const purposeManualCommit = "for manual commit: a transaction begins before the editor's first change"
+
 // statements returns what a run sends, and where each starts in the
 // editor. Explaining, the statement is the selection, or the one at the
 // caret, behind EXPLAIN; it is never run as it is.
@@ -662,6 +663,9 @@ func (q *Tab) runBound(stmts []string, starts []int, values map[string]params.In
 	for i := range an {
 		an[i].Start, an[i].Args, an[i].Shown = starts[i], args[i], shown[i]
 		if sqls[i] != stmts[i] {
+			an[i].Typed = stmts[i]
+		}
+		if sqls[i] != stmts[i] {
 			an[i].Start = -1 // the text moved: an error's position no longer maps
 		}
 		an[i].Skip = skip
@@ -764,7 +768,6 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 	manual := q.Conn.Config.ManualCommit()
 	pageSize := q.a.Settings().PageSize
 	cfg := q.Conn.Config
-	st := q.Conn.Project.Local
 	sess, pool, database := q.sess, q.Conn.DB, q.Database
 	dialect := q.Editor.Dialect
 	go func() {
@@ -826,7 +829,8 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 			if i <= lastWrite && sess.Tx() == db.TxNone &&
 				!safety.CommitsImplicitly(cfg.Engine, s) && !safety.OutsideTransaction(cfg.Engine, s.SQL) {
 				err := sess.Begin(ctx)
-				q.a.RecordRun(cfg, audit.KindStatement, database, "BEGIN -- manual commit", -1, 0, err)
+				q.a.Record(&cfg, audit.Event{Kind: audit.KindStatement, Database: database, Statement: db.BeginStatement(cfg.Engine),
+					Purpose: purposeManualCommit, Rows: -1, Err: err})
 				if err != nil {
 					if errors.Is(err, db.ErrSessionReset) {
 						resetSchema, _ = sess.CurrentSchema(ctx)
@@ -935,11 +939,8 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 				err = fmt.Errorf("stopped after the connection's statement timeout of %s: %w", timeout, err)
 			}
 			res.elapsed = time.Since(start)
-			logged := s.SQL
-			if s.Shown != "" {
-				logged += "\n-- parameters: " + s.Shown
-			}
-			q.a.RecordRun(cfg, audit.KindStatement, database, logged, rows, res.elapsed, err)
+			q.a.RecordTyped(cfg, audit.TypedRun{Kind: audit.KindStatement, Database: database, Sent: s.SQL, Typed: s.Typed, Params: s.Shown,
+				Rows: rows, Took: res.elapsed, Err: err, History: true})
 			if guard != nil {
 				err = guard.finish(ctx, rows, err)
 			}
@@ -953,7 +954,6 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 					resetSchema, _ = sess.CurrentSchema(ctx)
 				}
 			}
-			st.AppendHistory(historyEntry(cfg, database, logged, start, res.elapsed, rows, err))
 			q.a.Post(func() {
 				if res.rowsMode && cursor != nil {
 					res.view = q.newView(res, cursor, first, done, stop)
@@ -1054,19 +1054,6 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 			q.notifyRun(len(stmts), q.results[firstNew:])
 		})
 	}()
-}
-
-// historyEntry is what the history keeps of a statement that ran, logged
-// being its SQL as the audit log has it, which the history redacts. Its
-// error is the audit log's too (secretcmd.AuditText): a new connection
-// runs the identity's command, whose stderr only the live error shows.
-func historyEntry(cfg db.Config, database, logged string, start time.Time, elapsed time.Duration, rows int64, err error) store.HistoryEntry {
-	e := store.HistoryEntry{Time: start, ConnectionID: cfg.ID, Connection: cfg.Name, Database: database,
-		SQL: logged, Duration: elapsed, Rows: rows}
-	if err != nil {
-		e.Error = secretcmd.AuditText(err)
-	}
-	return e
 }
 
 // notifyRun tells of the end of a run by a system notification, when it
@@ -2013,7 +2000,8 @@ func (q *Tab) beginGuard(ctx context.Context, sess *db.Session, s safety.Stateme
 		}
 	}
 	err := sess.Begin(ctx)
-	q.a.RecordRun(cfg, audit.KindStatement, database, "BEGIN -- counting the rows a change makes", -1, 0, err)
+	q.a.Record(&cfg, audit.Event{Kind: audit.KindStatement, Database: database, Statement: db.BeginStatement(cfg.Engine),
+		Purpose: "to count the rows the change makes before it commits", Rows: -1, Err: err})
 	if err != nil {
 		return nil, err
 	}

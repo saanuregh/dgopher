@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/safety"
@@ -22,7 +23,9 @@ type Host interface {
 	// action, then calls onDiscard.
 	AskDiscard(title, reason, action string, onDiscard func())
 	RecordBlocked(cn *connection.Conn, why, what string)
+	Record(cfg *db.Config, e audit.Event)
 	RecordRun(cfg db.Config, kind, database, stmt string, rows int64, d time.Duration, err error)
+	RecordTyped(cfg db.Config, t audit.TypedRun)
 	// KeysTo reports whether a tab takes the shortcuts pressed.
 	KeysTo(t widgets.Tab) bool
 	// FocusWant is where the keyboard focus is wanted: "editor" for the

@@ -14,8 +14,6 @@ import (
 	"dgopher/internal/lists"
 	"dgopher/internal/redact"
 	"dgopher/internal/safety"
-	"dgopher/internal/secretcmd"
-	"dgopher/internal/store"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 
@@ -212,16 +210,14 @@ func (r *Tab) runConsole(line string) {
 	}
 	run := func() {
 		kv := r.conn.KV
-		st, cfg := r.conn.Project.Local, r.conn.Config
+		cfg := r.conn.Config
 		r.a.Background(func() func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()
 			start := time.Now()
 			out, err := kv.Do(ctx, args)
 			logged := redact.Redis(args)
-			r.a.RecordRun(cfg, audit.KindCommand, cfg.Database, logged, -1, time.Since(start), err)
-			entry := storeHistory(cfg, logged, time.Since(start), err)
-			st.AppendHistory(entry)
+			r.a.RecordTyped(cfg, audit.TypedRun{Kind: audit.KindCommand, Database: cfg.Database, Sent: logged, Rows: -1, Took: time.Since(start), Err: err, History: true})
 			return func() {
 				if err != nil {
 					r.logConsole(consoleLine{text: "(error) " + err.Error(), err: true})
@@ -239,16 +235,6 @@ func (r *Tab) runConsole(line string) {
 		return
 	}
 	run()
-}
-
-// storeHistory is a history entry of a command that ran, written as
-// redact.Redis writes it; the history redacts the rest.
-func storeHistory(cfg db.Config, sql string, d time.Duration, err error) store.HistoryEntry {
-	e := store.HistoryEntry{Time: time.Now().Add(-d), ConnectionID: cfg.ID, Connection: cfg.Name, Database: cfg.Database, SQL: sql, Duration: d}
-	if err != nil {
-		e.Error = secretcmd.AuditText(err)
-	}
-	return e
 }
 
 // chooseCommandFile asks for a file of commands, then runs it.
@@ -320,7 +306,7 @@ func (r *Tab) startCommandFile(path string, cmds []db.CommandLine) {
 	f := &fileRun{path: path, total: len(cmds), cancel: cancel}
 	r.file = f
 	r.logConsole(consoleLine{input: true, text: "> run " + filepath.Base(path)})
-	kv, st := r.conn.KV, r.conn.Project.Local
+	kv := r.conn.KV
 	go func() {
 		defer dataview.RecoverBackground(r.a.Post, r.a.ShowError, func() { r.file = nil })
 		defer cancel()
@@ -336,8 +322,7 @@ func (r *Tab) startCommandFile(path string, cmds []db.CommandLine) {
 			out, err := kv.Do(cctx, cmd.Args)
 			ccancel()
 			logged := redact.Redis(cmd.Args)
-			r.a.RecordRun(cfg, audit.KindCommand, cfg.Database, logged, -1, time.Since(start), err)
-			st.AppendHistory(storeHistory(cfg, logged, time.Since(start), err))
+			r.a.RecordTyped(cfg, audit.TypedRun{Kind: audit.KindCommand, Database: cfg.Database, Sent: logged, Rows: -1, Took: time.Since(start), Err: err, History: true})
 			r.a.Post(func() {
 				f.done = i + 1
 				r.logConsole(consoleLine{input: true, text: fmt.Sprintf("%d> %s", cmd.Line, logged)})

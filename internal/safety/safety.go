@@ -41,6 +41,10 @@ type Statement struct {
 	// Args are the values of its parameters, and Shown lists them.
 	Args  []any
 	Shown string
+	// Typed is the statement as written, when binding its parameters
+	// changed it: wrote ${var} values into it, or turned :name into the
+	// engine's placeholder.
+	Typed string
 }
 
 func Analyze(cfg *db.Config, stmts []string) []Statement {

@@ -59,6 +59,7 @@ type Host interface {
 	RecordBlocked(cn *connection.Conn, why, what string)
 	Record(cfg *db.Config, e audit.Event)
 	RecordRun(cfg db.Config, kind, database, stmt string, rows int64, d time.Duration, err error)
+	RecordTyped(cfg db.Config, t audit.TypedRun)
 	ProjectConfigs(p *project.Project) []db.Config
 	Dialogs() *Dialogs
 	// StartJob counts work on a connection as running until finish is

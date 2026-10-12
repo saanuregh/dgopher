@@ -20,24 +20,29 @@ func Open(db *sql.DB) (*Log, error) {
 }
 
 // Record appends an event in one transaction that reads the last entry
-// first: windows sharing the file keep one chain.
-func (l *Log) Record(e Event) error {
+// first: windows sharing the file keep one chain. It returns the entry's
+// number.
+func (l *Log) Record(e Event) (int64, error) {
 	if l == nil {
-		return nil
+		return 0, nil
 	}
 	tx, err := l.db.Begin()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tx.Rollback()
 	seq, prev, err := lastRow(tx)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	if err := insert(tx, l.chain(e, seq, prev)); err != nil {
-		return err
+	e = l.chain(e, seq, prev)
+	if err := insert(tx, e); err != nil {
+		return 0, err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return e.Seq, nil
 }
 
 // Head returns the last entry's number and hash: written down elsewhere,
