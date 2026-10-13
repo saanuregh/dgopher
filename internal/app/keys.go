@@ -116,13 +116,13 @@ func (k *keysEditor) commandRow(a *App, c *ui.Context, cmd keymap.Command) {
 			})
 		}
 		if k.recording == cmd.ID {
-			box := ui.Box(c).Focusable().Padding(2, 8).Radius(4).Border(1, c.Theme().Accent).Label("Press the key for " + cmd.Title).
+			box := widgets.Appear(ui.Box(c.Key("recording")).Focusable().Padding(2, 8).Radius(4).Border(1, c.Theme().Accent).Label("Press the key for " + cmd.Title)).
 				HandleInput(func(ev ui.InputEvent) bool { return k.record(a, ev) })
 			box.Children(func() { ui.Text(c, "Press a key…").FontSize(11.5).TextColor(pal.Muted) })
 			if !box.Focused() {
 				box.Focus()
 			}
-		} else if ui.Button(c, "Add").Tooltip("Record a key for this command").Clicked() {
+		} else if widgets.Appear(ui.Button(c.Key("add"), "Add")).Tooltip("Record a key for this command").Clicked() {
 			k.recording, k.err = cmd.ID, ""
 		}
 		if keymap.Changed(cmd.ID) && widgets.Appear(ui.Button(c.Key("reset"), "Reset")).Tooltip("Back to its own keys").Clicked() {
