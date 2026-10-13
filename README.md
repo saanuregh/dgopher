@@ -1,12 +1,13 @@
 # DGopher
 
-**Dig into your databases.**
+**Dig into your databases.** A fast, open-source database GUI for Linux,
+macOS and Windows: a SQL client for **PostgreSQL, MySQL, ClickHouse, SQLite
+and DuckDB**, and a **Redis** client.
 
-A fast, native database client for **PostgreSQL, MySQL, ClickHouse, SQLite,
-DuckDB and Redis**. It is a single Go binary, and its interface is drawn by
+DGopher is a single Go binary, and its interface is drawn by
 [MyGo](https://mygo.egoist.dev)'s native UI, with no webview, no JVM and no
-Electron. It opens instantly, looks the same on Linux, macOS and Windows,
-and is careful by default with the databases that matter.
+Electron. It opens instantly, looks the same on every system, and is careful
+by default with the databases that matter.
 
 ![DGopher's main window: a project's connections, query files, dashboard
 and data model in the navigator, and an editor whose query's result shows
