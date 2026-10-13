@@ -410,7 +410,6 @@ func (a *App) fillView(c *ui.Context) {
 			ui.Text(c, "Generate Test Data for "+x.obj.Schema+"."+x.obj.Name).FontSize(15).Bold().SingleLine()
 			if x.loading {
 				ui.Row(c).Gap(8).Children(func() {
-					ui.Spinner(c).Size(14, 14)
 					ui.Text(c, "Reading the table…").TextColor(pal.Muted)
 				})
 			}
@@ -435,23 +434,14 @@ func (a *App) fillView(c *ui.Context) {
 			}
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				if x.running {
-					ui.Spinner(c).Size(14, 14)
 					ui.Text(c, widgets.HumanCount(x.done)+" rows written…").FontSize(12).TextColor(pal.Muted)
 				}
 				ui.Spacer(c)
-				if x.running {
-					if ui.Button(c, "Cancel").Clicked() {
-						x.cancel()
-					}
-					return
-				}
-				if ui.Button(c, "Cancel").Clicked() {
-					x.open = false
-				}
-				if ui.Button(c, "New Sample").Disabled(len(x.cols) == 0).Clicked() {
+				widgets.DismissButton(c, x.running, false, x.cancel, func() { x.open = false })
+				if ui.Button(c.Key("sample"), "New Sample").Disabled(x.running || len(x.cols) == 0).Clicked() {
 					x.seed = rand.Uint64()
 				}
-				if ui.PrimaryButton(c, "Add Rows").Disabled(len(x.cols) == 0).Clicked() {
+				if ui.PrimaryButton(c.Key("add"), "Add Rows").Disabled(x.running || len(x.cols) == 0).Clicked() {
 					a.startFill(x)
 				}
 			})

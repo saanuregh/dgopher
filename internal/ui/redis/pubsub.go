@@ -108,7 +108,6 @@ func (r *Tab) pubSubActions(c *ui.Context) {
 	p := &r.pubsub
 	pal := widgets.PaletteOf(c)
 	if p.cancel != nil {
-		ui.Spinner(c).Size(12, 12)
 		ui.Text(c, widgets.Count(len(p.messages), "message")).FontSize(12).TextColor(pal.Muted)
 	}
 	if ui.Link(c, "Clear", "").FontSize(12).Clicked() {
@@ -128,13 +127,13 @@ func (r *Tab) pubSubView(c *ui.Context) {
 			ui.Row(c).Padding(6, 10).Gap(6).AlignItems(ui.Center).Children(func() {
 				if p.cancel != nil {
 					ui.Text(c, "Listening to "+p.listening).FontSize(12.5).SingleLine().Grow(1).Shrink(1)
-					if ui.Button(c, "Stop").Clicked() {
+					if widgets.MorphButton(c.Key("listen-run"), "Stop").Clicked() {
 						p.cancel()
 					}
 					return
 				}
 				in := ui.TextInput(c, &p.listenIn).Placeholder("Channels or patterns, e.g. news orders.*").Font(widgets.MonoFont).FontSize(12.5).Grow(1).Label("Channels to listen to")
-				if ui.Button(c, "Listen").Disabled(strings.TrimSpace(p.listenIn) == "").Clicked() || in.Submitted() {
+				if widgets.MorphButton(c.Key("listen-run"), "Listen").Disabled(strings.TrimSpace(p.listenIn) == "").Clicked() || in.Submitted() {
 					r.listen()
 				}
 			})

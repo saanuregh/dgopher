@@ -97,17 +97,17 @@ func (r *Tab) jsonView(c *ui.Context, ro bool) {
 		valid := json.Valid([]byte(r.editValue))
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			if !valid {
-				ui.Text(c, "Not JSON.").FontSize(12).TextColor(th.Danger)
-			} else if pretty := dataview.PrettyValue(r.editValue); pretty != r.editValue && ui.Button(c, "Format").Clicked() {
+				widgets.Appear(ui.Text(c.Key("json-invalid"), "Not JSON.").FontSize(12).TextColor(th.Danger))
+			} else if pretty := dataview.PrettyValue(r.editValue); pretty != r.editValue && widgets.Appear(ui.Button(c.Key("json-format"), "Format")).Clicked() {
 				r.editValue = pretty
 				r.editDirty = r.editValue != r.value
 			}
 			ui.Spacer(c)
 			if r.editDirty && !ro && r.whole {
-				if ui.Button(c, "Revert").Clicked() {
+				if widgets.Appear(ui.Button(c.Key("json-revert"), "Revert")).Clicked() {
 					r.editValue, r.editDirty = r.value, false
 				}
-				if ui.PrimaryButton(c, "Save").Disabled(!valid).Clicked() || valid && r.a.KeysTo(r) && keymap.Pressed(c, keymap.Save) {
+				if widgets.Appear(ui.PrimaryButton(c.Key("json-save"), "Save").Disabled(!valid)).Clicked() || valid && r.a.KeysTo(r) && keymap.Pressed(c, keymap.Save) {
 					var compact bytes.Buffer
 					json.Compact(&compact, []byte(r.editValue))
 					r.write([]string{"JSON.SET", key, "$", compact.String()}, r.loadKey)
@@ -187,7 +187,6 @@ func (r *Tab) vectorDetail(c *ui.Context, f db.Field) {
 		ui.Column(c).Width(320).Gap(6).Children(func() {
 			switch {
 			case v.loading:
-				ui.Spinner(c).Size(14, 14)
 				return
 			case v.err != "":
 				ui.Text(c, v.err).FontSize(12).TextColor(th.Danger).Selectable()

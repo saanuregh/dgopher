@@ -41,6 +41,8 @@ type FakeHost struct {
 	Discard func()
 	Errors  []string
 	Toasts  []string
+	// JobTitles are the jobs started, in order.
+	JobTitles []string
 	// ToastRun is what the button of the last toast does, nil without one.
 	ToastRun func()
 	// Notified are the notifications asked for, as "title: body", however
@@ -172,8 +174,9 @@ func (h *FakeHost) Background(work func() func()) {
 	}()
 }
 
-// StartJob keeps no job: nothing quits or disconnects the fake.
+// StartJob keeps only the job's title: nothing quits or disconnects the fake.
 func (h *FakeHost) StartJob(cn *connection.Conn, title string, cancel context.CancelFunc) (finish func()) {
+	h.JobTitles = append(h.JobTitles, title)
 	return func() {}
 }
 

@@ -16,9 +16,11 @@ SQLite file, `.dgopher/state.sqlite`.
 | `.dgopher/sample.sqlite` | ignored | the sample database, if you made it in this project |
 
 `state.sqlite` holds, in its tables:
-- `kv`: which query files were open, each one's connection and database,
-  and the one in front, with the unsaved text of an editor whose file
-  changed on disk (`workspace.json`); each table's recent grid filters
+- `kv`: which tabs were open, in their order, and the one in front: query
+  files, each with its connection and database and the unsaved text of an
+  editor whose file changed on disk, dashboards, data models, and a
+  connection's tabs by what they show, as a table's schema, name and page
+  (`workspace.json`); each table's recent grid filters
   (`filters.json`) and row colours (`colors.json`); the values of the
   editors' parameters, per connection (`query-parameters.json`).
 - `history`: query history (secrets redacted; trimmed to the newest 4,000

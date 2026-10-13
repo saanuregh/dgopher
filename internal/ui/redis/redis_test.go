@@ -312,7 +312,8 @@ func TestRedisModules(t *testing.T) {
 		t.Fatalf("document shown as %q", r.editValue)
 	}
 	r.editValue, r.editDirty = `{"a": [1, 2]}`, true
-	tt.Frame()
+	// Save fades in, and is clicked once it has settled.
+	testutil.Settled(t, tt, "Save")
 	if err := tt.Click("Save"); err != nil {
 		t.Fatal(err)
 	}
@@ -415,4 +416,44 @@ func TestConsoleLogCap(t *testing.T) {
 	if first, last := r.consoleLog[0].text, r.consoleLog[len(r.consoleLog)-1].text; first != "2" || last != "b" {
 		t.Fatalf("first %q, last %q", first, last)
 	}
+}
+
+// Start turns to Stop in the same button: it eases to the new label's
+// width, its right edge where it was, rather than one control popping in
+// for another.
+func TestMonitorMorphs(t *testing.T) {
+	testutil.Integration(t)
+	a := dataview.NewFakeHost(t)
+	cn := a.AddConn(db.Config{ID: "r", Name: "Cache", Engine: db.Redis, Host: "127.0.0.1", Port: 16379, Database: "2", Env: db.Staging})
+	tt := ui.NewTester(a.View, 1360, 860)
+	a.Connect(cn, func() { a.AddTab(New(a, cn)) })
+	testutil.WaitFor(t, tt, "redis tab", func() bool { return len(a.Tabs) == 1 })
+	r := a.Tabs[0].(*Tab)
+	r.panel = panelMonitor
+	tt.Frame()
+	start, ok := tt.Find("Start")
+	if !ok {
+		t.Fatalf("no Start: %q", tt.Texts())
+	}
+	if err := tt.Click("Start"); err != nil {
+		t.Fatal(err)
+	}
+	if r.monitor.cancel == nil {
+		t.Fatal("Start did not start the monitor")
+	}
+	tt.Frame()
+	first, ok := tt.Find("Stop")
+	if !ok {
+		t.Fatalf("no Stop: %q", tt.Texts())
+	}
+	stop := testutil.Settled(t, tt, "Stop")
+	if first.W <= stop.W {
+		t.Fatalf("Stop took its width at once, %v then %v: no morph from Start at %v", first, stop, start)
+	}
+	if end, was := stop.X+stop.W, start.X+start.W; end < was-0.5 || end > was+0.5 {
+		t.Fatalf("Stop ends at %v, Start ended at %v", end, was)
+	}
+	r.monitor.cancel()
+	testutil.WaitFor(t, tt, "the monitor to stop", func() bool { return r.monitor.cancel == nil })
+	testutil.WaitFor(t, tt, "Start back", func() bool { return tt.HasText("Start") && !tt.HasText("Stop") })
 }

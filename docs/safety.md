@@ -91,7 +91,7 @@ and the run fails naming the line that began it.
 - Disconnecting, removing a project, deleting a connection or quitting
   while work runs on it (Run SQL File, an import, a copy, generated rows, a
   row comparison's apply, a backup or restore, an export, a schema change
-  being applied, Redis bulk work) lists that work and what stopping it
+  or grid changes being applied, Redis bulk work) lists that work and what stopping it
   loses, and asks; agreed, the app stops it and waits up to 10 seconds for
   it to roll back what it left open.
 - Closing a tab closes its connection: the next tab inherits no schema,
@@ -142,6 +142,18 @@ and the run fails naming the line that began it.
   failed apply rolls back to it and keeps the transaction. DuckDB has no
   savepoints, so there they are refused while a transaction is open: a
   failed change would abort all of it.
+- Stop on grid changes being applied takes effect before the next change:
+  the statement already sent runs to its end, then every change rolls
+  back, to the savepoint inside an open transaction, which stays. Cut
+  short instead, SQLite would roll back the whole transaction and MySQL
+  might drop the connection. A COMMIT or RELEASE once sent is never cut
+  short, so its outcome is never unknown.
+- Stop on a table's Count ends its statement on PostgreSQL, SQLite and
+  DuckDB; on MySQL and ClickHouse the app stops waiting and closes the
+  connection, and the server may finish the count. On DuckDB, where
+  stopping would abort the transaction open on its one connection, Stop
+  is disabled and says why. Stop on Fetch All ends after the page
+  being read: the rows stay, and the query stays open to read on.
 - A transaction left idle rolls back, after a warning you can cancel:
   after 10 minutes on production, 15 on staging and 30 on development, or
   as the connection says.

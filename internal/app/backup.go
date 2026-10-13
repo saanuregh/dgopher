@@ -305,29 +305,19 @@ func (a *App) backupView(c *ui.Context) {
 				ui.Text(c, b.err).TextColor(th.Danger).Selectable()
 			}
 			ui.Row(c).Gap(8).Children(func() {
-				if b.running {
-					ui.Spinner(c).Size(14, 14)
-				}
 				ui.Spacer(c)
-				if b.running {
-					if ui.Button(c, "Cancel").Clicked() {
-						b.cancel()
-					}
-					return
-				}
-				close := "Cancel"
-				if b.done {
-					close = "Close"
-				}
-				if ui.Button(c, close).Clicked() {
-					b.open = false
-				}
+				widgets.DismissButton(c, b.running, b.done, b.cancel, func() { b.open = false })
 				action := "Back Up"
 				if b.restore {
 					action = "Restore…"
 				}
-				if !b.done && ui.PrimaryButton(c, action).Disabled(strings.TrimSpace(b.path) == "").Clicked() {
-					a.startBackup(b)
+				if !b.done {
+					disabled := b.running || strings.TrimSpace(b.path) == ""
+					start := ui.PrimaryButton(c.Key("start"), action).Disabled(disabled)
+					widgets.Appear(start)
+					if start.Clicked() && !disabled {
+						a.startBackup(b)
+					}
 				}
 			})
 		})

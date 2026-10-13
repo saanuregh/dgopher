@@ -370,9 +370,6 @@ func (t *activityTab) View(c *ui.Context) {
 			if !page.metrics {
 				ui.Text(c, widgets.Count(len(t.src.Rows), "row")).FontSize(12).TextColor(pal.Muted)
 			}
-			if t.loading {
-				ui.Spinner(c).Size(12, 12)
-			}
 			ui.Spacer(c)
 			if page.live {
 				ui.Checkbox(c, &t.auto, "Refresh every 2 seconds")
@@ -382,14 +379,14 @@ func (t *activityTab) View(c *ui.Context) {
 			}
 			if row := t.selected(); row != nil {
 				if t.conn.KV != nil {
-					if ui.Button(c, "Disconnect Client").Clicked() {
+					if widgets.Appear(ui.Button(c.Key("disconnect-client"), "Disconnect Client")).Clicked() {
 						t.act(row, true)
 					}
 				} else {
-					if page.stop != nil && ui.Button(c, "Cancel Query").Clicked() {
+					if page.stop != nil && widgets.Appear(ui.Button(c.Key("cancel-query"), "Cancel Query")).Clicked() {
 						t.act(row, false)
 					}
-					if page.kill != nil && ui.Button(c, "End Session").Clicked() {
+					if page.kill != nil && widgets.Appear(ui.Button(c.Key("end-session"), "End Session")).Clicked() {
 						t.act(row, true)
 					}
 				}

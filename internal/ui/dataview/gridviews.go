@@ -20,24 +20,21 @@ const (
 	viewText
 )
 
-// presentationBar switches between the presentations, at the grid's left.
-func (g *Grid) presentationBar(c *ui.Context) {
-	th := c.Theme()
-	ui.Column(c).Width(30).Padding(4, 3).Gap(2).BorderWidth(0, 1, 0, 0).BorderColor(th.Border).Children(func() {
-		for _, p := range []struct {
-			mode  int
-			icon  *ui.SVG
-			label string
-		}{{viewGrid, widgets.IconColumns, "Grid"}, {viewRecord, widgets.IconFile, "Record: the chosen row as fields (Tab)"}, {viewText, widgets.IconCode, keymap.Hint("Text: the rows as plain text", keymap.NextPresentation)}} {
-			b := widgets.IconButton(c, p.icon, p.label)
-			if g.mode == p.mode {
-				b.Background(th.Accent.Alpha(0.15))
-			}
-			if b.Clicked() {
-				g.mode = p.mode
-			}
+// presentationButtons switches between the presentations, the chart
+// among them.
+func (v *Viewer) presentationButtons(c *ui.Context) {
+	for _, p := range []struct {
+		mode  int
+		icon  *ui.SVG
+		label string
+	}{{viewGrid, widgets.IconTable, "Grid"}, {viewRecord, widgets.IconFile, "Record: the chosen row as fields (Tab)"}, {viewText, widgets.IconCode, keymap.Hint("Text: the rows as plain text", keymap.NextPresentation)}} {
+		if widgets.ToggleIconButton(c, p.icon, p.label, !v.showChart && v.grid.mode == p.mode).Clicked() {
+			v.grid.mode, v.showChart = p.mode, false
 		}
-	})
+	}
+	if widgets.ToggleIconButton(c, widgets.IconChart, "Chart", v.showChart).Tooltip(keymap.Hint("Chart: the rows drawn", keymap.ToggleChart)).Clicked() {
+		v.showChart = !v.showChart
+	}
 }
 
 // recordView shows the chosen row as a list of its fields, editable as the

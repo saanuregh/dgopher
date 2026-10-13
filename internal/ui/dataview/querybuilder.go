@@ -555,9 +555,6 @@ func (b *queryBuilder) tablesView(a Host, c *ui.Context) {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, t.alias).Font(widgets.MonoFont).Bold()
 				ui.Text(c, t.schema+"."+t.name).FontSize(12).TextColor(pal.Muted)
-				if t.loading {
-					ui.Spinner(c).Size(12, 12)
-				}
 				if t.err != "" {
 					ui.Text(c, t.err).FontSize(12).TextColor(th.Danger).Shrink(1)
 				}

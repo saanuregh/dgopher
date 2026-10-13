@@ -364,25 +364,14 @@ func (a *App) copyView(c *ui.Context) {
 				ui.Text(c, x.err).TextColor(th.Danger).Selectable()
 			}
 			ui.Row(c).Gap(8).Children(func() {
-				if x.running {
-					ui.Spinner(c).Size(14, 14)
-				}
 				ui.Spacer(c)
-				if x.running {
-					if ui.Button(c, "Cancel").Clicked() {
-						x.cancel()
+				widgets.DismissButton(c, x.running, x.done, x.cancel, func() { x.open = false })
+				if !x.done {
+					copyButton := ui.PrimaryButton(c.Key("copy"), "Copy").Disabled(x.running)
+					widgets.Appear(copyButton)
+					if copyButton.Clicked() && !x.running {
+						a.startCopy(x)
 					}
-					return
-				}
-				close := "Cancel"
-				if x.done {
-					close = "Close"
-				}
-				if ui.Button(c, close).Clicked() {
-					x.open = false
-				}
-				if !x.done && ui.PrimaryButton(c, "Copy").Clicked() {
-					a.startCopy(x)
 				}
 			})
 		})

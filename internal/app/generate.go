@@ -265,9 +265,6 @@ func (a *App) generateView(c *ui.Context) {
 			})
 			ui.Scroll(c).Height(320).Border(1, th.Border).Radius(6).Children(func() {
 				ui.Column(c).Padding(4).Children(func() {
-					if g.loading {
-						ui.Spinner(c).Size(14, 14).Margin(12)
-					}
 					for _, i := range shown {
 						ch := &g.choices[i]
 						ui.Row(c.Key(fmt.Sprint("choice-", i))).Padding(3, 6).Gap(8).Children(func() {
@@ -290,9 +287,6 @@ func (a *App) generateView(c *ui.Context) {
 				ui.Text(c, g.err).TextColor(th.Danger).Selectable()
 			}
 			ui.Row(c).Gap(8).Children(func() {
-				if g.running {
-					ui.Spinner(c).Size(14, 14)
-				}
 				ui.Spacer(c)
 				if ui.Button(c, "Cancel").Clicked() {
 					if g.running {

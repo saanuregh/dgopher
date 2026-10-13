@@ -13,7 +13,9 @@ import (
 
 	"dgopher/internal/audit"
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 	"dgopher/internal/testutil"
+	"dgopher/internal/ui/dataview"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -76,10 +78,24 @@ func editCell(t *testing.T, tt *ui.Tester, text, value string) {
 	tt.Frame()
 }
 
-// waitEditable waits for a result's table to be read, which its edits need.
-func waitEditable(t *testing.T, tt *ui.Tester) {
+// distinctValues opens the distinct values of the column of the cell
+// showing text: a read that runs on the editor's session.
+func distinctValues(t *testing.T, tt *ui.Tester, text string) {
 	t.Helper()
-	testutil.WaitFor(t, tt, "an editable result", func() bool { return tt.HasText("Double-click a cell, or press ↵, to edit") })
+	r, ok := tt.Find(text)
+	if !ok {
+		t.Fatalf("no cell shows %q: %q", text, tt.Texts())
+	}
+	tt.ClickAt(r.X+r.W/2, r.Y+r.H/2)
+	ch, _ := keymap.Primary(keymap.DistinctValues)
+	tt.Key(ch.Mods, ch.Key)
+	tt.Frame()
+}
+
+// waitEditable waits for a result's table to be read, which its edits need.
+func waitEditable(t *testing.T, tt *ui.Tester, q *Tab) {
+	t.Helper()
+	testutil.WaitFor(t, tt, "an editable result", q.ResultEditable)
 }
 
 // A result of one table edits as the table does: ⌘S reviews the change,
@@ -89,7 +105,7 @@ func waitEditable(t *testing.T, tt *ui.Tester) {
 func TestQueryResultEditApply(t *testing.T) {
 	a, tt, q, file := numbersEditor(t, 3, "SELECT * FROM n")
 	runWith(t, tt, q, "SELECT", RunStatement)
-	waitEditable(t, tt)
+	waitEditable(t, tt, q)
 	r := q.results[0]
 	editCell(t, tt, "row 2", "edited")
 	if r.view.PendingCount() != 1 {
@@ -142,7 +158,7 @@ func TestQueryResultEditApply(t *testing.T) {
 		defer d.Close()
 		a, tt, _, q := openEditor(t, cfg, 1200, 760, "SELECT * FROM shop.rv_edit ORDER BY id")
 		runWith(t, tt, q, "SELECT", RunStatement)
-		waitEditable(t, tt)
+		waitEditable(t, tt, q)
 		editCell(t, tt, "beta", "edited")
 		applyEdits(t, a, tt)
 		testutil.WaitFor(t, tt, "the apply", func() bool { return a.saves == 1 && !q.Busy() })
@@ -192,14 +208,14 @@ func TestQueryResultReadOnlyReasons(t *testing.T) {
 	if err := tt.Click("Save"); err != nil {
 		t.Fatal(err)
 	}
-	waitEditable(t, tt)
+	waitEditable(t, tt, q)
 	if got := a.Project.VirtualKeys["lite/main.nk"]; len(got) != 1 || got[0] != "a" {
 		t.Fatalf("virtual keys %v", a.Project.VirtualKeys)
 	}
 
 	q.Editor.SetText("SELECT id, label AS l, upper(label) FROM n")
 	runWith(t, tt, q, "SELECT", RunStatement)
-	waitEditable(t, tt)
+	waitEditable(t, tt, q)
 	r := q.results[0]
 	editCell(t, tt, "row 1", "edited")
 	if r.view.PendingCount() != 0 {
@@ -246,10 +262,10 @@ func TestQueryResultWhereFilter(t *testing.T) {
 	if !strings.HasPrefix(ran, "SELECT * FROM (\nSELECT * FROM n WHERE id <= ") || !strings.HasSuffix(ran, "\n) q WHERE label <> 'row 2'") || strings.Contains(ran, ":last") {
 		t.Fatalf("ran %q", ran)
 	}
-	if err := tt.Click("Count"); err != nil {
-		t.Fatal(err)
+	tt.Frame()
+	if _, ok := tt.Find("Count"); ok || !tt.HasText("2 rows") {
+		t.Fatalf("a query's result offers Count: %q", tt.Texts())
 	}
-	testutil.WaitFor(t, tt, "the count", func() bool { return tt.HasText("of 2") })
 }
 
 // Running again with changes pending asks first: Cancel keeps the result
@@ -257,7 +273,7 @@ func TestQueryResultWhereFilter(t *testing.T) {
 func TestRerunAsksPending(t *testing.T) {
 	a, tt, q, file := numbersEditor(t, 3, "SELECT * FROM n")
 	runWith(t, tt, q, "SELECT", RunStatement)
-	waitEditable(t, tt)
+	waitEditable(t, tt, q)
 	r := q.results[0]
 	editCell(t, tt, "row 2", "edited")
 	q.Run(RunStatement)
@@ -277,7 +293,7 @@ func TestRerunAsksPending(t *testing.T) {
 	if got := sqliteValue(t, file, "SELECT label FROM n WHERE id = 12"); got != "row 2" {
 		t.Fatalf("Discard wrote the change: %q", got)
 	}
-	waitEditable(t, tt)
+	waitEditable(t, tt, q)
 	editCell(t, tt, "row 2", "edited")
 	q.Run(RunScript)
 	if a.Pending == nil || q.Running {
@@ -341,7 +357,7 @@ func TestQueryResultComputedColumns(t *testing.T) {
 
 	q.Editor.SetText("SELECT n.id, label AS label, label AS other FROM n")
 	runWith(t, tt, q, "SELECT", RunStatement)
-	waitEditable(t, tt)
+	waitEditable(t, tt, q)
 	editCell(t, tt, "row 2", "edited")
 	tt.Key(ui.Cmd, ui.KeyS)
 	testutil.WaitFor(t, tt, "the review", func() bool { return q.a.(*fakeQueryHost).Confirm != nil })
@@ -387,7 +403,7 @@ func TestQueryResultEditorSchema(t *testing.T) {
 	a, tt, cn, q := openEditor(t, testutil.PGConfig(), 1200, 760, "SET search_path TO rvprobe;\n\nSELECT * FROM RVPROBE_T;")
 	testutil.WaitFor(t, tt, "the schemas", func() bool { return cn.DefaultSchema != "" })
 	runWith(t, tt, q, "SET", RunScript)
-	waitEditable(t, tt)
+	waitEditable(t, tt, q)
 	editCell(t, tt, "probe", "edited")
 	applyEdits(t, a, tt)
 	testutil.WaitFor(t, tt, "the apply", func() bool { return !q.Busy() && a.saves == 1 })
@@ -396,10 +412,10 @@ func TestQueryResultEditorSchema(t *testing.T) {
 	}
 }
 
-// Count runs on the editor's own session, so it counts what the result
-// read: the tables of the editor's search_path, and the rows its open
-// transaction added, temp tables too.
-func TestCountSeesEditorState(t *testing.T) {
+// A result's distinct values are read on the editor's own session, so they
+// see what the result read: the tables of the editor's search_path, and
+// the rows its open transaction added, temp tables too.
+func TestSessionReadsSeeEditorState(t *testing.T) {
 	testutil.Integration(t)
 	testutil.SeedPostgres(t)
 	d, err := db.Open(context.Background(), testutil.PGConfig(), nil)
@@ -430,21 +446,25 @@ func TestCountSeesEditorState(t *testing.T) {
 	if len(q.results) < 2 {
 		t.Fatalf("results %d", len(q.results))
 	}
-	for i, want := range map[int]string{len(q.results) - 2: "of 4", len(q.results) - 1: "of 1"} {
+	for i, cell := range map[int]string{len(q.results) - 2: "4", len(q.results) - 1: "1"} {
 		q.resultIdx = i
 		tt.Frame()
-		if err := tt.Click("Count"); err != nil {
-			t.Fatalf("result %d: %v %q", i, err, tt.Texts())
+		distinctValues(t, tt, cell)
+		testutil.WaitFor(t, tt, "the values", func() bool { return !q.Busy() })
+		tt.Frame()
+		if slices.ContainsFunc(tt.Texts(), func(s string) bool { return strings.Contains(s, "does not exist") }) {
+			t.Fatalf("result %d read off the session: %q", i, tt.Texts())
 		}
-		testutil.WaitFor(t, tt, "the count "+want, func() bool { return tt.HasText(want) })
+		tt.Key(0, ui.KeyEscape)
+		tt.Frame()
 	}
 }
 
 // While a result still reads its rows, a statement on the session would
-// end them: Count waits for them all, with the reason.
-func TestCountRefusedWhileCursorOpen(t *testing.T) {
+// end them: its distinct values wait for them all, with the reason.
+func TestSessionReadRefusedWhileCursorOpen(t *testing.T) {
 	testutil.Integration(t)
-	_, tt, _, q := openEditor(t, testutil.PGConfig(), 1200, 760, "SELECT g FROM generate_series(1, 5000) g")
+	_, tt, _, q := openEditor(t, testutil.PGConfig(), 1200, 760, "SELECT 'v' || g AS g FROM generate_series(1, 5000) g")
 	runWith(t, tt, q, "SELECT", RunStatement)
 	r := q.results[0]
 	if r.view.Done() {
@@ -453,55 +473,47 @@ func TestCountRefusedWhileCursorOpen(t *testing.T) {
 	if !strings.Contains(q.cursorOpen(), "Fetch All") {
 		t.Fatalf("no reason to wait while the cursor is open: %q", q.cursorOpen())
 	}
-	// The footer shows Count unavailable, with the reason; it counts nothing.
-	at, ok := tt.Find("Count")
-	if !ok {
-		t.Fatal("no Count in the footer")
+	// The dialog shows the reason; it reads nothing.
+	why := q.cursorOpen()
+	distinctValues(t, tt, "v1")
+	testutil.WaitFor(t, tt, "the reason", func() bool { return tt.HasText(why) })
+	if q.Busy() || r.view.Done() {
+		t.Fatal("the values were read while the cursor is open")
 	}
-	tt.Move(at.X+at.W/2, at.Y+at.H/2)
-	testutil.WaitFor(t, tt, "the reason", func() bool { return tt.HasText("Count waits: " + q.cursorOpen()) })
-	tt.Click("Count")
+	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
-	if q.Busy() || r.view.Done() || tt.HasText("of 5000") {
-		t.Fatal("Count ran while the cursor is open")
-	}
 	if err := tt.Click("Fetch All"); err != nil {
 		t.Fatal(err)
 	}
 	testutil.WaitFor(t, tt, "every row", func() bool { return r.view.Done() && !q.Busy() })
-	if err := tt.Click("Count"); err != nil {
-		t.Fatal(err)
-	}
-	testutil.WaitFor(t, tt, "the count", func() bool { return tt.HasText("of 5000") })
+	distinctValues(t, tt, "v1")
+	testutil.WaitFor(t, tt, "the values", func() bool { return tt.HasText("The 1000 most frequent values.") })
 }
 
-// A run waits for a count on the session: cancelled, the count would
-// abort the editor's transaction.
-func TestRunRefusedWhileCounting(t *testing.T) {
+// A run waits for a read on the session: cancelled, the read would abort
+// the editor's transaction.
+func TestRunRefusedWhileReadingOnSession(t *testing.T) {
 	testutil.Integration(t)
-	a, tt, _, q := openEditor(t, testutil.PGConfig(), 1200, 760, "BEGIN;\n\nSELECT pg_sleep(1)::text AS x;\n\nSELECT 42 AS y")
+	a, tt, _, q := openEditor(t, testutil.PGConfig(), 1200, 760, "BEGIN;\n\nSELECT pg_sleep(1)::text || 'slept' AS x;\n\nSELECT 42 AS y")
 	t.Cleanup(func() { q.sess.Close() })
 	runWith(t, tt, q, "BEGIN", RunScript)
 	q.resultIdx = len(q.results) - 2
 	tt.Frame()
-	if err := tt.Click("Count"); err != nil {
-		t.Fatal(err)
-	}
+	distinctValues(t, tt, "slept")
+	tt.Key(0, ui.KeyEscape)
 	runWith(t, tt, q, "SELECT 42", RunStatement)
-	if len(a.Errors) == 0 || !strings.Contains(a.Errors[len(a.Errors)-1], "A count or an export is reading") {
+	if len(a.Errors) == 0 || !strings.Contains(a.Errors[len(a.Errors)-1], "on the editor's session: run once") {
 		t.Fatalf("errors %q", a.Errors)
 	}
-	testutil.WaitFor(t, tt, "the count", func() bool { return !q.Busy() })
+	testutil.WaitFor(t, tt, "the values", func() bool { return !q.Busy() })
 	if q.Tx != db.TxOpen || len(a.Errors) != 1 {
 		t.Fatalf("tx %v, errors %q", q.Tx, a.Errors)
 	}
-	// Closing the tab while it counts says nothing of the cancelled count.
+	// Closing the tab while it reads says nothing of the cancelled read.
 	runWith(t, tt, q, "SELECT pg_sleep", RunStatement)
-	if err := tt.Click("Count"); err != nil {
-		t.Fatal(err)
-	}
+	distinctValues(t, tt, "slept")
 	if !q.Busy() {
-		t.Fatal("no count on its way")
+		t.Fatal("no read on its way")
 	}
 	q.Close()
 	time.Sleep(300 * time.Millisecond)
@@ -514,17 +526,15 @@ func TestRunRefusedWhileCounting(t *testing.T) {
 }
 
 // A database of one connection reads its rows ahead: they hold nothing,
-// and Count runs while the grid still pages through them.
-func TestCountWithRowsReadAhead(t *testing.T) {
-	_, tt, _, q := openEditor(t, db.Config{ID: "mem", Name: "mem", Engine: db.SQLite, Database: ":memory:"}, 1200, 760, "WITH RECURSIVE g(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM g WHERE x < 5000) SELECT x FROM g")
+// and the distinct values are read while the grid still pages through them.
+func TestSessionReadWithRowsReadAhead(t *testing.T) {
+	_, tt, _, q := openEditor(t, db.Config{ID: "mem", Name: "mem", Engine: db.SQLite, Database: ":memory:"}, 1200, 760, "WITH RECURSIVE g(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM g WHERE x < 5000) SELECT 'v' || x AS x FROM g")
 	runWith(t, tt, q, "WITH", RunStatement)
 	if q.results[0].view.Done() || q.cursorOpen() != "" {
 		t.Fatalf("done %v, cursor %q", q.results[0].view.Done(), q.cursorOpen())
 	}
-	if err := tt.Click("Count"); err != nil {
-		t.Fatal(err)
-	}
-	testutil.WaitFor(t, tt, "the count", func() bool { return tt.HasText("of 5000") })
+	distinctValues(t, tt, "v1")
+	testutil.WaitFor(t, tt, "the values", func() bool { return tt.HasText("The 1000 most frequent values.") })
 }
 
 // A table's name matches as the engine folds it.
@@ -573,7 +583,7 @@ func TestQueryResultApplyCancelledRollsBack(t *testing.T) {
 				"INSERT INTO shop.rv_cancel VALUES (1, 'alpha'), (2, 'beta'), (3, 'gamma')"}, "DROP TABLE IF EXISTS shop.rv_cancel")
 			a, tt, _, q := openEditor(t, c.cfg, 1200, 760, "SELECT * FROM shop.rv_cancel ORDER BY id")
 			runWith(t, tt, q, "SELECT", RunStatement)
-			waitEditable(t, tt)
+			waitEditable(t, tt, q)
 			editCell(t, tt, "alpha", "one")
 			editCell(t, tt, "beta", "two")
 			// Another connection holds the second row: the batch waits there.
@@ -621,7 +631,7 @@ func TestQueryResultApplyCancelledRollsBack(t *testing.T) {
 func TestQueryResultApplyStoppedBetweenStatements(t *testing.T) {
 	a, tt, q, file := numbersEditor(t, 3, "SELECT * FROM n")
 	runWith(t, tt, q, "SELECT", RunStatement)
-	waitEditable(t, tt)
+	waitEditable(t, tt, q)
 	editCell(t, tt, "row 1", "one")
 	editCell(t, tt, "row 2", "two")
 	paused, resume := make(chan struct{}), make(chan struct{})
@@ -649,10 +659,10 @@ func TestQueryResultApplyStoppedBetweenStatements(t *testing.T) {
 func TestRunAsksEachResult(t *testing.T) {
 	a, tt, q, _ := numbersEditor(t, 3, "SELECT * FROM n")
 	runWith(t, tt, q, "SELECT", RunStatement)
-	waitEditable(t, tt)
+	waitEditable(t, tt, q)
 	editCell(t, tt, "row 1", "first")
 	runWith(t, tt, q, "SELECT", RunNewTab)
-	waitEditable(t, tt)
+	waitEditable(t, tt, q)
 	editCell(t, tt, "row 2", "second")
 	first, second := q.results[0], q.results[1]
 	if first.view.PendingCount() != 1 || second.view.PendingCount() != 1 {
@@ -670,4 +680,61 @@ func TestRunAsksEachResult(t *testing.T) {
 	testutil.WaitFor(t, tt, "the run", func() bool {
 		return !q.Running && len(q.results) == 1 && q.results[0] != first && q.results[0] != second
 	})
+}
+
+// A quick run moves nothing: the result it replaces stays until the new
+// one comes, the toolbars keep their places, and nothing passing flashes.
+func TestQuickRunKeepsLayout(t *testing.T) {
+	_, tt, q, _ := numbersEditor(t, 3, "SELECT * FROM n")
+	runWith(t, tt, q, "SELECT", RunStatement)
+	testutil.WaitFor(t, tt, "the result", func() bool { return !q.Busy() && q.ResultEditable() })
+	tt.Frame()
+	anchors := []string{"row 1", "Run Script", "Export…", "Add Row"}
+	where := map[string]ui.Rect{}
+	for _, s := range anchors {
+		r, ok := tt.Find(s)
+		if !ok {
+			t.Fatalf("no %q: %q", s, tt.Texts())
+		}
+		where[s] = r
+	}
+	q.Run(RunStatement)
+	for f := 0; f < 10; f++ {
+		tt.Frame()
+		for _, s := range anchors {
+			if r, ok := tt.Find(s); !ok || r != where[s] {
+				t.Fatalf("frame %d: %q at %v (shown %v), was %v", f, s, r, ok, where[s])
+			}
+		}
+		if tt.HasText(dataview.ReadingColumns) || tt.HasText("Running") {
+			t.Fatalf("frame %d: a passing state flashed: %q", f, tt.Texts())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// Run turns to Stop, in place, once a run lasts, and back as it ends.
+func TestRunTurnsToStop(t *testing.T) {
+	_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1200, 760,
+		"WITH RECURSIVE g(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM g WHERE x < 3000000) SELECT count(*) FROM g")
+	tt.Frame()
+	run, ok := tt.Find("Run")
+	if !ok {
+		t.Fatalf("no Run: %q", tt.Texts())
+	}
+	q.Run(RunStatement)
+	tt.Frame()
+	if !q.Running || !tt.HasText("Run") || tt.HasText("Stop") {
+		t.Fatalf("a run just begun changed the button: running %v, %q", q.Running, tt.Texts())
+	}
+	q.StartedAt = time.Now().Add(-time.Second)
+	tt.Frame()
+	stop, ok := tt.Find("Stop")
+	if !ok || stop.X != run.X {
+		t.Fatalf("no Stop where Run was: %v (shown %v), Run at %v", stop, ok, run)
+	}
+	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running })
+	if !tt.HasText("Run") || tt.HasText("Stop") {
+		t.Fatalf("Run did not come back: %q", tt.Texts())
+	}
 }

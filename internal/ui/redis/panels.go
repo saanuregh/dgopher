@@ -152,13 +152,18 @@ func (r *Tab) monitorActions(c *ui.Context) {
 	m := &r.monitor
 	pal := widgets.PaletteOf(c)
 	if m.cancel != nil {
-		ui.Spinner(c).Size(12, 12)
 		ui.Text(c, widgets.Count(len(m.lines), "command")).FontSize(12).TextColor(pal.Muted)
-		if ui.Link(c, "Stop", "").FontSize(12).Clicked() {
+	}
+	label := "Start"
+	if m.cancel != nil {
+		label = "Stop"
+	}
+	if widgets.StatusButton(c.Key("monitor-run"), label).Clicked() {
+		if m.cancel != nil {
 			m.cancel()
+		} else {
+			r.startMonitor()
 		}
-	} else if ui.Link(c, "Start", "").FontSize(12).Clicked() {
-		r.startMonitor()
 	}
 	if ui.Link(c, "Clear", "").FontSize(12).Clicked() {
 		m.lines = nil
@@ -218,10 +223,6 @@ func (r *Tab) loadSlowLog() {
 }
 
 func (r *Tab) slowLogActions(c *ui.Context) {
-	s := &r.slow
-	if s.loading {
-		ui.Spinner(c).Size(12, 12)
-	}
 	if ui.Link(c, "Refresh", "").FontSize(12).Clicked() {
 		r.loadSlowLog()
 	}
@@ -340,9 +341,8 @@ func (r *Tab) memoryActions(c *ui.Context) {
 	m := &r.memory
 	pal := widgets.PaletteOf(c)
 	if m.cancel != nil {
-		ui.Spinner(c).Size(12, 12)
 		ui.Text(c, widgets.HumanCount(m.read)+" keys read").FontSize(12).TextColor(pal.Muted)
-		if ui.Link(c, "Stop", "").FontSize(12).Clicked() {
+		if widgets.StatusButton(c.Key("analyse-run"), "Stop").Clicked() {
 			m.cancel()
 		}
 		return
@@ -352,7 +352,7 @@ func (r *Tab) memoryActions(c *ui.Context) {
 		labels[i] = "Up to " + widgets.HumanCount(n) + " keys"
 	}
 	ui.Segmented(c, &m.limit, labels...).Label("Keys to read")
-	if ui.Link(c, "Analyse", "").FontSize(12).Clicked() {
+	if widgets.StatusButton(c.Key("analyse-run"), "Analyse").Clicked() {
 		r.startAnalysis()
 	}
 }

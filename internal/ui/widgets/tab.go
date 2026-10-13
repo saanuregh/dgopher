@@ -41,6 +41,20 @@ type ShownNotifier interface {
 	Shown()
 }
 
+// Marked is a tab whose CloseReason may be work passing, as a statement
+// running: its tab's dot shows only Mark, what closing loses that stays,
+// as the status bar shows work going on.
+type Marked interface {
+	Mark() string
+}
+
+// Worker is a tab that says when it works, as it reads rows on its own:
+// the status bar shows work going on. Work through the host's Background
+// shows without it.
+type Worker interface {
+	Busy() bool
+}
+
 // Command is something a tab does, which the command palette offers.
 type Command struct {
 	Title, Detail string

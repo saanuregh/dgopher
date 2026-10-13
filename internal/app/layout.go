@@ -360,7 +360,13 @@ func (a *App) tabBar(c *ui.Context) {
 								ui.Text(c, sub).SingleLine().FontSize(10.5).TextColor(pal.Muted)
 							}
 						})
-						if r := tb.CloseReason(); r != "" {
+						var r string
+						if m, ok := tb.(widgets.Marked); ok {
+							r = m.Mark()
+						} else {
+							r = tb.CloseReason()
+						}
+						if r != "" {
 							ui.Box(c).Size(6, 6).Radius(3).Background(t.Warning).Tooltip(r)
 						}
 						if pinned {
@@ -368,7 +374,9 @@ func (a *App) tabBar(c *ui.Context) {
 							if pin.Hovered() {
 								pin.Background(pal.Hover)
 							}
-							pin.Children(func() { ui.Icon(c, widgets.IconPin).FontSize(11).TextColor(pal.Muted) })
+							pin.Children(func() {
+								ui.Icon(c, widgets.IconPin).FontSize(11).TextColor(pal.Muted).ContentTransition(ui.ContentTransition{})
+							})
 							if pin.Clicked() {
 								a.Post(func() { w.tabs.SetPinned(tb, false) }) // after the tabs are drawn
 							}
@@ -392,7 +400,7 @@ func (a *App) tabBar(c *ui.Context) {
 							if unsaved {
 								ui.Box(c).Size(8, 8).Margin(1.5).Radius(4).Background(t.Text)
 							} else {
-								ui.Icon(c, widgets.IconX).FontSize(11)
+								ui.Icon(c, widgets.IconX).FontSize(11).ContentTransition(ui.ContentTransition{})
 							}
 						})
 						if x.Clicked() {
@@ -723,71 +731,95 @@ func (a *App) statusBar(c *ui.Context) {
 	} else if cn := a.activeConn(); cn != nil {
 		groups = []connPlaces{{conn: cn, databases: []string{""}}}
 	}
-	ui.Row(c).Height(26).Padding(0, 10).Gap(12).Background(pal.Sidebar).BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
-		a.txIndicator(c)
-		switch len(groups) {
-		case 0:
-			ui.Text(c, "No connection").FontSize(12).TextColor(pal.Muted)
-			ui.Spacer(c)
-			return
-		case 1:
-		default:
-			a.connChips(c, groups)
-			ui.Spacer(c)
-			return
-		}
-		g := groups[0]
-		cn := g.conn
-		connBadge(c, cn)
-		if w := g.where(); w != "" {
-			ui.Text(c, "· "+w).FontSize(12).TextColor(pal.Muted).SingleLine()
-		}
-		status := "disconnected"
-		switch cn.Status {
-		case connection.StatusConnected:
-			status = cn.Config.Engine.Label()
-			if cn.Version != "" {
-				status += " " + widgets.FirstLine(cn.Version)
-			}
-			if s := tlsStateOf(cn.DB, cn.KV); s != "" {
-				status += ", " + s
-			}
-		case connection.StatusConnecting:
-			status = "connecting…"
-		case connection.StatusFailed:
-			status = "failed"
-		}
-		ui.Text(c, status).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1)
-		if cn.Config.ReadOnly {
-			ui.Row(c).Gap(4).Children(func() {
-				ui.Icon(c, widgets.IconLock).FontSize(11)
-				ui.Text(c, "read-only").FontSize(12)
-			})
-		}
-		if cn.Config.SSH.Enabled {
-			ui.Text(c, "SSH "+cn.Config.SSH.Host).FontSize(12).TextColor(pal.Muted)
-		}
-		ui.Spacer(c)
-		switch tb := a.ActiveTab().(type) {
-		case *query.Tab:
-			switch tb.Tx {
-			case db.TxOpen:
-				ui.Text(c, "● transaction open").FontSize(12).TextColor(t.Warning)
-			case db.TxFailed:
-				ui.Text(c, "● transaction failed").FontSize(12).TextColor(t.Danger)
-			}
-			if tb.Running {
-				ui.Text(c, "running "+widgets.FormatDuration(time.Since(tb.StartedAt).Round(100*time.Millisecond))).FontSize(12).TextColor(pal.Muted)
-			}
-		}
-		mode := "auto-commit"
-		if cn.Config.ManualCommit() {
-			mode = "manual commit"
-		}
-		if cn.Config.Engine.IsSQL() && cn.Config.Engine != db.ClickHouse {
-			ui.Text(c, mode).FontSize(12).TextColor(pal.Muted)
-		}
+	// Its top edge is the app's one sign of work going on: a thin bar,
+	// moving, once work has lasted a moment, in place of the line drawn
+	// there otherwise, so that nothing moves.
+	busy := a.busy()
+	switch {
+	case !busy:
+		a.busySince = time.Time{}
+	case a.busySince.IsZero():
+		a.busySince = time.Now()
+	}
+	if busy && widgets.Lasted(c, a.busySince) {
+		widgets.ActivityBar(c)
+	} else {
+		ui.Box(c).Height(2).Background(pal.Sidebar).BorderWidth(1, 0, 0, 0).BorderColor(t.Border)
+	}
+	ui.Row(c).Height(26).Padding(0, 10).Gap(12).Background(pal.Sidebar).Children(func() {
+		a.connectionStatus(c, groups)
 	})
+}
+
+// connectionStatus is the status bar's account of the connection of the
+// tab in front, or of the several it runs on.
+func (a *App) connectionStatus(c *ui.Context, groups []connPlaces) {
+	t := c.Theme()
+	pal := widgets.PaletteOf(c)
+	a.txIndicator(c)
+	switch len(groups) {
+	case 0:
+		ui.Text(c, "No connection").FontSize(12).TextColor(pal.Muted)
+		ui.Spacer(c)
+		return
+	case 1:
+	default:
+		a.connChips(c, groups)
+		ui.Spacer(c)
+		return
+	}
+	g := groups[0]
+	cn := g.conn
+	connBadge(c, cn)
+	if w := g.where(); w != "" {
+		ui.Text(c, "· "+w).FontSize(12).TextColor(pal.Muted).SingleLine()
+	}
+	status := "disconnected"
+	switch cn.Status {
+	case connection.StatusConnected:
+		status = cn.Config.Engine.Label()
+		if cn.Version != "" {
+			status += " " + widgets.FirstLine(cn.Version)
+		}
+		if s := tlsStateOf(cn.DB, cn.KV); s != "" {
+			status += ", " + s
+		}
+	case connection.StatusConnecting:
+		status = "connecting…"
+	case connection.StatusFailed:
+		status = "failed"
+	}
+	ui.Text(c, status).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1).ContentTransition(ui.ContentTransition{})
+	if cn.Config.ReadOnly {
+		ui.Row(c).Gap(4).Children(func() {
+			ui.Icon(c, widgets.IconLock).FontSize(11)
+			ui.Text(c, "read-only").FontSize(12)
+		})
+	}
+	if cn.Config.SSH.Enabled {
+		ui.Text(c, "SSH "+cn.Config.SSH.Host).FontSize(12).TextColor(pal.Muted)
+	}
+	ui.Spacer(c)
+	// After the spacer, Cancel moves nothing as it comes and goes.
+	if since, ok := a.connectStarted(cn); ok && widgets.Lasted(c, since) && widgets.Appear(widgets.StatusButton(c.Key("cancel-connect"), "Cancel")).Tooltip("Stop connecting").Clicked() {
+		a.CancelConnect(cn)
+	}
+	switch tb := a.ActiveTab().(type) {
+	case *query.Tab:
+		switch tb.Tx {
+		case db.TxOpen:
+			widgets.Appear(ui.Text(c.Key("transaction-state"), "● transaction open").FontSize(12).TextColor(t.Warning).ContentTransition(ui.ContentTransition{}))
+		case db.TxFailed:
+			widgets.Appear(ui.Text(c.Key("transaction-state"), "● transaction failed").FontSize(12).TextColor(t.Danger).ContentTransition(ui.ContentTransition{}))
+		}
+	}
+	mode := "auto-commit"
+	if cn.Config.ManualCommit() {
+		mode = "manual commit"
+	}
+	if cn.Config.Engine.IsSQL() && cn.Config.Engine != db.ClickHouse {
+		ui.Text(c, mode).FontSize(12).TextColor(pal.Muted)
+	}
 }
 
 // maxChips is how many connections the status bar shows of a tab running

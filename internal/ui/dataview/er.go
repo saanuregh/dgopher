@@ -308,7 +308,6 @@ func (e *ERTab) View(c *ui.Context) {
 		switch {
 		case e.loading:
 			ui.Row(c).Grow(1).Center().Gap(8).Children(func() {
-				ui.Spinner(c)
 				ui.Text(c, "Reading the schema…").TextColor(pal.Muted)
 			})
 			return

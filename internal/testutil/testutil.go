@@ -77,6 +77,20 @@ func SeedPostgres(t *testing.T) {
 	}
 }
 
+// Settled waits until what shows text stops moving, as a button easing
+// in, and returns where it rests.
+func Settled(t *testing.T, tt *ui.Tester, text string) ui.Rect {
+	t.Helper()
+	var last ui.Rect
+	WaitFor(t, tt, text+" to settle", func() bool {
+		r, _ := tt.Find(text)
+		settled := r.W > 0 && r == last
+		last = r
+		return settled
+	})
+	return last
+}
+
 func HasTextContaining(tt *ui.Tester, part string) bool {
 	for _, s := range tt.Texts() {
 		if strings.Contains(s, part) {

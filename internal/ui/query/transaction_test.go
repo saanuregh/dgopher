@@ -138,7 +138,7 @@ func TestFailedApplyKeepsUserTransaction(t *testing.T) {
 		if q.Tx != db.TxOpen {
 			t.Fatalf("tx %v after BEGIN; messages %+v", q.Tx, q.messages)
 		}
-		waitEditable(t, tt)
+		waitEditable(t, tt, q)
 		editCell(t, tt, "one", "uno")
 		editCell(t, tt, "two", "three") // taken by row 3: the second UPDATE fails
 		applyEdits(t, a, tt)
@@ -371,7 +371,7 @@ func TestApplyLostConnectionResetsSchema(t *testing.T) {
 	if q.schema != "information_schema" {
 		t.Fatalf("schema %q", q.schema)
 	}
-	waitEditable(t, tt)
+	waitEditable(t, tt, q)
 	kill := "KILL " + sessionValue(t, q, "SELECT CONNECTION_ID()")
 	editCell(t, tt, "alpha", "one")
 	editCell(t, tt, "beta", "two")
@@ -839,7 +839,7 @@ func TestAutocommitOffHoldsWrites(t *testing.T) {
 	runWith(t, tt, q, "SELECT", RunStatement)
 	q.endTx(true) // the read opened a transaction; none is open for the edit
 	testutil.WaitFor(t, tt, "the commit", func() bool { return !q.Running && q.Tx == db.TxNone })
-	waitEditable(t, tt)
+	waitEditable(t, tt, q)
 	editCell(t, tt, "10", "11")
 	applyEdits(t, a, tt)
 	r := q.results[0]

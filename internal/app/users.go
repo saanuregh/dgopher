@@ -167,9 +167,6 @@ func (t *usersTab) View(c *ui.Context) {
 			ui.Icon(c, widgets.IconUsers).TextColor(pal.Muted).FontSize(14)
 			ui.Text(c, "Users and roles").Bold()
 			ui.Text(c, fmt.Sprintf("%d", len(t.accounts))).FontSize(12).TextColor(pal.Muted)
-			if t.loading {
-				ui.Spinner(c).Size(12, 12)
-			}
 			ui.Spacer(c)
 			if ui.Button(c, "New User…").Clicked() {
 				t.openForm(formNewUser)

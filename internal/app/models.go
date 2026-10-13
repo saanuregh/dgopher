@@ -217,7 +217,6 @@ func (a *App) saveModelView(c *ui.Context) {
 			}
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				if f.building {
-					ui.Spinner(c).Size(14, 14)
 					ui.Text(c, widgets.Count(f.read, "table")+" read…").FontSize(12.5).TextColor(pal.Muted)
 					c.After(200 * time.Millisecond)
 				}

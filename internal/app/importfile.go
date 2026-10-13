@@ -556,7 +556,6 @@ func (a *App) importView(c *ui.Context) {
 			switch {
 			case x.loading:
 				ui.Row(c).Gap(8).Children(func() {
-					ui.Spinner(c).Size(14, 14)
 					ui.Text(c, "Reading the file…").TextColor(pal.Muted)
 				})
 			case x.file != nil:
@@ -568,22 +567,13 @@ func (a *App) importView(c *ui.Context) {
 			ui.Row(c).Gap(8).Children(func() {
 				switch {
 				case x.running:
-					ui.Spinner(c).Size(14, 14)
 					ui.Text(c, fmt.Sprintf("%d of %d rows…", x.done, x.total)).TextColor(pal.Muted)
 				case x.file != nil:
 					ui.Text(c, widgets.Count(x.total, "row")).TextColor(pal.Muted)
 				}
 				ui.Spacer(c)
-				if x.running {
-					if ui.Button(c, "Cancel").Clicked() && x.cancel != nil {
-						x.cancel()
-					}
-					return
-				}
-				if ui.Button(c, "Cancel").Clicked() {
-					x.open = false
-				}
-				if ui.PrimaryButton(c, "Import").Disabled(x.file == nil || x.loading).Clicked() {
+				widgets.DismissButton(c, x.running, false, x.cancel, func() { x.open = false })
+				if ui.PrimaryButton(c.Key("import"), "Import").Disabled(x.running || x.file == nil || x.loading).Clicked() {
 					a.confirmImport(x)
 				}
 			})

@@ -110,9 +110,6 @@ func (r *Tab) runSearch() {
 
 func (r *Tab) searchActions(c *ui.Context) {
 	s := &r.search
-	if s.loading {
-		ui.Spinner(c).Size(12, 12)
-	}
 	if ui.Link(c, "Refresh", "").FontSize(12).Clicked() {
 		r.loadIndexes()
 	}

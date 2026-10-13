@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"slices"
 	"strings"
-	"time"
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
@@ -265,9 +264,7 @@ func (d *designer) View(c *ui.Context) {
 		ui.Row(c).Padding(8, 16).Gap(10).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 			switch {
 			case d.applying:
-				ui.Spinner(c).Size(14, 14)
-				ui.Text(c, "Applying…").TextColor(pal.Muted)
-				c.After(200 * time.Millisecond)
+				widgets.Appear(ui.Text(c.Key("applying"), "Applying…").TextColor(pal.Muted))
 			case err != nil && d.changed():
 				ui.Icon(c, widgets.IconAlert).TextColor(th.Danger).FontSize(13)
 				ui.Text(c, widgets.Sentence(err.Error())).TextColor(th.Danger).FontSize(12.5).Shrink(1)
@@ -277,21 +274,21 @@ func (d *designer) View(c *ui.Context) {
 			}
 			ui.Spacer(c)
 			if d.applying {
-				if ui.Button(c, "Cancel").Clicked() && d.cancel != nil {
+				if widgets.Appear(ui.Button(c.Key("cancel"), "Cancel")).Clicked() && d.cancel != nil {
 					d.cancel()
 				}
 				return
 			}
-			if (d.was != nil || d.save != nil) && ui.Button(c, "Discard Changes").Disabled(!d.changed()).Clicked() {
+			if (d.was != nil || d.save != nil) && widgets.Appear(ui.Button(c.Key("discard"), "Discard Changes")).Disabled(!d.changed()).Clicked() {
 				d.discard()
 			}
 			if d.save != nil {
-				if ui.PrimaryButton(c, "Save to Model").Disabled(err != nil || !d.changed()).Clicked() {
+				if widgets.Appear(ui.PrimaryButton(c.Key("main"), "Save to Model")).Disabled(err != nil || !d.changed()).Clicked() {
 					d.apply()
 				}
 				return
 			}
-			if ui.PrimaryButton(c, "Review SQL…").Disabled(err != nil || len(ch.Steps) == 0).Tooltip("See the statements, then apply them").Clicked() {
+			if widgets.Appear(ui.PrimaryButton(c.Key("main"), "Review SQL…")).Disabled(err != nil || len(ch.Steps) == 0).Tooltip("See the statements, then apply them").Clicked() {
 				d.apply()
 			}
 		})

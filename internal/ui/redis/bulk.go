@@ -341,36 +341,30 @@ func (r *Tab) bulkView(c *ui.Context) {
 			}
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				if b.running {
-					ui.Spinner(c).Size(14, 14)
 					if b.done > 0 {
 						ui.Text(c, widgets.HumanCount(b.done)+" keys…").FontSize(12).TextColor(pal.Muted)
 					}
 				}
 				ui.Spacer(c)
-				if b.running {
-					if ui.Button(c, "Cancel").Clicked() {
-						b.cancel()
-					}
-					return
-				}
-				if ui.Button(c, "Close").Clicked() {
-					b.open = false
-				}
+				widgets.DismissButton(c, b.running, true, b.cancel, func() { b.open = false })
+				// The main buttons stay, disabled, while the job runs, so the
+				// dialog does not shift. Count Keys to Delete stays an instant
+				// change: it turns what harms nothing to what destroys.
 				switch b.kind {
 				case bulkDelete:
 					if b.counted != b.pattern || b.counted == "" {
-						if widgets.Activated(c, ui.PrimaryButton(c, "Count Keys").Disabled(strings.TrimSpace(b.pattern) == "")) {
+						if widgets.Activated(c, ui.PrimaryButton(c, "Count Keys").Disabled(b.running || strings.TrimSpace(b.pattern) == "")) {
 							r.countKeys(b)
 						}
-					} else if ui.PrimaryButton(c, "Delete "+widgets.HumanCount(b.count)+" Keys…").Disabled(ro || b.count == 0).Clicked() {
+					} else if ui.PrimaryButton(c, "Delete "+widgets.HumanCount(b.count)+" Keys…").Disabled(b.running || ro || b.count == 0).Clicked() {
 						r.deleteKeys(b)
 					}
 				case bulkExport:
-					if widgets.Activated(c, ui.PrimaryButton(c, "Export…").Disabled(strings.TrimSpace(b.pattern) == "")) {
+					if widgets.Activated(c, ui.PrimaryButton(c, "Export…").Disabled(b.running || strings.TrimSpace(b.pattern) == "")) {
 						r.chooseExport(b)
 					}
 				case bulkImport:
-					if ui.PrimaryButton(c, "Import").Disabled(ro || len(b.dumps) == 0).Clicked() {
+					if ui.PrimaryButton(c, "Import").Disabled(b.running || ro || len(b.dumps) == 0).Clicked() {
 						r.importKeys(b)
 					}
 				}

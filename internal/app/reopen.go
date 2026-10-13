@@ -86,6 +86,9 @@ func (a *App) reopener(t widgets.Tab) func() string {
 			a.openFileTab(cn, database, path, string(data)) // unconnected, as a restored editor
 			return ""
 		}
+	case *waitingTab:
+		s, _ := savedTabOf(t)
+		return a.withConn(s.Connection, gone, func(cn *connection.Conn) { a.tabs.Add(&waitingTab{a: a, conn: cn, saved: s}) })
 	case *dataview.TableTab:
 		id, database, obj, page := t.Conn.Config.ID, t.Database, t.Object, t.Page
 		return a.withConn(id, gone, func(cn *connection.Conn) { a.OpenTable(cn, database, obj, page) })

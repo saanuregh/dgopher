@@ -136,9 +136,6 @@ func (t *searchTab) View(c *ui.Context) {
 		})
 		ui.Row(c).Padding(6, 12).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Text(c, t.status()).FontSize(12).TextColor(pal.Muted).Grow(1).Shrink(1).SingleLine()
-			if t.searching {
-				ui.Spinner(c).Size(12, 12)
-			}
 		})
 		if t.err != "" {
 			ui.Text(c, t.err).TextColor(th.Danger).Padding(10, 12).Selectable()

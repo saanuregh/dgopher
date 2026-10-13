@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -104,7 +105,10 @@ type Viewer struct {
 	whereIn  string // the filter being typed
 	count    int64  // -1 until counted
 	counting bool
-	applying bool
+	// countStarted is when the count began; countStop ends it.
+	countStarted time.Time
+	countStop    context.CancelFunc
+	applying     bool
 	// sessionReads counts the reads of Count, distinct values and
 	// grouping on the session; readCancel ends them.
 	sessionReads int
@@ -116,8 +120,11 @@ type Viewer struct {
 	// Filter menu added to it, by column; where joins them.
 	typedWhere  string
 	menuFilters []tableFilter
-	// builder is the filter builder, while it shows.
+	// builder is the filter builder, while it shows; built are the
+	// conditions it last applied, shown again while the filter typed is
+	// theirs.
 	builder *filterBuilder
+	built   builtFilter
 	// maskChosen are the columns whose values the user hid or showed in
 	// this view, by name, over the project's choice and the settings'.
 	maskChosen map[string]bool
@@ -129,6 +136,11 @@ type Viewer struct {
 	cancel      context.CancelFunc // ends the cursor
 	// applyCancel stops an apply when the owner closes.
 	applyCancel context.CancelFunc
+	// applyStopped is set by Stop: the apply stops before its next
+	// change, and rolls back.
+	applyStopped atomic.Bool
+	// applyStarted is when the apply began.
+	applyStarted time.Time
 	// reloadAgain reads the rows once more after the load in progress.
 	reloadAgain bool
 	// afterApply runs instead of a read once the changes being applied
@@ -137,6 +149,8 @@ type Viewer struct {
 	// fetchingAll keeps reading pages until the last; allAfterRead starts
 	// it once the read in progress ends.
 	fetchingAll, allAfterRead bool
+	// fetchStarted is when Fetch All began.
+	fetchStarted time.Time
 	// sortRead is the order the rows were read in, which a cancelled
 	// server sort goes back to.
 	sortRead  []ui.SortOrder
@@ -402,7 +416,7 @@ func (v *Viewer) discard() {
 // once they are applied or discarded and the rows read again.
 func (v *Viewer) FetchAll() {
 	if v.grid.edits.count() == 0 {
-		v.fetchingAll = true
+		v.fetchingAll, v.fetchStarted = true, time.Now()
 		v.fetchMore()
 		return
 	}
@@ -410,6 +424,25 @@ func (v *Viewer) FetchAll() {
 		v.allAfterRead = true
 		v.reload()
 	}, nil)
+}
+
+// stopFetchAll ends Fetch All once the page on its way is read: the rows
+// stay, and the cursor reads on when asked. Its context is the rows'
+// own, which ending would end the query, and on PostgreSQL the
+// transaction it runs in.
+func (v *Viewer) stopFetchAll() { v.fetchingAll, v.allAfterRead = false, false }
+
+// countStopRefusal says why a count cannot be stopped, "" when it can: on
+// DuckDB's one connection, ending its statement aborts the transaction
+// open there.
+func (v *Viewer) countStopRefusal() string {
+	if v.source.Conn.Config.Engine != db.DuckDB || v.source.Conn.DB == nil {
+		return ""
+	}
+	if state, _ := v.source.Conn.DB.SharedTx(); state != db.TxNone {
+		return "Stopping the count would abort the transaction open on " + v.source.Conn.Config.Name + "."
+	}
+	return ""
 }
 
 // dialect is the engine's, which the pool's is: read so, it holds while
@@ -460,7 +493,7 @@ func (v *Viewer) readOnlyReason() string {
 		return "Views are not edited from the grid."
 	}
 	if v.columns == nil {
-		return "Reading the table's columns…"
+		return ReadingColumns
 	}
 	if _, _, err := v.keyColumns(); err != nil {
 		return "This " + err.Error() + ", or define a virtual key from a column's menu"
@@ -589,7 +622,7 @@ func (v *Viewer) reload() {
 			v.bindColumns()
 			if v.allAfterRead {
 				v.allAfterRead = false
-				v.fetchingAll = true
+				v.fetchingAll, v.fetchStarted = true, time.Now()
 				v.fetchMore()
 			}
 		})
@@ -692,10 +725,26 @@ func (v *Viewer) Columns() []db.ColumnInfo { return v.src.Cols }
 // Done reports whether every row was read, or the rows were cut short.
 func (v *Viewer) Done() bool { return v.done }
 
+// The reasons the rows cannot be edited for a moment. The status line
+// leaves them out, as most pass before they could be read; the edit
+// buttons' tips say them.
+const (
+	ReadingColumns  = "Reading the table's columns…"
+	readingRows     = "Reading the rows…"
+	applyingChanges = "Applying the changes…"
+)
+
+func passing(reason string) bool {
+	return reason == ReadingColumns || reason == readingRows || reason == applyingChanges
+}
+
+// ReadOnly says why the rows cannot be edited now, "" when they can.
+func (v *Viewer) ReadOnly() string { return v.grid.readOnly }
+
 func (v *Viewer) fetchMore() {
 	// New rows are numbered after the rows read: no page may come between
 	// while they or an edit are pending.
-	if v.done || v.loading || v.cursor == nil || len(v.src.Rows) >= db.MaxRows || v.grid.edits.count() > 0 || v.grid.editing != nil {
+	if v.released || v.done || v.loading || v.cursor == nil || len(v.src.Rows) >= db.MaxRows || v.grid.edits.count() > 0 || v.grid.editing != nil {
 		v.fetchingAll = false
 		return
 	}
@@ -734,9 +783,12 @@ func (v *Viewer) countRows() {
 		return
 	}
 	query := "SELECT COUNT(*) FROM " + v.from() + whereClause(v.where)
-	v.counting = true
-	v.queryRows(query, v.source.Args, 1, func(_ []string, rows [][]any, err error) {
-		v.counting = false
+	v.counting, v.countStarted = true, time.Now()
+	v.countStop = v.queryRows(query, v.source.Args, 1, func(_ []string, rows [][]any, err error) {
+		v.counting, v.countStop = false, nil
+		if errors.Is(err, context.Canceled) {
+			return // stopped: Count is offered again
+		}
 		if err == nil && (len(rows) != 1 || len(rows[0]) != 1) {
 			err = errors.New("the count returned no value")
 		}
@@ -906,6 +958,18 @@ func (v *Viewer) reviewChanges() {
 	v.a.AskConfirm(v.source.Conn, verdict, title, "Apply", strings.Join(previews, "\n"), func() { v.apply(stmts, shown) })
 }
 
+// applyStep, set by tests, runs in the apply before each statement
+// ("statement", its index) and before the commit ("finish").
+var applyStep func(stage string, i int)
+
+// stopApply stops the apply before its next change. A statement sent
+// runs to its end: cut short inside the user's transaction, SQLite would
+// roll back the whole transaction, and MySQL might drop the connection.
+func (v *Viewer) stopApply() { v.applyStopped.Store(true) }
+
+// errApplyStopped is an apply stopped by the user.
+var errApplyStopped = errors.New("stopped")
+
 // apply runs the statements in one transaction, and shows and audits them
 // as shown has them. On a connection in manual commit, the transaction
 // stays open for the user to commit.
@@ -926,8 +990,13 @@ func (v *Viewer) apply(stmts, shown []db.Statement) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	v.applyCancel = cancel
+	v.applyStopped.Store(false)
+	v.applyStarted = time.Now()
+	job := fmt.Sprintf("Applying %s to %s on %s: stopping it rolls them back, and nothing of it stays.", widgets.Count(len(stmts), "change"), v.TableName(), cfg.Name)
+	finishJob := v.a.StartJob(v.source.Conn, job, v.stopApply)
 	go func() {
 		defer RecoverBackground(v.a.Post, v.a.ShowError, func() { v.applying = false })
+		defer finishJob()
 		defer cancel()
 		var err error
 		if sess == nil {
@@ -960,6 +1029,13 @@ func (v *Viewer) apply(stmts, shown []db.Statement) {
 			err = fmt.Errorf("a transaction is open and %s cannot nest the changes in it (%w): commit or roll it back first", engine, err)
 		}
 		for i := 0; err == nil && i < len(stmts); i++ {
+			if applyStep != nil {
+				applyStep("statement", i)
+			}
+			if v.applyStopped.Load() {
+				err = errApplyStopped
+				break
+			}
 			s := stmts[i]
 			var n int64
 			start := time.Now()
@@ -969,6 +1045,17 @@ func (v *Viewer) apply(stmts, shown []db.Statement) {
 			}
 			v.a.RecordRun(cfg, audit.KindEdit, database, shown[i].Preview(), n, time.Since(start), err)
 		}
+		if applyStep != nil {
+			applyStep("finish", len(stmts))
+		}
+		// Stopped, or the owner closing, after the last change: they roll
+		// back, as before it. Past this, the end is not cut short.
+		if err == nil && v.applyStopped.Load() {
+			err = errApplyStopped
+		}
+		if err == nil {
+			err = ctx.Err()
+		}
 		// A connection lost with the batch's transaction: the server rolled
 		// it back. An undo would go to the connection made again and take
 		// its one refusal (db.ErrSessionReset), which the user's next
@@ -977,6 +1064,10 @@ func (v *Viewer) apply(stmts, shown []db.Statement) {
 		// The rollback goes out on a context of its own: an owner that
 		// closes stops the batch by ending ctx.
 		undo, cancelUndo := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		// A COMMIT or RELEASE once sent is not cut short, by Stop, the owner
+		// closing or a time limit: cut, its outcome would be unknown, and
+		// no rollback would follow.
+		finish := context.WithoutCancel(ctx)
 		var undoErr error
 		switch {
 		case lost:
@@ -987,9 +1078,9 @@ func (v *Viewer) apply(stmts, shown []db.Statement) {
 				_, undoErr = sess.Exec(undo, "RELEASE SAVEPOINT "+savepoint)
 			}
 		case saved:
-			_, err = sess.Exec(ctx, "RELEASE SAVEPOINT "+savepoint)
+			_, err = sess.Exec(finish, "RELEASE SAVEPOINT "+savepoint)
 		case began && !manual:
-			err = sess.Commit(ctx)
+			err = sess.Commit(finish)
 		}
 		cancelUndo()
 		resetBy := errors.Join(err, undoErr)
@@ -1006,6 +1097,8 @@ func (v *Viewer) apply(stmts, shown []db.Statement) {
 		case undoErr != nil:
 			outcome.Detail += "failed, and so did their rollback"
 			outcome.Err = err
+		case errors.Is(err, errApplyStopped):
+			outcome.Detail += "stopped, rolled back"
 		case err != nil:
 			outcome.Detail += "rolled back"
 			outcome.Err = err
@@ -1028,7 +1121,11 @@ func (v *Viewer) apply(stmts, shown []db.Statement) {
 			then := v.afterApply
 			v.afterApply = nil
 			if err != nil {
-				v.a.ShowError("The changes were not applied", err.Error())
+				if errors.Is(err, errApplyStopped) && undoErr == nil {
+					v.a.Toast(fmt.Sprintf("Stopped: none of the %s were applied (rolled back).", widgets.Count(len(stmts), "change")), "", nil)
+				} else {
+					v.a.ShowError("The changes were not applied", err.Error())
+				}
 				if v.reloadAgain {
 					v.reloadAgain = false
 					v.RequestReload()
@@ -1053,14 +1150,16 @@ func (v *Viewer) View(c *ui.Context) {
 	if v.loading && readOnly == "" {
 		// A page landing would number a row added meanwhile as a read
 		// one, and a reload drops the edits.
-		readOnly = "Reading the rows…"
+		readOnly = readingRows
 	}
 	v.grid.readOnly = readOnly
 	v.maskColumns()
 	if v.applying {
-		v.grid.readOnly = "Applying the changes…" // no edit may slip in between
+		v.grid.readOnly = applyingChanges // no edit may slip in between
 	}
-	keys := v.source.Keys == nil || v.source.Keys()
+	// Released, as a result a run replaces shown until the new one comes,
+	// it takes no key.
+	keys := !v.released && (v.source.Keys == nil || v.source.Keys())
 	v.grid.keys = keys
 	pressed := func(id string) bool { return keys && keymap.Pressed(c, id) }
 	listed := func(id string) bool { return keymap.ListPressed(c, &v.grid.List, id) }
@@ -1091,26 +1190,38 @@ func (v *Viewer) View(c *ui.Context) {
 		v.showChart = !v.showChart
 	}
 	ui.Toolbar(c, func() {
+		divider := func() { ui.Divider(c).Margin(0, 4) }
+		// A ButtonBase looks the same disabled: dimmed, it shows it.
+		disable := func(b ui.Element, d bool) ui.Element {
+			if d {
+				b.Opacity(0.4)
+			}
+			return b.Disabled(d)
+		}
 		refreshTip := keymap.Hint("Read the rows again", keymap.Discard)
 		if !v.source.Reads {
 			refreshTip = keymap.Hint("Run the statement again, once confirmed", keymap.Discard)
 		}
-		if widgets.ToolButton(c, widgets.IconRefresh, "Refresh", widgets.KeyLabel(refreshTip)).Clicked() {
-			v.RequestReload()
+		// Refresh reads the rows again under the WHERE: it ends its box.
+		refresh := func() {
+			if widgets.IconButton(c, widgets.IconRefresh, "Refresh").Tooltip(widgets.KeyLabel(refreshTip)).Clicked() {
+				v.RequestReload()
+			}
 		}
 		// ⌘L focuses the WHERE, then, pressed there, the quick filter.
 		whereFocused := false
-		ui.Row(c).Gap(6).Grow(1).Children(func() {
+		box := ui.Row(c).Gap(6).Grow(1).Padding(0, 6).Radius(th.Radius).Background(th.Surface).Border(1, th.Border)
+		box.Children(func() {
 			ui.Icon(c, widgets.IconFilter).TextColor(pal.Muted).FontSize(13)
 			cb := ui.ComboboxBase(c, &v.whereIn)
-			placeholder := "WHERE …   e.g. status = 'active' AND created_at > now() - interval '1 day'"
+			placeholder := "WHERE …   e.g. status = 'active'"
 			if !v.source.Reads {
 				placeholder = writesNotReread
 			}
-			in := cb.Input.Font(widgets.MonoFont).FontSize(12.5).Placeholder(placeholder).Grow(1).
-				Padding(4, 8).Radius(th.Radius).Background(th.Surface).Border(1, th.Border).Label("Filter")
+			in := cb.Input.Font(widgets.MonoFont).FontSize(12.5).Placeholder(placeholder).Grow(1).Padding(4, 2).Label("Filter")
 			if !v.source.Reads {
 				in.Disabled(true).Tooltip(writesNotReread)
+				refresh()
 				return
 			}
 			suggestions := filterSuggestions(v.whereIn, v.src.Cols, filterHistory(v.source.Conn.Project, v.historyKey()))
@@ -1139,47 +1250,59 @@ func (v *Viewer) View(c *ui.Context) {
 				})
 			}
 			whereFocused = in.Focused()
+			if whereFocused {
+				box.Border(1, th.Accent)
+			}
 			if want := a.FocusWant(); *want == "filter" && keys && !whereFocused && in.Focus().Focused() {
 				*want = ""
 			}
-			if widgets.IconButton(c, widgets.IconListFilter, "Build a filter from conditions").Disabled(len(v.src.Cols) == 0).Clicked() {
+			if v.where != "" && widgets.Appear(widgets.IconButton(c.Key("clear-filter"), widgets.IconX, "Clear the filter")).Clicked() {
+				v.clearFilters(-1)
+			}
+			build := widgets.ToggleIconButton(c, widgets.IconListFilter, "Build a filter from conditions", v.builder != nil)
+			if disable(build, len(v.src.Cols) == 0).Clicked() {
 				if v.builder == nil {
-					v.builder = newFilterBuilder(v.src.Cols[0].Name)
+					v.builder = v.newFilterBuilder()
 				} else {
 					v.builder = nil
 				}
 			}
+			refresh()
 		})
 		quick := widgets.SearchBox(c, &v.grid.Filter, "Filter rows", 170)
+		quick.Tooltip("Filter the rows already read, without asking the server")
 		if want := a.FocusWant(); *want == "filter" && keys && (!v.source.Reads || whereFocused) && quick.Focus().Focused() {
 			*want = ""
 		}
-		if readOnly == "" {
-			if widgets.ToolButton(c, widgets.IconPlus, "Add Row", keymap.Hint("Add a row", keymap.AddRow)).Clicked() {
-				v.grid.addRow(&v.src)
-			}
-			if widgets.IconButton(c, widgets.IconCopy, keymap.Hint("Duplicate the chosen row", keymap.DuplicateRow)).Clicked() {
-				if rows := v.grid.selectedRows(&v.src); len(rows) > 0 {
-					v.grid.duplicateRow(&v.src, rows[0], v.grid.keyCols)
-				}
-			}
-			if widgets.ToolButton(c, widgets.IconTrash, "Delete", keymap.Hint("Mark the chosen rows for deletion", keymap.DeleteRows)).Clicked() {
-				v.grid.deleteSelected(&v.src)
-			}
-			if widgets.IconButton(c, widgets.IconUndo, keymap.Hint("Undo the last change", keymap.Undo)).Disabled(len(v.grid.undoStack) == 0).Clicked() {
-				v.grid.undo()
+		// The edit buttons keep their place, disabled while the rows cannot
+		// be edited, as while they are read: shown only once they could,
+		// they would move the toolbar a moment after every run.
+		divider()
+		tip := func(hint string) string { return cmp.Or(readOnly, hint) }
+		if disable(widgets.IconButton(c, widgets.IconPlus, "Add Row").Tooltip(tip(keymap.Hint("Add a row", keymap.AddRow))), readOnly != "").Clicked() {
+			v.grid.addRow(&v.src)
+		}
+		noRow := readOnly != "" || v.grid.SelRow < 0
+		if disable(widgets.IconButton(c, widgets.IconCopy, keymap.Hint("Duplicate the chosen row", keymap.DuplicateRow)).Tooltip(tip(keymap.Hint("Duplicate the chosen row", keymap.DuplicateRow))), noRow).Clicked() {
+			if rows := v.grid.selectedRows(&v.src); len(rows) > 0 {
+				v.grid.duplicateRow(&v.src, rows[0], v.grid.keyCols)
 			}
 		}
-		if widgets.Pill(c, "Chart", v.showChart).Tooltip(keymap.Hint("Show or hide the chart of the rows", keymap.ToggleChart)).Clicked() {
-			v.showChart = !v.showChart
+		if disable(widgets.IconButton(c, widgets.IconTrash, "Delete").Tooltip(tip(keymap.Hint("Mark the chosen rows for deletion", keymap.DeleteRows))), noRow).Clicked() {
+			v.grid.deleteSelected(&v.src)
 		}
-		if widgets.IconButton(c, widgets.IconView, keymap.Hint("Value viewer", keymap.ValuePanel)).Clicked() {
-			v.grid.ShowValue = !v.grid.ShowValue
-		}
+		divider()
+		v.presentationButtons(c)
+		divider()
 		if widgets.IconButton(c, widgets.IconDownload, "Export…").Clicked() {
 			OpenExport(a, v.exportSource())
 		}
 		widgets.IconButton(c, widgets.IconCompare, "Compare with other rows").Menu(v.compareMenu)
+		divider()
+		// The panels open at the right: their switch is there too.
+		if widgets.ToggleIconButton(c, widgets.IconSidebar, keymap.Hint("Value viewer", keymap.ValuePanel), v.grid.ShowValue).Clicked() {
+			v.grid.ShowValue = !v.grid.ShowValue
+		}
 	}).Label("Data").Padding(4, 8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border)
 	if v.builder != nil && v.source.Reads && len(v.src.Cols) > 0 {
 		v.builderView(c)
@@ -1188,16 +1311,23 @@ func (v *Viewer) View(c *ui.Context) {
 		v.source.Bars(c)
 	}
 	if n := v.grid.edits.count(); n > 0 {
-		ui.Row(c).Padding(6, 12).Gap(10).Background(pal.Modified).Children(func() {
+		widgets.AppearBar(ui.Row(c.Key("pending-changes")).Padding(6, 12).Gap(10).Background(pal.Modified).Children(func() {
 			ui.Text(c, fmt.Sprintf("%d pending change%s", n, widgets.Plural(n))).Bold()
 			ui.Text(c, "Nothing is written until you review and apply.").TextColor(pal.Muted).Grow(1)
+			if ui.Button(c, keymap.Hint("Undo", keymap.Undo)).Disabled(len(v.grid.undoStack) == 0).Tooltip("Undo the last change").Clicked() {
+				v.grid.undo()
+			}
 			if ui.Button(c, keymap.Hint("Discard", keymap.Discard)).Clicked() {
 				v.discard()
+			}
+			if v.applying && widgets.Lasted(c, v.applyStarted) &&
+				widgets.Appear(ui.Button(c.Key("stop-apply"), "Stop")).Tooltip("Stop before the next change: every change rolls back").Clicked() {
+				v.stopApply()
 			}
 			if ui.PrimaryButton(c, keymap.Hint("Review and Apply", keymap.Apply)).Disabled(v.applying).Clicked() {
 				v.Review(nil)
 			}
-		})
+		}))
 	}
 	// Without a grid drawn, a wish to focus it goes: left, another tab's
 	// grid would take it later.
@@ -1221,7 +1351,7 @@ func (v *Viewer) View(c *ui.Context) {
 		})
 	}
 	if v.src.Cols == nil {
-		ui.Row(c).Grow(1).Center().Children(func() { ui.Spinner(c) })
+		ui.Spacer(c)
 		noGrid()
 		return
 	}
@@ -1264,8 +1394,21 @@ func (v *Viewer) View(c *ui.Context) {
 		}
 	}
 	ui.Row(c).Padding(4, 10).Gap(10).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+		// One phrase: "500 of ≈2.5k rows loaded", the count or the
+		// estimate of the table's rows its total.
 		n := len(v.src.Rows)
+		total := ""
+		switch {
+		case !v.source.Reads:
+		case v.count >= 0:
+			total = strconv.FormatInt(v.count, 10)
+		case v.count < 0 && !v.counting && !v.source.Wrap && v.source.Table.Rows >= 0 && v.where == "":
+			total = "≈" + widgets.HumanCount(v.source.Table.Rows)
+		}
 		status := widgets.Count(n, "row")
+		if total != "" {
+			status = fmt.Sprintf("%d of %s rows", n, total)
+		}
 		switch {
 		case v.truncated && n < db.MaxRows:
 			status += ": the next statement closed this result; run it alone to read every row"
@@ -1275,47 +1418,67 @@ func (v *Viewer) View(c *ui.Context) {
 			status += " loaded"
 		}
 		if v.grid.Filter != "" {
-			status = fmt.Sprintf("%d of %s", len(v.grid.Order), status)
+			status = fmt.Sprintf("%d matching · %s", len(v.grid.Order), status)
 		}
-		ui.Text(c, status).FontSize(12).TextColor(pal.Muted)
+		// The phrase, then what more there is to do with the rows.
+		ui.Row(c).Gap(6).Children(func() {
+			muted := func(s string) ui.Element { return ui.Text(c, s).FontSize(12).TextColor(pal.Muted) }
+			// The time ends the phrase, a word's space after it.
+			ui.Row(c).Gap(4).Children(func() {
+				muted(status)
+				if !v.truncated {
+					muted("in " + widgets.FormatDuration(v.elapsed)).Tooltip("The time the rows took to read")
+				}
+			})
+			// One button for Fetch All, there while pages are read, turning
+			// to Stop once fetching every row lasts.
+			switch {
+			case v.fetchingAll && widgets.Lasted(c, v.fetchStarted):
+				if widgets.Appear(widgets.StatusButton(c.Key("fetch-all"), "Stop")).Tooltip("Stop after the page being read; Fetch All goes on from there").Clicked() {
+					v.stopFetchAll()
+				}
+			case !v.done || v.fetchingAll:
+				fetch := widgets.Appear(widgets.StatusButton(c.Key("fetch-all"), "Fetch All")).Tooltip(keymap.Hint("Fetch every row", keymap.FetchAll))
+				if v.loading || v.fetchingAll {
+					fetch.Disabled(true)
+				} else if fetch.Clicked() {
+					v.FetchAll()
+				}
+			}
+			switch {
+			// A query's result has no table whose rows a count would add to.
+			case !v.source.Reads || v.count >= 0 || v.source.CountOnSession:
+			case v.counting:
+				// Count turns to Stop, in place, once the count lasts.
+				if !widgets.Lasted(c, v.countStarted) {
+					widgets.Appear(widgets.StatusButton(c.Key("count"), "Count")).Disabled(true)
+					break
+				}
+				stop := widgets.Appear(widgets.StatusButton(c.Key("count"), "Stop"))
+				if why := v.countStopRefusal(); why != "" {
+					stop.Disabled(true).Opacity(0.5).Tooltip(why)
+				} else if stop.Tooltip("Stop the count").Clicked() && v.countStop != nil {
+					v.countStop()
+				}
+			default:
+				if widgets.Appear(widgets.StatusButton(c.Key("count"), "Count")).Tooltip("Count every row on the server").Clicked() {
+					v.countRows()
+				}
+			}
+		})
+		ui.Spacer(c)
 		if stats := v.grid.SelectionStats(&v.src); stats != "" {
 			ui.Text(c, stats).FontSize(12).TextColor(pal.Muted).Selectable()
 		}
-		switch {
-		case !v.source.Reads:
-		case v.source.CountOnSession && v.source.CursorOpen() != "":
-			ui.Text(c, "Count").FontSize(12).TextColor(pal.Muted).Tooltip("Count waits: " + v.source.CursorOpen())
-		case v.count >= 0:
-			ui.Text(c, fmt.Sprintf("of %d", v.count)).FontSize(12).TextColor(pal.Muted)
-		case v.counting:
-			ui.Spinner(c).Size(12, 12)
-		default:
-			if !v.source.Wrap && v.source.Table.Rows >= 0 && v.where == "" {
-				ui.Text(c, "of ≈"+widgets.HumanCount(v.source.Table.Rows)).FontSize(12).TextColor(pal.Muted)
-			}
-			if ui.Link(c, "Count", "").FontSize(12).Clicked() {
-				v.countRows()
-			}
-		}
-		ui.Text(c, widgets.FormatDuration(v.elapsed)).FontSize(12).TextColor(pal.Muted)
-		if v.loading {
-			ui.Spinner(c).Size(12, 12)
-		}
-		ui.Spacer(c)
 		if readOnly == "" {
 			readOnly = v.grid.readOnlyCols[v.grid.selCol]
 		}
-		if readOnly != "" {
+		if readOnly != "" && !passing(readOnly) {
 			ui.Icon(c, widgets.IconLock).TextColor(pal.Muted).FontSize(12)
 			ui.Text(c, widgets.FirstLine(readOnly)).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1).Tooltip(readOnly)
 			if strings.Contains(readOnly, "virtual key") && ui.Link(c, "Define a Virtual Key…", "").FontSize(12).Clicked() {
 				openKeyForm(a, v)
 			}
-		} else {
-			ui.Text(c, "Double-click a cell, or press ↵, to edit").FontSize(12).TextColor(pal.Muted)
-		}
-		if !v.done && !v.loading && ui.Button(c, "Fetch All").Tooltip(keymap.Hint("Fetch every row", keymap.FetchAll)).Clicked() {
-			v.FetchAll()
 		}
 	})
 }
@@ -1565,14 +1728,15 @@ func (v *Viewer) openRef(fk db.ForeignKey) {
 
 // tableFilter is a condition the Filter menu put on a column.
 type tableFilter struct {
-	col int
-	sql string
+	col  int
+	sql  string
+	cond rowCond // for the filter builder to show
 }
 
 // addFilter adds a condition of the Filter menu to the table's filter,
 // read on the server.
 func (v *Viewer) addFilter(c rowCond) {
-	f := tableFilter{col: c.col, sql: condSQL(v.dialect(), v.source.Conn.Config.Engine, v.src.Cols[c.col].Name, c)}
+	f := tableFilter{col: c.col, cond: c, sql: condSQL(v.dialect(), v.source.Conn.Config.Engine, v.src.Cols[c.col].Name, c)}
 	v.setFilter(func() {
 		v.menuFilters = append(slices.Clip(v.menuFilters), f)
 		v.joinFilters()
@@ -1683,15 +1847,17 @@ func (v *Viewer) distinctValues(col int, then func([]distinctValue, error)) {
 
 // queryRows runs a read on the rows' connection, off the main thread,
 // audited, and hands its rows to then on the main thread.
-func (v *Viewer) queryRows(q string, args []any, limit int, then func(cols []string, rows [][]any, err error)) {
+// It returns what stops the read, nil for one on the session, which
+// stopping could abort the session's transaction.
+func (v *Viewer) queryRows(q string, args []any, limit int, then func(cols []string, rows [][]any, err error)) (stop context.CancelFunc) {
 	if v.source.CountOnSession {
 		v.queryOnSession(q, args, limit, then)
-		return
+		return nil
 	}
 	poolOf := v.source.Conn.PoolFor(v.source.Database)
 	cfg, database := v.source.Conn.Config, v.source.Database
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	BackgroundResetOnPanic(v.a, func() { then(nil, nil, errors.New("stopped on an internal error")) }, func() func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		start := time.Now()
 		var cols []string
@@ -1726,6 +1892,7 @@ func (v *Viewer) queryRows(q string, args []any, limit int, then func(cols []str
 		v.a.RecordRun(cfg, audit.KindStatement, database, q, int64(len(out)), time.Since(start), err)
 		return func() { then(cols, out, err) }
 	})
+	return cancel
 }
 
 // queryOnSession runs queryRows' statement on the session, once no result
