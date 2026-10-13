@@ -132,7 +132,7 @@ func TestTableFilterAndOrderMenus(t *testing.T) {
 	if tb.view.where != "total > 0" {
 		t.Fatalf("after removing the column's filter: %q", tb.view.where)
 	}
-	tb.view.grid.sort = ui.SortOrder{Column: colID(col("status")), Then: []ui.SortKey{{Column: colID(col("total")), Descending: true}}}
+	tb.view.grid.sort = []ui.SortOrder{{Column: colID(col("status"))}, {Column: colID(col("total")), Descending: true}}
 	if q := tb.view.selectSQL(); !strings.HasSuffix(q, `ORDER BY "status", "total" DESC`) {
 		t.Fatalf("order: %s", q)
 	}

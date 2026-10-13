@@ -17,6 +17,7 @@ func TestParseSQLiteTable(t *testing.T) {
 	}{
 		{`CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT, qty INT CHECK (qty > 0), "Note" TEXT DEFAULT (CAST('1' AS TEXT)),
   CONSTRAINT "positive" CHECK (id > 0 AND (qty < 100)))`, []string{"qty > 0", "positive:id > 0 AND (qty < 100)"}, []string{"id"}, ""},
+		{`CREATE TABLE t (café TEXT CHECK (café <> '日本🙂'), "naïve" INT CHECK ("naïve" > 0))`, []string{"café <> '日本🙂'", `"naïve" > 0`}, nil, ""},
 		{`CREATE TABLE t (a TEXT COLLATE NOCASE)`, nil, nil, "a collation"},
 		{`CREATE TABLE t (a INT, b INT GENERATED ALWAYS AS (a * 2))`, nil, nil, "a computed column"},
 		{`CREATE TABLE t (a INT UNIQUE ON CONFLICT REPLACE)`, nil, nil, "an ON CONFLICT clause"},

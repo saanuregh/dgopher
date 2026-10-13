@@ -61,11 +61,11 @@ func TestIdleConnectionDisconnects(t *testing.T) {
 	idleAfter(t, time.Second)
 	a, tt, cn := idleApp(t, true)
 	q := newAppEditor(t, a, tt, cn, "SELECT a FROM t")
-	text := q.Editor.Text
+	text := q.Editor.Text()
 	runAt(t, tt, q, "SELECT", query.RunStatement)
 	testutil.WaitFor(t, tt, "the result", func() bool { return resultRows(tt, q, 2) })
 	testutil.WaitFor(t, tt, "the idle disconnect", func() bool { return cn.Status == connection.StatusIdle })
-	if a.ActiveTab() != q || q.Editor.Text != text || !resultRows(tt, q, 2) {
+	if a.ActiveTab() != q || q.Editor.Text() != text || !resultRows(tt, q, 2) {
 		t.Fatalf("the editor or its rows went: %q", tt.Texts())
 	}
 	if !testutil.HasTextContaining(tt, "Disconnected lite after") {
@@ -97,7 +97,7 @@ func TestIdleConnectionDisconnects(t *testing.T) {
 	testutil.WaitFor(t, tt, "the editor brought back connecting", func() bool { return cn.Status == connection.StatusConnected })
 	// The next run is refused once: the new session has none of what the
 	// old one had set.
-	q.Editor.Text = strings.Replace(text, "FROM t", "FROM t WHERE a = 1", 1)
+	q.Editor.SetText(strings.Replace(text, "FROM t", "FROM t WHERE a = 1", 1))
 	q.Run(query.RunStatement)
 	testutil.WaitFor(t, tt, "the refusal", func() bool { return testutil.HasTextContaining(tt, "closed while idle") })
 	q.Run(query.RunStatement)

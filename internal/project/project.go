@@ -461,24 +461,23 @@ func RenameHeaderConnection(text, old, new string) (string, bool) {
 	return text, false
 }
 
-// HeaderAt reports whether caret, a rune offset into text, is at the end
+// HeaderAt reports whether caret, a byte offset into text, is at the end
 // of the connection a header line names, as while typing it, and where
 // that name starts and what of it is typed.
 func HeaderAt(text string, caret int) (start int, typed string, ok bool) {
-	runes := []rune(text)
-	caret = max(0, min(caret, len(runes)))
-	line := caret
-	for line > 0 && runes[line-1] != '\n' {
-		line--
-	}
-	if strings.Count(string(runes[:line]), "\n") >= headerLines || caret < len(runes) && !unicode.IsSpace(runes[caret]) {
+	caret = max(0, min(caret, len(text)))
+	line := strings.LastIndexByte(text[:caret], '\n') + 1
+	if strings.Count(text[:line], "\n") >= headerLines {
 		return 0, "", false
 	}
-	m := connHeaderTyped.FindStringSubmatch(string(runes[line:caret]))
+	if next, _ := utf8.DecodeRuneInString(text[caret:]); caret < len(text) && !unicode.IsSpace(next) {
+		return 0, "", false
+	}
+	m := connHeaderTyped.FindStringSubmatch(text[line:caret])
 	if m == nil {
 		return 0, "", false
 	}
-	return caret - utf8.RuneCountInString(m[1]), m[1], true
+	return caret - len(m[1]), m[1], true
 }
 
 // Snippet is a piece of SQL saved under a name in a project's

@@ -14,6 +14,7 @@ import (
 	"dgopher/internal/keymap"
 	"dgopher/internal/lists"
 	"dgopher/internal/ui/dataview"
+	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -86,8 +87,11 @@ func (r *Tab) jsonView(c *ui.Context, ro bool) {
 			// A document longer than the editor shows is not saved from it.
 			ui.Text(c, fmt.Sprintf("The document is longer than %s: shown in part, and edited with JSON.SET in the console.", widgets.HumanBytes(stringStart))).FontSize(12).TextColor(pal.Muted)
 		}
-		area := ui.TextArea(c, &r.editValue).Font(widgets.MonoFont).FontSize(12.5).Grow(1).ReadOnly(ro || !r.whole).Label("Document")
-		if area.Changed() {
+		area := &r.jsonArea
+		area.Label, area.Language, area.ReadOnly = "Document", editor.LanguageJSON, ro || !r.whole
+		el, changed := area.View(c, &r.editValue)
+		el.Grow(1)
+		if changed {
 			r.editDirty = r.editValue != r.value
 		}
 		valid := json.Valid([]byte(r.editValue))
@@ -122,6 +126,7 @@ type vectorState struct {
 	similar []db.Field
 	err     string
 	attrs   string // the attributes as edited
+	area    editor.CodeArea
 	list    ui.ListState
 }
 
@@ -161,7 +166,10 @@ func (r *Tab) vectorDetail(c *ui.Context, f db.Field) {
 	ui.Row(c).Height(220).Padding(8, 14).Gap(12).AlignItems(ui.Stretch).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 		ui.Column(c).Grow(1).Gap(6).Children(func() {
 			ui.Text(c, "Attributes of "+f.Name).FontSize(12).Bold()
-			ui.TextArea(c, &v.attrs).Font(widgets.MonoFont).FontSize(12.5).Grow(1).ReadOnly(ro).Label("Element attributes")
+			v.area.Label, v.area.Language, v.area.ReadOnly = "Element attributes", editor.LanguageJSON, ro
+			v.area.NoLineNumbers, v.area.NoFolding = true, true
+			el, _ := v.area.View(c, &v.attrs)
+			el.Grow(1)
 			if !ro && v.attrs != f.Value {
 				valid := strings.TrimSpace(v.attrs) == "" || json.Valid([]byte(v.attrs))
 				ui.Row(c).Gap(8).Children(func() {

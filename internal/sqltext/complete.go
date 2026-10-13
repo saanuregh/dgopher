@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // TableRef is a table referenced by a statement; names are unquoted.
@@ -30,26 +31,20 @@ var tableKeywords = map[string]bool{"FROM": true, "JOIN": true, "UPDATE": true, 
 
 // CompletionAt returns the autocomplete context for the caret position.
 func CompletionAt(src string, caret int, d Dialect) CompletionContext {
-	rs := []rune(src)
-	if caret < 0 {
-		caret = 0
-	}
-	if caret > len(rs) {
-		caret = len(rs)
-	}
+	caret = min(max(caret, 0), len(src))
 	var ctx CompletionContext
 	start := caret
-	for start > 0 && identPartAt(rs, start-1, d) {
+	for start > 0 && identPartAt(src, start-1, d) {
 		start--
 	}
 	// A name never starts with '$': there it is a parameter's sigil.
-	for start < caret && rs[start] == '$' {
+	for start < caret && src[start] == '$' {
 		start++
 	}
-	ctx.Prefix = string(rs[start:caret])
+	ctx.Prefix = src[start:caret]
 	ctx.PrefixStart = start
 
-	all := tokenizeRunes(rs, d)
+	all := Tokenize(src, d)
 	for _, t := range all {
 		// A line comment runs to the end of its line, so its end is still inside it.
 		lineComment := t.Kind == Comment && !strings.HasPrefix(t.Text, "/*")
@@ -58,7 +53,7 @@ func CompletionAt(src string, caret int, d Dialect) CompletionContext {
 		}
 	}
 
-	stmtStart, stmtEnd := 0, len(rs)
+	stmtStart, stmtEnd := 0, len(src)
 	if s, ok := StatementAt(src, caret, d); ok {
 		stmtStart, stmtEnd = s.Start, s.End
 		if caret > stmtEnd {
@@ -77,7 +72,7 @@ func CompletionAt(src string, caret int, d Dialect) CompletionContext {
 
 	// Tokens before the qualifier (or prefix) decide WantTable.
 	cut := start
-	if start > 0 && rs[start-1] == '.' {
+	if start > 0 && src[start-1] == '.' {
 		for _, t := range toks {
 			if t.End == start-1 && (t.Kind == Identifier || t.Kind == QuotedIdent || t.Kind == Keyword) {
 				ctx.Qualifier = unquote(t)
@@ -195,24 +190,23 @@ func queryFrom(before []Token, k int) bool {
 // keyword, or in taken in any case, takes the first number from 2 that
 // sets it apart.
 func TableAlias(name string, taken []string, d Dialect) string {
-	rs := []rune(name)
 	var b strings.Builder
-	for i, r := range rs {
-		if !unicode.IsLetter(r) {
-			continue
+	prev := ' '
+	for i := 0; i < len(name); {
+		r, size := utf8.DecodeRuneInString(name[i:])
+		i += size
+		if unicode.IsLetter(r) {
+			next, _ := utf8.DecodeRuneInString(name[i:])
+			if i == len(name) {
+				next = ' '
+			}
+			after := !unicode.IsLetter(prev) && !unicode.IsDigit(prev)
+			camel := unicode.IsUpper(r) && (unicode.IsLower(prev) || unicode.IsUpper(prev) && unicode.IsLower(next))
+			if after || camel {
+				b.WriteRune(unicode.ToLower(r))
+			}
 		}
-		prev, next := ' ', ' '
-		if i > 0 {
-			prev = rs[i-1]
-		}
-		if i+1 < len(rs) {
-			next = rs[i+1]
-		}
-		after := !unicode.IsLetter(prev) && !unicode.IsDigit(prev)
-		camel := unicode.IsUpper(r) && (unicode.IsLower(prev) || unicode.IsUpper(prev) && unicode.IsLower(next))
-		if after || camel {
-			b.WriteRune(unicode.ToLower(r))
-		}
+		prev = r
 	}
 	alias := b.String()
 	if alias == "" {

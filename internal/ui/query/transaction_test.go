@@ -75,7 +75,7 @@ func sessionValue(t *testing.T, q *Tab, sql string) string {
 func TestNonReadResultIsReadOnly(t *testing.T) {
 	check := func(t *testing.T, a *fakeQueryHost, tt *ui.Tester, q *Tab, sql, cell string) {
 		t.Helper()
-		q.Editor.Text = sql
+		q.Editor.SetText(sql)
 		runWith(t, tt, q, "SELECT", RunStatement)
 		r := q.results[len(q.results)-1]
 		if r.err != "" || r.view == nil {
@@ -294,7 +294,7 @@ func TestEndsTransactionAsksInEditor(t *testing.T) {
 	if q.Tx != db.TxOpen {
 		t.Fatalf("tx %v; messages %+v", q.Tx, q.messages)
 	}
-	testutil.SetCaret(tt, &q.Editor, strings.Index(q.Editor.Text, "CREATE"))
+	testutil.SetCaret(tt, &q.Editor, strings.Index(q.Editor.Text(), "CREATE"))
 	q.Run(RunStatement)
 	tt.Frame()
 	if a.Confirm == nil || !slices.ContainsFunc(a.Confirm.Reasons, func(r string) bool { return strings.Contains(r, "commits the open transaction") }) {
@@ -449,7 +449,7 @@ func TestInsideTabRefusesCommit(t *testing.T) {
 	// A BEGIN there would fail, and on DuckDB abort the owner's transaction.
 	for _, end := range []string{"COMMIT", "commit work", "COMMIT TRANSACTION", "END", "END TRANSACTION", "ROLLBACK", "ROLLBACK TRANSACTION", "ABORT", "BEGIN", "BEGIN TRANSACTION", "START TRANSACTION"} {
 		a.Errors = nil
-		other.Editor.Text = "INSERT INTO t VALUES (2);\n\n" + end + ";"
+		other.Editor.SetText("INSERT INTO t VALUES (2);\n\n" + end + ";")
 		runWith(t, tt, other, "INSERT", RunScript)
 		if len(a.Errors) != 1 || !strings.Contains(a.Errors[0], "the owner's") || !strings.Contains(a.Errors[0], "commit or roll it back there") {
 			t.Fatalf("%s: errors %q", end, a.Errors)
@@ -493,7 +493,7 @@ func TestInsideTxBegunMidRunStopsRun(t *testing.T) {
 		a.Errors, a.Events = nil, nil
 		// The first SELECT holds the one connection long enough for the
 		// other session's BEGIN to wait for it, and run before the second.
-		q.Editor.Text = "SELECT sum(x) FROM range(1000000000) r(x);\n\nSELECT 1;\n\n" + c.end + ";"
+		q.Editor.SetText("SELECT sum(x) FROM range(1000000000) r(x);\n\nSELECT 1;\n\n" + c.end + ";")
 		testutil.SetCaret(tt, &q.Editor, 0)
 		q.Run(RunScript)
 		for _, s := range []string{"BEGIN", "INSERT INTO t VALUES (1)"} {
@@ -792,7 +792,7 @@ func TestAutocommitOffNote(t *testing.T) {
 	if q.Tx != db.TxNone || q.CloseReason() != "" || testutil.HasTextContaining(tt, "Transaction open") || !testutil.HasTextContaining(tt, "Autocommit is off") {
 		t.Fatalf("tx %v, close reason %q; texts %q", q.Tx, q.CloseReason(), tt.Texts())
 	}
-	q.Editor.Text = "SELECT * FROM rv_acoff"
+	q.Editor.SetText("SELECT * FROM rv_acoff")
 	runWith(t, tt, q, "SELECT", RunStatement)
 	tt.Frame()
 	if q.Tx != db.TxOpen || !testutil.HasTextContaining(tt, "Transaction open") || testutil.HasTextContaining(tt, "Autocommit is off") {
@@ -825,7 +825,7 @@ func TestAutocommitOffHoldsWrites(t *testing.T) {
 	t.Cleanup(func() { q.sess.Close() })
 	runWith(t, tt, q, "SET", RunScript)
 
-	q.Editor.Text = "INSERT INTO rv_acheld VALUES (2, 20);\nCREATE INDEX rv_acheld_v ON rv_acheld (v);"
+	q.Editor.SetText("INSERT INTO rv_acheld VALUES (2, 20);\nCREATE INDEX rv_acheld_v ON rv_acheld (v);")
 	runWith(t, tt, q, "INSERT", RunScript)
 	if a.Confirm == nil || !slices.ContainsFunc(a.Confirm.Reasons, func(r string) bool { return strings.Contains(r, "autocommit off holds") }) {
 		t.Fatalf("no warning: %+v", a.Confirm)
@@ -835,7 +835,7 @@ func TestAutocommitOffHoldsWrites(t *testing.T) {
 	a.Confirm = nil
 	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running })
 
-	q.Editor.Text = "SELECT * FROM rv_acheld ORDER BY id"
+	q.Editor.SetText("SELECT * FROM rv_acheld ORDER BY id")
 	runWith(t, tt, q, "SELECT", RunStatement)
 	q.endTx(true) // the read opened a transaction; none is open for the edit
 	testutil.WaitFor(t, tt, "the commit", func() bool { return !q.Running && q.Tx == db.TxNone })

@@ -170,7 +170,7 @@ func TestQueryResultReadOnlyReasons(t *testing.T) {
 		{"SELECT count(*) FROM n", "The rows are computed by an aggregate (count)."},
 		{"SELECT label FROM n GROUP BY label", "The rows are grouped (GROUP BY)."},
 	} {
-		q.Editor.Text = c.sql
+		q.Editor.SetText(c.sql)
 		runWith(t, tt, q, "SELECT", RunStatement)
 		tt.Frame()
 		if !tt.HasText(c.want) {
@@ -178,7 +178,7 @@ func TestQueryResultReadOnlyReasons(t *testing.T) {
 		}
 	}
 
-	q.Editor.Text = "SELECT * FROM nk"
+	q.Editor.SetText("SELECT * FROM nk")
 	runWith(t, tt, q, "SELECT", RunStatement)
 	testutil.WaitFor(t, tt, "the virtual key offer", func() bool { return tt.HasText("Define a Virtual Key…") })
 	if err := tt.Click("Define a Virtual Key…"); err != nil {
@@ -197,7 +197,7 @@ func TestQueryResultReadOnlyReasons(t *testing.T) {
 		t.Fatalf("virtual keys %v", a.Project.VirtualKeys)
 	}
 
-	q.Editor.Text = "SELECT id, label AS l, upper(label) FROM n"
+	q.Editor.SetText("SELECT id, label AS l, upper(label) FROM n")
 	runWith(t, tt, q, "SELECT", RunStatement)
 	waitEditable(t, tt)
 	r := q.results[0]
@@ -339,7 +339,7 @@ func TestQueryResultComputedColumns(t *testing.T) {
 		t.Fatalf("%d changes to rows found by a computed key", n)
 	}
 
-	q.Editor.Text = "SELECT n.id, label AS label, label AS other FROM n"
+	q.Editor.SetText("SELECT n.id, label AS label, label AS other FROM n")
 	runWith(t, tt, q, "SELECT", RunStatement)
 	waitEditable(t, tt)
 	editCell(t, tt, "row 2", "edited")

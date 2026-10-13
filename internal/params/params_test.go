@@ -24,6 +24,11 @@ func TestBind(t *testing.T) {
 	if !strings.Contains(shown, ":name = 'O''Hara'") || !strings.Contains(shown, ":gone = NULL") {
 		t.Fatalf("shown %q", shown)
 	}
+	// Text before and between parameters is kept, whatever its characters.
+	sql, args, _, err = Bind("SELECT '日本🙂', café FROM ${tbl} WHERE é = :id", db.MySQL, sqltext.MySQL, values)
+	if err != nil || sql != "SELECT '日本🙂', café FROM people WHERE é = ?" || args[0] != int64(42) {
+		t.Fatalf("multi-byte: sql %q %v %v", sql, args, err)
+	}
 	// PostgreSQL gets text, which it reads as the type the statement needs:
 	// a number sent to a text column fails there.
 	_, args, _, _ = Bind("SELECT :id", db.Postgres, sqltext.Postgres, map[string]Input{":id": auto("12345")})

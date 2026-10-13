@@ -18,6 +18,7 @@ import (
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
+	code "github.com/egoist/mygo/ui/editor"
 )
 
 func TestAutocomplete(t *testing.T) {
@@ -28,25 +29,21 @@ func TestAutocomplete(t *testing.T) {
 	tt.Frame()
 	tt.Type("SELECT * FROM shop.cu")
 	tt.Frame()
-	t.Logf("text %q focus %v open %v items %d", q.Editor.Text, q.Editor.HasFocus, q.ac.open, len(q.ac.items))
-	testutil.WaitFor(t, tt, "table suggestions", func() bool { return q.ac.open && len(q.ac.items) > 0 })
-	if q.ac.items[0].label != "customers" {
-		t.Fatalf("suggestions %+v", q.ac.items)
-	}
+	testutil.WaitFor(t, tt, "table suggestions", func() bool { return offers(q, "customers") })
 	testutil.Snapshot(t, tt, "autocomplete-table")
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
 	// The table takes an alias, which its columns complete after.
-	if !strings.HasSuffix(q.Editor.Text, "shop.customers c") || q.ac.open {
-		t.Fatalf("after accepting: %q open %v", q.Editor.Text, q.ac.open)
+	if !strings.HasSuffix(q.Editor.Text(), "shop.customers c") || q.Editor.State.CompletionsOpen() {
+		t.Fatalf("after accepting: %q open %v", q.Editor.Text(), q.Editor.State.CompletionsOpen())
 	}
 	tt.Type(" WHERE c.em")
-	testutil.WaitFor(t, tt, "column suggestions", func() bool { return q.ac.open && len(q.ac.items) > 0 && q.ac.items[0].label == "email" })
+	testutil.WaitFor(t, tt, "column suggestions", func() bool { return offers(q, "email") })
 	testutil.Snapshot(t, tt, "autocomplete-column")
 	tt.Key(0, ui.KeyTab)
 	tt.Frame()
-	if !strings.HasSuffix(q.Editor.Text, "c.email") {
-		t.Fatalf("after accepting a column: %q", q.Editor.Text)
+	if !strings.HasSuffix(q.Editor.Text(), "c.email") {
+		t.Fatalf("after accepting a column: %q", q.Editor.Text())
 	}
 }
 
@@ -144,28 +141,61 @@ func TestTransactionSurvivesNewRun(t *testing.T) {
 	}
 }
 
+// Find, through the editor's bar, ignores case by default; Enter goes to
+// the next match.
 func TestFindInEditor(t *testing.T) {
 	a := newFakeQueryHost(t)
 	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1000, 700)
 	q := New(a, cn, "", "q", "SELECT éa FROM t;\nselect b FROM u;\n-- Select me")
+	q.Editor.Select(0, 0)
 	a.AddTab(q)
-	tt.Frame()
+	testutil.WaitFor(t, tt, "the editor's focus", func() bool { return q.Editor.HasFocus() })
 	tt.Key(ui.Cmd, ui.KeyF)
 	tt.Frame()
 	tt.Type("select")
 	tt.Frame()
 	tt.Frame()
-	if len(q.find.Matches) != 3 || q.find.Matches[1] != 18 {
-		t.Fatalf("matches %v", q.find.Matches)
+	if n, current := q.Editor.State.FindMatches(); n != 3 || current != 0 {
+		t.Fatalf("%d matches, at %d", n, current)
 	}
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
 	tt.Frame()
-	if q.find.Current != 1 || q.Editor.SelStart != 18 || q.Editor.SelEnd != 24 {
-		t.Fatalf("current %d, selection %d-%d", q.find.Current, q.Editor.SelStart, q.Editor.SelEnd)
+	// The second match starts past é, two bytes.
+	if _, current := q.Editor.State.FindMatches(); current != 1 {
+		t.Fatalf("current %d", current)
+	}
+	if start, end := q.Editor.Selection(); start != 19 || end != 25 {
+		t.Fatalf("selection %d-%d", start, end)
 	}
 	testutil.Snapshot(t, tt, "find")
+}
+
+// A match far below comes into view as find goes to it.
+func TestFindRevealsFarMatch(t *testing.T) {
+	a := newFakeQueryHost(t)
+	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1000, 700)
+	text := strings.Repeat("SELECT 1;\n", 300) + "SELECT needle;"
+	q := New(a, cn, "", "q", text)
+	q.Editor.Select(0, 0)
+	a.AddTab(q)
+	testutil.WaitFor(t, tt, "the editor's focus", func() bool { return q.Editor.HasFocus() })
+	if first, _ := q.Editor.State.VisibleLines(); first != 0 {
+		t.Fatalf("starts at line %d", first)
+	}
+	tt.Key(ui.Cmd, ui.KeyF)
+	tt.Frame()
+	tt.Type("needle")
+	tt.Frame()
+	tt.Frame()
+	if first, last := q.Editor.State.VisibleLines(); first > 300 || last < 300 {
+		t.Fatalf("lines %d-%d in view, the match on 300", first, last)
+	}
+	if start, _ := q.Editor.Selection(); start != strings.Index(text, "needle") {
+		t.Fatalf("selection at %d", start)
+	}
 }
 
 func TestReplaceInEditor(t *testing.T) {
@@ -173,41 +203,45 @@ func TestReplaceInEditor(t *testing.T) {
 	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1000, 700)
 	q := New(a, cn, "", "q", "select a FROM t;\nselect b FROM u;\nselect c")
+	q.Editor.Select(0, 0)
+	var bar *code.FindBar
+	q.Editor.State.RenderFindBar = func(c *ui.Context, el ui.Element, f *code.FindBar) {
+		bar = f
+		code.DefaultFindBar(c, el, f)
+	}
 	a.AddTab(q)
-	tt.Frame()
+	testutil.WaitFor(t, tt, "the editor's focus", func() bool { return q.Editor.HasFocus() })
 	tt.Key(ui.Cmd|ui.Alt, ui.KeyF)
 	tt.Frame()
 	tt.Type("select")
 	tt.Frame()
-	if !q.find.Replacing || len(q.find.Matches) != 3 {
-		t.Fatalf("replacing %v, matches %v", q.find.Replacing, q.find.Matches)
+	if n, _ := q.Editor.State.FindMatches(); bar == nil || !bar.Replacing() || n != 3 {
+		t.Fatalf("replacing %v, matches %d", bar != nil && bar.Replacing(), n)
 	}
-	q.find.Replacement = "SELECT DISTINCT"
+	*bar.Replacement() = "SELECT DISTINCT"
 	tt.Frame()
-	// A replacement holding the query is not found again: the next match
-	// is the second statement's.
-	if err := tt.Click("Replace"); err != nil {
-		t.Fatal(err)
-	}
+	// The next match is the second statement's, after the replacement.
+	bar.Replace()
 	tt.Frame()
 	tt.Frame()
-	if q.Editor.Text != "SELECT DISTINCT a FROM t;\nselect b FROM u;\nselect c" || q.find.Current != 1 || q.Editor.SelStart != 26 {
-		t.Fatalf("after Replace: %q, current %d, selection at %d", q.Editor.Text, q.find.Current, q.Editor.SelStart)
+	if start, _ := q.Editor.Selection(); q.Editor.Text() != "SELECT DISTINCT a FROM t;\nselect b FROM u;\nselect c" || start != 26 {
+		t.Fatalf("after Replace: %q, selection at %d", q.Editor.Text(), start)
 	}
 	testutil.Snapshot(t, tt, "replace")
-	before := q.Editor.Text
+	before := q.Editor.Text()
 	if err := tt.Click("Replace All"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
 	// Finding ignores case, so the statement replaced already matches too.
-	if q.Editor.Text != "SELECT DISTINCT DISTINCT a FROM t;\nSELECT DISTINCT b FROM u;\nSELECT DISTINCT c" || a.Toasts[len(a.Toasts)-1] != "Replaced 3 matches" {
-		t.Fatalf("after Replace All: %q, toasts %v", q.Editor.Text, a.Toasts)
+	if q.Editor.Text() != "SELECT DISTINCT DISTINCT a FROM t;\nSELECT DISTINCT b FROM u;\nSELECT DISTINCT c" {
+		t.Fatalf("after Replace All: %q", q.Editor.Text())
 	}
-	a.ToastRun()
+	// Undo takes it back, as one step.
+	q.Editor.State.Run(code.Undo)
 	tt.Frame()
-	if q.Editor.Text != before {
-		t.Fatalf("undo left %q", q.Editor.Text)
+	if q.Editor.Text() != before {
+		t.Fatalf("undo left %q", q.Editor.Text())
 	}
 }
 
@@ -260,13 +294,13 @@ func TestFileRunsOnlyOnItsConnection(t *testing.T) {
 		t.Fatalf("switched %v", a.switched)
 	}
 
-	q.Editor.Text = "-- connection: gamma\n\nSELECT 1 AS one;"
+	q.Editor.SetText("-- connection: gamma\n\nSELECT 1 AS one;")
 	tt.Frame()
 	if !tt.HasText("which is not a SQL connection of") || tt.HasText("Switch to gamma") {
 		t.Fatalf("a missing connection: %q", tt.Texts())
 	}
 
-	q.Editor.Text = "-- connection: alpha\n\nSELECT 1 AS one;"
+	q.Editor.SetText("-- connection: alpha\n\nSELECT 1 AS one;")
 	tt.Frame()
 	if tt.HasText("This file names") {
 		t.Fatal("the bar shows for the editor's own connection")
@@ -287,18 +321,18 @@ func TestCompleteHeaderConnection(t *testing.T) {
 	testutil.SetCaret(tt, &q.Editor, 15)
 	tt.Type("b")
 	tt.Frame()
-	if !q.ac.open || len(q.ac.items) != 1 || q.ac.items[0].label != "billing-prod" {
+	if !offers(q, "billing-prod") || slices.ContainsFunc(q.ac.items, func(s suggestion) bool { return s.label == "cache" }) {
 		t.Fatalf("suggestions %+v", q.ac.items)
 	}
 	tt.Type("il")
 	tt.Frame()
-	if !q.ac.open || !q.Editor.HasFocus {
-		t.Fatalf("typing the name: popup %v, focus %v", q.ac.open, q.Editor.HasFocus)
+	if !q.Editor.State.CompletionsOpen() || !q.Editor.HasFocus() {
+		t.Fatalf("typing the name: completions %v, focus %v", q.Editor.State.CompletionsOpen(), q.Editor.HasFocus())
 	}
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
-	if !strings.HasPrefix(q.Editor.Text, "-- connection: billing-prod\n") {
-		t.Fatalf("after accepting: %q", q.Editor.Text)
+	if !strings.HasPrefix(q.Editor.Text(), "-- connection: billing-prod\n") {
+		t.Fatalf("after accepting: %q", q.Editor.Text())
 	}
 }
 
@@ -325,15 +359,16 @@ func TestChangedKey(t *testing.T) {
 	tt := ui.NewTester(a.view, 1000, 700)
 	q := New(a, cn, "", "q", "SELECT 1")
 	a.AddTab(q)
-	tt.Frame()
+	testutil.WaitFor(t, tt, "the editor's focus", func() bool { return q.Editor.HasFocus() })
+	finding := func() bool { return slices.Contains(tt.Texts(), "Match case") }
 	tt.Key(ui.Cmd, ui.KeyF)
 	tt.Frame()
-	if q.find.Open {
+	if finding() {
 		t.Fatal("the key taken away still finds")
 	}
 	tt.Key(ui.Alt, ui.KeyF)
 	tt.Frame()
-	if !q.find.Open {
+	if !finding() {
 		t.Fatal("the key given does not find")
 	}
 }
@@ -346,9 +381,9 @@ func TestVimInEditor(t *testing.T) {
 	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1000, 700)
 	q := New(a, cn, "", "q", "select a, b from t")
-	q.Editor.PendingSel = &[2]int{0, 0}
+	q.Editor.Select(0, 0)
 	a.AddTab(q)
-	testutil.WaitFor(t, tt, "the editor's focus", func() bool { return q.Editor.HasFocus && q.Editor.Vim != nil })
+	testutil.WaitFor(t, tt, "the editor's focus", func() bool { return q.Editor.HasFocus() && q.Editor.Vim != nil })
 	press := func(s string) {
 		t.Helper()
 		tt.Type(s)
@@ -356,25 +391,25 @@ func TestVimInEditor(t *testing.T) {
 		tt.Frame()
 	}
 	press("w")
-	if q.Editor.SelEnd != 7 {
-		t.Fatalf("w: caret at %d", q.Editor.SelEnd)
+	if q.Editor.Caret() != 7 {
+		t.Fatalf("w: caret at %d", q.Editor.Caret())
 	}
 	press("cwx")
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
 	tt.Frame()
-	if q.Editor.Text != "select x, b from t" || q.Editor.Vim.Mode != editor.VimNormal {
-		t.Fatalf("cw: %q, mode %v", q.Editor.Text, q.Editor.Vim.Mode)
+	if q.Editor.Text() != "select x, b from t" || q.Editor.Vim.Mode != editor.VimNormal {
+		t.Fatalf("cw: %q, mode %v", q.Editor.Text(), q.Editor.Vim.Mode)
 	}
 	press("u")
-	if q.Editor.Text != "select a, b from t" {
-		t.Fatalf("u: %q", q.Editor.Text)
+	if q.Editor.Text() != "select a, b from t" {
+		t.Fatalf("u: %q", q.Editor.Text())
 	}
 	tt.Key(ui.Ctrl, ui.KeyR)
 	tt.Frame()
 	tt.Frame()
-	if q.Editor.Text != "select x, b from t" {
-		t.Fatalf("Ctrl+R: %q", q.Editor.Text)
+	if q.Editor.Text() != "select x, b from t" {
+		t.Fatalf("Ctrl+R: %q", q.Editor.Text())
 	}
 	testutil.Snapshot(t, tt, "vim-normal")
 	press("$")
@@ -405,9 +440,9 @@ func TestCursors(t *testing.T) {
 	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1000, 700)
 	q := New(a, cn, "", "q", "select a;\nselect b;\nselect c;")
-	q.Editor.PendingSel = &[2]int{0, 0}
+	q.Editor.Select(0, 0)
 	a.AddTab(q)
-	testutil.WaitFor(t, tt, "the editor's focus", func() bool { return q.Editor.HasFocus })
+	testutil.WaitFor(t, tt, "the editor's focus", func() bool { return q.Editor.HasFocus() })
 	step := func() {
 		tt.Frame()
 		tt.Frame()
@@ -418,17 +453,17 @@ func TestCursors(t *testing.T) {
 	step()
 	tt.Type("x")
 	step()
-	if q.Editor.Text != "xselect a;\nxselect b;\nxselect c;" {
-		t.Fatalf("typed at the carets: %q", q.Editor.Text)
+	if q.Editor.Text() != "xselect a;\nxselect b;\nxselect c;" {
+		t.Fatalf("typed at the carets: %q", q.Editor.Text())
 	}
 	tt.Key(0, ui.KeyBackspace)
 	step()
-	if q.Editor.Text != "select a;\nselect b;\nselect c;" {
-		t.Fatalf("deleted at the carets: %q", q.Editor.Text)
+	if q.Editor.Text() != "select a;\nselect b;\nselect c;" {
+		t.Fatalf("deleted at the carets: %q", q.Editor.Text())
 	}
 	tt.Key(0, ui.KeyEscape)
 	step()
-	if q.Editor.HasCursors() {
+	if len(q.Editor.State.Selections()) > 1 {
 		t.Fatal("Esc kept the carets")
 	}
 
@@ -436,23 +471,23 @@ func TestCursors(t *testing.T) {
 	step()
 	tt.Type("SELECT")
 	step()
-	if q.Editor.Text != "SELECT a;\nSELECT b;\nSELECT c;" {
-		t.Fatalf("typed over the word: %q", q.Editor.Text)
+	if q.Editor.Text() != "SELECT a;\nSELECT b;\nSELECT c;" {
+		t.Fatalf("typed over the word: %q", q.Editor.Text())
 	}
 	tt.Key(0, ui.KeyRight)
 	step()
 	tt.Type("_")
 	step()
-	if q.Editor.Text != "SELECT _a;\nSELECT _b;\nSELECT _c;" {
-		t.Fatalf("moved and typed: %q", q.Editor.Text)
+	if q.Editor.Text() != "SELECT _a;\nSELECT _b;\nSELECT _c;" {
+		t.Fatalf("moved and typed: %q", q.Editor.Text())
 	}
 	testutil.Snapshot(t, tt, "cursors")
 	tt.Key(0, ui.KeyEscape)
 	step()
 	tt.Type("!")
 	step()
-	if strings.Count(q.Editor.Text, "!") != 1 {
-		t.Fatalf("after Esc, typed at %q", q.Editor.Text)
+	if strings.Count(q.Editor.Text(), "!") != 1 {
+		t.Fatalf("after Esc, typed at %q", q.Editor.Text())
 	}
 }
 
@@ -465,47 +500,48 @@ func TestFolding(t *testing.T) {
 	tt := ui.NewTester(a.view, 1000, 700)
 	text := "select a,\n  b\nfrom t;\n\nselect 2;"
 	q := New(a, cn, "", "q", text)
-	q.Editor.PendingSel = &[2]int{0, 0}
+	q.Editor.Select(0, 0)
 	a.AddTab(q)
-	testutil.WaitFor(t, tt, "the editor's focus", func() bool { return q.Editor.HasFocus })
+	testutil.WaitFor(t, tt, "the editor's focus", func() bool { return q.Editor.HasFocus() })
 	step := func() {
 		tt.Frame()
 		tt.Frame()
 	}
 	tt.Key(ui.Cmd|ui.Alt, ui.KeyBracketLeft)
 	step()
-	if !q.Editor.Folded() || q.Editor.Text != text || q.Editor.ViewLine(len([]rune(text))) != 2 {
-		t.Fatalf("folded %v, text %q, last line shown at %d", q.Editor.Folded(), q.Editor.Text, q.Editor.ViewLine(len([]rune(text))))
+	folded := func() []int { return q.Editor.State.Folded() }
+	if !slices.Equal(folded(), []int{0}) || q.Editor.Text() != text {
+		t.Fatalf("folded %v, text %q", folded(), q.Editor.Text())
 	}
 	testutil.Snapshot(t, tt, "folded")
 	tt.Type("x")
 	step()
-	if q.Editor.Text != "x"+text || !q.Editor.Folded() {
-		t.Fatalf("typed before the fold: %q, folded %v", q.Editor.Text, q.Editor.Folded())
+	if q.Editor.Text() != "x"+text || len(folded()) == 0 {
+		t.Fatalf("typed before the fold: %q, folded %v", q.Editor.Text(), len(folded()) > 0)
 	}
-	q.Editor.PendingSel = &[2]int{14, 14}
+	q.Editor.Select(14, 14)
 	step()
-	if q.Editor.Folded() || q.Editor.SelEnd != 14 {
-		t.Fatalf("a selection inside left it folded: %v, caret %d", q.Editor.Folded(), q.Editor.SelEnd)
+	if len(folded()) > 0 || q.Editor.Caret() != 14 {
+		t.Fatalf("a selection inside left it folded: %v, caret %d", len(folded()) > 0, q.Editor.Caret())
 	}
 	// The caret after the block stays there as it folds and opens.
-	end := len([]rune(q.Editor.Text))
-	q.Editor.PendingSel = &[2]int{end, end}
+	end := len(q.Editor.Text())
+	q.Editor.Select(end, end)
 	step()
-	q.Editor.FoldAll()
+	q.Editor.State.Run(code.FoldAll)
 	step()
-	q.Editor.UnfoldAll()
+	q.Editor.State.Run(code.UnfoldAll)
 	step()
 	tt.Type("Z")
 	step()
-	if !strings.HasSuffix(q.Editor.Text, "select 2;Z") {
-		t.Fatalf("typed after folding and opening: %q", q.Editor.Text)
+	if !strings.HasSuffix(q.Editor.Text(), "select 2;Z") {
+		t.Fatalf("typed after folding and opening: %q", q.Editor.Text())
 	}
-	q.Editor.FoldAll()
+	q.Editor.State.Run(code.FoldAll)
 	step()
-	q.Editor.Text = "select 1;"
+	q.Editor.SetText("select 1;")
 	step()
-	if q.Editor.Folded() {
+	if len(folded()) > 0 {
 		t.Fatal("the app's text kept the folds")
 	}
 }
@@ -557,7 +593,7 @@ func TestLargeChangeAsks(t *testing.T) {
 
 	// Within the limit, it commits without asking.
 	a.Confirm = nil
-	q.Editor.Text = "UPDATE t SET a = 2 WHERE id = 1"
+	q.Editor.SetText("UPDATE t SET a = 2 WHERE id = 1")
 	q.Run(RunStatement)
 	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running })
 	if a.Confirm != nil || sum() != 4 {
@@ -566,7 +602,7 @@ func TestLargeChangeAsks(t *testing.T) {
 
 	// An upsert changes rows already there, and asks; an INSERT only adds.
 	a.Confirm = nil
-	q.Editor.Text = "INSERT INTO t VALUES (1, 5), (2, 5), (3, 5) ON CONFLICT (id) DO UPDATE SET a = excluded.a"
+	q.Editor.SetText("INSERT INTO t VALUES (1, 5), (2, 5), (3, 5) ON CONFLICT (id) DO UPDATE SET a = excluded.a")
 	q.Run(RunStatement)
 	testutil.WaitFor(t, tt, "the question", func() bool { return a.Confirm != nil })
 	a.Confirm.OnCancel()
@@ -576,7 +612,7 @@ func TestLargeChangeAsks(t *testing.T) {
 		t.Fatalf("the declined upsert committed: sum %d", sum())
 	}
 	a.Confirm = nil
-	q.Editor.Text = "INSERT INTO t VALUES (4, 0), (5, 0), (6, 0)"
+	q.Editor.SetText("INSERT INTO t VALUES (4, 0), (5, 0), (6, 0)")
 	q.Run(RunStatement)
 	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running })
 	if a.Confirm != nil {
@@ -667,7 +703,7 @@ func TestIntegrationLargeChangeAutocommitOff(t *testing.T) {
 		return n
 	}
 	runWith(t, tt, q, "SET", RunStatement)
-	q.Editor.Text = "UPDATE it_guard_off SET a = 1 WHERE id > 0"
+	q.Editor.SetText("UPDATE it_guard_off SET a = 1 WHERE id > 0")
 	q.Run(RunStatement)
 	testutil.WaitFor(t, tt, "the run or its question", func() bool { return a.Confirm != nil || !q.Running })
 	if a.Confirm != nil {
@@ -776,7 +812,7 @@ func TestGutterRunButton(t *testing.T) {
 		t.Fatalf("ran another statement: %v", cols)
 	}
 	tt.Frame()
-	if !q.Editor.HasFocus {
+	if !q.Editor.HasFocus() {
 		t.Fatal("the editor lost the keys")
 	}
 }
@@ -790,4 +826,10 @@ func TestEditorTakesLayoutHeight(t *testing.T) {
 	if q := New(a, cn, "", "q", ""); q.editorH != 420 {
 		t.Fatalf("height %v", q.editorH)
 	}
+}
+
+// offers reports whether the editor shows completions, one labelled
+// label among those it was given.
+func offers(q *Tab, label string) bool {
+	return q.Editor.State.CompletionsOpen() && slices.ContainsFunc(q.ac.items, func(s suggestion) bool { return s.label == label })
 }

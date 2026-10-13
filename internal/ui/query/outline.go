@@ -13,7 +13,7 @@ import (
 // outlineEntry is a statement of the editor's text, as the outline lists
 // it: its line, its first words, and the comment above it.
 type outlineEntry struct {
-	start   int // rune offset
+	start   int // byte offset
 	line    int // 1-based
 	text    string
 	comment string
@@ -32,17 +32,16 @@ type outlineDialog struct {
 // outline lists the statements of a text: each by its first line of SQL,
 // with the comment lines right above it.
 func outline(text string, d sqltext.Dialect, o sqltext.SplitOptions) []outlineEntry {
-	runes := []rune(text)
 	var out []outlineEntry
 	prevEnd := 0
 	for _, st := range sqltext.SplitWith(text, d, o) {
 		code := strings.Join(strings.Fields(st.Text), " ")
-		above := string(runes[min(prevEnd, st.Start):st.Start])
+		above := text[min(prevEnd, st.Start):st.Start]
 		prevEnd = st.End
 		if code == "" {
 			continue
 		}
-		out = append(out, outlineEntry{start: st.Start, line: strings.Count(string(runes[:st.Start]), "\n") + 1,
+		out = append(out, outlineEntry{start: st.Start, line: strings.Count(text[:st.Start], "\n") + 1,
 			text: widgets.OneLine(code, 120), comment: widgets.OneLine(commentAbove(above), 80)})
 	}
 	return out
@@ -65,9 +64,9 @@ func commentAbove(gap string) string {
 
 // openOutline lists the editor's statements, the one at the caret chosen.
 func (q *Tab) openOutline() {
-	d := &outlineDialog{open: true, q: q, entries: outline(q.Editor.Text, q.Editor.Dialect, SplitOptions(q.a.Settings()))}
+	d := &outlineDialog{open: true, q: q, entries: outline(q.Editor.Text(), q.Editor.Dialect, SplitOptions(q.a.Settings()))}
 	for i, e := range d.entries {
-		if e.start <= q.Editor.SelEnd {
+		if e.start <= q.Editor.Caret() {
 			d.sel = i
 		}
 	}

@@ -28,7 +28,7 @@ func TestParamsKeepEdits(t *testing.T) {
 	tt := ui.NewTester(a.view, 1100, 760)
 	q := newEditor(t, a, tt, cn, "-- connection: lite\n\nSELECT * FROM n WHERE i <= :last")
 	ask := func() {
-		q.withParams([]string{q.Editor.Text}, func(map[string]params.Input) {})
+		q.withParams([]string{q.Editor.Text()}, func(map[string]params.Input) {})
 		tt.Frame()
 		if a.dialogs.params == nil {
 			t.Fatal("no parameters asked")
@@ -66,7 +66,7 @@ func TestParamsSavedSkipAsk(t *testing.T) {
 	dataview.SaveParamValue(q.Conn.Project, "lite", ":last", params.Input{Value: "10", Kind: "number"})
 	dataview.SaveParamValue(q.Conn.Project, "other", ":more", params.Input{Value: "1"})
 	var got map[string]params.Input
-	q.withParams([]string{q.Editor.Text}, func(v map[string]params.Input) { got = v })
+	q.withParams([]string{q.Editor.Text()}, func(v map[string]params.Input) { got = v })
 	tt.Frame()
 	if a.dialogs.params != nil || got[":last"] != (params.Input{Value: "10", Kind: "number"}) {
 		t.Fatalf("asked %v, ran with %v", a.dialogs.params != nil, got)
@@ -87,7 +87,7 @@ func TestParamsAskOnlyUnset(t *testing.T) {
 	a, tt, q := paramsEditor(t, "SELECT :a, :b")
 	dataview.SaveParamValue(q.Conn.Project, "lite", ":a", params.Input{Value: "1"})
 	var got map[string]params.Input
-	q.withParams([]string{q.Editor.Text}, func(v map[string]params.Input) { got = v })
+	q.withParams([]string{q.Editor.Text()}, func(v map[string]params.Input) { got = v })
 	tt.Frame()
 	f := a.dialogs.params
 	if f == nil || len(f.fields) != 1 || f.fields[0].key != ":b" {
@@ -120,7 +120,7 @@ func TestParamsBar(t *testing.T) {
 		t.Fatalf("kept while typing: %v", kept)
 	}
 	testutil.WaitFor(t, tt, "the value kept", func() bool { return dataview.ParamValues(q.Conn.Project, "lite")[":id"].Value == "42" })
-	q.withParams([]string{q.Editor.Text}, func(map[string]params.Input) {})
+	q.withParams([]string{q.Editor.Text()}, func(map[string]params.Input) {})
 	tt.Frame()
 	if a.dialogs.params != nil {
 		t.Fatal("asked a value typed in the bar")
@@ -141,11 +141,11 @@ func TestParamsBar(t *testing.T) {
 	tt.Type("9")
 	tt.Frame()
 	var got map[string]params.Input
-	q.withParams([]string{q.Editor.Text}, func(v map[string]params.Input) { got = v })
+	q.withParams([]string{q.Editor.Text()}, func(v map[string]params.Input) { got = v })
 	if a.dialogs.params != nil || got[":id"].Value != "9" {
 		t.Fatalf("a run before typing stopped took %v", got)
 	}
-	q.Editor.Text = "SELECT 1"
+	q.Editor.SetText("SELECT 1")
 	tt.Frame()
 	if tt.HasText("Parameters") {
 		t.Fatalf("a bar without parameters: %q", tt.Texts())
@@ -168,7 +168,7 @@ func TestParamsBarPendingEdits(t *testing.T) {
 	typed("42")
 	dataview.SaveParamValue(p, "lite", ":id", params.Input{Value: "5", Kind: "auto"})
 	var got map[string]params.Input
-	q.withParams([]string{q.Editor.Text}, func(v map[string]params.Input) { got = v })
+	q.withParams([]string{q.Editor.Text()}, func(v map[string]params.Input) { got = v })
 	if got[":id"].Value != "5" || dataview.ParamValues(p, "lite")[":id"].Value != "5" {
 		t.Fatalf("ran with %v, kept %v", got, dataview.ParamValues(p, "lite"))
 	}

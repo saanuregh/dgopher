@@ -22,6 +22,6 @@ type Host interface {
 	// editor loses.
 	SwitchConnection(q *Tab, id string)
 	// OpenQueryFile opens a query file of a project with the caret at a
-	// rune offset.
+	// byte offset of its text with \n line endings, as its editor has it.
 	OpenQueryFile(path string, at int)
 }

@@ -1,13 +1,10 @@
 // Package sqltext tokenizes, splits, classifies, completes and formats SQL text.
-// All offsets are rune offsets, matching the UI text widget.
+// All offsets are byte offsets into the Go string.
 package sqltext
 
 import (
 	"slices"
 	"strings"
-	"unicode/utf8"
-
-	"dgopher/internal/lists"
 )
 
 // Dialect selects lexing and keyword rules.
@@ -38,7 +35,7 @@ const (
 	Unknown
 )
 
-// Token is a lexical token covering runes [Start, End).
+// Token is a lexical token covering bytes [Start, End).
 type Token struct {
 	Kind       Kind
 	Start, End int
@@ -52,55 +49,46 @@ var multiCharOperators = []string{
 // postgresOperators are Postgres (and DuckDB) operators matched before multiCharOperators.
 var postgresOperators = []string{"?|", "?&", "#-", "@@", "//", "**"}
 
-var (
-	multiCharOperatorRunes = operatorRunes(multiCharOperators)
-	postgresOperatorRunes  = operatorRunes(slices.Concat(postgresOperators, multiCharOperators))
-)
+var postgresAndMultiCharOperators = slices.Concat(postgresOperators, multiCharOperators)
 
-func operatorRunes(ops []string) [][]rune {
-	return lists.Map(ops, func(op string) []rune { return []rune(op) })
+// isIdentStart treats every byte >= 0x80 as a name character, as the servers
+// do, so no non-ASCII character can end a name and expose what follows to
+// splitting. Every byte of a multi-byte character is >= 0x80, so a name
+// never ends inside one, and an invalid byte reads as U+FFFD would.
+func isIdentStart(c byte) bool {
+	return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c >= 0x80
 }
 
-// isIdentStart treats every rune >= 0x80 as a name character, as the servers
-// do, so no non-ASCII rune can end a name and expose what follows to splitting.
-func isIdentStart(r rune) bool {
-	return r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r >= 0x80
+func isIdentPart(c byte, d Dialect) bool {
+	return isIdentStart(c) || isDigit(c) || (c == '$' && (d == Postgres || d == MySQL || d == ClickHouse || d == SQLite))
 }
 
-func isIdentPart(r rune, d Dialect) bool {
-	return isIdentStart(r) || isDigit(r) || (r == '$' && (d == Postgres || d == MySQL || d == ClickHouse || d == SQLite))
-}
-
-// identPartAt reports whether rs[i] continues a name. A '$' before '{'
+// identPartAt reports whether s[i] continues a name. A '$' before '{'
 // never does, so "logs_${suffix}" keeps its ${suffix} variable.
-func identPartAt(rs []rune, i int, d Dialect) bool {
-	return isIdentPart(rs[i], d) && !(rs[i] == '$' && i+1 < len(rs) && rs[i+1] == '{')
+func identPartAt(s string, i int, d Dialect) bool {
+	return isIdentPart(s[i], d) && !(s[i] == '$' && i+1 < len(s) && s[i+1] == '{')
 }
 
-// isSpace is ASCII whitespace only; no server treats a rune >= 0x80 as a separator.
-func isSpace(r rune) bool {
-	return r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == '\f' || r == '\v'
+// isSpace is ASCII whitespace only; no server treats a character >= 0x80 as a separator.
+func isSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v'
 }
 
-// startsLineComment reports whether a line comment starts at rs[i].
-func startsLineComment(rs []rune, i int, d Dialect) bool {
-	next := rune(-1)
-	if i+1 < len(rs) {
-		next = rs[i+1]
-	}
-	switch rs[i] {
+// startsLineComment reports whether a line comment starts at s[i].
+func startsLineComment(s string, i int, d Dialect) bool {
+	switch s[i] {
 	case '-':
-		if i+1 >= len(rs) || next != '-' {
+		if i+1 >= len(s) || s[i+1] != '-' {
 			return false
 		}
 		if d != MySQL {
 			return true
 		}
 		// MySQL needs whitespace or a control character after "--": "1--1" is 1 - -1.
-		if i+2 >= len(rs) {
+		if i+2 >= len(s) {
 			return true
 		}
-		after := rs[i+2]
+		after := s[i+2]
 		return isSpace(after) || after < 0x20 || after == 0x7f
 	case '#':
 		switch d {
@@ -108,16 +96,16 @@ func startsLineComment(rs []rune, i int, d Dialect) bool {
 			return true
 		case ClickHouse:
 			// ClickHouse reads "#x" as a syntax error, not a comment.
-			return next == -1 || isSpace(next) || next == '!'
+			return i+1 >= len(s) || isSpace(s[i+1]) || s[i+1] == '!'
 		}
 	}
 	return false
 }
 
-func isDigit(r rune) bool { return r >= '0' && r <= '9' }
+func isDigit(c byte) bool { return c >= '0' && c <= '9' }
 
-func isHexDigit(r rune) bool {
-	return isDigit(r) || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')
+func isHexDigit(c byte) bool {
+	return isDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
 }
 
 // quoting is how '…' and "…" are read, which a session or server setting
@@ -132,35 +120,28 @@ func defaultQuoting(d Dialect) quoting {
 
 // Tokenize splits src into tokens that cover it completely and contiguously.
 func Tokenize(src string, d Dialect) []Token {
-	return tokenizeRunes([]rune(src), d)
+	return tokenizeQuoted(src, d, defaultQuoting(d))
 }
 
 // TokenizeFirst is Tokenize up to and including the nth token that is
 // neither whitespace nor a comment, all of them when n is 0: a reader of a
 // statement's first words is not slowed by a large statement's others.
 func TokenizeFirst(src string, d Dialect, n int) []Token {
-	text := ""
-	if utf8.ValidString(src) {
-		text = src // as string([]rune(src)), without encoding it again
-	}
-	return tokenizeRunesUpTo([]rune(src), text, d, defaultQuoting(d), n)
+	return tokenizeUpTo(src, d, defaultQuoting(d), n)
 }
 
-func tokenizeRunes(rs []rune, d Dialect) []Token {
-	return tokenizeQuoted(rs, d, defaultQuoting(d))
+// tokenizeQuoted is Tokenize with strings read as q reads them.
+func tokenizeQuoted(src string, d Dialect, q quoting) []Token {
+	return tokenizeUpTo(src, d, q, 0)
 }
 
-// tokenizeQuoted is tokenizeRunes with strings read as q reads them.
-func tokenizeQuoted(rs []rune, d Dialect, q quoting) []Token {
-	return tokenizeRunesUpTo(rs, "", d, q, 0)
-}
-
-// tokenizeRunesUpTo tokenizes rs, whose text is text or, when that is "",
-// string(rs), with strings read as q reads them; it stops after limit
-// significant tokens when limit is above 0.
-func tokenizeRunesUpTo(rs []rune, text string, d Dialect, q quoting, limit int) []Token {
+// tokenizeUpTo tokenizes s with strings read as q reads them; it stops
+// after limit significant tokens when limit is above 0. SQL's syntax
+// characters are all ASCII, so s is read byte by byte; every Text is a
+// substring of s.
+func tokenizeUpTo(s string, d Dialect, q quoting, limit int) []Token {
 	keywords := keywordSet(d)
-	n := len(rs)
+	n := len(s)
 	if n == 0 {
 		return nil
 	}
@@ -170,16 +151,10 @@ func tokenizeRunesUpTo(rs []rune, text string, d Dialect, q quoting, limit int) 
 	}
 	toks := make([]Token, 0, capacity)
 	significantSeen := 0
-	// Every Text is a substring of one string built from rs, so a token costs
-	// no allocation of its own.
-	if text == "" {
-		text = string(rs)
-	}
-	textPos := 0
 	var upper [64]byte
-	at := func(i int) rune {
+	at := func(i int) byte {
 		if i < n {
-			return rs[i]
+			return s[i]
 		}
 		return 0
 	}
@@ -187,136 +162,127 @@ func tokenizeRunesUpTo(rs []rune, text string, d Dialect, q quoting, limit int) 
 	for i < n {
 		start := i
 		kind := Unknown
-		r := rs[i]
+		c := s[i]
 		switch {
-		case isSpace(r):
-			for i < n && isSpace(rs[i]) {
+		case isSpace(c):
+			for i < n && isSpace(s[i]) {
 				i++
 			}
 			kind = Whitespace
-		case startsLineComment(rs, i, d):
+		case startsLineComment(s, i, d):
 			// Postgres also ends a line comment at a lone carriage return.
-			for i < n && rs[i] != '\n' && (d != Postgres || rs[i] != '\r') {
+			for i < n && s[i] != '\n' && (d != Postgres || s[i] != '\r') {
 				i++
 			}
 			kind = Comment
-		case r == '/' && at(i+1) == '*':
-			i = scanBlockComment(rs, i, d == Postgres || d == ClickHouse)
+		case c == '/' && at(i+1) == '*':
+			i = scanBlockComment(s, i, d == Postgres || d == ClickHouse)
 			kind = Comment
-		case r == '\'':
-			i = scanQuoted(rs, i+1, '\'', q.backslashes)
+		case c == '\'':
+			i = scanQuoted(s, i+1, '\'', q.backslashes)
 			kind = String
-		case (r == 'E' || r == 'e') && d == Postgres && at(i+1) == '\'':
-			i = scanQuoted(rs, i+2, '\'', true)
+		case (c == 'E' || c == 'e') && d == Postgres && at(i+1) == '\'':
+			i = scanQuoted(s, i+2, '\'', true)
 			kind = String
-		case (r == 'U' || r == 'u') && d == Postgres && at(i+1) == '&' && (at(i+2) == '\'' || at(i+2) == '"'):
-			quote := rs[i+2]
-			i = scanQuoted(rs, i+3, quote, false)
+		case (c == 'U' || c == 'u') && d == Postgres && at(i+1) == '&' && (at(i+2) == '\'' || at(i+2) == '"'):
+			quote := s[i+2]
+			i = scanQuoted(s, i+3, quote, false)
 			kind = String
 			if quote == '"' {
 				kind = QuotedIdent
 			}
-		case r == '"':
+		case c == '"':
 			switch {
 			case d == MySQL && q.ansiQuotes:
-				i = scanQuoted(rs, i+1, '"', false)
+				i = scanQuoted(s, i+1, '"', false)
 				kind = QuotedIdent
 			case d == MySQL:
-				i = scanQuoted(rs, i+1, '"', q.backslashes)
+				i = scanQuoted(s, i+1, '"', q.backslashes)
 				kind = String
 			default:
-				i = scanQuoted(rs, i+1, '"', d == ClickHouse)
+				i = scanQuoted(s, i+1, '"', d == ClickHouse)
 				kind = QuotedIdent
 			}
-		case r == '`' && (d == MySQL || d == ClickHouse || d == SQLite):
-			i = scanQuoted(rs, i+1, '`', d == ClickHouse)
+		case c == '`' && (d == MySQL || d == ClickHouse || d == SQLite):
+			i = scanQuoted(s, i+1, '`', d == ClickHouse)
 			kind = QuotedIdent
-		case r == '[' && d == SQLite:
-			for i++; i < n && rs[i] != ']'; i++ {
+		case c == '[' && d == SQLite:
+			for i++; i < n && s[i] != ']'; i++ {
 			}
 			if i < n {
 				i++
 			}
 			kind = QuotedIdent
-		case r == '$' && d == ClickHouse:
-			if end, ok := scanDollarQuote(rs, i); ok {
+		case c == '$' && d == ClickHouse:
+			if end, ok := scanDollarQuote(s, i); ok {
 				i = end
 				kind = String
 			} else {
 				i++
 			}
-		case r == '$' && d == Postgres:
+		case c == '$' && d == Postgres:
 			if isDigit(at(i + 1)) {
 				i++
-				for i < n && isDigit(rs[i]) {
+				for i < n && isDigit(s[i]) {
 					i++
 				}
 				kind = Param
-			} else if end, ok := scanDollarQuote(rs, i); ok {
+			} else if end, ok := scanDollarQuote(s, i); ok {
 				i = end
 				kind = String
 			} else {
 				i++
 				kind = Unknown
 			}
-		case r == '?' && d != Postgres:
+		case c == '?' && d != Postgres:
 			i++
 			kind = Param
-		case r == ':' && at(i+1) != ':' && isIdentStart(at(i+1)):
+		case c == ':' && at(i+1) != ':' && isIdentStart(at(i+1)):
 			i++
-			for i < n && identPartAt(rs, i, d) {
+			for i < n && identPartAt(s, i, d) {
 				i++
 			}
 			kind = Param
-		case r == '@' && d == MySQL && (at(i+1) == '@' || isIdentStart(at(i+1))):
+		case c == '@' && d == MySQL && (at(i+1) == '@' || isIdentStart(at(i+1))):
 			i++
 			if at(i) == '@' {
 				i++
 			}
-			for i < n && (identPartAt(rs, i, d) || rs[i] == '.') {
+			for i < n && (identPartAt(s, i, d) || s[i] == '.') {
 				i++
 			}
 			kind = Param
-		case isDigit(r) || (r == '.' && isDigit(at(i+1))):
-			i = scanNumber(rs, i, d)
+		case isDigit(c) || (c == '.' && isDigit(at(i+1))):
+			i = scanNumber(s, i, d)
 			kind = Number
 			// ClickHouse names may start with digits: "1abc" is one word.
-			if d == ClickHouse && i < n && identPartAt(rs, i, d) {
-				for i < n && identPartAt(rs, i, d) {
+			if d == ClickHouse && i < n && identPartAt(s, i, d) {
+				for i < n && identPartAt(s, i, d) {
 					i++
 				}
 				kind = Identifier
 			}
-		case strings.ContainsRune("xXbBnN", r) && at(i+1) == '\'':
-			i = scanQuoted(rs, i+2, '\'', q.backslashes)
+		case strings.IndexByte("xXbBnN", c) >= 0 && at(i+1) == '\'':
+			i = scanQuoted(s, i+2, '\'', q.backslashes)
 			kind = String
-		case isIdentStart(r):
-			for i < n && identPartAt(rs, i, d) {
+		case isIdentStart(c):
+			for i < n && identPartAt(s, i, d) {
 				i++
 			}
 			kind = Identifier
-			if isKeyword(keywords, rs[start:i], &upper) {
+			if isKeyword(keywords, s[start:i], &upper) {
 				kind = Keyword
 			}
-		case strings.ContainsRune("(),;.[]{}", r):
+		case strings.IndexByte("(),;.[]{}", c) >= 0:
 			i++
 			kind = Punct
-		case strings.ContainsRune("+-*/<>=!~|&%^#@:", r) || r == '?':
-			i = scanOperator(rs, i, d)
+		case strings.IndexByte("+-*/<>=!~|&%^#@:", c) >= 0 || c == '?':
+			i = scanOperator(s, i, d)
 			kind = Operator
 		default:
 			i++
 		}
-		width := 0
-		for _, r := range rs[start:i] {
-			if w := utf8.RuneLen(r); w > 0 {
-				width += w
-			} else {
-				width += utf8.RuneLen(utf8.RuneError)
-			}
-		}
-		toks = append(toks, Token{Kind: kind, Start: start, End: i, Text: text[textPos : textPos+width]})
-		textPos += width
+		toks = append(toks, Token{Kind: kind, Start: start, End: i, Text: s[start:i]})
 		if limit > 0 && kind != Whitespace && kind != Comment {
 			if significantSeen++; significantSeen == limit {
 				break
@@ -328,63 +294,60 @@ func tokenizeRunesUpTo(rs []rune, text string, d Dialect, q quoting, limit int) 
 
 // isKeyword upper-cases an ASCII word into buf so the map lookup does not
 // allocate; other words take the strings.ToUpper path.
-func isKeyword(keywords map[string]bool, word []rune, buf *[64]byte) bool {
+func isKeyword(keywords map[string]bool, word string, buf *[64]byte) bool {
 	if len(word) > len(buf) {
-		return keywords[strings.ToUpper(string(word))]
+		return keywords[strings.ToUpper(word)]
 	}
-	for k, r := range word {
-		if r >= 0x80 {
-			return keywords[strings.ToUpper(string(word))]
+	for k := 0; k < len(word); k++ {
+		c := word[k]
+		if c >= 0x80 {
+			return keywords[strings.ToUpper(word)]
 		}
-		if r >= 'a' && r <= 'z' {
-			r -= 'a' - 'A'
+		if c >= 'a' && c <= 'z' {
+			c -= 'a' - 'A'
 		}
-		buf[k] = byte(r)
+		buf[k] = c
 	}
 	return keywords[string(buf[:len(word)])]
 }
 
-// scanOperator matches the longest known operator at rs[i], but never one
+// scanOperator matches the longest known operator at s[i], but never one
 // that swallows the start of a comment, which would hide a boundary.
-func scanOperator(rs []rune, i int, d Dialect) int {
-	ops := multiCharOperatorRunes
+func scanOperator(s string, i int, d Dialect) int {
+	ops := multiCharOperators
 	if d == Postgres {
-		ops = postgresOperatorRunes
+		ops = postgresAndMultiCharOperators
 	}
 	for _, op := range ops {
 		end := i + len(op)
-		if hasPrefixAt(rs, i, op) && !commentStartsWithin(rs, i+1, end, d) {
+		if strings.HasPrefix(s[i:], op) && !commentStartsWithin(s, i+1, end, d) {
 			return end
 		}
 	}
 	return i + 1
 }
 
-func commentStartsWithin(rs []rune, from, to int, d Dialect) bool {
+func commentStartsWithin(s string, from, to int, d Dialect) bool {
 	for k := from; k < to; k++ {
-		if startsLineComment(rs, k, d) || (rs[k] == '/' && k+1 < len(rs) && rs[k+1] == '*') {
+		if startsLineComment(s, k, d) || (s[k] == '/' && k+1 < len(s) && s[k+1] == '*') {
 			return true
 		}
 	}
 	return false
 }
 
-func hasPrefixAt(rs []rune, i int, prefix []rune) bool {
-	return i+len(prefix) <= len(rs) && slices.Equal(rs[i:i+len(prefix)], prefix)
-}
-
-func scanBlockComment(rs []rune, i int, nested bool) int {
+func scanBlockComment(s string, i int, nested bool) int {
 	depth := 0
-	n := len(rs)
+	n := len(s)
 	for i < n {
 		// Where comments do not nest, an opener inside one is text: its
 		// star may begin the */ that closes it, as in /*/*/.
-		if rs[i] == '/' && i+1 < n && rs[i+1] == '*' && (depth == 0 || nested) {
+		if s[i] == '/' && i+1 < n && s[i+1] == '*' && (depth == 0 || nested) {
 			depth++
 			i += 2
 			continue
 		}
-		if rs[i] == '*' && i+1 < n && rs[i+1] == '/' {
+		if s[i] == '*' && i+1 < n && s[i+1] == '/' {
 			depth--
 			i += 2
 			if depth == 0 {
@@ -397,15 +360,17 @@ func scanBlockComment(rs []rune, i int, nested bool) int {
 	return n
 }
 
-// scanQuoted scans from just after the opening quote; a doubled quote is an escape.
-func scanQuoted(rs []rune, i int, quote rune, backslash bool) int {
-	n := len(rs)
+// scanQuoted scans from just after the opening quote; a doubled quote is an
+// escape. A backslash escapes the byte after it: the bytes that follow
+// a multi-byte character's first are >= 0x80 and so never a quote.
+func scanQuoted(s string, i int, quote byte, backslash bool) int {
+	n := len(s)
 	for i < n {
 		switch {
-		case backslash && rs[i] == '\\':
+		case backslash && s[i] == '\\':
 			i += 2
-		case rs[i] == quote:
-			if i+1 < n && rs[i+1] == quote {
+		case s[i] == quote:
+			if i+1 < n && s[i+1] == quote {
 				i += 2
 				continue
 			}
@@ -417,83 +382,81 @@ func scanQuoted(rs []rune, i int, quote rune, backslash bool) int {
 	return n
 }
 
-func scanDollarQuote(rs []rune, i int) (int, bool) {
-	n := len(rs)
+func scanDollarQuote(s string, i int) (int, bool) {
+	n := len(s)
 	j := i + 1
-	if j < n && isIdentStart(rs[j]) {
-		for j < n && rs[j] != '$' && (isIdentStart(rs[j]) || isDigit(rs[j])) {
+	if j < n && isIdentStart(s[j]) {
+		for j < n && s[j] != '$' && (isIdentStart(s[j]) || isDigit(s[j])) {
 			j++
 		}
 	}
-	if j >= n || rs[j] != '$' {
+	if j >= n || s[j] != '$' {
 		return 0, false
 	}
-	delim := rs[i : j+1]
-	for k := j + 1; k+len(delim) <= n; k++ {
-		if slices.Equal(rs[k:k+len(delim)], delim) {
-			return k + len(delim), true
-		}
+	delim := s[i : j+1]
+	if k := strings.Index(s[j+1:], delim); k >= 0 {
+		return j + 1 + k + len(delim), true
 	}
 	return n, true
 }
 
 // scanNumber scans a number. Postgres also reads 0b and 0o prefixes and "_"
 // between digits; MySQL and ClickHouse read 0b; ClickHouse reads "_" too.
-func scanNumber(rs []rune, i int, d Dialect) int {
-	n := len(rs)
+func scanNumber(s string, i int, d Dialect) int {
+	n := len(s)
 	underscore := d == Postgres || d == ClickHouse
-	if rs[i] == '0' && i+1 < n {
-		var isRadixDigit func(rune) bool
-		switch rs[i+1] {
+	if s[i] == '0' && i+1 < n {
+		var isRadixDigit func(byte) bool
+		switch s[i+1] {
 		case 'x', 'X':
 			isRadixDigit = isHexDigit
 		case 'b', 'B':
 			if d == Postgres || d == MySQL || d == ClickHouse {
-				isRadixDigit = func(r rune) bool { return r == '0' || r == '1' }
+				isRadixDigit = func(c byte) bool { return c == '0' || c == '1' }
 			}
 		case 'o', 'O':
 			if d == Postgres {
-				isRadixDigit = func(r rune) bool { return r >= '0' && r <= '7' }
+				isRadixDigit = func(c byte) bool { return c >= '0' && c <= '7' }
 			}
 		}
 		if isRadixDigit != nil {
 			j := i + 2
-			if underscore && j+1 < n && rs[j] == '_' && isRadixDigit(rs[j+1]) {
+			if underscore && j+1 < n && s[j] == '_' && isRadixDigit(s[j+1]) {
 				j++
 			}
-			if j < n && isRadixDigit(rs[j]) {
-				return scanDigits(rs, j, isRadixDigit, underscore)
+			if j < n && isRadixDigit(s[j]) {
+				return scanDigits(s, j, isRadixDigit, underscore)
 			}
 		}
 	}
-	i = scanDigits(rs, i, isDigit, underscore)
-	if i < n && rs[i] == '.' {
+	i = scanDigits(s, i, isDigit, underscore)
+	if i < n && s[i] == '.' {
 		i++
-		if i < n && isDigit(rs[i]) {
-			i = scanDigits(rs, i, isDigit, underscore)
+		if i < n && isDigit(s[i]) {
+			i = scanDigits(s, i, isDigit, underscore)
 		}
 	}
-	if i < n && (rs[i] == 'e' || rs[i] == 'E') {
+	if i < n && (s[i] == 'e' || s[i] == 'E') {
 		j := i + 1
-		if j < n && (rs[j] == '+' || rs[j] == '-') {
+		if j < n && (s[j] == '+' || s[j] == '-') {
 			j++
 		}
-		if j < n && isDigit(rs[j]) {
-			i = scanDigits(rs, j, isDigit, underscore)
+		if j < n && isDigit(s[j]) {
+			i = scanDigits(s, j, isDigit, underscore)
 		}
 	}
 	return i
 }
 
-// scanDigits scans digits from rs[i], with a single "_" allowed between two
+// scanDigits scans digits from s[i], with a single "_" allowed between two
 // digits when underscore is set.
-func scanDigits(rs []rune, i int, isDigitOf func(rune) bool, underscore bool) int {
-	n := len(rs)
+func scanDigits(s string, i int, isDigitOf func(byte) bool, underscore bool) int {
+	n := len(s)
 	for i < n {
 		switch {
-		case isDigitOf(rs[i]):
+		case isDigitOf(s[i]):
 			i++
-		case underscore && rs[i] == '_' && i > 0 && isDigitOf(rs[i-1]) && i+1 < n && isDigitOf(rs[i+1]):
+		case underscore && s[i] == '_' && i > 0 && isDigitOf(s[i-1]) && i+1 < n && isDigitOf(s[i+1]):
 			i++
 		default:
 			return i

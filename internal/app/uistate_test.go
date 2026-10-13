@@ -1,6 +1,7 @@
 package app
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,6 +15,7 @@ import (
 	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/widgets"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -123,16 +125,14 @@ func TestWindowStateInUIState(t *testing.T) {
 		t.Cleanup(func() { uiDB.Close() })
 		return uiDB
 	}
-	load, save := windowStateStore(open())
-	if got, err := load(); got != nil || err != nil {
-		t.Fatalf("nothing saved loads %q, %v", got, err)
+	if got, err := (windowStates{open()}).LoadWindowStates(); len(got) != 0 || err != nil {
+		t.Fatalf("nothing saved loads %v, %v", got, err)
 	}
-	saved := `{"main":{"x":40,"y":50,"width":800,"height":600,"maximized":true}}`
-	if err := save([]byte(saved)); err != nil {
+	saved := map[string]mygo.WindowState{"main": {X: 40, Y: 50, Width: 800, Height: 600, Maximized: true}}
+	if err := (windowStates{open()}).SaveWindowStates(saved); err != nil {
 		t.Fatal(err)
 	}
-	load, _ = windowStateStore(open())
-	if got, err := load(); err != nil || string(got) != saved {
-		t.Fatalf("the next run loads %q, %v; want %q", got, err, saved)
+	if got, err := (windowStates{open()}).LoadWindowStates(); err != nil || !maps.Equal(got, saved) {
+		t.Fatalf("the next run loads %v, %v; want %v", got, err, saved)
 	}
 }

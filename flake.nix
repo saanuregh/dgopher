@@ -20,6 +20,9 @@
           # them out of the default library path.
           guiLibraries = with pkgs; [
             gtk3
+            pango
+            gdk-pixbuf
+            at-spi2-core # atk
             cairo
             libepoxy
             fontconfig

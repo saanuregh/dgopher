@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -138,15 +139,15 @@ func TestSmartSort(t *testing.T) {
 	}
 
 	v.grid.setValue(&v.src, 0, 1, db.Typed("edited"))
-	before := cloneSort(v.grid.sort)
+	before := v.grid.sort
 	cursor = v.cursor
 	// As a header click leaves it: a second click right after the first
 	// would be a double click to the tester, whose clock does not move.
-	v.grid.sort, v.grid.sortChanged = ui.SortOrder{Column: colID(2)}, true
+	v.grid.sort, v.grid.sortChanged = []ui.SortOrder{{Column: colID(2)}}, true
 	testutil.WaitFor(t, tt, "the question about the pending change", func() bool { return a.Pending != nil })
 	a.Pending.Cancel()
 	tt.Frame()
-	if !sameSort(v.grid.sort, before) || v.cursor != cursor || v.grid.edits.count() != 1 {
+	if !slices.Equal(v.grid.sort, before) || v.cursor != cursor || v.grid.edits.count() != 1 {
 		t.Fatal("Cancel did not keep the order and the change")
 	}
 }
@@ -228,10 +229,10 @@ func TestSortWhileApplying(t *testing.T) {
 	v.applying = true
 	after := false
 	v.afterApply = func() { after = true }
-	before := cloneSort(v.grid.sort)
-	v.grid.sort, v.grid.sortChanged = ui.SortOrder{Column: colID(1)}, true
+	before := v.grid.sort
+	v.grid.sort, v.grid.sortChanged = []ui.SortOrder{{Column: colID(1)}}, true
 	tt.Frame()
-	if a.Pending != nil || !sameSort(v.grid.sort, before) || v.grid.edits.count() != 1 {
+	if a.Pending != nil || !slices.Equal(v.grid.sort, before) || v.grid.edits.count() != 1 {
 		t.Fatalf("a sort while applying: asked %v, sort %+v, %d changes", a.Pending != nil, v.grid.sort, v.grid.edits.count())
 	}
 	v.afterApply()

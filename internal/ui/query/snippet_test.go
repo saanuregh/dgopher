@@ -25,6 +25,12 @@ func TestExpandSnippet(t *testing.T) {
 	if text, fields := expandSnippet("no fields, $ alone"); text != "no fields, $ alone" || len(fields) != 0 {
 		t.Fatalf("%q %+v", text, fields)
 	}
+	// A snippet kept from a file with \r\n line endings has its fields
+	// where the editor's \n text has them.
+	text, fields = expandSnippet("SELECT ${2:*}\r\nFROM ${1:table}")
+	if text != "SELECT *\nFROM table" || !slices.Equal(fields, []snippetField{{14, 19}, {7, 8}}) {
+		t.Fatalf("\\r\\n: %q %+v", text, fields)
+	}
 }
 
 // A snippet's keyword completes to it, and Tab walks its fields as they
@@ -37,32 +43,32 @@ func TestSnippetAndFunctionCompletion(t *testing.T) {
 	q := newEditor(t, a, tt, cn, "")
 	tt.Type("recen")
 	testutil.WaitFor(t, tt, "the snippet", func() bool {
-		return q.ac.open && len(q.ac.items) > 0 && q.ac.items[0].kind == "snippet"
+		return offers(q, "recent")
 	})
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
-	if q.Editor.Text != "SELECT * FROM t ORDER BY id DESC LIMIT 10;" || q.snippet == nil {
-		t.Fatalf("text %q, session %v", q.Editor.Text, q.snippet)
+	if q.Editor.Text() != "SELECT * FROM t ORDER BY id DESC LIMIT 10;" || q.snippet == nil {
+		t.Fatalf("text %q, session %v", q.Editor.Text(), q.snippet)
 	}
 	tt.Frame()
-	if q.Editor.Selection() != "t" {
-		t.Fatalf("selection %q", q.Editor.Selection())
+	if q.Editor.SelectedText() != "t" {
+		t.Fatalf("selection %q", q.Editor.SelectedText())
 	}
 	tt.Type("orders")
 	tt.Frame()
 	tt.Key(0, ui.KeyTab)
 	tt.Frame()
 	tt.Frame()
-	if q.Editor.Text != "SELECT * FROM orders ORDER BY id DESC LIMIT 10;" || q.Editor.Selection() != "id" {
-		t.Fatalf("text %q, selection %q", q.Editor.Text, q.Editor.Selection())
+	if q.Editor.Text() != "SELECT * FROM orders ORDER BY id DESC LIMIT 10;" || q.Editor.SelectedText() != "id" {
+		t.Fatalf("text %q, selection %q", q.Editor.Text(), q.Editor.SelectedText())
 	}
 	tt.Type("placed_at")
 	tt.Frame()
 	tt.Key(0, ui.KeyTab)
 	tt.Frame()
 	tt.Frame()
-	if q.Editor.Selection() != "10" {
-		t.Fatalf("third field: %q in %q", q.Editor.Selection(), q.Editor.Text)
+	if q.Editor.SelectedText() != "10" {
+		t.Fatalf("third field: %q in %q", q.Editor.SelectedText(), q.Editor.Text())
 	}
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
@@ -70,17 +76,49 @@ func TestSnippetAndFunctionCompletion(t *testing.T) {
 		t.Fatal("Escape kept the fields")
 	}
 
-	q.Editor.Text, q.ac.lastText = "", ""
-	q.Editor.PendingSel = &[2]int{0, 0}
+	q.Editor.SetText("")
+	q.Editor.Select(0, 0)
 	tt.Frame()
 	tt.Type("SELECT coales")
 	testutil.WaitFor(t, tt, "the function", func() bool {
-		return q.ac.open && len(q.ac.items) > 0 && q.ac.items[0].label == "coalesce"
+		return offers(q, "coalesce")
 	})
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
 	tt.Frame()
-	if q.Editor.Text != "SELECT coalesce()" || q.Editor.SelEnd != len("SELECT coalesce(") {
-		t.Fatalf("text %q caret %d", q.Editor.Text, q.Editor.SelEnd)
+	if q.Editor.Text() != "SELECT coalesce()" || q.Editor.Caret() != len("SELECT coalesce(") {
+		t.Fatalf("text %q caret %d", q.Editor.Text(), q.Editor.Caret())
+	}
+}
+
+// A snippet's fields, past characters of several bytes, are selected
+// whole as Tab goes through them.
+func TestSnippetFieldsWithMultibyte(t *testing.T) {
+	a := newFakeQueryHost(t)
+	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1000, 700)
+	q := newEditor(t, a, tt, cn, "-- 日本\n")
+	q.InsertSnippet("SELECT '${1:é}' AS ${2:名前}, '🎉' FROM ${3:t};$0")
+	tt.Frame()
+	tt.Frame()
+	if q.Editor.SelectedText() != "é" {
+		t.Fatalf("first field: %q in %q", q.Editor.SelectedText(), q.Editor.Text())
+	}
+	tt.Type("ü")
+	tt.Frame()
+	tt.Key(0, ui.KeyTab)
+	tt.Frame()
+	if q.Editor.SelectedText() != "名前" {
+		t.Fatalf("second field: %q in %q", q.Editor.SelectedText(), q.Editor.Text())
+	}
+	tt.Key(0, ui.KeyTab)
+	tt.Frame()
+	if q.Editor.SelectedText() != "t" {
+		t.Fatalf("third field: %q in %q", q.Editor.SelectedText(), q.Editor.Text())
+	}
+	tt.Key(0, ui.KeyTab)
+	tt.Frame()
+	if text := q.Editor.Text(); text != "-- 日本\nSELECT 'ü' AS 名前, '🎉' FROM t;" || q.Editor.Caret() != len(text) || q.snippet != nil {
+		t.Fatalf("text %q, caret %d, session %v", text, q.Editor.Caret(), q.snippet != nil)
 	}
 }

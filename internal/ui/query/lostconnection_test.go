@@ -70,7 +70,7 @@ func TestResetStopsContinueOnError(t *testing.T) {
 	}
 	time.Sleep(300 * time.Millisecond)
 	// RETURNING reads the rows each INSERT wrote.
-	q.Editor.Text = "INSERT INTO zz_fix_reset_rows VALUES (1, 'one') RETURNING id;\nINSERT INTO zz_fix_reset_rows VALUES (2, 'two') RETURNING id;\nINSERT INTO zz_fix_reset_rows VALUES (3, 'three') RETURNING id;"
+	q.Editor.SetText("INSERT INTO zz_fix_reset_rows VALUES (1, 'one') RETURNING id;\nINSERT INTO zz_fix_reset_rows VALUES (2, 'two') RETURNING id;\nINSERT INTO zz_fix_reset_rows VALUES (3, 'three') RETURNING id;")
 	runWith(t, tt, q, "INSERT", RunScript)
 	if a.Confirm != nil {
 		t.Fatalf("asked: %+v", a.Confirm)
@@ -123,7 +123,7 @@ func TestApplyLostConnectionKeepsRefusal(t *testing.T) {
 	}
 	// The changes not applied are dropped as the user's next statement runs.
 	edited := q.results[0]
-	testutil.SetCaret(tt, &q.Editor, strings.Index(q.Editor.Text, "INSERT"))
+	testutil.SetCaret(tt, &q.Editor, strings.Index(q.Editor.Text(), "INSERT"))
 	q.Run(RunStatement)
 	if a.Pending == nil {
 		t.Fatal("no question about the changes not applied")

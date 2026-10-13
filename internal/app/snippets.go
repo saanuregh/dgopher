@@ -26,9 +26,9 @@ type snippetForm struct {
 // AskSnippet keeps the selection of an editor, or its statement at the
 // caret, as a snippet.
 func (a *App) AskSnippet(q *query.Tab) {
-	text := q.Editor.Selection()
+	text := q.Editor.SelectedText()
 	if text == "" {
-		if st, ok := sqltext.StatementAtWith(q.Editor.Text, q.Editor.SelEnd, q.Editor.Dialect, query.SplitOptions(a.Settings())); ok {
+		if st, ok := sqltext.StatementAtWith(q.Editor.Text(), q.Editor.Caret(), q.Editor.Dialect, query.SplitOptions(a.Settings())); ok {
 			text = st.Text
 		}
 	}

@@ -38,7 +38,7 @@ func TestLargeResultFrameTime(t *testing.T) {
 	}
 	// Sorting the rows on the client.
 	start = time.Now()
-	g.sort = ui.SortOrder{Column: "2", Descending: true}
+	g.sort = []ui.SortOrder{{Column: "2", Descending: true}}
 	tt.Frame()
 	t.Logf("sorting 200k rows: %v", time.Since(start))
 }

@@ -77,11 +77,19 @@ func TestHeaderAt(t *testing.T) {
 	if _, _, ok := HeaderAt(text, 16); ok {
 		t.Error("the caret inside the name completes it")
 	}
-	if _, _, ok := HeaderAt(text, len([]rune(text))); ok {
+	if _, _, ok := HeaderAt(text, len(text)); ok {
 		t.Error("a comment after a statement is a header")
 	}
 	if _, _, ok := HeaderAt("\n\n\n\n\n-- connection: b", 22); ok {
 		t.Error("a header below the fifth line")
+	}
+	// Offsets count bytes, past names of several bytes and bytes that are
+	// not UTF-8.
+	for _, name := range []string{"é日", "a\xffb"} {
+		head := "-- é\n-- connection: " + name
+		if start, typed, ok := HeaderAt(head+"\nSELECT 1", len(head)); !ok || start != len(head)-len(name) || typed != name {
+			t.Errorf("%q: %d %q %v, want %d", name, start, typed, ok, len(head)-len(name))
+		}
 	}
 }
 

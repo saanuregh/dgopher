@@ -304,32 +304,14 @@ func (a *App) renameInQueries(p *project.Project, old, new string) []error {
 		if !ok || !rewritten[q.Path] {
 			continue
 		}
-		text, _ := project.RenameHeaderConnection(q.Editor.Text, old, new)
-		shift := caretShift(q.Editor.Text, text)
-		q.Editor.PendingSel = &[2]int{shift(q.Editor.SelStart), shift(q.Editor.SelEnd)}
-		q.Editor.Text = text
+		// An edit of the name alone: the carets stay where they are.
+		if text, ok := project.RenameHeaderConnection(q.Editor.Text(), old, new); ok {
+			q.Editor.ChangeTo(text)
+		}
 		q.Saved, _ = project.RenameHeaderConnection(q.Saved, old, new)
 		q.Created, _ = project.RenameHeaderConnection(q.Created, old, new)
 	}
 	return errs
-}
-
-// caretShift returns where a rune offset of before goes in after, which
-// replaced one run of it: offsets past the run move by the change in
-// length.
-func caretShift(before, after string) func(int) int {
-	b, c := []rune(before), []rune(after)
-	at := 0
-	for at < len(b) && at < len(c) && b[at] == c[at] {
-		at++
-	}
-	d := len(c) - len(b)
-	return func(i int) int {
-		if i > at {
-			return max(at, i+d)
-		}
-		return i
-	}
 }
 
 // renameInDashboards points the dashboards' panels and the data models

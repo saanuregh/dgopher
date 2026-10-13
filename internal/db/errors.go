@@ -26,6 +26,9 @@ type ErrorInfo struct {
 	// those instead.
 	Position     int
 	Line, Column int
+	// Bytes says Position and Column count bytes rather than characters,
+	// as ClickHouse's do.
+	Bytes bool
 	// Near is the text the engine quoted as where it stopped, which finds
 	// the column when it gives only a line.
 	Near string
@@ -67,6 +70,7 @@ func DescribeError(err error) ErrorInfo {
 		if ch.Name != "" && ch.Name != "DB::Exception" {
 			info.Code += " " + ch.Name
 		}
+		info.Bytes = true
 		if m := chPos.FindStringSubmatch(ch.Message); m != nil {
 			info.Position, _ = strconv.Atoi(m[1])
 		}

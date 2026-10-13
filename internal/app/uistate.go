@@ -7,6 +7,8 @@ import (
 
 	"dgopher/internal/state"
 	"dgopher/internal/store"
+
+	"github.com/egoist/mygo"
 )
 
 // useUIState reads the windows' layout from the UI state file, which keeps
@@ -75,23 +77,34 @@ func layoutValues(l any) (map[string]json.RawMessage, error) {
 	return values, json.Unmarshal(data, &values)
 }
 
-// windowStateKey names the windows' places in the UI state file.
-const windowStateKey = "windowState"
-
-// windowStateStore keeps MyGo's window states, the places of the windows
+// windowStates keeps MyGo's window states, the places of the windows
 // opened with a StateKey, in the UI state file with the layout, rather than
 // in a file of MyGo's own (mygo.App.SetWindowStateStore).
-func windowStateStore(ui *state.DB) (load func() ([]byte, error), save func([]byte) error) {
-	load = func() ([]byte, error) {
-		var v json.RawMessage
-		switch err := ui.LoadJSON(windowStateKey, &v); {
-		case errors.Is(err, store.ErrNotFound):
-			return nil, nil
-		case err != nil:
-			return nil, err
-		}
-		return v, nil
+type windowStates struct{ ui *state.DB }
+
+func (s windowStates) LoadWindowStates() (map[string]mygo.WindowState, error) {
+	windows, err := s.ui.Windows()
+	if err != nil {
+		return nil, err
 	}
-	save = func(data []byte) error { return ui.SaveJSON(windowStateKey, json.RawMessage(data)) }
-	return load, save
+	states := make(map[string]mygo.WindowState, len(windows))
+	for key, w := range windows {
+		states[key] = mygo.WindowState(w)
+	}
+	return states, nil
 }
+
+func (s windowStates) SaveWindowStates(states map[string]mygo.WindowState) error {
+	windows := make(map[string]state.Window, len(states))
+	for key, w := range states {
+		windows[key] = state.Window(w)
+	}
+	return s.ui.SaveWindows(windows)
+}
+
+// noWindowStates keeps no window states, for a run without the UI state
+// file.
+type noWindowStates struct{}
+
+func (noWindowStates) LoadWindowStates() (map[string]mygo.WindowState, error) { return nil, nil }
+func (noWindowStates) SaveWindowStates(map[string]mygo.WindowState) error     { return nil }

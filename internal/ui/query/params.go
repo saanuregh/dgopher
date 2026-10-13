@@ -101,12 +101,12 @@ func DialogsView(a Host, c *ui.Context) {
 // textParams are the parameters of the editor's whole text, found again
 // as it changes.
 func (q *Tab) textParams() []string {
-	if q.Editor.Text != q.paramKeysText {
+	if q.Editor.Text() != q.paramKeysText {
 		var stmts []string
-		for _, s := range sqltext.SplitWith(q.Editor.Text, q.Editor.Dialect, SplitOptions(q.a.Settings())) {
+		for _, s := range sqltext.SplitWith(q.Editor.Text(), q.Editor.Dialect, SplitOptions(q.a.Settings())) {
 			stmts = append(stmts, s.Text)
 		}
-		q.paramKeysText, q.paramKeys = q.Editor.Text, params.Keys(stmts, q.Editor.Dialect)
+		q.paramKeysText, q.paramKeys = q.Editor.Text(), params.Keys(stmts, q.Editor.Dialect)
 	}
 	return q.paramKeys
 }

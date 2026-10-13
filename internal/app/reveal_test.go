@@ -76,7 +76,7 @@ func TestTabShowsUnsaved(t *testing.T) {
 	if q.Unsaved() {
 		t.Fatal("unsaved before typing")
 	}
-	q.Editor.Text += "\nSELECT 2;"
+	q.Editor.Replace(len(q.Editor.Text()), len(q.Editor.Text()), "\nSELECT 2;")
 	tt.Frame()
 	if !q.Unsaved() {
 		t.Fatal("typed text not shown unsaved")

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"dgopher/internal/db"
+	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -33,6 +34,7 @@ type valueEditor struct {
 	src      *Source
 	row, col int
 	text     string
+	area     editor.CodeArea // edits text
 	editable bool
 	info     columnInfo
 
@@ -277,10 +279,10 @@ func valueEditorView(a Host, c *ui.Context) {
 					ui.Segmented(c, &e.truth, "True", "False").Label("Value").Disabled(!e.editable)
 					e.text = truthText(e.info.Engine, e.info.Type, e.truth == 0)
 				default:
-					area := ui.TextArea(c, &e.text).Font(widgets.MonoFont).FontSize(12.5).Grow(1).AutoFocus().Label("Value")
-					if !e.editable {
-						area.Disabled(true)
-					}
+					e.area.Label, e.area.Language = "Value", editor.LanguageDetected
+					e.area.AutoFocus, e.area.Disabled = true, !e.editable
+					el, _ := e.area.View(c, &e.text)
+					el.Grow(1)
 				}
 			})
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {

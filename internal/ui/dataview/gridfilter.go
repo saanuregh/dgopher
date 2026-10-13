@@ -220,33 +220,35 @@ func (g *Grid) orderMenu(m *ui.Menu, col int) {
 	id := colID(col)
 	m.Submenu("Order", func(m *ui.Menu) {
 		if m.Item("Ascending").Chosen() {
-			g.sort = ui.SortOrder{Column: id}
+			g.sort = []ui.SortOrder{{Column: id}}
 		}
 		if m.Item("Descending").Chosen() {
-			g.sort = ui.SortOrder{Column: id, Descending: true}
+			g.sort = []ui.SortOrder{{Column: id, Descending: true}}
 		}
-		if g.sort.Column != "" && g.sort.Column != id {
+		if len(g.sort) > 0 && g.sort[0].Column != id {
 			if m.Item("Then by This, Ascending").Chosen() {
-				g.sort.Then = append(withoutSortKey(g.sort.Then, id), ui.SortKey{Column: id})
+				g.sort = append(withoutSort(g.sort, id), ui.SortOrder{Column: id})
 			}
 			if m.Item("Then by This, Descending").Chosen() {
-				g.sort.Then = append(withoutSortKey(g.sort.Then, id), ui.SortKey{Column: id, Descending: true})
+				g.sort = append(withoutSort(g.sort, id), ui.SortOrder{Column: id, Descending: true})
 			}
 		}
-		if m.Item("No Order").Disabled(g.sort.Column == "").Chosen() {
-			g.sort = ui.SortOrder{}
+		if m.Item("No Order").Disabled(len(g.sort) == 0).Chosen() {
+			g.sort = nil
 		}
 	})
 }
 
-func withoutSortKey(keys []ui.SortKey, id string) []ui.SortKey {
-	return slices.DeleteFunc(slices.Clone(keys), func(k ui.SortKey) bool { return k.Column == id })
+// withoutSort is a new order of order's columns but id: the grid's order
+// changes to a new slice, as the table's SortBy does.
+func withoutSort(order []ui.SortOrder, id string) []ui.SortOrder {
+	return slices.DeleteFunc(slices.Clone(order), func(o ui.SortOrder) bool { return o.Column == id })
 }
 
-// sortKeys is an order as columns and directions, the first one first.
-func sortKeys(o ui.SortOrder, ncols int) []ui.SortKey {
-	var out []ui.SortKey
-	for _, k := range append([]ui.SortKey{{Column: o.Column, Descending: o.Descending}}, o.Then...) {
+// sortKeys is the columns of an order that the rows have, the first first.
+func sortKeys(order []ui.SortOrder, ncols int) []ui.SortOrder {
+	var out []ui.SortOrder
+	for _, k := range order {
 		if col, err := strconv.Atoi(k.Column); err == nil && col >= 0 && col < ncols {
 			out = append(out, k)
 		}

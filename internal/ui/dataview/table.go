@@ -10,6 +10,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
+	"dgopher/internal/safety"
 	"dgopher/internal/sqltext"
 	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
@@ -46,6 +47,7 @@ type TableTab struct {
 	indexes []db.Index
 	fks     []db.ForeignKey
 	ddl     string
+	ddlArea editor.CodeArea
 	metaErr string
 	metaGen int
 
@@ -448,7 +450,6 @@ func (t *TableTab) structureView(c *ui.Context, a Host) {
 
 func (t *TableTab) ddlView(c *ui.Context, a Host) {
 	th := c.Theme()
-	pal := widgets.PaletteOf(c)
 	ui.Row(c).Padding(6, 10).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 		if widgets.ToolButton(c, widgets.IconCopy, "Copy", "Copy the definition").Clicked() {
 			a.WriteClipboard(t.ddl)
@@ -461,10 +462,11 @@ func (t *TableTab) ddlView(c *ui.Context, a Host) {
 		ui.Row(c).Grow(1).Center().Children(func() { ui.Spinner(c) })
 		return
 	}
-	ui.Scroll(c).Grow(1).Background(pal.EditorBg).Children(func() {
-		ui.Text(c, t.ddl).Font(widgets.MonoFont).FontSize(a.Settings().EditorFont).FixedLineHeight(a.Settings().EditorFont*editor.LineHeight).
-			Padding(12, 16).Selectable()
-	})
+	area := &t.ddlArea
+	area.Label, area.Language, area.Dialect = "Definition", editor.LanguageSQL, safety.Dialect(t.Conn.Config.Engine)
+	area.ReadOnly, area.FontSize, area.NoBorder = true, a.Settings().EditorFont, true
+	el, _ := area.View(c, &t.ddl)
+	el.Grow(1)
 }
 
 // editBlocked says why the structure cannot be changed now, "" when it

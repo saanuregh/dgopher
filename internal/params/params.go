@@ -126,14 +126,13 @@ func Bind(sql string, e db.Engine, d sqltext.Dialect, values map[string]Input) (
 	}
 	sort.Slice(params, func(i, j int) bool { return params[i].Start < params[j].Start })
 	dialect := db.DialectOf(e)
-	rs := []rune(sql)
 	var b strings.Builder
 	var args []any
 	var shown []string
 	seen := map[string]bool{}
 	at := 0
 	for _, p := range params {
-		b.WriteString(string(rs[at:p.Start]))
+		b.WriteString(sql[at:p.Start])
 		key := Key(p)
 		in := values[key]
 		switch p.Kind {
@@ -143,7 +142,7 @@ func Bind(sql string, e db.Engine, d sqltext.Dialect, values map[string]Input) (
 				shown = append(shown, key+" = "+in.Value)
 			}
 		case sqltext.ParamTyped:
-			b.WriteString(string(rs[p.Start:p.End]))
+			b.WriteString(sql[p.Start:p.End])
 			v := in.Value
 			if in.Kind == "null" || in.Kind == "auto" && strings.EqualFold(strings.TrimSpace(v), "null") {
 				v = `\N`
@@ -166,7 +165,7 @@ func Bind(sql string, e db.Engine, d sqltext.Dialect, values map[string]Input) (
 		seen[key] = true
 		at = p.End
 	}
-	b.WriteString(string(rs[at:]))
+	b.WriteString(sql[at:])
 	return b.String(), args, strings.Join(shown, ", "), nil
 }
 

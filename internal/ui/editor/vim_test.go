@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"dgopher/internal/sqltext"
+
 	"github.com/egoist/mygo/ui"
 )
 
@@ -30,7 +32,7 @@ func vimOn(text string) (*Vim, *string) {
 	clip := new(string)
 	v := NewVim()
 	at := strings.IndexByte(text, '|')
-	v.Text, v.Caret = []rune(strings.Replace(text, "|", "", 1)), len([]rune(text[:at]))
+	v.Text, v.Caret = strings.Replace(text, "|", "", 1), at
 	v.ReadClipboard = func() string { return *clip }
 	v.WriteClipboard = func(s string) { *clip = s }
 	return v, clip
@@ -38,7 +40,7 @@ func vimOn(text string) (*Vim, *string) {
 
 // shown is the text with | at the caret.
 func (v *Vim) shown() string {
-	return string(v.Text[:v.Caret]) + "|" + string(v.Text[v.Caret:])
+	return v.Text[:v.Caret] + "|" + v.Text[v.Caret:]
 }
 
 // typeIn feeds keys; in insert mode, what Vim leaves to the text area is
@@ -55,8 +57,9 @@ func (v *Vim) typeIn(s string) {
 		case "<CR>":
 			v.insert("\n")
 		case "<BS>":
-			v.Text = append(v.Text[:v.Caret-1], v.Text[v.Caret:]...)
-			v.Caret--
+			p := prevChar(v.Text, v.Caret)
+			v.Text = v.Text[:p] + v.Text[v.Caret:]
+			v.Caret = p
 		default:
 			v.insert(k)
 		}
@@ -184,7 +187,7 @@ func TestVimPromptAndModes(t *testing.T) {
 }
 
 // The Edit menu's commands are the Vim keys they stand for; copy and cut
-// only in Visual mode.
+// only in Visual mode, cut left undone outside it.
 func TestVimEditMenu(t *testing.T) {
 	cases := []struct{ command, keys string }{
 		{"undo", "u"}, {"redo", "<C-r>"}, {"paste", "P"}, {"copy", "y"}, {"cut", "d"},
@@ -200,19 +203,78 @@ func TestVimEditMenu(t *testing.T) {
 				v, clip := vimOn("se|lect a\nfrom t")
 				*clip = "pasted"
 				v.typeIn("xu<C-r>" + mode + "l")
-				return &Editor{Text: string(v.Text), Vim: v}, clip
+				e := New(v.Text, sqltext.Generic)
+				e.Vim = v
+				e.showVim()
+				return e, clip
 			}
 			got, gotClip := on()
-			took := got.vimInput(ui.InputEvent{Kind: ui.InputCommand, Text: c.command}, 16)
+			took := got.vimInput(ui.InputEvent{Kind: ui.InputCommand, Text: c.command})
 			fed, fedClip := on()
-			fed.vimFeed(keys(want), 16)
+			if want != "" {
+				fed.vimFeed(keys(want))
+			}
 			gs, ge := got.Vim.Selection()
 			fs, fe := fed.Vim.Selection()
-			if took != (want != "") || got.Text != fed.Text || got.Vim.Caret != fed.Vim.Caret || got.Vim.Mode != fed.Vim.Mode ||
+			wantTook := want != "" || c.command == "cut"
+			if took != wantTook || got.Text() != fed.Text() || got.Vim.Caret != fed.Vim.Caret || got.Vim.Mode != fed.Vim.Mode ||
 				*gotClip != *fedClip || gs != fs || ge != fe {
 				t.Errorf("%q in mode %q: took %v, text %q caret %d mode %v clip %q; want as keys %q: text %q caret %d mode %v clip %q",
-					c.command, mode, took, got.Text, got.Vim.Caret, got.Vim.Mode, *gotClip, want, fed.Text, fed.Vim.Caret, fed.Vim.Mode, *fedClip)
+					c.command, mode, took, got.Text(), got.Vim.Caret, got.Vim.Mode, *gotClip, want, fed.Text(), fed.Vim.Caret, fed.Vim.Mode, *fedClip)
 			}
+		}
+	}
+}
+
+// Motions and edits step by characters, whatever their bytes; offsets
+// are bytes.
+func TestVimMultibyte(t *testing.T) {
+	for _, c := range []struct{ text, keys, want string }{
+		{"|é日本x", "l", "é|日本x"},
+		{"|é日本x", "3l", "é日本|x"},
+		{"|é日本x", "9l", "é日本|x"},
+		{"é日本|x", "h", "é日|本x"},
+		{"é日本|x", "2h", "é|日本x"},
+		{"|é日本x", "$", "é日本|x"},
+		{"|日本 😀 x", "w", "日本 |😀 x"},
+		{"|日本 😀 x", "2w", "日本 😀 |x"},
+		{"日本 😀 |x", "b", "日本 |😀 x"},
+		{"|日本 x", "e", "日|本 x"},
+		{"|a日b", "fb", "a日|b"},
+		{"|a日b", "tb", "a|日b"},
+		{"a日|b", "F日", "a|日b"},
+		{"|日本", "x", "|本"},
+		{"a|😀b", "x", "a|b"},
+		{"日|本", "X", "|本"},
+		{"|日本", "rx", "|x本"},
+		{"|日本", "2rx", "x|x"},
+		{"|日", "r😀", "|😀"},
+		{"|éa", "~~", "É|A"},
+		{"|ıa", "~", "I|a"},
+		{"日本|x\nabcd", "j", "日本x\nab|cd"},
+		{"ab|cd\n日本x", "j", "abcd\n日本|x"},
+		{"|日本x", "vld", "|x"},
+		{"|é = 'é日'", "f'di'", "é = '|'"},
+		{"|日本 x", "dw", "|x"},
+		{"|日本 x", "cwé<Esc>", "|é x"},
+		{"|é", "a日<Esc>", "é|日"},
+		{"é|日", "i😀<Esc>", "é|😀日"},
+		{"|é日本", "yyp", "é日本\n|é日本"},
+		{"|é日本", "dwu", "|é日本"},
+		{"|a 日本 b 日本", "/日本<CR>n", "a 日本 b |日本"},
+		// Indenting puts the caret on the first line's first non-blank.
+		{"日本|x\nab", ">j", "  |日本x\n  ab"},
+		{"  日本|x\n  ab", "<j", "|日本x\nab"},
+		{"ab|c\nd", ">j", "  |abc\n  d"},
+		{"日本|x", ">>", "  |日本x"},
+		{"    ab|c\nd", "v<", "  |abc\nd"},
+		{"  日本|x\nd", "v<", "|日本x\nd"},
+		{"日本|x\nd", "v>", "  |日本x\nd"},
+	} {
+		v, _ := vimOn(c.text)
+		v.typeIn(c.keys)
+		if got := v.shown(); got != c.want {
+			t.Errorf("%q %s: %q, want %q", c.text, c.keys, got, c.want)
 		}
 	}
 }

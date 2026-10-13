@@ -22,6 +22,7 @@ import (
 	"dgopher/internal/redact"
 	"dgopher/internal/safety"
 	"dgopher/internal/ui/dataview"
+	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -67,6 +68,10 @@ type Tab struct {
 
 	editValue string
 	editDirty bool
+	// valueArea edits a string's editValue, jsonArea a JSON document's.
+	valueArea editor.CodeArea
+	jsonArea  editor.CodeArea
+	itemArea  editor.CodeArea // an item's value, read only
 	fieldList ui.ListState
 	fieldRow  int
 	newName   string
@@ -689,8 +694,11 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 				return
 			}
 			// A string shown in part is not saved: its rest would go.
-			area := ui.TextArea(c, &r.editValue).Font(widgets.MonoFont).FontSize(12.5).Grow(1).ReadOnly(ro || !r.whole).Label("Value")
-			if area.Changed() {
+			area := &r.valueArea
+			area.Label, area.Language, area.ReadOnly = "Value", editor.LanguageDetected, ro || !r.whole
+			el, changed := area.View(c, &r.editValue)
+			el.Grow(1)
+			if changed {
 				r.editDirty = r.editValue != r.value
 			}
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
@@ -908,7 +916,10 @@ func (r *Tab) itemDetail(c *ui.Context) {
 	th := c.Theme()
 	ui.Column(c).Height(200).Padding(8, 14).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 		if !r.itemView.view(c, f.Value, "Item", r.a.Background) {
-			ui.TextArea(c, &r.itemRaw).Font(widgets.MonoFont).FontSize(12.5).Grow(1).ReadOnly(true).Label("Item value")
+			area := &r.itemArea
+			area.Label, area.Language, area.ReadOnly, area.NoLineNumbers, area.NoFolding = "Item value", editor.LanguageDetected, true, true, true
+			el, _ := area.View(c, &r.itemRaw)
+			el.Grow(1)
 		}
 	})
 }

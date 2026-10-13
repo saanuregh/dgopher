@@ -105,9 +105,9 @@ func Snapshot(t *testing.T, tt *ui.Tester, name string) {
 	}
 }
 
-// SetCaret puts the editor's caret at a rune offset, as a click would.
+// SetCaret puts the editor's caret at a byte offset, as a click would.
 func SetCaret(tt *ui.Tester, e *editor.Editor, at int) {
-	e.PendingSel = &[2]int{at, at}
+	e.Select(at, at)
 	tt.Frame()
 	tt.Frame()
 }

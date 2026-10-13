@@ -4,7 +4,7 @@ import "testing"
 
 func TestChangeCaseSkipsStrings(t *testing.T) {
 	src := `select name, 'mixed Text' from "Quoted" -- a comment` + "\nwhere x = $tag$keep me$tag$"
-	got := ChangeCase(src, 0, len([]rune(src)), Postgres, true)
+	got := ChangeCase(src, 0, len(src), Postgres, true)
 	want := `SELECT NAME, 'mixed Text' FROM "Quoted" -- a comment` + "\nWHERE X = $tag$keep me$tag$"
 	if got != want {
 		t.Fatalf("upper:\n%s\nwant\n%s", got, want)

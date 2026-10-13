@@ -1,11 +1,9 @@
 package query
 
 import (
-	"dgopher/internal/keymap"
 	"slices"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"dgopher/internal/project"
 
@@ -23,14 +21,16 @@ var builtinSnippets = []project.Snippet{
 	{Name: "Join", Keyword: "join", SQL: "JOIN ${1:table} ${2:t} ON ${2:t}.${3:id} = ${4:other}.${5:id}$0"},
 }
 
-// snippetField is a field of an inserted snippet, by rune offsets.
+// snippetField is a field of an inserted snippet, by byte offsets.
 type snippetField struct{ start, end int }
 
 // expandSnippet reads a snippet's fields, ${1:default}, $1 and the end
 // $0, as VS Code writes them: the text with the defaults in place, and
 // the fields in their numbers' order, $0 last. A field written again
-// takes the first's default; \$ is a dollar sign.
+// takes the first's default; \$ is a dollar sign. Lines end in \n, as
+// the editor's do, whatever file the snippet was kept from.
 func expandSnippet(sql string) (string, []snippetField) {
+	sql = strings.ReplaceAll(sql, "\r\n", "\n")
 	var b strings.Builder
 	type numbered struct {
 		n     int
@@ -38,10 +38,10 @@ func expandSnippet(sql string) (string, []snippetField) {
 	}
 	var found []numbered
 	defaults := map[int]string{}
-	at := 0 // runes written
+	at := 0 // bytes written
 	write := func(s string) {
 		b.WriteString(s)
-		at += utf8.RuneCountInString(s)
+		at += len(s)
 	}
 	for i := 0; i < len(sql); i++ {
 		if sql[i] == '\\' && i+1 < len(sql) && sql[i+1] == '$' {
@@ -118,15 +118,17 @@ func SnippetText(sql string) string {
 type snippetSession struct {
 	fields []snippetField
 	at     int
-	// length is the editor's text in runes when last seen.
-	length int
+	// length is the editor's text in bytes, at version, when last seen.
+	length  int
+	version uint64
 }
 
 // InsertSnippet puts a snippet's SQL in place of the selection, its first
 // field chosen.
 func (q *Tab) InsertSnippet(sql string) {
 	e := &q.Editor
-	q.insertSnippetAt(min(e.SelStart, e.SelEnd), max(e.SelStart, e.SelEnd), sql)
+	start, end := e.Selection()
+	q.insertSnippetAt(start, end, sql)
 	e.WantFocus = true
 }
 
@@ -134,7 +136,6 @@ func (q *Tab) insertSnippetAt(start, end int, sql string) {
 	text, fields := expandSnippet(sql)
 	e := &q.Editor
 	e.Replace(start, end, text)
-	q.ac.lastText = e.Text
 	q.snippet = nil
 	if len(fields) == 0 {
 		return
@@ -143,7 +144,7 @@ func (q *Tab) insertSnippetAt(start, end int, sql string) {
 		fields[i].start += start
 		fields[i].end += start
 	}
-	q.snippet = &snippetSession{fields: fields, length: utf8.RuneCountInString(e.Text)}
+	q.snippet = &snippetSession{fields: fields, length: len(e.Text()), version: e.State.Buffer.Version()}
 	q.selectField(0)
 }
 
@@ -151,7 +152,7 @@ func (q *Tab) selectField(i int) {
 	s := q.snippet
 	s.at = i
 	f := s.fields[i]
-	q.Editor.PendingSel = &[2]int{f.start, f.end}
+	q.Editor.Select(f.start, f.end)
 	if i == len(s.fields)-1 && f.start == f.end {
 		q.snippet = nil // the end: nothing more to fill in
 	}
@@ -165,7 +166,12 @@ func (q *Tab) trackSnippet() {
 		return
 	}
 	e := &q.Editor
-	length := utf8.RuneCountInString(e.Text)
+	v := e.State.Buffer.Version()
+	if v == s.version {
+		return
+	}
+	s.version = v
+	length := len(e.Text())
 	delta := length - s.length
 	if delta == 0 {
 		return
@@ -173,7 +179,7 @@ func (q *Tab) trackSnippet() {
 	s.length = length
 	f := &s.fields[s.at]
 	oldEnd := f.end
-	caret := min(e.SelStart, e.SelEnd)
+	caret, _ := e.Selection()
 	if caret < f.start || caret > oldEnd+delta || oldEnd+delta < f.start {
 		q.snippet = nil
 		return
@@ -188,13 +194,13 @@ func (q *Tab) trackSnippet() {
 }
 
 // snippetKey takes Tab, Shift+Tab and Escape while a snippet's fields are
-// being filled in.
-func (q *Tab) snippetKey(mods ui.Modifiers, key ui.Key) bool {
+// being filled in, and the completions do not show: their Tab accepts.
+func (q *Tab) snippetKey(ev ui.InputEvent) bool {
 	s := q.snippet
-	if s == nil {
+	if s == nil || ev.Kind != ui.InputKeyDown || q.Editor.State.CompletionsOpen() {
 		return false
 	}
-	switch {
+	switch mods, key := ev.Mods, ev.Key; {
 	case key == ui.KeyTab && mods == 0:
 		if s.at+1 < len(s.fields) {
 			q.selectField(s.at + 1)
@@ -205,41 +211,6 @@ func (q *Tab) snippetKey(mods ui.Modifiers, key ui.Key) bool {
 		q.selectField(s.at - 1)
 	case key == ui.KeyEscape && mods == 0:
 		q.snippet = nil
-	default:
-		return false
-	}
-	return true
-}
-
-// editorKey takes the keys of the completion popup, then of a snippet's
-// fields, then of the commands on the text, before the editor does.
-func (q *Tab) editorKey(mods ui.Modifiers, key ui.Key) bool {
-	return q.completionKey(mods, key) || q.snippetKey(mods, key) || q.textKey(mods, key)
-}
-
-// textKey takes the keys of the carets and of folding, which the text
-// area would take as its own moves before a shortcut could.
-func (q *Tab) textKey(mods ui.Modifiers, key ui.Key) bool {
-	e := &q.Editor
-	switch {
-	case e.Vim != nil:
-		return false
-	case keymap.Is(keymap.Fold, mods, key):
-		e.Fold()
-	case keymap.Is(keymap.Unfold, mods, key):
-		e.Unfold()
-	case keymap.Is(keymap.FoldAll, mods, key):
-		e.FoldAll()
-	case keymap.Is(keymap.UnfoldAll, mods, key):
-		e.UnfoldAll()
-	case keymap.Is(keymap.CursorAbove, mods, key):
-		e.AddCursor(-1)
-	case keymap.Is(keymap.CursorBelow, mods, key):
-		e.AddCursor(1)
-	case keymap.Is(keymap.SelectNext, mods, key):
-		e.SelectNext()
-	case keymap.Is(keymap.SelectAll, mods, key):
-		e.SelectAll()
 	default:
 		return false
 	}

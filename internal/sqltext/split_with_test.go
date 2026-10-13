@@ -8,9 +8,8 @@ import (
 
 func splitTexts(src string, d Dialect, mode DelimiterMode) []string {
 	var got []string
-	rs := []rune(src)
 	for _, s := range SplitWith(src, d, SplitOptions{Mode: mode}) {
-		if string(rs[s.Start:s.End]) != s.Text {
+		if src[s.Start:s.End] != s.Text {
 			got = append(got, "RANGE MISMATCH "+s.Text)
 			continue
 		}
@@ -133,10 +132,9 @@ func TestParams(t *testing.T) {
 	for _, tt := range tests {
 		params := Params(tt.src, tt.d)
 		var got []p
-		rs := []rune(tt.src)
 		for _, x := range params {
 			got = append(got, p{x.Name, x.Kind})
-			s := string(rs[x.Start:x.End])
+			s := tt.src[x.Start:x.End]
 			if (x.Kind == ParamNamed && s != ":"+x.Name) || (x.Kind == ParamVar && s != "${"+x.Name+"}") {
 				t.Fatalf("%q: range %q does not match %+v", tt.src, s, x)
 			}
@@ -165,17 +163,17 @@ func TestFormatKeepsBlankLines(t *testing.T) {
 
 func TestFormatRange(t *testing.T) {
 	src := "select  1;\nselect a from t;\n\nselect  3"
-	// second statement spans runes 11..26.
+	// second statement spans bytes 11..26.
 	text, s, e := FormatRange(src, 13, 14, Generic, SplitOptions{})
 	want := "select  1;\nSELECT\n  a\nFROM t;\n\nselect  3"
 	if text != want {
 		t.Fatalf("got %q want %q", text, want)
 	}
-	if got := string([]rune(text)[s:e]); got != "SELECT\n  a\nFROM t" {
+	if got := text[s:e]; got != "SELECT\n  a\nFROM t" {
 		t.Fatalf("range %d..%d = %q", s, e, got)
 	}
 	text, s, e = FormatRange("x; select  1", 5, 5, Generic, SplitOptions{})
-	if text != "x; SELECT\n  1" || string([]rune(text)[s:e]) != "SELECT\n  1" {
+	if text != "x; SELECT\n  1" || text[s:e] != "SELECT\n  1" {
 		t.Fatalf("caret range: %q %d %d", text, s, e)
 	}
 	if text, _, _ := FormatRange("a;\n\n", 3, 4, Generic, SplitOptions{}); text != "a;\n\n" {
@@ -329,11 +327,10 @@ func TestParamsClickHouseTyped(t *testing.T) {
 	if len(got) != len(want) {
 		t.Fatalf("got %+v", got)
 	}
-	rs := []rune(src)
 	for i, w := range want {
 		p := got[i]
-		if p.Kind != ParamTyped || p.Name != w.name || p.Type != w.typ || string(rs[p.Start:p.End]) != w.text {
-			t.Fatalf("%d: got %+v (%q) want %+v", i, p, string(rs[p.Start:p.End]), w)
+		if p.Kind != ParamTyped || p.Name != w.name || p.Type != w.typ || src[p.Start:p.End] != w.text {
+			t.Fatalf("%d: got %+v (%q) want %+v", i, p, src[p.Start:p.End], w)
 		}
 	}
 	for _, c := range []struct {
@@ -359,10 +356,9 @@ func TestParamsSQLiteAtDollar(t *testing.T) {
 	if len(got) != len(want) {
 		t.Fatalf("got %+v", got)
 	}
-	rs := []rune(src)
 	for i, w := range want {
 		p := got[i]
-		if p.Kind != ParamNamed || p.Name != w.name || p.Sigil != w.sigil || string(rs[p.Start:p.End]) != string(w.sigil)+w.name {
+		if p.Kind != ParamNamed || p.Name != w.name || p.Sigil != w.sigil || src[p.Start:p.End] != string(w.sigil)+w.name {
 			t.Fatalf("%d: got %+v want %+v", i, p, w)
 		}
 	}

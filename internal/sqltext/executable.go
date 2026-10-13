@@ -19,66 +19,66 @@ func unwrapExecutable(sql string, q quoting) string {
 		return sql
 	}
 	var b strings.Builder
-	r := []rune(sql)
+	b.Grow(len(sql))
 	inExec := false
-	at := func(i int, s string) bool { return strings.HasPrefix(string(r[i:min(len(r), i+len(s))]), s) }
-	escapes := func(quote rune) bool { return q.backslashes && (quote == '\'' || quote == '"' && !q.ansiQuotes) }
-	for i := 0; i < len(r); i++ {
-		c := r[i]
+	at := func(i int, prefix string) bool { return strings.HasPrefix(sql[i:], prefix) }
+	escapes := func(quote byte) bool { return q.backslashes && (quote == '\'' || quote == '"' && !q.ansiQuotes) }
+	// Every byte that matters is ASCII; those of other characters are copied.
+	for i := 0; i < len(sql); i++ {
+		c := sql[i]
 		switch {
 		case c == '\'' || c == '"' || c == '`':
 			// A string, or a quoted name, to its end.
-			b.WriteRune(c)
-			for i++; i < len(r); i++ {
-				b.WriteRune(r[i])
-				if r[i] == '\\' && escapes(c) && i+1 < len(r) {
+			b.WriteByte(c)
+			for i++; i < len(sql); i++ {
+				b.WriteByte(sql[i])
+				if sql[i] == '\\' && escapes(c) && i+1 < len(sql) {
 					i++
-					b.WriteRune(r[i])
+					b.WriteByte(sql[i])
 					continue
 				}
-				if r[i] == c {
+				if sql[i] == c {
 					break
 				}
 			}
 			continue
 		case at(i, "/*!") || at(i, "/*M!"):
 			inExec = true
-			b.WriteRune(' ')
+			b.WriteByte(' ')
 			i += 2
-			if r[i] == 'M' {
+			if sql[i] == 'M' {
 				i++
 			}
-			for i+1 < len(r) && r[i+1] >= '0' && r[i+1] <= '9' {
+			for i+1 < len(sql) && sql[i+1] >= '0' && sql[i+1] <= '9' {
 				i++ // the version it needs
 			}
 			continue
 		case inExec && at(i, "*/"):
 			inExec = false
-			b.WriteRune(' ')
+			b.WriteByte(' ')
 			i++
 			continue
 		case at(i, "/*"):
 			// An ordinary comment, inside an executable one too, where it
 			// ends only itself: MySQL runs what follows its */.
-			end := strings.Index(string(r[i+2:]), "*/")
+			end := strings.Index(sql[i+2:], "*/")
 			if end < 0 {
-				b.WriteString(string(r[i:]))
+				b.WriteString(sql[i:])
 				return b.String()
 			}
-			n := len([]rune(string(r[i+2:])[:end]))
-			b.WriteString(string(r[i : i+2+n+2]))
-			i += 2 + n + 1
+			b.WriteString(sql[i : i+2+end+2])
+			i += 2 + end + 1
 			continue
 		case at(i, "-- ") || at(i, "--\t") || at(i, "--\n") || c == '#':
-			for ; i < len(r) && r[i] != '\n'; i++ {
-				b.WriteRune(r[i])
+			for ; i < len(sql) && sql[i] != '\n'; i++ {
+				b.WriteByte(sql[i])
 			}
-			if i < len(r) {
-				b.WriteRune('\n')
+			if i < len(sql) {
+				b.WriteByte('\n')
 			}
 			continue
 		}
-		b.WriteRune(c)
+		b.WriteByte(c)
 	}
 	return b.String()
 }

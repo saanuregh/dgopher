@@ -29,8 +29,8 @@ func TestSchemaSwitcher(t *testing.T) {
 	if last.Statement != `USE "sales"` || last.Error != "" {
 		t.Fatalf("audited %+v", last)
 	}
-	q.Editor.Text = "USE main;"
-	q.Editor.PendingSel = &[2]int{2, 2}
+	q.Editor.SetText("USE main;")
+	q.Editor.Select(2, 2)
 	tt.Frame()
 	q.Run(RunStatement)
 	testutil.WaitFor(t, tt, "USE typed", func() bool { return !q.Running && q.schema == "main" })
@@ -60,12 +60,12 @@ func TestDatabaseSwitcher(t *testing.T) {
 	if q.Database == "template1" || len(a.Errors) == 0 {
 		t.Fatalf("switched with a transaction open: %q", a.Errors)
 	}
-	q.Editor.Text = "ROLLBACK;"
+	q.Editor.SetText("ROLLBACK;")
 	tt.Frame()
 	q.Run(RunStatement)
 	testutil.WaitFor(t, tt, "the rollback", func() bool { return !q.Running && q.Tx == db.TxNone })
 	q.switchDatabase("template1")
-	q.Editor.Text = "SELECT current_database();"
+	q.Editor.SetText("SELECT current_database();")
 	tt.Frame()
 	q.Run(RunStatement)
 	testutil.WaitFor(t, tt, "the database", func() bool { return !q.Running && len(q.results) > 0 && q.results[0].view != nil })

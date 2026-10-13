@@ -139,7 +139,7 @@ type Viewer struct {
 	fetchingAll, allAfterRead bool
 	// sortRead is the order the rows were read in, which a cancelled
 	// server sort goes back to.
-	sortRead  ui.SortOrder
+	sortRead  []ui.SortOrder
 	chart     Chart
 	showChart bool
 	// truncated is set when the rows end before the last: a later
@@ -532,7 +532,7 @@ func (v *Viewer) reload() {
 	}
 	v.loading, v.err = true, ""
 	v.fetchingAll = false
-	v.sortRead = cloneSort(v.grid.sort)
+	v.sortRead = v.grid.sort
 	query := v.selectSQL()
 	args := v.source.Args
 	pageSize := v.a.Settings().PageSize
@@ -617,7 +617,7 @@ func (v *Viewer) runAfterRead() {
 func (v *Viewer) Adopt(c *db.Cursor, rows [][]any, done bool, elapsed time.Duration, stop context.CancelFunc) {
 	v.cursor, v.cancel = c, stop
 	v.src.Cols, v.src.Rows, v.done, v.elapsed = c.Columns, rows, done, elapsed
-	v.sortRead = cloneSort(v.grid.sort)
+	v.sortRead = v.grid.sort
 	v.bindColumns()
 }
 
@@ -1246,7 +1246,7 @@ func (v *Viewer) View(c *ui.Context) {
 	if v.grid.sortChanged {
 		v.grid.sortChanged = false
 		restore := func() {
-			v.grid.sort = cloneSort(v.sortRead)
+			v.grid.sort = v.sortRead
 			v.grid.orderKey = ""
 		}
 		switch {
@@ -1972,11 +1972,6 @@ func keyFormView(a Host, c *ui.Context) {
 	})
 	f.dismiss.Keep(c, dlg, &f.open, f.on, false)
 	dropClosed(&a.Dialogs().keyForm, f, f.open)
-}
-
-func cloneSort(s ui.SortOrder) ui.SortOrder {
-	s.Then = slices.Clone(s.Then)
-	return s
 }
 
 // columnInfo is a column of the rows as the value editor needs it: with

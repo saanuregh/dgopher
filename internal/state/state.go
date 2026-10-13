@@ -81,6 +81,7 @@ var uiMigrations = []func(*sql.Tx) error{
 		_, err := tx.Exec(`CREATE TABLE kv (name TEXT PRIMARY KEY, value TEXT NOT NULL)`)
 		return err
 	},
+	createWindows,
 }
 
 // DB is a project's state file, or the app's UI state's, whose kv table

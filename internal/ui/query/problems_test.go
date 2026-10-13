@@ -35,7 +35,7 @@ func (fakeCatalog) quote(name string) string { return `"` + name + `"` }
 func messages(text string, cat catalog) []string {
 	var out []string
 	for _, p := range checkText(text, sqltext.Postgres, sqltext.SplitOptions{}, cat) {
-		out = append(out, string([]rune(text)[p.Start:p.End])+": "+p.Message+" fix="+p.Fix)
+		out = append(out, text[p.Start:p.End]+": "+p.Message+" fix="+p.Fix)
 	}
 	return out
 }
@@ -56,6 +56,9 @@ func TestCheckText(t *testing.T) {
 		{"SELECT $$ unfinished", []string{"$: This string is not closed: $$ ends it. fix="}},
 		{"INSERT INTO ordrs (id) VALUES (1)", []string{"ordrs: No table or view ordrs in public. Did you mean orders? fix=orders"}},
 		{"SELECT * INTO new_orders FROM orders", nil},
+		{"SELECT 'é日🎉' AS 名前 FROM ordrs", []string{"ordrs: No table or view ordrs in public. Did you mean orders? fix=orders"}},
+		{"SELECT 'é' FROM orders WHERE (日 = 1", []string{"(: This parenthesis is not closed. fix="}},
+		{"SELECT 'é日 open", []string{"': This string is not closed: ' ends it. fix="}},
 	} {
 		if got := messages(c.text, fakeCatalog{}); strings.Join(got, "|") != strings.Join(c.want, "|") {
 			t.Errorf("%s:\n got %q\nwant %q", c.text, got, c.want)
@@ -71,8 +74,8 @@ func TestCheckText(t *testing.T) {
 func TestProblemsInEditor(t *testing.T) {
 	_, tt, cn, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "")
 	cn.DB.SQL.Exec(`CREATE TABLE invoices (id INTEGER)`)
-	q.Editor.Text = "SELECT * FROM invoces"
-	q.GoTo(len(q.Editor.Text))
+	q.Editor.SetText("SELECT * FROM invoces")
+	q.GoTo(len(q.Editor.Text()))
 	testutil.WaitFor(t, tt, "the mark", func() bool { return len(q.Editor.Problems) == 1 })
 	if !tt.HasText("No table or view invoces in main. Did you mean invoices?") {
 		t.Fatalf("texts %q", tt.Texts())
@@ -81,7 +84,24 @@ func TestProblemsInEditor(t *testing.T) {
 	tt.Key(ui.Alt, ui.KeyEnter)
 	tt.Frame()
 	tt.Frame()
-	if q.Editor.Text != "SELECT * FROM invoices" || len(q.Editor.Problems) != 0 {
-		t.Fatalf("fixed %q, problems %+v", q.Editor.Text, q.Editor.Problems)
+	if q.Editor.Text() != "SELECT * FROM invoices" || len(q.Editor.Problems) != 0 {
+		t.Fatalf("fixed %q, problems %+v", q.Editor.Text(), q.Editor.Problems)
+	}
+
+	// Past characters of several bytes, the wavy line is under the name.
+	q.Editor.SetText("SELECT '日本' AS é FROM invoces")
+	q.GoTo(len(q.Editor.Text()))
+	testutil.WaitFor(t, tt, "the mark", func() bool { return len(q.Editor.State.Diagnostics()) == 1 })
+	d := q.Editor.State.Diagnostics()[0]
+	if start := strings.Index(q.Editor.Text(), "invoces"); d.Start != start || d.End != start+len("invoces") {
+		t.Fatalf("marked %d-%d: %q", d.Start, d.End, q.Editor.Text()[d.Start:d.End])
+	}
+	if !tt.HasText("No table or view invoces in main. Did you mean invoices?") {
+		t.Fatalf("texts %q", tt.Texts())
+	}
+	tt.Key(ui.Alt, ui.KeyEnter)
+	tt.Frame()
+	if q.Editor.Text() != "SELECT '日本' AS é FROM invoices" {
+		t.Fatalf("fixed %q", q.Editor.Text())
 	}
 }
