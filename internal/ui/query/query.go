@@ -129,9 +129,14 @@ type Tab struct {
 	// found for: its text, and how much of the catalog was read.
 	checkedText, checkedCatalog string
 
-	sess      *db.Session
-	sessErr   string
-	Running   bool
+	sess    *db.Session
+	sessErr string
+	Running bool
+	// stale are the results a run replaced, shown dimmed and inert, at
+	// staleIdx, until one of its own comes (past staleFrom) or it ends.
+	stale     []*result
+	staleIdx  int
+	staleFrom int
 	cancel    context.CancelFunc
 	StartedAt time.Time
 	dataview.SessionTxState
@@ -209,6 +214,20 @@ func (q *Tab) Unsaved() bool { return q.Path != "" && q.Editor.FileText() != q.S
 
 func (q *Tab) CloseReason() string {
 	switch {
+	case q.Mark() != "":
+		return q.Mark()
+	case q.Running:
+		return "A statement is still running. Closing the editor cancels it."
+	case q.exports > 0:
+		return "An export is reading on this editor's session. Closing the editor stops it."
+	}
+	return ""
+}
+
+// Mark is what closing the editor loses that stays: its text, changes, a
+// transaction.
+func (q *Tab) Mark() string {
+	switch {
 	case q.Path != "" && q.DiskConflict != "" && q.Editor.FileText() != q.Saved:
 		return q.Name + " " + q.DiskConflict + ". Closing the editor leaves the file as it is on disk, losing the editor's text."
 	case q.pendingCount() > 0:
@@ -217,10 +236,6 @@ func (q *Tab) CloseReason() string {
 		return "A transaction is open on this editor's session. Closing the editor rolls it back, losing its changes."
 	case q.uncommitted > 0:
 		return fmt.Sprintf("%d changed rows wait to be committed. Closing the editor rolls them back.", q.uncommitted)
-	case q.Running:
-		return "A statement is still running. Closing the editor cancels it."
-	case q.exports > 0:
-		return "An export is reading on this editor's session. Closing the editor stops it."
 	}
 	return ""
 }
@@ -547,7 +562,7 @@ func (q *Tab) refuseWhileResultsWork() bool {
 			q.a.ShowError("Not run", "The changes of a result are being applied: run once they are.")
 			return true
 		case r.view.Counting():
-			q.a.ShowError("Not run", "A count or an export is reading on the editor's session: run once it ends.")
+			q.a.ShowError("Not run", "A result's values or an export are being read on the editor's session: run once that ends.")
 			return true
 		}
 	}
@@ -760,6 +775,11 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 	q.newTab = false
 	stepConfirm := q.stepConfirm
 	q.stepConfirm = false
+	// The results it drops stay in view, dimmed and inert, until a new one
+	// comes or the run ends: a quick run then replaces them in one frame.
+	if len(kept) < len(q.results) {
+		q.stale, q.staleIdx, q.staleFrom = q.results, q.resultIdx, len(kept)
+	}
 	q.results = kept
 	firstNew := len(kept)
 	q.resultIdx = firstNew
@@ -1185,11 +1205,15 @@ func (q *Tab) currentStatement() (int, int, bool) {
 	return q.stmtRange[0], q.stmtRange[1], q.stmtOK
 }
 
+// ResultEditable reports whether the result in front takes edits now.
+func (q *Tab) ResultEditable() bool {
+	return q.resultIdx < len(q.results) && q.results[q.resultIdx].view != nil && q.results[q.resultIdx].view.ReadOnly() == ""
+}
+
 // View builds the tab.
 func (q *Tab) View(c *ui.Context) {
 	a := q.a
 	t := c.Theme()
-	pal := widgets.PaletteOf(c)
 	// A screen reader hears a run end, as a sighted user sees its result.
 	if q.wasRunning && !q.Running && len(q.messages) > 0 {
 		c.Announce(q.messages[len(q.messages)-1].text)
@@ -1269,8 +1293,10 @@ func (q *Tab) View(c *ui.Context) {
 	}
 	ui.Column(c).Grow(1).Children(func() {
 		ui.Toolbar(c, func() {
-			if q.Running {
-				if widgets.ToolButton(c, widgets.IconStop, "Cancel", "Cancel the running statement (Esc)").Clicked() && q.cancel != nil {
+			// One button: Run turns to Stop, in place, once a run lasts; a
+			// quick one leaves it as it is.
+			if q.Running && widgets.Lasted(c, q.StartedAt) {
+				if widgets.ToolButton(c, widgets.IconStop, "Stop", "Stop the running statement (Esc)").Clicked() && q.cancel != nil {
 					q.cancel()
 				}
 			} else if widgets.ToolButton(c, widgets.IconPlay, "Run", keymap.Hint("Run statement", keymap.Run)).Clicked() {
@@ -1293,11 +1319,6 @@ func (q *Tab) View(c *ui.Context) {
 			}
 			ui.Spacer(c)
 			q.switcherView(c)
-			if q.Running {
-				ui.Spinner(c).Size(14, 14)
-				ui.Text(c, widgets.FormatDuration(time.Since(q.StartedAt).Round(100*time.Millisecond))).FontSize(12).TextColor(pal.Muted)
-				c.After(100 * time.Millisecond)
-			}
 			if q.Conn.Config.ManualCommit() {
 				ui.Badge(c, "Manual commit").Tooltip("Writes open a transaction that you commit or roll back")
 			} else if q.Conn.Config.Engine.IsSQL() && q.Conn.Config.Engine != db.ClickHouse {
@@ -1356,25 +1377,9 @@ func (q *Tab) View(c *ui.Context) {
 }
 
 func (q *Tab) connectBar(c *ui.Context) {
-	t := c.Theme()
-	failed := q.Conn.Status == connection.StatusFailed
-	row := ui.Row(c).Padding(6, 12).Gap(10)
-	if failed {
-		row.Background(t.Danger.Alpha(0.14))
-	} else {
-		row.Background(t.Surface).BorderWidth(0, 0, 1, 0).BorderColor(t.Border)
+	if connect, _ := widgets.ConnectBar(c, q.Conn, widgets.ConnectState{}); connect {
+		q.a.Connect(q.Conn, nil)
 	}
-	row.Children(func() {
-		label, button := "Not connected.", "Connect"
-		if failed {
-			ui.Icon(c, widgets.IconAlert).TextColor(t.Danger).FontSize(14)
-			label, button = "Not connected: "+widgets.FirstLine(q.Conn.Err), "Retry"
-		}
-		ui.Text(c, label).Grow(1).Shrink(1).SingleLine()
-		if ui.Button(c, button).Clicked() {
-			q.a.Connect(q.Conn, nil)
-		}
-	})
 }
 
 func (q *Tab) txBar(c *ui.Context) {
@@ -1389,13 +1394,13 @@ func (q *Tab) txBar(c *ui.Context) {
 		label = "The transaction failed: roll it back to go on."
 		col = t.Danger
 	}
-	ui.Row(c).Padding(6, 12).Gap(10).Background(col.Alpha(0.16)).BorderWidth(0, 0, 1, 0).BorderColor(col).Children(func() {
+	widgets.AppearBar(ui.Row(c.Key("tx-bar")).Padding(6, 12).Gap(10).Background(col.Alpha(0.16)).BorderWidth(0, 0, 1, 0).BorderColor(col)).Children(func() {
 		ui.Icon(c, widgets.IconAlert).TextColor(col).FontSize(14)
 		ui.Text(c, label).Grow(1).Shrink(1)
-		if (q.Tx == db.TxOpen || q.InsideTx == db.TxOpen) && ui.PrimaryButton(c, "Commit").Disabled(q.Busy()).Tooltip(keymap.Hint("Commit the transaction", keymap.Commit)).Clicked() {
+		if (q.Tx == db.TxOpen || q.InsideTx == db.TxOpen) && widgets.Appear(ui.PrimaryButton(c.Key("commit"), "Commit")).Disabled(q.Busy()).Tooltip(keymap.Hint("Commit the transaction", keymap.Commit)).Clicked() {
 			q.endOpenTx(true)
 		}
-		if ui.Button(c, "Roll Back").Disabled(q.Busy()).Tooltip(keymap.Hint("Roll back the transaction", keymap.Rollback)).Clicked() {
+		if ui.Button(c.Key("roll-back"), "Roll Back").Disabled(q.Busy()).Tooltip(keymap.Hint("Roll back the transaction", keymap.Rollback)).Clicked() {
 			q.endOpenTx(false)
 		}
 	})
@@ -1405,7 +1410,7 @@ func (q *Tab) txBar(c *ui.Context) {
 // open: nothing waits to be committed yet, so it offers nothing to end.
 func (q *Tab) autocommitBar(c *ui.Context) {
 	t := c.Theme()
-	ui.Row(c).Padding(6, 12).Gap(10).Background(t.Surface).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
+	widgets.AppearBar(ui.Row(c.Key("autocommit-bar")).Padding(6, 12).Gap(10).Background(t.Surface).BorderWidth(0, 0, 1, 0).BorderColor(t.Border)).Children(func() {
 		ui.Icon(c, widgets.IconClock).TextColor(widgets.PaletteOf(c).Muted).FontSize(14)
 		ui.Text(c, "Autocommit is off: the next statement that reads or writes a table begins a transaction.").Grow(1).Shrink(1)
 	})
@@ -1413,10 +1418,22 @@ func (q *Tab) autocommitBar(c *ui.Context) {
 
 func (q *Tab) resultsView(c *ui.Context, a Host) {
 	t := c.Theme()
-	ui.Column(c).Fill().Children(func() {
+	if q.stale != nil && (!q.Running || len(q.results) > q.staleFrom) {
+		q.stale = nil
+	}
+	results, idx := q.results, q.resultIdx
+	stale := q.stale != nil
+	if stale {
+		results, idx = q.stale, q.staleIdx
+	}
+	panel := ui.Column(c).Fill().Disabled(stale)
+	if stale {
+		panel.Opacity(0.55)
+	}
+	panel.Children(func() {
 		ui.Row(c).Padding(4, 8).Gap(4).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 			ui.Row(c).Gap(2).Grow(1).Shrink(1).ClipX().Children(func() {
-				for i, r := range q.results {
+				for i, r := range results {
 					if !r.rowsMode && r.err == "" {
 						continue
 					}
@@ -1430,7 +1447,7 @@ func (q *Tab) resultsView(c *ui.Context, a Host) {
 					if r.pinned {
 						label += " (pinned)"
 					}
-					p := widgets.Pill(c, label, q.resultIdx == i)
+					p := widgets.Pill(c, label, idx == i)
 					if p.Clicked() {
 						q.resultIdx = i
 					}
@@ -1451,12 +1468,12 @@ func (q *Tab) resultsView(c *ui.Context, a Host) {
 				if n := len(q.messages); n > 0 {
 					label = fmt.Sprintf("Messages (%d)", n)
 				}
-				if widgets.Pill(c, label, q.resultIdx >= len(q.results)).Clicked() {
+				if widgets.Pill(c, label, idx >= len(results)).Clicked() {
 					q.resultIdx = len(q.results)
 				}
 			})
 		})
-		r := q.current()
+		r := resultAt(results, idx)
 		switch {
 		case r == nil:
 			q.messagesView(c)
@@ -1470,9 +1487,12 @@ func (q *Tab) resultsView(c *ui.Context, a Host) {
 	})
 }
 
-func (q *Tab) current() *result {
-	if q.resultIdx >= 0 && q.resultIdx < len(q.results) && (q.results[q.resultIdx].rowsMode || q.results[q.resultIdx].err != "") {
-		return q.results[q.resultIdx]
+func (q *Tab) current() *result { return resultAt(q.results, q.resultIdx) }
+
+// resultAt is the result at i that shows as one, nil for none.
+func resultAt(results []*result, i int) *result {
+	if i >= 0 && i < len(results) && (results[i].rowsMode || results[i].err != "") {
+		return results[i]
 	}
 	return nil
 }
@@ -1492,7 +1512,7 @@ func (q *Tab) newView(res *result, c *db.Cursor, rows [][]any, done bool, stop c
 	case res.schemaErr != nil:
 		why = "Could not read the editor's schema: " + res.schemaErr.Error()
 	default:
-		why = "Reading the table's columns…"
+		why = dataview.ReadingColumns
 	}
 	v := dataview.NewViewer(q.a, dataview.ViewerSource{
 		Keys:           func() bool { return q.a.KeysTo(q) },
@@ -1715,7 +1735,7 @@ func (q *Tab) Flush(force bool) {
 // conflictBar says why the file is not saved, and offers the ways out.
 func (q *Tab) conflictBar(c *ui.Context) {
 	t := c.Theme()
-	ui.Row(c).Padding(6, 12).Gap(10).Background(t.Warning.Alpha(0.16)).Children(func() {
+	widgets.AppearBar(ui.Row(c.Key("conflict-bar")).Padding(6, 12).Gap(10).Background(t.Warning.Alpha(0.16))).Children(func() {
 		ui.Icon(c, widgets.IconAlert).TextColor(t.Warning).FontSize(14)
 		ui.Text(c, filepath.Base(q.Path)+" "+q.DiskConflict+": the editor's text is not saved.").Grow(1).Shrink(1).SingleLine().Tooltip(q.Path)
 		if disk, err := os.ReadFile(q.Path); err == nil {
@@ -1755,7 +1775,7 @@ func (q *Tab) headerBar(c *ui.Context, id string, exists bool) {
 		col = t.Danger
 		msg = fmt.Sprintf("This file names the connection %s, which is not a SQL connection of %s: fix its first lines to run it.", id, q.Conn.Project.Name)
 	}
-	ui.Row(c).Padding(6, 12).Gap(10).Background(col.Alpha(0.16)).Children(func() {
+	widgets.AppearBar(ui.Row(c.Key("header-bar")).Padding(6, 12).Gap(10).Background(col.Alpha(0.16))).Children(func() {
 		ui.Icon(c, widgets.IconAlert).TextColor(col).FontSize(14)
 		ui.Text(c, msg).Grow(1).Shrink(1)
 		if exists && ui.Button(c, "Switch to "+id).Disabled(q.Busy()).Clicked() {

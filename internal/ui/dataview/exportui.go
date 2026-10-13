@@ -331,7 +331,6 @@ func ExportView(a Host, c *ui.Context) {
 			}
 			ui.Row(c).Gap(8).Children(func() {
 				if x.running {
-					ui.Spinner(c).Size(14, 14)
 					progress := widgets.Count(x.written.Load(), "row") + " written…"
 					if many {
 						progress = fmt.Sprintf("Table %d of %d · ", x.current.Load()+1, len(chosen)) + progress

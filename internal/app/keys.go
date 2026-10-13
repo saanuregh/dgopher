@@ -125,7 +125,7 @@ func (k *keysEditor) commandRow(a *App, c *ui.Context, cmd keymap.Command) {
 		} else if ui.Button(c, "Add").Tooltip("Record a key for this command").Clicked() {
 			k.recording, k.err = cmd.ID, ""
 		}
-		if keymap.Changed(cmd.ID) && ui.Button(c, "Reset").Tooltip("Back to its own keys").Clicked() {
+		if keymap.Changed(cmd.ID) && widgets.Appear(ui.Button(c.Key("reset"), "Reset")).Tooltip("Back to its own keys").Clicked() {
 			k.err = ""
 			for _, ch := range cmd.Default {
 				if err := keymap.Allowed(cmd.ID, ch); err != nil {

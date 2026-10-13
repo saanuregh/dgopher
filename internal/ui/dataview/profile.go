@@ -256,7 +256,7 @@ func (g *Grid) profilePanel(c *ui.Context, a Host, src *Source) {
 				label = "Of every row, on the server"
 			}
 			ui.Text(c, label).FontSize(12).TextColor(pal.Muted).Grow(1).Shrink(1)
-			if g.profileOnServer != nil && !g.profiling && ui.Button(c, "Profile Every Row").Clicked() {
+			if g.profileOnServer != nil && ui.Button(c, "Profile Every Row").Disabled(g.profiling).Clicked() {
 				g.profiling = true
 				g.profileOnServer(func(ps []columnProfile, err error) {
 					g.profiling = false
@@ -265,9 +265,6 @@ func (g *Grid) profilePanel(c *ui.Context, a Host, src *Source) {
 						g.profileErr = err.Error()
 					}
 				})
-			}
-			if g.profiling {
-				ui.Spinner(c).Size(14, 14)
 			}
 		})
 		if g.profileErr != "" {

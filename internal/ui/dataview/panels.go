@@ -481,7 +481,6 @@ func (g *Grid) referencesPanel(c *ui.Context, a Host, row int) {
 		ui.Column(c).Padding(8, 10).Gap(12).Children(func() {
 			switch {
 			case g.refsLoading:
-				ui.Spinner(c)
 				return
 			case g.refsErr != "":
 				ui.Text(c, g.refsErr).TextColor(th.Danger).Selectable()

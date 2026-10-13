@@ -333,9 +333,7 @@ func (a *App) connFormView(c *ui.Context) {
 			if ui.Button(c, "Test Connection").Disabled(f.testing).Clicked() {
 				a.testConnection(f)
 			}
-			if f.testing {
-				ui.Spinner(c).Size(14, 14)
-			} else if f.testResult != "" {
+			if !f.testing && f.testResult != "" {
 				col := t.Danger
 				if f.testOK {
 					col = t.Success

@@ -501,11 +501,11 @@ func (t *Tab) View(c *ui.Context) {
 			if widgets.ToolButton(c, widgets.IconPlus, "Add Panel", "A panel of a query you write here").Clicked() {
 				t.addPanel()
 			}
-			label := "Edit"
+			label, icon := "Edit", widgets.IconPencil
 			if t.editing {
-				label = "Done"
+				label, icon = "Done", widgets.IconCheck
 			}
-			if widgets.ToolButton(c, widgets.IconPencil, label, "Arrange, resize and change the panels").Clicked() {
+			if widgets.ToolButton(c, icon, label, "Arrange, resize and change the panels").Clicked() {
 				if t.editing {
 					t.saveIfDirty()
 				}
@@ -619,7 +619,7 @@ func (t *Tab) panelView(c *ui.Context, i int, height float32) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	p, s := &t.d.Panels[i], t.panels[i]
-	connecting, failed := t.connState(*p)
+	_, failed := t.connState(*p)
 	ui.Column(c.Key(s.key)).Grow(float32(p.Width)).Basis(0).Height(height).Radius(8).Background(th.Background).Border(1, th.Border).Clip().Children(func() {
 		ui.Column(c).Padding(6, 10).Gap(6).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
@@ -639,15 +639,13 @@ func (t *Tab) panelView(c *ui.Context, i int, height float32) {
 					})
 				})
 				switch {
-				case s.running || connecting:
-					ui.Spinner(c).Size(12, 12)
 				case s.src != nil:
 					ui.Text(c, widgets.Count(len(s.src.Rows), "row")+" · "+s.took.Round(time.Millisecond).String()).FontSize(11.5).TextColor(pal.Muted).Tooltip("Read at " + s.at.Format(time.TimeOnly))
 				}
 			})
 			// Under the title, wrapping in a narrow panel.
 			if t.editing {
-				ui.Row(c).Gap(6).Wrap().AlignItems(ui.Center).Children(func() { t.panelTools(c, i) })
+				widgets.AppearBar(ui.Row(c.Key("panel-tools")).Gap(6).Wrap().AlignItems(ui.Center)).Children(func() { t.panelTools(c, i) })
 			}
 		})
 		if s.editSQL {

@@ -431,7 +431,6 @@ func distinctView(a Host, c *ui.Context) {
 			ui.Row(c).Children(func() { widgets.SearchBox(c, &f.search, "Find a value", 0).AutoFocus() })
 			switch {
 			case f.loading:
-				ui.Row(c).Grow(1).Center().Children(func() { ui.Spinner(c) })
 			case f.err != "":
 				ui.Text(c, f.err).TextColor(th.Danger).Selectable()
 			default:

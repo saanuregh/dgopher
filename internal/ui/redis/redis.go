@@ -150,6 +150,13 @@ func (r *Tab) CloseReason() string {
 	return ""
 }
 
+// Mark is empty: a file of commands running is work passing, which the
+// status bar shows.
+func (r *Tab) Mark() string { return "" }
+
+// Busy reports a file of commands running, which runs on its own.
+func (r *Tab) Busy() bool { return r.file != nil }
+
 func (r *Tab) Close() {
 	if r.file != nil {
 		r.file.cancel()
@@ -553,16 +560,17 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 			}
 		}
 		ui.Row(c).Padding(6, 8).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
-			switch {
-			case r.scanning:
-				ui.Spinner(c).Size(12, 12)
-				ui.Text(c, "Scanning…").FontSize(12).TextColor(pal.Muted)
-			case !r.scanDone:
-				if ui.Button(c, "Scan More").Clicked() {
-					r.scan()
-				}
-			default:
-				ui.Text(c, "Scan complete").FontSize(12).TextColor(pal.Muted)
+			if r.scanDone && !r.scanning {
+				widgets.Appear(ui.Text(c.Key("scan-complete"), "Scan complete").FontSize(12).TextColor(pal.Muted))
+				return
+			}
+			// One button, so its label eases from Scan More to Scanning….
+			label := "Scan More"
+			if r.scanning {
+				label = "Scanning…"
+			}
+			if widgets.MorphButton(c.Key("scan-more"), label).Disabled(r.scanning).Clicked() {
+				r.scan()
 			}
 		})
 	})
@@ -673,7 +681,6 @@ func (r *Tab) keyView(c *ui.Context, a Host) {
 			return
 		}
 		if r.loadingKey && r.info.Type == "" {
-			ui.Row(c).Grow(1).Center().Children(func() { ui.Spinner(c) })
 			return
 		}
 		r.valueView(c, a)
@@ -718,10 +725,10 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 				}
 				ui.Spacer(c)
 				if r.editDirty && !ro && r.whole {
-					if ui.Button(c, "Revert").Clicked() {
+					if widgets.Appear(ui.Button(c.Key("value-revert"), "Revert")).Clicked() {
 						r.editValue, r.editDirty = r.value, false
 					}
-					if ui.PrimaryButton(c, "Save").Clicked() || a.KeysTo(r) && keymap.Pressed(c, keymap.Save) {
+					if widgets.Appear(ui.PrimaryButton(c.Key("value-save"), "Save")).Clicked() || a.KeysTo(r) && keymap.Pressed(c, keymap.Save) {
 						args := []string{"SET", key, r.editValue, "KEEPTTL"}
 						r.write(args, r.loadKey)
 					}

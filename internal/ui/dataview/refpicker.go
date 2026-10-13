@@ -164,9 +164,6 @@ func refPickerView(a Host, c *ui.Context) {
 					p.choose(p.sel)
 				}
 			}
-			if p.loading {
-				ui.Spinner(c).Size(14, 14)
-			}
 		})
 		if p.err != "" {
 			ui.Text(c, p.err).TextColor(th.Danger).Padding(10, 16).Selectable()

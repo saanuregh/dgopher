@@ -174,7 +174,6 @@ func (a *App) auditTab(c *ui.Context, h *historyState) {
 		ui.Spacer(c)
 		switch {
 		case v.checking:
-			ui.Spinner(c).Size(14, 14)
 		case v.verified != nil && v.verified.Intact():
 			ui.Text(c, fmt.Sprintf("✓ Chain intact: %d entries", v.verified.Entries)).FontSize(12).TextColor(th.Success).Bold().
 				Tooltip("No entry was changed, removed, inserted or moved, and the log starts at its first entry. A cut-off end, or a log rewritten whole, shows only against a copy of the head kept elsewhere.")

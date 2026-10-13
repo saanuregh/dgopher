@@ -103,7 +103,7 @@ func TestApplyLostConnectionKeepsRefusal(t *testing.T) {
 	testutil.WaitFor(t, tt, "the schemas", func() bool { return cn.DefaultSchema != "" })
 	runWith(t, tt, q, "SET", RunStatement)
 	runWith(t, tt, q, "SELECT", RunStatement)
-	waitEditable(t, tt)
+	waitEditable(t, tt, q)
 	kill := "SELECT pg_terminate_backend(" + sessionValue(t, q, "SELECT pg_backend_pid()") + ")"
 	editCell(t, tt, "alpha", "one")
 	editCell(t, tt, "beta", "two")

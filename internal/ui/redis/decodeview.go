@@ -104,7 +104,6 @@ func (d *decodeView) view(c *ui.Context, value, label string, run func(work func
 		}
 		switch {
 		case d.running:
-			ui.Spinner(c).Size(12, 12)
 			ui.Text(c, "Decoding…").FontSize(12).TextColor(pal.Muted)
 		case d.err != "":
 			ui.Text(c, d.err).FontSize(12).TextColor(th.Danger).SingleLine().Shrink(1)

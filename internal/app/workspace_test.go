@@ -5,9 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/store"
+	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/query"
+
+	"github.com/egoist/mygo/ui"
 )
 
 // A cloned .dgopher names files outside the project, or the project's own
@@ -54,5 +58,86 @@ func TestRestoreSkipsOutsidePaths(t *testing.T) {
 	}
 	if q, ok := a.main.tabs.At(0).(*query.Tab); !ok || q.Path != inside {
 		t.Fatalf("restored %v", a.main.tabs.At(0))
+	}
+}
+
+// The tabs of a connection come back after a restart, in their order
+// among the editors, the one in front in front and pinned as they were,
+// waiting to connect; one of a connection gone since stays closed.
+func TestWorkspaceRestoresConnectionTabs(t *testing.T) {
+	cfgDir := t.TempDir()
+	st, _ := store.Open(cfgDir, store.MemorySecrets())
+	a := startApp(t, st)
+	projDir := filepath.Join(t.TempDir(), "proj")
+	os.MkdirAll(projDir, 0o755)
+	p, err := a.addProject(projDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: writeSQL(t, "x.sqlite", "")})
+	a.saveProject(p)
+	tt := ui.NewTester(a.view, 1200, 760)
+	connectNow(t, a, tt, cn)
+	if _, err := cn.DB.SQL.Exec("CREATE TABLE orders (id INTEGER PRIMARY KEY)"); err != nil {
+		t.Fatal(err)
+	}
+	newAppEditor(t, a, tt, cn, "SELECT 1;")
+	a.OpenTable(cn, "", db.Object{Schema: "main", Name: "orders", Kind: db.KindTable, Rows: -1}, dataview.PageDDL)
+	dataview.OpenER(a, cn, "", "main")
+	table := a.main.tabs.At(1)
+	a.main.tabs.SetPinned(table, true)
+	a.main.tabs.Select(table)
+	a.saveWorkspace(true)
+	var w savedWorkspace
+	p.Local.LoadJSON(workspaceFile, &w)
+	w.Tabs = append(w.Tabs, savedTab{Kind: savedTable, Connection: "gone", Schema: "main", Name: "orders"})
+	w.Order = append(w.Order, tabRef("tabs", len(w.Tabs)-1))
+	p.Local.SaveJSON(workspaceFile, w)
+
+	st2, _ := store.Open(cfgDir, store.MemorySecrets())
+	b := startApp(t, st2)
+	if b.main.tabs.Len() != 3 {
+		t.Fatalf("restored %d tabs", b.main.tabs.Len())
+	}
+	first, ok := b.main.tabs.At(0).(*waitingTab)
+	if !ok || first.saved.Kind != savedTable || first.saved.Name != "orders" || first.saved.Page != dataview.PageDDL || !b.main.tabs.Pinned(first) || b.ActiveTab() != first {
+		t.Fatalf("first %T %+v, pinned %v", b.main.tabs.At(0), first, b.main.tabs.Pinned(b.main.tabs.At(0)))
+	}
+	if _, ok := b.main.tabs.At(1).(*query.Tab); !ok {
+		t.Fatalf("second %T", b.main.tabs.At(1))
+	}
+	if d, ok := b.main.tabs.At(2).(*waitingTab); !ok || d.saved.Kind != savedDiagram {
+		t.Fatalf("third %T", b.main.tabs.At(2))
+	}
+	if first.conn.Status != connection.StatusIdle {
+		t.Fatalf("restored tab connected on its own: %v", first.conn.Status)
+	}
+}
+
+// A workspace of an older DGopher, without an order, reopens its editors
+// first, the one it names in front.
+func TestWorkspaceOldFormat(t *testing.T) {
+	st, _ := store.Open(t.TempDir(), store.MemorySecrets())
+	a := startApp(t, st)
+	projDir := filepath.Join(t.TempDir(), "proj")
+	os.MkdirAll(filepath.Join(projDir, "queries"), 0o755)
+	p, err := a.addProject(projDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	a.saveProject(p)
+	var editors []savedEditor
+	for _, name := range []string{"a.sql", "b.sql"} {
+		os.WriteFile(filepath.Join(projDir, "queries", name), []byte("SELECT 1;"), 0o644)
+		editors = append(editors, savedEditor{Connection: "lite", Path: "queries/" + name})
+	}
+	if err := p.Local.SaveJSON(workspaceFile, savedWorkspace{Editors: editors, Active: 1}); err != nil {
+		t.Fatal(err)
+	}
+	a.main.tabs.TakeAll()
+	a.restoreWorkspace(p)
+	if a.main.tabs.Len() != 2 || a.main.tabs.At(0).Title() != "a.sql" || a.ActiveTab().Title() != "b.sql" {
+		t.Fatalf("restored %d tabs, %s in front", a.main.tabs.Len(), a.ActiveTab().Title())
 	}
 }

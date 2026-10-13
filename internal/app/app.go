@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"dgopher/internal/audit"
@@ -62,6 +63,9 @@ type App struct {
 
 	settings settings.Settings
 	conns    []*connection.Conn
+	// connecting are the connects under way, by connection, past their
+	// prompts: how far each is, and how to stop it.
+	connecting map[*connection.Conn]*connectAttempt
 
 	// Work finished on other goroutines, applied as the next frame starts.
 	queueMu sync.Mutex
@@ -71,6 +75,11 @@ type App struct {
 	// other goroutines.
 	jobsMu sync.Mutex
 	jobs   []*job
+	// working counts the background work under way (Background), and
+	// busySince is when the app last began to work: the status bar shows
+	// work once it has gone on a moment.
+	working   atomic.Int64
+	busySince time.Time
 
 	nav      navState
 	connForm *connForm
@@ -214,13 +223,36 @@ func (a *App) drain() {
 // runs on the main thread. A panic of the work is shown, and the app goes
 // on.
 func (a *App) Background(work func() func()) {
+	if a.working.Add(1) == 1 {
+		a.invalidate() // started after the status bar was drawn, it shows next frame
+	}
 	go func() {
+		var apply func()
+		// It ends once its result is applied, or after a panic, which
+		// RecoverBackground below reports first.
+		defer a.Post(func() {
+			a.working.Add(-1)
+			if apply != nil {
+				apply()
+			}
+		})
 		defer dataview.RecoverBackground(a.Post, a.ShowError, nil)
-		apply := work()
-		if apply != nil {
-			a.Post(apply)
-		}
+		apply = work()
 	}()
+}
+
+// busy reports whether the app works: background work, a connect under
+// way, or a tab that says it works.
+func (a *App) busy() bool {
+	if a.working.Load() > 0 || len(a.connecting) > 0 {
+		return true
+	}
+	for _, t := range a.everyTab() {
+		if w, ok := t.(widgets.Worker); ok && w.Busy() {
+			return true
+		}
+	}
+	return false
 }
 
 // job is work running on a connection, as Run SQL File or an import:
@@ -524,6 +556,64 @@ func resolveCommandSecrets(ctx context.Context, cfg *db.Config) error {
 	return nil
 }
 
+// connectAttempt is a connect under way since started: its context,
+// which cancel ends.
+type connectAttempt struct {
+	ctx     context.Context
+	cancel  context.CancelFunc
+	started time.Time
+}
+
+// startAttempt begins a connect attempt of cn, in place of any before.
+func (a *App) startAttempt(cn *connection.Conn) *connectAttempt {
+	a.endAttempt(cn, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	at := &connectAttempt{ctx: ctx, cancel: cancel, started: time.Now()}
+	if a.connecting == nil {
+		a.connecting = map[*connection.Conn]*connectAttempt{}
+	}
+	a.connecting[cn] = at
+	a.invalidate()
+	return at
+}
+
+// endAttempt stops and forgets cn's connect attempt: only at when it is
+// not nil, as a late result must not end the attempt after it.
+func (a *App) endAttempt(cn *connection.Conn, at *connectAttempt) {
+	cur := a.connecting[cn]
+	if cur == nil || at != nil && cur != at {
+		return
+	}
+	cur.cancel()
+	delete(a.connecting, cn)
+}
+
+// connectStarted is when connecting cn began, and whether it is under way
+// and not waiting for the user, as for a password: what Cancel stops.
+func (a *App) connectStarted(cn *connection.Conn) (time.Time, bool) {
+	at := a.connecting[cn]
+	if cn.Status != connection.StatusConnecting || at == nil {
+		return time.Time{}, false
+	}
+	return at.started, true
+}
+
+// CancelConnect stops connecting cn, as the user asked: what it opens
+// late is closed (Generation), and nothing waiting for it runs.
+func (a *App) CancelConnect(cn *connection.Conn) {
+	if cn.Status != connection.StatusConnecting {
+		return
+	}
+	const why = "you cancelled connecting"
+	cn.Generation++
+	// Not idle: what connects as it comes into view would connect again
+	// at once.
+	cn.Status, cn.Err = connection.StatusFailed, why
+	cn.Waiters = nil
+	a.endAttempt(cn, nil)
+	a.Record(&cn.Config, audit.Event{Kind: audit.KindConnect, Detail: connectionSummary(&cn.Config), Err: errors.New(why)})
+}
+
 // Connect opens a connection, then runs then on the main thread.
 func (a *App) Connect(cn *connection.Conn, then func()) {
 	switch cn.Status {
@@ -572,7 +662,9 @@ func (a *App) Connect(cn *connection.Conn, then func()) {
 	}
 	cn.Status, cn.Err = connection.StatusConnecting, ""
 	gen := cn.Generation
+	at := a.startAttempt(cn)
 	dataview.BackgroundResetOnPanic(a, func() {
+		a.endAttempt(cn, at)
 		if gen == cn.Generation {
 			cn.Status, cn.Err = connection.StatusFailed, "stopped on an internal error"
 			cn.Waiters = nil
@@ -594,6 +686,8 @@ func (a *App) Connect(cn *connection.Conn, then func()) {
 // which the user may then keep.
 func (a *App) askPasswordOrOpen(cn *connection.Conn, cfg db.Config, lost bool) {
 	if (cfg.AskPassword || lost) && cfg.Password == "" && !cfg.Engine.IsFile() {
+		// The prompt is the user's to cancel; its time is not connecting's.
+		a.endAttempt(cn, nil)
 		if a.prompt != nil && a.prompt.conn == cn || slices.ContainsFunc(a.promptQueue, func(p *passwordPrompt) bool { return p.conn == cn }) {
 			return // asking already
 		}
@@ -630,18 +724,24 @@ func (a *App) open(cn *connection.Conn, cfg db.Config) {
 	cn.Status, cn.Err = connection.StatusConnecting, ""
 	known := a.knownHosts()
 	gen := cn.Generation
+	// Connect's, from the keychain on, unless a prompt came between.
+	at := a.connecting[cn]
+	if at == nil {
+		at = a.startAttempt(cn)
+	}
 	// What the work opened, which the reset closes, tunnel and all, when
 	// the work stops on a panic before the main thread takes it.
 	var sqldb *db.DB
 	var kv *db.KV
 	dataview.BackgroundResetOnPanic(a, func() {
 		go closePools(sqldb, kv)
+		a.endAttempt(cn, at)
 		if gen == cn.Generation {
 			cn.Status, cn.Err = connection.StatusFailed, "stopped on an internal error"
 			cn.Waiters = nil
 		}
 	}, func() func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second+secretcmd.Timeout)
+		ctx, cancel := context.WithTimeout(at.ctx, 45*time.Second+secretcmd.Timeout)
 		defer cancel()
 		var version string
 		err := resolveCommandSecrets(ctx, &cfg)
@@ -659,6 +759,7 @@ func (a *App) open(cn *connection.Conn, cfg db.Config) {
 			}
 		}
 		return func() {
+			a.endAttempt(cn, at)
 			if gen != cn.Generation {
 				// Disconnected, or edited, meanwhile: this pool is not the
 				// connection's any more.
@@ -740,6 +841,9 @@ func (a *App) disconnect(cn *connection.Conn) {
 func (a *App) dropConnection(cn *connection.Conn, detail string) {
 	jobs := a.jobsOf(cn)
 	cn.Generation++
+	// A connect under way stops, and what waited for it never runs.
+	a.endAttempt(cn, nil)
+	cn.Waiters = nil
 	sqldb, kv := cn.DB, cn.KV
 	if sqldb != nil || kv != nil {
 		a.Record(&cn.Config, audit.Event{Kind: audit.KindDisconnect, Detail: detail})
@@ -789,7 +893,27 @@ func (a *App) refresh(cn *connection.Conn) {
 
 // Tabs.
 
-func (a *App) AddTab(t widgets.Tab) { a.tabs.Add(t) }
+// AddTab puts a tab last, in front; one a restored tab waits to be takes
+// that tab's place instead, in front only when that tab was not in view.
+func (a *App) AddTab(t widgets.Tab) {
+	if s, ok := savedTabOf(t); ok {
+		for win, o := range a.everyTab() {
+			w, ok := o.(*waitingTab)
+			if !ok {
+				continue
+			}
+			if waits, _ := savedTabOf(w); waits.same(s) {
+				inView := win.tabs.Active() == w || win.tabs.Side() == w
+				a.ReplaceTab(w, t)
+				if !inView {
+					a.findTab(func(o widgets.Tab) bool { return o == t })
+				}
+				return
+			}
+		}
+	}
+	a.tabs.Add(t)
+}
 
 // ReplaceTab puts a tab in the place of another, which closes.
 func (a *App) ReplaceTab(old, next widgets.Tab) {

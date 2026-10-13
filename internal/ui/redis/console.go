@@ -123,9 +123,8 @@ func (r *Tab) helpView(c *ui.Context) {
 func (r *Tab) consoleActions(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	if f := r.file; f != nil {
-		ui.Spinner(c).Size(12, 12)
 		ui.Text(c, fmt.Sprintf("%s: %d of %d", filepath.Base(f.path), f.done, f.total)).FontSize(12).TextColor(pal.Muted)
-		if ui.Link(c, "Stop", "").FontSize(12).Clicked() {
+		if widgets.Appear(ui.Link(c.Key("file-stop"), "Stop", "").FontSize(12)).Clicked() {
 			f.cancel()
 		}
 	}

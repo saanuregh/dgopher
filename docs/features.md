@@ -100,13 +100,28 @@
   reorder; the middle button closes it. A tab's menu pins it (first,
   with a pin for its close button, which unpins; Close Others, Close to
   the Right, Close All, ⌘W and the middle button leave it, its menu's
-  Close closes it; a pinned editor stays pinned after a restart), and
+  Close closes it; a pinned tab stays pinned after a restart), and
   closes others, those to its right or all, asking once about everything
   they would lose, with Commit for open transactions. Reopen Closed Tab
   (⇧⌘T) opens the tabs closed, the last first, up to 20, as editors by
   their file, tables at their page, diagrams, dashboards and models; one
   whose file or connection is gone says so. Tabs that do not fit are
   listed by a button at the bar's end.
+- **Activity:** the app's one sign of work going on is a thin bar moving
+  along the top of the status bar, once any work (a query, rows being
+  read, a count, an export, a connect…) has lasted 300 ms; quick work
+  shows nothing, and nothing moves. Long work offers Stop or Cancel
+  where it runs: Fetch All, Count and applying grid changes in the data
+  view, and connecting in the status bar, the navigator's menu and a
+  restored tab; a cancelled connect is audited, and one that finishes
+  late is closed.
+- **Restart:** the tabs come back in their order, the one in front in
+  front: editors, dashboards and models, and a connection's tables at
+  their page, ER diagrams, keys, activity, users and search. A
+  connection's tab waits, unconnected, until it is connected: on its own
+  as it comes into view when the connection auto-connects, else by its
+  Connect button or ↵. Opening the same table meanwhile takes its place.
+  Filters and sort start afresh.
 - **Window:** closing the last tab leaves the start page. On macOS,
   closing the window keeps DGopher running with its tabs and connections,
   and its Dock icon shows the window again.
@@ -444,13 +459,14 @@
     or any of them; the box then shows the SQL it wrote.
   - Sorting by a column runs on the server while rows remain to be read,
     and in memory once every row is, as DBeaver's default.
-  - Refresh, Count (`SELECT COUNT(*)`), and Fetch All in both; a
-    statement that writes is never filtered or counted, and refreshing its
-    result asks before running it again.
-  - A query result counts, lists distinct values and groups on the
-    editor's own connection, so it sees the editor's schema, open
-    transaction and temporary tables; while a result still reads its
-    rows, Count waits for Fetch All.
+  - Refresh and Fetch All in both, and Count (`SELECT COUNT(*)`) in a
+    table's data; a statement that writes is never filtered, and
+    refreshing its result asks before running it again. Fetch All has
+    Stop, which keeps the rows read; Count has Stop too.
+  - A query result lists distinct values and groups on the editor's own
+    connection, so it sees the editor's schema, open transaction and
+    temporary tables; while a result still reads its rows, they wait for
+    Fetch All.
   - Grid, record (Tab) and plain-text views (``⌘` ``).
   - Panels (F7): the value (text, JSON, XML, hex, image; save to or load
     from a file), Calc (count, distinct, sum, average, min, max, median),

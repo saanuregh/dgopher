@@ -399,7 +399,6 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 	dense := *theme
 	dense.Spacing = 2.5
 	ui.Row(c).Grow(1).AlignItems(ui.Stretch).Children(func() {
-		g.presentationBar(c)
 		switch g.mode {
 		case viewRecord:
 			g.recordView(c, a, src, order)

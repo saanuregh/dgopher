@@ -7,6 +7,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/modelview"
 	"dgopher/internal/ui/query"
+	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo"
 )
@@ -45,32 +48,75 @@ type savedWorkspace struct {
 	Dashboards []string `json:"dashboards,omitempty"`
 	// Models are the files of the data models open, as Dashboards.
 	Models []string `json:"models,omitempty"`
+	// Tabs are the connections' tabs open, which wait to connect.
+	Tabs []savedTab `json:"tabs,omitempty"`
+	// Order is the order of every tab kept, each as its list and its
+	// place there, as "editors/0"; a file without it, of an older
+	// DGopher, reopens its editors first.
+	Order []string `json:"order,omitempty"`
+	// Front is the tab in front, as in Order; "" when it was none of the
+	// project's. Active stays, for an older DGopher.
+	Front string `json:"front,omitempty"`
 }
 
 const workspaceFile = "workspace.json"
 
-// workspaceOf returns the editors of a project to keep.
+// workspaceOf returns what a project keeps open: its tabs, in their
+// order, and the one in front.
 func (a *App) workspaceOf(p *project.Project) savedWorkspace {
 	w := savedWorkspace{Editors: []savedEditor{}, Active: -1}
-	// The editors of every window, which come back in the main one.
-	for win, t := range a.everyTab() {
-		q, ok := t.(*query.Tab)
-		if !ok || q.Conn.Project != p || q.Path == "" {
-			continue
-		}
-		if win == a.main && t == a.main.ActiveTab() {
-			w.Active = len(w.Editors)
-		}
-		e := savedEditor{Connection: strings.TrimPrefix(q.Conn.Config.ID, p.Prefix), Database: q.Database, Path: p.StoredPath(q.Path), Pinned: win.tabs.Pinned(q)}
-		if text := q.Editor.FileText(); q.DiskConflict != "" && text != q.Saved {
-			e.Unsaved = text
-		}
-		w.Editors = append(w.Editors, e)
-	}
 	w.Dashboards = a.dashboardPaths(p)
 	w.Models = a.modelPaths(p)
+	// The tabs of every window, which come back in the main one.
+	dashboards, models := 0, 0
+	for win, t := range a.everyTab() {
+		ref := ""
+		switch t := t.(type) {
+		case *query.Tab:
+			if t.Conn.Project != p || t.Path == "" {
+				continue
+			}
+			if win == a.main && t == a.main.ActiveTab() {
+				w.Active = len(w.Editors)
+			}
+			e := savedEditor{Connection: strings.TrimPrefix(t.Conn.Config.ID, p.Prefix), Database: t.Database, Path: p.StoredPath(t.Path), Pinned: win.tabs.Pinned(t)}
+			if text := t.Editor.FileText(); t.DiskConflict != "" && text != t.Saved {
+				e.Unsaved = text
+			}
+			ref = tabRef("editors", len(w.Editors))
+			w.Editors = append(w.Editors, e)
+		case *dashboard.Tab:
+			if t.Project != p {
+				continue
+			}
+			ref = tabRef("dashboards", dashboards)
+			dashboards++
+		case *modelview.Tab:
+			if t.Project != p {
+				continue
+			}
+			ref = tabRef("models", models)
+			models++
+		default:
+			s, ok := savedTabOf(t)
+			if !ok || t.Connection().Project != p {
+				continue
+			}
+			s.Connection = strings.TrimPrefix(s.Connection, p.Prefix)
+			s.Pinned = win.tabs.Pinned(t)
+			ref = tabRef("tabs", len(w.Tabs))
+			w.Tabs = append(w.Tabs, s)
+		}
+		w.Order = append(w.Order, ref)
+		if win == a.main && t == a.main.ActiveTab() {
+			w.Front = ref
+		}
+	}
 	return w
 }
+
+// tabRef names a tab kept in a workspace: its list and its place there.
+func tabRef(list string, i int) string { return list + "/" + strconv.Itoa(i) }
 
 // saveWorkspace keeps the open editors of each project, when they changed.
 func (a *App) saveWorkspace(force bool) {
@@ -98,8 +144,8 @@ func (a *App) saveWorkspaceOf(p *project.Project) {
 	p.Workspace = data
 }
 
-// restoreWorkspace opens the editors of a project's last run; they
-// connect when shown.
+// restoreWorkspace reopens a project's tabs of its last run, in their
+// order; they connect when shown.
 func (a *App) restoreWorkspace(p *project.Project) {
 	var w savedWorkspace
 	if err := p.Local.LoadJSON(workspaceFile, &w); err != nil {
@@ -109,6 +155,15 @@ func (a *App) restoreWorkspace(p *project.Project) {
 		return
 	}
 	p.Workspace, _ = json.Marshal(w)
+	type restored struct {
+		ref    string
+		tab    widgets.Tab
+		pinned bool
+	}
+	var tabs []restored
+	keep := func(list string, i int, t widgets.Tab, pinned bool) {
+		tabs = append(tabs, restored{tabRef(list, i), t, pinned})
+	}
 	// The workspace may come from a clone: only the project's own files
 	// come back, never one outside it or under its .git or .dgopher.
 	for i, e := range w.Editors {
@@ -144,30 +199,56 @@ func (a *App) restoreWorkspace(p *project.Project) {
 				q.DiskConflict = "was deleted on disk"
 			}
 		}
-		if i == w.Active {
-			a.main.tabs.Add(q)
-		} else {
-			a.main.tabs.Append(q)
-		}
-		if e.Pinned {
-			a.main.tabs.SetPinned(q, true)
-		}
+		keep("editors", i, q, e.Pinned)
 	}
-	for _, path := range w.Dashboards {
+	for i, path := range w.Dashboards {
 		// A dashboard deleted, or broken, since is left closed.
 		if !project.Contains(p.Dir, path) {
 			continue
 		}
 		if d, err := dashboard.Open(a, p, p.ResolvePath(path)); err == nil {
-			a.main.tabs.Append(d)
+			keep("dashboards", i, d, false)
 		}
 	}
-	for _, path := range w.Models {
+	for i, path := range w.Models {
 		if !project.Contains(p.Dir, path) {
 			continue
 		}
 		if m, err := modelview.Open(a, p, p.ResolvePath(path)); err == nil {
-			a.main.tabs.Append(m)
+			keep("models", i, m, false)
+		}
+	}
+	// A connection's tab waits for it to connect; one whose connection
+	// is gone, or no longer has such a tab, is left closed.
+	for i, s := range w.Tabs {
+		s.Connection = p.Prefix + s.Connection
+		if cn := a.connByID(s.Connection); cn != nil && s.availableOn(cn) {
+			keep("tabs", i, &waitingTab{a: a, conn: cn, saved: s}, s.Pinned)
+		}
+	}
+	front := w.Front
+	if w.Order == nil && w.Active >= 0 {
+		front = tabRef("editors", w.Active)
+	}
+	// In their order; those it does not name, after.
+	at := make(map[string]int, len(w.Order))
+	for i, ref := range w.Order {
+		at[ref] = i
+	}
+	place := func(ref string) int {
+		if i, ok := at[ref]; ok {
+			return i
+		}
+		return len(w.Order)
+	}
+	slices.SortStableFunc(tabs, func(x, y restored) int { return place(x.ref) - place(y.ref) })
+	for _, r := range tabs {
+		a.main.tabs.Append(r.tab)
+		if r.pinned {
+			a.main.tabs.SetPinned(r.tab, true)
+		}
+		if r.ref == front {
+			a.main.tabs.Select(r.tab)
 		}
 	}
 }

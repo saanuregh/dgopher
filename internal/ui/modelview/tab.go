@@ -212,10 +212,6 @@ func (t *Tab) View(c *ui.Context) {
 			}
 			ui.Text(c, about).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1)
 			ui.Spacer(c)
-			if t.updating {
-				ui.Spinner(c).Size(14, 14)
-				c.After(200 * time.Millisecond)
-			}
 			if t.m.Source != nil && widgets.ToolButton(c, widgets.IconRefresh, "Update", "Read the model's tables again from the schema it was built from").
 				Disabled(t.updating || t.source() == nil).Clicked() {
 				t.confirmUpdate = true

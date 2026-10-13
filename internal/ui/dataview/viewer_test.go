@@ -20,21 +20,35 @@ import (
 // openNumbers opens a table of n numbered rows, read pageSize at a time.
 func openNumbers(t *testing.T, n, pageSize int) (*FakeHost, *ui.Tester, *TableTab, string) {
 	t.Helper()
+	return openSQLite(t, pageSize, db.Object{Schema: "main", Name: "n", Kind: db.KindTable, Rows: -1}, func(d *db.DB) {
+		d.SQL.Exec("CREATE TABLE n (id INTEGER PRIMARY KEY, label TEXT)")
+		for i := 1; i <= n; i++ {
+			d.SQL.Exec("INSERT INTO n VALUES (?, ?)", i, fmt.Sprintf("row %d", i))
+		}
+	})
+}
+
+// openSQLite opens obj of a new SQLite file that setup fills, read
+// pageSize rows at a time, the default for 0.
+func openSQLite(t *testing.T, pageSize int, obj db.Object, setup func(*db.DB)) (*FakeHost, *ui.Tester, *TableTab, string) {
+	t.Helper()
 	a := NewFakeHost(t)
-	a.Settings().PageSize = pageSize
+	if pageSize > 0 {
+		a.Settings().PageSize = pageSize
+	}
 	file := filepath.Join(t.TempDir(), "n.sqlite")
 	os.WriteFile(file, nil, 0o600)
-	setup, _ := db.Open(context.Background(), db.Config{Name: "s", Engine: db.SQLite, Database: file}, nil)
-	setup.SQL.Exec("CREATE TABLE n (id INTEGER PRIMARY KEY, label TEXT)")
-	for i := 1; i <= n; i++ {
-		setup.SQL.Exec("INSERT INTO n VALUES (?, ?)", i, fmt.Sprintf("row %d", i))
+	d, err := db.Open(context.Background(), db.Config{Name: "s", Engine: db.SQLite, Database: file}, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	setup.Close()
+	setup(d)
+	d.Close()
 	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
 	tt := ui.NewTester(a.View, 1200, 700)
 	a.Connect(cn, nil)
 	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
-	a.OpenTable(cn, "", db.Object{Schema: "main", Name: "n", Kind: db.KindTable, Rows: -1}, PageData)
+	a.OpenTable(cn, "", obj, PageData)
 	tb := a.Tabs[0].(*TableTab)
 	testutil.WaitFor(t, tt, "rows", func() bool { return tb.view.src.Rows != nil && tb.columns != nil && !tb.view.loading })
 	return a, tt, tb, file
@@ -162,7 +176,7 @@ func TestTableToolbarAndStatus(t *testing.T) {
 	tt.Frame()
 	tt.Type("row 4")
 	tt.Frame()
-	if !tt.HasText("1 of 5 rows") {
+	if !tt.HasText("1 matching · 5 rows") {
 		t.Fatalf("no filtered count: %q", tt.Texts())
 	}
 	if err := tt.Click("Chart"); err != nil {
@@ -353,10 +367,12 @@ func TestNoEditWhileReading(t *testing.T) {
 	if _, ok := tt.Find("Add Row"); !ok || v.grid.readOnly != "" {
 		t.Fatalf("before reading: Add Row shown %v, read-only %q", ok, v.grid.readOnly)
 	}
+	before, _ := tt.Find("Export…")
 	v.loading = true
 	tt.Frame()
-	if _, ok := tt.Find("Add Row"); ok || v.grid.readOnly != "Reading the rows…" {
-		t.Fatalf("while reading: Add Row shown %v, read-only %q", ok, v.grid.readOnly)
+	// Disabled, it keeps its place: the toolbar does not move.
+	if at, _ := tt.Find("Export…"); at != before || v.grid.readOnly != "Reading the rows…" {
+		t.Fatalf("while reading: Export… at %v, was %v; read-only %q", at, before, v.grid.readOnly)
 	}
 	v.loading = false
 	tt.Frame()

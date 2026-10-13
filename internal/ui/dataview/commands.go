@@ -22,7 +22,7 @@ func (v *Viewer) Commands() []widgets.Command {
 	cmds := []widgets.Command{
 		refresh,
 		{Title: "Export Rows…", Icon: widgets.IconDownload, Run: func() { OpenExport(v.a, v.exportSource()) }},
-		{Title: chart, Key: keymap.ToggleChart, Icon: widgets.IconLayers, Run: func() { v.showChart = !v.showChart }},
+		{Title: chart, Key: keymap.ToggleChart, Icon: widgets.IconChart, Run: func() { v.showChart = !v.showChart }},
 		{Title: panel, Key: keymap.ValuePanel, Icon: widgets.IconView, Run: func() { v.grid.ShowValue = !v.grid.ShowValue }},
 	}
 	if !v.done && !v.loading {

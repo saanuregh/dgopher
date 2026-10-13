@@ -367,33 +367,26 @@ func (a *App) rowCompareView(c *ui.Context) {
 			}
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				if x.running {
-					ui.Spinner(c).Size(14, 14)
 					ui.Text(c, x.progress).FontSize(12).TextColor(pal.Muted)
 				}
 				ui.Spacer(c)
-				if x.running {
-					if ui.Button(c, "Cancel").Clicked() {
-						x.cancel()
-					}
-					return
-				}
-				if ui.Button(c, "Close").Clicked() {
-					x.open = false
-				}
+				widgets.DismissButton(c, x.running, true, x.cancel, func() { x.open = false })
 				if x.result == nil {
-					if widgets.Activated(c, ui.PrimaryButton(c, "Compare")) {
+					compare := ui.PrimaryButton(c.Key("compare"), "Compare").Disabled(x.running)
+					widgets.Appear(compare)
+					if widgets.Activated(c, compare) {
 						a.startCompare(x)
 					}
 					return
 				}
-				if ui.Button(c, "Compare Again").Clicked() {
+				if ui.Button(c.Key("again"), "Compare Again").Disabled(x.running).Clicked() {
 					a.startCompare(x)
 				}
 				blocked := x.syncBlocked()
-				if ui.Button(c, "Open as SQL").Disabled(blocked != "").Clicked() {
+				if ui.Button(c.Key("sql"), "Open as SQL").Disabled(x.running || blocked != "").Clicked() {
 					a.openSyncSQL(x)
 				}
-				apply := ui.PrimaryButton(c, "Apply to "+x.toTable+"…").Disabled(blocked != "")
+				apply := ui.PrimaryButton(c.Key("apply"), "Apply to "+x.toTable+"…").Disabled(x.running || blocked != "")
 				if blocked != "" {
 					apply.Tooltip(blocked)
 				}

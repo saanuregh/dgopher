@@ -198,7 +198,6 @@ func (a *App) sqlFileView(c *ui.Context) {
 			switch {
 			case x.reading:
 				ui.Row(c).Gap(8).Children(func() {
-					ui.Spinner(c).Size(14, 14)
 					ui.Text(c, "Reading the file: "+widgets.HumanBytes(x.progress.Load())).TextColor(pal.Muted)
 				})
 				c.After(200 * time.Millisecond)
@@ -208,7 +207,6 @@ func (a *App) sqlFileView(c *ui.Context) {
 			if x.running || x.finished {
 				ui.Row(c).Gap(8).Children(func() {
 					if x.running {
-						ui.Spinner(c).Size(14, 14)
 						c.After(200 * time.Millisecond)
 					}
 					pct := 0.0
@@ -226,27 +224,17 @@ func (a *App) sqlFileView(c *ui.Context) {
 			}
 			ui.Row(c).Gap(8).Children(func() {
 				ui.Spacer(c)
-				if x.running || x.reading {
-					if ui.Button(c, "Cancel").Clicked() && x.cancel != nil {
-						x.cancel()
-					}
-					return
-				}
-				close := "Cancel"
-				if x.finished {
-					close = "Close"
-				}
-				if ui.Button(c, close).Clicked() {
-					x.open = false
-				}
+				busy := x.running || x.reading
+				widgets.DismissButton(c, busy, x.finished, x.cancel, func() { x.open = false })
 				if !x.finished {
-					disabled := x.statements == 0 || x.err != ""
+					disabled := busy || x.statements == 0 || x.err != ""
 					var run ui.Element
 					if len(x.dangerous) > 0 {
-						run = widgets.DangerButton(c, "Run", disabled)
+						run = widgets.DangerButton(c.Key("run"), "Run", disabled)
 					} else {
-						run = ui.PrimaryButton(c, "Run").Disabled(disabled)
+						run = ui.PrimaryButton(c.Key("run"), "Run").Disabled(disabled)
 					}
+					widgets.Appear(run)
 					if run.Clicked() && !disabled {
 						a.confirmSQLFile(x)
 					}

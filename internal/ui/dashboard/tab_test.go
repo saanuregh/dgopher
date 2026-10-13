@@ -94,6 +94,7 @@ func TestDashboardPanels(t *testing.T) {
 	// Removed while its row is drawn, a panel goes once it is.
 	tab.editing = true
 	tt.Frame()
+	testutil.Settled(t, tt, "Remove")
 	panels := len(tab.d.Panels)
 	if err := tt.Click("Remove"); err != nil {
 		t.Fatal(err)
@@ -194,6 +195,7 @@ func TestPanelConnection(t *testing.T) {
 	}
 	tab.editing = true
 	tt.Frame()
+	testutil.Settled(t, tt, "Remove")
 	if err := tt.Click("SQL"); err != nil {
 		t.Fatal(err)
 	}
@@ -238,6 +240,7 @@ func TestPanelSameNameConnections(t *testing.T) {
 	h.AddTab(tab)
 	tab.editing = true
 	tt.Frame()
+	testutil.Settled(t, tt, "Remove")
 	if err := tt.Click("SQL"); err != nil {
 		t.Fatal(err)
 	}
@@ -298,6 +301,7 @@ func TestPanelDatabase(t *testing.T) {
 	h.AddTab(tab)
 	tab.editing = true
 	tt.Frame()
+	testutil.Settled(t, tt, "Remove")
 	if err := tt.Click("SQL"); err != nil {
 		t.Fatal(err)
 	}
@@ -334,6 +338,7 @@ func TestNarrowPanelTools(t *testing.T) {
 	h.AddTab(tab)
 	tab.editing = true
 	tt.Frame()
+	testutil.Settled(t, tt, "Remove")
 	tt.Frame()
 	testutil.Snapshot(t, tt, "dashboard-narrow-panel-edit")
 	panel, _ := tt.Find("P")

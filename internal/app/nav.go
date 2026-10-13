@@ -667,8 +667,6 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 				name.Grow(1)
 			}
 			switch cn.Status {
-			case connection.StatusConnecting:
-				ui.Spinner(c).Size(12, 12)
 			case connection.StatusFailed:
 				ui.Icon(c, widgets.IconAlert).TextColor(widgets.RowColor(c, t.Danger, chosen)).FontSize(12).Tooltip(cn.Err)
 			}
@@ -776,6 +774,9 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			}
 		} else if m.Item("Connect").Chosen() {
 			a.activate(n)
+		}
+		if _, ok := a.connectStarted(cn); ok && m.Item("Cancel Connecting").Chosen() {
+			a.CancelConnect(cn)
 		}
 		if cn.Config.Engine == db.Redis {
 			if m.Item("Open Key Browser").Chosen() {

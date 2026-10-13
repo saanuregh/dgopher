@@ -372,9 +372,6 @@ func (t *TableTab) structureView(c *ui.Context, a Host) {
 			if widgets.ToolButton(c, widgets.IconPencil, "Edit Structure", "Change the columns, keys, indexes and checks").Disabled(why != "").Tooltip(why).Clicked() {
 				t.editStructure()
 			}
-			if t.readingDesign {
-				ui.Spinner(c).Size(12, 12)
-			}
 			if why != "" {
 				ui.Text(c, why).FontSize(12).TextColor(pal.Muted)
 			}
@@ -459,7 +456,6 @@ func (t *TableTab) ddlView(c *ui.Context, a Host) {
 		}
 	})
 	if t.ddl == "" && t.metaErr == "" {
-		ui.Row(c).Grow(1).Center().Children(func() { ui.Spinner(c) })
 		return
 	}
 	area := &t.ddlArea

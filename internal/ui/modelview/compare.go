@@ -130,9 +130,7 @@ func (t *Tab) compareView(c *ui.Context) {
 			}
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				if f.running {
-					ui.Spinner(c).Size(14, 14)
 					ui.Text(c, "Reading the schema…").FontSize(12.5).TextColor(pal.Muted)
-					c.After(200 * time.Millisecond)
 				}
 				ui.Spacer(c)
 				if ui.Button(c, "Cancel").Clicked() {
@@ -363,12 +361,8 @@ func (t *Tab) migrationBar(c *ui.Context) {
 		ui.Checkbox(c, &r.drop, "Drop what the model lacks")
 		ui.Text(c, "Otherwise kept: a column renamed reads as one dropped and one added.").FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1)
 		ui.Spacer(c)
-		if r.applying {
-			ui.Spinner(c).Size(14, 14)
-			c.After(200 * time.Millisecond)
-			if r.cancel != nil && ui.Button(c, "Cancel").Clicked() {
-				r.cancel()
-			}
+		if r.applying && r.cancel != nil && widgets.Appear(ui.Button(c.Key("cancel"), "Cancel")).Clicked() {
+			r.cancel()
 		}
 		if r.conn == nil {
 			if ui.Button(c, "Copy Migration Script").Disabled(!differs).Tooltip("The statements making the other model's schema like this one").Clicked() {

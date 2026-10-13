@@ -91,7 +91,6 @@ func (r *Tab) seriesView(c *ui.Context, ro bool) {
 			ui.Segmented(c, &s.span, labels...).Label("Span charted")
 			switch {
 			case s.loading:
-				ui.Spinner(c).Size(12, 12)
 			case s.err != "":
 				ui.Text(c, s.err).FontSize(12).TextColor(th.Danger).SingleLine().Shrink(1)
 			case s.last.IsZero():

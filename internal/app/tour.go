@@ -134,7 +134,7 @@ func (a *App) tourView(c *ui.Context) {
 					a.endTour()
 					stop.run(a)
 				}
-				if a.tourStop > 0 && ui.Button(c, "Back").Clicked() {
+				if a.tourStop > 0 && widgets.Appear(ui.Button(c.Key("back"), "Back")).Clicked() {
 					a.tourStop--
 				}
 				last := a.tourStop == len(stops)-1
@@ -142,7 +142,7 @@ func (a *App) tourView(c *ui.Context) {
 				if last {
 					label = "Done"
 				}
-				next := ui.PrimaryButton(c, label)
+				next := widgets.MorphPrimaryButton(c.Key("next"), label)
 				next.Focus()
 				if next.Clicked() {
 					if last {
