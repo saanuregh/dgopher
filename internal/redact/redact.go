@@ -100,7 +100,6 @@ func redactSQL(s string) string {
 		return s
 	}
 	slices.SortFunc(ranges, func(a, b secretRange) int { return a.start - b.start })
-	runes := []rune(s)
 	var b strings.Builder
 	last := 0
 	for i := 0; i < len(ranges); {
@@ -108,11 +107,11 @@ func redactSQL(s string) string {
 		for i++; i < len(ranges) && ranges[i].start < end; i++ {
 			end = max(end, ranges[i].end)
 		}
-		b.WriteString(string(runes[last:start]))
+		b.WriteString(s[last:start])
 		b.WriteString("'•••'")
 		last = end
 	}
-	b.WriteString(string(runes[last:]))
+	b.WriteString(s[last:])
 	return b.String()
 }
 
@@ -243,7 +242,7 @@ func redactRedisArgs(s string) string {
 	return strings.Join(f, " ")
 }
 
-// secretRange is a secret's runes [start, end) in a text.
+// secretRange is a secret's bytes [start, end) in a text.
 type secretRange struct{ start, end int }
 
 // sqlSecrets finds, as one lexer reads them, the strings that carry
@@ -254,13 +253,12 @@ type secretRange struct{ start, end int }
 // tokens cut that are secrets for certain, as written.
 func sqlSecrets(s string, d sqltext.Dialect) (ranges []secretRange, found []string) {
 	toks := sqltext.Tokenize(s, d)
-	runes := []rune(s)
 	// known is a secret for certain: a password, not any argument of a
 	// function that takes credentials among others.
 	cut := func(t sqltext.Token, known bool) {
 		ranges = append(ranges, secretRange{t.Start, t.End})
 		if known {
-			found = append(found, string(runes[t.Start:t.End]))
+			found = append(found, s[t.Start:t.End])
 		}
 	}
 	const (
@@ -284,7 +282,7 @@ func sqlSecrets(s string, d sqltext.Dialect) (ranges []secretRange, found []stri
 			switch {
 			case t.Kind == sqltext.String:
 				if hasMapValue {
-					found = append(found, string(runes[mapValue.Start:mapValue.End]))
+					found = append(found, s[mapValue.Start:mapValue.End])
 				}
 				mapValue, hasMapValue = t, true
 			case t.Text == ":":
@@ -294,7 +292,7 @@ func sqlSecrets(s string, d sqltext.Dialect) (ranges []secretRange, found []stri
 			case t.Text == "}":
 				if mapDepth--; mapDepth == 0 {
 					if hasMapValue {
-						found = append(found, string(runes[mapValue.Start:mapValue.End]))
+						found = append(found, s[mapValue.Start:mapValue.End])
 					}
 					ranges = append(ranges, secretRange{mapStart, t.End})
 					state = idle

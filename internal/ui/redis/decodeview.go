@@ -5,6 +5,7 @@ import (
 
 	"dgopher/internal/decode"
 	"dgopher/internal/lists"
+	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -37,6 +38,7 @@ type decodeView struct {
 	steps   string // shown's steps, joined for the label
 	err     string
 	display string // what the text area shows: its start, past stringStart
+	area    editor.CodeArea
 }
 
 // newDecodeView shows a value decoded when its first bytes name a format,
@@ -116,7 +118,9 @@ func (d *decodeView) view(c *ui.Context, value, label string, run func(work func
 		return false
 	}
 	if !d.running {
-		ui.TextArea(c, &d.display).Font(widgets.MonoFont).FontSize(12.5).Grow(1).ReadOnly(true).Label(label + " decoded")
+		d.area.Label, d.area.Language, d.area.ReadOnly = label+" decoded", editor.LanguageDetected, true
+		el, _ := d.area.View(c, &d.display)
+		el.Grow(1)
 	}
 	return true
 }

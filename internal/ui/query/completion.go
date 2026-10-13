@@ -5,20 +5,18 @@ import (
 	"slices"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
 	"dgopher/internal/project"
 	"dgopher/internal/sqltext"
-	"dgopher/internal/ui/editor"
-	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
+	code "github.com/egoist/mygo/ui/editor"
 )
 
-// suggestion is an item of the completion popup.
+// suggestion is a completion the editor offers.
 type suggestion struct {
 	text   string // what is inserted: a snippet's SQL, with its fields
 	label  string
@@ -26,24 +24,28 @@ type suggestion struct {
 	kind   string // "table", "view", "column", "keyword", "schema", "function", "snippet" or "connection"
 }
 
-// completion is the state of the SQL editor's completion popup.
+// completionKinds are the editor's kinds of the suggestions', which its
+// list shows as icons.
+var completionKinds = map[string]code.CompletionKind{
+	"table": code.CompletionType, "view": code.CompletionType, "column": code.CompletionField,
+	"schema": code.CompletionModule, "connection": code.CompletionConstant, "function": code.CompletionFunction,
+	"snippet": code.CompletionSnippet, "keyword": code.CompletionKeyword,
+}
+
+// completion is what the editor's completions were last asked for: the
+// editor filters and ranks them as typing goes on.
 type completion struct {
-	open     bool
-	items    []suggestion
-	index    int
-	start    int // the rune offset the inserted text replaces from
-	lastText string
-	// retry asks again once the schema being read arrives.
-	retry bool
-	// header is set while the popup completes the connection a header
-	// line names, whose IDs hold more than an identifier's characters.
-	header bool
+	// items are the suggestions last given the editor, in their order.
+	items []suggestion
+	// retry asks again once the schema being read arrives, while the
+	// completions show or the caret stays at retryAt; explicit as asked.
+	retry    bool
+	retryAt  int
+	explicit bool
 	// inQueryFrom is set where a table completed takes an alias, apart
 	// from those of tables, the statement's others.
 	inQueryFrom bool
 	tables      []sqltext.TableRef
-	list        ui.ListState
-	row         int
 }
 
 // IsIdentRune reports whether a rune may be part of a word completion
@@ -52,155 +54,161 @@ func IsIdentRune(r rune) bool {
 	return r == '_' || r == '$' || unicode.IsLetter(r) || unicode.IsDigit(r)
 }
 
-// completionView updates the popup after typing and builds it.
-func (q *Tab) completionView(c *ui.Context, a Host) {
+// completionKeys asks for completions by the keymap's key, which the
+// editor's own Ctrl+Space does too, and again once the schema they
+// wait for is read.
+func (q *Tab) completionKeys(c *ui.Context) {
 	ac := &q.ac
 	e := &q.Editor
-	if e.Text != ac.lastText {
-		// Typing adds a few characters on one line where the caret is; a
-		// paste or the app replacing the text does not open the popup.
-		grew := utf8.RuneCountInString(e.Text) - utf8.RuneCountInString(ac.lastText)
-		typed := e.HasFocus && e.Typing() && !e.Pasted && grew >= 1 && grew <= 40 &&
-			strings.Count(e.Text, "\n") == strings.Count(ac.lastText, "\n")
-		ac.lastText, e.Pasted = e.Text, false
-		if typed {
-			q.suggest(a, false)
-		} else if ac.open {
-			q.suggest(a, true)
-		}
-	}
-	if q.pressed(c, keymap.Complete) {
-		q.suggest(a, true)
+	if q.pressed(c, keymap.Complete) && e.HasFocus() {
+		e.State.Run(code.ShowCompletions)
 	}
 	if ac.retry && len(q.Conn.Loading) == 0 {
 		ac.retry = false
-		if e.HasFocus {
-			q.suggest(a, true)
+		if e.HasFocus() && (e.State.CompletionsOpen() || e.Caret() == ac.retryAt) {
+			q.suggest(e.Caret(), ac.explicit)
 		}
 	}
-	if ac.open && !q.caretInWord() {
-		ac.open = false // the caret left the word being completed
-	}
-	if !ac.open || len(ac.items) == 0 {
-		return
-	}
-	t := c.Theme()
-	pal := widgets.PaletteOf(c)
-	fontSize := a.Settings().EditorFont
-	x, y := e.CaretXY(fontSize)
-	x -= e.Scroll.X
-	y -= e.Scroll.Y
-	// The popup shows over the window, below the caret's line or above it
-	// where the window ends: inside the editor, the editor would cut it.
-	lh := fontSize * editor.LineHeight
-	line := ui.Box(c).Absolute().Left(max(0, x-8)).Top(y-lh).Size(1, lh).PassThrough()
-	ui.Overlay(c, func() {
-		ui.Box(c).AttachTo(line, ui.AnchorBottomLeft, ui.AnchorTopLeft).Margin(4, 0).Width(380).MaxHeight(260).
-			Radius(8).Background(t.Background).Border(1, t.Border).Shadow(0, 6, 20, 0, ui.RGBA(0, 0, 0, 0.18)).Clip().
-			Children(func() {
-				ac.row = ac.index
-				ac.list.Selected = &ac.row
-				ui.List(c, &ac.list, len(ac.items), func(i int) {
-					it := ac.items[i]
-					row := ui.Row(c).Padding(3, 10).Gap(8)
-					if i == ac.index {
-						row.Background(t.Accent)
-					}
-					row.Children(func() {
-						col := pal.Muted
-						if i == ac.index {
-							col = t.AccentText
-						}
-						ui.Text(c, kindGlyph(it.kind)).FontSize(11).TextColor(col).Width(14)
-						lbl := ui.Text(c, it.label).Font(widgets.MonoFont).FontSize(12.5).SingleLine().Grow(1).Shrink(1)
-						if i == ac.index {
-							lbl.TextColor(t.AccentText)
-						}
-						ui.Text(c, it.detail).FontSize(11).TextColor(col).SingleLine().Shrink(1)
-					})
-					if row.Clicked() {
-						ac.index = i
-						q.accept()
-					}
-				}).MaxHeight(260)
-			})
-	})
 }
 
-// completionKey takes the keys of the popup while it shows, before the
-// editor does: it runs as the key comes, between frames.
-func (q *Tab) completionKey(mods ui.Modifiers, key ui.Key) bool {
+// complete answers the editor's request for completions.
+func (q *Tab) complete(r code.CompletionRequest) {
+	q.suggest(r.Offset, r.Explicit)
+}
+
+// suggest gives the editor what may complete the word before a byte
+// offset, the caret. With explicit, it shows even before a letter is
+// typed.
+func (q *Tab) suggest(caret int, explicit bool) {
 	ac := &q.ac
-	if !ac.open || len(ac.items) == 0 || mods != 0 {
-		return false
+	e := &q.Editor
+	text := e.Text()
+	caret = max(0, min(caret, len(text)))
+	ac.retry, ac.retryAt, ac.explicit = false, caret, explicit
+	ac.inQueryFrom, ac.tables, ac.items = false, nil, nil
+	if start, _, ok := project.HeaderAt(text, caret); ok {
+		q.show(start, q.connectionSuggestions(q.a))
+		return
 	}
-	switch key {
-	case ui.KeyDown:
-		ac.index = (ac.index + 1) % len(ac.items)
-		ac.list.ScrollIntoView(ac.index)
-	case ui.KeyUp:
-		ac.index = (ac.index + len(ac.items) - 1) % len(ac.items)
-		ac.list.ScrollIntoView(ac.index)
-	case ui.KeyEnter, ui.KeyTab:
-		q.accept()
-	case ui.KeyEscape:
-		ac.open = false
+	cc := sqltext.CompletionAt(text, caret, e.Dialect)
+	if !explicit && cc.Prefix == "" && cc.Qualifier == "" {
+		q.show(-1, nil)
+		return
+	}
+	ac.inQueryFrom, ac.tables = cc.InQueryFrom, cc.Tables
+	q.show(cc.PrefixStart, q.candidates(q.a, cc))
+}
+
+// show gives the editor suggestions of the word from start to the caret.
+func (q *Tab) show(start int, items []suggestion) {
+	q.ac.items = items
+	out := make([]code.Completion, len(items))
+	for i, it := range items {
+		out[i] = code.Completion{Label: it.label, Detail: it.detail, Kind: completionKinds[it.kind], Insert: it.text}
+	}
+	q.Editor.State.ShowCompletions(start, out)
+}
+
+// acceptCompletion inserts a completion accepted in the editor, in place
+// of the word typed from start to end, the caret, and at the other carets
+// with the same word before them: a function with its parentheses, a
+// table in FROM or JOIN with an alias, a snippet with its fields. It
+// leaves the others to the editor.
+func (q *Tab) acceptCompletion(it code.Completion, start, end int) bool {
+	e := &q.Editor
+	text := e.Text()
+	ins := cmp.Or(it.Insert, it.Label)
+	switch {
+	case it.Kind == code.CompletionSnippet:
+		expanded, fields := expandSnippet(ins)
+		if len(e.State.Selections()) == 1 {
+			q.insertSnippetAt(start, end, ins)
+			return true
+		}
+		// At several carets, each copy's first field is selected.
+		var first snippetField
+		if len(fields) > 0 {
+			first = fields[0]
+		}
+		q.typeAtCarets(start, end, func(int) (string, int, int) { return expanded, first.start, first.end })
+	case it.Kind == code.CompletionFunction:
+		// The caret goes between the parentheses, unless they follow.
+		q.typeAtCarets(start, end, func(after int) (string, int, int) {
+			if after < len(text) && text[after] == '(' {
+				return ins, len(ins), len(ins)
+			}
+			return ins + "()", len(ins) + 1, len(ins) + 1
+		})
+	case it.Kind == code.CompletionType && q.ac.inQueryFrom:
+		var taken []string
+		for _, t := range q.ac.tables {
+			taken = append(taken, t.Name, t.Alias)
+		}
+		withAlias := ins + " " + sqltext.TableAlias(it.Label, taken, e.Dialect)
+		q.typeAtCarets(start, end, func(after int) (string, int, int) {
+			if q.aliasFollows(text, after) {
+				return ins, len(ins), len(ins)
+			}
+			return withAlias, len(withAlias), len(withAlias)
+		})
 	default:
 		return false
 	}
 	return true
 }
 
-// kindGlyphs are the glyphs that mark a suggestion's kind.
-var kindGlyphs = map[string]string{
-	"table": "T", "view": "V", "column": "c", "schema": "S", "connection": "C", "function": "ƒ", "snippet": "≡",
+// typeAtCarets replaces the word typed from start to end, the newest
+// caret, with what place gives, and so at every other selection the same
+// word is before, as the editor completes; elsewhere it replaces the
+// selection. place is given the end of the text replaced, and gives the
+// text and the selection to make in it. All is one step of undo.
+func (q *Tab) typeAtCarets(start, end int, place func(after int) (text string, selStart, selEnd int)) {
+	e := &q.Editor
+	text := e.Text()
+	n, typed := end-start, text[start:end]
+	newest := e.State.Selection()
+	sels := e.State.Selections()
+	slices.SortFunc(sels, func(a, b code.Selection) int { return a.Start() - b.Start() })
+	edits := make([]code.Edit, 0, len(sels))
+	type made struct {
+		anchor, head int // in the text inserted
+		newest       bool
+	}
+	var after []made
+	for _, s := range sels {
+		from, to := s.Start(), s.End()
+		if s.Head-n >= 0 && s.Head <= len(text) && text[s.Head-n:s.Head] == typed {
+			from = s.Head - n
+		}
+		if len(edits) > 0 && from < edits[len(edits)-1].End {
+			continue // overlaps the one before
+		}
+		ins, a, h := place(to)
+		edits = append(edits, code.Edit{Start: from, End: to, Text: ins})
+		after = append(after, made{a, h, s == newest})
+	}
+	e.State.Buffer.Edit(edits...)
+	out := make([]code.Selection, 0, len(edits))
+	var newestAt []code.Selection
+	delta := 0
+	for i, ed := range edits {
+		at := ed.Start + delta
+		sel := code.Selection{Anchor: at + after[i].anchor, Head: at + after[i].head}
+		delta += len(ed.Text) - (ed.End - ed.Start)
+		if after[i].newest {
+			newestAt = append(newestAt, sel)
+			continue
+		}
+		out = append(out, sel)
+	}
+	// The newest last, as it was.
+	e.State.SetSelections(append(out, newestAt...)...)
 }
 
-func kindGlyph(kind string) string { return cmp.Or(kindGlyphs[kind], "k") }
-
-func (q *Tab) accept() {
-	ac := &q.ac
-	if ac.index < 0 || ac.index >= len(ac.items) || !q.caretInWord() {
-		ac.open = false
-		return
-	}
-	it := ac.items[ac.index]
-	ac.open = false
-	switch it.kind {
-	case "snippet":
-		q.insertSnippetAt(ac.start, q.Editor.SelEnd, it.text)
-		return
-	case "function":
-		// The caret goes between the parentheses, unless they follow.
-		runes := []rune(q.Editor.Text)
-		end := min(q.Editor.SelEnd, len(runes))
-		if end < len(runes) && runes[end] == '(' {
-			q.Editor.TypeAtCarets(ac.start, end, it.text)
-		} else {
-			q.Editor.TypeAtCarets(ac.start, end, it.text+"()")
-			at := ac.start + utf8.RuneCountInString(it.text) + 1
-			q.Editor.PendingSel = &[2]int{at, at}
-		}
-	default:
-		text := it.text
-		if (it.kind == "table" || it.kind == "view") && ac.inQueryFrom && !q.aliasFollows(q.Editor.SelEnd) {
-			var taken []string
-			for _, t := range ac.tables {
-				taken = append(taken, t.Name, t.Alias)
-			}
-			text += " " + sqltext.TableAlias(it.label, taken, q.Editor.Dialect)
-		}
-		q.Editor.TypeAtCarets(ac.start, q.Editor.SelEnd, text)
-	}
-	ac.lastText = q.Editor.Text
-}
-
-// aliasFollows reports whether the table name ending at rune end has an
-// alias after it already, or goes on: a name, AS, or a dot.
-func (q *Tab) aliasFollows(end int) bool {
-	runes := []rune(q.Editor.Text)
-	rest := string(runes[min(end, len(runes)):])
-	for _, t := range sqltext.Tokenize(rest, q.Editor.Dialect) {
+// aliasFollows reports whether the table name ending at byte end of text
+// has an alias after it already, or goes on: a name, AS, or a dot.
+func (q *Tab) aliasFollows(text string, end int) bool {
+	for _, t := range sqltext.Tokenize(text[min(end, len(text)):], q.Editor.Dialect) {
 		switch {
 		case t.Kind == sqltext.Whitespace || t.Kind == sqltext.Comment:
 		case sqltext.IsName(t):
@@ -212,65 +220,6 @@ func (q *Tab) aliasFollows(end int) bool {
 		}
 	}
 	return false
-}
-
-// suggest finds what may complete the word at the caret. With force, it
-// shows even before a letter is typed.
-func (q *Tab) suggest(a Host, force bool) {
-	ac := &q.ac
-	e := &q.Editor
-	runes := []rune(e.Text)
-	caret := min(e.SelEnd, len(runes))
-	if start, typed, ok := project.HeaderAt(e.Text, caret); ok {
-		ac.start, ac.header, ac.retry = start, true, false
-		ac.items, ac.index = filterSuggestions(q.connectionSuggestions(a), typed), 0
-		ac.open = len(ac.items) > 0
-		return
-	}
-	ac.header, ac.inQueryFrom, ac.tables = false, false, nil
-	if !force {
-		if caret == 0 || !(IsIdentRune(runes[caret-1]) || runes[caret-1] == '.') {
-			ac.open = false
-			return
-		}
-	}
-	d := e.Dialect
-	cc := sqltext.CompletionAt(e.Text, caret, d)
-	ac.start = cc.PrefixStart
-	ac.retry = false
-	ac.inQueryFrom, ac.tables = cc.InQueryFrom, cc.Tables
-	if !force && cc.Prefix == "" && cc.Qualifier == "" {
-		ac.open = false
-		return
-	}
-	out := filterSuggestions(q.candidates(a, cc), cc.Prefix)
-	ac.items, ac.index, ac.open = out, 0, len(out) > 0
-}
-
-// filterSuggestions keeps the items whose label starts with what is
-// typed, then those holding it, at most 60.
-func filterSuggestions(items []suggestion, typed string) []suggestion {
-	prefix := strings.ToLower(typed)
-	var starts, contains []suggestion
-	for _, it := range items {
-		l := strings.ToLower(it.label)
-		switch {
-		case strings.HasPrefix(l, prefix):
-			starts = append(starts, it)
-		case prefix != "" && strings.Contains(l, prefix):
-			contains = append(contains, it)
-		}
-	}
-	out := append(starts, contains...)
-	if len(out) > 60 {
-		out = out[:60]
-	}
-	// Nothing to add to a word typed in full, unless it is a snippet's
-	// keyword, which completes to more.
-	if len(out) == 1 && strings.EqualFold(out[0].label, typed) && out[0].kind != "snippet" {
-		out = nil
-	}
-	return out
 }
 
 // connectionSuggestions are the connections of the editor's project a
@@ -407,24 +356,4 @@ func needsQuote(s string) bool {
 		return true
 	}
 	return false
-}
-
-// caretInWord reports whether the caret, with nothing selected, is still at
-// the end of the word the popup completes: only letters, digits and dots
-// between where the word starts and the caret.
-func (q *Tab) caretInWord() bool {
-	e := &q.Editor
-	if e.SelStart != e.SelEnd || e.SelEnd < q.ac.start {
-		return false
-	}
-	runes := []rune(e.Text)
-	if e.SelEnd > len(runes) {
-		return false
-	}
-	for _, r := range runes[q.ac.start:e.SelEnd] {
-		if q.ac.header && unicode.IsSpace(r) || !q.ac.header && !IsIdentRune(r) && r != '.' {
-			return false
-		}
-	}
-	return true
 }

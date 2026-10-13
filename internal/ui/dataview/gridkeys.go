@@ -126,12 +126,13 @@ func (g *Grid) moveKeys(c *ui.Context, a Host, src *Source, order []int) {
 		// Ascending, descending, none: the chosen column's order in turn.
 		id := colID(g.selCol)
 		switch {
-		case g.sort.Column != id:
-			g.sort = ui.SortOrder{Column: id}
-		case !g.sort.Descending:
-			g.sort.Descending = true
+		case len(g.sort) == 0 || g.sort[0].Column != id:
+			g.sort = []ui.SortOrder{{Column: id}}
+		case !g.sort[0].Descending:
+			g.sort = slices.Clone(g.sort)
+			g.sort[0].Descending = true
 		default:
-			g.sort = ui.SortOrder{}
+			g.sort = nil
 		}
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
@@ -32,6 +33,7 @@ import (
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
+	code "github.com/egoist/mygo/ui/editor"
 )
 
 // result is the outcome of one statement.
@@ -58,7 +60,7 @@ type result struct {
 	// where the statement starts in the editor (-1 when unknown).
 	errInfo db.ErrorInfo
 	start   int
-	// skip counts the runes the app put before the editor's text.
+	// skip counts the bytes the app put before the editor's text.
 	skip int
 	// pinned keeps the result when the next run replaces the others.
 	pinned bool
@@ -117,9 +119,6 @@ type Tab struct {
 
 	Editor  editor.Editor
 	editorH float32
-	// revealY is where reveal's glide ends: while it is on its way, a line
-	// shows if it will there.
-	revealY float32
 	ac      completion
 	// snippet is the fields of a snippet being filled in, nil for none.
 	snippet *snippetSession
@@ -129,7 +128,6 @@ type Tab struct {
 	// checkedText and checkedCatalog are what the editor's problems were
 	// found for: its text, and how much of the catalog was read.
 	checkedText, checkedCatalog string
-	find                        editor.Find
 
 	sess      *db.Session
 	sessErr   string
@@ -176,14 +174,17 @@ func (q *Tab) pressed(c *ui.Context, id string) bool {
 
 func New(a Host, cn *connection.Conn, database, name, text string) *Tab {
 	q := &Tab{a: a, Conn: cn, Database: database, Name: name, editorH: a.Layout().EditorHeight}
-	q.Editor.Text = text
-	q.ac.lastText = text // what the tab opens on was not typed
+	q.Editor.State.Buffer = code.NewBuffer(text)
 	q.Editor.Dialect = safety.Dialect(cn.Config.Engine)
+	q.Editor.SplitOptions = SplitOptions(a.Settings())
 	q.Editor.WantFocus = true
-	q.Editor.KeyHook = q.editorKey
+	q.Editor.KeyHook = q.snippetKey
+	q.Editor.State.OnCompletion = q.complete
+	q.Editor.State.OnAcceptCompletion = q.acceptCompletion
+	q.Editor.State.ContextMenu = q.editorMenu
 	if text != "" {
-		n := len([]rune(text))
-		q.Editor.PendingSel = &[2]int{n, n}
+		n := len(q.Editor.Text())
+		q.Editor.Select(n, n)
 	}
 	return q
 }
@@ -204,11 +205,11 @@ func (q *Tab) Shown() {
 
 // Unsaved reports text of the editor its file does not hold yet: typed
 // in the last second, or not written for a conflict.
-func (q *Tab) Unsaved() bool { return q.Path != "" && q.Editor.Text != q.Saved }
+func (q *Tab) Unsaved() bool { return q.Path != "" && q.Editor.FileText() != q.Saved }
 
 func (q *Tab) CloseReason() string {
 	switch {
-	case q.Path != "" && q.DiskConflict != "" && q.Editor.Text != q.Saved:
+	case q.Path != "" && q.DiskConflict != "" && q.Editor.FileText() != q.Saved:
 		return q.Name + " " + q.DiskConflict + ". Closing the editor leaves the file as it is on disk, losing the editor's text."
 	case q.pendingCount() > 0:
 		return fmt.Sprintf("%s to %s in the results not applied. Closing discards them.", widgets.Count(q.pendingCount(), "change"), q.pendingTable())
@@ -230,7 +231,7 @@ func (q *Tab) Close() {
 	q.closed = true
 	q.Flush(false)
 	q.keepParamEdits()
-	if q.Created != "" && q.DiskConflict == "" && q.Saved == q.Created && q.Editor.Text == q.Created {
+	if q.Created != "" && q.DiskConflict == "" && q.Saved == q.Created && q.Editor.FileText() == q.Created {
 		// Only what the app wrote goes: someone may have written there since.
 		if disk, err := os.ReadFile(q.Path); err == nil && string(disk) == q.Created && os.Remove(q.Path) == nil {
 			q.a.ScanQueries(q.Conn.Project, true)
@@ -385,10 +386,11 @@ const purposeManualCommit = "for manual commit: a transaction begins before the 
 // caret, behind EXPLAIN; it is never run as it is.
 func (q *Tab) statements(mode RunMode) ([]string, []int) {
 	d := q.Editor.Dialect
-	text, base := q.Editor.Text, 0
-	selected := q.Editor.Selection() != ""
+	text, base := q.Editor.Text(), 0
+	selected := q.Editor.SelectedText() != ""
 	if selected {
-		text, base = q.Editor.Selection(), min(q.Editor.SelStart, q.Editor.SelEnd)
+		text = q.Editor.SelectedText()
+		base, _ = q.Editor.Selection()
 	}
 	var out []string
 	var starts []int
@@ -405,7 +407,7 @@ func (q *Tab) statements(mode RunMode) ([]string, []int) {
 		}
 		return out, starts
 	default:
-		if st, ok := sqltext.StatementAtWith(text, q.Editor.SelEnd, d, SplitOptions(q.a.Settings())); ok {
+		if st, ok := sqltext.StatementAtWith(text, q.Editor.Caret(), d, SplitOptions(q.a.Settings())); ok {
 			out, starts = append(out, st.Text), append(starts, st.Start)
 		}
 	}
@@ -448,8 +450,8 @@ func (q *Tab) analyzeRefusal() string {
 // namedConnection is the connection the file's header names, "" for
 // none.
 func (q *Tab) namedConnection() string {
-	if q.Editor.Text != q.namedText {
-		q.named, q.namedText = project.HeaderConnection(q.Editor.Text), q.Editor.Text
+	if text := q.Editor.Text(); text != q.namedText {
+		q.named, q.namedText = project.HeaderConnection(text), text
 	}
 	return q.named
 }
@@ -485,17 +487,16 @@ func (q *Tab) refuseAnotherConnection() bool {
 // statementLines are the first lines of the text's statements, which
 // have run buttons, found again as the text changes.
 func (q *Tab) statementLines() []int {
-	if q.Editor.Text == q.linesText && q.stmtStarts != nil {
+	text := q.Editor.Text()
+	if text == q.linesText && q.stmtStarts != nil {
 		return q.stmtLines
 	}
-	q.linesText, q.stmtStarts, q.stmtLines = q.Editor.Text, []int{}, nil
-	text := []rune(q.Editor.Text)
-	line, at := 0, 0 // the line of rune at, counted once through the text
-	for _, st := range sqltext.SplitWith(q.Editor.Text, q.Editor.Dialect, SplitOptions(q.a.Settings())) {
-		for ; at < st.Start && at < len(text); at++ {
-			if text[at] == '\n' {
-				line++
-			}
+	q.linesText, q.stmtStarts, q.stmtLines = text, []int{}, nil
+	line, at := 0, 0 // the line of byte at, counted once through the text
+	for _, st := range sqltext.SplitWith(text, q.Editor.Dialect, SplitOptions(q.a.Settings())) {
+		if to := min(st.Start, len(text)); to > at {
+			line += strings.Count(text[at:to], "\n")
+			at = to
 		}
 		q.stmtStarts = append(q.stmtStarts, st.Start)
 		q.stmtLines = append(q.stmtLines, line)
@@ -512,7 +513,7 @@ func (q *Tab) runLine(line int) {
 		return
 	}
 	at := q.stmtStarts[i]
-	q.Editor.SelStart, q.Editor.SelEnd, q.Editor.PendingSel = at, at, &[2]int{at, at}
+	q.Editor.Select(at, at)
 	q.Run(RunStatement)
 }
 
@@ -567,7 +568,7 @@ func (q *Tab) run(mode RunMode) {
 	stmts, starts := q.statements(mode)
 	if len(stmts) == 0 {
 		msg := "Nothing to run: the caret is not in a statement."
-		if explaining(mode) && q.Editor.Selection() != "" {
+		if explaining(mode) && q.Editor.SelectedText() != "" {
 			msg = "Select one statement to explain."
 		}
 		q.note(msg, "", true)
@@ -575,7 +576,7 @@ func (q *Tab) run(mode RunMode) {
 	}
 	skip := 0
 	if explaining(mode) {
-		skip = len([]rune(db.ExplainPrefix(q.Conn.Config.Engine, mode == RunExplainAnalyze)))
+		skip = len(db.ExplainPrefix(q.Conn.Config.Engine, mode == RunExplainAnalyze))
 	}
 	newTab := q.newTab
 	q.withParams(stmts, func(values map[string]params.Input) {
@@ -1152,26 +1153,27 @@ func (q *Tab) endTx(commit bool) {
 // format formats the selected statements, or all of them.
 func (q *Tab) format() {
 	d := q.Editor.Dialect
-	if q.Editor.Selection() != "" {
-		start, end := min(q.Editor.SelStart, q.Editor.SelEnd), max(q.Editor.SelStart, q.Editor.SelEnd)
-		text, from, to := sqltext.FormatRange(q.Editor.Text, start, end, d, SplitOptions(q.a.Settings()))
-		q.Editor.Text = text
-		q.Editor.PendingSel = &[2]int{from, to}
+	if start, end := q.Editor.Selection(); start != end {
+		text, from, to := sqltext.FormatRange(q.Editor.Text(), start, end, d, SplitOptions(q.a.Settings()))
+		q.Editor.SetText(text)
+		q.Editor.Select(from, to)
 		return
 	}
-	q.Editor.Text = sqltext.FormatWith(q.Editor.Text, d, SplitOptions(q.a.Settings()))
+	q.Editor.SetText(sqltext.FormatWith(q.Editor.Text(), d, SplitOptions(q.a.Settings())))
 }
 
 // currentStatement is the range of the statement a run would send, for
 // the editor to show it; cached until the text or the caret moves.
 func (q *Tab) currentStatement() (int, int, bool) {
-	if q.Editor.SelStart != q.Editor.SelEnd {
+	start, end := q.Editor.Selection()
+	if start != end {
 		return 0, 0, false
 	}
-	key := [2]int{len(q.Editor.Text), q.Editor.SelEnd}
-	if q.stmtText != q.Editor.Text || q.stmtKey != key {
-		q.stmtText, q.stmtKey = q.Editor.Text, key
-		st, ok := sqltext.StatementAtWith(q.Editor.Text, q.Editor.SelEnd, q.Editor.Dialect, SplitOptions(q.a.Settings()))
+	text := q.Editor.Text()
+	key := [2]int{len(text), end}
+	if q.stmtText != text || q.stmtKey != key {
+		q.stmtText, q.stmtKey = text, key
+		st, ok := sqltext.StatementAtWith(text, end, q.Editor.Dialect, SplitOptions(q.a.Settings()))
 		q.stmtRange = [2]int{st.Start, st.End}
 		q.stmtOK = ok
 		if ok {
@@ -1205,7 +1207,7 @@ func (q *Tab) View(c *ui.Context) {
 	}
 	if q.pressed(c, keymap.ToggleResults) {
 		// Between the editor and its results, without the pointer.
-		if q.Editor.HasFocus && q.current() != nil {
+		if q.Editor.HasFocus() && q.current() != nil {
 			*a.FocusWant() = "results"
 		} else {
 			*a.FocusWant() = "editor"
@@ -1221,7 +1223,7 @@ func (q *Tab) View(c *ui.Context) {
 	if q.pressed(c, keymap.GoToStatement) {
 		q.openOutline()
 	}
-	if q.Editor.HasFocus {
+	if q.Editor.HasFocus() {
 		switch {
 		case q.pressed(c, keymap.QuickFix):
 			q.fixProblem()
@@ -1246,9 +1248,9 @@ func (q *Tab) View(c *ui.Context) {
 		q.save()
 	}
 	// What is typed goes to the file once typing stops for a second.
-	if q.Path != "" && q.DiskConflict == "" && q.Editor.Text != q.Saved {
-		if q.Editor.Text != q.Typed {
-			q.Typed, q.typedAt = q.Editor.Text, a.Now()
+	if text := q.Editor.FileText(); q.Path != "" && q.DiskConflict == "" && text != q.Saved {
+		if text != q.Typed {
+			q.Typed, q.typedAt = text, a.Now()
 		}
 		if wait := time.Second - a.Now().Sub(q.typedAt); wait > 0 {
 			c.After(wait)
@@ -1325,9 +1327,9 @@ func (q *Tab) View(c *ui.Context) {
 		})
 		split := ui.SplitVertical(c, &q.editorH, func() {
 			ui.Column(c).Fill().Children(func() {
-				q.findView(c, a.Settings().EditorFont)
+				q.Editor.SplitOptions = SplitOptions(a.Settings())
 				_, _, ok := q.currentStatement()
-				q.Editor.HasCurrent = ok && q.Editor.HasFocus
+				q.Editor.HasCurrent = ok && q.Editor.HasFocus()
 				q.Editor.Run, q.Editor.RunTip = q.runLine, keymap.Hint("Run the statement", keymap.Run)
 				q.Editor.RunLines = q.statementLines()
 				q.checkProblems()
@@ -1337,10 +1339,10 @@ func (q *Tab) View(c *ui.Context) {
 				// the tab in front.
 				waits := q.Editor.WantFocus && !a.KeysTo(q)
 				q.Editor.WantFocus = q.Editor.WantFocus && !waits
-				q.Editor.View(c, a.Settings().EditorFont).ContextMenu(q.editorMenu)
+				q.Editor.View(c, a.Settings().EditorFont)
 				q.Editor.WantFocus = q.Editor.WantFocus || waits
 				q.trackSnippet()
-				q.completionView(c, a)
+				q.completionKeys(c)
 				q.problemBar(c)
 				q.vimBar(c)
 			})
@@ -1685,7 +1687,8 @@ func refreshAfterDDL(cn *connection.Conn, stmts []safety.Statement) {
 // it: a file changed by someone else, as by a git pull, is not
 // overwritten, and the editor shows why.
 func (q *Tab) Flush(force bool) {
-	if q.Path == "" || q.Editor.Text == q.Saved || q.DiskConflict != "" && !force {
+	text := q.Editor.FileText()
+	if q.Path == "" || text == q.Saved || q.DiskConflict != "" && !force {
 		return
 	}
 	if !force {
@@ -1702,11 +1705,11 @@ func (q *Tab) Flush(force bool) {
 			return
 		}
 	}
-	if err := os.WriteFile(q.Path, []byte(q.Editor.Text), 0o644); err != nil {
+	if err := os.WriteFile(q.Path, []byte(text), 0o644); err != nil {
 		q.DiskConflict = "could not be saved: " + err.Error()
 		return
 	}
-	q.Saved, q.DiskConflict = q.Editor.Text, ""
+	q.Saved, q.DiskConflict = text, ""
 }
 
 // conflictBar says why the file is not saved, and offers the ways out.
@@ -1717,7 +1720,7 @@ func (q *Tab) conflictBar(c *ui.Context) {
 		ui.Text(c, filepath.Base(q.Path)+" "+q.DiskConflict+": the editor's text is not saved.").Grow(1).Shrink(1).SingleLine().Tooltip(q.Path)
 		if disk, err := os.ReadFile(q.Path); err == nil {
 			if ui.Button(c, "Use the File").Tooltip("Replace the editor's text with the file's").Clicked() {
-				q.Editor.Replace(0, len([]rune(q.Editor.Text)), string(disk))
+				q.Editor.SetFileText(string(disk))
 				q.Saved, q.Typed, q.DiskConflict = string(disk), string(disk), ""
 			}
 		}
@@ -1762,22 +1765,39 @@ func (q *Tab) headerBar(c *ui.Context, id string, exists bool) {
 }
 
 // errorOffset is where in the editor an error points: from the
-// statement's start, by the character position the database gave, else
-// by its line and column, else by the line and the text it quoted.
-// It returns -1 when the error says nothing of where.
+// statement's start, by the position the database gave, else by its line
+// and column, else by the line and the text it quoted. skip is the length
+// in bytes of what the app put before the editor's text, which the
+// database counts too. It returns -1 when the error says nothing of where.
 func errorOffset(stmt string, start, skip int, info db.ErrorInfo) int {
 	if start < 0 {
 		return -1
 	}
-	rs := []rune(stmt)[min(skip, len([]rune(stmt))):]
+	skip = min(skip, len(stmt))
+	skipped := skip
+	if !info.Bytes {
+		skipped = utf8.RuneCountInString(stmt[:skip])
+	}
+	body := stmt[skip:]
+	// past is the byte offset n of the database's units of body after from.
+	past := func(from, n int) int {
+		if info.Bytes {
+			return min(from+max(n, 0), len(body))
+		}
+		for ; n > 0 && from < len(body); n-- {
+			_, size := utf8.DecodeRuneInString(body[from:])
+			from += size
+		}
+		return min(from, len(body))
+	}
 	switch {
 	case info.Position > 0:
-		return start + min(max(info.Position-1-skip, 0), len(rs))
+		return start + past(0, info.Position-1-skipped)
 	case info.Line > 0:
 		line := 1
 		i := 0
-		for ; i < len(rs) && line < info.Line; i++ {
-			if rs[i] == '\n' {
+		for ; i < len(body) && line < info.Line; i++ {
+			if body[i] == '\n' {
 				line++
 			}
 		}
@@ -1786,15 +1806,15 @@ func errorOffset(stmt string, start, skip int, info db.ErrorInfo) int {
 		}
 		switch {
 		case info.Column > 0 && info.Line == 1:
-			i += max(info.Column-1-skip, 0)
+			i = past(i, info.Column-1-skipped)
 		case info.Column > 0:
-			i += info.Column - 1
+			i = past(i, info.Column-1)
 		case info.Near != "":
-			if at := strings.Index(string(rs[i:]), info.Near); at >= 0 {
-				i += len([]rune(string(rs[i:])[:at]))
+			if at := strings.Index(body[i:], info.Near); at >= 0 {
+				i += at
 			}
 		}
-		return start + min(i, len(rs))
+		return start + min(i, len(body))
 	}
 	return -1
 }
@@ -1806,15 +1826,20 @@ func (q *Tab) goToError(r *result) {
 	if at < 0 {
 		return
 	}
-	rs := []rune(q.Editor.Text)
+	text := q.Editor.Text()
 	end := at
-	for end < len(rs) && (unicode.IsLetter(rs[end]) || unicode.IsDigit(rs[end]) || rs[end] == '_') {
-		end++
+	for end < len(text) {
+		ch, size := utf8.DecodeRuneInString(text[end:])
+		if !unicode.IsLetter(ch) && !unicode.IsDigit(ch) && ch != '_' {
+			break
+		}
+		end += size
 	}
-	if end == at && end < len(rs) {
-		end++
+	if end == at && end < len(text) {
+		_, size := utf8.DecodeRuneInString(text[end:])
+		end += size
 	}
-	q.Editor.PendingSel = &[2]int{at, end}
+	q.Editor.Select(at, end)
 	q.Editor.WantFocus = true
 }
 
@@ -2137,8 +2162,8 @@ func (q *Tab) askCommit(ctx context.Context, s safety.Statement, n int64, limit 
 // target is the range the editor's menu acts on: the selection, else the
 // statement at the caret.
 func (q *Tab) target() (int, int, bool) {
-	if q.Editor.SelStart != q.Editor.SelEnd {
-		return min(q.Editor.SelStart, q.Editor.SelEnd), max(q.Editor.SelStart, q.Editor.SelEnd), true
+	if start, end := q.Editor.Selection(); start != end {
+		return start, end, true
 	}
 	return q.currentStatement()
 }
@@ -2147,18 +2172,18 @@ func (q *Tab) target() (int, int, bool) {
 // the caret.
 func (q *Tab) changeCase(upper bool) {
 	if start, end, ok := q.target(); ok {
-		q.Editor.Text = sqltext.ChangeCase(q.Editor.Text, start, end, q.Editor.Dialect, upper)
-		q.Editor.PendingSel = &[2]int{start, end}
+		q.Editor.SetText(sqltext.ChangeCase(q.Editor.Text(), start, end, q.Editor.Dialect, upper))
+		q.Editor.Select(start, end)
 	}
 }
 
 // toggleComment comments out, or in, the lines of the selection or the
 // caret.
 func (q *Tab) toggleComment() {
-	s, e := min(q.Editor.SelStart, q.Editor.SelEnd), max(q.Editor.SelStart, q.Editor.SelEnd)
-	text, from, to := sqltext.ToggleComment(q.Editor.Text, s, e)
-	q.Editor.Text = text
-	q.Editor.PendingSel = &[2]int{from, to}
+	s, e := q.Editor.Selection()
+	text, from, to := sqltext.ToggleComment(q.Editor.Text(), s, e)
+	q.Editor.SetText(text)
+	q.Editor.Select(from, to)
 }
 
 // editorMenu is the editor's context menu: running, editing, formatting.
@@ -2185,13 +2210,11 @@ func (q *Tab) editorMenu(m *ui.Menu) {
 		}
 	})
 	m.Separator()
-	m.EditItems()
-	m.Separator()
 	if keymap.Item(m.Item("Find…"), keymap.Find).Chosen() {
-		q.find.Open, q.find.Replacing, q.find.Shown = true, false, -1
+		q.Editor.State.Run(code.Find)
 	}
 	if keymap.Item(m.Item("Replace…"), keymap.Replace).Chosen() {
-		q.find.Open, q.find.Replacing, q.find.Shown = true, true, -1
+		q.Editor.State.Run(code.FindReplace)
 	}
 	if keymap.Item(m.Item("Go to Statement…"), keymap.GoToStatement).Chosen() {
 		q.openOutline()
@@ -2223,7 +2246,7 @@ func (q *Tab) editorMenu(m *ui.Menu) {
 	})
 	start, end, ok := q.target()
 	if m.Item("Copy Statement").Disabled(!ok).Chosen() {
-		q.a.WriteClipboard(string([]rune(q.Editor.Text)[start:end]))
+		q.a.WriteClipboard(q.Editor.Text()[start:end])
 	}
 	if m.Item("Save as Snippet…").Disabled(!ok).Chosen() {
 		q.a.AskSnippet(q)

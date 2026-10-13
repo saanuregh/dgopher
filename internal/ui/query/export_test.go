@@ -29,7 +29,7 @@ func TestExportFromQueryBindsParameters(t *testing.T) {
 	a.Settings().Export.Folder = folder
 	tt := ui.NewTester(a.view, 1100, 760)
 	q := newEditor(t, a, tt, cn, "-- connection: lite\n\nSELECT * FROM n WHERE i <= :last")
-	testutil.SetCaret(tt, &q.Editor, len([]rune(q.Editor.Text)))
+	testutil.SetCaret(tt, &q.Editor, len(q.Editor.Text()))
 	q.exportFromQuery()
 	if a.dialogs.params == nil {
 		t.Fatal("no parameters asked")
@@ -80,7 +80,7 @@ func TestExportFromQueryOnTheEditorsSession(t *testing.T) {
 	testutil.SetCaret(tt, &q.Editor, 30)
 	q.Run(RunStatement)
 	testutil.WaitFor(t, tt, "the temporary table", func() bool { return !q.Running && len(q.messages) > 0 })
-	testutil.SetCaret(tt, &q.Editor, len([]rune(q.Editor.Text)))
+	testutil.SetCaret(tt, &q.Editor, len(q.Editor.Text()))
 	q.exportFromQuery()
 	tt.Frame()
 	if err := tt.Click("Export"); err != nil {

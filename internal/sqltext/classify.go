@@ -66,7 +66,7 @@ var sideEffectFunctions = map[Dialect]map[string]bool{
 const maxCodeDepth = 8
 
 // reading follows Classify into code quoted as strings: how many quotes
-// deep the code at hand is, how many runes are left to read across
+// deep the code at hand is, how many bytes are left to read across
 // every level of one Classify call, and how its strings are quoted.
 type reading struct {
 	depth int
@@ -74,10 +74,10 @@ type reading struct {
 	q     quoting
 }
 
-// newReading starts reading a statement of n runes. Legitimate code reads
-// each quoted body once, from the one word that runs it: at most n runes a
-// level and a rune more a body, under 12 n in all over maxCodeDepth levels.
-// Reading more than 16 n + 1024 runes counts as dangerous, unread.
+// newReading starts reading a statement of n bytes. Legitimate code reads
+// each quoted body once, from the one word that runs it: at most n bytes a
+// level and a byte more a body, under 12 n in all over maxCodeDepth levels.
+// Reading more than 16 n + 1024 bytes counts as dangerous, unread.
 func newReading(n int, q quoting) reading {
 	left := 16*n + 1024
 	return reading{left: &left, q: q}
@@ -134,7 +134,7 @@ func TokenizeExecutable(stmt string, d Dialect) [][]Token {
 		if d == MySQL {
 			text = unwrapExecutable(stmt, q)
 		}
-		out = append(out, tokenizeQuoted([]rune(text), d, q))
+		out = append(out, tokenizeQuoted(text, d, q))
 	}
 	return out
 }
@@ -210,9 +210,8 @@ func classRank(c Class) int {
 
 // classifyQuoted is Classify under the one quoting rule q.
 func classifyQuoted(stmt string, d Dialect, q quoting) Analysis {
-	rs := []rune(stmt)
 	o := SplitOptions{Mode: SemicolonOnly}
-	segs := splitSegments(rs, d, q, o)
+	segs := splitSegments(stmt, d, q, o)
 	first, count := statementCode(segs)
 	if count == 0 {
 		if strings.TrimSpace(stmt) == "" {
@@ -220,12 +219,12 @@ func classifyQuoted(stmt string, d Dialect, q quoting) Analysis {
 		}
 		return Analysis{Class: Write, Dangerous: false}
 	}
-	r := newReading(len(rs), q)
+	r := newReading(len(stmt), q)
 	a := classifyTokens(first, d, r)
 	if count == 1 {
 		for _, seg := range segs {
 			if bodyHidesStatement(seg, d) {
-				if _, n := statementCode(splitSegmentsWithoutBodies(rs, d, q, o)); n > count {
+				if _, n := statementCode(splitSegmentsWithoutBodies(stmt, d, q, o)); n > count {
 					count = n
 				}
 			}
@@ -242,7 +241,7 @@ func classifyQuoted(stmt string, d Dialect, q quoting) Analysis {
 	// Read as statements, a routine's text keeps the danger of what it
 	// holds: the body may be a name the splitter took for one.
 	if !a.Dangerous {
-		if stmts := statementsCode(splitSegmentsWithoutBodies(rs, d, q, o)); len(stmts) > 1 {
+		if stmts := statementsCode(splitSegmentsWithoutBodies(stmt, d, q, o)); len(stmts) > 1 {
 			if inner, ok := dangerInside(stmts, d, r); ok {
 				a.Dangerous = true
 				a.Reason = routineHolds + inner.Reason
@@ -296,11 +295,10 @@ func codeDanger(code string, d Dialect, r reading) (Analysis, bool) {
 	if r.depth > maxCodeDepth {
 		return Analysis{Class: Write, Dangerous: true, Reason: fmt.Sprintf("it quotes code more than %d levels deep, too deep to check", maxCodeDepth)}, true
 	}
-	rs := []rune(code)
-	if *r.left -= len(rs) + 1; *r.left < 0 {
+	if *r.left -= len(code) + 1; *r.left < 0 {
 		return Analysis{Class: Write, Dangerous: true, Reason: "it holds too much code to check"}, true
 	}
-	stmts := statementsCode(splitSegmentsWithoutBodies(rs, d, r.q, SplitOptions{Mode: SemicolonOnly}))
+	stmts := statementsCode(splitSegmentsWithoutBodies(code, d, r.q, SplitOptions{Mode: SemicolonOnly}))
 	if len(stmts) == 0 {
 		return Analysis{}, false
 	}

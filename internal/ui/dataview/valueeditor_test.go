@@ -7,6 +7,8 @@ import (
 
 	"dgopher/internal/db"
 	"dgopher/internal/testutil"
+
+	"github.com/egoist/mygo/ui"
 )
 
 func TestDateText(t *testing.T) {
@@ -102,5 +104,56 @@ func TestValueEditorTreeRefreshesWhenTextChanges(t *testing.T) {
 	e.text = `{`
 	if _, err := e.decodedTree(); err == nil {
 		t.Fatal("broken JSON decoded")
+	}
+}
+
+// Escape closes the value editor while its text has the keys; typed in,
+// the value saves.
+func TestValueEditorTextKeys(t *testing.T) {
+	a := NewFakeHost(t)
+	g, src := editableGrid()
+	tt := ui.NewTester(func(c *ui.Context) {
+		if a.dialogs.valueEdit != nil {
+			valueEditorView(a, c)
+		}
+	}, 800, 600)
+	openValueEditor(a, g, src, 1, 1)
+	e := a.dialogs.valueEdit
+	tt.Frame()
+	tt.Frame()
+	if !e.area.Focused() {
+		t.Fatal("the text has not the keys")
+	}
+	// Escape closes the dialog at once, with text selected too.
+	tt.Command("selectAll")
+	tt.Frame()
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	tt.Frame()
+	if a.dialogs.valueEdit != nil {
+		t.Fatal("Escape left the value editor open")
+	}
+
+	openValueEditor(a, g, src, 1, 1)
+	e = a.dialogs.valueEdit
+	tt.Frame()
+	tt.Frame()
+	tt.Type("z")
+	tt.Frame()
+	if e.text != "zb" {
+		t.Fatalf("typed: %q", e.text)
+	}
+	// Tab goes on to the dialog's buttons, as in a text field.
+	tt.Key(0, ui.KeyTab)
+	tt.Frame()
+	if e.text != "zb" || e.area.Focused() {
+		t.Fatalf("Tab: %q, the text still has the keys: %v", e.text, e.area.Focused())
+	}
+	if err := tt.Click("Save"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if got := g.edits.updates[1][1]; got != db.Typed("zb") {
+		t.Fatalf("saved %#v", got)
 	}
 }

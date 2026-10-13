@@ -1,6 +1,7 @@
 package query
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,12 +52,19 @@ func TestNavigateNames(t *testing.T) {
 	os.MkdirAll(cn.Project.Queries, 0o755)
 	os.WriteFile(other, []byte("-- connection: lite\n\nSELECT customer\nFROM invoices;\n"), 0o644)
 	cn.Project.Files = []string{"report.sql"}
+	// The table is made before the editor's first frame, whose problem
+	// check starts reading the schema.
+	setup, err := db.Open(context.Background(), cn.Config, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setup.SQL.Exec(`CREATE TABLE invoices (id INTEGER PRIMARY KEY, customer TEXT)`)
+	setup.Close()
 	q := newEditor(t, a, tt, cn, "SELECT i.customer FROM invoices i WHERE customer <> ''")
-	cn.DB.SQL.Exec(`CREATE TABLE invoices (id INTEGER PRIMARY KEY, customer TEXT)`)
 
-	q.GoTo(strings.Index(q.Editor.Text, "i.customer"))
+	q.GoTo(strings.Index(q.Editor.Text(), "i.customer"))
 	tt.Frame()
-	q.goToDefinition() // the alias i, before the schema is read
+	q.goToDefinition() // the alias i, maybe before the schema is read
 	testutil.WaitFor(t, tt, "the schema", func() bool { _, ok := cn.Objects[connection.SchemaKey{Schema: "main"}]; return ok })
 	q.goToDefinition()
 	tt.Frame()
@@ -66,7 +74,7 @@ func TestNavigateNames(t *testing.T) {
 	}
 
 	a.ActivateTab(func(tb widgets.Tab) bool { return tb == q })
-	q.GoTo(strings.LastIndex(q.Editor.Text, "customer") + 2)
+	q.GoTo(strings.LastIndex(q.Editor.Text(), "customer") + 2)
 	tt.Frame()
 	q.findUsages()
 	d := a.QueryDialogs().usages
@@ -88,7 +96,7 @@ func TestNavigateNames(t *testing.T) {
 	tt.Frame()
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
-	if q.Editor.Text != "SELECT i.client FROM invoices i WHERE client <> ''" {
-		t.Fatalf("renamed %q", q.Editor.Text)
+	if q.Editor.Text() != "SELECT i.client FROM invoices i WHERE client <> ''" {
+		t.Fatalf("renamed %q", q.Editor.Text())
 	}
 }

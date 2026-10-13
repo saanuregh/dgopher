@@ -35,7 +35,7 @@ type Statement struct {
 	// Start is where the statement starts in its editor, for errors to
 	// point into it; -1 when it did not come from one.
 	Start int
-	// Skip counts the runes the app put before the editor's text, as
+	// Skip counts the bytes the app put before the editor's text, as
 	// EXPLAIN, which an error's position counts too.
 	Skip int
 	// Args are the values of its parameters, and Shown lists them.

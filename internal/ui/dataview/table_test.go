@@ -8,6 +8,7 @@ import (
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/safety"
 	"dgopher/internal/testutil"
 
 	"github.com/egoist/mygo/ui"
@@ -345,5 +346,25 @@ func TestTableTabFollowsConnectionID(t *testing.T) {
 	tt.Frame()
 	if tb.view.historyKey() != "duck2/main.n" || !tb.view.grid.isMasked(1) {
 		t.Fatalf("after the new ID: key %q, hidden %v", tb.view.historyKey(), tb.view.grid.isMasked(1))
+	}
+}
+
+// The definition shows read only, as SQL of the connection's dialect,
+// and opens in a SQL editor.
+func TestDDLView(t *testing.T) {
+	a, tt, cn := designHost(t)
+	a.OpenTable(cn, "", db.Object{Schema: "main", Name: "items", Kind: db.KindTable, Rows: -1}, PageDDL)
+	tb := a.Tabs[0].(*TableTab)
+	testutil.WaitFor(t, tt, "the definition", func() bool { return tb.ddl != "" })
+	tt.Frame()
+	testutil.Snapshot(t, tt, "table-ddl-sqlite")
+	if area := &tb.ddlArea; area.Label != "Definition" || !area.ReadOnly || area.Dialect != safety.Dialect(db.SQLite) {
+		t.Fatalf("definition area: label %q, read only %v, dialect %v", area.Label, area.ReadOnly, area.Dialect)
+	}
+	if err := tt.Click("Open in Editor"); err != nil {
+		t.Fatal(err)
+	}
+	if len(a.Queries) != 1 || !strings.Contains(a.Queries[0], "CREATE TABLE") {
+		t.Fatalf("opened %q", a.Queries)
 	}
 }

@@ -51,7 +51,7 @@ integration tests too when it touches `internal/db`.
   serializes them on Unix; elsewhere use `go test -p 1`.
 - UI tests run headless through MyGo's `ui.Tester`, with `dataview.FakeHost`
   as the window and `testutil.WaitFor` to wait for frames.
-- MyGo is replaced in `go.mod` by a commit of a `dbgopher-v<minor>` branch of
+- MyGo is replaced in `go.mod` by a commit of a `dbgopher-v<version>` branch of
   `saanuregh/mygo`; an API missing upstream may exist there. Updating it is
   described in `docs/development.md`.
 - `DGOPHER_CONFIG_DIR` points manual runs away from the real config.

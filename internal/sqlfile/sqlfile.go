@@ -11,7 +11,6 @@ import (
 	"io"
 	"regexp"
 	"strings"
-	"unicode/utf8"
 
 	"dgopher/internal/sqltext"
 )
@@ -134,13 +133,12 @@ func (r *Reader) fill() error {
 		}
 		return r.more(max(chunk, len(r.pending)))
 	}
-	// What was given is cut at the rune the next statement starts at, the
-	// line counted as it goes; offsets count runes.
-	at, pos, line := 0, 0, r.line
+	// What was given is cut where the next statement starts, the line
+	// counted as it goes.
+	at, line := 0, r.line
 	advance := func(to int) {
-		n := byteOffset(r.pending[at:], to-pos)
-		line += strings.Count(r.pending[at:at+n], "\n")
-		at, pos = at+n, to
+		line += strings.Count(r.pending[at:to], "\n")
+		at = to
 	}
 	queued := 0
 	for _, s := range stmts[:complete] {
@@ -237,16 +235,6 @@ func stripComments(text string) string {
 		}
 		text = t[nl+1:]
 	}
-}
-
-// byteOffset is where the rune of index runes starts in s.
-func byteOffset(s string, runes int) int {
-	at := 0
-	for i := 0; i < runes && at < len(s); i++ {
-		_, size := utf8.DecodeRuneInString(s[at:])
-		at += size
-	}
-	return at
 }
 
 // Data reads the rows of the COPY statement last given, in the file's

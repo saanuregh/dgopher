@@ -20,7 +20,7 @@ import (
 // Limits of checking as the text is typed.
 const (
 	problemLimit  = 50      // problems marked at once
-	checkMaxRunes = 200_000 // a longer text is not checked as it is typed
+	checkMaxBytes = 200_000 // a longer text is not checked as it is typed
 )
 
 // catalog is what the checker knows of the database: the tables of a
@@ -39,7 +39,7 @@ type catalog interface {
 // strings, quoted names and comments left open, parentheses that do not
 // match, and, with a catalog, tables and columns it has not.
 func checkText(text string, d sqltext.Dialect, o sqltext.SplitOptions, cat catalog) []editor.Problem {
-	if utf8.RuneCountInString(text) > checkMaxRunes {
+	if len(text) > checkMaxBytes {
 		return nil
 	}
 	toks := sqltext.Tokenize(text, d)
@@ -49,9 +49,8 @@ func checkText(text string, d sqltext.Dialect, o sqltext.SplitOptions, cat catal
 			out = append(out, p)
 		}
 	}
-	runes := []rune(text)
 	for _, t := range toks {
-		if why := unclosed(t, runes, d); why != "" {
+		if why := unclosed(t, len(text), d); why != "" {
 			add(editor.Problem{Start: t.Start, End: t.Start + 1, Message: why})
 		}
 	}
@@ -76,9 +75,10 @@ func checkText(text string, d sqltext.Dialect, o sqltext.SplitOptions, cat catal
 }
 
 // unclosed says why a string, quoted name or comment is left open, "" when
-// it is not: the lexer takes such a token to the end of the text.
-func unclosed(t sqltext.Token, runes []rune, d sqltext.Dialect) string {
-	if t.End != len(runes) {
+// it is not: the lexer takes such a token to the end of the text, of
+// length bytes.
+func unclosed(t sqltext.Token, length int, d sqltext.Dialect) string {
+	if t.End != length {
 		return ""
 	}
 	text := t.Text
@@ -174,7 +174,7 @@ func checksNames(code []sqltext.Token, text string, d sqltext.Dialect) bool {
 type tableRef struct {
 	schema, name, alias string
 	quoted              bool
-	start, end          int // the name's runes
+	start, end          int // the name's bytes
 }
 
 // clauseWords end a table's place in FROM: what follows them is no alias.
@@ -395,31 +395,31 @@ func (c tabCatalog) quote(name string) string {
 func (q *Tab) checkProblems() {
 	cn := q.Conn
 	read := fmt.Sprint(cn.Status, "/", len(cn.Objects), "/", len(cn.Columns), "/", len(cn.Schemas[q.Database]), "/", q.currentSchema())
-	if q.Editor.Text == q.checkedText && read == q.checkedCatalog {
+	text := q.Editor.Text()
+	if text == q.checkedText && read == q.checkedCatalog {
 		return
 	}
-	q.checkedText, q.checkedCatalog = q.Editor.Text, read
+	q.checkedText, q.checkedCatalog = text, read
 	var cat catalog
 	if cn.Status == connection.StatusConnected && cn.DB != nil {
 		cat = tabCatalog{q}
 	}
-	q.Editor.Problems = checkText(q.Editor.Text, q.Editor.Dialect, SplitOptions(q.a.Settings()), cat)
+	q.Editor.Problems = checkText(text, q.Editor.Dialect, SplitOptions(q.a.Settings()), cat)
 }
 
 // fixProblem mends the problem at the caret with its fix.
 func (q *Tab) fixProblem() {
 	e := &q.Editor
-	if p, ok := e.ProblemAt(e.SelEnd); ok && p.Fix != "" {
+	if p, ok := e.ProblemAt(e.Caret()); ok && p.Fix != "" {
 		e.Replace(p.Start, p.End, p.Fix)
-		q.ac.lastText = e.Text
 	}
 }
 
 // problemBar says what is wrong where the caret is, and offers its fix.
 func (q *Tab) problemBar(c *ui.Context) {
 	e := &q.Editor
-	p, ok := e.ProblemAt(e.SelEnd)
-	if !ok || !e.HasFocus {
+	p, ok := e.ProblemAt(e.Caret())
+	if !ok || !e.HasFocus() {
 		return
 	}
 	th := c.Theme()

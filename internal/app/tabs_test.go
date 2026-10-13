@@ -167,7 +167,7 @@ func TestPinCloseAndReopen(t *testing.T) {
 func TestReopenClosedTab(t *testing.T) {
 	a, tt, cn := idleApp(t, false)
 	q := newAppEditor(t, a, tt, cn, "SELECT a FROM t")
-	q.Editor.Text += "\n-- kept"
+	q.Editor.Replace(len(q.Editor.Text()), len(q.Editor.Text()), "\n-- kept")
 	a.OpenTable(cn, "", db.Object{Schema: "main", Name: "t", Kind: db.KindTable}, 0)
 	testutil.WaitFor(t, tt, "the table", func() bool { return a.tabs.Len() == 2 })
 	path := q.Path
@@ -180,7 +180,7 @@ func TestReopenClosedTab(t *testing.T) {
 	a.reopenTab()
 	a.reopenTab()
 	testutil.WaitFor(t, tt, "both back", func() bool { return a.tabs.Len() == 2 })
-	if r, ok := a.tabs.At(0).(*query.Tab); !ok || r.Path != path || !strings.Contains(r.Editor.Text, "-- kept") {
+	if r, ok := a.tabs.At(0).(*query.Tab); !ok || r.Path != path || !strings.Contains(r.Editor.Text(), "-- kept") {
 		t.Fatalf("first %T %s", a.tabs.At(0), a.tabs.At(0).Title())
 	}
 	if _, ok := a.tabs.At(1).(*dataview.TableTab); !ok {
@@ -259,7 +259,7 @@ func TestPinnedEditorRestored(t *testing.T) {
 	b := startApp(t, st)
 	tt = ui.NewTester(b.view, 1000, 700)
 	tt.Frame()
-	if b.tabs.Len() != 2 || !b.main.tabs.Pinned(b.tabs.At(0)) || !strings.Contains(b.tabs.At(0).(*query.Tab).Editor.Text, "SELECT 2") || b.main.tabs.Pinned(b.tabs.At(1)) {
+	if b.tabs.Len() != 2 || !b.main.tabs.Pinned(b.tabs.At(0)) || !strings.Contains(b.tabs.At(0).(*query.Tab).Editor.Text(), "SELECT 2") || b.main.tabs.Pinned(b.tabs.At(1)) {
 		t.Fatalf("restored: %s", order(b.main))
 	}
 }

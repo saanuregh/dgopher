@@ -31,7 +31,7 @@ func init() {
 func FormatWith(src string, d Dialect, o SplitOptions) string {
 	var b strings.Builder
 	wroteAny := false
-	for _, seg := range splitSegments([]rune(src), d, defaultQuoting(d), o) {
+	for _, seg := range splitSegments(src, d, defaultQuoting(d), o) {
 		toks := seg.toks
 		for len(toks) > 0 && toks[len(toks)-1].Kind == Whitespace {
 			toks = toks[:len(toks)-1]
@@ -55,9 +55,9 @@ func FormatWith(src string, d Dialect, o SplitOptions) string {
 	return b.String()
 }
 
-// FormatRange formats the statements overlapping the rune range [start, end)
+// FormatRange formats the statements overlapping the byte range [start, end)
 // (or containing the caret when start == end) and returns the whole new text
-// with everything else untouched, plus the rune range of the formatted part.
+// with everything else untouched, plus the byte range of the formatted part.
 func FormatRange(src string, start, end int, d Dialect, o SplitOptions) (text string, newStart, newEnd int) {
 	from, to := -1, -1
 	for _, s := range SplitWith(src, d, o) {
@@ -76,13 +76,8 @@ func FormatRange(src string, start, end int, d Dialect, o SplitOptions) (text st
 	if from < 0 {
 		return src, start, end
 	}
-	rs := []rune(src)
-	formatted := []rune(FormatWith(string(rs[from:to]), d, o))
-	out := make([]rune, 0, len(rs)-(to-from)+len(formatted))
-	out = append(out, rs[:from]...)
-	out = append(out, formatted...)
-	out = append(out, rs[to:]...)
-	return string(out), from, from + len(formatted)
+	formatted := FormatWith(src[from:to], d, o)
+	return src[:from] + formatted + src[to:], from, from + len(formatted)
 }
 
 func isLineComment(t Token) bool {

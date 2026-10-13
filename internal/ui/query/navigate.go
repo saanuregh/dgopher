@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
@@ -22,7 +23,7 @@ import (
 type identifier struct {
 	name, qualifier string
 	keyword         bool
-	start, end      int // runes
+	start, end      int // bytes
 }
 
 func tokenName(t sqltext.Token, d sqltext.Dialect) string {
@@ -61,11 +62,12 @@ func occurrences(text string, id identifier, d sqltext.Dialect) [][2]int {
 	return out
 }
 
-// GoTo puts the caret at a rune offset, in view.
+// GoTo puts the caret at a byte offset, in view.
 func (q *Tab) GoTo(at int) {
-	q.Editor.PendingSel = &[2]int{at, at}
-	q.Editor.WantFocus = true
-	q.reveal(at, q.a.Settings().EditorFont, false)
+	e := &q.Editor
+	e.Select(at, at)
+	e.State.GoTo(e.State.Buffer.Pos(e.Caret()))
+	e.WantFocus = true
 }
 
 // goToDefinition opens what the name at the caret names: a table's or a
@@ -73,7 +75,7 @@ func (q *Tab) GoTo(at int) {
 // definition.
 func (q *Tab) goToDefinition() {
 	e := &q.Editor
-	id, ok := identifierAt(e.Text, e.SelEnd, e.Dialect)
+	id, ok := identifierAt(e.Text(), e.Caret(), e.Dialect)
 	if !ok {
 		q.note("Put the caret in a name to go to what it names.", "", true)
 		return
@@ -83,7 +85,7 @@ func (q *Tab) goToDefinition() {
 		q.note("Connect to go to "+id.name+".", "", true)
 		return
 	}
-	cc := sqltext.CompletionAt(e.Text, id.start, e.Dialect)
+	cc := sqltext.CompletionAt(e.Text(), id.start, e.Dialect)
 	tableOf := func(name string) (sqltext.TableRef, bool) {
 		for _, t := range cc.Tables {
 			if strings.EqualFold(t.Alias, name) || strings.EqualFold(t.Name, name) {
@@ -154,10 +156,10 @@ func (q *Tab) goToDefinition() {
 type usage struct {
 	path  string // "" for the editor's own text
 	file  string // its name as shown
-	at    int    // rune offset
+	at    int    // byte offset, of the text with \n line endings
 	line  int    // 1-based
 	text  string
-	match [2]int // the name within text, in runes
+	match [2]int // the name within text, in runes, as TextRanges counts
 }
 
 // usagesDialog lists where a name is used, to go to one.
@@ -173,21 +175,17 @@ type usagesDialog struct {
 // usagesIn lists where a text names what id does.
 func usagesIn(text string, id identifier, path, file string, d sqltext.Dialect) []usage {
 	var out []usage
-	runes := []rune(text)
 	for _, o := range occurrences(text, id, d) {
-		lineStart := o[0]
-		for lineStart > 0 && runes[lineStart-1] != '\n' {
-			lineStart--
+		lineStart := strings.LastIndexByte(text[:o[0]], '\n') + 1
+		lineEnd := o[1] + strings.IndexByte(text[o[1]:], '\n')
+		if lineEnd < o[1] {
+			lineEnd = len(text)
 		}
-		lineEnd := o[1]
-		for lineEnd < len(runes) && runes[lineEnd] != '\n' {
-			lineEnd++
-		}
-		line := string(runes[lineStart:lineEnd])
+		line := text[lineStart:lineEnd]
 		trimmed := strings.TrimLeft(line, " \t")
-		cut := len([]rune(line)) - len([]rune(trimmed))
-		out = append(out, usage{path: path, file: file, at: o[0], line: strings.Count(string(runes[:o[0]]), "\n") + 1,
-			text: trimmed, match: [2]int{o[0] - lineStart - cut, o[1] - lineStart - cut}})
+		from := lineStart + len(line) - len(trimmed)
+		out = append(out, usage{path: path, file: file, at: o[0], line: strings.Count(text[:o[0]], "\n") + 1,
+			text: trimmed, match: [2]int{utf8.RuneCountInString(text[from:o[0]]), utf8.RuneCountInString(text[from:o[1]])}})
 	}
 	return out
 }
@@ -196,13 +194,13 @@ func usagesIn(text string, id identifier, path, file string, d sqltext.Dialect) 
 // then in the other query files of its project.
 func (q *Tab) findUsages() {
 	e := &q.Editor
-	id, ok := identifierAt(e.Text, e.SelEnd, e.Dialect)
+	id, ok := identifierAt(e.Text(), e.Caret(), e.Dialect)
 	if !ok {
 		q.note("Put the caret in a name to find where it is used.", "", true)
 		return
 	}
 	d := &usagesDialog{open: true, q: q, name: id.name}
-	d.usages = usagesIn(e.Text, id, "", q.Name, e.Dialect)
+	d.usages = usagesIn(e.Text(), id, "", q.Name, e.Dialect)
 	p := q.Conn.Project
 	for _, rel := range p.Files {
 		path := filepath.Join(p.Queries, filepath.FromSlash(rel))
@@ -213,7 +211,9 @@ func (q *Tab) findUsages() {
 		if err != nil {
 			continue // gone since the folder was read
 		}
-		d.usages = append(d.usages, usagesIn(string(data), id, path, rel, e.Dialect)...)
+		// Offsets of the text as the editor opening it has it: lines ending in \n.
+		text := strings.ReplaceAll(string(data), "\r\n", "\n")
+		d.usages = append(d.usages, usagesIn(text, id, path, rel, e.Dialect)...)
 	}
 	d.list.Selected = &d.sel
 	q.a.QueryDialogs().usages = d
@@ -280,7 +280,7 @@ type renameForm struct {
 
 func (q *Tab) askRename() {
 	e := &q.Editor
-	id, ok := identifierAt(e.Text, e.SelEnd, e.Dialect)
+	id, ok := identifierAt(e.Text(), e.Caret(), e.Dialect)
 	if !ok {
 		q.note("Put the caret in a name to rename it.", "", true)
 		return
@@ -295,12 +295,11 @@ func renameInText(text string, id identifier, name string, d sqltext.Dialect, qu
 	if needsQuote(name) {
 		written = quote(name)
 	}
-	runes := []rune(text)
 	occ := occurrences(text, id, d)
 	for i := len(occ) - 1; i >= 0; i-- {
-		runes = append(runes[:occ[i][0]], append([]rune(written), runes[occ[i][1]:]...)...)
+		text = text[:occ[i][0]] + written + text[occ[i][1]:]
 	}
-	return string(runes)
+	return text
 }
 
 func renameView(a Host, c *ui.Context) {
@@ -308,7 +307,7 @@ func renameView(a Host, c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	q := f.q
-	n := len(occurrences(q.Editor.Text, f.id, q.Editor.Dialect))
+	n := len(occurrences(q.Editor.Text(), f.id, q.Editor.Dialect))
 	ui.Modal(c, &f.open, func() {
 		ui.Column(c).Width(440).Gap(10).Children(func() {
 			ui.Text(c, "Rename "+f.id.name).FontSize(15).Bold()
@@ -324,8 +323,7 @@ func renameView(a Host, c *ui.Context) {
 					f.err = "A name may not be empty."
 					return
 				}
-				q.Editor.Text = renameInText(q.Editor.Text, f.id, name, q.Editor.Dialect, db.DialectOf(q.Conn.Config.Engine).Quote)
-				q.ac.lastText = q.Editor.Text
+				q.Editor.SetText(renameInText(q.Editor.Text(), f.id, name, q.Editor.Dialect, db.DialectOf(q.Conn.Config.Engine).Quote))
 				f.open = false
 			}
 		})

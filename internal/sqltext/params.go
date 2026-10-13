@@ -11,7 +11,7 @@ const (
 	ParamTyped                  // {name:Type}, ClickHouse only
 )
 
-// Parameter is a parameter reference; Start and End are rune offsets within the statement.
+// Parameter is a parameter reference; Start and End are byte offsets within the statement.
 type Parameter struct {
 	Name       string
 	Start, End int
@@ -25,8 +25,7 @@ type Parameter struct {
 // SQLite. A ':' inside [ ] is an array slice, and in MySQL and
 // ClickHouse a ':' directly after a name (such as {id:UInt32}) is part of it.
 func Params(stmt string, d Dialect) []Parameter {
-	rs := []rune(stmt)
-	toks := tokenizeRunes(rs, d)
+	toks := Tokenize(stmt, d)
 	var out []Parameter
 	brackets := 0
 	skipUntil := 0
@@ -39,35 +38,35 @@ func Params(stmt string, d Dialect) []Parameter {
 			brackets++
 		case isPunct(t, "]"):
 			brackets--
-		case t.Text == "$" && t.End < len(rs) && rs[t.End] == '{':
-			for j := t.End + 1; j < len(rs); j++ {
-				if rs[j] == '}' {
-					out = append(out, Parameter{Name: string(rs[t.End+1 : j]), Start: t.Start, End: j + 1, Kind: ParamVar})
+		case t.Text == "$" && t.End < len(stmt) && stmt[t.End] == '{':
+			for j := t.End + 1; j < len(stmt); j++ {
+				if stmt[j] == '}' {
+					out = append(out, Parameter{Name: stmt[t.End+1 : j], Start: t.Start, End: j + 1, Kind: ParamVar})
 					skipUntil = j + 1
 					break
 				}
 			}
 		case d == ClickHouse && isPunct(t, "{"):
-			if p, ok := typedParam(toks[i+1:], rs, t.Start); ok {
+			if p, ok := typedParam(toks[i+1:], stmt, t.Start); ok {
 				out = append(out, p)
 				skipUntil = p.End
 			}
 		case d == SQLite && (t.Text == "@" || t.Text == "$") && i+1 < len(toks) &&
 			(toks[i+1].Kind == Identifier || toks[i+1].Kind == Keyword) && !gluedToName(toks, i):
 			n := toks[i+1]
-			out = append(out, Parameter{Name: n.Text, Start: t.Start, End: n.End, Kind: ParamNamed, Sigil: rs[t.Start]})
+			out = append(out, Parameter{Name: n.Text, Start: t.Start, End: n.End, Kind: ParamNamed, Sigil: rune(stmt[t.Start])})
 			skipUntil = n.End
-		case t.Kind == Param && rs[t.Start] == ':' && brackets <= 0:
+		case t.Kind == Param && stmt[t.Start] == ':' && brackets <= 0:
 			if (d == MySQL || d == ClickHouse) && i > 0 && toks[i-1].End == t.Start &&
 				(toks[i-1].Kind == Identifier || toks[i-1].Kind == Keyword || toks[i-1].Kind == QuotedIdent) {
 				continue
 			}
 			end := t.Start + 1
-			for end < t.End && isASCIIName(rs[end], end > t.Start+1) {
+			for end < t.End && isASCIIName(stmt[end], end > t.Start+1) {
 				end++
 			}
 			if end > t.Start+1 {
-				out = append(out, Parameter{Name: string(rs[t.Start+1 : end]), Start: t.Start, End: end, Kind: ParamNamed, Sigil: ':'})
+				out = append(out, Parameter{Name: stmt[t.Start+1 : end], Start: t.Start, End: end, Kind: ParamNamed, Sigil: ':'})
 			}
 		}
 	}
@@ -75,7 +74,7 @@ func Params(stmt string, d Dialect) []Parameter {
 }
 
 // typedParam reads name:Type} from the tokens after a ClickHouse '{' at start.
-func typedParam(toks []Token, rs []rune, start int) (Parameter, bool) {
+func typedParam(toks []Token, stmt string, start int) (Parameter, bool) {
 	k := 0
 	skipSpace := func() {
 		for k < len(toks) && toks[k].Kind == Whitespace {
@@ -101,7 +100,7 @@ func typedParam(toks []Token, rs []rune, start int) (Parameter, bool) {
 			return Parameter{}, false
 		}
 		typeStart = toks[k].Start
-	case t.Kind == Param && rs[t.Start] == ':':
+	case t.Kind == Param && stmt[t.Start] == ':':
 		// The lexer reads ":UInt32" as one :name token.
 		typeStart = t.Start + 1
 		k++
@@ -117,7 +116,7 @@ func typedParam(toks []Token, rs []rune, start int) (Parameter, bool) {
 		case isPunct(t, ")"):
 			depth--
 		case isPunct(t, "}") && depth == 0:
-			typ := strings.TrimSpace(string(rs[typeStart:t.Start]))
+			typ := strings.TrimSpace(stmt[typeStart:t.Start])
 			if typ == "" {
 				return Parameter{}, false
 			}
@@ -144,6 +143,6 @@ func gluedToName(toks []Token, i int) bool {
 	return false
 }
 
-func isASCIIName(r rune, allowDigit bool) bool {
-	return r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (allowDigit && isDigit(r))
+func isASCIIName(c byte, allowDigit bool) bool {
+	return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (allowDigit && isDigit(c))
 }

@@ -18,7 +18,6 @@ type Palette struct {
 	EditorBg ui.Color
 	// CurrentStatement is behind the statement a run would send.
 	CurrentStatement ui.Color
-	Gutter           ui.Color
 	LineNumber       ui.Color
 	GridHeader       ui.Color
 	GridLine         ui.Color
@@ -36,7 +35,6 @@ var lightPalette = Palette{
 	Sidebar:          ui.Hex("#f5f5f4"),
 	EditorBg:         ui.Hex("#ffffff"),
 	CurrentStatement: ui.Hex("#f4f7fd"),
-	Gutter:           ui.Hex("#fafaf9"),
 	LineNumber:       ui.Hex("#a8a29e"),
 	GridHeader:       ui.Hex("#f5f5f4"),
 	GridLine:         ui.RGBA(0, 0, 0, 0.07),
@@ -62,7 +60,6 @@ var darkPalette = Palette{
 	Sidebar:          ui.Hex("#1c1917"),
 	EditorBg:         ui.Hex("#171717"),
 	CurrentStatement: ui.Hex("#1d2129"),
-	Gutter:           ui.Hex("#1a1a1a"),
 	LineNumber:       ui.Hex("#57534e"),
 	GridHeader:       ui.Hex("#232323"),
 	GridLine:         ui.RGBA(255, 255, 255, 0.07),

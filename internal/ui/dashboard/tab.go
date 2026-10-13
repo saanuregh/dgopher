@@ -19,6 +19,7 @@ import (
 	"dgopher/internal/project"
 	"dgopher/internal/safety"
 	"dgopher/internal/ui/dataview"
+	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -90,6 +91,7 @@ type panelState struct {
 
 	title   string // as edited
 	sql     string
+	sqlArea editor.CodeArea // edits sql
 	view    string
 	editSQL bool
 	// connID and database are the connection, by its ID, and the
@@ -651,7 +653,15 @@ func (t *Tab) panelView(c *ui.Context, i int, height float32) {
 		if s.editSQL {
 			ui.Column(c).Height(196).Padding(6, 10).Gap(6).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 				cn := t.whereView(c, s)
-				ui.TextArea(c, &s.sql).Font(widgets.MonoFont).FontSize(12).Grow(1).Label("Panel query")
+				area := &s.sqlArea
+				area.Label, area.Language, area.FontSize = "Panel query", editor.LanguageSQL, 12
+				area.Dialect = safety.Dialect(db.Postgres)
+				if cn != nil {
+					area.Dialect = safety.Dialect(cn.Config.Engine)
+				}
+				area.NoLineNumbers, area.NoFolding = true, true
+				el, _ := area.View(c, &s.sql)
+				el.Grow(1)
 				ui.Row(c).Gap(6).Children(func() {
 					ui.Spacer(c)
 					if ui.Button(c, "Cancel").Clicked() {

@@ -162,7 +162,7 @@ func TestQueryFlow(t *testing.T) {
 	})
 
 	// A write on development runs without asking; DELETE without WHERE asks.
-	q.Editor.Text = "DELETE FROM shop.orders;"
+	q.Editor.SetText("DELETE FROM shop.orders;")
 	testutil.SetCaret(tt, &q.Editor, 3)
 	q.Run(query.RunStatement)
 	tt.Frame()
@@ -187,7 +187,7 @@ func TestQueryFlow(t *testing.T) {
 	tt.Frame()
 
 	// Manual commit on production: an UPDATE opens a transaction.
-	pq.Editor.Text = "UPDATE shop.orders SET status = 'paid' WHERE id = 1;"
+	pq.Editor.SetText("UPDATE shop.orders SET status = 'paid' WHERE id = 1;")
 	testutil.SetCaret(tt, &pq.Editor, 3)
 	pq.Run(query.RunStatement)
 	tt.Frame()
@@ -313,7 +313,7 @@ func TestWorkspaceRestore(t *testing.T) {
 	if disk, _ := os.ReadFile(q.Path); string(disk) != want || filepath.Dir(q.Path) != filepath.Join(projDir, "queries") {
 		t.Fatalf("new editor's file %s: %q", q.Path, disk)
 	}
-	q.Editor.Text += " -- edited"
+	q.Editor.Replace(len(q.Editor.Text()), len(q.Editor.Text()), " -- edited")
 	q.Flush(false)
 	a.saveWorkspace(true)
 	var ws json.RawMessage
@@ -328,8 +328,8 @@ func TestWorkspaceRestore(t *testing.T) {
 		t.Fatalf("restored %d projects, %d tabs", len(b.projects), b.tabs.Len())
 	}
 	r := b.tabs.At(0).(*query.Tab)
-	if r.Editor.Text != want+" -- edited" || r.Path != q.Path || r.Conn.Config.Name != "lite" {
-		t.Fatalf("restored %q at %s", r.Editor.Text, r.Path)
+	if r.Editor.Text() != want+" -- edited" || r.Path != q.Path || r.Conn.Config.Name != "lite" {
+		t.Fatalf("restored %q at %s", r.Editor.Text(), r.Path)
 	}
 	// Shown, it waits to be asked; set to auto-connect, it connects as it
 	// comes into view again.
@@ -534,8 +534,8 @@ func TestSnippets(t *testing.T) {
 	testutil.SetCaret(tt, &q.Editor, 0)
 	a.insertSnippet(p.Snippets[0])
 	tt.Frame()
-	if !strings.HasPrefix(q.Editor.Text, "SELECT count(*) FROM tSELECT 1;") {
-		t.Fatalf("text %q", q.Editor.Text)
+	if !strings.HasPrefix(q.Editor.Text(), "SELECT count(*) FROM tSELECT 1;") {
+		t.Fatalf("text %q", q.Editor.Text())
 	}
 }
 
@@ -649,8 +649,8 @@ func TestProjectFolder(t *testing.T) {
 	a.OpenQueryFile(path, 30)
 	tt.Frame()
 	tt.Frame()
-	if q.Editor.SelEnd != 30 || a.ActiveTab() != q {
-		t.Fatalf("caret %d, tab %v", q.Editor.SelEnd, a.ActiveTab())
+	if q.Editor.Caret() != 30 || a.ActiveTab() != q {
+		t.Fatalf("caret %d, tab %v", q.Editor.Caret(), a.ActiveTab())
 	}
 	// Listed again, the project gives back its connections.
 	a2 := newBareApp(t)
@@ -701,8 +701,8 @@ func TestKeyboard(t *testing.T) {
 	tt.Key(ui.Cmd, ui.KeyJ)
 	tt.Frame()
 	tt.Frame()
-	if a.focusWant != "" || q.Editor.HasFocus {
-		t.Fatalf("⌘J: focus wanted %q, editor focused %v", a.focusWant, q.Editor.HasFocus)
+	if a.focusWant != "" || q.Editor.HasFocus() {
+		t.Fatalf("⌘J: focus wanted %q, editor focused %v", a.focusWant, q.Editor.HasFocus())
 	}
 	// ⌘/ lists the keys.
 	tt.Key(ui.Cmd, ui.KeySlash)
@@ -810,8 +810,8 @@ func TestDropFiles(t *testing.T) {
 	a.nav.row = -1
 	a.openDropped([]string{sqlFile})
 	testutil.WaitFor(t, tt, "editor", func() bool { return a.tabs.Len() == 1 })
-	if q := a.tabs.At(0).(*query.Tab); q.Path != sqlFile || q.Editor.Text != "SELECT 42 AS answer;" {
-		t.Fatalf("editor %q %q", q.Path, q.Editor.Text)
+	if q := a.tabs.At(0).(*query.Tab); q.Path != sqlFile || q.Editor.Text() != "SELECT 42 AS answer;" {
+		t.Fatalf("editor %q %q", q.Path, q.Editor.Text())
 	}
 	csv := dir + "/people's data\nDROP TABLE x;.csv" // a quote and a newline in the name
 	if runtime.GOOS == "windows" {                   // a Windows name cannot hold a newline
@@ -851,7 +851,7 @@ func TestAuditTrail(t *testing.T) {
 
 	testutil.WaitFor(t, tt, "commit", func() bool { return !q.Running && q.Tx == db.TxNone })
 	// A statement with a secret, and one the read-only guard refuses.
-	q.Editor.Text = "ALTER USER app WITH PASSWORD 'hunter2';"
+	q.Editor.SetText("ALTER USER app WITH PASSWORD 'hunter2';")
 	testutil.SetCaret(tt, &q.Editor, 3)
 	q.Run(query.RunStatement)
 	testutil.WaitFor(t, tt, "select", func() bool { return !q.Running })
@@ -861,7 +861,7 @@ func TestAuditTrail(t *testing.T) {
 	a.confirm = nil // left unanswered: the question would cover the audit viewer
 	ro := cn.Config
 	cn.Config.ReadOnly = true
-	q.Editor.Text = "DELETE FROM accounts WHERE id = 1;"
+	q.Editor.SetText("DELETE FROM accounts WHERE id = 1;")
 	testutil.SetCaret(tt, &q.Editor, 3)
 	q.Run(query.RunStatement)
 	a.alert = nil
@@ -1032,7 +1032,7 @@ func TestSwitchConnection(t *testing.T) {
 	testutil.WaitFor(t, tt, "the second editor", func() bool { return a.tabs.Len() == 2 })
 	q := a.tabs.At(0).(*query.Tab)
 	a.tabs.SelectAt(0)
-	q.Editor.Text = strings.Replace(q.Editor.Text, "connection: alpha", "connection: beta", 1)
+	q.Editor.SetText(strings.Replace(q.Editor.Text(), "connection: alpha", "connection: beta", 1))
 	tt.Frame()
 	if err := tt.Click("Switch to beta"); err != nil {
 		t.Fatal(err)
@@ -1042,8 +1042,8 @@ func TestSwitchConnection(t *testing.T) {
 	if !ok || nq == q || nq.Conn != beta || nq.Path != q.Path || a.tabs.ActiveIndex() != 0 || a.tabs.Len() != 2 {
 		t.Fatalf("after switching: %v %v", ok, a.tabs.Tabs())
 	}
-	if data, _ := os.ReadFile(q.Path); string(data) != nq.Editor.Text || !strings.HasPrefix(nq.Editor.Text, "-- connection: beta") {
-		t.Fatalf("the file holds %q, the editor %q", data, nq.Editor.Text)
+	if data, _ := os.ReadFile(q.Path); string(data) != nq.Editor.Text() || !strings.HasPrefix(nq.Editor.Text(), "-- connection: beta") {
+		t.Fatalf("the file holds %q, the editor %q", data, nq.Editor.Text())
 	}
 	if tt.HasText("This file names") {
 		t.Fatal("the bar stays after switching")
@@ -1267,7 +1267,7 @@ func TestPendingChangesOfTwoResults(t *testing.T) {
 			t.Fatalf("no pending change: %q", tt.Texts())
 		}
 	}
-	testutil.SetCaret(tt, &q.Editor, len([]rune(q.Editor.Text)))
+	testutil.SetCaret(tt, &q.Editor, len(q.Editor.Text()))
 	q.Run(query.RunStatement)
 	edit("first")
 	q.Run(query.RunNewTab)
@@ -1636,7 +1636,7 @@ func TestGenerateScript(t *testing.T) {
 		t.Fatal(err)
 	}
 	testutil.WaitFor(t, tt, "the script", func() bool { _, ok := a.ActiveTab().(*query.Tab); return ok })
-	text := a.ActiveTab().(*query.Tab).Editor.Text
+	text := a.ActiveTab().(*query.Tab).Editor.Text()
 	if strings.Contains(text, "scratch") || strings.Index(text, "CREATE TABLE orders") > strings.Index(text, "CREATE TABLE lines") {
 		t.Fatalf("script:\n%s", text)
 	}
@@ -1956,7 +1956,7 @@ func TestNavigatorItems(t *testing.T) {
 	a.activate(fn)
 	testutil.WaitFor(t, tt, "the definition", func() bool {
 		q, ok := a.ActiveTab().(*query.Tab)
-		return ok && strings.Contains(q.Editor.Text, "CREATE OR REPLACE FUNCTION it_nav.twice(a integer)")
+		return ok && strings.Contains(q.Editor.Text(), "CREATE OR REPLACE FUNCTION it_nav.twice(a integer)")
 	})
 	part := navNode{kind: nodeItem, conn: cn.Config.ID, schema: "it_nav", name: itemName(db.Item{Kind: db.ItemPartition, Name: "events_2026", Table: "events"})}
 	a.activate(part)
@@ -2042,7 +2042,7 @@ func TestCompareRows(t *testing.T) {
 	x.remove = true
 	a.openSyncSQL(x)
 	q, ok := a.ActiveTab().(*query.Tab)
-	if !ok || !strings.Contains(q.Editor.Text, `DELETE FROM "main"."items" WHERE "id" = 4;`) {
+	if !ok || !strings.Contains(q.Editor.Text(), `DELETE FROM "main"."items" WHERE "id" = 4;`) {
 		t.Fatalf("the sync's SQL: %v", a.ActiveTab())
 	}
 }

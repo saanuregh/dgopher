@@ -234,7 +234,7 @@ func TestHistoryPerProject(t *testing.T) {
 	c1 := a.addConn(p1, db.Config{Name: "a", Engine: db.SQLite, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1000, 700)
 	q := newAppEditor(t, a, tt, c1, "SELECT 1;")
-	testutil.SetCaret(tt, &q.Editor, len([]rune(q.Editor.Text))-2)
+	testutil.SetCaret(tt, &q.Editor, len(q.Editor.Text())-2)
 	q.Run(query.RunStatement)
 	testutil.WaitFor(t, tt, "the run", func() bool { return resultRows(tt, q, 1) })
 
@@ -441,7 +441,7 @@ func TestAutosave(t *testing.T) {
 	a.NewQueryTab(cn, "", "SELECT 1;")
 	testutil.WaitFor(t, tt, "the editor", func() bool { _, ok := a.ActiveTab().(*query.Tab); return ok })
 	q := a.ActiveTab().(*query.Tab)
-	q.Editor.Text += "\nSELECT 2;"
+	q.Editor.Replace(len(q.Editor.Text()), len(q.Editor.Text()), "\nSELECT 2;")
 	tt.Frame()
 	if disk, _ := os.ReadFile(q.Path); strings.Contains(string(disk), "SELECT 2") {
 		t.Fatal("saved while typing")
@@ -461,7 +461,7 @@ func TestAutosaveNeverOverwritesChangedFile(t *testing.T) {
 	q := a.ActiveTab().(*query.Tab)
 	pulled := "-- connection: lite\n\nSELECT 'pulled';"
 	os.WriteFile(q.Path, []byte(pulled), 0o644)
-	q.Editor.Text += " -- mine"
+	q.Editor.Replace(len(q.Editor.Text()), len(q.Editor.Text()), " -- mine")
 	testutil.WaitFor(t, tt, "the conflict", func() bool { return q.DiskConflict != "" })
 	if disk, _ := os.ReadFile(q.Path); string(disk) != pulled {
 		t.Fatalf("the pulled file was overwritten: %q", disk)
@@ -474,8 +474,8 @@ func TestAutosaveNeverOverwritesChangedFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if q.Editor.Text != pulled || q.DiskConflict != "" {
-		t.Fatalf("after using the file: %q %q", q.Editor.Text, q.DiskConflict)
+	if q.Editor.Text() != pulled || q.DiskConflict != "" {
+		t.Fatalf("after using the file: %q %q", q.Editor.Text(), q.DiskConflict)
 	}
 }
 
@@ -485,7 +485,7 @@ func TestUntouchedEditorFileIsDeleted(t *testing.T) {
 	tt := ui.NewTester(a.view, 1000, 700)
 	look := newAppEditor(t, a, tt, cn, "SELECT * FROM t;")
 	kept := newAppEditor(t, a, tt, cn, "")
-	kept.Editor.Text += "SELECT 'kept';"
+	kept.Editor.Replace(len(kept.Editor.Text()), len(kept.Editor.Text()), "SELECT 'kept';")
 	a.closeTab(a.tabs.Index(widgets.Tab(look)))
 	a.closeTab(a.tabs.Index(widgets.Tab(kept)))
 	if _, err := os.Stat(look.Path); err == nil {
@@ -647,13 +647,13 @@ func TestConflictedTextSurvivesRestart(t *testing.T) {
 	tt := ui.NewTester(a.view, 1000, 700)
 	q := newAppEditor(t, a, tt, cn, "SELECT 1;")
 	os.WriteFile(q.Path, []byte("SELECT 'pulled';"), 0o644)
-	q.Editor.Text = "SELECT 'mine';"
+	q.Editor.SetText("SELECT 'mine';")
 	testutil.WaitFor(t, tt, "the conflict", func() bool { return q.DiskConflict != "" })
 	a.saveWorkspace(true) // as on quit
 	b := startApp(t, st)
 	r := b.tabs.At(0).(*query.Tab)
-	if r.Editor.Text != "SELECT 'mine';" || r.Saved != "SELECT 'pulled';" || r.DiskConflict == "" {
-		t.Fatalf("restored %q over %q, conflict %q", r.Editor.Text, r.Saved, r.DiskConflict)
+	if r.Editor.Text() != "SELECT 'mine';" || r.Saved != "SELECT 'pulled';" || r.DiskConflict == "" {
+		t.Fatalf("restored %q over %q, conflict %q", r.Editor.Text(), r.Saved, r.DiskConflict)
 	}
 }
 
@@ -812,16 +812,16 @@ func TestDuplicateEditor(t *testing.T) {
 	a.saveProject(a.projects[0])
 	tt := ui.NewTester(a.view, 1000, 700)
 	q := newAppEditor(t, a, tt, cn, "SELECT 1;")
-	saved := q.Editor.Text
-	q.Editor.Text += " -- edited"
+	saved := q.Editor.Text()
+	q.Editor.Replace(len(q.Editor.Text()), len(q.Editor.Text()), " -- edited")
 	a.duplicateQuery(q)
 	tt.Frame()
 	d, ok := a.ActiveTab().(*query.Tab)
-	if !ok || d == q || d.Conn != cn || d.Editor.Text != q.Editor.Text || d.Path == q.Path || filepath.Dir(d.Path) != filepath.Dir(q.Path) {
+	if !ok || d == q || d.Conn != cn || d.Editor.Text() != q.Editor.Text() || d.Path == q.Path || filepath.Dir(d.Path) != filepath.Dir(q.Path) {
 		t.Fatalf("the copy: %+v", d)
 	}
-	if disk, _ := os.ReadFile(d.Path); string(disk) != q.Editor.Text {
-		t.Fatalf("the copy's file holds %q, want %q", disk, q.Editor.Text)
+	if disk, _ := os.ReadFile(d.Path); string(disk) != q.Editor.Text() {
+		t.Fatalf("the copy's file holds %q, want %q", disk, q.Editor.Text())
 	}
 	if disk, _ := os.ReadFile(q.Path); string(disk) != saved {
 		t.Fatalf("the original's file now holds %q", disk)
@@ -877,8 +877,8 @@ func TestDuplicateQueryFileFromSidebar(t *testing.T) {
 	}
 	testutil.WaitFor(t, tt, "the copy", func() bool { return a.tabs.Len() == 1 })
 	d := a.ActiveTab().(*query.Tab)
-	if d.Conn != cn || d.Editor.Text != text || filepath.Base(d.Path) == "report.sql" {
-		t.Fatalf("the copy: %s on %s, %q", d.Path, d.Conn.Config.ID, d.Editor.Text)
+	if d.Conn != cn || d.Editor.Text() != text || filepath.Base(d.Path) == "report.sql" {
+		t.Fatalf("the copy: %s on %s, %q", d.Path, d.Conn.Config.ID, d.Editor.Text())
 	}
 }
 
@@ -913,7 +913,7 @@ func TestOpenQueryFileWaitsToConnect(t *testing.T) {
 		}
 	}
 	// Running connects it.
-	testutil.SetCaret(tt, &q.Editor, len([]rune(q.Editor.Text))-2)
+	testutil.SetCaret(tt, &q.Editor, len(q.Editor.Text())-2)
 	q.Run(query.RunStatement)
 	testutil.WaitFor(t, tt, "the run", func() bool { return resultRows(tt, q, 1) })
 }
@@ -1869,7 +1869,7 @@ func TestEverySendIsTraffic(t *testing.T) {
 	cn := a.addConn(p, db.Config{Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1000, 700)
 	q := newAppEditor(t, a, tt, cn, "SELECT 41 + 1 AS v;")
-	testutil.SetCaret(tt, &q.Editor, len([]rune(q.Editor.Text))-2)
+	testutil.SetCaret(tt, &q.Editor, len(q.Editor.Text())-2)
 	q.Run(query.RunStatement)
 	testutil.WaitFor(t, tt, "the run", func() bool { return resultRows(tt, q, 1) })
 	a.recordSent(&cn.Config, db.Sent{Text: "ALTER USER u PASSWORD 'hunter2'", Args: 2})

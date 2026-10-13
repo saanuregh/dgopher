@@ -283,7 +283,7 @@ func TestSharedTransactionOwner(t *testing.T) {
 // and waits for the run to end.
 func runAt(t *testing.T, tt *ui.Tester, q *query.Tab, at string, mode query.RunMode) {
 	t.Helper()
-	testutil.SetCaret(tt, &q.Editor, strings.Index(q.Editor.Text, at))
+	testutil.SetCaret(tt, &q.Editor, strings.Index(q.Editor.Text(), at))
 	q.Run(mode)
 	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running })
 }

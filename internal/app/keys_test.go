@@ -96,7 +96,7 @@ func TestTabKeyFocus(t *testing.T) {
 	tt.Key(ui.Cmd, ui.Key1)
 	tt.Frame()
 	tt.Frame()
-	if !a.tabs.At(0).(*query.Tab).Editor.HasFocus {
+	if !a.tabs.At(0).(*query.Tab).Editor.HasFocus() {
 		t.Fatal("⌘1 left the editor without the keys")
 	}
 	tt.Key(ui.Cmd, ui.Key2)
@@ -149,7 +149,7 @@ func TestNavigatorObjectKeys(t *testing.T) {
 	tt.Key(0, ui.KeyDelete)
 	testutil.WaitFor(t, tt, "the DROP", func() bool {
 		q, ok := a.ActiveTab().(*query.Tab)
-		return ok && strings.Contains(q.Editor.Text, `DROP TABLE "main"."orders";`)
+		return ok && strings.Contains(q.Editor.Text(), `DROP TABLE "main"."orders";`)
 	})
 }
 

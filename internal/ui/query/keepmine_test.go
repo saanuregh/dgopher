@@ -15,7 +15,8 @@ func TestKeepMineOutsideAsks(t *testing.T) {
 	a, _, cn, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "SELECT 1;")
 	conflicted := func(path string) {
 		os.WriteFile(path, []byte("theirs"), 0o644)
-		q.Path, q.Saved, q.Editor.Text, q.DiskConflict = path, "old", "mine", "changed on disk"
+		q.Path, q.Saved, q.DiskConflict = path, "old", "changed on disk"
+		q.Editor.SetText("mine")
 	}
 
 	inside := filepath.Join(cn.Project.Dir, "in.sql")
@@ -50,7 +51,8 @@ func TestKeepMineDanglingSymlinkAsks(t *testing.T) {
 	if err := os.Symlink(planted, link); err != nil {
 		t.Fatal(err)
 	}
-	q.Path, q.Saved, q.Editor.Text, q.DiskConflict = link, "", "mine", "was deleted on disk"
+	q.Path, q.Saved, q.DiskConflict = link, "", "was deleted on disk"
+	q.Editor.SetText("mine")
 	q.keepMine()
 	if _, err := os.Lstat(planted); err == nil {
 		t.Fatal("written through the link before asking")

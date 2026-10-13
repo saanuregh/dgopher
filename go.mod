@@ -6,7 +6,7 @@ require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.48.0
 	github.com/andybalholm/brotli v1.2.2
 	github.com/duckdb/duckdb-go/v2 v2.10506.0
-	github.com/egoist/mygo v0.4.5
+	github.com/egoist/mygo v0.4.8
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/klauspost/compress v1.19.1
@@ -79,4 +79,4 @@ require (
 
 tool github.com/egoist/mygo/cmd/mygo
 
-replace github.com/egoist/mygo => github.com/saanuregh/mygo v0.3.4-0.20261012081834-e9a4ecd88851
+replace github.com/egoist/mygo => github.com/saanuregh/mygo v0.3.4-0.20261013122907-b9f6f472160d

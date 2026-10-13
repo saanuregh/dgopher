@@ -122,7 +122,7 @@ func parseSQLiteTable(create string) sqliteTable {
 						check.Name = sqltext.DecodeQuoted(item[i-1].Text, sqltext.SQLite)
 					}
 					close := matchingParen(item, i+1)
-					check.Expression = create[runeOffset(create, item[i+1].End):runeOffset(create, item[close].Start)]
+					check.Expression = create[item[i+1].End:item[close].Start]
 					out.checks = append(out.checks, check)
 					i = close
 				}
@@ -139,18 +139,6 @@ func matchingParen(toks []sqltext.Token, open int) int {
 		return i
 	}
 	return len(toks) - 1
-}
-
-// runeOffset is the byte offset of the rune at index n of s.
-func runeOffset(s string, n int) int {
-	i := 0
-	for at := range s {
-		if i == n {
-			return at
-		}
-		i++
-	}
-	return len(s)
 }
 
 // sqliteAlterChange changes a SQLite table: with ALTER TABLE what it can

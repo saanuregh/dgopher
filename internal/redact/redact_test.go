@@ -108,6 +108,7 @@ func TestRedactMoreSQL(t *testing.T) {
 		{`CREATE SECRET h (TYPE http, EXTRA_HTTP_HEADERS MAP {'X-Api-Key': 'apikey777'}, SCOPE 's3://b')`, "apikey777", "SCOPE 's3://b'"},
 		{`SELECT * FROM read_csv('x.csv', headers = {'Authorization': 'Bearer tok888'})`, "tok888", "read_csv('x.csv'"},
 		{`ATTACH 'md:my_db?motherduck_token=mdtok55' AS md`, "mdtok55", "AS md"},
+		{`ALTER ROLE "日本🙂" PASSWORD 'cafépw' VALID UNTIL 'infinity' -- é`, "cafépw", `ALTER ROLE "日本🙂" PASSWORD '•••' VALID UNTIL 'infinity' -- é`},
 	}
 	for _, engine := range []string{"MaterializedPostgreSQL", "MaterializedMySQL", "S3Queue", "AzureQueue",
 		"icebergS3", "icebergAzure", "icebergHDFS", "icebergS3Cluster", "deltaLakeCluster", "hudiCluster",

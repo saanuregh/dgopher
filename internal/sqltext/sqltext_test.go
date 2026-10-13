@@ -20,16 +20,15 @@ func kinds(toks []Token) []Kind {
 
 func checkCoverage(t *testing.T, src string, toks []Token) {
 	t.Helper()
-	rs := []rune(src)
 	pos := 0
 	for _, tok := range toks {
-		if tok.Start != pos || tok.End <= tok.Start || tok.Text != string(rs[tok.Start:tok.End]) {
+		if tok.Start != pos || tok.End <= tok.Start || tok.End > len(src) || tok.Text != src[tok.Start:tok.End] {
 			t.Fatalf("bad token %+v at pos %d in %q", tok, pos, src)
 		}
 		pos = tok.End
 	}
-	if pos != len(rs) {
-		t.Fatalf("tokens end at %d, want %d for %q", pos, len(rs), src)
+	if pos != len(src) {
+		t.Fatalf("tokens end at %d, want %d for %q", pos, len(src), src)
 	}
 }
 
@@ -129,12 +128,12 @@ func TestTokenizeNonASCIIIdent(t *testing.T) {
 	}
 }
 
-func TestTokenizeRuneOffsets(t *testing.T) {
+func TestTokenizeUnicodeOffsets(t *testing.T) {
 	src := "'héllo — 日本' x"
 	toks := Tokenize(src, Generic)
 	last := toks[len(toks)-1]
-	if last.Text != "x" || last.Start != 13 || last.End != 14 {
-		t.Fatalf("last token = %+v, want rune offsets 13..14", last)
+	if last.Text != "x" || last.Start != 20 || last.End != 21 {
+		t.Fatalf("last token = %+v, want byte offsets 20..21", last)
 	}
 }
 
@@ -176,9 +175,8 @@ func TestSplit(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			stmts := SplitWith(tt.src, tt.d, SplitOptions{})
 			var got []string
-			rs := []rune(tt.src)
 			for _, s := range stmts {
-				if string(rs[s.Start:s.End]) != s.Text {
+				if tt.src[s.Start:s.End] != s.Text {
 					t.Fatalf("Text %q does not match range", s.Text)
 				}
 				got = append(got, s.Text)
@@ -193,14 +191,14 @@ func TestSplit(t *testing.T) {
 func TestSplitUnicodeOffsets(t *testing.T) {
 	src := "select 'héllo — 日本'; select 2"
 	stmts := SplitWith(src, Generic, SplitOptions{})
-	if len(stmts) != 2 || stmts[1].Start != 21 || stmts[1].Text != "select 2" {
+	if len(stmts) != 2 || stmts[1].Start != 28 || stmts[1].Text != "select 2" {
 		t.Fatalf("got %+v", stmts)
 	}
 }
 
 func TestStatementAt(t *testing.T) {
 	src := "select 1;  select 2;\n\nselect 'héllo — 日本';\n"
-	// rune offsets: "select 1" 0..8, "select 2" 11..19, third starts at 22.
+	// byte offsets: "select 1" 0..8, "select 2" 11..19, third 22..48.
 	tests := []struct {
 		name  string
 		src   string
@@ -216,8 +214,8 @@ func TestStatementAt(t *testing.T) {
 		{"start of second", src, 11, "select 2", true},
 		{"blank line directly after previous picks previous", src, 21, "select 2", true},
 		{"inside unicode statement", src, 30, "select 'héllo — 日本'", true},
-		{"after final semicolon", src, 41, "select 'héllo — 日本'", true},
-		{"end of text on new line falls back to previous", src, 42, "select 'héllo — 日本'", true},
+		{"after final semicolon", src, 48, "select 'héllo — 日本'", true},
+		{"end of text on new line falls back to previous", src, 49, "select 'héllo — 日本'", true},
 		{"leading blank picks next", "\n\nselect 1", 0, "select 1", true},
 		{"empty", "", 0, "", false},
 		{"comments only", "-- x\n", 2, "", false},
@@ -503,7 +501,7 @@ func TestCompletionAt(t *testing.T) {
 		{"describe", MySQL, "describe |", CompletionContext{PrefixStart: 9, WantTable: true}},
 		{"where clause", Generic, "select * from t where a|", CompletionContext{Prefix: "a", PrefixStart: 22, Tables: []TableRef{{Name: "t"}}}},
 		{"other statement ignored", Generic, "select * from a; select * from b where |", CompletionContext{PrefixStart: 39, Tables: []TableRef{{Name: "b"}}}},
-		{"unicode before caret", Generic, "select 'héllo — 日本', x.c| from t x", CompletionContext{Prefix: "c", PrefixStart: 23, Qualifier: "x", Tables: []TableRef{{Name: "t", Alias: "x"}}}},
+		{"unicode before caret", Generic, "select 'héllo — 日本', x.c| from t x", CompletionContext{Prefix: "c", PrefixStart: 30, Qualifier: "x", Tables: []TableRef{{Name: "t", Alias: "x"}}}},
 		{"mysql backticks", MySQL, "select * from `my db`.`t 1` as `a b` where `a b`.|", CompletionContext{PrefixStart: 49, Qualifier: "a b",
 			Tables: []TableRef{{Schema: "my db", Name: "t 1", Alias: "a b", SchemaQuoted: true, Quoted: true}}}},
 		{"inside string", Generic, "select 'fro|m' from t", CompletionContext{Prefix: "fro", PrefixStart: 8}},
@@ -514,7 +512,6 @@ func TestCompletionAt(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			caret := strings.Index(tt.src, "|")
-			caret = len([]rune(tt.src[:caret]))
 			src := strings.Replace(tt.src, "|", "", 1)
 			got := CompletionAt(src, caret, tt.d)
 			if !reflect.DeepEqual(got, tt.want) {
@@ -588,7 +585,7 @@ func FuzzTokenize(f *testing.F) {
 		checkCoverage(t, src, toks)
 		SplitWith(src, dialect, SplitOptions{})
 		Classify(src, dialect)
-		n := len([]rune(src))
+		n := len(src)
 		CompletionAt(src, n/2, dialect)
 		StatementAt(src, n/2, dialect)
 		if got, want := significantTexts(FormatWith(src, dialect, SplitOptions{}), dialect), significantTexts(src, dialect); !reflect.DeepEqual(got, want) {
@@ -766,7 +763,7 @@ func TestCompletionLineCommentEnd(t *testing.T) {
 		{Postgres, "select * from t -- from"},
 		{MySQL, "select * from t # from "},
 	} {
-		got := CompletionAt(tt.src, len([]rune(tt.src)), tt.d)
+		got := CompletionAt(tt.src, len(tt.src), tt.d)
 		if got.WantTable || len(got.Tables) > 0 {
 			t.Errorf("CompletionAt(%q) = %+v, want empty context", tt.src, got)
 		}
@@ -929,7 +926,7 @@ func TestCompletionPrefixDollar(t *testing.T) {
 		{"SELECT * FROM a$", Postgres, "a$"},
 	}
 	for _, c := range cases {
-		if got := CompletionAt(c.src, len([]rune(c.src)), c.d).Prefix; got != c.prefix {
+		if got := CompletionAt(c.src, len(c.src), c.d).Prefix; got != c.prefix {
 			t.Errorf("%q: prefix %q, want %q", c.src, got, c.prefix)
 		}
 	}

@@ -368,7 +368,8 @@ func (a *App) openQueryFile(p *project.Project, rel string, then func(*query.Tab
 	open(cn)
 }
 
-// OpenQueryFile opens a query file of a project at a rune offset.
+// OpenQueryFile opens a query file of a project at a byte offset of its
+// text with \n line endings, as its editor has it.
 func (a *App) OpenQueryFile(path string, at int) {
 	for _, p := range a.projects {
 		if rel, err := filepath.Rel(p.Queries, path); err == nil && !strings.HasPrefix(rel, "..") {
@@ -403,7 +404,7 @@ func (a *App) SwitchConnection(q *query.Tab, id string) {
 		// Closing saved the editor's text, unless the user chose to lose
 		// it to the file on disk: the file is what reopens, or the text
 		// of an editor whose file was never written.
-		text := q.Editor.Text
+		text := q.Editor.FileText()
 		if q.Path != "" {
 			switch data, err := os.ReadFile(q.Path); {
 			case err == nil:
@@ -485,7 +486,7 @@ func (a *App) createQueryFile(cn *connection.Conn, database, content string) *qu
 // that names no connection takes the line naming the editor's. The copy
 // keeps its file when closed untouched: it may hold the only copy of what
 // the editor had, as when the editor then took its file's text instead.
-func (a *App) duplicateQuery(q *query.Tab) { a.copyQuery(q.Conn, q.Database, q.Editor.Text) }
+func (a *App) duplicateQuery(q *query.Tab) { a.copyQuery(q.Conn, q.Database, q.Editor.FileText()) }
 
 // duplicateQueryFile opens a copy of a project's query file, as Duplicate
 // does an editor's: of what its open editor holds, else of the file, on

@@ -135,11 +135,13 @@
 
     The names: background, surface, surfaceHover, surfacePressed, border,
     text, textMuted, accent, accentText, danger, warning, success,
-    selection, focus; sidebar, editor, gutter, lineNumber,
+    selection, focus; sidebar, editor, lineNumber,
     currentStatement, gridHeader, gridLine, cellSelected, null, modified,
     inserted, deleted, muted, hover; and the SQL's keyword, string,
     number, comment, quotedIdentifier, parameter and operator. A file
-    that does not read is left out, and logged.
+    that does not read is left out, and logged. `gutter`, which older
+    versions colored, is still read and has no effect: the gutter takes
+    the editor's color.
 - **Notifications:** a statement, script, export or import that took 10
   seconds or more (a setting; 0 for never) tells the system as it ends,
   if DGopher is in the background then: what ran, on which connection,
@@ -306,7 +308,12 @@
 ## SQL editor
 
 - **SQL editor**, run as DBeaver runs it:
-  - Syntax highlighting per dialect, and line numbers.
+  - Syntax highlighting per dialect, and line numbers. Only the lines in
+    view are drawn, so a long script scrolls and edits as a short one.
+  - Brackets and quotes close as they are typed, and wrap a selection;
+    Enter keeps the indentation and continues a `--` comment. Lines move
+    with ⌥↑ and ⌥↓, duplicate with ⌥⇧↑ and ⌥⇧↓, and go with ⌘⇧K; ⌃G
+    goes to a line.
   - Catalog Queries, on a connection's menu or in the command palette,
     lists the latest queries the app ran on its own to read the catalog,
     as the navigator's tables and an editor's completions, with how long
@@ -333,16 +340,14 @@
   - Several carets: ⌘⌥↑ and ⌘⌥↓ add one on the line above or below,
     Alt+click where clicked; ⌘D selects the word at the caret, then its
     next whole occurrence, and ⌘⇧L every one. What is typed, deleted or
-    completed at the editor's caret is done at each; the arrows, Home and
-    End move them all, and Esc leaves the editor's own.
+    completed at one caret is done at each; the arrows, Home and End move
+    them all, and Esc goes back to one.
   - A ▶ in the gutter, on the first line of each statement, puts the
     caret in it and runs it, as ⌘↵ does.
   - Folding: a statement, a group in parentheses or a block comment
     over several lines folds to its first line and a ⋯, by the gutter's
-    ▾ and ▸, or ⌘⌥[ and ⌘⌥] at the caret (with ⇧, every block). What is
-    folded stays in the text, and runs; typing over a ⋯ takes its lines
-    with it, a find or go to inside a fold opens it, and the app's own
-    changes, Vim's keys and several carets open the folds.
+    markers, or ⌘⌥[ and ⌘⌥] at the caret (with ⇧, every block). What is
+    folded stays in the text, and runs.
   - Vim key bindings (Settings → Editor → Vim): normal, insert, visual and
     visual line modes, with a block caret and the mode under the editor;
     counts; the motions h j k l w b e W B E 0 ^ $ gg G f F t T ; , % { }
@@ -352,7 +357,8 @@
     included; / ? n N searching; :w saving and :N going to a line. The
     register is the clipboard. The app's commands keep their keys, as ⌘↵,
     and Vim's Control keys win over theirs while the editor has the
-    keys.
+    keys. Outside insert mode, keys Vim does not use, as Page Up or ⌘F,
+    act as in the editor.
   - The editor's toolbar shows the schema it finds names in, and on
     PostgreSQL its database, and switches them: `SET search_path` or `USE`
     on its session, audited, and another database on a session of its
@@ -360,7 +366,9 @@
     too.
   - Completion of tables, columns (alias-aware), schemas, keywords, the
     engine's common functions and the schema's own, which complete with
-    their parentheses, and snippets by their keyword.
+    their parentheses, and snippets by their keyword. The list narrows as
+    you type, best match first, by the letters typed in order (`usr`
+    finds `users`); ↵ or Tab inserts the one chosen.
     A table completed in a query's `FROM` or `JOIN` takes a short alias of
     its words' first letters, as DBeaver gives (`reflex_order ro`), apart
     from the statement's others and from keywords (`ro2`).
@@ -383,12 +391,15 @@
     placeholders is refused.
   - A failed statement shows the database's message, code, detail, hint and
     where it went wrong; "Go to Error" puts the caret there.
-  - A right-click menu: execute, cut/copy/paste, format, upper or lower case,
-    toggle comments, copy the statement, save a snippet, export from the
-    query.
+  - A right-click menu: the editor's own (cut, copy, paste, comments,
+    changing case, folding, selections), then execute, format, upper or
+    lower case, toggle comments, copy the statement, save a snippet,
+    export from the query.
   - Explain (⌘E), format (⌘⇧F, the selection only when there is one,
-    keeping the blank lines between statements), find (⌘F) and replace
-    (⌘⌥F): one match at a time, or all at once, which a toast can undo.
+    keeping the blank lines between statements), and find (⌘F) and
+    replace (⌘⌥F) in the editor's find bar: matching case, whole words or
+    a regular expression, in the selection or the whole text, one match
+    at a time or all at once, which ⌘Z undoes.
   - A plan (⌘E), or one measured by running the statement (Explain
     Analyze, ⌘⇧E, for statements that read, on PostgreSQL, MySQL and
     DuckDB), shows as a tree of its steps, with their rows, estimated and

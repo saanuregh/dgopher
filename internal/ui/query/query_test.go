@@ -2,7 +2,6 @@ package query
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,12 +10,13 @@ import (
 
 	"dgopher/internal/audit"
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 	"dgopher/internal/safety"
 	"dgopher/internal/testutil"
-	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
+	code "github.com/egoist/mygo/ui/editor"
 )
 
 func TestErrorOffset(t *testing.T) {
@@ -40,15 +40,20 @@ func TestErrorOffset(t *testing.T) {
 	if errorOffset(stmt, -1, 0, db.ErrorInfo{Position: 3}) != -1 {
 		t.Error("an offset without a start")
 	}
-}
-
-func TestKindGlyph(t *testing.T) {
-	for kind, want := range map[string]string{
-		"table": "T", "view": "V", "column": "c", "schema": "S", "connection": "C",
-		"function": "ƒ", "snippet": "≡", "keyword": "k", "": "k", "other": "k",
-	} {
-		if got := kindGlyph(kind); got != want {
-			t.Errorf("kindGlyph(%q) = %q, want %q", kind, got, want)
+	// The database counts characters, past the prefix the app put before;
+	// the editor, bytes.
+	wide := "EXPLAIN SELECT 'é日' FROM missing"
+	skip := len("EXPLAIN ")
+	at := strings.Index(wide, "missing") - skip
+	for _, info := range []db.ErrorInfo{{Position: 26}, {Line: 1, Column: 26}, {Line: 1, Near: "missing"}} {
+		if got := errorOffset(wide, 100, skip, info); got != 100+at {
+			t.Errorf("%+v past characters of several bytes: %d, want %d", info, got, 100+at)
+		}
+	}
+	// ClickHouse counts bytes.
+	for _, info := range []db.ErrorInfo{{Position: 26 + 3, Bytes: true}, {Line: 1, Column: 26 + 3, Bytes: true}} {
+		if got := errorOffset(wide, 100, skip, info); got != 100+at {
+			t.Errorf("%+v in bytes: %d, want %d", info, got, 100+at)
 		}
 	}
 }
@@ -57,7 +62,7 @@ func TestKindGlyph(t *testing.T) {
 // selects the spot in the editor.
 func TestErrorPanelGoToError(t *testing.T) {
 	_, tt, _, q := openEditor(t, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"}, 1100, 760, "SELECT 1;\n\nSELECT *\nFRM nowhere;")
-	at := strings.Index(q.Editor.Text, "FRM")
+	at := strings.Index(q.Editor.Text(), "FRM")
 	testutil.SetCaret(tt, &q.Editor, at)
 	q.Run(RunStatement)
 	testutil.WaitFor(t, tt, "the error", func() bool { return !q.Running && tt.HasText("Go to Error") })
@@ -67,7 +72,7 @@ func TestErrorPanelGoToError(t *testing.T) {
 	}
 	tt.Frame()
 	tt.Frame()
-	sel := q.Editor.Selection()
+	sel := q.Editor.SelectedText()
 	if sel != "nowhere" {
 		t.Fatalf("selected %q", sel)
 	}
@@ -77,7 +82,7 @@ func TestErrorPanelGoToError(t *testing.T) {
 // match of at, and waits for the run.
 func runWith(t *testing.T, tt *ui.Tester, q *Tab, at string, mode RunMode) {
 	t.Helper()
-	testutil.SetCaret(tt, &q.Editor, strings.Index(q.Editor.Text, at))
+	testutil.SetCaret(tt, &q.Editor, strings.Index(q.Editor.Text(), at))
 	q.Run(mode)
 	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running })
 }
@@ -138,7 +143,7 @@ func TestScriptTwoSelectsTwoResults(t *testing.T) {
 	if len(q.results) != 2 || len(q.results[0].view.Rows()) != 1 || len(q.results[1].view.Rows()) != 1 {
 		t.Fatalf("script: %d results", len(q.results))
 	}
-	q.Editor.SelStart, q.Editor.SelEnd = 0, len([]rune(q.Editor.Text))
+	q.Editor.Select(0, len(q.Editor.Text()))
 	q.Run(RunStatement)
 	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running })
 	if len(q.results) != 2 || q.results[1].sql != "select 2 as b where 2 = 2" {
@@ -173,7 +178,7 @@ func TestStatementTimeout(t *testing.T) {
 		t.Fatalf("after %s: %+v", time.Since(start), q.results)
 	}
 	// A quick statement's rows are read past the timeout.
-	q.Editor.Text = "-- connection: duck\n\nSELECT * FROM range(5000)"
+	q.Editor.SetText("-- connection: duck\n\nSELECT * FROM range(5000)")
 	runWith(t, tt, q, "SELECT", RunStatement)
 	time.Sleep(1200 * time.Millisecond)
 	q.results[0].view.FetchAll()
@@ -187,7 +192,7 @@ func TestStatementTimeout(t *testing.T) {
 // reviewed as one.
 func TestParametersBoundAndReviewed(t *testing.T) {
 	a, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:", Env: db.Production}, 1000, 700, "SELECT :n + 1 AS v")
-	testutil.SetCaret(tt, &q.Editor, strings.Index(q.Editor.Text, "SELECT"))
+	testutil.SetCaret(tt, &q.Editor, strings.Index(q.Editor.Text(), "SELECT"))
 	q.Run(RunStatement)
 	if a.dialogs.params == nil || len(a.dialogs.params.fields) != 1 {
 		t.Fatalf("no parameter dialog: %+v", a.dialogs.params)
@@ -201,8 +206,8 @@ func TestParametersBoundAndReviewed(t *testing.T) {
 		t.Fatalf("got %s", got)
 	}
 	// The value is remembered, and a ${var} is reviewed after substitution.
-	q.Editor.Text = "-- connection: lite\n\n${stmt}"
-	testutil.SetCaret(tt, &q.Editor, len([]rune(q.Editor.Text)))
+	q.Editor.SetText("-- connection: lite\n\n${stmt}")
+	testutil.SetCaret(tt, &q.Editor, len(q.Editor.Text()))
 	q.Run(RunStatement)
 	a.dialogs.params.fields[0].value = "DELETE FROM t"
 	a.dialogs.params.submit()
@@ -212,8 +217,8 @@ func TestParametersBoundAndReviewed(t *testing.T) {
 	}
 	a.Confirm = nil
 	// A value that adds a statement is refused outright.
-	q.Editor.Text = "-- connection: lite\n\nSELECT * FROM ${t}"
-	testutil.SetCaret(tt, &q.Editor, len([]rune(q.Editor.Text)))
+	q.Editor.SetText("-- connection: lite\n\nSELECT * FROM ${t}")
+	testutil.SetCaret(tt, &q.Editor, len(q.Editor.Text()))
 	q.Run(RunStatement)
 	a.dialogs.params.fields[0].value = "x; DROP TABLE y"
 	a.dialogs.params.submit()
@@ -227,9 +232,9 @@ func TestParametersBoundAndReviewed(t *testing.T) {
 func TestExplainSelectionNeverRuns(t *testing.T) {
 	_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "CREATE TABLE t (a INT);\nINSERT INTO t VALUES (1);")
 	runWith(t, tt, q, "CREATE", RunScript)
-	q.Editor.Text = "-- connection: lite\n\nDELETE FROM t WHERE a = 1"
-	start := strings.Index(q.Editor.Text, "DELETE")
-	q.Editor.PendingSel = &[2]int{start, len([]rune(q.Editor.Text))}
+	q.Editor.SetText("-- connection: lite\n\nDELETE FROM t WHERE a = 1")
+	start := strings.Index(q.Editor.Text(), "DELETE")
+	q.Editor.Select(start, len(q.Editor.Text()))
 	tt.Frame()
 	tt.Frame()
 	q.Run(RunExplain)
@@ -237,8 +242,8 @@ func TestExplainSelectionNeverRuns(t *testing.T) {
 	if r := q.results[len(q.results)-1]; !strings.HasPrefix(r.sql, "EXPLAIN") {
 		t.Fatalf("ran %q", r.sql)
 	}
-	q.Editor.Text = "-- connection: lite\n\nSELECT count(*) FROM t"
-	testutil.SetCaret(tt, &q.Editor, len([]rune(q.Editor.Text)))
+	q.Editor.SetText("-- connection: lite\n\nSELECT count(*) FROM t")
+	testutil.SetCaret(tt, &q.Editor, len(q.Editor.Text()))
 	q.Run(RunStatement)
 	testutil.WaitFor(t, tt, "the count", func() bool { return !q.Running })
 	if got := db.Display(q.results[0].view.Rows()[0][0]); got != "1" {
@@ -250,7 +255,7 @@ func TestExplainSelectionNeverRuns(t *testing.T) {
 // destructive statement asks even after Run All.
 func TestProductionScriptConfirmsEachWrite(t *testing.T) {
 	a, tt, _, q := openEditor(t, db.Config{ID: "prod", Name: "prod", Engine: db.SQLite, Database: ":memory:", Env: db.Production}, 1000, 700, "CREATE TABLE t (a INT);\nINSERT INTO t VALUES (1);\nINSERT INTO t VALUES (2);\nINSERT INTO t VALUES (3);\nDELETE FROM t;\nSELECT count(*) FROM t;")
-	testutil.SetCaret(tt, &q.Editor, strings.Index(q.Editor.Text, "CREATE"))
+	testutil.SetCaret(tt, &q.Editor, strings.Index(q.Editor.Text(), "CREATE"))
 	q.Run(RunScript)
 	answer := func(want string, choose func(r *widgets.ConfirmRequest)) {
 		t.Helper()
@@ -303,19 +308,19 @@ func TestEditorMenuActsOnSelection(t *testing.T) {
 	}
 	tt.Frame()
 	// Without a selection, the statement at the caret.
-	q.Editor.Text = "-- connection: lite\n\nselect 'a' as x\n\nselect 2 as y"
-	testutil.SetCaret(tt, &q.Editor, strings.Index(q.Editor.Text, "2 as"))
+	q.Editor.SetText("-- connection: lite\n\nselect 'a' as x\n\nselect 2 as y")
+	testutil.SetCaret(tt, &q.Editor, strings.Index(q.Editor.Text(), "2 as"))
 	q.changeCase(true)
-	if !strings.HasSuffix(q.Editor.Text, "select 'a' as x\n\nSELECT 2 AS Y") {
-		t.Fatalf("upper case of the statement: %q", q.Editor.Text)
+	if !strings.HasSuffix(q.Editor.Text(), "select 'a' as x\n\nSELECT 2 AS Y") {
+		t.Fatalf("upper case of the statement: %q", q.Editor.Text())
 	}
 	// With one, the selection's lines.
-	q.Editor.PendingSel = &[2]int{strings.Index(q.Editor.Text, "select 'a'"), strings.Index(q.Editor.Text, " as x")}
+	q.Editor.Select(strings.Index(q.Editor.Text(), "select 'a'"), strings.Index(q.Editor.Text(), " as x"))
 	tt.Frame()
 	tt.Frame()
 	q.toggleComment()
-	if !strings.Contains(q.Editor.Text, "-- select 'a' as x") || strings.Contains(q.Editor.Text, "-- SELECT 2") {
-		t.Fatalf("comment: %q", q.Editor.Text)
+	if !strings.Contains(q.Editor.Text(), "-- select 'a' as x") || strings.Contains(q.Editor.Text(), "-- SELECT 2") {
+		t.Fatalf("comment: %q", q.Editor.Text())
 	}
 }
 
@@ -324,12 +329,14 @@ func TestEditorMenuActsOnSelection(t *testing.T) {
 func TestOpeningDoesNotComplete(t *testing.T) {
 	_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "SELECT 1 AS v")
 	tt.Frame()
-	if q.ac.open {
+	if q.Editor.State.CompletionsOpen() {
 		t.Fatalf("completions open on opening: %d items", len(q.ac.items))
 	}
-	tt.Type(" FR")
+	// Typed a key at a time, as a word is.
+	tt.Type(" ")
+	tt.Type("FR")
 	tt.Frame()
-	if !q.ac.open {
+	if !q.Editor.State.CompletionsOpen() {
 		t.Fatal("typing offers no completion")
 	}
 }
@@ -342,15 +349,15 @@ func TestPasteDoesNotComplete(t *testing.T) {
 	tt.SetClipboard(" FR")
 	tt.Key(ui.Cmd, ui.KeyV)
 	tt.Frame()
-	if q.Editor.Text != "SELECT 1 AS v FR" {
-		t.Fatalf("after the paste: %q", q.Editor.Text)
+	if q.Editor.Text() != "SELECT 1 AS v FR" {
+		t.Fatalf("after the paste: %q", q.Editor.Text())
 	}
-	if q.ac.open {
+	if q.Editor.State.CompletionsOpen() {
 		t.Fatalf("a paste offers completions: %d items", len(q.ac.items))
 	}
 	tt.Type("O")
 	tt.Frame()
-	if !q.ac.open {
+	if !q.Editor.State.CompletionsOpen() {
 		t.Fatal("typing after a paste offers no completion")
 	}
 }
@@ -361,16 +368,25 @@ func TestCompletionPopupPastEditor(t *testing.T) {
 	_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "SELECT 1")
 	q.editorH = 80
 	tt.Frame()
-	tt.Type(" C")
+	tt.Type(" ")
+	tt.Type("C")
 	tt.Frame()
-	if !q.ac.open || len(q.ac.items) < 5 {
-		t.Fatalf("completions: open %v, %d items", q.ac.open, len(q.ac.items))
+	if !q.Editor.State.CompletionsOpen() || len(q.ac.items) < 5 {
+		t.Fatalf("completions: open %v, %d items", q.Editor.State.CompletionsOpen(), len(q.ac.items))
 	}
-	caret, _ := tt.TextCaret()
-	editorBottom := float32(caret.Y) - 8 + q.editorH
+	ed, ok := tt.Find("SQL editor")
+	if !ok {
+		t.Fatal("no editor")
+	}
+	editorBottom := float32(ed.Y + ed.H)
+	list, ok := tt.Find("Completions")
+	if !ok {
+		t.Fatal("no completions shown")
+	}
 	label := ""
 	for _, it := range q.ac.items {
-		if r, ok := tt.Find(it.label); ok && float32(r.Y) > editorBottom {
+		// One in sight in the list, past the editor's bottom.
+		if r, ok := tt.Find(it.label); ok && float32(r.Y) > editorBottom && r.Y+r.H <= list.Y+list.H {
 			label = it.label
 			break
 		}
@@ -383,8 +399,8 @@ func TestCompletionPopupPastEditor(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if !strings.Contains(q.Editor.Text, label) {
-		t.Fatalf("a click on %q past the editor's bottom: text %q, popup open %v", label, q.Editor.Text, q.ac.open)
+	if !strings.Contains(q.Editor.Text(), label) {
+		t.Fatalf("a click on %q past the editor's bottom: text %q, popup open %v", label, q.Editor.Text(), q.Editor.State.CompletionsOpen())
 	}
 }
 
@@ -396,24 +412,18 @@ func TestCompletingTableAddsAlias(t *testing.T) {
 	setup, _ := db.Open(context.Background(), db.Config{Name: "s", Engine: db.SQLite, Database: file}, nil)
 	setup.SQL.Exec("CREATE TABLE reflex_order (id INTEGER)")
 	setup.Close()
-	a, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file}, 1000, 700, "")
+	_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file}, 1000, 700, "")
 	complete := func(before, after string) string {
 		t.Helper()
-		q.Editor.Text = before + after
-		q.ac.lastText = q.Editor.Text
-		testutil.SetCaret(tt, &q.Editor, len([]rune(before)))
+		q.Editor.SetText(before + after)
+		testutil.SetCaret(tt, &q.Editor, len(before))
 		testutil.WaitFor(t, tt, "the table's suggestion", func() bool {
-			q.suggest(a, true)
-			for i, it := range q.ac.items {
-				if it.label == "reflex_order" {
-					q.ac.index = i
-					return true
-				}
-			}
-			return false
+			q.suggest(q.Editor.Caret(), true)
+			return offers(q, "reflex_order")
 		})
-		q.accept()
-		return q.Editor.Text
+		tt.Key(0, ui.KeyEnter)
+		tt.Frame()
+		return q.Editor.Text()
 	}
 	for _, c := range []struct{ before, after, want string }{
 		{"SELECT * FROM refl", "", "SELECT * FROM reflex_order ro"},
@@ -429,32 +439,60 @@ func TestCompletingTableAddsAlias(t *testing.T) {
 	}
 }
 
-// Find glides to a match out of sight rather than jumping there, and
-// tells whether the next match shows by where the glide ends.
-func TestFindScrollsSmoothly(t *testing.T) {
-	var b strings.Builder
-	for i := range 400 {
-		fmt.Fprintf(&b, "select %d;\n", i)
-	}
-	_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, b.String())
-	tt.Frame()
+// Accepting completes at every caret with the word before it: a
+// function with its parentheses, the caret between, unless they follow;
+// a table in FROM with an alias; each as one step of undo.
+func TestCompletionAcceptsAliasAndParens(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "x.sqlite")
+	os.WriteFile(file, nil, 0o600)
+	setup, _ := db.Open(context.Background(), db.Config{Name: "s", Engine: db.SQLite, Database: file}, nil)
+	setup.SQL.Exec("CREATE TABLE reflex_order (id INTEGER)")
+	setup.Close()
+	_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file}, 1000, 700, "")
 	e := &q.Editor
-	fontSize := q.a.Settings().EditorFont
-	lh := fontSize * editor.LineHeight
-	lineAt := func(n int) int { return strings.Index(e.Text, fmt.Sprintf("select %d;", n)) }
-	target := func(n int) float32 { return max(0, float32(n)*lh-q.editorH/3) }
-
-	q.reveal(lineAt(300), fontSize, true)
-	if !e.Scroll.Scrolling() || e.Scroll.Y != 0 {
-		t.Fatalf("revealing line 300: scrolling %v at %v, want a glide from 0", e.Scroll.Scrolling(), e.Scroll.Y)
+	// complete types text, | marking the carets, asks at the newest, and
+	// accepts label.
+	complete := func(text, label string) string {
+		t.Helper()
+		parts := strings.Split(text, "|")
+		e.SetText(strings.Join(parts, ""))
+		var sels []code.Selection
+		at := 0
+		for _, p := range parts[:len(parts)-1] {
+			at += len(p)
+			sels = append(sels, code.Selection{Anchor: at, Head: at})
+		}
+		e.State.SetSelections(sels...)
+		tt.Frame()
+		testutil.WaitFor(t, tt, label, func() bool {
+			q.suggest(e.Caret(), true)
+			return offers(q, label)
+		})
+		tt.Key(0, ui.KeyEnter)
+		tt.Frame()
+		return e.Text()
 	}
-	// The last line in sight now, but not where the glide ends: it heads
-	// there instead.
-	shown := int((q.editorH-3*lh)/lh) - 1
-	q.reveal(lineAt(shown), fontSize, true)
-	testutil.WaitFor(t, tt, "the glide", func() bool { return !e.Scroll.Scrolling() })
-	if want := target(shown); e.Scroll.Y < want-1 || e.Scroll.Y > want+1 {
-		t.Fatalf("the glide ended at %v, want %v, to show line %d", e.Scroll.Y, want, shown)
+	for _, c := range []struct{ text, label, want string }{
+		{"SELECT coales|", "coalesce", "SELECT coalesce()"},
+		{"SELECT coales|(a, 1)", "coalesce", "SELECT coalesce(a, 1)"},
+		{"SELECT 'é', coales|, coales|", "coalesce", "SELECT 'é', coalesce(), coalesce()"},
+		{"SELECT * FROM refl| JOIN refl|", "reflex_order", "SELECT * FROM reflex_order ro JOIN reflex_order ro"},
+	} {
+		if got := complete(c.text, c.label); got != c.want {
+			t.Errorf("completing %q: %q, want %q", c.text, got, c.want)
+		}
+	}
+	if sels := e.State.Selections(); len(sels) != 2 || sels[1].Head != len(e.Text()) {
+		t.Errorf("carets after the aliases: %+v", sels)
+	}
+	complete("SELECT 'é', coales|, coales|", "coalesce")
+	want := []int{len("SELECT 'é', coalesce("), len("SELECT 'é', coalesce(), coalesce(")}
+	if sels := e.State.Selections(); len(sels) != 2 || sels[0].Head != want[0] || sels[1].Head != want[1] {
+		t.Errorf("carets in the parentheses: %+v, want at %v", sels, want)
+	}
+	e.State.Run(code.Undo)
+	if e.Text() != "SELECT 'é', coales, coales" {
+		t.Errorf("undo left %q", e.Text())
 	}
 }
 
@@ -503,8 +541,8 @@ func TestEditorAuditTypedAndSent(t *testing.T) {
 	}
 	run := func(text, value string, mode RunMode) audit.Event {
 		t.Helper()
-		q.Editor.Text = "-- connection: lite\n\n" + text
-		testutil.SetCaret(tt, &q.Editor, len([]rune(q.Editor.Text)))
+		q.Editor.SetText("-- connection: lite\n\n" + text)
+		testutil.SetCaret(tt, &q.Editor, len(q.Editor.Text()))
 		n := len(a.Events)
 		q.Run(mode)
 		if value != "" {
@@ -522,5 +560,79 @@ func TestEditorAuditTypedAndSent(t *testing.T) {
 	}
 	if e := run("SELECT 3 AS v", "", RunExplain); !strings.HasPrefix(e.Statement, "EXPLAIN") || e.Typed != "" {
 		t.Errorf("explained: %+v", e)
+	}
+}
+
+// The statement at the caret, and the one a ▶ runs with the caret put at
+// its start, are found past characters of several bytes.
+func TestRunStatementAtCaretMultibyte(t *testing.T) {
+	text := "SELECT '日本' AS a;\n\nSELECT 'é' AS b;\n\nSELECT '🎉' AS c;"
+	_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, text)
+	last := func() string {
+		testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running && len(q.results) > 0 })
+		return q.results[len(q.results)-1].sql
+	}
+	testutil.SetCaret(tt, &q.Editor, strings.Index(text, "é"))
+	q.Run(RunStatement)
+	if got := last(); got != "SELECT 'é' AS b" {
+		t.Fatalf("ran %q", got)
+	}
+	if first, last := q.Editor.CurrentLines[0], q.Editor.CurrentLines[1]; first != 2 || last != 2 {
+		t.Fatalf("the band on lines %d-%d", first, last)
+	}
+	q.runLine(4)
+	if got := last(); got != "SELECT '🎉' AS c" {
+		t.Fatalf("the ▶ of line 4 ran %q", got)
+	}
+	if q.Editor.Caret() != strings.Index(text, "SELECT '🎉'") {
+		t.Fatalf("caret at %d", q.Editor.Caret())
+	}
+}
+
+// A file with \r\n line endings opens unchanged, and saves with them:
+// the editor's own \n lines are not a change, nor a conflict with the
+// file on disk.
+func TestSaveKeepsCRLF(t *testing.T) {
+	a := newFakeQueryHost(t)
+	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1000, 700)
+	path := filepath.Join(t.TempDir(), "crlf.sql")
+	disk := "-- connection: lite\r\n\r\nSELECT 1;\r\n"
+	if err := os.WriteFile(path, []byte(disk), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	q := New(a, cn, "", "crlf.sql", disk)
+	q.Path, q.Saved = path, disk
+	a.AddTab(q)
+	tt.Frame()
+	if q.Editor.Text() != strings.ReplaceAll(disk, "\r\n", "\n") || q.Unsaved() {
+		t.Fatalf("opened as %q, unsaved %v", q.Editor.Text(), q.Unsaved())
+	}
+	q.Editor.Replace(len(q.Editor.Text()), len(q.Editor.Text()), "SELECT 2;\n")
+	q.Flush(false)
+	want := disk + "SELECT 2;\r\n"
+	if got, _ := os.ReadFile(path); string(got) != want || q.DiskConflict != "" || q.Saved != want || q.Unsaved() {
+		t.Fatalf("saved %q, conflict %q, unsaved %v", got, q.DiskConflict, q.Unsaved())
+	}
+}
+
+// The completion key, as set in the settings, asks for completions with
+// nothing typed.
+func TestCompleteKey(t *testing.T) {
+	defer keymap.Use(nil)
+	for _, key := range []string{"", "Alt+J"} {
+		if key != "" {
+			if errs := keymap.Use(map[string][]string{keymap.Complete: {key}}); errs != nil {
+				t.Fatal(errs)
+			}
+		}
+		_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "SELECT 1 AS v ")
+		testutil.WaitFor(t, tt, "the editor's focus", func() bool { return q.Editor.HasFocus() })
+		ch, _ := keymap.Primary(keymap.Complete)
+		tt.Key(ch.Mods, ch.Key)
+		tt.Frame()
+		if !q.Editor.State.CompletionsOpen() {
+			t.Fatalf("%s: no completions", keymap.First(keymap.Complete))
+		}
 	}
 }

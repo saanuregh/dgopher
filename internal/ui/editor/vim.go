@@ -5,8 +5,10 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo/ui"
+	code "github.com/egoist/mygo/ui/editor"
 )
 
 // VimMode is the mode of the editor's Vim key bindings.
@@ -20,14 +22,15 @@ const (
 )
 
 // Vim is the state of the Vim key bindings of an editor: the text it
-// works on is the editor's, as runes, with its caret, the rune under the
-// block in normal mode.
+// works on is the editor's, with its caret, a byte offset, the start of
+// the character under the block in normal mode. Motions and edits step
+// by characters.
 //
-// Keys come as tokens: a rune typed, or a named key, as "<Esc>", "<CR>",
-// "<BS>", "<C-r>", "<Left>".
+// Keys come as tokens: a character typed, or a named key, as "<Esc>",
+// "<CR>", "<BS>", "<C-r>", "<Left>".
 type Vim struct {
 	Mode   VimMode
-	Text   []rune
+	Text   string
 	Caret  int
 	Anchor int // where a visual selection started
 	// Message is what the last command says, as a search not found.
@@ -48,16 +51,18 @@ type Vim struct {
 	// gathers the change being made, an insert's typing included.
 	last, change []string
 	replaying    bool
-	want         int // the column j and k keep, -1 for the caret's
+	want         int // the column, in characters, j and k keep, -1 for the caret's
 	search       string
 	searchBack   bool
 	find         [2]rune // the last f, F, t or T, and its character
 	prompt       []rune  // a : or / line being typed, its first rune the kind
-	typedFrom    []rune  // the text as typing began, for '.' to repeat it
+	typedFrom    string  // the text as typing began, for '.' to repeat it
+	// halfPage is how many lines Ctrl+D and Ctrl+U move, 0 for 15.
+	halfPage int
 }
 
 type vimSnapshot struct {
-	text  []rune
+	text  string
 	caret int
 }
 
@@ -82,13 +87,13 @@ func (v *Vim) Status() string {
 	return v.Message
 }
 
-// Selection is the runes the text area selects: the visual selection, or
+// Selection is the bytes the editor selects: the visual selection, or
 // the caret alone.
 func (v *Vim) Selection() (start, end int) {
 	switch v.Mode {
 	case VimVisual:
 		lo, hi := min(v.Anchor, v.Caret), max(v.Anchor, v.Caret)
-		return lo, min(hi+1, len(v.Text))
+		return lo, nextChar(v.Text, hi)
 	case VimVisualLine:
 		lo, hi := min(v.Anchor, v.Caret), max(v.Anchor, v.Caret)
 		return lineStart(v.Text, lo), min(lineEnd(v.Text, hi)+1, len(v.Text))
@@ -96,8 +101,8 @@ func (v *Vim) Selection() (start, end int) {
 	return v.Caret, v.Caret
 }
 
-// Feed takes a key: it reports whether Vim took it, or the text area is
-// to, as typing in insert mode.
+// Feed takes a key: it reports whether Vim took it, or the editor is to,
+// as typing in insert mode.
 func (v *Vim) Feed(tok string) bool {
 	if v.prompt != nil {
 		v.promptKey(tok)
@@ -112,13 +117,13 @@ func (v *Vim) Feed(tok string) bool {
 		v.pending = nil
 	}
 	if v.Mode == VimInsert {
-		v.typedFrom = slices.Clone(v.Text)
+		v.typedFrom = v.Text
 	}
 	return true
 }
 
 // insertKey takes a key in insert mode: Esc ends it, the rest is typing,
-// which the text area does but for a replay.
+// which the editor does but for a replay.
 func (v *Vim) insertKey(tok string) bool {
 	if tok == "<Esc>" || tok == "<C-[>" {
 		if v.change != nil {
@@ -127,7 +132,7 @@ func (v *Vim) insertKey(tok string) bool {
 		v.endChange()
 		v.Mode = VimNormal
 		if v.Caret > lineStart(v.Text, v.Caret) {
-			v.Caret--
+			v.Caret = prevChar(v.Text, v.Caret)
 		}
 		return true
 	}
@@ -138,7 +143,7 @@ func (v *Vim) insertKey(tok string) bool {
 	return true
 }
 
-// typeKey types a key as the text area would: as '.' repeats typing, or
+// typeKey types a key as the editor would: as '.' repeats typing, or
 // keys that come with the one that began it.
 func (v *Vim) typeKey(tok string) {
 	switch tok {
@@ -146,24 +151,25 @@ func (v *Vim) typeKey(tok string) {
 		v.insert("\n")
 	case "<BS>":
 		if v.Caret > 0 {
-			v.Text = slices.Delete(v.Text, v.Caret-1, v.Caret)
-			v.Caret--
+			from := prevChar(v.Text, v.Caret)
+			v.Text = v.Text[:from] + v.Text[v.Caret:]
+			v.Caret = from
 		}
 	default:
-		if len([]rune(tok)) == 1 {
+		if utf8.RuneCountInString(tok) == 1 {
 			v.insert(tok)
 		}
 	}
 }
 
-// Typed tells Vim of typing the text area did in insert mode, which moved
+// Typed tells Vim of typing the editor did in insert mode, which moved
 // the caret and changed the text: kept for '.' to repeat it, as the keys
 // that type it from where typing began.
-func (v *Vim) Typed(text []rune, caret int) {
+func (v *Vim) Typed(text string, caret int) {
 	if v.change != nil && !v.replaying {
 		was := v.typedFrom
-		p, s := commonEnds(was, text, len(was), 0)
-		for range len(was) - p - s {
+		p, s := commonEnds(was, text)
+		for range utf8.RuneCountInString(was[p : len(was)-s]) {
 			v.change = append(v.change, "<BS>")
 		}
 		for _, r := range text[p : len(text)-s] {
@@ -178,9 +184,8 @@ func (v *Vim) Typed(text []rune, caret int) {
 }
 
 func (v *Vim) insert(s string) {
-	r := []rune(s)
-	v.Text = slices.Insert(v.Text, v.Caret, r...)
-	v.Caret += len(r)
+	v.Text = v.Text[:v.Caret] + s + v.Text[v.Caret:]
+	v.Caret += len(s)
 }
 
 // endChange keeps the change made as the one '.' repeats.
@@ -193,7 +198,7 @@ func (v *Vim) endChange() {
 
 // snapshot keeps the text before a change, for u.
 func (v *Vim) snapshot() {
-	v.undo = append(v.undo, vimSnapshot{slices.Clone(v.Text), v.Caret})
+	v.undo = append(v.undo, vimSnapshot{v.Text, v.Caret})
 	v.redo = nil
 }
 
@@ -217,7 +222,7 @@ func (v *Vim) run(toks []string) bool {
 		switch k {
 		case "a":
 			if v.Caret < lineEnd(v.Text, v.Caret) {
-				v.Caret++
+				v.Caret = nextChar(v.Text, v.Caret)
 			}
 		case "I":
 			v.Caret = firstNonBlank(v.Text, v.Caret)
@@ -285,15 +290,16 @@ func (v *Vim) run(toks []string) bool {
 		if len(rest) < 2 {
 			return false
 		}
-		end := lineEnd(v.Text, v.Caret)
-		if v.Caret+n > end || len([]rune(rest[1])) != 1 {
+		if utf8.RuneCountInString(rest[1]) != 1 {
+			return true
+		}
+		to, ok := forwardExactly(v.Text, v.Caret, n, lineEnd(v.Text, v.Caret))
+		if !ok {
 			return true
 		}
 		v.startChange(toks)
-		for i := range n {
-			v.Text[v.Caret+i] = []rune(rest[1])[0]
-		}
-		v.Caret += n - 1
+		v.Text = v.Text[:v.Caret] + strings.Repeat(rest[1], n) + v.Text[to:]
+		v.Caret += (n - 1) * len(rest[1])
 		v.endChange()
 		return true
 	case "d", "c", "y", ">", "<":
@@ -324,7 +330,7 @@ func (v *Vim) step(from, to *[]vimSnapshot) {
 	}
 	s := (*from)[len(*from)-1]
 	*from = (*from)[:len(*from)-1]
-	*to = append(*to, vimSnapshot{slices.Clone(v.Text), v.Caret})
+	*to = append(*to, vimSnapshot{v.Text, v.Caret})
 	v.Text, v.Caret = s.text, v.clampNormalIn(s.text, s.caret)
 }
 
@@ -344,9 +350,9 @@ func (v *Vim) simple(toks []string, k string, n int) bool {
 	v.startChange(toks)
 	switch k {
 	case "x":
-		v.cut(v.Caret, min(v.Caret+n, end), false)
+		v.cut(v.Caret, forward(v.Text, v.Caret, n, end), false)
 	case "X":
-		from := max(v.Caret-n, start)
+		from := back(v.Text, v.Caret, n, start)
 		v.cut(from, v.Caret, false)
 		v.Caret = from
 	case "D", "C":
@@ -360,7 +366,7 @@ func (v *Vim) simple(toks []string, k string, n int) bool {
 			return true
 		}
 	case "s":
-		v.cut(v.Caret, min(v.Caret+n, end), false)
+		v.cut(v.Caret, forward(v.Text, v.Caret, n, end), false)
 		v.Mode = VimInsert
 		return true
 	case "S":
@@ -374,11 +380,10 @@ func (v *Vim) simple(toks []string, k string, n int) bool {
 			v.join()
 		}
 	case "~":
-		to := min(v.Caret+n, end)
-		for i := v.Caret; i < to; i++ {
-			v.Text[i] = toggleCase(v.Text[i])
-		}
-		v.Caret = to
+		to := forward(v.Text, v.Caret, n, end)
+		toggled := toggleCase(v.Text[v.Caret:to])
+		v.Text = v.Text[:v.Caret] + toggled + v.Text[to:]
+		v.Caret += len(toggled)
 	}
 	v.Caret = v.clampNormal(v.Caret)
 	v.endChange()
@@ -398,39 +403,42 @@ func (v *Vim) operator(toks []string, op string, rest []string, outer int) bool 
 	if len(rest) == 0 {
 		return false
 	}
+	t := v.Text
 	var from, to int
 	lines := false
 	switch {
 	case rest[0] == op:
-		from, to, lines = lineStart(v.Text, v.Caret), lineEnd(v.Text, lineAt(v.Text, v.Caret, n-1)), true
+		from, to, lines = lineStart(t, v.Caret), lineEnd(t, lineAt(t, v.Caret, n-1)), true
 	case rest[0] == "i" || rest[0] == "a":
 		if len(rest) < 2 {
 			return false
 		}
-		if len([]rune(rest[1])) != 1 {
+		if utf8.RuneCountInString(rest[1]) != 1 {
 			return true
 		}
+		kind, _ := utf8.DecodeRuneInString(rest[1])
 		var ok bool
-		from, to, ok = textObject(v.Text, v.Caret, rest[0] == "a", []rune(rest[1])[0])
+		from, to, ok = textObject(t, v.Caret, rest[0] == "a", kind)
 		if !ok {
 			return true
 		}
-	case op == "c" && (rest[0] == "w" || rest[0] == "W") && v.Caret < len(v.Text) && !unicode.IsSpace(v.Text[v.Caret]):
+	case op == "c" && (rest[0] == "w" || rest[0] == "W") && v.Caret < len(t) && !unicode.IsSpace(runeAt(t, v.Caret)):
 		// cw changes the word the caret is on, to its end, and the words
 		// after it for a count, but not the space after.
 		big := rest[0] == "W"
+		cl := class(runeAt(t, v.Caret), big)
 		to = v.Caret
-		for to+1 < len(v.Text) && v.Text[to+1] != '\n' && class(v.Text[to+1], big) == class(v.Text[v.Caret], big) {
-			to++
+		for next := nextChar(t, to); next < len(t) && t[next] != '\n' && class(runeAt(t, next), big) == cl; next = nextChar(t, to) {
+			to = next
 		}
 		end := "e"
 		if big {
 			end = "E"
 		}
 		for range n - 1 {
-			to = wordMotion(v.Text, to, end)
+			to = wordMotion(t, to, end)
 		}
-		from, to = v.Caret, to+1
+		from, to = v.Caret, nextChar(t, to)
 	default:
 		target, inclusive, linewise, ok, done := v.motion(rest, n, count)
 		if !done {
@@ -439,25 +447,25 @@ func (v *Vim) operator(toks []string, op string, rest []string, outer int) bool 
 		if !ok {
 			return true
 		}
-		if (rest[0] == "w" || rest[0] == "W") && target > lineEnd(v.Text, v.Caret) {
+		if (rest[0] == "w" || rest[0] == "W") && target > lineEnd(t, v.Caret) {
 			// A word motion past the line stops at its end, as d on a
 			// line's last word leaves the line's newline.
-			target = lineEnd(v.Text, v.Caret)
+			target = lineEnd(t, v.Caret)
 		}
 		from, to = min(v.Caret, target), max(v.Caret, target)
-		// An inclusive motion takes the rune it ends on, but no newline,
-		// as $ on an empty line.
-		if inclusive && to < lineEnd(v.Text, to) {
-			to++
+		// An inclusive motion takes the character it ends on, but no
+		// newline, as $ on an empty line.
+		if inclusive && to < lineEnd(t, to) {
+			to = nextChar(t, to)
 		}
 		if linewise {
-			from, to, lines = lineStart(v.Text, from), lineEnd(v.Text, to), true
+			from, to, lines = lineStart(t, from), lineEnd(t, to), true
 		}
 	}
 	return v.apply(toks, op, from, to, lines)
 }
 
-// apply runs an operator over runes [from, to), or the whole lines they
+// apply runs an operator over bytes [from, to), or the whole lines they
 // are in when lines is set.
 func (v *Vim) apply(toks []string, op string, from, to int, lines bool) bool {
 	if op == "y" {
@@ -481,7 +489,7 @@ func (v *Vim) apply(toks []string, op string, from, to int, lines bool) bool {
 		for _, l := range slices.Backward(starts) {
 			if op == ">" {
 				if lineEnd(v.Text, l) > l {
-					v.Text = slices.Insert(v.Text, l, []rune(vimIndent)...)
+					v.Text = v.Text[:l] + vimIndent + v.Text[l:]
 				}
 				continue
 			}
@@ -492,9 +500,10 @@ func (v *Vim) apply(toks []string, op string, from, to int, lines bool) bool {
 			if cut == 0 && l < len(v.Text) && v.Text[l] == '\t' {
 				cut = 1
 			}
-			v.Text = slices.Delete(v.Text, l, l+cut)
+			v.Text = v.Text[:l] + v.Text[l+cut:]
 		}
-		v.Caret = firstNonBlank(v.Text, from)
+		// The first line starts where it did; from may not be in it now.
+		v.Caret = firstNonBlank(v.Text, starts[0])
 	case "d":
 		if !lines {
 			v.cut(from, to, false)
@@ -509,13 +518,13 @@ func (v *Vim) apply(toks []string, op string, from, to int, lines bool) bool {
 		} else if from > 0 {
 			from--
 		}
-		v.Text = slices.Delete(v.Text, from, to)
+		v.Text = v.Text[:from] + v.Text[to:]
 		v.Caret = firstNonBlank(v.Text, min(from, len(v.Text)))
 	case "c":
 		if lines {
 			v.yank(from, to, true)
 			from = firstNonBlank(v.Text, from)
-			v.Text = slices.Delete(v.Text, from, to)
+			v.Text = v.Text[:from] + v.Text[to:]
 		} else {
 			v.cut(from, to, false)
 		}
@@ -557,13 +566,11 @@ func (v *Vim) visual(rest []string, n, count int) bool {
 		case "~", "J":
 			v.snapshot()
 			if k == "~" {
-				for i := from; i < to; i++ {
-					v.Text[i] = toggleCase(v.Text[i])
-				}
+				v.Text = v.Text[:from] + toggleCase(v.Text[from:to]) + v.Text[to:]
 				v.Caret = from
 			} else {
 				v.Caret = from
-				for range max(strings.Count(string(v.Text[from:to]), "\n"), 1) {
+				for range max(strings.Count(v.Text[from:to], "\n"), 1) {
 					v.join()
 				}
 			}
@@ -587,9 +594,9 @@ func (v *Vim) visual(rest []string, n, count int) bool {
 	return done
 }
 
-// motion reads a motion: where it goes, whether it takes the rune it
-// ends on, whether it goes by lines; ok is false for one going nowhere,
-// done false for one not typed whole yet.
+// motion reads a motion: where it goes, whether it takes the character
+// it ends on, whether it goes by lines; ok is false for one going
+// nowhere, done false for one not typed whole yet.
 func (v *Vim) motion(toks []string, n, count int) (to int, inclusive, linewise, ok, done bool) {
 	t, c := v.Text, v.Caret
 	k := toks[0]
@@ -601,13 +608,19 @@ func (v *Vim) motion(toks []string, n, count int) (to int, inclusive, linewise, 
 	}()
 	switch k {
 	case "h", "<Left>", "<BS>":
-		return max(c-n, lineStart(t, c)), false, false, true, true
+		return back(t, c, n, lineStart(t, c)), false, false, true, true
 	case "l", "<Right>", " ":
-		return min(c+n, max(lineEnd(t, c)-1, lineStart(t, c))), false, false, true, true
+		// Onto the line's last character from past it, too.
+		last := lastChar(t, c)
+		return min(forward(t, c, n, last), last), false, false, true, true
 	case "j", "k", "<Down>", "<Up>", "<C-d>", "<C-u>", "<CR>", "+", "-":
 		step := n
 		if k == "<C-d>" || k == "<C-u>" {
-			step = 15 * n
+			half := v.halfPage
+			if half <= 0 {
+				half = 15
+			}
+			step = min(half*n, maxCount)
 		}
 		if k == "k" || k == "<Up>" || k == "<C-u>" || k == "-" {
 			step = -step
@@ -621,10 +634,10 @@ func (v *Vim) motion(toks []string, n, count int) (to int, inclusive, linewise, 
 			return firstNonBlank(t, line), false, true, true, true
 		}
 		if v.want < 0 {
-			v.want = c - lineStart(t, c)
+			v.want = utf8.RuneCountInString(t[lineStart(t, c):c])
 		}
 		keepWant = true
-		return min(line+v.want, max(lineEnd(t, line)-1, line)), false, true, true, true
+		return forward(t, line, v.want, lastChar(t, line)), false, true, true, true
 	case "w", "W", "b", "B", "e", "E":
 		for range n {
 			c = wordMotion(t, c, k)
@@ -635,8 +648,7 @@ func (v *Vim) motion(toks []string, n, count int) (to int, inclusive, linewise, 
 	case "^":
 		return firstNonBlank(t, c), false, false, true, true
 	case "$", "<End>":
-		end := lineEnd(t, lineAt(t, c, n-1))
-		return max(end-1, lineStart(t, end)), true, false, true, true
+		return lastChar(t, lineAt(t, c, n-1)), true, false, true, true
 	case "G":
 		line := len(t)
 		if count > 0 {
@@ -655,10 +667,11 @@ func (v *Vim) motion(toks []string, n, count int) (to int, inclusive, linewise, 
 		if len(toks) < 2 {
 			return 0, false, false, false, false
 		}
-		if len([]rune(toks[1])) != 1 {
+		if utf8.RuneCountInString(toks[1]) != 1 {
 			return 0, false, false, false, true // as Esc, which cancels
 		}
-		v.find = [2]rune{rune(k[0]), []rune(toks[1])[0]}
+		ch, _ := utf8.DecodeRuneInString(toks[1])
+		v.find = [2]rune{rune(k[0]), ch}
 		to, ok := findChar(t, c, v.find, n)
 		return to, ok && (k == "f" || k == "t"), false, ok, true
 	case ";", ",":
@@ -683,29 +696,32 @@ func (v *Vim) motion(toks []string, n, count int) (to int, inclusive, linewise, 
 	return 0, false, false, false, true
 }
 
-// clampNormal keeps the caret on a rune of its line, as normal mode does:
-// not past the line's last.
+// clampNormal keeps the caret on a character of its line, as normal mode
+// does: not past the line's last.
 func (v *Vim) clampNormal(c int) int { return v.clampNormalIn(v.Text, c) }
 
-func (v *Vim) clampNormalIn(t []rune, c int) int {
+func (v *Vim) clampNormalIn(t string, c int) int {
 	c = max(0, min(c, len(t)))
+	for c > 0 && c < len(t) && !utf8.RuneStart(t[c]) {
+		c--
+	}
 	if end := lineEnd(t, c); c >= end && end > lineStart(t, c) {
-		return end - 1
+		return prevChar(t, end)
 	}
 	return c
 }
 
-// cut takes runes [from, to) out into the register.
+// cut takes bytes [from, to) out into the register.
 func (v *Vim) cut(from, to int, lines bool) {
 	if from >= to {
 		return
 	}
 	v.yank(from, to, lines)
-	v.Text = slices.Delete(v.Text, from, to)
+	v.Text = v.Text[:from] + v.Text[to:]
 }
 
 func (v *Vim) yank(from, to int, lines bool) {
-	s := string(v.Text[from:to])
+	s := v.Text[from:to]
 	if lines && !strings.HasSuffix(s, "\n") {
 		s += "\n"
 	}
@@ -743,10 +759,10 @@ func (v *Vim) put(before bool, n int) {
 		v.Caret = end + 1
 	default:
 		if !before && v.Caret < lineEnd(v.Text, v.Caret) {
-			v.Caret++
+			v.Caret = nextChar(v.Text, v.Caret)
 		}
 		v.insert(s)
-		v.Caret = v.clampNormal(v.Caret - 1)
+		v.Caret = v.clampNormal(prevChar(v.Text, v.Caret))
 		return
 	}
 	at := v.Caret
@@ -764,11 +780,11 @@ func (v *Vim) join() {
 	for next < len(v.Text) && (v.Text[next] == ' ' || v.Text[next] == '\t') {
 		next++
 	}
-	sep := []rune(" ")
+	sep := " "
 	if end == lineStart(v.Text, end) || next < len(v.Text) && v.Text[next] == ')' {
-		sep = nil
+		sep = ""
 	}
-	v.Text = slices.Replace(v.Text, end, next, sep...)
+	v.Text = v.Text[:end] + sep + v.Text[next:]
 	v.Caret = end
 }
 
@@ -795,7 +811,7 @@ func (v *Vim) promptKey(tok string) {
 		}
 		v.findNext(v.searchBack)
 	default:
-		if len([]rune(tok)) == 1 {
+		if utf8.RuneCountInString(tok) == 1 {
 			v.prompt = append(v.prompt, []rune(tok)...)
 		}
 	}
@@ -825,16 +841,14 @@ func (v *Vim) findNext(back bool) {
 		v.Message = "No search yet"
 		return
 	}
-	text, s := string(v.Text), v.search
-	at := len(string(v.Text[:min(v.Caret+1, len(v.Text))]))
+	text, s := v.Text, v.search
 	var i int
 	if back {
-		before := len(string(v.Text[:v.Caret]))
-		if i = strings.LastIndex(text[:before], s); i < 0 {
+		if i = strings.LastIndex(text[:v.Caret], s); i < 0 {
 			i = strings.LastIndex(text, s)
 		}
-	} else if i = strings.Index(text[at:], s); i >= 0 {
-		i += at
+	} else if at := nextChar(text, v.Caret); strings.Contains(text[at:], s) {
+		i = at + strings.Index(text[at:], s)
 	} else {
 		i = strings.Index(text, s)
 	}
@@ -842,7 +856,7 @@ func (v *Vim) findNext(back bool) {
 		v.Message = "Not found: " + s
 		return
 	}
-	v.Caret = len([]rune(text[:i]))
+	v.Caret = i
 }
 
 // takeCount splits a command's count off, 0 for none.
@@ -863,27 +877,87 @@ func takeCount(toks []string) (int, []string) {
 // the window.
 const maxCount = 10000
 
-// lineStart is the start of the line holding rune c.
-func lineStart(t []rune, c int) int {
-	c = min(c, len(t))
-	for c > 0 && t[c-1] != '\n' {
-		c--
+// nextChar is the start of the character after the one at c, or the
+// text's end.
+func nextChar(t string, c int) int {
+	if c >= len(t) {
+		return len(t)
+	}
+	_, n := utf8.DecodeRuneInString(t[c:])
+	return c + n
+}
+
+// prevChar is the start of the character before c, or 0.
+func prevChar(t string, c int) int {
+	if c <= 0 {
+		return 0
+	}
+	_, n := utf8.DecodeLastRuneInString(t[:c])
+	return c - n
+}
+
+// runeAt is the character at c.
+func runeAt(t string, c int) rune {
+	r, _ := utf8.DecodeRuneInString(t[c:])
+	return r
+}
+
+// forward is n characters after c, stopping at limit.
+func forward(t string, c, n, limit int) int {
+	for ; n > 0 && c < limit; n-- {
+		c = nextChar(t, c)
 	}
 	return c
 }
 
-// lineEnd is the newline ending the line holding rune c, or the text's
-// end.
-func lineEnd(t []rune, c int) int {
-	for c < len(t) && t[c] != '\n' {
-		c++
+// forwardExactly is n characters after c, which fail to fit before
+// limit.
+func forwardExactly(t string, c, n, limit int) (int, bool) {
+	for ; n > 0; n-- {
+		if c >= limit {
+			return c, false
+		}
+		c = nextChar(t, c)
+	}
+	return c, true
+}
+
+// back is n characters before c, stopping at limit.
+func back(t string, c, n, limit int) int {
+	for ; n > 0 && c > limit; n-- {
+		c = prevChar(t, c)
 	}
 	return c
+}
+
+// lastChar is the start of the last character of the line holding c, or
+// the line's start for an empty one.
+func lastChar(t string, c int) int {
+	return max(prevChar(t, lineEnd(t, c)), lineStart(t, c))
+}
+
+// lineStart is the start of the line holding byte c.
+func lineStart(t string, c int) int {
+	c = max(0, min(c, len(t)))
+	if i := strings.LastIndexByte(t[:c], '\n'); i >= 0 {
+		return i + 1
+	}
+	return 0
+}
+
+// lineEnd is the newline ending the line holding byte c, or the text's
+// end.
+func lineEnd(t string, c int) int {
+	c = max(0, min(c, len(t)))
+	if i := strings.IndexByte(t[c:], '\n'); i >= 0 {
+		return c + i
+	}
+	return len(t)
 }
 
 // lineAt is the start of the line n lines below the one holding c, above
 // for a negative n, within the text.
-func lineAt(t []rune, c, n int) int {
+func lineAt(t string, c, n int) int {
 	c = lineStart(t, c)
 	for ; n > 0; n-- {
 		end := lineEnd(t, c)
@@ -898,7 +972,7 @@ func lineAt(t []rune, c, n int) int {
 	return c
 }
 
-func firstNonBlank(t []rune, c int) int {
+func firstNonBlank(t string, c int) int {
 	c = lineStart(t, c)
 	for c < len(t) && (t[c] == ' ' || t[c] == '\t') {
 		c++
@@ -906,12 +980,13 @@ func firstNonBlank(t []rune, c int) int {
 	return c
 }
 
-func indentOf(t []rune, c int) string {
+func indentOf(t string, c int) string {
 	start := lineStart(t, max(c, 0))
-	return string(t[start:firstNonBlank(t, start)])
+	return t[start:firstNonBlank(t, start)]
 }
 
-// class is a rune's kind for word motions: 0 space, 1 a word's, 2 other.
+// class is a character's kind for word motions: 0 space, 1 a word's, 2
+// other.
 func class(r rune, big bool) int {
 	switch {
 	case unicode.IsSpace(r):
@@ -923,9 +998,9 @@ func class(r rune, big bool) int {
 }
 
 // wordMotion is where w, W, b, B, e or E go from c.
-func wordMotion(t []rune, c int, k string) int {
+func wordMotion(t string, c int, k string) int {
 	big := k == "W" || k == "B" || k == "E"
-	at := func(i int) int { return class(t[i], big) }
+	at := func(i int) int { return class(runeAt(t, i), big) }
 	switch k {
 	case "w", "W":
 		if c >= len(t) {
@@ -933,80 +1008,82 @@ func wordMotion(t []rune, c int, k string) int {
 		}
 		cl := at(c)
 		for c < len(t) && at(c) == cl && cl != 0 {
-			c++
+			c = nextChar(t, c)
 		}
 		for c < len(t) && at(c) == 0 {
 			if t[c] == '\n' && c+1 < len(t) && t[c+1] == '\n' {
 				return c + 1 // an empty line is a word
 			}
-			c++
+			c = nextChar(t, c)
 		}
 		return min(c, len(t))
 	case "e", "E":
-		if c+1 >= len(t) {
+		if nextChar(t, c) >= len(t) {
 			return c
 		}
-		c++
-		for c < len(t)-1 && at(c) == 0 {
-			c++
+		c = nextChar(t, c)
+		for nextChar(t, c) < len(t) && at(c) == 0 {
+			c = nextChar(t, c)
 		}
 		cl := at(c)
-		for c+1 < len(t) && at(c+1) == cl {
-			c++
+		for next := nextChar(t, c); next < len(t) && at(next) == cl; next = nextChar(t, c) {
+			c = next
 		}
 		return c
 	}
 	if c == 0 {
 		return 0
 	}
-	c--
+	c = prevChar(t, c)
 	for c > 0 && at(c) == 0 {
-		c--
+		c = prevChar(t, c)
 	}
 	cl := at(c)
-	for c > 0 && at(c-1) == cl {
-		c--
+	for c > 0 && at(prevChar(t, c)) == cl {
+		c = prevChar(t, c)
 	}
 	return c
 }
 
 // findChar is where f, F, t or T of a character goes, n times, within the
 // line: on it, or for t and T next to it.
-func findChar(t []rune, c int, find [2]rune, n int) (int, bool) {
+func findChar(t string, c int, find [2]rune, n int) (int, bool) {
 	start, end := lineStart(t, c), lineEnd(t, c)
 	kind, ch := find[0], find[1]
 	at := c
 	for range n {
 		i := at
-		if kind == 'f' || kind == 't' {
-			for i++; i < end && t[i] != ch; i++ {
+		for {
+			if kind == 'f' || kind == 't' {
+				if i = nextChar(t, i); i >= end {
+					return 0, false
+				}
+			} else {
+				if i <= start {
+					return 0, false
+				}
+				i = prevChar(t, i)
 			}
-			if i >= end {
-				return 0, false
-			}
-		} else {
-			for i--; i >= start && t[i] != ch; i-- {
-			}
-			if i < start {
-				return 0, false
+			if runeAt(t, i) == ch {
+				break
 			}
 		}
 		at = i
 	}
 	switch kind {
 	case 't':
-		at--
+		at = prevChar(t, at)
 	case 'T':
-		at++
+		at = nextChar(t, at)
 	}
 	return at, true
 }
 
-var pairs = map[rune]rune{'(': ')', '[': ']', '{': '}', ')': '(', ']': '[', '}': '{'}
+var pairs = map[byte]byte{'(': ')', '[': ']', '{': '}', ')': '(', ']': '[', '}': '{'}
 
 // matchPair is the bracket matching the first one at or after c on its
 // line, as %.
-func matchPair(t []rune, c int) (int, bool) {
+func matchPair(t string, c int) (int, bool) {
 	end := lineEnd(t, c)
 	for c < end && pairs[t[c]] == 0 {
 		c++
@@ -1016,7 +1093,7 @@ func matchPair(t []rune, c int) (int, bool) {
 	}
 	open, close := t[c], pairs[t[c]]
 	step := 1
-	if strings.ContainsRune(")]}", open) {
+	if strings.IndexByte(")]}", open) >= 0 {
 		step = -1
 	}
 	depth := 0
@@ -1036,7 +1113,7 @@ func matchPair(t []rune, c int) (int, bool) {
 // paragraph is where } or { goes: past the paragraph the caret is in,
 // or the one after the empty lines it is on, to the empty line after it,
 // or before it.
-func paragraph(t []rune, c int, down bool) int {
+func paragraph(t string, c int, down bool) int {
 	empty := func(l int) bool { return lineEnd(t, l) == l }
 	l := lineStart(t, c)
 	if down {
@@ -1062,21 +1139,26 @@ func paragraph(t []rune, c int, down bool) int {
 	return 0
 }
 
-// textObject is the runes of iw, aw, i", a", i(, a( and the like around c.
-func textObject(t []rune, c int, around bool, kind rune) (int, int, bool) {
+// textObject is the bytes of iw, aw, i", a", i(, a( and the like around
+// c.
+func textObject(t string, c int, around bool, kind rune) (int, int, bool) {
 	if c >= len(t) {
 		return 0, 0, false
 	}
 	switch kind {
 	case 'w', 'W':
 		big := kind == 'W'
-		cl := class(t[c], big)
+		cl := class(runeAt(t, c), big)
 		from, to := c, c
-		for from > 0 && class(t[from-1], big) == cl && t[from-1] != '\n' {
-			from--
+		for from > 0 {
+			p := prevChar(t, from)
+			if t[p] == '\n' || class(runeAt(t, p), big) != cl {
+				break
+			}
+			from = p
 		}
-		for to < len(t) && class(t[to], big) == cl && t[to] != '\n' {
-			to++
+		for to < len(t) && t[to] != '\n' && class(runeAt(t, to), big) == cl {
+			to = nextChar(t, to)
 		}
 		if around {
 			for to < len(t) && t[to] == ' ' {
@@ -1088,7 +1170,7 @@ func textObject(t []rune, c int, around bool, kind rune) (int, int, bool) {
 		start, end := lineStart(t, c), lineEnd(t, c)
 		var quotes []int
 		for i := start; i < end; i++ {
-			if t[i] == kind {
+			if rune(t[i]) == kind {
 				quotes = append(quotes, i)
 			}
 		}
@@ -1102,7 +1184,7 @@ func textObject(t []rune, c int, around bool, kind rune) (int, int, bool) {
 		}
 		return 0, 0, false
 	}
-	open := map[rune]rune{'(': '(', ')': '(', 'b': '(', '[': '[', ']': '[', '{': '{', '}': '{', 'B': '{'}[kind]
+	open := map[rune]byte{'(': '(', ')': '(', 'b': '(', '[': '[', ']': '[', '{': '{', '}': '{', 'B': '{'}[kind]
 	if open == 0 {
 		return 0, 0, false
 	}
@@ -1133,11 +1215,15 @@ func textObject(t []rune, c int, around bool, kind rune) (int, int, bool) {
 	return from + 1, to, true
 }
 
-func toggleCase(r rune) rune {
-	if unicode.IsUpper(r) {
-		return unicode.ToLower(r)
-	}
-	return unicode.ToUpper(r)
+// toggleCase swaps the case of each character of s, which can change its
+// length.
+func toggleCase(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsUpper(r) {
+			return unicode.ToLower(r)
+		}
+		return unicode.ToUpper(r)
+	}, s)
 }
 
 // vimKeys are the named keys Vim takes, as tokens.
@@ -1146,18 +1232,43 @@ var vimKeys = map[ui.Key]string{
 	ui.KeyRight: "<Right>", ui.KeyUp: "<Up>", ui.KeyDown: "<Down>", ui.KeyHome: "<Home>", ui.KeyEnd: "<End>",
 }
 
+// vimCtrlKey is a Control key Vim takes, and its token.
+type vimCtrlKey struct {
+	key   ui.Key
+	token string
+}
+
 // vimCtrlKeys are the Control keys Vim takes.
-var vimCtrlKeys = map[ui.Key]string{ui.KeyR: "<C-r>", ui.KeyD: "<C-d>", ui.KeyU: "<C-u>", ui.KeyBracketLeft: "<C-[>"}
+var vimCtrlKeys = []vimCtrlKey{{ui.KeyR, "<C-r>"}, {ui.KeyD, "<C-d>"}, {ui.KeyU, "<C-u>"}, {ui.KeyBracketLeft, "<C-[>"}}
 
 // vimEditKeys are the Vim keys of the Edit menu's commands.
 var vimEditKeys = map[string][]string{
 	"undo": {"u"}, "redo": {"<C-r>"}, "paste": {"P"}, "copy": {"y"}, "cut": {"d"}, "selectAll": {"<Esc>", "g", "g", "V", "G"},
 }
 
-// vimInput gives Vim an input of the editor in a mode but insert, and
-// reports whether Vim took it: a key it does not, as one of the app's
-// commands, goes on.
-func (e *Editor) vimInput(ev ui.InputEvent, lh float32) bool {
+// editCommands are the Edit menu's commands the editor binds keys to.
+var editCommands = map[code.Command]string{
+	code.Undo: "undo", code.Redo: "redo", code.Paste: "paste", code.Copy: "copy", code.Cut: "cut", code.SelectAll: "selectAll",
+}
+
+// vimInput gives Vim an input of the editor, and reports whether Vim took
+// it. In insert mode the editor types, and Esc goes back to normal mode;
+// in the others Vim takes the text typed and the keys it knows, and what
+// would change the text behind its back. Other keys, as the app's
+// commands and the pointer, go on.
+func (e *Editor) vimInput(ev ui.InputEvent) bool {
+	v := e.Vim
+	if v.Mode == VimInsert {
+		if ev.Kind != ui.InputKeyDown || !(ev.Mods == 0 && ev.Key == ui.KeyEscape || ev.Mods == ui.Ctrl && ev.Key == ui.KeyBracketLeft) {
+			return false
+		}
+		if e.State.CompletionsOpen() {
+			e.State.ShowCompletions(-1, nil)
+		}
+		v.Typed(e.Text(), e.Caret())
+		e.vimFeed([]string{"<Esc>"})
+		return true
+	}
 	var toks []string
 	switch ev.Kind {
 	case ui.InputText:
@@ -1165,32 +1276,59 @@ func (e *Editor) vimInput(ev ui.InputEvent, lh float32) bool {
 			toks = append(toks, string(r))
 		}
 	case ui.InputKeyDown:
-		tok := vimKeys[ev.Key]
-		if ev.Mods != 0 || tok == "" {
-			return false
+		if tok := vimKeys[ev.Key]; tok != "" && ev.Mods == 0 {
+			toks = []string{tok}
+			break
 		}
-		toks = []string{tok}
+		if ev.Mods == ui.Ctrl {
+			if i := slices.IndexFunc(vimCtrlKeys, func(k vimCtrlKey) bool { return k.key == ev.Key }); i >= 0 {
+				toks = []string{vimCtrlKeys[i].token}
+				break
+			}
+		}
+		cmd := e.boundCommand(code.Binding{Mods: ev.Mods, Key: ev.Key})
+		if name, ok := editCommands[cmd]; ok {
+			return e.vimCommand(name)
+		}
+		return editsText(cmd)
 	case ui.InputCommand:
-		// The Edit menu's, as Vim does them.
-		visual := e.Vim.Mode == VimVisual || e.Vim.Mode == VimVisualLine
-		toks = vimEditKeys[ev.Text]
-		if toks == nil || (ev.Text == "copy" || ev.Text == "cut") && !visual {
-			return false
-		}
+		return e.vimCommand(ev.Text)
 	default:
 		return false
 	}
-	e.vimFeed(toks, lh)
+	e.vimFeed(toks)
+	return true
+}
+
+// vimCommand runs an Edit menu's command as Vim's keys, and reports
+// whether Vim took it: copy and cut select in visual mode alone, and cut
+// and delete outside it change nothing.
+func (e *Editor) vimCommand(name string) bool {
+	visual := e.Vim.Mode == VimVisual || e.Vim.Mode == VimVisualLine
+	toks := vimEditKeys[name]
+	if toks == nil || (name == "copy" || name == "cut") && !visual {
+		return name == "cut" || name == "delete"
+	}
+	e.vimFeed(toks)
 	return true
 }
 
 // vimFeed gives Vim keys, on the editor's text as it is, and gives the
-// text area what Vim made of it, the caret kept in view.
-func (e *Editor) vimFeed(toks []string, lh float32) {
+// editor what Vim made of it: its change as one, and its caret or
+// selection, shown.
+func (e *Editor) vimFeed(toks []string) {
 	v := e.Vim
-	if string(v.Text) != e.Text {
-		v.Text = []rune(e.Text)
+	text := e.Text()
+	if v.Mode != VimInsert {
+		e.vimSync()
+	}
+	if v.Text != text {
+		v.Text = text
 		v.Caret = v.clampNormal(v.Caret)
+	}
+	v.halfPage = 0
+	if first, last := e.State.VisibleLines(); last > first {
+		v.halfPage = (last - first + 1) / 2
 	}
 	for _, t := range toks {
 		if v.Mode == VimInsert && v.prompt == nil && t != "<Esc>" && t != "<C-[>" {
@@ -1200,72 +1338,43 @@ func (e *Editor) vimFeed(toks []string, lh float32) {
 		}
 		v.Feed(t)
 	}
-	if text := string(v.Text); text != e.Text {
-		e.Text = text
+	if v.Text != text {
+		e.edit(text, v.Text)
 	}
-	start, end := v.Selection()
-	if v.Mode == VimInsert {
-		start, end = v.Caret, v.Caret
-	}
-	e.PendingSel = &[2]int{start, end}
-	e.vimSel = *e.PendingSel
-	e.revealCaret(v.Caret, lh)
+	e.showVim()
 }
 
-// revealCaret scrolls the editor for a rune to show, as Vim moves its
-// caret.
-func (e *Editor) revealCaret(at int, lh float32) {
-	if e.viewH == 0 {
-		return
-	}
-	line, col := e.LineCol(at)
-	y, x := float32(line)*lh, float32(col)*e.charW
-	switch {
-	case y < e.Scroll.Y:
-		e.Scroll.Y = y
-	case y+2*lh > e.Scroll.Y+e.viewH:
-		e.Scroll.Y = y + 2*lh - e.viewH
-	}
-	textW := e.viewW - e.gutterWidth() - 24
-	switch {
-	case x < e.Scroll.X:
-		e.Scroll.X = max(0, x-4*e.charW)
-	case textW > 0 && x+2*e.charW > e.Scroll.X+textW:
-		e.Scroll.X = x + 2*e.charW - textW
-	}
-}
-
-// drawVim draws the block caret, and the visual selection, with the
-// text's top left at x, y.
-func (e *Editor) drawVim(p *ui.Painter, x, y, lh float32, accent ui.Color) {
+// showVim gives the editor Vim's caret, or its visual selection, the
+// caret at its head.
+func (e *Editor) showVim() {
 	v := e.Vim
-	lines := e.textLines()
+	sel := code.Selection{Anchor: v.Caret, Head: v.Caret}
 	if v.Mode == VimVisual || v.Mode == VimVisualLine {
 		start, end := v.Selection()
-		if l := lines.starts[lineIndex(lines.starts, start)]; l < end || l == start {
-			e.fillSpan(p, lines, start, end, x, y, lh, e.charW, e.charW, accent.Alpha(0.2)) // eol: the line's end, as selected
+		sel = code.Selection{Anchor: start, Head: end}
+		if v.Caret < v.Anchor {
+			sel = code.Selection{Anchor: end, Head: start}
 		}
 	}
-	line, col := lines.lineCol(min(v.Caret, lines.runes))
-	p.Fill(ui.Rect{X: x + float32(col)*e.charW, Y: y + float32(line)*lh, W: e.charW, H: lh}, accent.Alpha(0.45), 1)
+	e.State.SetSelections(sel)
+	e.vimSel = e.State.Selection()
 }
 
-// vimSync takes a selection the text area has that Vim did not give it,
-// as the pointer's: a caret moves Vim's, a range is a visual selection.
-func (e *Editor) vimSync(start, end int) {
-	if [2]int{start, end} == e.vimSel {
+// vimSync takes a selection the editor has that Vim did not give it, as
+// the pointer's or the owner's: a caret moves Vim's, a range is a visual
+// selection.
+func (e *Editor) vimSync() {
+	sel := e.State.Selection()
+	if sel == e.vimSel {
 		return
 	}
 	v := e.Vim
-	v.Text = []rune(e.Text)
+	v.Text = e.Text()
+	start, end := sel.Start(), sel.End()
 	if start == end {
 		v.Mode, v.Caret = VimNormal, v.clampNormal(end)
 	} else {
-		v.Mode, v.Anchor, v.Caret = VimVisual, start, max(end-1, start)
+		v.Mode, v.Anchor, v.Caret = VimVisual, start, max(prevChar(v.Text, end), start)
 	}
-	s, t := v.Selection()
-	e.vimSel = [2]int{s, t}
-	if s != start || t != end {
-		e.PendingSel = &[2]int{s, t}
-	}
+	e.showVim()
 }

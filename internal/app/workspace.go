@@ -62,8 +62,8 @@ func (a *App) workspaceOf(p *project.Project) savedWorkspace {
 			w.Active = len(w.Editors)
 		}
 		e := savedEditor{Connection: strings.TrimPrefix(q.Conn.Config.ID, p.Prefix), Database: q.Database, Path: p.StoredPath(q.Path), Pinned: win.tabs.Pinned(q)}
-		if q.DiskConflict != "" && q.Editor.Text != q.Saved {
-			e.Unsaved = q.Editor.Text
+		if text := q.Editor.FileText(); q.DiskConflict != "" && text != q.Saved {
+			e.Unsaved = text
 		}
 		w.Editors = append(w.Editors, e)
 	}
@@ -130,10 +130,15 @@ func (a *App) restoreWorkspace(p *project.Project) {
 		if cn == nil || !cn.Config.Engine.IsSQL() {
 			continue
 		}
-		q := query.New(a, cn, e.Database, filepath.Base(path), string(data))
+		text := string(data)
+		unsaved := e.Unsaved != "" && e.Unsaved != text
+		if unsaved {
+			text = e.Unsaved
+		}
+		q := query.New(a, cn, e.Database, filepath.Base(path), text)
 		q.Path, q.Saved = path, string(data)
-		if e.Unsaved != "" && e.Unsaved != string(data) {
-			q.Editor.Text, q.Typed = e.Unsaved, e.Unsaved
+		if unsaved {
+			q.Typed = e.Unsaved
 			q.DiskConflict = "changed on disk"
 			if err != nil {
 				q.DiskConflict = "was deleted on disk"
@@ -185,7 +190,7 @@ func (a *App) openSQLFile(cn *connection.Conn) {
 			a.Connect(cn, func() {
 				q := query.New(a, cn, "", filepath.Base(paths[0]), string(data))
 				q.Path = paths[0]
-				q.Saved = q.Editor.Text
+				q.Saved = string(data)
 				a.AddTab(q)
 			})
 		})
@@ -195,7 +200,7 @@ func (a *App) openSQLFile(cn *connection.Conn) {
 // SaveSQLFile writes an editor's SQL to its file, asking for one first
 // when it has none or saveAs is set.
 func (a *App) SaveSQLFile(q *query.Tab, saveAs bool) {
-	text := q.Editor.Text
+	text := q.Editor.FileText()
 	write := func(path string) {
 		err := os.WriteFile(path, []byte(text), 0o600)
 		a.Post(func() {

@@ -2,7 +2,7 @@ package sqltext
 
 import "strings"
 
-// Statement is one SQL statement; Text equals the source runes [Start, End).
+// Statement is one SQL statement; Text equals the source bytes [Start, End).
 type Statement struct {
 	Text       string
 	Start, End int
@@ -44,26 +44,26 @@ type segment struct {
 	delim string
 }
 
-func splitSegments(rs []rune, d Dialect, q quoting, o SplitOptions) []segment {
-	return splitTokens(rs, tokenizeQuoted(rs, d, q), d, q, o, true)
+func splitSegments(s string, d Dialect, q quoting, o SplitOptions) []segment {
+	return splitTokens(s, tokenizeQuoted(s, d, q), d, q, o, true)
 }
 
 // splitSegmentsWithoutBodies splits at every ';', routine bodies or not.
-func splitSegmentsWithoutBodies(rs []rune, d Dialect, q quoting, o SplitOptions) []segment {
-	return splitTokens(rs, tokenizeQuoted(rs, d, q), d, q, o, false)
+func splitSegmentsWithoutBodies(s string, d Dialect, q quoting, o SplitOptions) []segment {
+	return splitTokens(s, tokenizeQuoted(s, d, q), d, q, o, false)
 }
 
-// splitTokens splits toks, which run contiguously to the end of rs and
+// splitTokens splits toks, which run contiguously to the end of s and
 // were lexed with q, as any text it lexes again is. With bodies, a ';'
 // inside a routine body (CREATE PROCEDURE … BEGIN … END and the like) stays
 // in its statement; a body still open at the end of the text is split again
 // without bodies, so an unclosed BEGIN never merges statements.
-func splitTokens(rs []rune, toks []Token, d Dialect, q quoting, o SplitOptions, bodies bool) []segment {
+func splitTokens(s string, toks []Token, d Dialect, q quoting, o SplitOptions, bodies bool) []segment {
 	var out []segment
 	var cur []Token
-	delimiter := []rune(";")
+	delimiter := ";"
 	if d == MySQL && o.Delimiter != "" {
-		delimiter = []rune(o.Delimiter)
+		delimiter = o.Delimiter
 	}
 	// blocks holds the open blocks: 'B' for a body BEGIN, 'C' for CASE.
 	var blocks []byte
@@ -77,13 +77,13 @@ func splitTokens(rs []rune, toks []Token, d Dialect, q quoting, o SplitOptions, 
 		openBodies, parens, codeTokens, header, skipBlockWord, bodyEnd = 0, 0, 0, 0, -1, -1
 	}
 	closeSegment := func(terminated bool) {
-		out = append(out, segment{toks: cur, terminated: terminated, bodyEnd: bodyEnd, delim: string(delimiter)})
+		out = append(out, segment{toks: cur, terminated: terminated, bodyEnd: bodyEnd, delim: delimiter})
 		reset()
 	}
 	for i := 0; i < len(toks); i++ {
 		t := toks[i]
-		if d == MySQL && codeTokens == 0 && isWord(t, "DELIMITER") && atLineStart(rs, t.Start) {
-			if delim, lineEnd, ok := delimiterDirective(rs, t); ok && lineEndsToken(toks[i:], lineEnd) {
+		if d == MySQL && codeTokens == 0 && isWord(t, "DELIMITER") && atLineStart(s, t.Start) {
+			if delim, lineEnd, ok := delimiterDirective(s, t); ok && lineEndsToken(toks[i:], lineEnd) {
 				line := cur
 				for _, lt := range toks[i:] {
 					if lt.End > lineEnd {
@@ -91,24 +91,24 @@ func splitTokens(rs []rune, toks []Token, d Dialect, q quoting, o SplitOptions, 
 					}
 					line = append(line, lt)
 				}
-				out = append(out, segment{toks: line, directive: true, bodyEnd: -1, delim: string(delim)})
+				out = append(out, segment{toks: line, directive: true, bodyEnd: -1, delim: delim})
 				reset()
 				delimiter = delim
-				toks, i = resumeAt(rs, toks[i:], lineEnd, d, q), -1
+				toks, i = resumeAt(s, toks[i:], lineEnd, d, q), -1
 				continue
 			}
 		}
-		if string(delimiter) != ";" {
-			if at := findDelimiter(rs, toks, i, delimiter); at >= 0 {
+		if delimiter != ";" {
+			if at := findDelimiter(s, toks, i, delimiter); at >= 0 {
 				if at > t.Start {
 					// Not lexed again: Format must write "END$$" back unchanged.
-					cur = append(cur, Token{Kind: t.Kind, Start: t.Start, End: at, Text: string(rs[t.Start:at])})
+					cur = append(cur, Token{Kind: t.Kind, Start: t.Start, End: at, Text: s[t.Start:at]})
 				}
 				end := at + len(delimiter)
-				cur = append(cur, Token{Kind: Punct, Start: at, End: end, Text: string(delimiter)})
-				out = append(out, segment{toks: cur, delimited: true, bodyEnd: -1, delim: string(delimiter)})
+				cur = append(cur, Token{Kind: Punct, Start: at, End: end, Text: s[at:end]})
+				out = append(out, segment{toks: cur, delimited: true, bodyEnd: -1, delim: delimiter})
 				reset()
-				toks, i = resumeAt(rs, toks[i:], end, d, q), -1
+				toks, i = resumeAt(s, toks[i:], end, d, q), -1
 				continue
 			}
 			if t.Kind != Whitespace || len(cur) > 0 {
@@ -199,8 +199,8 @@ func splitTokens(rs []rune, toks []Token, d Dialect, q quoting, o SplitOptions, 
 	if len(cur) > 0 {
 		if openBodies > 0 {
 			again := o
-			again.Delimiter = string(delimiter)
-			out = append(out, splitTokens(rs, cur, d, q, again, false)...)
+			again.Delimiter = delimiter
+			out = append(out, splitTokens(s, cur, d, q, again, false)...)
 		} else {
 			closeSegment(false)
 		}
@@ -332,34 +332,34 @@ func routineHeader(toks []Token) bool {
 	return word("PROCEDURE") || word("FUNCTION") || word("TRIGGER") || word("EVENT")
 }
 
-// atLineStart reports whether only spaces and tabs precede rs[at] on its line.
-func atLineStart(rs []rune, at int) bool {
+// atLineStart reports whether only spaces and tabs precede s[at] on its line.
+func atLineStart(s string, at int) bool {
 	i := at - 1
-	for i >= 0 && (rs[i] == ' ' || rs[i] == '\t' || rs[i] == '\f' || rs[i] == '\v') {
+	for i >= 0 && (s[i] == ' ' || s[i] == '\t' || s[i] == '\f' || s[i] == '\v') {
 		i--
 	}
-	return i < 0 || rs[i] == '\n' || rs[i] == '\r'
+	return i < 0 || s[i] == '\n' || s[i] == '\r'
 }
 
 // delimiterDirective reads a MySQL client "DELIMITER x" line starting at the
 // word t: the rest of the line, trimmed, is the new delimiter. lineEnd is
 // the start of the line break.
-func delimiterDirective(rs []rune, t Token) (delim []rune, lineEnd int, ok bool) {
+func delimiterDirective(s string, t Token) (delim string, lineEnd int, ok bool) {
 	lineEnd = t.End
-	for lineEnd < len(rs) && rs[lineEnd] != '\n' && rs[lineEnd] != '\r' {
+	for lineEnd < len(s) && s[lineEnd] != '\n' && s[lineEnd] != '\r' {
 		lineEnd++
 	}
 	from, to := t.End, lineEnd
-	for from < to && isSpace(rs[from]) {
+	for from < to && isSpace(s[from]) {
 		from++
 	}
 	// The mysql client takes the first word: "DELIMITER // note" sets //.
-	for to = from; to < lineEnd && !isSpace(rs[to]); to++ {
+	for to = from; to < lineEnd && !isSpace(s[to]); to++ {
 	}
 	if from == to {
-		return nil, 0, false
+		return "", 0, false
 	}
-	return rs[from:to], lineEnd, true
+	return s[from:to], lineEnd, true
 }
 
 // lineEndsToken reports whether no string, comment or quoted name in toks
@@ -376,7 +376,7 @@ func lineEndsToken(toks []Token, p int) bool {
 // findDelimiter returns the first offset inside toks[i] where delim starts
 // and ends at a token boundary, or -1. It may start inside a word, as in
 // "END$$". Strings, comments and quoted names never hold a delimiter.
-func findDelimiter(rs []rune, toks []Token, i int, delim []rune) int {
+func findDelimiter(s string, toks []Token, i int, delim string) int {
 	t := toks[i]
 	switch t.Kind {
 	case String, Comment, QuotedIdent, Whitespace:
@@ -384,10 +384,10 @@ func findDelimiter(rs []rune, toks []Token, i int, delim []rune) int {
 	}
 	for q := t.Start; q < t.End; q++ {
 		end := q + len(delim)
-		if end > len(rs) || string(rs[q:end]) != string(delim) {
+		if end > len(s) || s[q:end] != delim {
 			continue
 		}
-		if end == len(rs) {
+		if end == len(s) {
 			return q
 		}
 		for k := i; k < len(toks) && toks[k].Start < end; k++ {
@@ -399,9 +399,9 @@ func findDelimiter(rs []rune, toks []Token, i int, delim []rune) int {
 	return -1
 }
 
-// tokenizeAt tokenizes rs[from:to] with offsets into rs.
-func tokenizeAt(rs []rune, from, to int, d Dialect, q quoting) []Token {
-	toks := tokenizeQuoted(rs[from:to], d, q)
+// tokenizeAt tokenizes s[from:to] with offsets into s.
+func tokenizeAt(s string, from, to int, d Dialect, q quoting) []Token {
+	toks := tokenizeQuoted(s[from:to], d, q)
 	for i := range toks {
 		toks[i].Start += from
 		toks[i].End += from
@@ -409,11 +409,11 @@ func tokenizeAt(rs []rune, from, to int, d Dialect, q quoting) []Token {
 	return toks
 }
 
-// resumeAt returns the tokens of rs from offset p to the end, reusing toks
-// (which run to the end of rs) when p is a token boundary or inside
+// resumeAt returns the tokens of s from offset p to the end, reusing toks
+// (which run to the end of s) when p is a token boundary or inside
 // whitespace, and lexing again otherwise. It may overwrite one element of
 // toks, which the caller no longer reads.
-func resumeAt(rs []rune, toks []Token, p int, d Dialect, q quoting) []Token {
+func resumeAt(s string, toks []Token, p int, d Dialect, q quoting) []Token {
 	for k, t := range toks {
 		if t.End <= p {
 			continue
@@ -422,15 +422,15 @@ func resumeAt(rs []rune, toks []Token, p int, d Dialect, q quoting) []Token {
 		case t.Start == p:
 			return toks[k:]
 		case t.Kind == Whitespace:
-			toks[k] = Token{Kind: Whitespace, Start: p, End: t.End, Text: string(rs[p:t.End])}
+			toks[k] = Token{Kind: Whitespace, Start: p, End: t.End, Text: s[p:t.End]}
 			return toks[k:]
 		}
 		break
 	}
-	if p >= len(rs) {
+	if p >= len(s) {
 		return nil
 	}
-	return tokenizeAt(rs, p, len(rs), d, q)
+	return tokenizeAt(s, p, len(s), d, q)
 }
 
 // SplitWith splits on ';' outside strings, comments, quoted identifiers and
@@ -443,9 +443,8 @@ func resumeAt(rs []rune, toks []Token, p int, d Dialect, q quoting) []Token {
 // non-whitespace token, before any ';' or delimiter. Empty and comment-only
 // statements are dropped, but those of MySQL's executable comments.
 func SplitWith(src string, d Dialect, o SplitOptions) []Statement {
-	rs := []rune(src)
 	var out []Statement
-	for _, seg := range splitSegments(rs, d, defaultQuoting(d), o) {
+	for _, seg := range splitSegments(src, d, defaultQuoting(d), o) {
 		if seg.directive {
 			continue
 		}
@@ -469,7 +468,7 @@ func SplitWith(src string, d Dialect, o SplitOptions) []Statement {
 				end = t.End
 			}
 		}
-		out = append(out, Statement{Text: string(rs[start:end]), Start: start, End: end, Delimiter: seg.delim})
+		out = append(out, Statement{Text: src[start:end], Start: start, End: end, Delimiter: seg.delim})
 	}
 	return out
 }
@@ -491,7 +490,6 @@ func StatementAt(src string, caret int, d Dialect) (Statement, bool) {
 // end and the caret's line, else the next statement, else the previous one.
 func StatementAtWith(src string, caret int, d Dialect, o SplitOptions) (Statement, bool) {
 	stmts := SplitWith(src, d, o)
-	rs := []rune(src)
 	var prev, next *Statement
 	for i := range stmts {
 		s := &stmts[i]
@@ -504,7 +502,7 @@ func StatementAtWith(src string, caret int, d Dialect, o SplitOptions) (Statemen
 			next = s
 		}
 	}
-	if prev != nil && (next == nil || !blankLineBetween(rs, prev.End, caret)) {
+	if prev != nil && (next == nil || !blankLineBetween(src, prev.End, caret)) {
 		return *prev, true
 	}
 	if next != nil {
@@ -514,14 +512,14 @@ func StatementAtWith(src string, caret int, d Dialect, o SplitOptions) (Statemen
 }
 
 // blankLineBetween reports whether a whole whitespace-only line lies between
-// two newlines inside rs[from:to).
-func blankLineBetween(rs []rune, from, to int) bool {
-	if to > len(rs) {
-		to = len(rs)
+// two newlines inside s[from:to).
+func blankLineBetween(s string, from, to int) bool {
+	if to > len(s) {
+		to = len(s)
 	}
 	lastNewline, blank := -1, false
 	for i := from; i < to; i++ {
-		switch r := rs[i]; {
+		switch r := s[i]; {
 		case r == '\n':
 			if lastNewline >= 0 && blank {
 				return true

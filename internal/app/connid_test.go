@@ -62,8 +62,8 @@ func TestRenameConn(t *testing.T) {
 	a.openQueryFile(p, "a.sql", nil)
 	tt.Frame()
 	q := a.ActiveTab().(*query.Tab)
-	q.Editor.Text += " -- edited"
-	testutil.SetCaret(tt, &q.Editor, len([]rune(q.Editor.Text)))
+	q.Editor.Replace(len(q.Editor.Text()), len(q.Editor.Text()), " -- edited")
+	testutil.SetCaret(tt, &q.Editor, len(q.Editor.Text()))
 	// An editor on a file of no project's queries keeps its text, as its
 	// file is not rewritten.
 	elsewhere := a.openFileTab(cn, "", outside, "-- connection: lite\n\nSELECT 6;")
@@ -98,14 +98,14 @@ func TestRenameConn(t *testing.T) {
 			t.Errorf("%s holds %q, want %q", filepath.Base(path), got, want)
 		}
 	}
-	if q.Editor.Text != "-- connection: lite2\n\nSELECT 1; -- edited" || q.Saved != "-- connection: lite2\n\nSELECT 1;" {
-		t.Errorf("the open editor: text %q, saved %q", q.Editor.Text, q.Saved)
+	if q.Editor.Text() != "-- connection: lite2\n\nSELECT 1; -- edited" || q.Saved != "-- connection: lite2\n\nSELECT 1;" {
+		t.Errorf("the open editor: text %q, saved %q", q.Editor.Text(), q.Saved)
 	}
 	// Shown again, the caret is where it was in the text.
 	a.ActivateTab(func(t widgets.Tab) bool { return t == q })
 	tt.Frame()
-	if end := len([]rune(q.Editor.Text)); q.Editor.SelStart != end || q.Editor.SelEnd != end {
-		t.Errorf("the caret at %d-%d, want at the end, %d", q.Editor.SelStart, q.Editor.SelEnd, end)
+	if start, end := q.Editor.Selection(); start != len(q.Editor.Text()) || end != len(q.Editor.Text()) {
+		t.Errorf("the caret at %d-%d, want at the end, %d", start, end, len(q.Editor.Text()))
 	}
 	if got, _ := os.ReadFile(outside); string(got) != "-- connection: lite\n\nSELECT 6;" || elsewhere.Saved != string(got) {
 		t.Errorf("the file elsewhere %q (linked %v), its editor's saved text %q", got, linked, elsewhere.Saved)

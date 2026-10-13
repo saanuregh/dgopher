@@ -78,7 +78,7 @@ type Grid struct {
 	SelRow      int // in view order
 	selection   ui.Selection[int]
 	selCol      int
-	sort        ui.SortOrder
+	sort        []ui.SortOrder
 	// serverSort leaves the order to the database: the grid reports a new
 	// sort instead of sorting the rows itself.
 	serverSort  bool
@@ -193,7 +193,7 @@ func NewGrid() *Grid {
 	g := &Grid{SelRow: -1, refsRow: -1}
 	g.List.Selected = &g.SelRow
 	g.List.Selection = &g.selection
-	g.List.Sort = &g.sort
+	g.List.SortBy = &g.sort
 	return g
 }
 
@@ -209,7 +209,7 @@ func (g *Grid) reset() {
 	g.undoStack, g.redoStack = nil, nil
 	g.editing = nil
 	if !g.serverSort {
-		g.sort = ui.SortOrder{}
+		g.sort = nil
 	}
 }
 
@@ -392,7 +392,7 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 			g.showAllMenu(m)
 		}
 	}
-	sortBefore := cloneSort(g.sort)
+	sortBefore := g.sort
 	var table ui.Element
 	// Rows as dense as a spreadsheet's: the theme's spacing sizes them.
 	theme := c.Theme()
@@ -433,7 +433,7 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 			g.panelsView(c, a, src, order)
 		}
 	})
-	if !sameSort(g.sort, sortBefore) {
+	if !slices.Equal(g.sort, sortBefore) {
 		g.sortChanged = true
 	}
 	// Tab shows the chosen row as a record, ⌘` switches presentations.
@@ -782,11 +782,6 @@ func SQLOptionsFor(cn *connection.Conn, schema, table string) export.Options {
 		opt.Quote = cn.DB.Dialect.Quote
 	}
 	return opt
-}
-
-// sameSort reports whether two orders sort alike.
-func sameSort(x, y ui.SortOrder) bool {
-	return x.Column == y.Column && x.Descending == y.Descending && slices.Equal(x.Then, y.Then)
 }
 
 // numericColumn reports whether a column holds numbers, which the text

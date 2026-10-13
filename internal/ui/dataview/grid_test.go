@@ -198,7 +198,7 @@ func TestResultFilterClientSide(t *testing.T) {
 		t.Fatalf("in: %v", got)
 	}
 	g.clearConds(-1)
-	g.sort = ui.SortOrder{Column: colID(0), Then: []ui.SortKey{{Column: colID(1), Descending: true}}}
+	g.sort = []ui.SortOrder{{Column: colID(0)}, {Column: colID(1), Descending: true}}
 	if got := view(); !slices.Equal(got, []int{1, 2, 3, 0}) {
 		t.Fatalf("multi sort: %v", got)
 	}
@@ -278,8 +278,8 @@ func TestOrderThenByThis(t *testing.T) {
 		Rows: [][]any{{int64(1), "x", "a"}, {int64(2), "y", "b"}},
 	}
 	g := NewGrid()
-	before := []ui.SortKey{{Column: colID(2)}, {Column: colID(1), Descending: true}}
-	g.sort = ui.SortOrder{Column: colID(0), Then: before}
+	before := []ui.SortOrder{{Column: colID(0)}, {Column: colID(2)}, {Column: colID(1), Descending: true}}
+	g.sort = before
 	tt := ui.NewTester(func(c *ui.Context) { g.View(c, a, src) }, 800, 300)
 	tt.Frame()
 	choose := func(item string) {
@@ -293,24 +293,24 @@ func TestOrderThenByThis(t *testing.T) {
 		tt.Frame()
 	}
 	choose("Then by This, Descending")
-	want := []ui.SortKey{{Column: colID(1), Descending: true}, {Column: colID(2), Descending: true}}
-	if !slices.Equal(g.sort.Then, want) || g.sort.Column != colID(0) {
+	want := []ui.SortOrder{{Column: colID(0)}, {Column: colID(1), Descending: true}, {Column: colID(2), Descending: true}}
+	if !slices.Equal(g.sort, want) {
 		t.Fatalf("order %+v", g.sort)
 	}
-	if !slices.Equal(before, []ui.SortKey{{Column: colID(2)}, {Column: colID(1), Descending: true}}) {
+	if !slices.Equal(before, []ui.SortOrder{{Column: colID(0)}, {Column: colID(2)}, {Column: colID(1), Descending: true}}) {
 		t.Fatalf("the earlier order changed: %+v", before)
 	}
 	choose("Then by This, Ascending")
-	want = []ui.SortKey{{Column: colID(1), Descending: true}, {Column: colID(2)}}
-	if !slices.Equal(g.sort.Then, want) {
-		t.Fatalf("order %+v", g.sort.Then)
+	want = []ui.SortOrder{{Column: colID(0)}, {Column: colID(1), Descending: true}, {Column: colID(2)}}
+	if !slices.Equal(g.sort, want) {
+		t.Fatalf("order %+v", g.sort)
 	}
-	g.sort = ui.SortOrder{Column: colID(0)}
+	g.sort = []ui.SortOrder{{Column: colID(0)}}
 	choose("Then by This, Ascending")
-	if !slices.Equal(g.sort.Then, []ui.SortKey{{Column: colID(2)}}) {
-		t.Fatalf("order %+v", g.sort.Then)
+	if !slices.Equal(g.sort, []ui.SortOrder{{Column: colID(0)}, {Column: colID(2)}}) {
+		t.Fatalf("order %+v", g.sort)
 	}
-	if got := withoutSortKey(nil, colID(2)); got != nil {
+	if got := withoutSort(nil, colID(2)); got != nil {
 		t.Fatalf("from no keys: %#v", got)
 	}
 }
@@ -445,7 +445,7 @@ func TestGridShortcuts(t *testing.T) {
 	}
 	tt.Key(ui.Cmd, ui.Key2)
 	tt.Frame()
-	if g.sort.Column != colID(g.selCol) || g.sort.Descending {
+	if !slices.Equal(g.sort, []ui.SortOrder{{Column: colID(g.selCol)}}) {
 		t.Fatalf("⌘2: %+v", g.sort)
 	}
 	tt.Key(ui.Cmd, ui.KeyD) // the value of the row above

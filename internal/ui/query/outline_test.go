@@ -34,7 +34,7 @@ func TestGoToStatement(t *testing.T) {
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
 	tt.Frame()
-	if a.QueryDialogs().outline != nil || q.Editor.SelEnd != len("SELECT 1;\n\n") {
-		t.Fatalf("caret %d", q.Editor.SelEnd)
+	if a.QueryDialogs().outline != nil || q.Editor.Caret() != len("SELECT 1;\n\n") {
+		t.Fatalf("caret %d", q.Editor.Caret())
 	}
 }
