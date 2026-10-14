@@ -1,17 +1,122 @@
 # DGopher
 
-**Dig into your databases.** A fast, open-source database GUI for Linux,
-macOS and Windows: a SQL client for **PostgreSQL, MySQL, ClickHouse, SQLite
-and DuckDB**, and a **Redis** client.
+**Dig into your databases.** DGopher is a fast, open-source database client
+for Linux, macOS and Windows. It works with **PostgreSQL, MySQL,
+ClickHouse, SQLite, DuckDB and Redis**.
 
-DGopher is a single Go binary, and its interface is drawn by
-[MyGo](https://mygo.egoist.dev)'s native UI, with no webview, no JVM and no
-Electron. It opens instantly, looks the same on every system, and is careful
-by default with the databases that matter.
+It is a single Go binary. Its interface is drawn natively by
+[MyGo](https://mygo.egoist.dev), with no webview, JVM or Electron. It
+starts instantly, looks the same on every system, and is careful by default
+with the databases that matter.
 
 ![DGopher's main window: a project's connections, query files, dashboard
 and data model in the navigator, and an editor whose query's result shows
 below it](docs/images/main.png)
+
+## Install
+
+Download the build for your system from the
+[latest release](https://github.com/saanuregh/dgopher/releases/latest):
+
+| System | Builds |
+| --- | --- |
+| Linux | amd64, arm64 (`.deb` and `.tar.gz`) |
+| macOS | Apple silicon, Intel (disk image) |
+| Windows | amd64 (installer) |
+
+The builds are not signed yet. On macOS, allow the app once in System
+Settings → Privacy & Security. On Windows, SmartScreen warns once.
+
+To build from source, see [Development](docs/development.md).
+
+## Quick start
+
+1. Open DGopher and choose **Try the sample** on the start page. It creates
+   a small shop database in SQLite, so you need no server.
+2. Take the one-minute tour the start page offers.
+3. Press ⌘K (Ctrl+K on Linux and Windows) for the command palette, or ⌘N
+   for a new connection. You can paste a connection URL such as
+   `postgres://user@host/db` into the form.
+
+## Highlights
+
+### Safe with production
+
+- Each connection has an environment (development, staging or production),
+  and its color shows everywhere.
+- On production, writes ask first, destructive statements need the
+  connection's name typed, and manual commit is the default.
+- Read-only connections are enforced both in the app and on the server.
+- An open transaction is never closed silently. One left idle rolls back,
+  after a warning.
+- Grid edits are shown as SQL to review, then applied in one transaction,
+  one row per statement by primary key.
+
+See the [Safety model](docs/safety.md).
+
+### Secure and auditable
+
+- Passwords stay in the system keychain or a `DGOPHER_*` environment
+  variable, come from a command such as a password manager, or are asked
+  every time. Project files hold none, and secrets are redacted from
+  history and logs.
+- Log in without a password through AWS IAM, Google Cloud IAM or Microsoft
+  Entra ID, or Kerberos on PostgreSQL.
+- TLS with a custom CA and client certificates, SSH tunnels through jump
+  hosts with host keys checked, and SOCKS5 or HTTP proxies.
+- Every statement, edit, import, export and confirmation is recorded per
+  project in a tamper-evident [audit log](docs/audit-log.md) that you can
+  verify and export.
+
+### Work with SQL
+
+- **Editor:** highlighting, completion from the catalog, a ▶ on every
+  statement, `:name` parameters, folding, multiple carets, Vim keys, find
+  and replace, Go to Definition, problems underlined as you type, and a
+  session per editor.
+- **Results grid:** streams large results, filters (in SQL or with a
+  builder), sorts, edits rows inline, follows foreign keys both ways,
+  profiles every column, and opens values in JSON, XML, hex and image
+  viewers.
+- **Query plans:** Explain and Explain Analyze as a tree of steps or a
+  flame graph, with rows estimated and found, and advice on what makes a
+  query slow.
+- **Charts and dashboards:** chart any result, and put any read query on a
+  dashboard as a number, a chart or a table, with parameters and refresh.
+
+### Work with data and schemas
+
+- **Files:** drop a CSV, Parquet or JSON file on the window to query it in
+  place with DuckDB. Import CSV, JSON, Parquet, Excel and XML. Export to
+  CSV, JSON, SQL, Markdown, Excel, Parquet and more.
+- **Move data:** copy tables between databases and engines, compare rows,
+  generate test data, back up and restore.
+- **Schema:** ER diagrams you can edit, a table designer, data models that
+  generate migrations, a query builder, and search across objects and their
+  definitions.
+- **Admin:** server activity with running queries to cancel, locks and the
+  slowest statements; users and privileges; and VACUUM, ANALYZE, REINDEX
+  or OPTIMIZE from a table's menu.
+- **Redis:** a key browser, value editors for every type including Redis 8's,
+  a console with completion, and monitor, slow log, memory and Pub/Sub
+  panels. One server, a cluster, or through Sentinel.
+
+### Built for daily use
+
+- **Git-friendly projects:** connections, query files, snippets,
+  dashboards and data models live in your repository, without secrets.
+- **Keyboard first:** a command palette, quick open for tables and query
+  files, and every shortcut customizable.
+- **Tabs that stay:** pin, reorder and reopen tabs, open two side by side or
+  in another window, and get them back after a restart.
+- **Your way:** light, dark and custom themes, and every control named for
+  screen readers.
+
+See [Features](docs/features.md) for everything DGopher does.
+
+| | |
+| --- | --- |
+| ![A dashboard of the sample shop: revenue, orders, customers and products, revenue by month, customers by country, and best sellers](docs/images/dashboard.png) | ![The ER diagram of the sample shop's tables and their foreign keys](docs/images/er-diagram.png) |
 
 ## Footprint
 
@@ -20,107 +125,28 @@ Measured on Linux (amd64, Wayland) with version 0.1.0:
 | | |
 | --- | --- |
 | Download | 36 MB, as the `.deb` or the `.tar.gz` |
-| Executable | 99 MB, every driver and DuckDB compiled in |
+| Executable | 99 MB, with every driver and DuckDB compiled in |
 | Memory at start | 164 MB resident, of which 36 MB is the app's own; the rest is the executable and the GTK and graphics libraries, mapped from disk |
-
-## Features
-
-- **Safe with production:**
-  - Each connection has an environment, whose colour is shown everywhere.
-  - On production, writes ask first, destructive statements need the
-    connection's name typed, and manual commit is the default.
-  - Read-only connections are enforced in the app and on the server.
-  - An open transaction is never closed silently, and one left idle rolls
-    back.
-  - Grid edits are reviewed as SQL and applied in one transaction, one row
-    per statement by primary key.
-- **Secure:** passwords stay in the system keychain, an environment
-  variable or a command such as a password manager, or are asked every
-  time. Project files hold none, and secrets are redacted from history and
-  logs.
-- **Audit log:** every statement, edit, import, export and confirmation is
-  recorded per project in a tamper-evident hash chain. You can verify it
-  and export it.
-- **Admin:** server activity with running queries to cancel, locks and the
-  slowest statements; users and privileges; and VACUUM, ANALYZE, REINDEX
-  or OPTIMIZE from a table's menu.
-- **Query plans:** Explain and Explain Analyze as a tree of steps or a
-  flame graph, with rows estimated and found, and advice on what makes a
-  query slow: a full scan to keep few rows, a sort spilling to disk, a
-  nested loop rescanning a table.
-- **Every way in:**
-  - PostgreSQL, MySQL, ClickHouse (native or HTTP), SQLite and DuckDB
-    files, and Redis: one server, a cluster, or through Sentinel.
-  - Drop a CSV, Parquet or JSON file on the window to query it in place
-    with DuckDB.
-  - TLS with a custom CA and client certificates, SSH tunnels through jump
-    hosts with host keys checked, and SOCKS5 or HTTP proxies.
-  - Log in without a password through AWS IAM, Google Cloud IAM or
-    Microsoft Entra ID, or Kerberos on PostgreSQL.
-- **Data:** copy tables between databases and engines, compare rows,
-  generate test data, import CSV, JSON, Parquet, Excel and XML, back up and
-  restore.
-- **Schema:** ER diagrams you edit, a table designer, data models that
-  generate migrations, a query builder, and search across objects and
-  definitions.
-- **SQL editor:** highlighting, completion from the catalog, a ▶ on every
-  statement, `:name` parameters, folding, multiple cursors, Vim keys, find
-  and replace, Go to Definition, problems underlined as you type, and a
-  session per editor.
-- **Results grid:** streams large results, filters (in SQL or with a
-  builder), sorts, edits rows inline, follows foreign keys to the rows they
-  point at and from the rows that point back, profiles every column, and
-  exports to CSV, JSON, SQL, Parquet, Excel and more. Values open in
-  JSON, XML, hex and image viewers.
-- **Git-friendly projects:** connections, query files, snippets,
-  dashboards and data models live in your repository, without secrets.
-- **Dashboards and charts:** any result as a bar, line, area, scatter, pie
-  or histogram chart, and any statement as a dashboard panel, a number, a
-  chart or a table, with parameters and refresh.
-- **Redis:** a key browser, value editors for every type and module, and a
-  console.
-- **Keyboard first:** a command palette, quick open for tables and query
-  files, query history and snippets, and every shortcut customizable.
-- **One native binary:** every driver compiled in, and nothing to install
-  beside it.
-- **Your way:** light, dark and custom themes, more windows and tabs side
-  by side, and every control named for screen readers.
-
-See [Features](docs/features.md) for the full list, and the
-[Safety model](docs/safety.md) and [Audit log](docs/audit-log.md) for the
-details.
-
-| | |
-| --- | --- |
-| ![A dashboard of the sample shop: revenue, orders, customers and products, revenue by month, customers by country, and best sellers](docs/images/dashboard.png) | ![The ER diagram of the sample shop's tables and their foreign keys](docs/images/er-diagram.png) |
-
-## Install
-
-Download the build for your system from the
-[latest release](https://github.com/saanuregh/dgopher/releases/latest):
-Linux (amd64, arm64), macOS (Apple silicon, Intel) and Windows (amd64).
-The builds are not signed yet: macOS asks you to allow the app once, in
-System Settings, Privacy & Security, and Windows SmartScreen warns once.
-
-To build it yourself you need Go and a C compiler; see
-[Development](docs/development.md).
-
-```sh
-CGO_ENABLED=1 go run .
-```
-
-New here? **Try the sample** on the start page opens a small shop database
-in SQLite, and the tour shows the window's parts in a minute.
 
 ## Documentation
 
-- [Features](docs/features.md)
-- [Safety model](docs/safety.md)
-- [How SQL is read](docs/sql.md)
-- [Audit log](docs/audit-log.md)
-- [Where things are kept](docs/storage.md)
-- [Development](docs/development.md)
-- [Roadmap and known limitations](docs/roadmap.md)
+The [documentation index](docs/README.md) lists every page:
+
+- [Features](docs/features.md), [Engine support](docs/engines.md) and
+  [Keyboard shortcuts](docs/keyboard.md)
+- [Safety model](docs/safety.md) and [Audit log](docs/audit-log.md)
+- [Where things are kept](docs/storage.md) and [Project files](docs/project-files.md)
+- [Command line](docs/command-line.md) and [Troubleshooting](docs/troubleshooting.md)
+- [Known limitations](docs/limitations.md) and [Roadmap](docs/roadmap.md)
+- For contributors: [Development](docs/development.md),
+  [Architecture](docs/architecture.md), [Testing](docs/testing.md),
+  [How SQL is read](docs/sql.md) and [CONTRIBUTING.md](CONTRIBUTING.md)
+
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Report vulnerabilities privately,
+as [SECURITY.md](SECURITY.md) describes. Each version's changes are in its
+[release notes](https://github.com/saanuregh/dgopher/releases).
 
 ## License
 

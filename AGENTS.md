@@ -4,9 +4,11 @@ DGopher is a native database client for PostgreSQL, MySQL, ClickHouse,
 SQLite, DuckDB and Redis: one Go binary whose UI is drawn by
 [MyGo](https://mygo.egoist.dev), without a webview.
 
-**Read [docs/development.md](docs/development.md) for the package layout and
-[docs/safety.md](docs/safety.md) before changing anything that runs
-statements.**
+**Read [docs/development.md](docs/development.md) for the package layout,
+[docs/architecture.md](docs/architecture.md) for how the packages work
+together, and [docs/safety.md](docs/safety.md) before changing anything that
+runs statements.** [docs/testing.md](docs/testing.md) explains how to write
+tests.
 
 ## Hard rules
 
@@ -34,6 +36,7 @@ CGO_ENABLED=1 go tool mygo build              # bundle and installers into build
 go vet ./... && gofmt -l .                    # both clean today; any output is new
 go test ./...                                 # unit and headless UI tests
 go test ./internal/sqltext -run TestSplit     # one test
+docker compose up -d --wait                  # start the integration servers (compose.yaml)
 DGOPHER_IT=1 go test ./...                   # also against the integration servers
 DGOPHER_SNAPSHOTS=/tmp/snaps go test ./...   # write PNGs of the UI under test
 ```
@@ -43,12 +46,14 @@ integration tests too when it touches `internal/db`.
 
 ## Conventions
 
-- Integration servers are Docker containers `dgopher-pg`, `dgopher-mysql`,
-  `dgopher-ch`, `dgopher-redis`, `dgopher-redis-cluster` and
-  `dgopher-redis-sentinel` (`docs/development.md` starts them); ports and
-  passwords are in `internal/testutil/testutil.go` and, for Redis's,
-  `internal/db/integration_test.go`. Tests call `testutil.Integration(t)`, which
-  serializes them on Unix; elsewhere use `go test -p 1`.
+- Integration servers are the containers of `compose.yaml`: `dgopher-pg`,
+  `dgopher-mysql`, `dgopher-ch`, `dgopher-redis`, `dgopher-redis8`,
+  `dgopher-redis-cluster` and `dgopher-redis-sentinel`. Their ports and
+  passwords are in `internal/testutil/testutil.go`,
+  `internal/db/integration_test.go` and, for Redis 8,
+  `internal/db/redismodules_test.go` and `internal/ui/redis/redis_test.go`; keep `compose.yaml` matching them.
+  Tests call `testutil.Integration(t)`, which serializes them on Unix;
+  elsewhere use `go test -p 1`.
 - UI tests run headless through MyGo's `ui.Tester`, with `dataview.FakeHost`
   as the window and `testutil.WaitFor` to wait for frames.
 - MyGo is replaced in `go.mod` by a commit of a `dbgopher-v<version>` branch of
