@@ -704,11 +704,11 @@ func TestKeyboard(t *testing.T) {
 	if a.focusWant != "" || q.Editor.HasFocus() {
 		t.Fatalf("⌘J: focus wanted %q, editor focused %v", a.focusWant, q.Editor.HasFocus())
 	}
-	// ⌘/ lists the keys.
-	tt.Key(ui.Cmd, ui.KeySlash)
+	// F1 lists the keys.
+	tt.Key(0, ui.KeyF1)
 	tt.Frame()
 	if !a.shortcutsOpen || !tt.HasText("Keyboard Shortcuts") {
-		t.Fatal("⌘/ showed no shortcuts")
+		t.Fatal("F1 showed no shortcuts")
 	}
 	testutil.Snapshot(t, tt, "shortcuts")
 	tt.Key(0, ui.KeyEscape)

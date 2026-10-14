@@ -1171,7 +1171,7 @@ func (a *App) storageNote(f *connForm, cfg *db.Config) string {
 	case sourceAsk:
 		return "Not stored. Asked for on each connect, and kept in memory only until you disconnect."
 	case sourceIdentity:
-		return "No password: a token of your cloud login, which its command-line tool prints, logs in, made again for new connections as it ages. It goes only over TLS, required or verified."
+		return "No password: a token of your cloud login, which its command-line tool prints, logs in, made again for new connections as it ages. It goes only over verified TLS: Verify certificate and host."
 	}
 	if !a.st.Secrets().Available() {
 		return "Not saved: no system keychain is available on this computer, so it is asked for on each connect."
@@ -1239,7 +1239,7 @@ func (a *App) passwordField(c *ui.Context, f *connForm) {
 	if cfg.Engine == db.MySQL && f.passwordSource() != sourceIdentity {
 		ui.Field(c, "", func() {
 			ui.Checkbox(c, &f.cfg.ClearTextPassword, "Send the password as clear text")
-		}).Description("As logging in through LDAP or PAM needs: only over TLS, required or verified.")
+		}).Description("As logging in through LDAP or PAM needs: only over verified TLS, Verify certificate and host.")
 	}
 }
 

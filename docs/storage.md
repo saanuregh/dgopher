@@ -1,106 +1,134 @@
 # Where things are kept
 
-Settings are JSON and scripts are `.sql`. What is yours alone in a project
-(open editors, history, filters, row colours and the audit log) is in one
-SQLite file, `.dgopher/state.sqlite`.
+DGopher keeps data in three places:
 
-**A project folder** is yours to commit, except `.dgopher/`:
+| Place | Holds | Shared? |
+| --- | --- | --- |
+| [The project folder](#the-project-folder) | connections, query files, dashboards, data models, and your own state for the project | yes, through Git, except `.dgopher/` |
+| [The config directory](#the-config-directory) | your preferences, trusted connections and SSH hosts | no |
+| [The data directory](#the-data-directory) | the windows' layout | no |
+
+Passwords are in none of them. See [Secrets](safety.md#secrets).
+
+Settings are JSON, and scripts are `.sql` files.
+
+## The project folder
+
+A project is a folder, such as a repository. Commit everything in it
+except `.dgopher/`:
 
 | Path | In Git | What |
 | --- | --- | --- |
-| `dgopher.json` | committed | connections without passwords, snippets, and the queries folder |
+| `dgopher.json` | committed | connections (without passwords), snippets, per-table settings such as virtual keys and hidden columns, and the queries folder |
 | `queries/**/*.sql` | committed | SQL files, each starting with `-- connection: <id>` |
-| `.dgopher/.gitignore` | ignored | `*`: the folder ignores itself, so your `.gitignore` is never touched; written again on each open if it holds anything else |
-| `.dgopher/state.sqlite` | ignored | the project's state (with SQLite's `-wal` and `-shm` files beside it), described below |
-| `.dgopher/*.migrated` | ignored | the files an older DGopher kept this state in, set aside once imported; delete them when you like |
-| `.dgopher/sample.sqlite` | ignored | the sample database, if you made it in this project |
-
-`state.sqlite` holds, in its tables:
-- `kv`: which tabs were open, in their order, and the one in front: query
-  files, each with its connection and database and the unsaved text of an
-  editor whose file changed on disk, dashboards, data models, and a
-  connection's tabs by what they show, as a table's schema, name and page
-  (`workspace.json`); each table's recent grid filters
-  (`filters.json`) and row colours (`colors.json`); the values of the
-  editors' parameters, per connection (`query-parameters.json`).
-- `history`: query history (secrets redacted; trimmed to the newest 4,000
-  once it passes 5,000; clearable), each entry with the number of its
-  audit entry.
-- `audit`: the [audit log](audit-log.md), append-only and hash-chained,
-  with every statement and command sent as its traffic, so it grows with
-  use and is never trimmed.
-
-Its schema has a version (`PRAGMA user_version`); a newer DGopher
-upgrades it, and an older one refuses a file it does not know. On the first
-start after the move to SQLite, the old files are imported in one
-transaction; if one cannot be read, nothing is imported, the files stay as
-they are, and the project says why.
+| `dashboards/` | committed | dashboards |
+| `models/` | committed | data models |
+| `.dgopher/.gitignore` | ignored | holds `*`, so the folder ignores itself and your own `.gitignore` is never touched |
+| `.dgopher/state.sqlite` | ignored | your state for this project (below), with SQLite's `-wal` and `-shm` files beside it |
+| `.dgopher/sample.sqlite` | ignored | the sample database, if you created it in this project |
+| `.dgopher/*.migrated` | ignored | files an older DGopher kept this state in, set aside once imported; delete them when you like |
 
 A database file you put in the project yourself, such as `data/app.db`, is
-yours to commit or ignore.
+yours to commit or ignore. SQLite and DuckDB files inside the project are
+stored by relative path, so they open in every clone.
 
-A project's state reopens only what is inside the project: editors,
-dashboards and data models whose files are outside its folder (after `..`,
-absolute paths and symbolic links are resolved; a link whose target is
-missing counts as outside), or under its `.git/` or `.dgopher/`, are
-skipped, so a cloned repository that ships its own `.dgopher/` cannot open
-your other files. An editor you opened on a script outside the project does
-not come back after a restart. A `.dgopher` that is a symbolic link, or a
-Windows junction, stops the project from opening. Keeping your text over a
-changed file outside the project, or a link to one, asks first, showing its
-full path and where the link points.
+The app writes `.dgopher/.gitignore` again on each open if it holds
+anything other than `*`, or is not a regular file.
 
-**The app's config directory** holds only what is about the app, not a
-project: `~/.config/dgopher` on Linux, `~/Library/Application
-Support/dgopher` on macOS, and `%AppData%\dgopher` on Windows.
-`$DGOPHER_CONFIG_DIR` overrides it.
+### `state.sqlite`
+
+This file holds what is yours alone in a project:
+
+| Table | What |
+| --- | --- |
+| `kv` | small values, listed below |
+| `history` | query history, with secrets redacted. Trimmed to the newest 4,000 entries once it passes 5,000. You can clear it. Each entry links to its audit entry. |
+| `audit` | the [audit log](audit-log.md): append-only and hash-chained. It records every statement and command sent, so it grows with use. It is never trimmed. |
+
+The `kv` table holds:
+
+| Key | What |
+| --- | --- |
+| `workspace.json` | the open tabs, in order, and the one in front: query files (with each one's connection, database, and unsaved text if its file changed on disk), dashboards, data models, and a connection's tabs by what they show, such as a table's schema, name and page |
+| `filters.json` | each table's recent grid filters |
+| `colors.json` | each table's row colors |
+| `query-parameters.json` | the editors' parameter values, per connection |
+| `dashboard-parameters.json` | the dashboards' parameter values, per dashboard |
+
+The file's schema has a version (`PRAGMA user_version`). A newer DGopher
+upgrades it, and an older one refuses a file it does not know.
+
+When a project from before this file is first opened, its old files are
+imported in one transaction. If one cannot be read, nothing is imported,
+the files stay as they are, and the project says why.
+
+### What a project may reopen
+
+A project's state reopens only what is inside the project. This stops a
+cloned repository that ships its own `.dgopher/` from opening your other
+files.
+
+- Editors, dashboards and data models whose files are outside the project
+  folder are skipped. Paths are checked after resolving `..`, absolute
+  paths and symbolic links; a link whose target is missing counts as
+  outside.
+- Files under the project's `.git/` or `.dgopher/` are skipped too.
+- An editor you opened on a script outside the project does not come back
+  after a restart.
+- A `.dgopher` that is a symbolic link, or a Windows junction, stops the
+  project from opening.
+- Keeping your text over a changed file outside the project, or over a link
+  to one, asks first and shows its full path and where the link points.
+
+## The config directory
+
+This holds what is about you and the app, not about one project.
+
+| System | Path |
+| --- | --- |
+| Linux | `~/.config/dgopher` |
+| macOS | `~/Library/Application Support/dgopher` |
+| Windows | `%AppData%\dgopher` |
+
+Set `DGOPHER_CONFIG_DIR` to use another directory.
 
 | File | What |
 | --- | --- |
-| `settings.json` | preferences, the project folders in the sidebar, and the connections you trusted, with what you agreed to (no secrets) to mark what a pull changes |
-| `known_hosts` | SSH hosts trusted in the app (`~/.ssh/known_hosts` is also read) |
+| `settings.json` | preferences, the project folders in the sidebar, your custom keys, and the connections you trusted (no secrets) |
+| `known_hosts` | SSH hosts trusted in the app; `~/.ssh/known_hosts` is also read |
+| `themes/` | your theme files (Settings → Appearance → Themes Folder) |
 
-Trust stays here, not in the project, so that a cloned repository cannot
-approve its own servers.
+For each trusted connection, `settings.json` keeps what you agreed to, so
+the app can show what a later pull changes. Trust stays here, not in the
+project, so a cloned repository cannot approve its own servers.
 
-**The app's data directory** holds what the app keeps as it runs, apart
-from your preferences: `$XDG_DATA_HOME/dgopher` on Linux
-(`~/.local/share/dgopher` by default), `~/Library/Application
-Support/dgopher` on macOS, and `%LocalAppData%\dgopher` on Windows.
-`$DGOPHER_DATA_DIR` overrides it, and a set `$DGOPHER_CONFIG_DIR` stands for
-it too, so that a run kept away from your config keeps away from your
-layout as well.
+## The data directory
+
+This holds what the app keeps as it runs, apart from your preferences.
+
+| System | Path |
+| --- | --- |
+| Linux | `$XDG_DATA_HOME/dgopher` (by default `~/.local/share/dgopher`) |
+| macOS | `~/Library/Application Support/dgopher` |
+| Windows | `%LocalAppData%\dgopher` |
+
+Set `DGOPHER_DATA_DIR` to use another directory. If only
+`DGOPHER_CONFIG_DIR` is set, it is also used as the data directory, so a
+run kept away from your config also keeps away from your layout.
 
 | File | What |
 | --- | --- |
-| `ui.sqlite` | the windows' layout, a row a value in its `kv` table: the sidebar's width and whether it shows, the editor's height above its results (where new editors start), the split of two tabs side by side, and the Redis browser's keys width and console height |
+| `ui.sqlite` | the windows' layout |
 
-Each value is written as a drag ends, and read at start; one missing keeps
-its default. The window's own size and place are kept by the toolkit.
-Without the file, as when it cannot be written, the layout lasts the run.
+`ui.sqlite` has two tables:
 
-**Passwords** are never in either place: see
-[Secrets](safety.md#secrets).
-- A keychain password is kept for where it was typed for: the engine,
-  host, port, user and database, the SSH tunnel, the Redis topology, and,
-  when set, the client certificate, jump hosts, proxy, cloud identity and
-  clear-text mode; a proxy's password for the proxy too. If a pulled
-  `dgopher.json` points a connection somewhere else, or through a new proxy,
-  the app finds no password for it and sends none, rather than send the
-  stored one there; enter it in the connection's form. A password kept
-  before these fields joined is asked for once, and can be kept again.
-- Environment variables must be named `DGOPHER_*`, so a cloned repository
-  cannot have the app send, say, `GITHUB_TOKEN` to a host of its choice. A
-  password command is shown and asked for before it first runs, so a
-  repository can have one print a variable only with your agreement.
-- A connection you make or edit in the app is trusted as you save it.
-  Before the first connect of one that arrived in `dgopher.json` from
-  someone else, the app lists where it goes and how safely, and asks: the
-  server, TLS and whether it is verified, the CA file, a client certificate,
-  a proxy, SSH and jump hosts, where the password comes from (a variable, a
-  command's exact text, or a cloud identity's command, which sends a token),
-  clear-text passwords, the environment, read-only and the commit mode. It
-  asks again when a pull changes any of these, marking what changed, or makes
-  the connection protect less (production to staging or development,
-  read-only off, manual commit to auto); a change that protects more is taken
-  as it is.
+- `windows`: each window's size, position, and whether it is maximized or
+  full screen.
+- `kv`: one row per layout value: the sidebar's width and whether it shows,
+  the editor's height above its results (where new editors start), the
+  split of two tabs side by side, and the Redis browser's key list width
+  and console height.
+
+Each value is written when a drag ends and read at start. A missing value
+keeps its default. If the file cannot be written, the layout lasts only
+for the run.

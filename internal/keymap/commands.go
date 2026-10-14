@@ -52,6 +52,8 @@ const (
 	Unfold         = "editor.unfold"
 	FoldAll        = "editor.foldAll"
 	UnfoldAll      = "editor.unfoldAll"
+	Comment        = "editor.comment"
+	BlockComment   = "editor.blockComment"
 	ToggleResults  = "editor.toggleResults"
 	Save           = "editor.save"
 	SaveAs         = "editor.saveAs"
@@ -120,7 +122,7 @@ var Commands = []Command{
 	command(Quit, Global, "Quit DGopher, asking first about what it would lose", "Cmd+Q"),
 	command(FocusNavigator, Global, "Focus the navigator", "Cmd+0"),
 	command(FocusFilter, Global, "Focus the filter of the current view", "Cmd+L"),
-	command(ShortcutsList, Global, "The list of keys", "Cmd+/"),
+	command(ShortcutsList, Global, "The list of keys", "F1"),
 	command(NextTab, Global, "Next tab", "Ctrl+Tab"),
 	command(PreviousTab, Global, "Previous tab", "Ctrl+Shift+Tab"),
 
@@ -155,6 +157,8 @@ var Commands = []Command{
 	command(Unfold, Editor, "Open the fold the caret is on", "Cmd+Alt+]"),
 	command(FoldAll, Editor, "Fold every block", "Cmd+Alt+Shift+["),
 	command(UnfoldAll, Editor, "Open every fold", "Cmd+Alt+Shift+]"),
+	command(Comment, Editor, "Comment or uncomment the lines", "Cmd+/"),
+	command(BlockComment, Editor, "Put the selection in a block comment, or take it out", "Cmd+Alt+/"),
 	command(ToggleResults, Editor, "Between the editor and its results", "Cmd+J"),
 	command(Save, Editor, "Save the file now (it also saves as you type)", "Cmd+S"),
 	command(SaveAs, Editor, "Save the editor as a file", "Cmd+Shift+S"),

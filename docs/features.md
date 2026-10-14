@@ -1,852 +1,1256 @@
 # Features
 
+Everything DGopher does, by area. Keys are written as on macOS; on Linux
+and Windows, ⌘ is Ctrl and ⌥ is Alt. [Keyboard shortcuts](keyboard.md)
+lists the default keys.
+
+- [Getting started](#getting-started)
+- [The window](#the-window)
+- [Projects](#projects)
+- [Connections](#connections)
+- [The navigator](#the-navigator)
+- [SQL editor](#sql-editor)
+- [Results grid](#results-grid)
+- [Table tabs](#table-tabs)
+- [Export](#export)
+- [Charts](#charts)
+- [Dashboards](#dashboards)
+- [Schema tools](#schema-tools)
+- [Moving data](#moving-data)
+- [Server administration](#server-administration)
+- [Redis](#redis)
+- [History and snippets](#history-and-snippets)
+- [Settings and themes](#settings-and-themes)
+- [Accessibility](#accessibility)
+
 ## Getting started
 
-- **First run:**
-  - Paste a connection URL (`postgres://…`, `mysql://…`, `clickhouse://…`,
-    `redis://…`, `rediss://…`, or a file path) to fill the connection form,
-    its TLS too, each value as its own driver reads it: PostgreSQL's
-    `sslmode` (`verify-ca` and `verify-full` as verify-full), MySQL's
-    `ssl-mode` or `tls` (`tls=true` as verify-full), ClickHouse's `secure`
-    and `rediss://` as verify-full, or as require (encrypted, unverified)
-    with `skip_verify`. A value the app does not know, two that disagree,
-    or a `tls_server_name` (the app checks the certificate against the
-    URL's host) is shown as an error rather than taken as prefer.
-  - Try the built-in sample shop database without a server.
-  - A guided tour, offered on the start page until taken and in the
-    title bar's Help menu and the palette always, shows the parts of the window one at a time, dimming
-    the rest: projects and connections, editors and results, the palette,
-    how production connections are guarded, and the sample database.
-- **Drag and drop:** drop on the window a SQLite or DuckDB file (opens as
-  a connection), a `.sql` script (opens in an editor), a CSV, Parquet or
-  JSON file (queried in place by DuckDB), or an Excel or XML file
-  (imported into a new table).
-- **Title bar:** the same on every system, beside the system's window
-  buttons, with no row of its own: the sidebar's top row adds a project or
-  a connection and hides the sidebar; the tabs' row shows it again, and
-  holds the palette's search and the app's menu (File, View, Help,
-  Settings and Quit). Both rows drag the window. macOS keeps its menu bar
-  too, at the top of the screen.
-- **Keyboard first:**
-  - The palette (⌘K) has the app's commands and the current tab's, these
-    first: running, explaining, formatting, committing or rolling back
-    in an editor, switching its database or schema, moving between its
-    results, pinning or closing one;
-    refreshing, exporting, fetching, charting and applying rows. Each
-    shows its key. Tables, functions, procedures and query files open
-    by name (⌘P).
-  - In manual commit, ⌘⌥⇧↵ commits an editor's or a table's
-    transaction. Rolling back has no key until one is
-    set, as it loses the transaction's work.
-  - ⌘1…⌘9 switch tabs (in the results grid, ⌘2 sorts by the chosen
-    column instead), the keys going on in the tab chosen: an editor's
-    text, a table's rows, the Redis keys. ⌘0 focuses the navigator; ⌘L
-    focuses the current view's filter (a table's WHERE, then its quick
-    filter); ⌘J moves between the editor and
-    its results; F5 runs or refreshes, a dashboard too.
-  - On a table in the navigator, ⌘C copies its name, F2 renames it, F4
-    shows its structure, and Delete opens a DROP of it in a new editor
-    to review and run.
-  - In the Redis key browser, F5 scans again and Delete deletes the key
-    chosen, once agreed.
-  - Dialogs put the keys in their first field.
-  - In the ER diagram, a table's header takes the keys: ↵ opens its data,
-    the arrows move it, and its menu (⇧F10) adds a foreign key from a
-    column, as dragging the column onto another table does.
-  - ⌘T opens an editor, ⌘N a connection, ⌘W closes a tab, Ctrl+Tab moves
-    between tabs, ⌘B shows or hides the sidebar, and F11 enters full
-    screen.
-  - ⌘/ lists every shortcut, as they are set, and finds one by its key
-    or what it does; ⇧F10 or the menu key opens the menu of what has
-    the focus.
-  - In a dialog, ⌘↵ does what it is for from any of its fields, as its
-    main button; Esc closes it. A dialog whose button changes data or
-    trusts a server (rolling back, dropping, deleting keys, importing,
-    copying, restoring, running a file) takes a click.
-  - Esc or a click outside a form changed since it opened (a connection,
-    the query builder, a user, a value…) asks "Discard your changes?"
-    first; one as it opened closes at once. A dialog whose work runs, as
-    a copy, a backup, an import or Test Connection, stays open: its own
-    Stop or Cancel ends the work.
-  - Every command's keys can be changed: Customize Keyboard Shortcuts…
-    (in Settings, the Help menu or the palette) records a key for it,
-    removes one, or resets it.
-    A key that types needs ⌘, Ctrl or Alt, and one that moves in lists
-    a modifier; a key another command has in its section, or anywhere,
-    is refused, naming it, as are ⌘1…⌘9 and the grid's F2. An editor's
-    and its results' commands may share a key, as ⌘S and F5 do. Keys
-    are kept with the settings as `Cmd+Shift+F`, Cmd being ⌘ on macOS
-    and Control elsewhere, so they carry between machines (a Ctrl key
-    recorded on Linux is kept as Cmd, which is one key there); the menu
-    bar shows them.
-- **Screen readers and the keyboard alone:** every control has a name a
-  screen reader reads (a test fails on one without), charts and the ER
-  diagram say what they show, and the end of a run is read out with its
-  result. Everything is reached by keys: Tab between controls, the
-  navigator, tabs and grids by their keys, context menus by the menu key
-  or Shift+F10, and the ER diagram's changes through the navigator's
-  menus and the table form.
-- **Tabs:** each shows where it runs: an editor's or a table's
-  connection and database, a dashboard's panels', a data model's source.
-  A dot per connection, up to three then a count, in its color: filled
-  while open, a ring while not, with a warning when one failed, which
-  comes first. Under the title, the connection, with its database when
-  not its own or how many it uses, or the first and how many more; the
-  tooltip lists them all with their state. The status bar shows the
-  connection in front, its database too; for a tab on several, a chip
-  per connection, problems first, up to three and "+N more", each
-  listing its databases (and a dashboard's panels on them) and
-  connecting, retrying or disconnecting it. Drag one along the bar to
-  reorder; the middle button closes it. A tab's menu pins it (first,
-  with a pin for its close button, which unpins; Close Others, Close to
-  the Right, Close All, ⌘W and the middle button leave it, its menu's
-  Close closes it; a pinned tab stays pinned after a restart), and
-  closes others, those to its right or all, asking once about everything
-  they would lose, with Commit for open transactions. Reopen Closed Tab
-  (⇧⌘T) opens the tabs closed, the last first, up to 20, as editors by
-  their file, tables at their page, diagrams, dashboards and models; one
-  whose file or connection is gone says so. Tabs that do not fit are
-  listed by a button at the bar's end.
-- **Activity:** the app's one sign of work going on is a thin bar moving
-  along the top of the status bar, once any work (a query, rows being
-  read, a count, an export, a connect…) has lasted 300 ms; quick work
-  shows nothing, and nothing moves. Long work offers Stop or Cancel
+- **Try the sample.** The start page offers a small shop database in
+  SQLite, made on your computer, so you can explore without a server.
+- **The tour.** A short guided tour explains projects and connections,
+  editors and results, the palette, how production connections are
+  guarded, and the sample database. It highlights the part of the window
+  each step is about. The start page offers it until you take it; the
+  Help menu and the palette always do.
+- **Paste a connection URL** into the connection form to fill it in. See
+  [Connection URLs](#connection-urls).
+- **Drag and drop** a file onto the window:
+
+  | File | What happens |
+  | --- | --- |
+  | SQLite (`.sqlite`, `.sqlite3`, `.db`, `.db3`) or DuckDB (`.duckdb`, `.ddb`) | opens as a connection |
+  | `.sql` | opens in an editor on the connection chosen in the navigator |
+  | CSV, TSV, Parquet, JSON or JSON Lines (`.csv`, `.tsv`, `.parquet`, `.json`, `.jsonl`, `.ndjson`) | queried in place with DuckDB |
+  | Excel (`.xlsx`) or XML | imported into a new table of the connection chosen in the navigator |
+
+## The window
+
+### Title bar and menus
+
+The title bar looks the same on every system and sits beside the system's
+window buttons, without a row of its own:
+
+- The sidebar's top row adds a project or a connection, and hides the
+  sidebar.
+- The tab row shows the sidebar again, and holds the palette's search box
+  and the app menu: File, View, Help, Settings and Quit.
+- Both rows drag the window. On macOS the system menu bar is kept too.
+
+### Command palette
+
+- **⌘K** opens the palette: every command, connection, table, dashboard,
+  data model and snippet, by name. The current tab's commands come first,
+  such as running, explaining, formatting, committing or rolling back in an
+  editor, or refreshing, exporting, fetching, charting and applying rows.
+  Each command shows its key.
+- **⌘P** opens a table, view, function, procedure or query file by name.
+
+### Tabs
+
+- **Where a tab runs.** Each tab shows its connection: a dot per
+  connection in its color (up to three, then a count), filled while
+  connected, a ring while not, and a warning when one failed. Under the
+  title it shows the connection, and the database when it is not the
+  connection's own. The tooltip lists every connection and its state.
+- **Reorder** by dragging a tab along the bar. The middle button closes it.
+- **Pin** a tab from its menu. A pinned tab moves to the front and shows a
+  pin instead of its close button (click the pin to unpin). Close Others,
+  Close to the Right, Close All, ⌘W and the middle button leave it open;
+  only its menu's Close closes it. Pins survive a restart.
+- **Close several** with Close Others, Close to the Right or Close All. The
+  app asks once about everything they would lose, with Commit for open
+  transactions.
+- **Reopen Closed Tab** (⇧⌘T) reopens the last closed tabs, newest first, up
+  to 20: editors by their file, tables at their page, diagrams, dashboards
+  and models. A tab whose file or connection is gone says so.
+- **Overflow.** Tabs that do not fit are listed by a button at the end of
+  the bar.
+- **Side by side.** Open to the Side, in a tab's menu, shows the tab beside
+  the one in front, with a divider to drag. Keys go to the tab marked as in
+  front; clicking into the other brings it in front.
+
+### Status bar
+
+- It shows the connection of the tab in front, with its database, and its
+  environment in the environment's own color.
+- For a tab on several connections, such as a dashboard, it shows a chip
+  per connection, problems first, up to three and then "+N more". Each chip
+  lists its databases (and the dashboard's panels on them) and connects,
+  retries or disconnects its connection.
+- It lists every open transaction and how long it has been open.
+- **Activity.** Once any work (a query, reading rows, a count, an export,
+  connecting…) has lasted 300 ms, a thin bar moves along the top of the
+  status bar. Quick work shows nothing. Long work offers Stop or Cancel
   where it runs: Fetch All, Count and applying grid changes in the data
   view, and connecting in the status bar, the navigator's menu and a
-  restored tab; a cancelled connect is audited, and one that finishes
-  late is closed.
-- **Restart:** the tabs come back in their order, the one in front in
-  front: editors, dashboards and models, and a connection's tables at
-  their page, ER diagrams, keys, activity, users and search. A
-  connection's tab waits, unconnected, until it is connected: on its own
-  as it comes into view when the connection auto-connects, else by its
-  Connect button or ↵. Opening the same table meanwhile takes its place.
-  Filters and sort start afresh.
-- **Window:** closing the last tab leaves the start page. On macOS,
-  closing the window keeps DGopher running with its tabs and connections,
-  and its Dock icon shows the window again.
-  - More windows: a tab's Move to New Window puts it in a window of its
-    own, titled by its tab in front, beside the main one's sidebar; tabs
-    move between windows, and one already open comes forward in its
-    window. Dialogs show in the window being used. Closing a window
-    moves its tabs back to the main one, so nothing in them is lost, as
-    an open transaction; the workspace reopens them all there.
-- **Settings,** on pages: Appearance (theme, the editor's and the
-  interface's fonts, the editor's font size), Editor (where statements
-  end, what a script does on an error, Vim, the keys), Results (rows per
-  page, when to notify), Safety (large changes, sensitive values) and
-  Storage (where the app keeps what it keeps).
-  - Appearance follows the system, is light or dark, or is a theme, shown
-    as chosen though the system's stays dark, as on Linux: Nord,
-    Dracula and Solarized Light come with the app, and a JSON file in the
-    themes folder (Themes Folder opens it) adds one, or replaces a
-    built-in of its name. A theme is light or dark, and sets any of the
-    app's colors by name, as `#rrggbb` or with an alpha `#rrggbbaa`:
+  restored tab. A cancelled connect is audited, and one that finishes late
+  is closed.
 
-    ```json
-    {"name": "Night Shift", "base": "dark",
-     "colors": {"accent": "#f59e0b", "editor": "#101010", "keyword": "#fbbf24"}}
-    ```
+### More windows
 
-    The names: background, surface, surfaceHover, surfacePressed, border,
-    text, textMuted, accent, accentText, danger, warning, success,
-    selection, focus; sidebar, editor, lineNumber,
-    currentStatement, gridHeader, gridLine, cellSelected, null, modified,
-    inserted, deleted, muted, hover; and the SQL's keyword, string,
-    number, comment, quotedIdentifier, parameter and operator. A file
-    that does not read is left out, and logged. `gutter`, which older
-    versions colored, is still read and has no effect: the gutter takes
-    the editor's color.
-- **Notifications:** a statement, script, export or import that took 10
-  seconds or more (a setting; 0 for never) tells the system as it ends,
-  if DGopher is in the background then: what ran, on which connection,
-  and its first error, never its SQL. A click brings its tab forward.
+- A tab's **Move to New Window** puts it in a window of its own, titled by
+  its tab in front, beside the main window's sidebar.
+- Tabs move between windows. Opening a tab that is already open brings it
+  forward in its window.
+- Dialogs show in the window you are using.
+- Closing a window moves its tabs back to the main window, so nothing in
+  them is lost, such as an open transaction. The workspace reopens them all
+  there.
+- Closing the last tab leaves the start page.
+- On macOS, closing the window keeps DGopher running with its tabs and
+  connections; the Dock icon shows it again.
+
+### Restart
+
+The tabs come back in their order, with the same one in front: editors,
+dashboards and models, and a connection's tables at their page, ER
+diagrams, Redis keys, activity, users and search tabs.
+
+- A connection's tab waits, unconnected, until its connection connects: on
+  its own when it comes into view if the connection auto-connects, or when
+  you press Connect or ↵.
+- Opening the same table meanwhile takes the waiting tab's place.
+- Filters and sort start afresh.
+- The window's size and position are restored.
+
+### Notifications
+
+A statement, script, export or import that took 10 seconds or more tells
+the system when it ends, if DGopher is in the background. The notice says
+what ran, on which connection, and its first error, but never its SQL.
+Clicking it brings its tab forward. The time is a setting (0 turns
+notifications off).
 
 ## Projects
 
-- **Git-friendly projects:** every connection belongs to a project, a
-  folder such as a repository. The sidebar lists every project with its
-  connections and queries.
-  - Create one with **New Project…**, or list an existing folder with
-    **Add Existing Folder…** or `dgopher <folder>`.
-  - Its `dgopher.json` shares connections and snippets with the team,
-    environments included. It holds no secrets.
-  - The file is written sorted and stable, so it diffs cleanly. A file
-    changed on disk, as by a `git pull`, is never overwritten: reload the
-    project from its menu.
-  - Every SQL editor is a file in `queries/`, saved as you type; its tab
-    shows a dot until the file holds what was typed. A
-    `-- connection: <id>` line binds a file to a connection, whose IDs
-    complete as you type the line. A file changed on disk while open is
-    never overwritten; the editor offers to use the file or keep yours. An
-    editor closed untouched removes its file.
-  - A file runs only on the connection its line names. An editor whose
-    file names another connection runs nothing, and offers to switch to
-    it; a file naming a connection the project lacks opens, unconnected,
-    for its line to be fixed. A restored editor follows its file's line,
-    as after a pull that changed it.
-  - A connection's ID changes in its form, once you agree to what it
-    rewrites: `dgopher.json` and its tables' settings, the query files,
-    dashboards and data models that name it, open editors (their unsaved
-    text kept), and its saved password and trust, which move with it. The
-    query history and audit log keep the old ID; teammates who pull are
-    asked again whether to trust it, and for its password. The button
-    beside the ID makes it again from the name, numbered when another
-    connection of the project has it.
-  - SQLite and DuckDB files inside the project are stored by relative path,
-    so they open in every clone.
+Every connection belongs to a project: a folder, such as a repository.
+The sidebar lists every project with its connections, query files,
+dashboards and data models. [Where things are kept](storage.md) lists the
+files.
 
-## Connections and navigator
+- **Create** one with **New Project…**, or add an existing folder with
+  **Add Existing Folder…** or `dgopher <folder>`.
+- **Share with your team.** `dgopher.json` holds the project's connections
+  (with their environments) and snippets, and no secrets. It is written
+  sorted and stable, so it diffs cleanly.
+- **Never overwritten.** A file changed on disk, as by a `git pull`, is
+  never overwritten. Reload the project from its menu.
 
-- **Connections:** PostgreSQL (with its other databases), MySQL, ClickHouse
-  (native protocol, or HTTP on 8123 and 8443), SQLite and DuckDB files, and Redis:
-  one server, a cluster, or the master Sentinel names.
-  - A Redis cluster starts from any of its nodes; the key browser scans
-    every master, and the console reaches a key on whichever node holds
-    it. Through Sentinel, the connection follows the master to its
-    replacement after a failover, and logs in to the sentinels with
-    credentials of their own. Through an SSH tunnel, every node is reached
-    through the SSH server.
-  - TLS: off, prefer, require, or verify (certificate and host name) with
-    a custom CA, and a client certificate to log in with where the server
-    asks for one. Prefer uses TLS where the server offers it, each
-    connection on its own, and on PostgreSQL refuses a server that then
-    asks for the password in clear text; prefer and require do not check
-    who the server is. Whether TLS was used shows after the server's
-    version ("TLS" or "no TLS") and in the connect's audit entry.
-    ClickHouse over HTTP ignores `HTTP_PROXY` and refuses redirects to
-    another host, so its password stays with the server.
-  - Proxies: SOCKS5 or HTTP CONNECT, with a user and a password kept in
-    the keychain, to the server or to the SSH host.
-  - Cloud identities log in to PostgreSQL and MySQL without a password:
-    a token of your AWS IAM, Google Cloud IAM or Microsoft Entra ID login,
-    printed by the cloud's own tool (`aws`, `gcloud`, `az`) after its
-    single sign-on, made again for new connections as it ages, and sent
-    only over verified TLS (verify-full, with the server's CA file unless
-    the system trusts it: AWS's RDS CA bundle, Cloud SQL's server CA).
-    MySQL can send the password as clear text, over verified TLS too, as
-    LDAP and PAM logins need; PostgreSQL's LDAP and PAM logins take the
-    password as any other, under require or verify-full.
-  - Kerberos: a PostgreSQL server asking for it gets the ticket of your
-    `kinit`, from the credentials cache of `KRB5CCNAME` as `krb5.conf`
-    (or `KRB5_CONFIG`) sets up; on Windows, your login's credentials.
-  - SSH tunnels: agent, key file with passphrase, or password, through
-    jump hosts as `ssh -J` does; a jump host logs in with the key file or
-    the agent, and the password goes only to the SSH host, so a tunnel
-    through jump hosts needs a key or the agent. Host keys are checked against
-    `known_hosts`, a jump host's too, and a new host must be trusted
-    explicitly after you compare its fingerprint. A changed host key is
-    refused as a possible attack.
-  - The connection form puts what most connections need on its General
-    page: where the database is, who connects, the environment, a colour
-    and read-only. Options (commit mode, timeouts, auto-connect) and
-    Network (TLS, SSH) have pages of their own, marked when they hold a
-    choice other than the default.
-  - A connection's colour replaces its environment's in the navigator, its
-    tabs and the band above its work. On staging and production the band
-    and the questions before a write keep the environment's colour, so a
-    colour from a shared project cannot make production look safe; the
-    status bar names the environment in its own colour, and, for a
-    dashboard, each of its panels' connections.
-  - A connection to another machine saves only once its environment is
-    chosen in the form, Development included, and again when an edit
-    points it elsewhere: the default, Development, asks nothing before a
-    write. Local servers and files keep the default. Connections imported
-    or written in the project file keep the environment they say.
-  - New… makes an empty SQLite or DuckDB file; a file already there is
-    opened as it is, never replaced.
-  - Test Connection reports the server version and how long connecting took.
-  - Each connection has an environment, and can be read-only, with its own
-    commit mode, idle-transaction limit and idle-connection limit: see
-    [Safety model](safety.md).
-- **Navigator:** each project in sections, Connections (open at first),
-  Queries, Dashboards and Data Models, each with its count and a + that
-  makes another, shown as the row is pointed at; one project alone is
-  named in the sidebar's top row, its sections at the top. A query file
-  shows under its name the connection its `-- connection:` line names,
-  with its environment's color (an ID no connection has, in the warning
-  color). A query file, dashboard or data model is renamed (F2) or
-  deleted (Delete) from its menu, an open tab following it; a
-  dashboard's or a model's file is named after it. A connection is a
-  lazy tree of databases, schemas, tables, views and columns (a
-  database of one schema names it on its
-  row and shows its folders, the schema's menu in its own), with
-  row estimates. It has context menus, and quick open (⌘P) for tables,
-  routines and query files. It follows the tab in front, choosing its
-  query file, table, dashboard or data model, else its connection, and
-  opening what holds it.
-  - Read Catalog, on a schema, sets how much of it is read, for very large
-    ones, kept in the project's file: As Needed (tables with their sizes,
-    a table's columns once opened or named in an editor), Names Only (no
-    sizes, and columns only once a table is opened, never for completion
-    or the editor's checks), Names and Columns (every column of the schema
-    in one query, so completion needs no more), or Everything (also its
-    routines, triggers, sequences and types).
-  - A schema's other objects, each in a folder of its kind: functions and
-    procedures, triggers, sequences, types and extensions (PostgreSQL),
-    events (MySQL), macros (DuckDB) and projections (ClickHouse). One opens
-    its definition in an editor, where it can be changed and run.
-  - A PostgreSQL partitioned table lists its partitions with their bounds:
-    open one's rows, detach it, or make a new one, its statement written
-    for the table's strategy.
-  - Tables: view DDL, copy the name, export data, truncate or drop.
-  - The table form makes a table (New Table…, on a schema) or changes
-    one (Edit Structure, on its Structure page): columns renamed, retyped,
-    made nullable, defaulted, commented, added and dropped; the primary
-    key; indexes, foreign keys with their actions, and checks, dropped or
-    added. Review SQL shows every statement before it runs; they run in
-    one transaction where the engine's DDL allows it, and the
-    confirmation says when it does not. On DuckDB and in-memory SQLite,
-    whose tabs share one transaction, they wait until an open one ends. SQLite makes the table again for
-    what ALTER TABLE cannot change, keeping its rows, indexes, triggers
-    and views, and refuses when the table has what the form cannot write
-    again, as a collation. DuckDB and ClickHouse change the columns of a
-    table they made, not its keys.
-  - Generate SQL Script and Generate Documentation, on a schema, write
-    the objects chosen from it. The script creates them in an order that
-    runs: types and functions first, then tables, each after those its
-    foreign keys point at, views after what they read, and triggers last;
-    it opens in an editor. The documentation, one HTML page or a Markdown
-    file, lists each table's columns, keys, indexes and references, and
-    each object's definition.
-  - Search Objects finds the tables, views, columns, routines, triggers,
-    sequences and types of every schema of a database by name, and with
-    In definitions, views by their query and routines and triggers by
-    their body, showing the line that matched. Enter opens what it found:
-    a table's rows, a column's structure, or a definition.
-  - Rename a table, a view or a column of a table, through the same
-    safety review as a statement typed in an editor; SQLite cannot rename
-    a view.
-  - Connections: duplicate or delete; on Redis, open the key browser.
-  - Projects: rename, show in files, or remove from the sidebar.
+### Query files
+
+- Every SQL editor is a file in `queries/`, saved as you type. Its tab
+  shows a dot until the file holds what you typed.
+- A `-- connection: <id>` line binds a file to a connection. Connection IDs
+  complete as you type the line.
+- A file runs only on the connection its line names. An editor whose file
+  names another connection runs nothing and offers to switch to it. A file
+  naming a connection the project lacks opens unconnected, so you can fix
+  its line. A restored editor follows its file's line, as after a pull that
+  changed it.
+- A file changed on disk while open is never overwritten. The editor offers
+  to use the file or keep your text.
+- An editor closed without typing anything removes its file.
+- **Duplicate** (in an editor tab's menu, a query file's menu, or the
+  palette) opens a copy of the editor, including unsaved edits, in a new
+  query file on the same connection.
+- Query files, dashboards and data models are renamed (F2) or deleted
+  (Delete) from their menu in the sidebar; an open tab follows. A
+  dashboard's or a model's file is named after it.
+
+### Connection IDs
+
+A connection's ID changes in its form, once you agree to what that
+rewrites:
+
+- `dgopher.json` and its tables' settings;
+- the query files, dashboards and data models that name it;
+- open editors, keeping their unsaved text;
+- its saved password and trust, which move with it.
+
+Query history and the audit log keep the old ID. Teammates who pull the
+change are asked again whether to trust the connection, and for its
+password. The button beside the ID makes a new one from the name, numbered
+when another connection in the project has it.
+
+## Connections
+
+### Engines
+
+| Engine | Notes |
+| --- | --- |
+| PostgreSQL | browse its other databases from one connection |
+| MySQL and MariaDB | |
+| ClickHouse | native protocol, or HTTP on 8123 and 8443 |
+| SQLite | a file, or in memory; **New…** creates an empty file |
+| DuckDB | a file, or in memory; **New…** creates an empty file |
+| Redis | one server, a cluster, or the master Sentinel names |
+
+**New…** never replaces a file that is already there; it opens it as it
+is.
+
+### The connection form
+
+- **General** holds what most connections need: where the database is, who
+  connects and where the password comes from, the environment, a color, and
+  read-only.
+- **Options** holds auto-connect, the commit mode, the idle-transaction and
+  idle-connection limits, and the statement timeout.
+- **Network** holds TLS, the proxy and SSH. It is marked when SSH, a proxy
+  or a client certificate is set.
+- **Test Connection** reports the server's version and how long connecting
+  took.
+- **Auto-connect** (off by default) opens the connection when DGopher
+  starts, and connects its editors as they come into view.
+
+### Environments and colors
+
+Each connection has an environment: development, staging or production.
+It decides what asks before running; see [Safety model](safety.md).
+
+- A connection to another machine saves only once you choose its
+  environment, Development included, and again when an edit points it at
+  another machine. This is because the default, Development, asks nothing
+  before a write. Local servers and files keep the default. Connections in
+  the project file keep the environment they say.
+- A connection's own color replaces its environment's in the navigator, its
+  tabs and the band above its work. On staging and production, the band and
+  the questions before a write keep the environment's color, so a color
+  from a shared project cannot make production look safe.
+
+### Connection URLs
+
+Paste a URL, or a file path, into **From URL** to fill in the form,
+including TLS.
+
+- Schemes: `postgres://`, `postgresql://`, `mysql://`, `mariadb://`,
+  `clickhouse://`, `ch://`, `redis://`, `rediss://`, `sqlite://`,
+  `sqlite3://`, `duckdb://` and `file://`.
+- TLS is read as each driver reads it:
+  - PostgreSQL's `sslmode`: `verify-ca` and `verify-full` become
+    verify-full.
+  - MySQL's `ssl-mode` or `tls`: `tls=true` becomes verify-full.
+  - ClickHouse's `secure` and `rediss://` become verify-full, or require
+    (encrypted, not verified) with `skip_verify`.
+  - `ssl=true` or `ssl=false` on PostgreSQL and MySQL become require or
+    disable.
+- An unknown value, two values that disagree, or a `tls_server_name` is
+  shown as an error rather than quietly taken as prefer. (The app checks
+  the certificate against the URL's host.)
+
+### Passwords
+
+The password comes from the system keychain, a `DGOPHER_*` environment
+variable, a command such as a password manager, a cloud identity, or is
+asked every time. [Secrets](safety.md#secrets) explains each.
+
+### TLS
+
+- Modes: off, prefer, require, or verify (the certificate and the host
+  name), with a custom CA file.
+- A client certificate logs in where the server asks for one.
+- Prefer uses TLS when the server offers it, and connects without TLS when
+  it does not.
+- Prefer and require encrypt but do not check who the server is. So on
+  PostgreSQL, under either mode, a server that asks for the password in
+  clear text is refused. See [Secrets](safety.md#rules-for-each-protocol).
+- Whether TLS was used shows after the server's version ("TLS" or "no
+  TLS"), and in the connect's audit entry.
+- ClickHouse over HTTP ignores `HTTP_PROXY` and refuses redirects to
+  another host, so its password stays with the server.
+
+### SSH tunnels
+
+- Log in with the SSH agent, a key file with a passphrase, or a password.
+  The passphrase or password can come from the keychain or a command.
+- Jump hosts work as `ssh -J` does. A jump host logs in with the key file
+  or the agent; the password goes only to the final SSH host. So a tunnel
+  through jump hosts needs a key or the agent.
+- Host keys are checked against `known_hosts`, including each jump host's.
+  A new host must be trusted explicitly after you compare its fingerprint.
+  A changed host key is refused as a possible attack.
+
+### Proxies
+
+SOCKS5 or HTTP CONNECT, to the server or to the SSH host, with a user and
+a password kept in the keychain.
+
+### Cloud identities and Kerberos
+
+- **Cloud IAM.** PostgreSQL and MySQL can log in with an AWS IAM, Google
+  Cloud IAM or Microsoft Entra ID token instead of a password. The cloud's
+  own tool (`aws`, `gcloud`, `az`) prints the token after its single
+  sign-on. The app makes a new one for new connections as it ages, and
+  sends it only over verified TLS: verify-full, with the server's CA file
+  unless the system trusts it (AWS's RDS CA bundle, Cloud SQL's server CA).
+  AWS takes a region and a profile.
+- **LDAP and PAM.** MySQL can send the password as clear text, over verified
+  TLS only, as LDAP and PAM logins need. PostgreSQL's LDAP and PAM logins
+  take the password as usual, under require or verify-full.
+- **Kerberos.** A PostgreSQL server that asks for it gets the ticket from
+  your `kinit`, from the credentials cache that `KRB5CCNAME` names, as
+  `krb5.conf` (or `KRB5_CONFIG`) sets up. On Windows it uses your login's
+  credentials.
+
+### Redis topologies
+
+- **Cluster.** Connect through any node. The key browser scans every
+  master, and the console reaches a key on whichever node holds it.
+- **Sentinel.** The connection follows the master to its replacement after
+  a failover. It logs in to the sentinels with their own user and password,
+  kept in the keychain.
+- **SSH.** Through a tunnel, every node is reached through the SSH server.
+- The form also sets the key separator for the key tree, and the database
+  index.
+
+## The navigator
+
+Each project shows in sections: Connections (open at first), Queries,
+Dashboards and Data Models. Each shows a count and, when pointed at, a +
+that makes another. With only one project, its name is in the sidebar's
+top row and its sections at the top.
+
+- A query file shows, under its name, the connection its
+  `-- connection:` line names, in its environment's color, or in the
+  warning color if no connection has that ID.
+- A connection is a tree of databases, schemas, tables, views and columns,
+  read as you open it, with row estimates. A database with one schema shows
+  that schema's folders directly.
+- The navigator follows the tab in front, selecting its query file, table,
+  dashboard, data model or connection, and opening what holds it.
+
+### Schema objects
+
+A schema's other objects are in folders by kind. Opening one shows its
+definition in an editor, where you can change and run it.
+
+The folders are functions and procedures, triggers, sequences and types,
+where the engine has them, plus extensions (PostgreSQL), events (MySQL),
+macros (DuckDB) and projections (ClickHouse).
+
+A PostgreSQL partitioned table lists its partitions with their bounds.
+Open a partition's rows, detach it, or make a new one, its statement
+written for the table's partitioning strategy.
+
+### Read Catalog
+
+For very large schemas, **Read Catalog** on a schema sets how much the app
+reads. The choice is kept in the project file.
+
+| Choice | Reads |
+| --- | --- |
+| As Needed | tables with their sizes; a table's columns once it is opened or named in an editor |
+| Names Only | no sizes, and columns only once a table is opened, never for completion or the editor's checks |
+| Names and Columns | every column of the schema in one query, so completion needs no more |
+| Everything | also routines, triggers, sequences and types |
+
+### Menus
+
+| Item | Menu offers |
+| --- | --- |
+| Empty sidebar | New Connection…, New Project…, Add Existing Folder… |
+| Project | New Connection…, New SQL Editor (with a SQL connection), New Dashboard…, New Data Model…; Query History; Audit Log; Show in Files; Reload; Remove from Sidebar… |
+| Connection | Connect or Disconnect (Cancel Connecting while it connects), Refresh, New SQL Editor, Run SQL File…, Search Objects…, Server Activity (servers only), Users and Privileges (where supported), Catalog Queries (SQL only), Back Up…, Restore… (not on read-only connections), a submenu for its schema, Edit Connection…, Duplicate, Delete Connection…; on Redis, Open Key Browser |
+| Schema | New Table…, View ER Diagram, Import File as New Table…, Export Tables…, Copy Tables to Another Database…, Generate SQL Script…, Generate Documentation…, Save as Data Model…, Run SQL File…, Back Up…, Restore…, Search Objects…, Read Catalog, New SQL Editor, Refresh |
+| Table or view | Open Data, View Structure, View DDL, New SQL: SELECT, Build a Query…, Copy Name, Rename…, Export Data…, Import Data…, Generate Test Data…, Drop…; tables also Copy to Another Database…, Compare Rows with…, Maintenance and Truncate…; partitioned tables also New Partition… |
+| Partition | Open Data, Detach… |
+| Column | Copy Name, Rename… (columns of tables) |
+| Function, sequence, type, … | Open Definition, Copy Name |
+| Query file, dashboard, data model | Rename…, Duplicate (query files), Delete… |
+
+Keys in the navigator: ⌘↵ opens a `SELECT *` of the table in a new editor,
+⌘R reads the schema again, ⌘C copies the table's name, F2 renames it, F4
+shows its structure, and Delete opens a `DROP` of it in a new editor to
+review and run. On a query file, dashboard or data model, Delete deletes
+it.
+
+**Catalog Queries**, on a connection's menu or in the palette, lists the
+latest queries the app ran on its own to read the catalog (for the
+navigator, completion and so on), with each one's time, arguments and
+error.
 
 ## SQL editor
 
-- **SQL editor**, run as DBeaver runs it:
-  - Syntax highlighting per dialect, and line numbers. Only the lines in
-    view are drawn, so a long script scrolls and edits as a short one.
-  - Brackets and quotes close as they are typed, and wrap a selection;
-    Enter keeps the indentation and continues a `--` comment. Lines move
-    with ⌥↑ and ⌥↓, duplicate with ⌥⇧↑ and ⌥⇧↓, and go with ⌘⇧K; ⌃G
-    goes to a line.
-  - Catalog Queries, on a connection's menu or in the command palette,
-    lists the latest queries the app ran on its own to read the catalog,
-    as the navigator's tables and an editor's completions, with how long
-    each took, its arguments and its error.
-  - Two tabs side by side: Open to the Side, in a tab's menu, shows it
-    beside the tab in front, with a divider to drag. The keys go to the
-    one in front, marked above it; clicking into the other brings it in
-    front where it is.
-  - Mistakes are marked as you type, with a wavy line: a string, quoted
-    name or comment left open, a parenthesis that closes nothing or is
-    not closed, and, against the catalog read, a table or a column
-    (`alias.column`) that does not exist. The line under the editor says
-    what is wrong at the caret, with the closest existing name as a fix
-    that ⌥↵ applies. Statements making or dropping tables are not
-    checked for names.
-  - Go to Definition (F12) opens what the name at the caret names:
-    a table's or a view's structure, through an alias or a column of it
-    too, or a routine's definition. Find Usages (⇧F12) lists where the
-    name is used in the file and the project's other query files; Rename
-    in File (F2) renames it everywhere in the file, quoting it where it
-    needs quotes, while the navigator's Rename renames it in the database.
-  - Go to Statement (⌘⇧O) lists the file's statements, by line, with the
-    comment above each, filtered as you type; Enter goes to one.
-  - Several carets: ⌘⌥↑ and ⌘⌥↓ add one on the line above or below,
-    Alt+click where clicked; ⌘D selects the word at the caret, then its
-    next whole occurrence, and ⌘⇧L every one. What is typed, deleted or
-    completed at one caret is done at each; the arrows, Home and End move
-    them all, and Esc goes back to one.
-  - A ▶ in the gutter, on the first line of each statement, puts the
-    caret in it and runs it, as ⌘↵ does.
-  - Folding: a statement, a group in parentheses or a block comment
-    over several lines folds to its first line and a ⋯, by the gutter's
-    markers, or ⌘⌥[ and ⌘⌥] at the caret (with ⇧, every block). What is
-    folded stays in the text, and runs.
-  - Vim key bindings (Settings → Editor → Vim): normal, insert, visual and
-    visual line modes, with a block caret and the mode under the editor;
-    counts; the motions h j k l w b e W B E 0 ^ $ gg G f F t T ; , % { }
-    and Ctrl+D/U; the operators d c y > < with motions, doubled, and the
-    text objects iw aw i" a" i' a' i( a( i[ a[ i{ a{; x X D C Y s S r J
-    ~ p P o O i a I A; u and Ctrl+R; . repeating the last change, typing
-    included; / ? n N searching; :w saving and :N going to a line. The
-    register is the clipboard. The app's commands keep their keys, as ⌘↵,
-    and Vim's Control keys win over theirs while the editor has the
-    keys. Outside insert mode, keys Vim does not use, as Page Up or ⌘F,
-    act as in the editor.
-  - The editor's toolbar shows the schema it finds names in, and on
-    PostgreSQL its database, and switches them: `SET search_path` or `USE`
-    on its session, audited, and another database on a session of its
-    own, never with a transaction open. A `SET` or `USE` typed moves it
-    too.
-  - Completion of tables, columns (alias-aware), schemas, keywords, the
-    engine's common functions and the schema's own, which complete with
-    their parentheses, and snippets by their keyword. The list narrows as
-    you type, best match first, by the letters typed in order (`usr`
-    finds `users`); ↵ or Tab inserts the one chosen.
-    A table completed in a query's `FROM` or `JOIN` takes a short alias of
-    its words' first letters, as DBeaver gives (`reflex_order ro`), apart
-    from the statement's others and from keywords (`ro2`).
-  - A statement ends at `;` or at a blank line, so ⌘↵ runs the statement
-    around the caret without selecting it; a band shows which. A setting
-    keeps `;` only. A procedure, function or trigger body (`BEGIN … END`,
-    `BEGIN ATOMIC`) stays one statement, and MySQL `DELIMITER` lines work
-    as in the `mysql` client.
-  - Run the statement (⌘↵), the selection, the whole script (⌘⇧↵ or Alt+X),
-    or into a new result tab that keeps the others (`⌘\`). Result tabs can
-    be pinned.
-  - A script stops at its first error, or goes on, as a setting says.
-  - `:name` parameters (also `@name` and `$name` on SQLite), ClickHouse
-    `{name:Type}` parameters and `${var}` variables take their values from
-    the Parameters bar above the editor, which lists those of its text;
-    a run asks only for one left empty there. The values are kept for the
-    connection's editors, each user's own, across restarts; all but
-    `${var}` are sent apart from the SQL, and Messages lists those a
-    statement ran with. A statement that mixes `:name` with `$1` or `?`
-    placeholders is refused.
-  - A failed statement shows the database's message, code, detail, hint and
-    where it went wrong; "Go to Error" puts the caret there.
-  - A right-click menu: the editor's own (cut, copy, paste, comments,
-    changing case, folding, selections), then execute, format, upper or
-    lower case, toggle comments, copy the statement, save a snippet,
-    export from the query.
-  - Explain (⌘E), format (⌘⇧F, the selection only when there is one,
-    keeping the blank lines between statements), and find (⌘F) and
-    replace (⌘⌥F) in the editor's find bar: matching case, whole words or
-    a regular expression, in the selection or the whole text, one match
-    at a time or all at once, which ⌘Z undoes.
-  - A plan (⌘E), or one measured by running the statement (Explain
-    Analyze, ⌘⇧E, for statements that read, on PostgreSQL, MySQL and
-    DuckDB), shows as a tree of its steps, with their rows, estimated and
-    found, and their share of the time or cost; as a flame graph; or as
-    the rows the server gave. Advice above it points at what may make the
-    query faster: a scan reading every row to keep few, estimates far from
-    what ran, a sort or hash spilling to disk, a nested loop rescanning a
-    table, a ClickHouse key that narrows nothing. A typed `EXPLAIN` in
-    those forms shows so too.
-  - An optional statement timeout per connection.
-  - Each editor has its own session, so `SET`, temporary tables and
-    transactions persist between statements.
-  - Editors are restored on the next launch, and `.sql` files can be opened
-    and saved. A restored editor, or a file opened, does not connect on its
-    own: Connect, or running a statement, opens its connection.
-  - Duplicate, in an editor tab's menu, a query file's menu in the sidebar
-    or the palette, opens a copy of the editor, its unsaved edits too, or of
-    the file, in a new query file on its connection.
-  - Auto-connect, off by default per connection: the connection opens as
-    DGopher starts, and its editors connect as they come into view.
+### Editing
 
-## Results grid and table tabs
+- Syntax highlighting for each engine's dialect, and line numbers. Only the
+  lines in view are drawn, so a long script scrolls and edits as fast as a
+  short one.
+- Brackets and quotes close as you type them, and wrap a selection. Enter
+  keeps the indentation and continues a `--` comment.
+- Move lines with ⌥↑ and ⌥↓, duplicate them with ⌥⇧↑ and ⌥⇧↓, and delete
+  them with ⌘⇧K. ⌃G goes to a line.
+- ⌘/ comments or uncomments the lines with `--`, and ⌘⌥/ puts the
+  selection in a `/* … */` block comment or takes it out.
+- **Several carets.** ⌘⌥↑ and ⌘⌥↓ add one on the line above or below;
+  ⌥-click adds one where you click (and removes one you click on). ⌥⇧-drag
+  makes a column selection. ⌘D selects the word at the caret, then its next
+  whole occurrence; ⌘⇧L selects every one. What you type, delete or
+  complete at one caret happens at each. The arrows, Home and End move them
+  all; Esc goes back to one.
+- **Folding.** A statement, a group in parentheses or a block comment over
+  several lines folds to its first line and a ⋯. Use the gutter's markers,
+  or ⌘⌥[ and ⌘⌥] at the caret (add ⇧ for every block). Folded text stays in
+  the file, and runs.
+- **Find and replace** (⌘F, ⌘⌥F): match case, whole words or a regular
+  expression, in the selection or the whole text, one match at a time or
+  all at once. ⌘Z undoes a Replace All.
+- **Format** (⌘⇧F) formats the selection, or the whole text, keeping the
+  blank lines between statements.
+- **Right-click menu**: cut, copy, paste, comments, case, folding and
+  selections; then run, format, copy the statement, save as a snippet, and
+  export from the query.
 
-- **Results grid**, one viewer for a query's results and a table's data,
-  as DBeaver's:
-  - Virtualized: only the rows in view are built.
-  - Every column and its header start at the left, numbers too; the text
-    presentation lines numbers up on the right, as psql does.
-  - Columns resize, move, sort by several at once (⌘-click), pin to the
-    left, hide (or hide those with no data), and fit to their values or
-    the screen, from the header's menu.
-  - Filter by a cell's value (=, ≠, >, <, contains, NULL, the rows chosen),
-    a typed value, the clipboard's value, or a list of distinct values with
-    counts (⌘F11). The `WHERE` filter is SQL run by the server, with the
-    recent filters and column names offered as you type: on a table, as
-    its `WHERE`; on a query's result, around the statement
-    (`SELECT * FROM (…) q WHERE …`), with its parameter values. The quick
-    filter narrows the rows already read without running anything.
-  - The filter builder, beside the `WHERE` box, writes that filter from
-    conditions chosen: a column, an operator (comparisons, contains,
-    starts or ends with, one of a list, between, NULL) and a value, all
-    or any of them; the box then shows the SQL it wrote.
-  - Sorting by a column runs on the server while rows remain to be read,
-    and in memory once every row is, as DBeaver's default.
-  - Refresh and Fetch All in both, and Count (`SELECT COUNT(*)`) in a
-    table's data; a statement that writes is never filtered, and
-    refreshing its result asks before running it again. Fetch All has
-    Stop, which keeps the rows read; Count has Stop too.
-  - A query result lists distinct values and groups on the editor's own
-    connection, so it sees the editor's schema, open transaction and
-    temporary tables; while a result still reads its rows, they wait for
-    Fetch All.
-  - Grid, record (Tab) and plain-text views (``⌘` ``).
-  - Panels (F7): the value (text, JSON, XML, hex, image; save to or load
-    from a file), Calc (count, distinct, sum, average, min, max, median),
-    Profile, metadata, grouping, and the rows of other tables that refer
-    to the chosen one.
-  - Profile shows every column at once: its NULLs, distinct values,
-    bounds, average and median, with a histogram of numbers and times, or
-    the most frequent values of text. It profiles the rows read at once,
-    and every row on the server when asked: DuckDB summarizes a table
-    itself (SUMMARIZE); the other engines count in one statement.
-  - Formats: thousands, dates, booleans, binary, NULL; row colours by
-    value; zoom.
-  - Copy, Advanced Copy (⌘⇧C), paste as pending changes (⌘V), and
-    Advanced Paste (⌘⇧V). Copy as CSV, TSV, JSON, SQL, Markdown or a text
-    table. Open the rows in a spreadsheet app.
-  - Generate SQL for the chosen rows (SELECT, INSERT, UPDATE, DELETE, with
-    their values), or for the table (with an upsert and joins, and `:name`
-    parameters for the values).
-  - Export to CSV, TSV, JSON, JSON Lines, SQL, Markdown, an Excel
-    workbook, Parquet or a DuckDB database: the rows read, or the query run
-    again (only a read runs again), up to a row limit that is kept from
-    one export to the next (a million rows at first). A query result's
-    export runs on the editor's session, so it sees the editor's schema,
-    temporary tables and transaction, as the rows shown did; a table's runs
-    on a session of its own. Reaching the limit is said, never silent.
-    Files are named from a pattern (`${table}`, `${connection}`,
-    `${timestamp}`, `${date}`); text formats can go to the clipboard
-    instead. CSV can start with a byte order mark, for Excel, and CSV and
-    TSV can guard against spreadsheet formulas (off at first, then as last
-    chosen): text starting with `=`, `+`, `-`, `@`, a tab or a line break
-    (or their full-width forms) gets a leading `'`, so that a spreadsheet
-    shows it rather than runs it; numbers are never changed, nor are
-    clipboard copies. A SQL export names its table in the dialog's Table
-    and Schema fields, quoted as the engine quotes names: the schema (a
-    MySQL or ClickHouse database) is filled in from a table and left empty
-    for a query's rows, and an empty one writes the table's name alone.
-    Markdown escapes `|`, `\`, `&` and `<`.
-  - Export Tables, on a schema, writes the tables and views chosen, each
-    to a file of its own named by the pattern, with the same formats and a
-    limit for each; its SQL INSERTs name each table with its schema.
-  - The Excel workbook keeps numbers, dates and booleans as such, with
-    a bold header that stays in view. A number past the 15 digits Excel
-    keeps, such as a large ID, stays text, so that it is never rounded;
-    rows, columns or text past Excel's limits stop the export rather than
-    write a file Excel would repair.
-  - Inline editing: change cells, add, duplicate and delete rows, set NULL
-    or DEFAULT, revert, undo and redo (⌘Z), with DBeaver's keys.
-  - A query's result is editable when its statement only reads (not one
-    calling a function such as `nextval`, nor `FOR UPDATE`), reads one table (no
-    join, grouping, aggregate, `DISTINCT`, `UNION`, window function or
-    subquery in `FROM`) and its columns include the table's key; computed
-    and renamed columns stay read-only. The status line says why a result
-    cannot be edited. Its edits apply on the editor's session, so with
-    manual commit, or MySQL's autocommit off, they join its open
-    transaction, or open one and leave it open (on DuckDB, which has no
-    savepoints, they wait until an open one ends), and ⌘S reviews them,
-    then saves the file.
-  - Compare two results: pin a result's rows, then compare another with
-    them, from the grid's compare button. The comparison matches rows by
-    the table's key, a column of both or their position, and shows the
-    rows that differ, A's above B's with the changed cells marked, and
-    those only in one.
-  - Edit Value… (⇧↵) edits a cell in the form its type suits, beside its
-    text: a tree of a JSON value, the list of an enum's values (read from
-    PostgreSQL's catalog, or spelled by the type elsewhere), a calendar
-    and the time for dates, a switch for booleans.
-  - A foreign key's cell takes its value from the table it points at:
-    Choose from…, in the cell's menu, or ⌥↓, lists that table's rows by
-    key with their first columns, searched by key or text.
-  - A table without a primary key becomes editable with a virtual key,
-    kept in `dgopher.json` for the team, in its tab and in query results.
-  - Sensitive values stay off the screen: columns named as passwords,
-    tokens, keys or card numbers show `••••••` in the grid, the value
-    panel and the figures of the profile, calculation and grouping
-    panels, and in the review and audit of edits. A column's header menu
-    hides or shows any column's values,
-    for the team in `dgopher.json` when the rows are a table's; a setting
-    shows the sensitive ones. Copies and exports keep the real values.
-- **Table tab:**
-  - Data ordered by primary key by default, with paging.
-  - Structure: columns, indexes and foreign keys, with jumps to the
-    referenced table.
-  - The table's DDL, and a diagram of the tables that refer to it (on its
-    left) and that it refers to (on its right).
+### Finding your way
+
+- **Problems are underlined as you type**: a string, quoted name or comment
+  left open; a parenthesis that closes nothing or is not closed; and,
+  against the catalog, a table or a column (`alias.column`) that does not
+  exist. The line under the editor says what is wrong at the caret, with
+  the closest existing name as a fix that ⌥↵ applies. Statements that
+  create or drop tables are not checked for names.
+- **Go to Definition** (F12, or ⌘-click) opens what the name at the caret
+  refers to: a table's or view's structure (also through an alias or one of
+  its columns), or a routine's definition.
+- **Find Usages** (⇧F12) lists where the name is used in this file and the
+  project's other query files.
+- **Rename in File** (F2) renames the name everywhere in the file, quoting
+  it where needed. (The navigator's Rename renames it in the database.)
+- **Go to Statement** (⌘⇧O) lists the file's statements by line, with the
+  comment above each, filtered as you type.
+
+### Completion
+
+- Completes tables, columns (aware of aliases), schemas, keywords, the
+  engine's common functions and the schema's own functions (with their
+  parentheses), and snippets by their keyword.
+- The list opens as you type, or with ⌃Space. It narrows as you type, best
+  match first, matching the letters in order (`usr` finds `users`). ↵ or
+  Tab inserts the chosen item.
+- A table completed after `FROM` or `JOIN` gets a short alias from its
+  words' first letters (`reflex_order ro`), kept apart from the statement's
+  other aliases and from keywords (`ro2`).
+
+### Running statements
+
+- **Statements end** at `;` or at a blank line, so ⌘↵ runs the statement
+  around the caret without selecting it; a band shows which statement. A
+  setting makes `;` the only end. A procedure, function or trigger body
+  (`BEGIN … END`, `BEGIN ATOMIC`) stays one statement, and MySQL
+  `DELIMITER` lines work as in the `mysql` client.
+  [How SQL is read](sql.md#splitting-a-script) has the details.
+- **Run** the statement (⌘↵ or F5), the selection, or the whole script (⌘⇧↵
+  or ⌥X). `⌘\` runs into a new result tab, keeping the others. Result tabs
+  can be pinned.
+- **A ▶ in the gutter**, on the first line of each statement, runs that
+  statement.
+- **On an error,** a script stops or continues, as a setting says. A failed
+  statement shows the database's message, code, detail, hint, and where it
+  went wrong; **Go to Error** puts the caret there.
+- **Statement timeout**: optional, per connection.
+- **Each editor has its own session**, so `SET`, temporary tables and
+  transactions last between statements.
+- **Commit and roll back** from the editor's bar in manual commit, or with
+  ⌘⌥⇧↵ to commit. Roll back has no key unless you set one, because it loses
+  the transaction's work.
+- **Schema and database.** The editor's toolbar shows the schema it looks
+  up names in (and on PostgreSQL its database), and switches them. A schema
+  switch runs `SET search_path` or `USE` on its session, and is audited. A
+  database switch uses a new session, and never happens with a transaction
+  open. Typing a `SET` or `USE` moves the toolbar too.
+
+### Parameters
+
+- `:name` parameters (also `@name` and `$name` on SQLite), ClickHouse
+  `{name:Type}` parameters and `${var}` variables take their values from
+  the **Parameters bar** above the editor, which lists those in the text.
+- A run asks only for values left empty there.
+- Values are kept for the connection's editors, for you alone, across
+  restarts.
+- All but `${var}` are sent separately from the SQL. **Messages** lists the
+  values a statement ran with.
+- A statement that mixes `:name` with `$1` or `?` placeholders is refused.
+
+See [How SQL is read](sql.md#parameters).
+
+### Query plans
+
+- **Explain** (⌘E) shows the plan. **Explain Analyze** (⌘⇧E) runs a
+  statement that reads and measures it, on PostgreSQL, MySQL and DuckDB.
+- The plan shows as a tree of steps, with rows estimated and found and each
+  step's share of the time or cost; as a flame graph; or as the server's
+  raw rows.
+- **Advice** above the plan points at what may make the query slow: a scan
+  reading every row to keep few, estimates far from what happened, a sort or
+  hash spilling to disk, a nested loop rescanning a table, or a ClickHouse
+  key that narrows nothing.
+- A typed `EXPLAIN` in one of these forms shows the same way.
+
+### Files and sessions
+
+- Editors come back on the next launch. `.sql` files can be opened (⌘O) and
+  saved (⌘S, or ⌘⇧S to save as).
+- A restored editor, or an opened file, does not connect on its own. Press
+  Connect, or run a statement.
+
+### Vim keys
+
+Turn on in **Settings → Editor → Vim**.
+
+- Normal, insert, visual and visual line modes, with a block caret and the
+  mode shown under the editor.
+- Counts.
+- Motions: `h j k l w b e W B E 0 ^ $ gg G f F t T ; , % { } + -`, Enter,
+  Ctrl+D and Ctrl+U.
+- Operators `d c y > <` with motions, or doubled; text objects
+  `iw aw iW aW i" a" i' a' i` a` i( a( ib ab i[ a[ i{ a{ iB aB`.
+- `x X D C Y s S r J ~ p P o O i a I A`, `u` and Ctrl+R, and `.` to repeat
+  the last change, typing included.
+- Search with `/ ? n N`. `:w` saves and `:N` goes to line N.
+- The register is the clipboard.
+- The app's own commands keep their keys (such as ⌘↵). While the editor
+  has the keys, Vim's Control keys win over the app's. Outside insert mode,
+  keys Vim does not use (such as Page Up or ⌘F) act as in the editor.
+
+## Results grid
+
+One viewer shows both a query's results and a table's data.
+
+### Viewing
+
+- Only the rows in view are built, so large results stay fast. A result
+  keeps at most 200,000 rows.
+- Columns and headers start at the left, numbers too. The text view lines
+  numbers up on the right, as psql does.
+- Columns resize, move, sort by several at once, pin to the left, hide (or
+  hide those with no data), and fit to their values or the screen, from the
+  header's menu.
+- Three views: grid, record (Tab), and plain text (``⌘` `` cycles them).
+- Formats: thousands separators, dates, booleans, binary and NULL; row
+  colors by value; zoom.
+- **Refresh**, **Fetch All** (with Stop, which keeps the rows read), and on
+  a table **Count** (`SELECT COUNT(*)`, with Stop). The keys: F5, ⌘⇧= and
+  ⌘⌥N for the next page.
+- Move with ⌘G (go to a row), ⌘⇧G (go to a column), and ⌘↑ and ⌘↓ (first and
+  last row).
+
+### Filtering and sorting
+
+- **Filter by a cell**: =, ≠, >, <, contains, NULL, or the rows chosen;
+  also by a typed value, the clipboard's value, or a list of distinct values
+  with counts (⌘F11). The header menu removes a column's filters or clears
+  them all.
+- **The `WHERE` filter** is SQL that runs on the server, with recent
+  filters and column names offered as you type. On a table it is the
+  table's `WHERE`. On a query's result it wraps the statement
+  (`SELECT * FROM (…) q WHERE …`), with its parameter values. ⌘L focuses it.
+- **The filter builder**, beside the `WHERE` box, writes that filter from
+  conditions you choose: a column, an operator (=, ≠, >, ≥, <, ≤, contains,
+  does not contain, starts with, ends with, in a list, between, is NULL,
+  is not NULL) and a value, matching all or any. The box then shows the SQL.
+- **The quick filter** narrows the rows already read without running
+  anything.
+- **Sorting** runs on the server while rows remain to be read, and in memory
+  once all are read. ⌘2 cycles the chosen column's order.
+- A statement that writes is never filtered, and refreshing its result asks
+  before running it again.
+- A query's result lists distinct values and groups on the editor's own
+  session, so it sees the editor's schema, open transaction and temporary
+  tables. While a result is still reading rows, these wait for Fetch All.
+
+### Panels
+
+F7 shows the panels. Each can be maximized.
+
+| Panel | Shows |
+| --- | --- |
+| Value | the chosen value as text, JSON, XML, hex or an image; save it to a file or load it from one |
+| Calc | count, distinct, NULLs, sum, average, min, max, median and the most frequent value of the chosen cells |
+| Profile | every column at once: NULLs, distinct values, bounds, average and median, with a histogram of numbers and times or the most frequent text values |
+| Metadata | the result's columns and types |
+| Grouping | counts by the chosen columns, in memory or on the server |
+| References | the rows of other tables that refer to the chosen row |
+
+Profile works on the rows read at once, or on every row on the server when
+asked. DuckDB summarizes a table itself (`SUMMARIZE`); the other engines
+count in one statement.
+
+### Copy and paste
+
+- **Copy** (⌘C) the cell or the chosen rows; also with the header, or the
+  column names alone.
+- **Advanced Copy** (⌘⇧C): choose the delimiter, column names, quoting and
+  row numbers.
+- **Copy as** CSV, TSV, JSON, SQL, Markdown or a text table. Plain-text
+  copies hold up to 100,000 rows.
+- **Paste** (⌘V) over the chosen cell as pending changes. **Advanced Paste**
+  (⌘⇧V) chooses the delimiter and header row, or pastes as new rows.
+- Open the rows in a spreadsheet app.
+- **Generate SQL** for the chosen rows (`SELECT`, `INSERT`, `UPDATE`,
+  `DELETE` with their values), or for the table (with an upsert, joins, and
+  `:name` parameters for the values, and its DDL).
+
+### Editing rows
+
+- Change cells, add, duplicate and delete rows, set NULL or DEFAULT (where
+  the column has one), revert a row, and undo and redo (⌘Z, ⌘⇧Z), with
+  DBeaver's keys. ⌘D and ⌘⌥D copy the value from the row above or below.
+- ⌘S shows the changes as SQL to review, then applies them in one
+  transaction, one row per statement by primary key. See
+  [Grid edits](safety.md#grid-edits).
+- **Edit Value…** (⇧↵) edits a cell in a form that suits its type, beside its
+  text: a tree for JSON, a list of an enum's values (read from
+  PostgreSQL's catalog, or from the type elsewhere), a calendar and time for
+  dates, and a switch for booleans.
+- **Foreign keys.** Choose from… in a cell's menu (or ⌥↓) lists the rows of
+  the table the key points at, by key with their first columns, searchable
+  by key or text. ⌥Space follows the key to the row it points at; the
+  Navigate menu also lists the rows of other tables that refer here.
+- **Virtual keys.** A table without a primary key becomes editable with a
+  virtual key, kept in `dgopher.json` for the team. It works in the table's
+  tab and in query results.
+- ClickHouse rows cannot be edited in the grid.
+
+#### When a query's result is editable
+
+A query's result can be edited when:
+
+- its statement only reads (not one that calls a function such as
+  `nextval`, nor `FOR UPDATE`);
+- it is one `SELECT` from one table: no `WITH`, join, grouping, aggregate,
+  `DISTINCT`, `UNION`, window function, subquery or table function in
+  `FROM`;
+- its columns include the table's key.
+
+Computed and renamed columns stay read-only. The status line says why a
+result cannot be edited.
+
+Its edits apply on the editor's session. So with manual commit, or MySQL's
+autocommit off, they join the editor's open transaction, or open one and
+leave it open. On DuckDB, which has no savepoints, they wait until an open
+transaction ends. In an editor, ⌘S reviews the edits, then saves the file.
+
+### Sensitive values
+
+Columns with names such as `password`, `secret`, `token`, `api_key`,
+`private_key`, `salt`, `otp`, `ssn`, `tax_id`, `card_number`, `cvv`, `iban`
+or `pin` (in any case style, `camelCase` too) show `••••••`:
+
+- in the grid and the value panel;
+- in the figures of the Profile, Calc and Grouping panels;
+- in the review and the audit entry of edits.
+
+A column's header menu hides or shows any column's values. For a table's
+rows, this choice is kept in `dgopher.json` for the team. A setting
+(Settings → Safety) shows the sensitive ones. Copies and exports keep the
+real values.
+
+### Comparing results
+
+Pin a result's rows, then compare another result with them, from the
+grid's compare button. Rows match by the table's key, a column both have,
+or their position. The comparison shows rows that differ, A above B with
+changed cells marked, and rows found in only one.
+
+## Table tabs
+
+- **Data**, ordered by primary key by default, with paging.
+- **Structure**: columns, indexes and foreign keys, with links to the
+  referenced tables. **Edit Structure** opens the table form (see
+  [Schema tools](#schema-tools)).
+- **DDL**: the table's definition.
+- **Diagram**: the tables that refer to this one (on the left) and those it
+  refers to (on the right).
+
+## Export
+
+Export a result, a table, or several tables at once.
+
+- **Formats:** CSV, TSV, JSON, JSON Lines, SQL, Markdown, an Excel
+  workbook, Parquet, or a DuckDB database.
+- **Rows:** the rows already read, or the query run again (only a read runs
+  again), up to a row limit or without one. The limit is kept from one
+  export to the next (1,000,000 at first). Reaching the limit is always
+  reported.
+- **Session:** a query result's export runs on the editor's session, so it
+  sees the same schema, temporary tables and transaction as the rows shown.
+  A table's export runs on a session of its own.
+- **File names** come from a pattern with `${table}`, `${connection}`,
+  `${timestamp}` and `${date}`. The folder can open after the export.
+- **Options:** the delimiter, the text for NULL, and the rows per `INSERT`.
+  Text formats can go to the clipboard instead.
+- **CSV and TSV** can start with a byte order mark, for Excel, and can guard
+  against spreadsheet formulas (off at first, then as last chosen). Text
+  starting with `=`, `+`, `-`, `@`, a tab or a line break (or their
+  full-width forms) gets a leading `'`, so a spreadsheet shows it instead of
+  running it. Numbers are never changed, nor are clipboard copies.
+- **SQL** names its table from the dialog's Table and Schema fields, quoted
+  as the engine quotes names. The schema (a MySQL or ClickHouse database) is
+  filled in for a table, and empty for a query's rows. An empty schema
+  writes the table's name alone.
+- **Markdown** escapes `|`, `\`, `&` and `<`.
+- **Excel** keeps numbers, dates and booleans as such, with a bold header
+  that stays in view. A number longer than the 15 digits Excel keeps, such
+  as a large ID, stays text, so it is never rounded. Rows, columns or text
+  beyond Excel's limits stop the export rather than write a file Excel
+  would have to repair.
+- **Export Tables…**, on a schema, writes each chosen table or view to its
+  own file named by the pattern, with the same formats and a limit for
+  each. Its SQL `INSERT`s name each table with its schema.
+- Every export is recorded in the [audit log](audit-log.md).
+
+## Charts
+
+Chart any result from the grid's chart button.
+
+- Types: bar, stacked bar, line, area, stacked area, scatter, pie, and a
+  histogram of a column's values in bins with round bounds.
+- Axes are detected: a time or text column along x, numbers as series.
+- Hover for a tooltip. The palette is safe for color blindness.
+- Stacks put positive values above zero and negative ones below. A NULL
+  breaks a line or an area, and counts as zero in a stack.
+- A chart plots at most 5,000 points.
+
+## Dashboards
+
+A dashboard is a grid of panels, each a read query shown as a chart, rows
+or a single value.
+
+![A dashboard of the sample shop: revenue, orders, customers and
+products as numbers, revenue by month and customers by country as
+charts, and best sellers as a table](images/dashboard.png)
+
+- **Add panels** from an editor's statement (**Add to Dashboard**), or with
+  **Add Panel** in the dashboard's bar. A new panel runs on the connection of
+  the first panel, or the project's first connection.
+- **Layout:** a grid of four columns; each panel is one to four columns
+  wide. **Edit** arranges, resizes and retitles panels, and changes their
+  queries, charts and connection (and on PostgreSQL, the database).
+- **Any connection:** panels can use any of the project's connections. Each
+  shows its connection under its title, and the database when it is not
+  the connection's own.
+- **Parameters** are shared by the panels and edited in a bar above them.
+  Their values are yours alone, kept apart from the dashboard file.
+- **Refresh** by hand (F5), or every 1, 5 or 15 minutes, or every hour,
+  while the dashboard shows. Automatic refresh does not reconnect a
+  connection that failed; reconnect it from the status bar.
+- **Safe by design:** a panel runs one read only. Its statement goes through
+  the safety policy and is refused if it writes or would need a
+  confirmation. On PostgreSQL and MySQL it runs in a read-only transaction,
+  which the server enforces. Each run is audited, as an editor's is.
+- **Shared with the team:** a dashboard is a file in the project's
+  `dashboards/` folder. It is never overwritten once it changed on disk, as
+  by a pull, and reopens with the workspace.
+
+## Schema tools
+
+### The table form
+
+**New Table…** on a schema creates a table; **Edit Structure** on a
+table's Structure page changes one.
+
+- Columns: rename, retype, make nullable, set defaults and comments, add
+  and drop.
+- The primary key; indexes, foreign keys (with their actions) and checks,
+  added or dropped.
+- **Review SQL** shows every statement before it runs. They run in one
+  transaction where the engine's DDL allows it, and the confirmation says
+  when it does not.
+- On DuckDB and in-memory SQLite, whose tabs share one transaction, the
+  change waits until an open transaction ends.
+- SQLite rebuilds the table for what `ALTER TABLE` cannot change, keeping
+  its rows, indexes, triggers and views. It refuses when the table has
+  something the form cannot write again, such as a collation.
+- DuckDB and ClickHouse change the columns of a table they made, not its
+  keys.
+
+### ER diagrams
+
+**View ER Diagram** on a schema draws its tables, with their columns and
+keys, joined by foreign-key connectors. Referenced tables sit to the left.
+
+![The ER diagram of the sample shop: customers, orders, order items and
+products, joined by their foreign keys](images/er-diagram.png)
+
+- **Arrange** tables by dragging. A table dropped on another moves to the
+  nearest free place, so no table hides another.
+- **Open** a table's data by double-clicking it.
+- **Change the schema** from the diagram: drag a column onto a table to
+  make it refer to that table's primary key. A table's menu drops one of its
+  foreign keys, or the table. **New Table** designs one. Each change is
+  written as the engine needs it (SQLite's tables rebuilt, their rows kept),
+  always confirmed and checked by the safety policy. The diagram then reads
+  the schema again, keeping tables where they were.
+- **Keyboard:** a table's header takes the keys. ↵ opens its data, the
+  arrows move it, and its menu (⇧F10) adds a foreign key from a column.
+- **Save** as PNG (drawn at twice the size on screen, up to 16,384 pixels a
+  side; a large schema is drawn smaller) or as SVG.
+
+### Data models
+
+A data model is a schema's tables kept in a file of the project's
+`models/` folder, for the team. Open one from the project's menu or the
+palette. Its tab shows each table and its DDL.
+
+- **Create:** **Save as Data Model…** on a schema, or **New Data Model…** in
+  the project's Data Models section to start from nothing for an engine.
+- **Design** without a database, in the same table form: New Table, Edit
+  Table and Drop Table save to the model's file.
+- **Update** reads the tables again from the schema the model came from.
+- **Generate DDL** writes the statements that create the model's tables on
+  any SQL engine, in a schema you choose. Each table comes after those its
+  keys point at; a key that closes a cycle is added after both tables. On
+  another engine, columns take that engine's types with their sizes kept
+  (`varchar(40)` stays `VARCHAR(40)`). What the engine cannot have, such as
+  another engine's checks, is left out and noted at the top of the script.
+  The script opens in an editor, or is copied.
+- **Compare** the model with a schema of a connection of its engine, or with
+  another model. It lists tables missing, differing, or not in the model,
+  and for each table the columns, key, indexes, foreign keys and checks that
+  differ.
+- **Migrate:** the migration makes the schema match the model. Tables are
+  created, then changed as the table form changes them (SQLite's rebuilt,
+  their rows kept). What the model lacks is dropped only when you ask,
+  because a renamed column looks like one dropped and one added. **Apply**
+  runs it after a review, through the safety policy; **Open as Script**
+  puts it in an editor.
+
+### Query builder
+
+**Build a Query…** on a table writes a `SELECT` from your choices:
+
+- the tables it refers to, or that refer to it, joined by their keys
+  (inner or left join), or any table of its schema joined on columns you
+  choose;
+- the columns, each aggregated or not, with the rest grouped;
+- conditions, with the grid filter's operators;
+- the order and a limit.
+
+The SQL shows as you build it, and opens in an editor.
+
+### Generate SQL and documentation
+
+- **Generate SQL Script**, on a schema, writes the chosen objects in an order
+  that runs: types and functions first, then tables (each after those its
+  foreign keys point at), views after what they read, and triggers last. It
+  opens in an editor.
+- **Generate Documentation** writes one HTML page or a Markdown file listing
+  each table's columns, keys, indexes and references, and each object's
+  definition.
+
+### Search Objects
+
+**Search Objects…** finds tables, views, columns, routines, triggers,
+sequences and types in every schema of a database by name. With **In
+definitions**, it also searches views' queries and routines' and
+triggers' bodies, showing the line that matched. ↵ opens what it found: a
+table's rows, a column's structure, or a definition.
+
+### Rename
+
+Rename a table, a view or a table's column from the navigator. The
+statement goes through the same safety review as one typed in an editor.
+SQLite cannot rename a view.
+
+## Moving data
+
+### Import files
+
+Import a CSV, TSV, text, JSON, JSON Lines, Parquet, Excel or XML file into
+a table (**Import Data…**), or into a new table made from the file's
+columns (**Import File as New Table…** on a schema, or drop an Excel or XML
+file on the window).
+
+- **Reading:** DuckDB reads the file, finding a CSV file's delimiter and
+  header and every format's column types. You can change the delimiter, the
+  header and the sheet, read every column as text, and choose an XML file's
+  rows by their element. Nested JSON values become JSON text, and exact
+  numbers keep their digits.
+- **Columns:** into an existing table, the file's columns map to the table's
+  by name. Into a new table, each kept column takes a name and a type of the
+  engine, and the `CREATE TABLE` shows before it runs.
+- **All or nothing:** the import runs in one transaction, in `INSERT`s of
+  many rows. A failing row imports nothing, and a table made for the import
+  is not left behind. It waits for an open transaction on the database to
+  end first.
+- **ClickHouse** has no transactions, so the rows before a failing one stay
+  in an existing table, and the error says how many.
+
+Limits, so a bad file cannot exhaust memory:
+
+- A file holds at most 16,384 columns (Excel's A to XFD).
+- An Excel sheet holds at most 1,048,576 rows, and a cell at most 1 MB of
+  text. The workbook's shared strings hold at most 4,194,304 items and
+  128 MB of text, in a part of at most 256 MB unpacked; its other parts,
+  except sheets, are at most 64 MB unpacked.
+- In a workbook or an XML file, elements nest at most 10,000 deep, with at
+  most 10,000 namespaces declared by the elements open at once. A tag (or
+  comment, CDATA section or other markup) holds at most 1 MB and 16,384
+  attributes, and a run of text between tags at most 1 MB.
+- An XML file is read twice, first for its columns and then for its rows,
+  so its rows are never all held at once.
+- A file past a limit, or one that cannot be read, says so; it does not
+  stop the app.
+
+### Copy tables
+
+**Copy to Another Database…** on a table (or **Copy Tables to Another
+Database…** on a schema) copies to a database of the same engine or
+another.
+
+- A table that is not there is created with the same columns, nullability
+  and primary key, with types that hold the values exactly (on the same
+  engine, the same types).
+- A table that is there stops the copy, gets the rows added, or has its rows
+  replaced, as you choose.
+- Each table copies in one transaction where the target supports it,
+  through the target's safety policy, and is audited.
+
+### Compare rows
+
+**Compare Rows with…** on a table compares its rows with another table's,
+in the same database or another, of any engine.
+
+- Rows match by the target's primary key, over the columns both have.
+- Values compare as values: `1.50` and `1.5` are equal, as are `1` and
+  `true`, a time and the same time in UTC, and JSON with its keys in another
+  order.
+- It lists rows found in only one table and the columns changed, hiding the
+  values the grid hides.
+- It can then make the target's rows match the source's: adding, updating,
+  and deleting only when you ask. This runs in one transaction through the
+  target's safety policy, each statement changing exactly one row, audited
+  with hidden values masked. Changes without hidden values can also open as
+  SQL, to read or edit first.
+
+### Generate test data
+
+**Generate Test Data…** on a table adds up to 1,000,000 rows.
+
+- Each column's values are made as its type and name suggest: names,
+  e-mails, phone numbers, cities, companies, addresses, URLs, words and
+  paragraphs; numbers, decimals, dates and times in a range; booleans,
+  UUIDs and JSON; a choice of values (an enum's by default); an existing
+  value of the table a foreign key refers to; or the column's default, as
+  for auto-increment keys. Each column's settings can change this.
+- Keys continue from the highest. Unique text differs from earlier runs'
+  too. Text fits its column. A nullable column can take a share of NULLs.
+- A sample shows first. The rows are added in one transaction where the
+  engine supports it, through the safety policy, and audited.
+
+### Back up and restore
+
+**Back Up…** and **Restore…** on a connection or a database:
+
+| Engine | Backup |
+| --- | --- |
+| PostgreSQL | `pg_dump`, as an archive or SQL; schema, data or both |
+| MySQL | `mysqldump`, in one transaction, with routines, triggers and events |
+| SQLite | a copy with `VACUUM INTO`, while the database stays in use |
+| DuckDB | a folder of Parquet files (`EXPORT DATABASE`) |
+
+- The tools reach the server as the connection does, through its tunnel or
+  proxy. Their password goes in their environment or a file of their own,
+  never on their command line. Their progress shows as they write.
+- The tools take nothing from your environment. A database's name is only a
+  name (one holding `=` or a URL changes nothing). `pg_dump` and
+  `pg_restore` never read `~/.pgpass` or `PG*` variables, and `mysqldump`
+  reads no option file but the app's.
+- Under verify-full without a CA file, the PostgreSQL tools trust the
+  system's roots (they need version 16 or later). `mysqldump` needs the
+  connection's CA file. Through a tunnel or proxy, `mysqldump` checks the
+  certificate against the CA but not the server's name, and the dialog says
+  so.
+- A `pg_dump` archive restores with `pg_restore` in one transaction,
+  dropping what it creates first if you ask. A SQL file restores as Run SQL
+  File runs it.
+- A DuckDB folder is imported into a separate DuckDB that can reach only
+  that folder, then copied into the database: tables, views, macros, types,
+  sequences, indexes and keys, all or nothing. A view that reads a file
+  outside the folder cannot be restored. The restore waits for an open
+  transaction on the database to end.
+- A restore always asks once, with the connection's name typed on
+  production (for a SQL file, once it has been read through). Backups and
+  restores are both audited.
+
+### Run SQL File
+
+**Run SQL File…** (in the File menu and on connections and schemas) runs a
+file of SQL, such as a dump from `pg_dump`, `mysqldump` or `sqlite3`,
+without opening it in an editor. Files of any size work; each statement can
+be up to 64 MB and each `COPY` row up to 1 GB.
+
+1. **Read.** It reads the file through first and says what it holds: how
+   many statements of each kind, each one that destroys data (by line), and
+   each one that commits a transaction the file began (such as MySQL's DDL).
+   The safety policy asks once for all of it; on production, a file that
+   writes asks for the connection's name.
+2. **Run.** It reads the file again as it runs it, on a session of its own:
+   in one transaction, all or nothing, where the database supports one and
+   the file has no transactions of its own; otherwise statement by
+   statement, stopping at the first error or continuing, as you choose. A
+   lost connection always stops it, because the rest would run without what
+   the file had set. A file changed in between is not run.
+3. **Clean up.** A file that ends, stops or fails with a transaction it
+   began still open is rolled back, the rollback audited, and the run fails:
+   "BEGIN at line N was never committed; its changes were rolled back". On
+   MySQL the server says whether a transaction is open, so a dump that turns
+   autocommit off and commits ends well.
+
+A PostgreSQL dump's `COPY … FROM stdin` rows are loaded, and its
+`\restrict` lines skipped. Other psql commands, such as `\connect`, stop
+the run, because only psql can run them. MySQL's `DELIMITER` and executable
+comments work as in the `mysql` client.
+
+## Server administration
+
+### Server Activity
+
+For PostgreSQL, MySQL, ClickHouse and Redis, from a connection's menu or
+the palette.
+
+| Page | Engines | Shows |
+| --- | --- | --- |
+| Sessions | PostgreSQL, MySQL, ClickHouse | sessions and running queries, refreshed every 2 seconds; cancel a query, or end a session (PostgreSQL, MySQL) |
+| Locks | PostgreSQL, MySQL | each lock held or waited for, with the sessions a waiting one waits for; MySQL's metadata locks too |
+| Statistics | PostgreSQL, MySQL, ClickHouse | the statements that took the most time, from `pg_stat_statements`, MySQL's `performance_schema`, or ClickHouse's `system.query_log` over the last day, with calls, mean and maximum times, and rows (up to 500) |
+| Metrics | ClickHouse | queries and merges running, connections, memory, parts and load, and queries and rows per second |
+| Redis | Redis | headline metrics and clients; disconnect a client (of one node, in a cluster) |
+
+Cancelling and ending sessions always asks; see
+[Safety model](safety.md#grid-edits).
+
+### Users and Privileges
+
+For PostgreSQL, MySQL and ClickHouse: users and roles, with what each may
+do and the roles each belongs to.
+
+- Create users and roles, change a password, grant privileges on a table or
+  on every table of a schema, add to a role, revoke a privilege, or drop.
+- Each action shows its statements and asks first.
+- A password shows nowhere. On PostgreSQL it is hashed (SCRAM-SHA-256)
+  before it is sent, as psql's `\password` does.
+- Dropping a PostgreSQL role reassigns what it owns to you; it never drops
+  those objects.
+
+### Maintenance
+
+From a table's menu:
+
+| Engine | Commands |
+| --- | --- |
+| PostgreSQL | VACUUM, VACUUM ANALYZE, VACUUM FULL (locks reads and writes), ANALYZE, REINDEX |
+| MySQL | ANALYZE, OPTIMIZE, CHECK |
+| SQLite | ANALYZE, REINDEX |
+| ClickHouse | OPTIMIZE, OPTIMIZE FINAL |
+
+Each runs in an editor, through the safety policy. Manual commit opens no
+transaction for a statement that cannot run in one, such as VACUUM.
 
 ## Redis
 
-- **Redis:**
-  - A SCAN-based key tree grouped into folders by `:`, or the separator
-    the connection sets, with pattern and type filters.
-  - Viewers and editors for strings (JSON formatting), hashes, lists, sets,
-    sorted sets and streams: entries added and deleted, and consumer
-    groups created and destroyed, with each group's consumers and the
-    entries pending with them, acknowledged or claimed for another
-    consumer. A list's item is removed at its own index, never another
-    of the same value. A key's items are read 500 at
-    a time, with more on request; a string's first 64 KB, and the rest
-    on request: a string shown in part is not editable, as saving it
-    would cut it.
-  - Redis 8's types: a JSON document edited whole, formatted and checked
-    as JSON before JSON.SET saves it; an array's values read in order of
-    their indexes, set at an index, inserted at its next, and removed;
-    a vector set's elements, read with their attributes, added with
-    their vectors, and removed, the chosen one showing its vector, its
-    attributes to edit, and the elements most like it; a time series
-    charted over its last hour, day, week or month, or all of it, as the
-    averages of about 500 buckets, with its labels, rules and sizes, and
-    samples added to it. Other types, as Bloom filters, say to use the
-    console.
-  - A Search panel: the server's search indexes, each with what it
-    indexes, its fields and its documents; queries run on one, the
-    documents found opening as keys; New Index writes FT.CREATE in the
-    console to complete, and Drop Index drops one, its keys kept.
-  - Values stored compressed or serialized show decoded, read only: gzip,
-    zlib, zstd, LZ4, Snappy and Brotli, found by their first bytes or
-    chosen; MessagePack, Python's pickle (never running the code it
-    names), PHP's serialize, Java's serialization and Protocol Buffers
-    without their schema, as JSON or as `protoc --decode_raw` shows
-    them, inside the compressions around them. A string decodes whole,
-    and a hash's, list's or set's chosen item below its items.
-  - TTL, rename, delete and new keys; on Redis 7.4 and later, each hash
-    field's TTL, set or removed field by field.
-  - Delete every key matching a pattern: counted and named first, always
-    confirmed (with the connection's name typed on production), unlinked
-    in batches as a scan finds them, and audited.
-  - Export the keys matching a pattern to a file of JSON lines, each key
-    with its type, its TTL and its value (base64 where it is not text),
-    and import such a file: each key written in one transaction, keys
-    there already left as they are or replaced, through the safety
-    policy, audited. A hash field's own TTL and a stream's consumer
-    groups are not exported.
-  - A console with history (↑ ↓), which replies the way `redis-cli` does.
-    `KEYS` asks first, as it stalls a large server; the tree uses SCAN.
-    As a command is typed, the commands it may be show, and Tab completes
-    its name; once named, its syntax and summary show, as the server's
-    `COMMAND DOCS` gives them (Redis 7 and later).
-  - Below the keys, beside the console: a live feed of the commands the
-    server runs (MONITOR, on a connection of its own, confirmed on
-    production as it slows a busy server; of the connection's database
-    or every one, filtered as typed); the slow log, slowest first, with
-    a reset of every master's; and an analysis of the keys' memory (asked
-    first on production): up to a million keys' type, size and TTL read
-    as SCAN finds them, summed into the largest keys, the namespaces
-    before the key separator, the types, and when keys expire. Monitored
-    commands show as the console's do, their secrets hidden.
-  - Pub/Sub, beside them: listen to channels and patterns, the messages
-    showing as they come; publish to a channel, through the safety
-    policy; and the channels clients listen to, with how many listen, of
-    every node of a cluster. Sharded channels (SSUBSCRIBE) are not
-    listened to.
-  - Run a file of commands, one a line, `#` starting a comment: each one
-    through the safety policy first, then, when any writes, once
-    confirmed; they run in the console one after the other, audited,
-    stopping at the first that fails.
+Open the key browser from a Redis connection's menu.
 
-## Charts, diagrams and server activity
+### Keys
 
-- **Charts** of any result: bar, stacked bar, line, area, stacked area,
-  scatter, pie, or a histogram of a column's values in bins of round
-  bounds, with the axes detected (a time or text column along x, numbers
-  as series), a hover tooltip, and a colour-blind-safe palette. Stacks
-  put positive values above zero and negative below; a NULL breaks a
-  line or an area, and counts as zero in a stack.
-- **Query builder:** a table's Build a Query writes a SELECT from choices:
-  the tables it refers to, or that refer to it, joined by their keys
-  (inner or left), or any of its schema joined on columns chosen; the
-  columns, each aggregated or not, the rows grouped by the others; the
-  conditions, with the grid filter's operators; the order and a limit.
-  The SQL shows as it is built, and opens in an editor.
-- **Dashboards:** an editor's statement, Add to Dashboard, becomes a
-  panel of a dashboard of its project, shown as a chart, rows or a single
-  value; Add Panel, in the dashboard's bar, writes one's query there, on
-  the connection of its first panel or the project's first, kept once it
-  runs; panels of any of the project's connections sit in a grid of four
-  columns, each one to four wide. Panels share their parameters, edited
-  in a bar above them, their values each user's own, kept apart from the
-  file; the dashboard refreshes by hand or every 1, 5 or 15 minutes or
-  hour, while it shows, connecting a connection that failed again only
-  when asked. A panel runs one read only, its
-  statement through the safety policy, refused when it writes or would be
-  asked about; on PostgreSQL and MySQL, in a read-only transaction, which
-  the server enforces. Each run is audited as an editor's. A panel shows
-  under its title the connection it runs on, and the database when not
-  the connection's own. Edit arranges, resizes, retitles and changes the
-  panels, their queries and charts; a panel's SQL also chooses its
-  connection and, on PostgreSQL, its database. A dashboard is a file in
-  the project's `dashboards` folder, for its team, never written over
-  once it changed on disk, as by a pull, and opens again with the
-  workspace.
+- A key tree read with `SCAN`, grouped into folders by `:` (or the
+  separator the connection sets), with pattern and type filters. F5 scans
+  again.
+- Set a TTL, rename, delete and create keys. On Redis 7.4 and later, each
+  hash field's TTL can be set or removed.
+- **Delete by pattern:** counts and names the keys first, always asks (with
+  the connection's name typed on production), unlinks them in batches as a
+  scan finds them, and is audited.
+- **Export** the keys matching a pattern to a JSON Lines file, each with its
+  type, TTL and value (base64 where it is not text). **Import** such a file:
+  each key is written in one transaction, keys already there are kept or
+  replaced as you choose, through the safety policy, and audited. A hash
+  field's own TTL and a stream's consumer groups are not exported.
 
-  ![A dashboard of the sample shop: revenue, orders, customers and
-  products as numbers, revenue by month and customers by country as
-  charts, and best sellers as a table](images/dashboard.png)
-- **Server activity:** sessions and running queries of PostgreSQL, MySQL
-  and ClickHouse, with cancel (and, on PostgreSQL and MySQL, terminate),
-  and Redis's headline metrics and clients, which can be disconnected (of
-  one node, in a cluster). Sessions refresh every 2 seconds.
-  - Locks (PostgreSQL, MySQL): each lock held or waited for, with the
-    sessions a waiting one waits for; MySQL's metadata locks included.
-  - Statistics: the statements that took the most time, from
-    `pg_stat_statements`, MySQL's `performance_schema`, or ClickHouse's
-    `system.query_log` over the last day, with calls, mean and maximum
-    times, and rows.
-  - Metrics (ClickHouse): queries and merges running, connections,
-    memory, parts and load, and queries and rows per second.
-- **Users and Privileges** (PostgreSQL, MySQL, ClickHouse): users and
-  roles, with what each may do and the roles it belongs to. Make users and
-  roles, change a password, grant privileges on a table or on every table
-  of a schema, add to a role, revoke a privilege, or drop. Each shows its
-  statements and asks first; a password shows nowhere, and on PostgreSQL
-  it is hashed (SCRAM-SHA-256) before it is sent, as psql's `\password`
-  does. Dropping a PostgreSQL role passes what it owns to you, never
-  dropping it.
-- **Maintenance** from a table's menu: VACUUM, ANALYZE and REINDEX on
-  PostgreSQL, ANALYZE, OPTIMIZE and CHECK on MySQL, ANALYZE and REINDEX on
-  SQLite, OPTIMIZE on ClickHouse. Each runs in an editor, through the
-  safety policy; manual commit opens no transaction for a statement that
-  cannot run in one, as VACUUM.
-- **ER diagrams** of a schema: tables with their columns and keys, and
-  foreign-key connectors, laid out so referenced tables sit to the left.
-  Drag tables to arrange them: one dropped on another moves to the
-  nearest free place, so that no table hides another. Double-click one
-  to open its data. Change the schema from it: drag a column onto a
-  table to make it refer to the table's primary key; a table's menu
-  drops one of its foreign keys, or the table; New Table designs one.
-  Each change is written as the engine needs it (SQLite's tables made
-  again, their rows kept), always confirmed, through the safety policy,
-  and the diagram reads the schema again with its tables where they
-  stood. Save it as a PNG, drawn as the app draws it at twice its size,
-  or as SVG.
+### Values
 
-  ![The ER diagram of the sample shop: customers, orders, order items and
-  products, joined by their foreign keys](images/er-diagram.png)
-- **Data models:** a schema's Save as Data Model… keeps its tables, with
-  their columns, keys, indexes and checks, in a file of the project's
-  `models/` folder, for its team; the project's menu and the palette
-  open it. A model's tab shows each table and its DDL.
-  - Design a model in the table form, as a database's table is designed,
-    without a database: New Table, Edit Table and Drop Table save to the
-    model's file. New Data Model…, in the project's Data Models, starts
-    one of an engine from nothing.
-  - Update reads the tables again from the schema the model was built
-    from.
-  - Generate DDL writes the statements making the model's tables on any
-    SQL engine, in a schema chosen: each table after those its keys
-    point at, a key closing a cycle added after both. On another engine
-    the columns take its types, their sizes kept (`varchar(40)` stays
-    `VARCHAR(40)`), and what the engine cannot have, as another engine's
-    checks, is left out and said at the top of the script. The script
-    opens in an editor of the project's, or copies.
-  - Compare sets the model beside a schema of a connection of its
-    engine, or another of its models: the tables missing, differing, or
-    not in the model, and of each the columns, key, indexes, foreign keys
-    and checks that differ. The migration makes the schema like the
-    model: tables made, then changed as the table form changes them
-    (SQLite's made again, their rows kept), and what the model lacks
-    dropped only when asked, since a column renamed reads as one dropped
-    and one added. Apply runs it after a review, through the safety
-    policy; Open as Script puts it in an editor.
+- Viewers and editors for strings (with JSON formatting), hashes, lists,
+  sets, sorted sets and streams.
+- **Streams:** add and delete entries, create and destroy consumer groups,
+  and see each group's consumers and pending entries, which you can
+  acknowledge or claim for another consumer.
+- **Lists:** an item is removed at its own index, never another item of the
+  same value.
+- **Large values:** a key's items are read 500 at a time, with more on
+  request. A string's first 64 KB is read, and the rest on request. A string
+  shown in part cannot be edited, because saving would cut it.
+- **Redis 8 types:**
+  - JSON documents, edited whole, formatted and checked as JSON before
+    `JSON.SET` saves them.
+  - Arrays: values read in index order, set at an index, appended, and
+    removed.
+  - Vector sets: elements with their attributes; add elements with their
+    vectors and remove them; the chosen element shows its vector, its
+    attributes to edit, and the elements most like it.
+  - Time series: charted over the last hour, day, week or month, or all of
+    it, as the averages of about 500 buckets, with labels, rules and sizes;
+    add samples.
+  - Other types, such as Bloom filters, point you to the console.
+- **Decoded values:** values stored compressed or serialized show decoded,
+  read-only: gzip, zlib, zstd, LZ4, Snappy and Brotli (found by their first
+  bytes, or chosen); MessagePack, Python's pickle (never running the code it
+  names), PHP's serialize, Java serialization, and Protocol Buffers without
+  a schema (as JSON or as `protoc --decode_raw` shows them), inside any of
+  the compressions. A string decodes whole; a hash's, list's or set's chosen
+  item decodes below the items.
 
-## Import, snippets and history
+### Search
 
-- **Copy tables** to another database, of the same engine or another: a
-  table's Copy to Another Database…, or a schema's for several. A table
-  not there is made with the same columns, nullability and primary key,
-  typed as the target holds the values exactly (on the same engine, as
-  they were); one there stops the copy, gets the rows added, or has its
-  rows replaced. Each table copies in one transaction where the target
-  has them, through the target's safety policy, and is audited.
-- **Compare the rows** of a table with another's, in the same database or
-  another, of any engine: a table's Compare Rows with…. Rows match by the
-  target's primary key, over the columns both have, and values compare as
-  values: `1.50` and `1.5` are alike, as are `1` and `true`, a time and
-  the same time in UTC, and JSON with its keys in another order. It lists
-  the rows only in either table and the columns changed, hiding the
-  values the grid hides, then makes the target's rows as the source's:
-  adding, updating, and only when asked deleting, in one transaction
-  through the target's safety policy, each statement changing exactly one
-  row, audited with the hidden values masked. Changes without hidden
-  values also open as SQL, to read or edit first.
-- **Generate test data** for a table: its Generate Test Data… adds up to
-  a million rows, each column's values made as its type and name
-  suggest, which a column's own settings change: names, e-mails, phone
-  numbers, cities, companies, addresses, URLs, words and paragraphs;
-  numbers, decimals, dates and times in a range; booleans, UUIDs, JSON; a
-  choice of values, an enum's by default; an existing value of the table
-  a foreign key refers to; or the column's default, as for auto-increment
-  keys. Keys continue from the highest; unique text differs from earlier
-  fills' too; text fits its column; a nullable column can take a share of
-  NULLs. A sample shows first. The rows are added in one transaction
-  where the engine has them, through the safety policy, audited.
-- **Back up and restore** a database, from its menu or its connection's:
-  PostgreSQL with `pg_dump`, as an archive or SQL, schema, data or both;
-  MySQL with `mysqldump`, in one transaction with its routines, triggers
-  and events; SQLite as a copy (`VACUUM INTO`) while it stays in use;
-  DuckDB as a folder of Parquet files (`EXPORT DATABASE`). The tools reach
-  the server as the connection does, through its tunnel or proxy, their
-  password in their environment or a file of their own, never on their
-  command line; their progress shows as they write.
-  - The tools take nothing from your environment: a database's name is
-    only a name (one holding `=` or a URL changes nothing), pg_dump and
-    pg_restore never read `~/.pgpass` or `PG*` variables, and mysqldump
-    reads no option file but the app's.
-  - Under verify-full without a CA file, the PostgreSQL tools trust the
-    system's roots (they need version 16 or later); mysqldump needs the
-    connection's CA file. Through a tunnel or proxy, mysqldump checks the
-    certificate against the CA but not the server's name, and the dialog
-    says so.
-  - A pg_dump archive restores with `pg_restore` in one transaction,
-    dropping what it makes first if asked; a SQL file restores as Run SQL
-    File runs it.
-  - A DuckDB folder is imported into a separate DuckDB that can reach only
-    that folder, then copied into the database: tables, views, macros,
-    types, sequences, indexes and keys, all or nothing. A view that reads a
-    file outside the folder cannot be restored, and the restore waits for an
-    open transaction on the database to end.
-  - A restore is always confirmed, once, the connection's name typed on
-    production (a SQL file's once it has been read through), and both are
-    audited.
-- **Import** a CSV, JSON, JSON Lines, Parquet, Excel or XML file into a
-  table, or into a new table made from the file's columns (a schema's
-  menu: Import File as New Table…, or drop an Excel or XML file):
-  - DuckDB reads the file, finding a CSV file's delimiter and header, and
-    every format's column types; the delimiter, the header and the sheet
-    can be changed, every column read as text, and an XML file's rows
-    chosen by their element. Nested JSON values become JSON text, and
-    exact numbers keep their digits.
-  - Into a table there, the file's columns map to the table's by name.
-    Into a new table, each kept column takes a name and a type of the
-    engine, and the CREATE TABLE shows before it runs.
-  - It runs in one transaction, in INSERTs of many rows: a failing row
-    imports nothing, and a table made for the import is not left behind.
-    It waits for an open transaction on the database to end first.
-  - On ClickHouse, which has no transactions, the rows before a failing
-    one stay in a table that was there, and the error says how many.
-  - A file holds at most 16,384 columns (Excel's A to XFD); an Excel sheet
-    at most Excel's 1,048,576 rows, a cell at most 1 MB of text, each part
-    of the workbook but its sheets at most 64 MB unpacked, and its shared
-    strings at most 4,194,304 items and 128 MB of text. In a workbook and an
-    XML file, elements nest at most 10,000 deep, with at most 10,000 name
-    spaces declared by those open at once; a tag (or a comment, CDATA
-    section or other markup) holds at most 1 MB and 16,384 attributes, and
-    a run of text between them at most 1 MB, refused before it is read
-    whole. An XML file is read twice,
-    its columns and then its rows, so that its rows are not all held at
-    once. A file past a limit, or one that cannot be read, says so; it does
-    not stop the app.
-- **Run SQL File…** runs a file of SQL, as a dump of `pg_dump`,
-  `mysqldump` or `sqlite3`, without opening it in an editor, however large,
-  each statement up to 64 MB and each `COPY` row up to 1 GB:
-  - It reads the file through first, and says what it holds: how many
-    statements of each kind, and each that destroys data, by line, and
-    each that commits a transaction the file began (MySQL's DDL), as what
-    ran before it stays if the file fails later. The safety policy asks
-    once for them all; on production, a file that writes asks for the
-    connection's name. Restoring a backup that is a SQL file runs it so,
-    asked once as a restore.
-  - Then it runs the file as it reads it again, on a session of its own:
-    in one transaction, all or nothing, where the database can hold one
-    and the file holds none of its own; else statement by statement,
-    stopping at the first error, or going on, as chosen; a lost connection
-    always stops it, as the rest would run without what the file had set.
-    A file changed in between is not run.
-  - A file that ends, stops or fails with a transaction it began still
-    open is rolled back, the rollback audited, and the run fails: "BEGIN at
-    line N was never committed; its changes were rolled back". On MySQL the
-    server says whether one is open, so a dump that turns autocommit off and
-    commits ends well.
-  - A PostgreSQL dump's `COPY … FROM stdin` rows are loaded, and its
-    `\restrict` lines skipped; other psql commands, as `\connect`, stop
-    it, as only psql runs them. MySQL's `DELIMITER` and executable
-    comments work as in the `mysql` client.
-- **Snippets:** keep the selected SQL under a name and a keyword, and
-  insert it into any editor from the command palette or by typing its
-  keyword; `sel`, `ins`, `upd`, `del` and a few more come with every
-  editor. A snippet's fields, written `${1:default}`, `$2` and `$0` for
-  where the caret ends, are filled in one after the other with Tab.
-- **History:** one dialog per project with two tabs. **Queries** (⌘Y) lists
-  every statement and command run from an editor or the console, with its
-  timing and error: open one again (↵) in a new editor of its connection,
-  or see its entry in the audit log. **Audit Log** (⌘⇧A) is the
-  [audit log](audit-log.md). Clearing the queries leaves the audit log as
-  it is.
+The Search panel lists the server's search indexes, each with what it
+indexes, its fields and its documents. Run queries on an index; the
+documents found open as keys. **New Index** writes `FT.CREATE` in the
+console for you to complete, and **Drop Index** drops one, keeping its
+keys.
+
+### Console
+
+- Replies look the way `redis-cli` shows them. ↑ and ↓ walk the history.
+- As you type, the commands it may be show, and Tab completes the name.
+  Once a command is named, its syntax and summary show, from the server's
+  `COMMAND DOCS` (Redis 7 and later).
+- `KEYS` asks first, because it stalls a large server; the tree uses
+  `SCAN`.
+- **Run a command file:** one command a line, `#` starting a comment. Each
+  command goes through the safety policy first; if any writes, the file
+  asks once. They run in the console one after another, audited, stopping
+  at the first failure.
+
+### Panels
+
+Below the keys, beside the console:
+
+- **Monitor:** a live feed of the commands the server runs (`MONITOR`, on a
+  connection of its own), for the connection's database or all of them,
+  filtered as you type, with secrets hidden. It asks first on production,
+  because it slows a busy server.
+- **Slow log:** slowest first, with a reset of every master's log.
+- **Memory:** an analysis of up to 10,000, 100,000 or 1,000,000 keys
+  (asking first on production). It reads each key's type, size and TTL as
+  `SCAN` finds them, and sums them into the largest keys, the namespaces
+  before the key separator, the types, and when keys expire.
+- **Pub/Sub:** listen to channels and patterns, with messages showing as
+  they come; publish to a channel, through the safety policy; and see the
+  channels clients listen to, with how many listen, on every node of a
+  cluster. Sharded channels (`SSUBSCRIBE`) are not supported.
+
+## History and snippets
+
+### History
+
+One dialog per project, with two tabs:
+
+- **Queries** (⌘Y) lists every statement and command run from an editor or
+  the console, with its timing and error. ↵ opens one again in a new editor
+  on its connection; you can also jump to its entry in the audit log.
+  Clearing the queries leaves the audit log as it is.
+- **Audit Log** (⌘⇧A) is the [audit log](audit-log.md).
+
+### Snippets
+
+- Save the selected SQL as a snippet with a name and a keyword (**Save as
+  Snippet…**). Insert it from the palette, or by typing its keyword in an
+  editor.
+- Built in: `sel`, `selc`, `ins`, `upd`, `del` and `join`.
+- A snippet's fields, written `${1:default}` and `$2`, are filled in one
+  after another with Tab; `$0` marks where the caret ends.
+- A project's snippets are kept in `dgopher.json`, shared with the team.
+
+## Settings and themes
+
+Settings (⌘,) has five pages:
+
+| Page | Settings |
+| --- | --- |
+| Appearance | theme; editor and interface fonts; editor font size (9–24, 13 by default) |
+| Editor | where statements end; what a script does on an error; Vim; keyboard shortcuts |
+| Results | rows per page (50–10,000, 500 by default); when to notify (0–3,600 seconds, 10 by default) |
+| Safety | the large-change limit (1,000 rows by default); showing sensitive values |
+| Storage | where the app keeps its files, whether a keychain is available, and Show in Folder |
+
+### Keyboard shortcuts
+
+**Customize Keyboard Shortcuts…** (in Settings, the Help menu or the
+palette) records a key for any command, removes one, or resets it. F1 lists
+every shortcut as currently set, and finds one by its key or what it does.
+
+- A key that types needs ⌘, Ctrl or Alt, and a key that moves in lists
+  needs a modifier.
+- A key another command has in the same area, or everywhere, is refused,
+  naming that command. So are ⌘1…⌘9 and the grid's F2.
+- An editor's commands and its results' commands may share a key, as ⌘S
+  and F5 do.
+- Keys are saved as text such as `Cmd+Shift+F`, where Cmd is ⌘ on macOS and
+  Control elsewhere, so they carry between machines. (A Ctrl key recorded on
+  Linux is saved as Cmd, which is the same key there.) The menus show the
+  keys as set.
+
+### Themes
+
+Appearance follows the system, or is light, dark, or a named theme. A named
+theme shows as chosen even if the system stays dark, as on Linux. Nord,
+Dracula and Solarized Light come with the app.
+
+To add a theme, put a JSON file in the themes folder (**Themes Folder**
+opens it). A theme with a built-in theme's name replaces it. A theme is
+based on light or dark, and sets any of the app's colors by name, as
+`#rrggbb` or `#rrggbbaa`:
+
+```json
+{"name": "Night Shift", "base": "dark",
+ "colors": {"accent": "#f59e0b", "editor": "#101010", "keyword": "#fbbf24"}}
+```
+
+| Group | Color names |
+| --- | --- |
+| Interface | `background`, `surface`, `surfaceHover`, `surfacePressed`, `border`, `text`, `textMuted`, `accent`, `accentText`, `danger`, `warning`, `success`, `selection`, `focus`, `sidebar` |
+| Editor | `editor`, `lineNumber`, `currentStatement` |
+| Grid | `gridHeader`, `gridLine`, `cellSelected`, `null`, `modified`, `inserted`, `deleted`, `muted`, `hover` |
+| SQL | `keyword`, `string`, `number`, `comment`, `quotedIdentifier`, `parameter`, `operator` |
+
+A file that cannot be read is skipped and logged. `gutter`, used by older
+versions, is still accepted and has no effect: the gutter takes the
+editor's color.
+
+## Accessibility
+
+- Every control has a name that screen readers read. A test fails if one
+  lacks a name.
+- Charts and the ER diagram describe what they show.
+- The end of a run is announced with its result.
+- Everything works from the keyboard: Tab moves between controls; the
+  navigator, tabs and grids have their own keys; ⇧F10 or the menu key opens
+  the context menu of what has focus; and the ER diagram's changes are
+  available through the navigator's menus and the table form.
+- Dialogs put the focus in their first field. ⌘↵ presses a dialog's main
+  button from any field, and Esc closes it. A button that changes data or
+  trusts a server (rolling back, dropping, deleting keys, importing,
+  copying, restoring, running a file) needs a click.
+- Esc, or a click outside, on a form you changed (a connection, the query
+  builder, a user, a value…) asks "Discard your changes?" first. A form left
+  as it opened closes at once. A dialog whose work is running, such as a
+  copy, a backup, an import or Test Connection, stays open; its own Stop or
+  Cancel ends the work.

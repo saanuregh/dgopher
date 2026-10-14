@@ -1,105 +1,156 @@
 # Audit log
 
-Every action on a database is appended to the `audit` table of
-`.dgopher/state.sqlite` in its project. Open the current project's log with ⌘⇧A, from the command
-palette, or from a project's menu in the sidebar: it is the Audit Log tab
-of the project's History, beside its queries.
+DGopher records every action on a database in an append-only,
+tamper-evident log, one per project.
 
-**What it records:**
-- connects and disconnects;
-- every statement run (reads included);
-- a SQL file run without an editor: the file's path and SHA-256, how many
-  statements ran and how many rows they loaded, and each of its
-  statements apart from INSERT and COPY, and each that failed;
-- the SQL generated from grid edits, and their outcome;
-- imports, exports, cancelled queries and ended sessions;
-- Redis commands;
-- each confirmation the safety policy asked for, and whether the
-  connection's name was typed;
-- what the policy refused;
-- trusted SSH hosts, and connections added, changed or deleted;
-- reads of a table's rows the app makes on its own: a grid's pages,
+## Open it
+
+- Press ⌘⇧A (Ctrl+Shift+A on Linux and Windows).
+- Or choose **Audit Log** from the command palette, the View menu, or a
+  project's menu in the sidebar.
+
+It opens as the Audit Log tab of the project's History dialog, beside the
+Queries tab (⌘Y).
+
+The log is the `audit` table of `.dgopher/state.sqlite` in the project
+folder ([Where things are kept](storage.md)).
+
+## What it records
+
+- Connects and disconnects. A connect also records the server's version
+  and whether TLS was used.
+- Every statement run, reads included.
+- The SQL generated from grid edits, and its outcome.
+- A SQL file run without an editor: the file's path and SHA-256, how many
+  statements ran and how many rows they loaded, each statement other than
+  `INSERT` and `COPY`, and each statement that failed.
+- Imports, exports, backups and restores.
+- Cancelled queries and ended sessions.
+- Redis commands.
+- Each confirmation the safety policy asked for, and whether the
+  connection's name was typed.
+- What the policy refused.
+- Trusted SSH hosts, and connections added, changed or deleted.
+- Reads of a table's rows that the app makes on its own: a grid's pages,
   counts and value lists, the values test data takes from other tables,
   both tables of a row comparison, the source of a copy, and the value of
-  a Redis key opened.
+  a Redis key you open.
+- A failing password or identity command, with its exit status but not
+  what it printed.
 
-**Traffic:** besides those entries, every statement and Redis command
-DGopher itself sends to a server is recorded as it was sent, as
-**traffic**: what the app reads to describe a database (schemas, tables,
-columns, completions), probes of the server's version and of a session's
-transaction, pings, the `BEGIN`, `SAVEPOINT` and `COMMIT` inside a
-batch, the server activity and account lists, a Redis key's reads, and
-the statements already recorded above, again. A connection renamed, or
-given another environment, is recorded under its new name from then on.
-Parameter values are not kept, only how many were sent; secrets are
-redacted as in other entries, and a statement or Redis argument longer
-than 4 KB keeps its first 4 KB and its length. The Audit Log hides
-traffic until **Traffic** is ticked. Traffic is written in batches,
-within a quarter of a second of being sent and before any other entry
-after it, so a crash can lose the last moment of it; what cannot be kept
-(more than 10,000 entries waiting, or a write that failed) is counted in
-an entry instead.
+### Traffic
 
-**Not recorded, as no hook sees it:**
-- what a driver sends to connect (Redis `HELLO`, `AUTH` and `SELECT`,
-  MySQL's handshake, ClickHouse's first query over HTTP) and to
-  disconnect;
-- Redis's keep-alive pings, cluster topology reads and Sentinel's
-  subscription;
-- protocol messages that carry no statement text: MySQL's statement
-  prepare and close, PostgreSQL's prepare, deallocate and cancel
-  requests, ClickHouse's batch data, and SQLite's rollback after a
-  failed commit;
-- what `pg_dump`, `pg_restore`, `mysqldump` and the `mysql` client send
-  for a backup or restore, which their one entry sums up;
-- local DuckDB files the app makes to import, export or restore.
+Besides those entries, the log records every statement and Redis command
+that DGopher itself sends to a server, exactly as sent. These entries are
+marked **traffic**. They include:
 
-**Who wrote it, and what was sent.** A statement's entry says who wrote
-it: **typed**, by a person (in an editor, the console, a SQL or commands
-file, a dashboard panel), or **app**, made by the app for what was asked
-of it, such as a grid's page, a `BEGIN` before a change is counted, or a
-grid edit. The Written by filter shows either. The statement is the text
-the server was sent, `EXPLAIN` included when you explained it; when the
-app changed what was typed first, writing a `${var}`'s value into it or
-turning `:name` into the engine's placeholder, the entry keeps the typed
-text too, and the parameters' values apart. A `BEGIN` the app sends of
-its own, before a manual-commit editor's first change or to count the
-rows a change makes, says why. Grid edits are the exception: their entry shows each edit's
-statement with its values written in, and hidden columns' values masked,
-where the server got the values apart.
+- what the app reads to describe a database: schemas, tables, columns and
+  completions;
+- probes of the server's version and of a session's transaction state, and
+  pings;
+- the `BEGIN`, `SAVEPOINT` and `COMMIT` inside a batch;
+- the server activity and account lists, and a Redis key's reads;
+- the statements already recorded above, again.
 
-**Each entry holds** the time, the OS user and host, the connection, its
-environment, who wrote the statement, rows and duration, and the error if
-any; a connect also
-records the server's version and whether TLS was used. A failing password
-or identity command is recorded as failed with its exit status, without
-what it printed.
+How traffic is kept:
 
-**Tamper evidence:**
-- Every entry carries the SHA-256 of the entry before it, and a number.
-- **Verify Integrity** walks the whole chain, in the order written. It
-  names the first entry that was changed, removed, inserted or moved, and
-  it notices a log whose first entries are missing.
-- What a hash chain alone cannot show: entries cut off the end, or a log
+- Parameter values are not kept, only how many were sent.
+- Secrets are redacted, as in other entries.
+- A statement or Redis argument longer than 4 KB keeps its first 4 KB and
+  its full length.
+- Traffic is written in batches: within a quarter of a second, or as soon
+  as 256 entries wait, and always before the next non-traffic entry. A
+  crash can lose the last moment of traffic.
+- If more than 10,000 entries wait, or a write fails, the entries that
+  could not be kept are counted in an entry instead.
+- A connection that is renamed, or given another environment, is recorded
+  under its new name from then on.
+
+### Not recorded
+
+No hook in the app sees these, so they are not in the log:
+
+- What a driver sends to connect and disconnect: Redis `HELLO`, `AUTH` and
+  `SELECT`, MySQL's handshake, and ClickHouse's first query over HTTP.
+- Redis keep-alive pings, cluster topology reads and Sentinel's
+  subscription.
+- Protocol messages that carry no statement text: MySQL's statement
+  prepare and close, PostgreSQL's prepare, deallocate and cancel requests,
+  ClickHouse's batch data, and SQLite's rollback after a failed commit.
+- What `pg_dump`, `pg_restore`, `mysqldump` and the `mysql` client send for
+  a backup or restore. One entry sums each of them up.
+- Local DuckDB files the app creates to import, export or restore.
+
+## What an entry holds
+
+Each entry holds:
+
+- the time, the OS user and host;
+- the connection and its environment;
+- the kind of action, and who wrote the statement (below);
+- the statement or command, redacted;
+- the rows affected and the duration;
+- the error, if any.
+
+**Who wrote it.** A statement is either:
+
+- **typed** by a person, in an editor, the Redis console, a SQL or command
+  file, or a dashboard panel; or
+- made by the **app** for something you asked, such as a grid's page, a
+  `BEGIN` before a change is counted, or a grid edit.
+
+**What was sent.** The statement is the text the server received,
+including `EXPLAIN` when you explained it. When the app changed what you
+typed first, for example by writing a `${var}`'s value into it or turning
+`:name` into the engine's placeholder, the entry also keeps your typed
+text, and the parameter values separately. A `BEGIN` that the app sends on
+its own, before a manual-commit editor's first change or to count the rows
+a change makes, says why.
+
+Grid edits are the exception: their entry shows each edit's statement with
+its values written in, and the values of hidden columns masked, even
+though the server received the values separately, as parameters.
+
+## The Audit Log tab
+
+- The tab shows the newest 5,000 entries.
+- Filter by text (statement, connection, user or error), by kind, and by
+  **Written by**: anyone, typed, or app.
+- Traffic is hidden until you tick **Traffic**.
+
+## Tamper evidence
+
+- Every entry carries a sequence number and the SHA-256 of the entry before
+  it, forming a hash chain.
+- **Verify Integrity** walks the whole chain in the order written. It names
+  the first entry that was changed, removed, inserted or moved, and notices
+  a log whose first entries are missing.
+- A hash chain alone cannot show entries cut off the end, or a log
   rewritten whole by someone who can write its files. For those, **Copy
-  Head** gives the last entry's number and hash. Keep it somewhere else,
+  Head** copies the last entry's number and hash. Keep that somewhere else,
   such as a ticket or a change record. Compared later, it shows whether the
   log was rewritten or cut short.
-- The log is never trimmed or cleared by the app.
-- Each entry is written in one SQLite transaction that reads the last
-  entry first, so two DGopher windows on one project keep one chain, and
-  a crash cannot leave half an entry.
-- A log an older version kept in `audit*.jsonl` files is imported as it
-  was: a chain broken there stays broken, at the same entry. A damaged end
-  of the last file, from a write cut short, is left out, and an entry says
-  so; the files are kept as `*.migrated`.
-- Secrets (passwords in `CREATE`/`ALTER USER`, the arguments of functions
-  and engines that take credentials, URL and connection-string passwords,
-  Redis `AUTH`, `CONFIG SET requirepass` and similar; see
-  [How statements are read](safety.md)) are redacted before they are
-  written.
-- **Export** saves the whole log to a file of your choice, one JSON entry
-  per line, oldest first. The exported file carries the same chain, so it
-  can be checked on its own. Entries written before an entry said who
-  wrote it hash as they did; a DGopher older than that reads newer entries
-  as changed.
+- The app never trims or clears the log. Clearing the query history leaves
+  it as it is.
+- Each entry is written in one SQLite transaction that reads the last entry
+  first. Two DGopher windows on one project keep one chain, and a crash
+  cannot leave half an entry.
+- Secrets are redacted before they are written. See
+  [How SQL is read](sql.md#secrets) for what counts as a secret.
+
+## Export
+
+**Export** saves the whole log to a file you choose
+(`dgopher-audit-<date>.jsonl` by default): one JSON entry per line, oldest
+first. The file carries the same chain, so it can be verified on its own.
+
+Entries from before the Written by field still verify. A DGopher from
+before that field reports newer entries as changed.
+
+## Logs from older versions
+
+Older versions kept the log in `.dgopher/audit.jsonl` and its rotated
+`audit-<n>.jsonl` files. They are
+imported as they were, so a chain broken there stays broken at the same
+entry. A damaged end of the last file, from a write cut short, is left out,
+and an entry says so. The old files are kept as `*.migrated`.

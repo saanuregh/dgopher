@@ -24,6 +24,8 @@ var editorActions = [...]editorAction{
 	{keymap.Unfold, code.Unfold},
 	{keymap.FoldAll, code.FoldAll},
 	{keymap.UnfoldAll, code.UnfoldAll},
+	{keymap.Comment, code.ToggleComment},
+	{keymap.BlockComment, code.ToggleBlockComment},
 	{keymap.Find, code.Find},
 	{keymap.Replace, code.FindReplace},
 }
