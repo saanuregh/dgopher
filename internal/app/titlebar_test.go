@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	"dgopher/internal/db"
@@ -60,5 +61,40 @@ func TestTitleBar(t *testing.T) {
 		if !a.layout.SidebarHidden {
 			t.Fatal("the first key of Toggle Sidebar did nothing")
 		}
+	}
+}
+
+// ⌘/ in the editor comments out the line, and leaves the list of keys,
+// which F1 opens, shut.
+func TestCmdSlashCommentsInEditor(t *testing.T) {
+	a := newTestApp(t)
+	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1000, 700)
+	q := query.New(a, cn, "", "q", "SELECT 1;")
+	a.AddTab(q)
+	q.Editor.WantFocus = true
+	tt.Frame()
+	tt.Frame()
+	tt.Key(ui.Cmd, ui.KeySlash)
+	tt.Frame()
+	if a.shortcutsOpen || q.Editor.Text() != "-- SELECT 1;" {
+		t.Fatalf("⌘/: list of keys open %v, text %q", a.shortcutsOpen, q.Editor.Text())
+	}
+}
+
+// ⌘⌥/ in the editor puts the line in a block comment.
+func TestCmdAltSlashBlockCommentsInEditor(t *testing.T) {
+	a := newTestApp(t)
+	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1000, 700)
+	q := query.New(a, cn, "", "q", "SELECT 1;")
+	a.AddTab(q)
+	q.Editor.WantFocus = true
+	tt.Frame()
+	tt.Frame()
+	tt.Key(ui.Cmd|ui.Alt, ui.KeySlash)
+	tt.Frame()
+	if text := q.Editor.Text(); !strings.HasPrefix(text, "/*") || !strings.Contains(text, "*/") {
+		t.Fatalf("⌘⌥/: text %q", text)
 	}
 }
