@@ -205,7 +205,7 @@ type Config struct {
 	IdentityRegion  string   `json:"identityRegion,omitempty"`
 	IdentityProfile string   `json:"identityProfile,omitempty"`
 	// ClearTextPassword sends MySQL the password as it is, as logging in
-	// through LDAP or PAM needs; only over TLS.
+	// through LDAP or PAM needs; only over verified TLS.
 	ClearTextPassword bool    `json:"clearTextPassword,omitempty"`
 	Database          string  `json:"database,omitempty"`
 	TLS               TLSMode `json:"tls,omitempty"`
