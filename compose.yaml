@@ -1,0 +1,95 @@
+# The servers the integration tests run against (DGOPHER_IT=1). Ports and
+# passwords match internal/testutil/testutil.go, internal/db/integration_test.go
+# and, for Redis 8, internal/db/redismodules_test.go and
+# internal/ui/redis/redis_test.go.
+name: dgopher-test
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: dgopher-pg
+    ports: ["127.0.0.1:15432:5432"]
+    environment:
+      POSTGRES_PASSWORD: dgopher
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 2s
+      retries: 30
+
+  mysql:
+    image: mysql:8.4
+    container_name: dgopher-mysql
+    ports: ["127.0.0.1:13306:3306"]
+    environment:
+      MYSQL_ROOT_PASSWORD: dgopher
+      MYSQL_DATABASE: shop
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-pdgopher"]
+      interval: 2s
+      retries: 60
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:26.3
+    container_name: dgopher-ch
+    ports: ["127.0.0.1:19000:9000", "127.0.0.1:18123:8123"]
+    environment:
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: dgopher
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--password", "dgopher", "--query", "SELECT 1"]
+      interval: 2s
+      retries: 30
+
+  redis:
+    image: redis:7
+    container_name: dgopher-redis
+    ports: ["127.0.0.1:16379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      retries: 30
+
+  # Redis 8, with its modules (JSON, Search, TimeSeries, vector sets) and
+  # arrays.
+  redis8:
+    image: redis:8
+    container_name: dgopher-redis8
+    ports: ["127.0.0.1:16385:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      retries: 30
+
+  # A cluster of three masters. It uses the host's network, so the
+  # addresses the nodes announce are reachable from the tests.
+  redis-cluster:
+    image: redis:7
+    container_name: dgopher-redis-cluster
+    network_mode: host
+    command:
+      - sh
+      - -c
+      - >-
+        for p in 17000 17001 17002; do
+        redis-server --port $$p --bind 127.0.0.1 --cluster-enabled yes
+        --cluster-config-file nodes-$$p.conf --requirepass dgopher
+        --masterauth dgopher --daemonize yes; done;
+        sleep 1;
+        redis-cli -a dgopher --no-auth-warning --cluster create
+        127.0.0.1:17000 127.0.0.1:17001 127.0.0.1:17002 --cluster-yes;
+        exec tail -f /dev/null
+
+  # A master on 16380 watched by a sentinel on 26379, also on the host's
+  # network.
+  redis-sentinel:
+    image: redis:7
+    container_name: dgopher-redis-sentinel
+    network_mode: host
+    command:
+      - sh
+      - -c
+      - >-
+        redis-server --port 16380 --bind 127.0.0.1 --requirepass dgopher --daemonize yes;
+        printf "port 26379\nbind 127.0.0.1\nrequirepass sentinelpw\nsentinel monitor mymaster 127.0.0.1 16380 1\nsentinel auth-pass mymaster dgopher\n" > /tmp/sentinel.conf;
+        exec redis-sentinel /tmp/sentinel.conf
