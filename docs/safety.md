@@ -307,6 +307,9 @@ and Never disconnect.
 
 ## Grid edits
 
+![A grid edit before it is applied: the changed cell, and the UPDATE
+statement to review in the question that asks to apply it](images/edit-review.png)
+
 - Grid edits are shown as SQL to review, then applied in one transaction.
   Each statement must change exactly one row by primary key, or everything
   rolls back.
