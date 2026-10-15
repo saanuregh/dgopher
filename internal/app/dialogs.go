@@ -223,7 +223,7 @@ func (a *App) askDeleteConn(cn *connection.Conn) {
 				a.ShowError("Could not delete "+cn.Config.Name, err.Error())
 				return
 			}
-			a.disconnect(cn)
+			a.closeConnection(cn)
 			for i, x := range a.conns {
 				if x == cn {
 					a.conns = append(a.conns[:i], a.conns[i+1:]...)

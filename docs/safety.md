@@ -189,6 +189,10 @@ committed it implicitly, it begins another and says so.
   exports, schema changes, applying grid changes, and Redis bulk work. If
   you agree, the app stops the work and waits up to 10 seconds for it to
   roll back what it left open.
+- **Tabs stay when you disconnect.** Editors keep their text and connect
+  again at the next run. Tables, diagrams and the other views of the
+  connection wait in place and open again on Connect. The table designer
+  closes. Deleting a connection or removing its project closes its tabs.
 - **A clean start for the next tab.** Closing a tab closes its connection.
   The next tab inherits no schema, `search_path`, role, variables, locks,
   temporary tables or transaction.

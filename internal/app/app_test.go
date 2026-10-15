@@ -956,16 +956,26 @@ func TestEditingAConnectionKeepsWork(t *testing.T) {
 	if cn.Status != connection.StatusConnected || a.tabs.Len() != 1 || cn.Config.Env != db.Production {
 		t.Fatalf("a rename disconnected: status %v, tabs %d", cn.Status, a.tabs.Len())
 	}
+	// Changing the file reconnects: the editor stays, its text with it,
+	// so there is nothing to ask; with a transaction open, it asks first.
 	other := writeSQL(t, "other.sqlite", "")
 	a.openConnForm(cn)
 	a.connForm.cfg.Database = other
 	a.saveConnForm(a.connForm, false)
-	if a.closing == nil || a.tabs.Len() != 1 {
-		t.Fatalf("changing the file closed tabs without asking: closing %v, tabs %d", a.closing, a.tabs.Len())
+	if a.closing != nil || a.tabs.Len() != 1 || a.tabs.At(0) != q || cn.Config.Database != other {
+		t.Fatalf("changing the file: closing %v, tabs %d, database %q", a.closing, a.tabs.Len(), cn.Config.Database)
+	}
+	connectNow(t, a, tt, cn)
+	q.Tx = db.TxOpen
+	a.openConnForm(cn)
+	a.connForm.cfg.Database = file
+	a.saveConnForm(a.connForm, false)
+	if a.closing == nil || cn.Config.Database != other {
+		t.Fatalf("with a transaction open: closing %v, database %q", a.closing, cn.Config.Database)
 	}
 	a.closing.onClose()
-	if a.tabs.Len() != 0 || cn.Config.Database != other {
-		t.Fatalf("after agreeing: tabs %d, database %q", a.tabs.Len(), cn.Config.Database)
+	if a.tabs.Len() != 1 || cn.Config.Database != file || q.Tx != db.TxNone {
+		t.Fatalf("after agreeing: tabs %d, database %q, transaction %v", a.tabs.Len(), cn.Config.Database, q.Tx)
 	}
 }
 

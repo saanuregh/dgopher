@@ -134,7 +134,7 @@ func (a *App) dropProject(p *project.Project) int {
 	}
 	for i := len(a.conns) - 1; i >= 0; i-- {
 		if a.conns[i].Project == p {
-			a.disconnect(a.conns[i])
+			a.closeConnection(a.conns[i])
 			a.conns = slices.Delete(a.conns, i, i+1)
 		}
 	}

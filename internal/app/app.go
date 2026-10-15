@@ -833,7 +833,34 @@ func (a *App) askHostKey(cn *connection.Conn, cfg db.Config, hk *sshtunnel.HostK
 	}}
 }
 
+// disconnect closes a connection the user disconnected, keeping its tabs:
+// editors connect again at their next run, and the tabs showing what the
+// connection holds wait for it, as at start, where they were. The table
+// designer, with nothing to wait with, closes.
 func (a *App) disconnect(cn *connection.Conn) {
+	for _, t := range a.everyTab() {
+		if t.Connection() != cn {
+			continue
+		}
+		switch t := t.(type) {
+		case *query.Tab:
+			t.Disconnected()
+		case *waitingTab:
+		default:
+			s, ok := savedTabOf(t)
+			if !ok {
+				a.removeTab(t)
+				t.Close()
+				continue
+			}
+			a.ReplaceTab(t, &waitingTab{a: a, conn: cn, saved: s})
+		}
+	}
+	a.dropConnection(cn, "")
+}
+
+// closeConnection closes a connection with its tabs, as when it goes.
+func (a *App) closeConnection(cn *connection.Conn) {
 	for _, t := range a.everyTab() {
 		if t.Connection() == cn {
 			a.removeTab(t)
@@ -923,10 +950,15 @@ func (a *App) AddTab(t widgets.Tab) {
 	a.tabs.Add(t)
 }
 
-// ReplaceTab puts a tab in the place of another, which closes.
+// ReplaceTab puts a tab in the place of another, which closes. In view
+// where the other was, it does not come into view (widgets.ShownNotifier),
+// which would connect a waiting tab again just disconnected.
 func (a *App) ReplaceTab(old, next widgets.Tab) {
 	for _, w := range a.windows {
 		if w.tabs.Replace(old, next) {
+			if i := slices.Index(w.inView[:], old); i >= 0 {
+				w.inView[i] = next
+			}
 			old.Close()
 			return
 		}
@@ -1051,14 +1083,30 @@ type closeRequest struct {
 // unsaved changes, pending edits and open transactions; and the work
 // running on them, with what stopping it loses.
 func (a *App) losses(conns ...*connection.Conn) []string {
+	return a.lossesBy(widgets.Tab.CloseReason, conns...)
+}
+
+// disconnectLosses is losses for a disconnect, which keeps the tabs:
+// editors lose what needs their session, the other tabs what closing does.
+func (a *App) disconnectLosses(conns ...*connection.Conn) []string {
+	return a.lossesBy(func(t widgets.Tab) string {
+		if q, ok := t.(*query.Tab); ok {
+			return q.DisconnectReason()
+		}
+		return t.CloseReason()
+	}, conns...)
+}
+
+// lossesBy lists what the tabs of some connections would lose, as reason
+// says of each, and the work running on them.
+func (a *App) lossesBy(reason func(widgets.Tab) string, conns ...*connection.Conn) []string {
 	var out []string
 	for _, t := range a.everyTab() {
-		for _, cn := range conns {
-			if t.Connection() == cn {
-				if r := t.CloseReason(); r != "" {
-					out = append(out, t.Title()+": "+r)
-				}
-			}
+		if !slices.Contains(conns, t.Connection()) {
+			continue
+		}
+		if r := reason(t); r != "" {
+			out = append(out, t.Title()+": "+r)
 		}
 	}
 	for _, j := range a.jobsOf(conns...) {
@@ -1074,7 +1122,7 @@ func (a *App) losses(conns ...*connection.Conn) []string {
 // lose what the tabs of the connections hold and to stop the work running
 // on them; at once when there is none.
 func (a *App) requestDisconnect(title, action string, conns []*connection.Conn, then func()) {
-	lost := a.losses(conns...)
+	lost := a.disconnectLosses(conns...)
 	if len(lost) == 0 {
 		then()
 		return

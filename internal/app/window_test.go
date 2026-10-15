@@ -14,7 +14,7 @@ import (
 // A tab moved to a new window shows there alone, without the sidebar;
 // dialogs show in the window used; a tab of another window comes forward
 // there; closing the window brings its tabs back, as does its last tab
-// leaving it; disconnecting closes the tabs of every window.
+// leaving it; a connection that goes closes its tabs in every window.
 func TestWindows(t *testing.T) {
 	a := newTestApp(t)
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
@@ -78,9 +78,9 @@ func TestWindows(t *testing.T) {
 	}
 	a.drawing = nil
 
-	a.disconnect(cn)
+	a.closeConnection(cn)
 	main.Frame()
 	if a.main.tabs.Len() != 0 || len(a.windows) != 1 {
-		t.Fatalf("after disconnecting: main's tabs %d, windows %d", a.main.tabs.Len(), len(a.windows))
+		t.Fatalf("after the connection went: main's tabs %d, windows %d", a.main.tabs.Len(), len(a.windows))
 	}
 }

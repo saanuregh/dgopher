@@ -930,7 +930,7 @@ func (a *App) saveConnForm(f *connForm, connect bool) {
 	}
 	cn := f.editing
 	if cn != nil && cn.Status != connection.StatusIdle && reconnectNeeded(f.loaded, cfg) {
-		// The open connection no longer matches: its tabs close with it.
+		// The open connection no longer matches: it closes, its tabs wait.
 		a.requestDisconnect("Apply the changes to "+cn.Config.Name+"?", "Apply", []*connection.Conn{cn}, func() {
 			a.disconnect(cn)
 			a.finishConnForm(f, cfg, connect)

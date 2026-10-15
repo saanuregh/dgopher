@@ -8,6 +8,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/testutil"
 	"dgopher/internal/ui/dataview"
+	"dgopher/internal/ui/query"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -213,4 +214,46 @@ func TestWaitingTabOneButton(t *testing.T) {
 	if r := testutil.Settled(t, tt, "Retry (↵)"); r.X+r.W != connect.X+connect.W || r.Y != connect.Y {
 		t.Fatalf("Retry at %v, Connect was at %v", r, connect)
 	}
+}
+
+// Disconnecting keeps the connection's tabs where they were: an editor as
+// it is, a table waiting for the connection, which does not connect again
+// on its own though set to; connecting opens the table in its place.
+func TestDisconnectKeepsTabs(t *testing.T) {
+	a := newTestApp(t)
+	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: writeSQL(t, "x.sqlite", ""), AutoConnect: true})
+	tt := ui.NewTester(a.view, 1200, 760)
+	connectNow(t, a, tt, cn)
+	if _, err := cn.DB.SQL.Exec("CREATE TABLE orders (id INTEGER PRIMARY KEY)"); err != nil {
+		t.Fatal(err)
+	}
+	q := query.New(a, cn, "", "query", "SELECT 1")
+	a.AddTab(q)
+	orders := savedTab{Kind: savedTable, Connection: cn.Config.ID, Schema: "main", Name: "orders", ObjectKind: string(db.KindTable)}
+	if !a.openSaved(cn, orders) {
+		t.Fatal("the table did not open")
+	}
+	tt.Frame()
+
+	a.askDisconnect(cn)
+	for range 3 {
+		tt.Frame()
+	}
+	if a.tabs.Len() != 2 || a.tabs.At(0) != q {
+		t.Fatalf("after disconnecting: %d tabs, the editor kept %v", a.tabs.Len(), a.tabs.At(0) == q)
+	}
+	wait, ok := a.tabs.At(1).(*waitingTab)
+	if !ok || a.ActiveTab() != wait || !wait.saved.same(orders) {
+		t.Fatalf("the table's place holds %T, in front %v", a.tabs.At(1), a.ActiveTab() == a.tabs.At(1))
+	}
+	if cn.Status != connection.StatusIdle {
+		t.Fatalf("connected again on its own: %v", cn.Status)
+	}
+
+	connectNow(t, a, tt, cn)
+	testutil.WaitFor(t, tt, "the table", func() bool {
+		s, ok := savedTabOf(a.tabs.At(1))
+		_, waiting := a.tabs.At(1).(*waitingTab)
+		return ok && !waiting && s.same(orders)
+	})
 }

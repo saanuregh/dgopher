@@ -155,7 +155,7 @@ func TestConnectCancelFromEditor(t *testing.T) {
 }
 
 // The editor's Connect button turns into Disconnect once connected, in
-// place: disconnecting from there closes the connection's tabs.
+// place, and back: disconnecting from there keeps the editor.
 func TestEditorConnectTurnsToDisconnect(t *testing.T) {
 	a := newTestApp(t)
 	// DuckDB, whose editor has a schema menu once connected.
@@ -182,7 +182,7 @@ func TestEditorConnectTurnsToDisconnect(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if cn.Status != connection.StatusIdle || a.tabs.Len() != 0 {
+	if cn.Status != connection.StatusIdle || a.tabs.Len() != 1 || a.tabs.At(0) != q || !hasExact(tt, "Connect") {
 		t.Fatalf("after Disconnect: %v, %d tabs, %q", cn.Status, a.tabs.Len(), tt.Texts())
 	}
 }

@@ -404,6 +404,9 @@ func (v *Viewer) CheckPending(then, cancel func()) {
 	}, cancel)
 }
 
+// Discard drops the pending changes, as a disconnect does.
+func (v *Viewer) Discard() { v.discard() }
+
 // discard drops the pending changes; undo brings them back until the
 // rows are read again.
 func (v *Viewer) discard() {
