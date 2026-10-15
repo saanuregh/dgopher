@@ -505,6 +505,9 @@ See [How SQL is read](sql.md#parameters).
   key that narrows nothing.
 - A typed `EXPLAIN` in one of these forms shows the same way.
 
+![The plan of a join on PostgreSQL, run by Explain Analyze: each step with
+the rows estimated and found, and its share of the time](images/query-plan.png)
+
 ### Files and sessions
 
 - Editors come back on the next launch. `.sql` files can be opened (⌘O) and
@@ -1028,6 +1031,9 @@ comments work as in the `mysql` client.
 For PostgreSQL, MySQL, ClickHouse and Redis, from a connection's menu or
 the palette.
 
+![The Sessions page of a PostgreSQL server: a statement that has run for a
+while, and an idle session](images/server-activity.png)
+
 | Page | Engines | Shows |
 | --- | --- | --- |
 | Sessions | PostgreSQL, MySQL, ClickHouse | sessions and running queries, refreshed every 2 seconds; cancel a query, or end a session (PostgreSQL, MySQL) |
@@ -1069,6 +1075,9 @@ transaction for a statement that cannot run in one, such as VACUUM.
 ## Redis
 
 Open the key browser from a Redis connection's menu.
+
+![A Redis database: the key tree with its folders, a hash opened beside it,
+and the console, monitor and other panels below](images/redis.png)
 
 ### Keys
 
@@ -1213,6 +1222,8 @@ every shortcut as currently set, and finds one by its key or what it does.
 Appearance follows the system, or is light, dark, or a named theme. A named
 theme shows as chosen even if the system stays dark, as on Linux. Nord,
 Dracula and Solarized Light come with the app.
+
+![The main window in the light appearance](images/main-light.png)
 
 To add a theme, put a JSON file in the themes folder (**Themes Folder**
 opens it). A theme with a built-in theme's name replaces it. A theme is

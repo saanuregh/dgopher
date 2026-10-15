@@ -117,6 +117,8 @@ See [Features](docs/features.md) for everything DGopher does.
 | | |
 | --- | --- |
 | ![A dashboard of the sample shop: revenue, orders, customers and products, revenue by month, customers by country, and best sellers](docs/images/dashboard.png) | ![The ER diagram of the sample shop's tables and their foreign keys](docs/images/er-diagram.png) |
+| ![The plan of a join on PostgreSQL, with the rows estimated and found and each step's share of the time](docs/images/query-plan.png) | ![The audit log of a project: statements, a confirmation, and a grid edit](docs/images/audit-log.png) |
+| ![A grid edit shown as SQL to review before it is applied](docs/images/edit-review.png) | ![A Redis database: its key tree and a hash opened beside it](docs/images/redis.png) |
 
 ## Footprint
 

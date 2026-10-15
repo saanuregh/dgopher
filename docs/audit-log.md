@@ -12,6 +12,9 @@ tamper-evident log, one per project.
 It opens as the Audit Log tab of the project's History dialog, beside the
 Queries tab (⌘Y).
 
+![The Audit Log tab: statements run, a confirmation, and the grid edit it
+let through, each with its kind, who wrote it, and the connection](images/audit-log.png)
+
 The log is the `audit` table of `.dgopher/state.sqlite` in the project
 folder ([Where things are kept](storage.md)).
 

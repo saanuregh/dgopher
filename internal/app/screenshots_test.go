@@ -1,12 +1,15 @@
 package app
 
 import (
+	"context"
+	"fmt"
 	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/datamodel"
 	"dgopher/internal/db"
@@ -18,10 +21,10 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// TestScreenshots renders the images of the README and the docs, dark,
-// from the sample shop and connections made up around it, into the folder
-// DGOPHER_SCREENSHOTS names: docs/development.md says how.
-func TestScreenshots(t *testing.T) {
+// screenshotter returns the function that writes the image of a frame to
+// the folder DGOPHER_SCREENSHOTS names, and skips the test without one.
+func screenshotter(t *testing.T) func(tt *ui.Tester, name string) {
+	t.Helper()
 	out := os.Getenv("DGOPHER_SCREENSHOTS")
 	if out == "" {
 		t.Skip("DGOPHER_SCREENSHOTS names no folder for the docs' images")
@@ -29,7 +32,7 @@ func TestScreenshots(t *testing.T) {
 	if err := os.MkdirAll(out, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	shot := func(tt *ui.Tester, name string) {
+	return func(tt *ui.Tester, name string) {
 		t.Helper()
 		f, err := os.Create(filepath.Join(out, name+".png"))
 		if err != nil {
@@ -40,6 +43,13 @@ func TestScreenshots(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+}
+
+// TestScreenshots renders the images of the README and the docs, dark,
+// from the sample shop and connections made up around it, into the folder
+// DGOPHER_SCREENSHOTS names: docs/development.md says how.
+func TestScreenshots(t *testing.T) {
+	shot := screenshotter(t)
 
 	a := newBareApp(t)
 	a.settings.Theme = "dark"
@@ -126,8 +136,10 @@ LIMIT 10;
 	// editor with its result.
 	key := connection.SchemaKey{Schema: "main"}
 	testutil.WaitFor(t, tt, "the shop's tables", func() bool { return shop.Objects[key] != nil })
+	var orders db.Object
 	for _, o := range shop.Objects[key] {
 		if o.Name == "orders" {
+			orders = o
 			a.OpenTable(shop, "", o, dataview.PageData)
 		}
 	}
@@ -145,6 +157,13 @@ LIMIT 10;
 	testutil.WaitFor(t, tt, "the result", func() bool { return resultRows(tt, q, -1) })
 	tt.Frame()
 	shot(tt, "main")
+
+	// The same window, light.
+	tt.SetDark(false)
+	tt.Frame()
+	shot(tt, "main-light")
+	tt.SetDark(true)
+	tt.Frame()
 
 	// The dashboard, its panels read.
 	a.openDashboard(p, dashPath)
@@ -167,4 +186,132 @@ LIMIT 10;
 		return testutil.HasTextContaining(tt, "shop-prod") && testutil.HasTextContaining(tt, "Type")
 	})
 	shot(tt, "production-confirm")
+
+	// The question left unanswered covers the screens below.
+	a.confirm = nil
+	a.closeTab(a.tabs.Len() - 1)
+
+	// The changes of a grid edit, as SQL to review before they are applied.
+	a.OpenTable(shop, "", orders, dataview.PageData)
+	testutil.WaitFor(t, tt, "the orders", func() bool { return tt.HasText("shipped") })
+	if err := tt.Click("shipped"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Key(0, ui.KeyEnter)
+	tt.Key(ui.Cmd, ui.KeyA)
+	tt.Type("delivered")
+	tt.Key(0, ui.KeyEnter)
+	tt.Key(ui.Cmd, ui.KeyS)
+	testutil.WaitFor(t, tt, "the review", func() bool { return a.confirm != nil })
+	shot(tt, "edit-review")
+	a.confirm.OnConfirm()
+	a.confirm = nil
+	testutil.WaitFor(t, tt, "the edit audited", func() bool {
+		for _, e := range auditEvents(t, a) {
+			if e.Kind == audit.KindEdit {
+				return true
+			}
+		}
+		return false
+	})
+
+	// The audit log of the project.
+	a.openAuditOf(p)
+	testutil.WaitFor(t, tt, "the log", func() bool { return a.history.audit != nil && a.history.audit.read })
+	shot(tt, "audit-log")
+}
+
+// TestScreenshotsServers renders the images that need a server, which the
+// tests of the integration servers use too: it runs only with
+// DGOPHER_IT. docs/development.md says how. Each image has an app of its
+// own, as the status bar keeps what the last connection said.
+func TestScreenshotsServers(t *testing.T) {
+	testutil.Integration(t)
+	shot := screenshotter(t)
+	testutil.SeedPostgres(t)
+
+	start := func(t *testing.T) (*App, *ui.Tester) {
+		a := newBareApp(t)
+		a.settings.Theme = "dark"
+		if _, err := a.addProject(newProjectDir(t, "acme-analytics")); err != nil {
+			t.Fatal(err)
+		}
+		tt := ui.NewTester(a.view, 1440, 900)
+		tt.SetDark(true)
+		tt.SetScale(2)
+		return a, tt
+	}
+	warehouse := testutil.PGConfig()
+	warehouse.ID, warehouse.Name = "warehouse", "warehouse"
+
+	// The plan of a join as Postgres ran it: the steps, the rows found
+	// against the rows estimated, and the share of the time of each.
+	t.Run("query-plan", func(t *testing.T) {
+		a, tt := start(t)
+		pg := addConn(a, warehouse)
+		plan := newAppEditor(t, a, tt, pg, `SELECT c.country,
+       count(*)                 AS orders,
+       round(sum(o.total), 2)   AS revenue
+FROM shop.orders o
+JOIN shop.customers c ON c.id = o.customer_id
+WHERE o.status <> 'new'
+GROUP BY c.country
+ORDER BY revenue DESC;
+`)
+		testutil.WaitFor(t, tt, "connect", func() bool { return pg.Status == connection.StatusConnected })
+		testutil.SetCaret(tt, &plan.Editor, 3)
+		plan.Run(query.RunExplainAnalyze)
+		testutil.WaitFor(t, tt, "the plan", func() bool { return !plan.Running && testutil.HasTextContaining(tt, "Scan") })
+		tt.Frame()
+		shot(tt, "query-plan")
+	})
+
+	// What a server is doing: a statement that runs for a while.
+	t.Run("server-activity", func(t *testing.T) {
+		a, tt := start(t)
+		pg := addConn(a, warehouse)
+		ctx, stop := context.WithCancel(context.Background())
+		t.Cleanup(stop)
+		busy, err := db.Open(ctx, warehouse, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { busy.Close() })
+		go busy.SQL.ExecContext(ctx, "SELECT pg_sleep(300) /* nightly revenue rollup */")
+		a.openActivity(pg)
+		testutil.WaitFor(t, tt, "the running statement", func() bool { return testutil.HasTextContaining(tt, "nightly revenue rollup") })
+		tt.Frame()
+		shot(tt, "server-activity")
+	})
+
+	// A Redis database: its keys, and a hash opened.
+	t.Run("redis", func(t *testing.T) {
+		a, tt := start(t)
+		cfg := db.Config{ID: "cache", Name: "cache", Engine: db.Redis, Host: "127.0.0.1", Port: 16379, Database: "3", Env: db.Development}
+		ctx := context.Background()
+		kv, err := db.OpenRedis(ctx, cfg, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		kv.Do(ctx, []string{"FLUSHDB"})
+		for i := range 12 {
+			kv.Do(ctx, []string{"SET", fmt.Sprintf("session:%04x", 0x3a10+i*97), `{"user":42,"roles":["admin"]}`, "EX", "3600"})
+		}
+		kv.Do(ctx, []string{"HSET", "user:42", "name", "Ada Lovelace", "email", "ada@example.com", "plan", "pro", "country", "GB"})
+		kv.Do(ctx, []string{"RPUSH", "queue:emails", "welcome:42", "digest:7", "receipt:1031"})
+		kv.Close()
+		a.openRedis(addConn(a, cfg))
+		testutil.WaitFor(t, tt, "the keys", func() bool { return tt.HasText("user") })
+		if err := tt.Click("user"); err != nil {
+			t.Fatal(err)
+		}
+		tt.Key(0, ui.KeyRight)
+		testutil.WaitFor(t, tt, "the key", func() bool { return tt.HasText("42") })
+		if err := tt.Click("42"); err != nil {
+			t.Fatal(err)
+		}
+		testutil.WaitFor(t, tt, "the hash", func() bool { return tt.HasText("Ada Lovelace") })
+		tt.Frame()
+		shot(tt, "redis")
+	})
 }

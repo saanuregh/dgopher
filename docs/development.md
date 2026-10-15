@@ -99,12 +99,18 @@ Linux, or Docker Desktop with host networking turned on.
 ### Screenshots
 
 `TestScreenshots` draws the screenshots in the README and these docs, in
-the dark theme, from the sample shop and connections made up around it.
+the dark theme (and the main window once in light), from the sample shop
+and connections made up around it.
 Draw them again after a change to what they show. Text needs Pango's
-library on the loader's path.
+library on the loader's path, which `nix develop` provides.
+
+The query plan, Server Activity and Redis images need the integration
+servers (`docker compose up -d --wait`), so they come only with
+`DGOPHER_IT`. Without it, `TestScreenshotsServers` skips and leaves them as
+they are.
 
 ```sh
-DGOPHER_SCREENSHOTS=$PWD/docs/images go test ./internal/app -run TestScreenshots
+DGOPHER_IT=1 DGOPHER_SCREENSHOTS=$PWD/docs/images go test ./internal/app -run TestScreenshots
 ```
 
 ## Release
