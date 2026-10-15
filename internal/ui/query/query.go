@@ -1378,37 +1378,44 @@ func (q *Tab) View(c *ui.Context) {
 	}
 	ui.Column(c).Grow(1).Children(func() {
 		ui.Toolbar(c, func() {
+			// First, set apart: its label changes in place, Connect to
+			// Disconnect, in a button as wide whichever it shows. The
+			// buttons have keys of their own: one coming or going would else
+			// pass the others' labels along, each sliding to its neighbor's.
+			state := widgets.ConnectState{Connecting: q.Conn.Status == connection.StatusConnecting, Offline: !a.Online()}
+			switch widgets.ConnectStatus(c, q.Conn, state) {
+			case widgets.ConnectAsked:
+				a.Connect(q.Conn, nil)
+			case widgets.DisconnectAsked:
+				a.Disconnect(q.Conn)
+			}
+			ui.Divider(c).Margin(0, 4)
 			// One button: Run turns to Stop, in place, once a run lasts; a
 			// quick one leaves it as it is.
 			if q.Running && widgets.Lasted(c, q.StartedAt) {
-				if widgets.ToolButton(c, widgets.IconStop, "Stop", "Stop the running statement (Esc)").Clicked() && q.cancel != nil {
+				if widgets.ToolButton(c.Key("run"), widgets.IconStop, "Stop", "Stop the running statement (Esc)").Clicked() && q.cancel != nil {
 					q.cancel()
 				}
-			} else if widgets.ToolButton(c, widgets.IconPlay, "Run", keymap.Hint("Run statement", keymap.Run)).Clicked() {
+			} else if widgets.ToolButton(c.Key("run"), widgets.IconPlay, "Run", keymap.Hint("Run statement", keymap.Run)).Clicked() {
 				q.Run(RunStatement)
 			}
-			if widgets.ToolButton(c, widgets.IconLayers, "Run Script", keymap.Hint("Run all statements", keymap.RunScript)).Clicked() {
+			if widgets.ToolButton(c.Key("run-script"), widgets.IconLayers, "Run Script", keymap.Hint("Run all statements", keymap.RunScript)).Clicked() {
 				q.Run(RunScript)
 			}
-			if widgets.ToolButton(c, widgets.IconCode, "Explain", keymap.Hint("Explain plan", keymap.Explain)).Clicked() {
+			if widgets.ToolButton(c.Key("explain"), widgets.IconCode, "Explain", keymap.Hint("Explain plan", keymap.Explain)).Clicked() {
 				q.Run(RunExplain)
 			}
-			if widgets.ToolButton(c, widgets.IconClock, "Analyze", keymap.Hint("Run the statement to measure its plan", keymap.ExplainAnalyze)).Clicked() {
+			if widgets.ToolButton(c.Key("analyze"), widgets.IconClock, "Analyze", keymap.Hint("Run the statement to measure its plan", keymap.ExplainAnalyze)).Clicked() {
 				q.Run(RunExplainAnalyze)
 			}
-			if widgets.ToolButton(c, widgets.IconWand, "Format", keymap.Hint("Format SQL", keymap.Format)).Clicked() {
+			if widgets.ToolButton(c.Key("format"), widgets.IconWand, "Format", keymap.Hint("Format SQL", keymap.Format)).Clicked() {
 				q.format()
 			}
-			if widgets.ToolButton(c, widgets.IconSave, "Save As", keymap.Hint("Save a copy under another name", keymap.SaveAs)).Clicked() {
+			if widgets.ToolButton(c.Key("save-as"), widgets.IconSave, "Save As", keymap.Hint("Save a copy under another name", keymap.SaveAs)).Clicked() {
 				a.SaveSQLFile(q, true)
 			}
 			ui.Spacer(c)
 			q.switcherView(c)
-			if q.Conn.Config.ManualCommit() {
-				ui.Badge(c, "Manual commit").Tooltip("Writes open a transaction that you commit or roll back")
-			} else if q.Conn.Config.Engine.IsSQL() && q.Conn.Config.Engine != db.ClickHouse {
-				ui.Badge(c, "Auto-commit")
-			}
 		}).Label("Editor").Padding(4, 8).BorderWidth(0, 0, 1, 0).BorderColor(t.Border)
 		// The bars come and go, as one while a header is typed: in a
 		// column always there, the editor keeps its place, and the focus.
@@ -1423,9 +1430,6 @@ func (q *Tab) View(c *ui.Context) {
 			}
 			if id, exists := q.namesAnother(); id != "" {
 				q.headerBar(c, id, exists)
-			}
-			if q.Conn.Status == connection.StatusFailed || q.Conn.Status == connection.StatusIdle {
-				q.connectBar(c)
 			}
 			if keys := q.textParams(); len(keys) > 0 {
 				q.paramsBar(c, keys)
@@ -1473,12 +1477,6 @@ func (q *Tab) View(c *ui.Context) {
 			}
 		}
 	})
-}
-
-func (q *Tab) connectBar(c *ui.Context) {
-	if connect, _ := widgets.ConnectBar(c, q.Conn, widgets.ConnectState{Offline: !q.a.Online()}); connect {
-		q.a.Connect(q.Conn, nil)
-	}
 }
 
 // toggleResults hides the results down to their bar, or shows them; the

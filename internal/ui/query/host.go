@@ -1,6 +1,7 @@
 package query
 
 import (
+	"dgopher/internal/connection"
 	"dgopher/internal/project"
 	"dgopher/internal/ui/dataview"
 )
@@ -26,4 +27,6 @@ type Host interface {
 	OpenQueryFile(path string, at int)
 	// Online reports whether the system says the computer is online.
 	Online() bool
+	// Disconnect disconnects cn once the user agrees to what it loses.
+	Disconnect(cn *connection.Conn)
 }

@@ -86,6 +86,13 @@ func IconPill(c *ui.Context, ic *ui.SVG, label string, on bool) ui.Element {
 	return b
 }
 
+// ToolFontSize is the size of the labels of a toolbar's buttons, which
+// other controls there take to be as tall; toolIconSize their icons'.
+const (
+	ToolFontSize = 12.5
+	toolIconSize = 13
+)
+
 // ToolButton is a button of a toolbar with an icon and a label.
 // A button whose label changes, as Run to Stop, changes in place: the
 // label and icon slide to the new ones, and the button eases to its new
@@ -94,8 +101,8 @@ func ToolButton(c *ui.Context, ic *ui.SVG, label, tip string) ui.Element {
 	b := ui.Button(c, "").Label(label).Tooltip(tip).Transition(morph)
 	b.Children(func() {
 		ui.Row(c).Gap(5).Children(func() {
-			ui.Icon(c, ic).FontSize(13).ContentTransition(ui.ContentTransition{})
-			ui.Text(c, label).FontSize(12.5).ContentTransition(ui.ContentTransition{})
+			ui.Icon(c, ic).FontSize(toolIconSize).ContentTransition(ui.ContentTransition{})
+			ui.Text(c, label).FontSize(ToolFontSize).ContentTransition(ui.ContentTransition{})
 		})
 	})
 	return b

@@ -76,3 +76,68 @@ func TestConnectBarShowsOffline(t *testing.T) {
 		t.Fatalf("a file offline: %q", tt.Texts())
 	}
 }
+
+// The toolbar's button changes in place as the connection does, never its
+// width: Connect, still Connect while connecting, Cancel once that lasts,
+// Disconnect once connected, Retry after a failure beside a warning named
+// with why.
+func TestConnectStatus(t *testing.T) {
+	cn := &connection.Conn{Config: db.Config{Name: "prod", Engine: db.Postgres}, Status: connection.StatusIdle}
+	var s widgets.ConnectState
+	var asked []widgets.ConnectAction
+	// In a row, as a toolbar's, where it takes its own width.
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Row(c).Children(func() {
+			if a := widgets.ConnectStatus(c, cn, s); a != widgets.NoConnectAction {
+				asked = append(asked, a)
+			}
+		})
+	}, 600, 40)
+	// As wide as a toolbar button showing its widest label.
+	widest := ui.NewTester(func(c *ui.Context) {
+		ui.Row(c).Children(func() { widgets.ToolButton(c, widgets.IconUnplug, "Disconnect", "") })
+	}, 600, 40)
+	widest.Frame()
+	r, _ := widest.Find("Disconnect")
+	width := r.W
+	wide := func(label string) {
+		t.Helper()
+		if r, ok := tt.Find(label); !ok || r.W != width {
+			t.Errorf("%s is %v wide (%v), want %v", label, r.W, ok, width)
+		}
+	}
+	click := func(label string, want widgets.ConnectAction) {
+		t.Helper()
+		wide(label)
+		asked = nil
+		if err := tt.Click(label); err != nil || len(asked) != 1 || asked[0] != want {
+			t.Fatalf("%s: %v, asked %v", label, err, asked)
+		}
+	}
+	tt.Frame()
+	click("Connect", widgets.ConnectAsked)
+
+	cn.Status, cn.Err = connection.StatusFailed, "password authentication failed\nmore detail"
+	tt.Frame()
+	if _, ok := tt.Find("Connection failed: password authentication failed"); !ok {
+		t.Fatalf("failed: %q", tt.Texts())
+	}
+	click("Retry", widgets.ConnectAsked)
+
+	cn.Status = connection.StatusConnecting
+	s = widgets.ConnectState{Connecting: true, Cancellable: true, Since: time.Now()}
+	tt.Frame()
+	wide("Connect")
+	asked = nil
+	tt.Click("Connect")
+	if !tt.HasText("Connect") || tt.HasText("Cancel") || len(asked) != 0 {
+		t.Fatalf("connecting at once: asked %v, %q", asked, tt.Texts())
+	}
+	s.Since = time.Now().Add(-time.Second)
+	testutil.Settled(t, tt, "Cancel")
+	click("Cancel", widgets.CancelAsked)
+
+	cn.Status, s = connection.StatusConnected, widgets.ConnectState{}
+	testutil.Settled(t, tt, "Disconnect")
+	click("Disconnect", widgets.DisconnectAsked)
+}

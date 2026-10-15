@@ -149,7 +149,40 @@ func TestConnectCancelFromEditor(t *testing.T) {
 	}
 	tt.Frame()
 	cancelledConnect(t, a, tt, cn)
-	if !tt.HasText("Not connected: you cancelled connecting") {
+	if _, ok := tt.Find("Connection failed: you cancelled connecting"); !ok {
 		t.Fatalf("the editor does not say the connect was cancelled: %q", tt.Texts())
+	}
+}
+
+// The editor's Connect button turns into Disconnect once connected, in
+// place: disconnecting from there closes the connection's tabs.
+func TestEditorConnectTurnsToDisconnect(t *testing.T) {
+	a := newTestApp(t)
+	// DuckDB, whose editor has a schema menu once connected.
+	cn := addConn(a, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1100, 400)
+	q := query.New(a, cn, "", "query", "SELECT 1;")
+	a.AddTab(q)
+	tt.Frame()
+	bar, _ := tt.Find("Editor")
+	run, _ := tt.Find("Run")
+	if err := tt.Click("Connect"); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WaitFor(t, tt, "Disconnect", func() bool { _, ok := tt.Find("Disconnect"); return ok })
+	// The schema's menu comes, the toolbar as tall.
+	testutil.WaitFor(t, tt, "the schema menu", func() bool { return hasExact(tt, "main") })
+	if now, _ := tt.Find("Editor"); now.H != bar.H {
+		t.Errorf("connected, the toolbar is %v high, %v before", now.H, bar.H)
+	}
+	if now, _ := tt.Find("Run"); now.X != run.X {
+		t.Errorf("connected, Run moved from %v to %v", run.X, now.X)
+	}
+	if err := tt.Click("Disconnect"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if cn.Status != connection.StatusIdle || a.tabs.Len() != 0 {
+		t.Fatalf("after Disconnect: %v, %d tabs, %q", cn.Status, a.tabs.Len(), tt.Texts())
 	}
 }

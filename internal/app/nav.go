@@ -659,8 +659,17 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 				}
 				dot.Tooltip(tip)
 			}
-			ui.Icon(c, widgets.IconDatabase).TextColor(widgets.RowColor(c, widgets.EngineColor(cn.Config.Engine), chosen)).FontSize(14)
+			// Muted until connected, as the explorers of DataGrip and VS Code.
+			connected := cn.Status == connection.StatusConnected
+			icon := widgets.EngineColor(cn.Config.Engine)
+			if !connected {
+				icon = widgets.PaletteOf(c).Muted
+			}
+			ui.Icon(c, widgets.IconDatabase).TextColor(widgets.RowColor(c, icon, chosen)).FontSize(14)
 			name := ui.Text(c, cn.Config.Name).SingleLine().Shrink(1)
+			if !connected {
+				name.TextColor(muted)
+			}
 			if sn, ok := schemaOf(cn, n); ok {
 				ui.Text(c, sn.schema).FontSize(12).TextColor(muted).SingleLine().Grow(1).Shrink(1).Tooltip("Its schema")
 			} else {

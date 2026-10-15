@@ -337,7 +337,7 @@ func TestWorkspaceRestore(t *testing.T) {
 	for range 5 {
 		tt2.Frame()
 	}
-	if r.Conn.Status != connection.StatusIdle || !tt2.HasText("Not connected.") {
+	if r.Conn.Status != connection.StatusIdle || !hasExact(tt2, "Connect") {
 		t.Fatalf("restored editor connected on its own: %v", r.Conn.Status)
 	}
 	r.Conn.Config.AutoConnect = true
@@ -2184,4 +2184,10 @@ func TestCommandText(t *testing.T) {
 	if got != want {
 		t.Fatalf("commandText:\n got %s\nwant %s", got, want)
 	}
+}
+
+// hasExact reports whether a text or label of the last frame is s.
+func hasExact(tt *ui.Tester, s string) bool {
+	_, ok := tt.Find(s)
+	return ok
 }

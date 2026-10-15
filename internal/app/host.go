@@ -3,6 +3,7 @@ package app
 import (
 	"time"
 
+	"dgopher/internal/connection"
 	"dgopher/internal/settings"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/query"
@@ -16,6 +17,8 @@ import (
 func (a *App) Settings() *settings.Settings { return &a.settings }
 
 func (a *App) Online() bool { return !a.offline }
+
+func (a *App) Disconnect(cn *connection.Conn) { a.askDisconnect(cn) }
 
 // setOnline keeps what the system says of the network; back online, the
 // Redis tabs start again what the network stopped.

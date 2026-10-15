@@ -356,8 +356,14 @@ func (a *App) tabBar(c *ui.Context) {
 							if on {
 								txt.Bold()
 							}
-							if sub := tabSubtitle(tb); sub != "" {
-								ui.Text(c, sub).SingleLine().FontSize(10.5).TextColor(pal.Muted)
+							groups := byConnection(tabPlaces(tb))
+							if sub := placesSubtitle(groups); sub != "" {
+								// Muted until connected, as the sidebar's.
+								col := pal.Muted
+								if anyConnected(groups) {
+									col = t.Text
+								}
+								ui.Text(c, sub).SingleLine().FontSize(10.5).TextColor(col)
 							}
 						})
 						var r string
@@ -775,6 +781,9 @@ func (a *App) connectionStatus(c *ui.Context, groups []connPlaces) {
 		ui.Text(c, "· "+w).FontSize(12).TextColor(pal.Muted).SingleLine()
 	}
 	status := "disconnected"
+	if !a.Online() && !cn.Config.Engine.IsFile() {
+		status = "offline"
+	}
 	switch cn.Status {
 	case connection.StatusConnected:
 		status = cn.Config.Engine.Label()
@@ -813,12 +822,12 @@ func (a *App) connectionStatus(c *ui.Context, groups []connPlaces) {
 			widgets.Appear(ui.Text(c.Key("transaction-state"), "● transaction failed").FontSize(12).TextColor(t.Danger).ContentTransition(ui.ContentTransition{}))
 		}
 	}
-	mode := "auto-commit"
-	if cn.Config.ManualCommit() {
-		mode = "manual commit"
-	}
 	if cn.Config.Engine.IsSQL() && cn.Config.Engine != db.ClickHouse {
-		ui.Text(c, mode).FontSize(12).TextColor(pal.Muted)
+		if cn.Config.ManualCommit() {
+			ui.Text(c, "manual commit").FontSize(12).TextColor(pal.Muted).Tooltip("Writes open a transaction that you commit or roll back")
+		} else {
+			ui.Text(c, "auto-commit").FontSize(12).TextColor(pal.Muted)
+		}
 	}
 }
 

@@ -795,7 +795,7 @@ func TestRestoredEditorWaitsToConnect(t *testing.T) {
 		tt.Frame()
 	}
 	q := b.tabs.At(0).(*query.Tab)
-	if q.Conn.Status != connection.StatusIdle || !tt.HasText("Not connected.") {
+	if q.Conn.Status != connection.StatusIdle || !hasExact(tt, "Connect") {
 		t.Fatalf("restored editor: status %v, %q", q.Conn.Status, tt.Texts())
 	}
 	testutil.SetCaret(tt, &q.Editor, 3)

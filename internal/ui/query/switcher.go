@@ -11,6 +11,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/safety"
 	"dgopher/internal/ui/dataview"
+	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -55,7 +56,7 @@ func (q *Tab) switcherView(c *ui.Context) {
 					q.switchDatabase(name)
 				}
 			}
-		}).Tooltip("The database the editor works in")
+		}).Tooltip("The database the editor works in").FontSize(widgets.ToolFontSize) // as the toolbar's buttons, as tall
 	}
 	if schemaStatement(cn.Config.Engine, cn.DB.Dialect, "") == "" {
 		return
@@ -71,7 +72,7 @@ func (q *Tab) switcherView(c *ui.Context) {
 				q.switchSchema(name)
 			}
 		}
-	}).Tooltip("The schema unqualified names are found in")
+	}).Tooltip("The schema unqualified names are found in").FontSize(widgets.ToolFontSize)
 }
 
 // switchSchema makes the editor's session find names in a schema, as its

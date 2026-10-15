@@ -67,3 +67,68 @@ func ConnectBar(c *ui.Context, cn *connection.Conn, s ConnectState) (connect, ca
 	})
 	return connect, cancel
 }
+
+// ConnectAction is what a ConnectStatus button asked.
+type ConnectAction int
+
+const (
+	NoConnectAction ConnectAction = iota
+	ConnectAsked
+	CancelAsked
+	DisconnectAsked
+)
+
+// ConnectStatus is the connection's button of a toolbar, one that changes
+// in place as the connection does, never its width, so that nothing beside
+// it moves: Connect, with a spinner while connecting, then Cancel once
+// that lasts; Disconnect once connected; Retry after a failure, beside a
+// warning whose tooltip says why.
+func ConnectStatus(c *ui.Context, cn *connection.Conn, s ConnectState) ConnectAction {
+	button := func(ic *ui.SVG, label, tip string, a ConnectAction) ConnectAction {
+		if connectButton(c.Key("connect"), ic, label, tip).Clicked() {
+			return a
+		}
+		return NoConnectAction
+	}
+	switch {
+	case cn.Status == connection.StatusConnected && !s.Connecting:
+		return button(IconUnplug, "Disconnect", "Disconnect from "+cn.Config.Name, DisconnectAsked)
+	case s.Connecting && s.Cancellable && Lasted(c, s.Since):
+		return button(IconX, "Cancel", "Stop connecting to "+cn.Config.Name, CancelAsked)
+	case s.Connecting:
+		connectButton(c.Key("connect"), nil, "Connect", "Connecting to "+cn.Config.Name+"…").Disabled(true)
+		return NoConnectAction
+	case cn.Status == connection.StatusFailed:
+		why := "Connection failed: " + FirstLine(cn.Err)
+		ui.Icon(c, IconAlert).FontSize(13).TextColor(c.Theme().Danger).Label(why).Tooltip(cn.Err)
+		return button(IconRefresh, "Retry", why+". Connect again.", ConnectAsked)
+	}
+	tip := "Connect to " + cn.Config.Name
+	if s.Offline && !cn.Config.Engine.IsFile() {
+		tip = "Offline: Connect works again once the computer is online."
+	}
+	return button(IconPlug, "Connect", tip, ConnectAsked)
+}
+
+// connectButton is a ToolButton, a spinner for a nil icon, as wide as its
+// widest label, Disconnect, whatever it shows: what it shows is centered
+// over that, which takes the room unseen.
+func connectButton(c *ui.Context, ic *ui.SVG, label, tip string) ui.Element {
+	b := ui.Button(c, "").Label(label).Tooltip(tip)
+	b.Children(func() {
+		ui.Row(c).Gap(5).Invisible().Children(func() {
+			ui.Box(c).Size(toolIconSize, toolIconSize)
+			ui.Text(c, "Disconnect").FontSize(ToolFontSize)
+		})
+		ui.Row(c).Absolute().Left(0).Right(0).Top(0).Bottom(0).Gap(5).AlignItems(ui.Center).Justify(ui.Center).Children(func() {
+			if ic == nil {
+				// A spinner takes more than its font size: in the icon's room.
+				ui.Box(c).Size(toolIconSize, toolIconSize).Center().Children(func() { ui.Spinner(c).FontSize(9.5) })
+			} else {
+				ui.Icon(c, ic).FontSize(toolIconSize).ContentTransition(ui.ContentTransition{})
+			}
+			ui.Text(c, label).FontSize(ToolFontSize).ContentTransition(ui.ContentTransition{})
+		})
+	})
+	return b
+}
