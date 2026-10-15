@@ -43,6 +43,13 @@ lists the default keys.
   | CSV, TSV, Parquet, JSON or JSON Lines (`.csv`, `.tsv`, `.parquet`, `.json`, `.jsonl`, `.ndjson`) | queried in place with DuckDB |
   | Excel (`.xlsx`) or XML | imported into a new table of the connection chosen in the navigator |
 
+- **Open Recent** in the File menu (and the Dock, the jump list on Windows,
+  and recent files on Linux) lists the last SQL, SQLite and DuckDB files
+  opened, which open as a dropped file does.
+- **Offline.** While the computer is offline, the bar of an unconnected
+  editor says so. Redis subscriptions and MONITOR that stopped start again
+  once it is back online; nothing else runs again by itself.
+
 ## The window
 
 ### Title bar and menus
@@ -167,8 +174,10 @@ files.
   naming a connection the project lacks opens unconnected, so you can fix
   its line. A restored editor follows its file's line, as after a pull that
   changed it.
-- A file changed on disk while open is never overwritten. The editor offers
-  to use the file or keep your text.
+- A file changed on disk while open reloads at once when the editor holds
+  no unsaved text; otherwise it is never overwritten, and the editor offers
+  **Reload** or **Keep Mine**. A file deleted on disk is marked so.
+- The sidebar's list of query files follows the folder as files come and go.
 - An editor closed without typing anything removes its file.
 - **Duplicate** (in an editor tab's menu, a query file's menu, or the
   palette) opens a copy of the editor, including unsaved edits, in a new
@@ -548,7 +557,8 @@ One viewer shows both a query's results and a table's data.
   hide those with no data), and fit to their values or the screen, from the
   header's menu.
 - Three views: grid, record (Tab), and plain text (``⌘` `` cycles them).
-- Formats: thousands separators, dates, booleans, binary and NULL; row
+- Formats: thousands separators, dates, booleans, binary and NULL, and
+  numbers and dates in your region's format (which keeps every digit); row
   colors by value; zoom.
 - **Refresh**, **Fetch All** (with Stop, which keeps the rows read), and on
   a table **Count** (`SELECT COUNT(*)`, with Stop). The keys: F5, ⌘⇧= and
@@ -556,9 +566,29 @@ One viewer shows both a query's results and a table's data.
 - Move with ⌘G (go to a row), ⌘⇧G (go to a column), and ⌘↑ and ⌘↓ (first and
   last row).
 
+### Choosing cells
+
+- **A block of cells**: drag over the cells, or click one and Shift-click
+  another, or extend with ⇧ and the arrows. ⌘-click adds a row or takes it
+  out; ⌘⇧↑ and ⌘⇧↓ extend to the first and last row.
+- **Whole rows**: click or drag down the row numbers, or press ⌥⇧Space.
+  **Whole columns**: Select Column in a header's menu, or ⌘⇧Space. The
+  corner above the row numbers, or ⌘A, chooses everything.
+- A right-click acts on the cell it is on: outside the chosen cells it
+  chooses that cell first. On a row number, it chooses the whole row, and
+  the menu leaves out what acts on one column (Edit Value, Filter, Order).
+- Esc leaves the cursor's cell alone chosen.
+- The cell menu's **Select** submenu also chooses the rows matching the
+  cell's value, the rows with pending changes, or the rows not chosen.
+- The status bar counts the chosen rows and columns, with the count, sum,
+  average, minimum and maximum of their numbers. While a drag chooses cells,
+  it and the Calc panel keep what they showed, and follow the new block when
+  the drag ends.
+
 ### Filtering and sorting
 
-- **Filter by a cell**: =, ≠, >, <, contains, NULL, or the rows chosen;
+- **Filter by a cell**: =, ≠, >, <, contains, NULL, or the values of the
+  rows chosen (`IN` or `NOT IN`);
   also by a typed value, the clipboard's value, or a list of distinct values
   with counts (⌘F11). The header menu removes a column's filters or clears
   them all.
@@ -568,8 +598,9 @@ One viewer shows both a query's results and a table's data.
   (`SELECT * FROM (…) q WHERE …`), with its parameter values. ⌘L focuses it.
 - **The filter builder**, beside the `WHERE` box, writes that filter from
   conditions you choose: a column, an operator (=, ≠, >, ≥, <, ≤, contains,
-  does not contain, starts with, ends with, in a list, between, is NULL,
-  is not NULL) and a value, matching all or any. The box then shows the SQL.
+  does not contain, starts with, ends with, in a list, not in a list,
+  between, is NULL, is not NULL) and a value, matching all or any. The box
+  then shows the SQL.
 - **The quick filter** narrows the rows already read without running
   anything.
 - **Sorting** runs on the server while rows remain to be read, and in memory
@@ -587,7 +618,7 @@ F7 shows the panels. Each can be maximized.
 | Panel | Shows |
 | --- | --- |
 | Value | the chosen value as text, JSON, XML, hex or an image; save it to a file or load it from one |
-| Calc | count, distinct, NULLs, sum, average, min, max, median and the most frequent value of the chosen cells |
+| Calc | count, distinct, NULLs, sum, average, min, max, median and the most frequent value of the chosen cells, for each chosen column |
 | Profile | every column at once: NULLs, distinct values, bounds, average and median, with a histogram of numbers and times or the most frequent text values |
 | Metadata | the result's columns and types |
 | Grouping | counts by the chosen columns, in memory or on the server |
@@ -599,12 +630,14 @@ count in one statement.
 
 ### Copy and paste
 
-- **Copy** (⌘C) the cell or the chosen rows; also with the header, or the
-  column names alone.
+- **Copy** (⌘C) the cell or the chosen cells, in the columns shown; also
+  with the header, or the column names alone. Hidden columns are never
+  copied.
 - **Advanced Copy** (⌘⇧C): choose the delimiter, column names, quoting and
   row numbers.
-- **Copy as** CSV, TSV, JSON, SQL, Markdown or a text table. Plain-text
-  copies hold up to 100,000 rows.
+- **Copy as** CSV, TSV, JSON, SQL, Markdown or a text table, a column's
+  values as `name IN (…)`, or the values as a list (`1, 'a', NULL`).
+  Plain-text copies hold up to 100,000 rows.
 - **Paste** (⌘V) over the chosen cell as pending changes. **Advanced Paste**
   (⌘⇧V) chooses the delimiter and header row, or pastes as new rows.
 - Open the rows in a spreadsheet app.
@@ -616,7 +649,8 @@ count in one statement.
 
 - Change cells, add, duplicate and delete rows, set NULL or DEFAULT (where
   the column has one), revert a row, and undo and redo (⌘Z, ⌘⇧Z), with
-  DBeaver's keys. ⌘D and ⌘⌥D copy the value from the row above or below.
+  DBeaver's keys. Set to NULL, Set to DEFAULT and Revert act on every chosen
+  cell, as one change to undo. ⌘D and ⌘⌥D copy the value from the row above or below.
 - ⌘S shows the changes as SQL to review, then applies them in one
   transaction, one row per statement by primary key. See
   [Grid edits](safety.md#grid-edits).

@@ -115,7 +115,7 @@ func TestVimNormalKeepsInputMethodsOut(t *testing.T) {
 	if e.Text() != "select 1" || e.Vim.Mode != VimNormal {
 		t.Fatalf("composed in normal mode: %q, mode %v", e.Text(), e.Vim.Mode)
 	}
-	if _, ok := et.tt.TextCaret(); !ok {
+	if active, _ := et.tt.TextInputActive(); !active {
 		t.Fatal("the window's text input is off in normal mode: keys would type nothing")
 	}
 	// Text typed right after i, before a frame, is typed, not lost.
@@ -140,7 +140,7 @@ func TestVimBlockCaretAndInsert(t *testing.T) {
 	e.Vim = NewVim()
 	e.Select(0, 0)
 	et.frames()
-	if !e.State.BlockCaret || e.Typing() {
+	if (e.State.CursorShape != code.CursorBlock) || e.Typing() {
 		t.Fatal("normal mode without a block caret, or typing")
 	}
 	et.tt.Type("w")
@@ -155,8 +155,8 @@ func TestVimBlockCaretAndInsert(t *testing.T) {
 	}
 	et.tt.Type("i")
 	et.frames()
-	if e.Vim.Mode != VimInsert || e.State.BlockCaret || !e.Typing() {
-		t.Fatalf("i: mode %v, block caret %v", e.Vim.Mode, e.State.BlockCaret)
+	if e.Vim.Mode != VimInsert || e.State.CursorShape == code.CursorBlock || !e.Typing() {
+		t.Fatalf("i: mode %v, block caret %v", e.Vim.Mode, e.State.CursorShape == code.CursorBlock)
 	}
 	et.tt.Type("x")
 	et.frames()
@@ -165,8 +165,8 @@ func TestVimBlockCaretAndInsert(t *testing.T) {
 	}
 	et.tt.Key(0, ui.KeyEscape)
 	et.frames()
-	if e.Vim.Mode != VimNormal || !e.State.BlockCaret || e.Caret() != 9 {
-		t.Fatalf("Esc: mode %v, block caret %v, caret %d", e.Vim.Mode, e.State.BlockCaret, e.Caret())
+	if e.Vim.Mode != VimNormal || (e.State.CursorShape != code.CursorBlock) || e.Caret() != 9 {
+		t.Fatalf("Esc: mode %v, block caret %v, caret %d", e.Vim.Mode, e.State.CursorShape == code.CursorBlock, e.Caret())
 	}
 	et.tt.Type("u")
 	et.frames()

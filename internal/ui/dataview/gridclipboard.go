@@ -11,6 +11,7 @@ import (
 
 	"dgopher/internal/db"
 	"dgopher/internal/export"
+	"dgopher/internal/lists"
 	"dgopher/internal/settings"
 	"dgopher/internal/ui/widgets"
 
@@ -137,25 +138,15 @@ func (g *Grid) paste(src *Source, rows [][]string, opt pasteOptions) (int, error
 	return n, nil
 }
 
-// copyAdvanced writes the chosen rows as delimited text.
+// copyAdvanced writes the block chosen as delimited text.
 func (g *Grid) copyAdvanced(src *Source, opt settings.CopyOptions) string {
-	names := make([]string, 0, len(src.Cols)+1)
+	rows := g.selectedRows(src)
+	names, data := g.blockData(src, rows, g.selectedCols(src))
 	if opt.RowNumbers {
-		names = append(names, "#")
-	}
-	for _, col := range src.Cols {
-		names = append(names, col.Name)
-	}
-	var data [][]any
-	for _, r := range g.selectedRows(src) {
-		vals := make([]any, 0, len(names))
-		if opt.RowNumbers {
-			vals = append(vals, strconv.Itoa(r+1))
+		names = append([]string{"#"}, names...)
+		for i, r := range rows {
+			data[i] = append([]any{strconv.Itoa(r + 1)}, data[i]...)
 		}
-		for col := range src.Cols {
-			vals = append(vals, g.plainValue(src, r, col))
-		}
-		data = append(data, vals)
 	}
 	delim := opt.Delimiter
 	if delim == 0 {
@@ -277,12 +268,58 @@ func clipView(a Host, c *ui.Context) {
 	dropClosed(&a.Dialogs().clip, f, f.open)
 }
 
-// copyText writes the chosen rows in a "Copy as" format.
+// copyText writes the chosen cells in a "Copy as" format.
 func (g *Grid) copyText(a Host, src *Source, format string) string {
 	if format == "text" {
-		return g.plainText(a, src, g.selectedRows(src), maxCopyRows)
+		return g.plainTextColumns(a, src, g.selectedRows(src), g.selectedCols(src), maxCopyRows)
 	}
 	return g.copySelection(src, export.Format(format), true)
+}
+
+// blockData returns the names of columns and the values of rows in them.
+func (g *Grid) blockData(src *Source, rows, cols []int) ([]string, [][]any) {
+	names := lists.Map(cols, func(col int) string { return src.Cols[col].Name })
+	data := make([][]any, 0, len(rows))
+	for _, r := range rows {
+		data = append(data, lists.Map(cols, func(col int) any { return g.plainValue(src, r, col) }))
+	}
+	return names, data
+}
+
+// copyInList writes the distinct values of a block of one column as a
+// SQL condition, column IN (...); ok is false for any other block.
+func (g *Grid) copyInList(src *Source) (string, bool) {
+	cols := g.selectedCols(src)
+	if len(cols) != 1 {
+		return "", false
+	}
+	e := g.SQLOpts.Engine
+	quote := g.SQLOpts.Quote
+	if quote == nil {
+		quote = db.DialectOf(db.DuckDB).Quote
+	}
+	seen := map[string]bool{}
+	var vals []any
+	for _, r := range g.selectedRows(src) {
+		v := g.plainValue(src, r, cols[0])
+		if lit := db.Literal(e, v); !seen[lit] {
+			seen[lit] = true
+			vals = append(vals, v)
+		}
+	}
+	return condExprSQL(e, quote(src.Cols[cols[0]].Name), rowCond{op: "in", vals: vals}), true
+}
+
+// copyValuesList writes the block's values as SQL literals, row by row.
+func (g *Grid) copyValuesList(src *Source) string {
+	_, data := g.blockData(src, g.selectedRows(src), g.selectedCols(src))
+	var lits []string
+	for _, row := range data {
+		for _, v := range row {
+			lits = append(lits, db.Literal(g.SQLOpts.Engine, v))
+		}
+	}
+	return strings.Join(lits, ", ")
 }
 
 // maxCopyRows is how many rows a plain-text copy writes.

@@ -24,4 +24,6 @@ type Host interface {
 	// OpenQueryFile opens a query file of a project with the caret at a
 	// byte offset of its text with \n line endings, as its editor has it.
 	OpenQueryFile(path string, at int)
+	// Online reports whether the system says the computer is online.
+	Online() bool
 }

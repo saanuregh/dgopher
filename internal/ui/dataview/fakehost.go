@@ -49,8 +49,10 @@ type FakeHost struct {
 	// long the work took.
 	Notified  []string
 	Clipboard string
-	Queries   []string // texts of the query tabs asked for
-	Events    []audit.Event
+	// ClipboardReads counts ReadClipboard calls.
+	ClipboardReads int
+	Queries        []string // texts of the query tabs asked for
+	Events         []audit.Event
 
 	mu    sync.Mutex
 	queue []func()
@@ -202,7 +204,10 @@ func (h *FakeHost) Notify(started time.Time, title, body string, show func()) {
 
 func (h *FakeHost) WriteClipboard(text string) { h.Clipboard = text }
 
-func (h *FakeHost) ReadClipboard() string { return h.Clipboard }
+func (h *FakeHost) ReadClipboard() string {
+	h.ClipboardReads++
+	return h.Clipboard
+}
 
 func (h *FakeHost) Now() time.Time { return time.Now() }
 

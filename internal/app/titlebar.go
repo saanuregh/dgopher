@@ -75,6 +75,8 @@ func (a *App) titleMenu(m *ui.Menu) {
 			for _, e := range g.items {
 				if e.label == "" {
 					m.Separator()
+				} else if e.openRecent {
+					m.Submenu(e.label, a.recentMenu)
 				} else if keymap.Item(m.Item(e.label), e.id).Chosen() {
 					e.run()
 				}

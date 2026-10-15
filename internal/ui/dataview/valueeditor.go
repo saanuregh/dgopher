@@ -103,12 +103,17 @@ type columnInfo struct {
 
 func openValueEditor(a Host, g *Grid, src *Source, row, col int) {
 	v, _ := g.value(src, row, col)
+	editable := g.edits != nil && g.columnReadOnly(col) == "" && !g.isMasked(col)
 	text := ""
-	if v != nil && v != unset && v != db.Default {
+	switch {
+	case v == nil || v == unset || v == db.Default:
+	case editable:
+		text = PrettyValue(editText(v))
+	default:
 		text = PrettyValue(a.Settings().ViewFormat.Format(v))
 	}
 	e := &valueEditor{open: true, g: g, src: src, row: row, col: col, text: text,
-		editable: g.edits != nil && g.columnReadOnly(col) == "" && !g.isMasked(col),
+		editable: editable,
 		info:     columnInfo{Type: src.Cols[col].Type}, jsonOpen: map[string]*bool{}}
 	if g.isMasked(col) {
 		e.text = MaskedText

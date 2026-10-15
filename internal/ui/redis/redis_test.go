@@ -457,3 +457,45 @@ func TestMonitorMorphs(t *testing.T) {
 	testutil.WaitFor(t, tt, "the monitor to stop", func() bool { return r.monitor.cancel == nil })
 	testutil.WaitFor(t, tt, "Start back", func() bool { return tt.HasText("Start") && !tt.HasText("Stop") })
 }
+
+// Up and Down walk the history and Tab completes, each leaving the caret at
+// the end of the line and the focus in the input.
+func TestConsoleHistoryUpDownAndTabCompletion(t *testing.T) {
+	r := &Tab{
+		history: []string{"GET a", "GET b"},
+		histIdx: 2,
+		docs:    map[string]db.CommandDoc{"HGET": {Name: "HGET"}, "HSET": {Name: "HSET"}},
+	}
+	tt := ui.NewTester(r.consoleView, 1000, 600)
+	if err := tt.Click("Command"); err != nil {
+		t.Fatal(err)
+	}
+	step := func(key ui.Key, want string) {
+		t.Helper()
+		tt.Key(0, key)
+		tt.Frame()
+		if r.consoleIn != want {
+			t.Fatalf("after key %v: %q, want %q", key, r.consoleIn, want)
+		}
+	}
+	step(ui.KeyUp, "GET b")
+	step(ui.KeyUp, "GET a")
+	step(ui.KeyUp, "GET a")
+	step(ui.KeyDown, "GET b")
+	tt.Type("x")
+	tt.Frame()
+	if r.consoleIn != "GET bx" {
+		t.Fatalf("typed after a recall: %q, want the caret at the end", r.consoleIn)
+	}
+	step(ui.KeyDown, "")
+	tt.Type("hge")
+	step(ui.KeyTab, "HGET ")
+	if !tt.Focused("Command") {
+		t.Fatal("Tab moved the focus out of the input")
+	}
+	tt.Type("k")
+	tt.Frame()
+	if r.consoleIn != "HGET k" {
+		t.Fatalf("typed after a completion: %q, want the caret at the end", r.consoleIn)
+	}
+}

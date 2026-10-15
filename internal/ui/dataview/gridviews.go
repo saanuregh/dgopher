@@ -68,16 +68,21 @@ func (g *Grid) recordView(c *ui.Context, a Host, src *Source, order []int) {
 		})
 		g.recList.Selected = &g.recRow
 		cols := []ui.TableColumn{{Title: "Field", ID: "field", Width: 200}, {Title: "Value", ID: "value"}}
+		g.recList.CellMenu = func(m *ui.Menu, r, col int) {
+			if col == 1 && r < len(fields) {
+				g.cellMenu(m, a, src, data, fields[r])
+			}
+		}
 		list := ui.Table(c, &g.recList, cols, len(fields), func(r, col int) {
 			field := fields[r]
 			if col == 0 {
 				ui.Text(c, src.Cols[field].Name).FontSize(12.5).Bold().SingleLine()
 				return
 			}
-			g.cell(c, a, src, g.SelRow, data, field)
+			g.cell(c, a, src, data, field, g.recList.CellSelected(r, col))
 		}).Grow(1).Label("Record")
-		if g.recRow >= 0 && g.recRow < len(fields) {
-			g.selCol = fields[g.recRow]
+		if g.recRow >= 0 && g.recRow < len(fields) && fields[g.recRow] != g.selCol {
+			g.setCursorCol(fields[g.recRow])
 		}
 		if list.Valid() && g.recList.Shortcut(c, 0, ui.KeyTab) {
 			g.mode = viewGrid
@@ -108,6 +113,12 @@ func (g *Grid) plainText(a Host, src *Source, order []int, limit int) string {
 			cols = append(cols, i)
 		}
 	}
+	return g.plainTextColumns(a, src, order, cols, limit)
+}
+
+// plainTextColumns writes up to limit rows of some columns as an aligned
+// text table.
+func (g *Grid) plainTextColumns(a Host, src *Source, order, cols []int, limit int) string {
 	rows := order[:min(len(order), limit)]
 	cells := make([][]string, len(rows))
 	widths := lists.Map(cols, func(col int) int { return utf8.RuneCountInString(src.Cols[col].Name) })

@@ -615,11 +615,13 @@ func (v *Viewer) reload() {
 			// The same rows read again: their order and their hidden and
 			// pinned columns stay.
 			sortBefore, hidden, pinned := v.grid.sort, v.grid.hidden, v.grid.pinned
+			kept := v.keepSelection()
 			v.grid.reset()
 			v.grid.sort, v.grid.hidden, v.grid.pinned = sortBefore, hidden, pinned
 			v.grid.edits.clear()
 			v.cursor, v.src.Cols, v.src.Rows, v.done, v.truncated = c, c.Columns, rows, c.Done(), false
 			v.bindColumns()
+			v.restoreSelection(kept)
 			if v.allAfterRead {
 				v.allAfterRead = false
 				v.fetchingAll, v.fetchStarted = true, time.Now()

@@ -18,7 +18,6 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/export"
 	"dgopher/internal/keymap"
-	"dgopher/internal/lists"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -160,6 +159,10 @@ type Grid struct {
 	// gen counts the times the grid showed new rows, for work that ends
 	// after a reload to tell its rows are gone.
 	gen int
+	// selGen counts changes of the choice and of values, the table's and
+	// the grid's own; stats keep what they worked out until it moves.
+	selGen int
+	stats  statsCache
 	// mode is the presentation: viewGrid, viewRecord or viewText; recList
 	// and recRow are the record's list and its chosen field, text the
 	// text view's, for textKey.
@@ -194,12 +197,37 @@ func NewGrid() *Grid {
 	g.List.Selected = &g.SelRow
 	g.List.Selection = &g.selection
 	g.List.SortBy = &g.sort
+	g.List.CellSelect = true
 	return g
+}
+
+// setCursorCol makes col the chosen cell's column, alone: the table's
+// block of cells collapses to it.
+func (g *Grid) setCursorCol(col int) {
+	g.selGen++
+	g.selCol = col
+	g.List.Cells = ui.ColumnRange{Cursor: colID(col), Anchor: colID(col)}
+}
+
+// selectedCols are the columns of the block chosen, as indexes in the
+// result, in the order shown: every column shown when whole rows are.
+func (g *Grid) selectedCols(src *Source) []int {
+	var cols []int
+	for _, id := range g.List.SelectedColumns() {
+		if col, ok := colIndex(id, len(src.Cols)); ok && !g.hidden[col] {
+			cols = append(cols, col)
+		}
+	}
+	if len(cols) == 0 && g.selCol >= 0 && g.selCol < len(src.Cols) {
+		cols = []int{g.selCol}
+	}
+	return cols
 }
 
 // reset forgets what the grid showed, for a new result.
 func (g *Grid) reset() {
-	g.SelRow, g.selCol = -1, 0
+	g.SelRow = -1
+	g.setCursorCol(0)
 	g.selection.Clear()
 	g.Order, g.orderKey, g.widths, g.colsKey = nil, "", nil, ""
 	g.hidden, g.pinned, g.conds = nil, nil, nil
@@ -214,6 +242,12 @@ func (g *Grid) reset() {
 }
 
 func colID(i int) string { return strconv.Itoa(i) }
+
+// colIndex is the column of an ID colID made, false for none of n columns.
+func colIndex(id string, n int) (int, bool) {
+	i, err := strconv.Atoi(id)
+	return i, err == nil && i >= 0 && i < n
+}
 
 // ViewOrder returns the data rows in the order shown, filtered.
 func (g *Grid) ViewOrder(src *Source) []int {
@@ -376,7 +410,7 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 	digits := len(strconv.Itoa(len(order) + 1))
 	// Every column starts at the left, numbers too, as in TablePlus: one
 	// rule down the whole grid.
-	cols = append(cols, ui.TableColumn{Title: "#", ID: "#", Width: float32(digits*8 + 18), Fixed: true, Frozen: true})
+	cols = append(cols, ui.TableColumn{Title: "#", ID: "#", Width: float32(digits*8 + 18), Fixed: true, Frozen: true, RowHeader: true})
 	visible := make([]int, 0, len(src.Cols))
 	for i, col := range src.Cols {
 		if g.hidden[i] {
@@ -408,13 +442,28 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 			return
 		}
 		c.SetTheme(&dense)
+		// The menu covers the whole cell, its padding too: a row number's
+		// is for whole rows.
+		g.List.CellMenu = func(m *ui.Menu, r, col int) {
+			switch {
+			case r >= len(order):
+			case col == 0:
+				g.cellMenu(m, a, src, order[r], wholeRow)
+			default:
+				g.cellMenu(m, a, src, order[r], visible[col-1])
+			}
+		}
 		table = ui.Table(c, &g.List, cols, len(order), func(r, col int) {
 			if r >= len(order) {
 				return
 			}
 			data := order[r]
 			if col == 0 {
-				num := ui.Text(c, strconv.Itoa(r+1)).FontSize(11).TextColor(pal.Muted).SingleLine()
+				numColor := pal.Muted
+				if g.List.CellSelected(r, col) {
+					numColor = theme.AccentText
+				}
+				num := ui.Text(c, strconv.Itoa(r+1)).FontSize(11).TextColor(numColor).SingleLine()
 				if g.edits != nil {
 					switch {
 					case data >= len(src.Rows):
@@ -425,9 +474,16 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 				}
 				return
 			}
-			g.cell(c, a, src, r, data, visible[col-1])
+			g.cell(c, a, src, data, visible[col-1], g.List.CellSelected(r, col))
 		}).Grow(1).Label("Results").Draw(func(_ *ui.Painter, r ui.Rect) { g.viewW = r.W })
 		c.SetTheme(theme)
+		if table.Changed() {
+			g.selGen++
+		}
+		// The table moves the chosen cell's column with clicks and keys.
+		if col, ok := colIndex(g.List.Cells.Cursor, len(src.Cols)); ok {
+			g.selCol = col
+		}
 		if g.ShowValue {
 			g.panelsView(c, a, src, order)
 		}
@@ -443,15 +499,9 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 		g.mode = (g.mode + 1) % 3
 	}
 	g.moveKeys(c, a, src, order)
+	escaped := g.selectKeys(c, src, order)
 	if keymap.ListPressed(c, &g.List, keymap.ValuePanel) || keymap.ListPressed(c, &g.recList, keymap.ValuePanel) {
 		g.ShowValue = !g.ShowValue
-	}
-	// Keys: Left and Right move between cells, as in a spreadsheet.
-	if g.List.Shortcut(c, 0, ui.KeyLeft) {
-		g.moveCol(src, -1)
-	}
-	if g.List.Shortcut(c, 0, ui.KeyRight) {
-		g.moveCol(src, 1)
 	}
 	if keymap.ListPressed(c, &g.List, keymap.Copy) {
 		a.WriteClipboard(g.copySelection(src, export.TSV, false))
@@ -466,7 +516,7 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 		openAdvancedPaste(a, g, src)
 	}
 	if g.edits != nil && g.readOnly == "" {
-		g.editKeys(c, src, order)
+		g.editKeys(c, src, order, escaped)
 		if g.List.Shortcut(c, 0, ui.KeyF2) || table.Submitted() {
 			if g.SelRow >= 0 && g.SelRow < len(order) {
 				g.startEdit(src, order[g.SelRow], g.selCol)
@@ -476,7 +526,7 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 	return table
 }
 
-func (g *Grid) cell(c *ui.Context, a Host, src *Source, viewRow, data, col int) {
+func (g *Grid) cell(c *ui.Context, a Host, src *Source, data, col int, chosen bool) {
 	pal := widgets.PaletteOf(c)
 	t := c.Theme()
 	if e := g.editing; e != nil && e.row == data && e.col == col {
@@ -500,41 +550,34 @@ func (g *Grid) cell(c *ui.Context, a Host, src *Source, viewRow, data, col int) 
 	}
 	v, changed := g.value(src, data, col)
 	box := ui.Box(c).FillWidth().Padding(0, 2)
-	selected := viewRow == g.SelRow && col == g.selCol
-	if selected {
-		box.Border(1, t.AccentText).Radius(2)
-	}
 	if color, ok := g.rowColor(src, data); ok {
 		box.Background(ui.Hex(color).Alpha(0.45))
 	}
 	if g.edits != nil {
-		// A chosen row's accent hides the faint tints: there, the edit
-		// shows in the theme's own color.
-		chosen := g.selection.Has(data)
-		tint := func(faint, strong ui.Color) ui.Color {
-			if chosen {
-				return strong.Alpha(0.55)
-			}
-			return faint
-		}
 		switch {
 		case data >= len(src.Rows):
-			box.Background(tint(pal.Inserted, t.Success))
+			box.Background(pal.Inserted)
 		case g.edits.deleted[data]:
-			box.Background(tint(pal.Deleted, t.Danger))
+			box.Background(pal.Deleted)
 		case changed:
-			box.Background(tint(pal.Modified, t.Warning))
+			box.Background(pal.Modified)
 		}
+	}
+	null, muted := pal.Null, pal.Muted
+	if chosen {
+		// Faded, as on the grid's background, but on the selection color.
+		null = t.AccentText.Alpha(0.7)
+		muted = null
 	}
 	box.Children(func() {
 		var txt ui.Element
 		switch {
 		case v == unset || v == db.Default:
-			txt = ui.Text(c, "DEFAULT").TextColor(pal.Null).Italic()
+			txt = ui.Text(c, "DEFAULT").TextColor(null).Italic()
 		case v == nil:
-			txt = ui.Text(c, a.Settings().ViewFormat.Format(nil)).TextColor(pal.Null).Italic()
+			txt = ui.Text(c, a.Settings().ViewFormat.Format(nil)).TextColor(null).Italic()
 		case g.isMasked(col):
-			txt = ui.Text(c, MaskedText).TextColor(pal.Muted)
+			txt = ui.Text(c, MaskedText).TextColor(muted)
 		default:
 			if typed, ok := v.(db.Typed); ok {
 				v = string(typed)
@@ -546,25 +589,13 @@ func (g *Grid) cell(c *ui.Context, a Host, src *Source, viewRow, data, col int) 
 			txt.Strikethrough()
 		}
 	})
-	if box.Clicked() {
-		g.selCol = col
-		g.SelRow = viewRow
-		if box.ClickModifiers()&(ui.Cmd|ui.Shift) == 0 {
-			g.selection.Clear()
-			g.selection.Add(data)
-		}
+	// The row takes the click and chooses, as the table does; the cell
+	// only hears of a double click on it. One that edits submits the table,
+	// which starts the edit.
+	if box.RowDoubleClicked() && (g.edits == nil || g.columnReadOnly(col) != "") {
+		g.setCursorCol(col)
+		g.ShowValue = true
 	}
-	if box.DoubleClicked() {
-		if g.edits != nil && g.columnReadOnly(col) == "" {
-			g.startEdit(src, data, col)
-		} else {
-			g.ShowValue = true
-		}
-	}
-	box.ContextMenu(func(m *ui.Menu) {
-		g.selCol = col
-		g.cellMenu(m, a, src, data, col)
-	})
 }
 
 func (g *Grid) startEdit(src *Source, row, col int) {
@@ -572,15 +603,26 @@ func (g *Grid) startEdit(src *Source, row, col int) {
 		return
 	}
 	v, _ := g.value(src, row, col)
-	text := ""
+	text := editText(v)
+	g.editing = &cellEdit{row: row, col: col, value: text, initial: text}
+	// The cell edited is the only one chosen, as in DBeaver.
+	order := g.ViewOrder(src)
+	if at := slices.Index(order, row); at >= 0 {
+		g.SelRow, g.selCol = at, col
+		g.collapse(order)
+	}
+}
+
+// editText is a value as an edit starts from: as the database gives it,
+// never in the grid's display format, which the edit would write back.
+func editText(v any) string {
 	switch x := v.(type) {
 	case nil, unsetValue:
+		return ""
 	case db.Typed:
-		text = string(x)
-	default:
-		text = db.Display(x)
+		return string(x)
 	}
-	g.editing = &cellEdit{row: row, col: col, value: text, initial: text}
+	return db.Display(v)
 }
 
 func (g *Grid) commitEdit(src *Source) {
@@ -604,6 +646,7 @@ func (g *Grid) columnReadOnly(col int) string {
 
 // setValue records a new value of a cell, nil for NULL.
 func (g *Grid) setValue(src *Source, row, col int, v any) {
+	g.selGen++
 	if g.readOnlyCols[col] != "" {
 		return
 	}
@@ -670,30 +713,22 @@ func (g *Grid) addRow(src *Source) {
 	g.SelRow = len(order) - 1
 	g.selection.Clear()
 	g.List.ScrollToEnd()
-	g.selCol = 0
+	g.setCursorCol(0)
 	g.editing = &cellEdit{row: len(src.Rows) + len(g.edits.inserted) - 1, col: 0}
 }
 
-// copySelection writes the rows chosen, or the cell chosen when one row
-// is, in a format.
+// copySelection writes the block chosen, or the cell chosen when the
+// block is one cell, in a format.
 func (g *Grid) copySelection(src *Source, f export.Format, header bool) string {
-	rows := g.selectedRows(src)
-	if len(rows) == 1 && !header && f == export.TSV && g.selCol < len(src.Cols) {
-		v, _ := g.value(src, rows[0], g.selCol)
+	rows, cols := g.selectedRows(src), g.selectedCols(src)
+	if len(rows) == 1 && len(cols) == 1 && !header && f == export.TSV {
+		v, _ := g.value(src, rows[0], cols[0])
 		if v == nil || v == unset {
 			return ""
 		}
 		return db.Display(v)
 	}
-	names := lists.Map(src.Cols, func(col db.ColumnInfo) string { return col.Name })
-	data := make([][]any, 0, len(rows))
-	for _, r := range rows {
-		vals := make([]any, len(src.Cols))
-		for col := range src.Cols {
-			vals[col] = g.plainValue(src, r, col)
-		}
-		data = append(data, vals)
-	}
+	names, data := g.blockData(src, rows, cols)
 	opt := g.SQLOpts
 	opt.Header, opt.NullText = header || f == export.CSV, "NULL"
 	out, err := export.Text(f, names, data, opt)
@@ -702,6 +737,10 @@ func (g *Grid) copySelection(src *Source, f export.Format, header bool) string {
 	}
 	return strings.TrimRight(out, "\n")
 }
+
+// wholeRow is the column a row number's menu passes: none, for the items
+// that act on whole rows only.
+const wholeRow = -1
 
 func (g *Grid) cellMenu(m *ui.Menu, a Host, src *Source, row, col int) {
 	if keymap.Item(m.Item("Copy"), keymap.Copy).Chosen() {
@@ -714,7 +753,7 @@ func (g *Grid) cellMenu(m *ui.Menu, a Host, src *Source, row, col int) {
 		openAdvancedCopy(a, g, src)
 	}
 	editable := g.edits != nil && g.readOnly == ""
-	if keymap.Item(m.Item("Edit Value…"), keymap.EditValue).Chosen() {
+	if col != wholeRow && keymap.Item(m.Item("Edit Value…"), keymap.EditValue).Chosen() {
 		openValueEditor(a, g, src, row, col)
 	}
 	if keymap.Item(m.Item("Paste"), keymap.Paste).Disabled(!editable).Chosen() {
@@ -732,7 +771,15 @@ func (g *Grid) cellMenu(m *ui.Menu, a Host, src *Source, row, col int) {
 		if m.Item("Plain Text Table").Chosen() {
 			a.WriteClipboard(g.copyText(a, src, "text"))
 		}
+		if m.Item("SQL IN List").Disabled(len(g.selectedCols(src)) != 1).Chosen() {
+			inList, _ := g.copyInList(src)
+			a.WriteClipboard(inList)
+		}
+		if m.Item("Values List").Chosen() {
+			a.WriteClipboard(g.copyValuesList(src))
+		}
 	})
+	g.selectMenu(m, src, row, col)
 	m.Submenu("Panels", func(m *ui.Menu) {
 		for i, name := range panelNames {
 			if m.Item(name).Checked(g.ShowValue && g.panel == i).Chosen() {
@@ -749,12 +796,14 @@ func (g *Grid) cellMenu(m *ui.Menu, a Host, src *Source, row, col int) {
 	if m.Item("Open in Spreadsheet App").Chosen() {
 		g.openWith(a, src)
 	}
-	apply, clearF := g.filterFuncs()
-	m.Separator()
-	g.filterMenu(m, a, src, row, col, apply, clearF)
-	g.orderMenu(m, col)
-	if g.menu != nil {
-		g.menu(m, row, col)
+	if col != wholeRow {
+		apply, clearF := g.filterFuncs()
+		m.Separator()
+		g.filterMenu(m, a, src, row, col, apply, clearF)
+		g.orderMenu(m, col)
+		if g.menu != nil {
+			g.menu(m, row, col)
+		}
 	}
 	if g.edits != nil && g.readOnly == "" {
 		m.Separator()
@@ -807,16 +856,6 @@ func (g *Grid) numericColumn(src *Source, col int) bool {
 		g.numericFrom, g.numericRows = &src.Cols[0], len(src.Rows)
 	}
 	return col < len(g.numeric) && g.numeric[col]
-}
-
-// moveCol moves the chosen cell to the next column shown, left or right.
-func (g *Grid) moveCol(src *Source, step int) {
-	for col := g.selCol + step; col >= 0 && col < len(src.Cols); col += step {
-		if !g.hidden[col] {
-			g.selCol = col
-			return
-		}
-	}
 }
 
 // isMasked reports whether a column's values are hidden on screen.

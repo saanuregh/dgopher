@@ -95,6 +95,7 @@ func TestAdvancedCopyOptions(t *testing.T) {
 	g, src := editableGrid()
 	g.selection.Add(0)
 	g.selection.Add(1)
+	chooseWholeRows(t, g, src)
 	got := g.copyAdvanced(src, settings.CopyOptions{Delimiter: ';', Header: true, RowNumbers: true, QuoteAll: true, NullText: "<null>"})
 	want := "\"#\";\"id\";\"name\";\"note\"\n\"1\";\"1\";\"a\";\"<null>\"\n\"2\";\"2\";\"b\";\"x\"\n"
 	if got != want {
@@ -135,7 +136,8 @@ func TestDuplicateAndRevert(t *testing.T) {
 		t.Fatalf("duplicate %#v", g.edits.inserted)
 	}
 	g.setValue(src, 0, 1, db.Typed("changed"))
-	g.setDefault(src, 0, 2)
+	g.checkpoint()
+	g.setCellDefault(src, 0, 2)
 	if g.edits.updates[0][2] != db.Default {
 		t.Fatal("set to default")
 	}
@@ -144,9 +146,9 @@ func TestDuplicateAndRevert(t *testing.T) {
 		t.Fatal("revert cell")
 	}
 	g.edits.deleted[1] = true
-	g.revertRow(src, 0)
-	g.revertRow(src, 1)
-	g.revertRow(src, 2) // the duplicate
+	g.forgetRow(src, 0)
+	g.forgetRow(src, 1)
+	g.forgetRow(src, 2) // the duplicate
 	if g.edits.count() != 0 {
 		t.Fatalf("left %d changes", g.edits.count())
 	}
@@ -157,11 +159,11 @@ func TestSelectionStats(t *testing.T) {
 	g.selCol = 0
 	g.selection.Add(0)
 	g.selection.Add(1)
-	if got := g.SelectionStats(src); got != "2 values · sum 3 · avg 1.5 · min 1 · max 2" {
+	if got := g.SelectionStats(src); got != "2 rows × 1 column · Count 2 · Sum 3 · Avg 1.5 · Min 1 · Max 2" {
 		t.Fatalf("numbers: %q", got)
 	}
 	g.selCol = 2 // one NULL, one text
-	if got := g.SelectionStats(src); got != "2 rows · 1 NULL" {
+	if got := g.SelectionStats(src); got != "2 rows × 1 column · 1 NULL" {
 		t.Fatalf("text: %q", got)
 	}
 	g.selection.Clear()
@@ -261,9 +263,10 @@ func TestHeaderMenuHidesAndPins(t *testing.T) {
 	if !g.pinned[2] {
 		t.Fatal("not pinned")
 	}
-	// Moving right from id skips the hidden column.
-	g.selCol = 0
-	g.moveCol(src, 1)
+	// The keys move in the order shown, the pinned name first, past the
+	// hidden column: Left from id goes to name.
+	tt.Click("1")
+	tt.Key(0, ui.KeyLeft)
 	if g.selCol != 2 {
 		t.Fatalf("moved to %d", g.selCol)
 	}
@@ -526,7 +529,7 @@ func TestCalcPanel(t *testing.T) {
 	for i := range src.Rows {
 		g.selection.Add(i)
 	}
-	s := g.calc(src)
+	s := g.calc(src)[0]
 	if s.count != 4 || s.nulls != 1 || s.distinct != 3 || s.sum != 15 || s.min != 1 || s.max != 6 || s.median != 4 || s.mode != "4" || s.modeCount != 2 {
 		t.Fatalf("%+v", s)
 	}
@@ -552,7 +555,8 @@ func TestValuePanelViewers(t *testing.T) {
 	a := NewFakeHost(t)
 	g, src := editableGrid()
 	src.Rows[0][2] = `{"k":[1,2]}`
-	g.SelRow, g.selCol, g.ShowValue = 0, 2, true
+	g.SelRow, g.ShowValue = 0, true
+	g.setCursorCol(2)
 	tt := ui.NewTester(func(c *ui.Context) { g.View(c, a, src) }, 900, 360)
 	tt.Frame()
 	if g.viewer != "JSON" || !testutil.HasTextContaining(tt, `"k": [`) {
@@ -599,6 +603,7 @@ func TestColorByValue(t *testing.T) {
 func TestCopyAsFormats(t *testing.T) {
 	g, src := editableGrid()
 	g.selection.Add(0)
+	chooseWholeRows(t, g, src)
 	if got := g.copySelection(src, export.TSV, true); got != "id\tname\tnote\n1\ta\tNULL" {
 		t.Fatalf("tsv %q", got)
 	}
@@ -797,5 +802,63 @@ func TestCopyAsSQLNotDoubleQuoted(t *testing.T) {
 	got := g.copySelection(src, export.SQL, false)
 	if !strings.HasPrefix(got, "INSERT INTO `s`.`t` (`id`") {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// NOT IN excludes the values chosen, and NULL only when it is one of
+// them: excluding values keeps the rows that have none.
+func TestFilterNotIn(t *testing.T) {
+	sqlCases := []struct {
+		vals []any
+		want string
+	}{
+		{[]any{int64(1), "a'b"}, `("name" NOT IN (1, 'a''b') OR "name" IS NULL)`},
+		{[]any{int64(1), nil}, `"name" NOT IN (1)`},
+		{[]any{nil}, `"name" IS NOT NULL`},
+	}
+	for _, tc := range sqlCases {
+		if got := condSQL(db.DialectOf(db.Postgres), db.Postgres, "name", rowCond{op: "notin", vals: tc.vals}); got != tc.want {
+			t.Errorf("NOT IN %v: %s, want %s", tc.vals, got, tc.want)
+		}
+	}
+	rows := [][]any{{int64(1)}, {int64(2)}, {nil}}
+	match := func(vals ...any) (out []bool) {
+		for _, r := range rows {
+			out = append(out, rowCond{op: "notin", vals: vals}.matches(r))
+		}
+		return out
+	}
+	if got := match(int64(1)); !slices.Equal(got, []bool{false, true, true}) {
+		t.Errorf("NOT IN (1) matches %v", got)
+	}
+	if got := match(int64(1), nil); !slices.Equal(got, []bool{false, true, false}) {
+		t.Errorf("NOT IN (1, NULL) matches %v", got)
+	}
+}
+
+// The values of the rows chosen, for IN and NOT IN: each once, NULL too,
+// and quickly for many rows.
+func TestChosenValues(t *testing.T) {
+	g, src := editableGrid()
+	src.Rows = [][]any{{int64(1), "a", nil}, {int64(2), "a", nil}, {int64(3), "b", "x"}}
+	got := g.chosenValues(src, []int{0, 1, 2}, 1)
+	if !slices.Equal(got, []any{"a", "b"}) {
+		t.Fatalf("names: %v", got)
+	}
+	if got := g.chosenValues(src, []int{0, 1, 2}, 2); len(got) != 2 || got[0] != nil || got[1] != "x" {
+		t.Fatalf("notes: %v", got)
+	}
+	rows := make([]int, 50000)
+	src.Rows = make([][]any, len(rows))
+	for i := range rows {
+		rows[i] = i
+		src.Rows[i] = []any{int64(i), fmt.Sprint("v", i), nil}
+	}
+	start := time.Now()
+	if got := g.chosenValues(src, rows, 1); len(got) != len(rows) {
+		t.Fatalf("%d values", len(got))
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("50,000 distinct values took %v", d)
 	}
 }

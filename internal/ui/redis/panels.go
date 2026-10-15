@@ -52,6 +52,7 @@ type monitorState struct {
 	err     string
 	list    ui.ListState
 	started time.Time
+	resume  bool // as pubSubState's
 }
 
 type slowLogState struct {
@@ -118,7 +119,7 @@ func (r *Tab) runMonitor() {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	m.cancel, m.err, m.started = cancel, "", time.Now()
+	m.cancel, m.err, m.resume, m.started = cancel, "", false, time.Now()
 	kv, cfg := r.conn.KV, r.conn.Config
 	lines := feed[db.MonitorLine]{keep: monitorKeep}
 	go func() {
@@ -136,13 +137,15 @@ func (r *Tab) runMonitor() {
 			r.a.Post(func() { m.lines = keepLatest(m.lines, batch, monitorKeep) })
 		})
 		start := time.Now()
-		err := kv.Monitor(ctx, lines.add)
+		err := monitor(kv, ctx, lines.add)
+		stopped := ctx.Err() != nil
 		close(done)
 		r.a.RecordRun(cfg, audit.KindCommand, cfg.Database, "MONITOR", -1, time.Since(start), err)
 		r.a.Post(func() {
 			m.cancel = nil
 			if err != nil {
 				m.err = err.Error()
+				m.resume = !stopped
 			}
 		})
 	}()

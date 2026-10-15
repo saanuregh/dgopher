@@ -76,6 +76,13 @@ const (
 	GoToColumn       = "grid.goToColumn"
 	FirstRow         = "grid.firstRow"
 	LastRow          = "grid.lastRow"
+	ExtendToFirstRow = "grid.extendToFirstRow"
+	ExtendToLastRow  = "grid.extendToLastRow"
+	SelectRow        = "grid.selectRow"
+	SelectColumn     = "grid.selectColumn"
+	SelectMatching   = "grid.selectMatching"
+	SelectChanged    = "grid.selectChanged"
+	InvertSelection  = "grid.invertSelection"
 	SortColumn       = "grid.sortColumn"
 	DistinctValues   = "grid.distinctValues"
 	NextPresentation = "grid.nextPresentation"
@@ -182,6 +189,13 @@ var Commands = []Command{
 	command(GoToColumn, Grid, "Go to a column by name", "Cmd+Shift+G"),
 	command(FirstRow, Grid, "First row", "Cmd+Up"),
 	command(LastRow, Grid, "Last row", "Cmd+Down"),
+	command(ExtendToFirstRow, Grid, "Choose the rows up to the first", "Cmd+Shift+Up"),
+	command(ExtendToLastRow, Grid, "Choose the rows down to the last", "Cmd+Shift+Down"),
+	command(SelectRow, Grid, "Choose the whole rows of the chosen cells", "Alt+Shift+Space"),
+	command(SelectColumn, Grid, "Choose the whole columns of the chosen cells", "Cmd+Shift+Space"),
+	command(SelectMatching, Grid, "Choose the rows whose value in the column is the cell's"),
+	command(SelectChanged, Grid, "Choose the rows with pending changes"),
+	command(InvertSelection, Grid, "Choose the rows not chosen, and none of those that were"),
 	command(SortColumn, Grid, "Order by the chosen column: ascending, descending, none", "Cmd+2"),
 	command(DistinctValues, Grid, "The chosen column's distinct values, to filter by", "Cmd+F11"),
 	command(NextPresentation, Grid, "Next presentation: grid, record, text", "Cmd+`"),

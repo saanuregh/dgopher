@@ -15,6 +15,23 @@ import (
 
 func (a *App) Settings() *settings.Settings { return &a.settings }
 
+func (a *App) Online() bool { return !a.offline }
+
+// setOnline keeps what the system says of the network; back online, the
+// Redis tabs start again what the network stopped.
+func (a *App) setOnline(online bool) {
+	back := online && a.offline
+	a.offline = !online
+	if !back {
+		return
+	}
+	for _, t := range a.everyTab() {
+		if r, ok := t.(*redis.Tab); ok {
+			r.Online()
+		}
+	}
+}
+
 func (a *App) Layout() *widgets.Layout    { return &a.layout }
 func (a *App) Now() time.Time             { return a.now }
 func (a *App) FocusWant() *string         { return &a.focusWant }

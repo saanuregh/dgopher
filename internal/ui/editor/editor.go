@@ -247,7 +247,10 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 	if commands {
 		e.vimSync()
 	}
-	st.BlockCaret = commands
+	st.CursorShape = code.CursorBar
+	if commands {
+		st.CursorShape = code.CursorBlock
+	}
 	st.NoInputMethod = commands // letters are Vim's commands, not text to compose
 	el := code.View(c, st).Grow(1).FillWidth()
 	if e.WantFocus {

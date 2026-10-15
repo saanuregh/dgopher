@@ -63,6 +63,8 @@ type App struct {
 
 	settings settings.Settings
 	conns    []*connection.Conn
+	// offline is set while the system says the computer is offline.
+	offline bool
 	// connecting are the connects under way, by connection, past their
 	// prompts: how far each is, and how to stop it.
 	connecting map[*connection.Conn]*connectAttempt
@@ -99,9 +101,15 @@ type App struct {
 	importing   *importState
 	sqlFile     *sqlFileRun
 	projects    []*project.Project
-	newProject  *newProjectForm
-	renaming    *renameForm
-	generating  *generateState
+	// queryWatches follow the projects' query folders; a project without
+	// one has its folder walked every few seconds instead.
+	queryWatches map[*project.Project]query.FileWatch
+	// queryWatchAt is when to try watching a project's folder again after
+	// it could not be: a folder too big to watch is not walked at each poll.
+	queryWatchAt map[*project.Project]time.Time
+	newProject   *newProjectForm
+	renaming     *renameForm
+	generating   *generateState
 	// closedTabs are the tabs the user closed, the latest last (rememberClosed).
 	closedTabs []closedTab
 	// catalogQueries shows the catalog queries of a connection.

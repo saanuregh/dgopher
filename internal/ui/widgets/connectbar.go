@@ -19,6 +19,9 @@ type ConnectState struct {
 	// Default makes the button the view's own: in focus as it appears,
 	// its label naming ↵.
 	Default bool
+	// Offline is set while the system says the computer is offline;
+	// Connect stays, as the system may be wrong.
+	Offline bool
 }
 
 // ConnectBar says that cn is not connected, or why it failed, with the
@@ -38,6 +41,9 @@ func ConnectBar(c *ui.Context, cn *connection.Conn, s ConnectState) (connect, ca
 		if failed {
 			ui.Icon(c, IconAlert).TextColor(t.Danger).FontSize(14)
 			label, button = "Not connected: "+FirstLine(cn.Err), "Retry"
+		}
+		if s.Offline && !failed && !cn.Config.Engine.IsFile() {
+			label = "Offline: Connect works again once the computer is online."
 		}
 		if s.Connecting {
 			label = "Connecting to " + cn.Config.Name + "…"

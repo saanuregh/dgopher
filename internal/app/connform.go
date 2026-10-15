@@ -1133,8 +1133,8 @@ func sourceByLabel(label string) passwordSource {
 	return sourceKeychain
 }
 
-// keychainName names the system keychain the go-keyring library uses on
-// this system.
+// keychainName names the system keychain MyGo's Secrets uses on this
+// system.
 func keychainName() string {
 	switch runtime.GOOS {
 	case "darwin":

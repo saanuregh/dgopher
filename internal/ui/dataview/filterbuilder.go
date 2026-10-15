@@ -22,7 +22,7 @@ type builderOp struct {
 var builderOps = []builderOp{
 	{"=", "=", 1}, {"≠", "<>", 1}, {">", ">", 1}, {"≥", ">=", 1}, {"<", "<", 1}, {"≤", "<=", 1},
 	{"contains", "contains", 1}, {"does not contain", "notcontains", 1}, {"starts with", "prefix", 1}, {"ends with", "suffix", 1},
-	{"is one of", "in", 1}, {"is between", "between", 2}, {"is NULL", "null", 0}, {"is not NULL", "notnull", 0},
+	{"is one of", "in", 1}, {"is not one of", "notin", 1}, {"is between", "between", 2}, {"is NULL", "null", 0}, {"is not NULL", "notnull", 0},
 }
 
 func builderOpLabels() []string {
@@ -137,7 +137,7 @@ func condsSQL(e db.Engine, orJoined bool, conds []builderCond, expr func(column 
 		}
 		c := rowCond{op: op.op}
 		switch {
-		case op.op == "in":
+		case op.op == "in" || op.op == "notin":
 			for _, s := range strings.Split(bc.value, ",") {
 				if s = strings.TrimSpace(s); s != "" {
 					c.vals = append(c.vals, typedFilterValue(s))

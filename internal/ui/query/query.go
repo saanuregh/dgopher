@@ -98,6 +98,8 @@ type Tab struct {
 	// DiskConflict says why the file is not saved as typed: it changed or
 	// went on disk since the editor read it, as by a git pull.
 	DiskConflict string
+	watch        FileWatch
+	watchedPath  string
 	// The statements' starts, and their first lines, in linesText.
 	linesText  string
 	stmtStarts []int
@@ -244,6 +246,7 @@ func (q *Tab) Mark() string {
 // thread, and what may block runs on another goroutine.
 func (q *Tab) Close() {
 	q.closed = true
+	q.stopWatch()
 	q.Flush(false)
 	q.keepParamEdits()
 	if q.Created != "" && q.DiskConflict == "" && q.Saved == q.Created && q.Editor.FileText() == q.Created {
@@ -1214,6 +1217,9 @@ func (q *Tab) ResultEditable() bool {
 func (q *Tab) View(c *ui.Context) {
 	a := q.a
 	t := c.Theme()
+	if !q.closed {
+		q.watchFile()
+	}
 	// A screen reader hears a run end, as a sighted user sees its result.
 	if q.wasRunning && !q.Running && len(q.messages) > 0 {
 		c.Announce(q.messages[len(q.messages)-1].text)
@@ -1377,7 +1383,7 @@ func (q *Tab) View(c *ui.Context) {
 }
 
 func (q *Tab) connectBar(c *ui.Context) {
-	if connect, _ := widgets.ConnectBar(c, q.Conn, widgets.ConnectState{}); connect {
+	if connect, _ := widgets.ConnectBar(c, q.Conn, widgets.ConnectState{Offline: !q.a.Online()}); connect {
 		q.a.Connect(q.Conn, nil)
 	}
 }
@@ -1739,7 +1745,7 @@ func (q *Tab) conflictBar(c *ui.Context) {
 		ui.Icon(c, widgets.IconAlert).TextColor(t.Warning).FontSize(14)
 		ui.Text(c, filepath.Base(q.Path)+" "+q.DiskConflict+": the editor's text is not saved.").Grow(1).Shrink(1).SingleLine().Tooltip(q.Path)
 		if disk, err := os.ReadFile(q.Path); err == nil {
-			if ui.Button(c, "Use the File").Tooltip("Replace the editor's text with the file's").Clicked() {
+			if ui.Button(c, "Reload").Tooltip("Replace the editor's text with the file's").Clicked() {
 				q.Editor.SetFileText(string(disk))
 				q.Saved, q.Typed, q.DiskConflict = string(disk), string(disk), ""
 			}

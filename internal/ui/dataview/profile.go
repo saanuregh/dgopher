@@ -341,7 +341,7 @@ func (g *Grid) profileRow(c *ui.Context, src *Source, i int, p columnProfile) {
 	})
 	if row.Clicked() {
 		if p.col >= 0 {
-			g.selCol = p.col
+			g.setCursorCol(p.col)
 		}
 	}
 }

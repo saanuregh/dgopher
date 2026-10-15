@@ -72,13 +72,38 @@ func (a *App) applyTheme() {
 	widgets.MonoFont = cmp.Or(strings.TrimSpace(a.settings.EditorFontFamily), widgets.DefaultMonoFont)
 }
 
-// monoFamilies and uiFamilies are families to suggest: the app cannot
-// list the system's.
+// fallbackMonoFamilies and fallbackUIFamilies are suggested when the
+// system lists no families, or no monospaced one.
 var (
-	monoFamilies = []string{"JetBrains Mono", "Fira Code", "SF Mono", "Menlo", "Monaco", "Consolas", "Cascadia Code",
+	fallbackMonoFamilies = []string{"JetBrains Mono", "Fira Code", "SF Mono", "Menlo", "Monaco", "Consolas", "Cascadia Code",
 		"Source Code Pro", "IBM Plex Mono", "Ubuntu Mono", "DejaVu Sans Mono", "Hack"}
-	uiFamilies = []string{"Inter", "SF Pro Text", "Helvetica Neue", "Segoe UI", "Roboto", "Noto Sans", "Ubuntu", "Cantarell", "IBM Plex Sans"}
+	fallbackUIFamilies = []string{"Inter", "SF Pro Text", "Helvetica Neue", "Segoe UI", "Roboto", "Noto Sans", "Ubuntu", "Cantarell", "IBM Plex Sans"}
 )
+
+// systemFontFamilies lists the system's families; a test replaces it.
+var systemFontFamilies = ui.FontFamilies
+
+// The font suggestions, made the first time Settings shows them.
+var monoFamilies, uiFamilies []string
+
+// fontFamilySuggestions gives the editor's suggestions, the monospaced
+// families, and the interface's, every family.
+func fontFamilySuggestions() (mono, all []string) {
+	families := systemFontFamilies()
+	if len(families) == 0 {
+		return fallbackMonoFamilies, fallbackUIFamilies
+	}
+	for _, f := range families {
+		if f.Monospaced {
+			mono = append(mono, f.Name)
+		}
+		all = append(all, f.Name)
+	}
+	if len(mono) == 0 {
+		mono = fallbackMonoFamilies
+	}
+	return mono, all
+}
 
 // The pages of the settings, as their tabs name them.
 var settingsPages = []string{"Appearance", "Editor", "Results", "Safety", "Storage"}
@@ -124,6 +149,9 @@ func (a *App) settingsView(c *ui.Context) {
 
 // appearancePage chooses the theme and the fonts.
 func (a *App) appearancePage(c *ui.Context) {
+	if uiFamilies == nil {
+		monoFamilies, uiFamilies = fontFamilySuggestions()
+	}
 	appearance := appearanceOf(a.settings.Theme)
 	choices := slices.Clone(appearances)
 	for _, t := range a.themes {

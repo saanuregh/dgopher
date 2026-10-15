@@ -470,7 +470,7 @@ func TestAutosaveNeverOverwritesChangedFile(t *testing.T) {
 	if q.CloseReason() == "" {
 		t.Fatal("closing would drop the editor's text without asking")
 	}
-	if err := tt.Click("Use the File"); err != nil {
+	if err := tt.Click("Reload"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()

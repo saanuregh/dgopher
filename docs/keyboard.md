@@ -99,9 +99,9 @@ Keys marked *fixed* below cannot be changed.
 | ⌘⇧C | Advanced Copy: delimiter, column names, quoting, row numbers |
 | ⌘V | Paste over the chosen cell, as pending changes |
 | ⌘⇧V | Advanced Paste: delimiter, header row, as new rows |
-| Arrows (fixed) | Move between cells |
+| Arrows (fixed) | Move between cells; with ⇧, choose the cells between |
 | ↵, F2 (fixed) | Edit the cell |
-| Esc (fixed) | Revert the chosen cell's change |
+| Esc (fixed) | Leave the cursor's cell alone chosen; with one cell, revert its change |
 | ⇧↵ | Open the value editor |
 | Tab (fixed) | Record view of the chosen row |
 | ⌘` | Next view: grid, record, text |
@@ -111,6 +111,10 @@ Keys marked *fixed* below cannot be changed.
 | ⌘G | Go to a row by number |
 | ⌘⇧G | Go to a column by name |
 | ⌘↑, ⌘↓ | First and last row |
+| ⌘⇧↑, ⌘⇧↓ | Choose the rows up to the first, or down to the last |
+| ⌥⇧Space | Choose the whole rows of the chosen cells |
+| ⌘⇧Space | Choose the whole columns of the chosen cells |
+| ⌘A (fixed) | Choose every cell |
 | ⌥Space | Follow the cell's foreign key |
 | ⌥↓ | Choose the cell's value from the table its foreign key points at |
 | ⌥Insert | Add a row |

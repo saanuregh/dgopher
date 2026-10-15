@@ -7,6 +7,7 @@ import (
 	"maps"
 	"math/big"
 	"slices"
+	"strconv"
 	"strings"
 
 	"dgopher/internal/db"
@@ -16,54 +17,107 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// SelectionStats sums up the chosen column over the chosen rows, when
-// there are several: DBeaver's Calc in one line.
+// statsKey is what stats over the chosen cells depend on, cheap to take
+// every frame, so that they are worked out again only when it changes.
+// selGen counts what the rest cannot tell cheaply: which rows are chosen
+// (ui.Selection keeps no count of its changes) and edits of values. chosen,
+// selRow and cells catch the choice changed without the grid's methods, as
+// the table changes it itself.
+type statsKey struct {
+	src                         *Source
+	selGen, gen, chosen, selRow int
+	cells                       ui.ColumnRange
+	cols, orderKey              string
+	edits                       *pendingEdits
+	editCount, undo, redo       int
+}
+
+type statsCache struct {
+	statusKey, calcKey statsKey
+	status             string
+	calc               []calcStats
+}
+
+func (g *Grid) statsKey(src *Source, cols []int) statsKey {
+	g.ViewOrder(src)
+	var b []byte
+	for _, col := range cols {
+		b = strconv.AppendInt(b, int64(col), 10)
+		if g.isMasked(col) {
+			b = append(b, '*')
+		}
+		b = append(b, ',')
+	}
+	return statsKey{
+		src: src, selGen: g.selGen, gen: g.gen, chosen: g.selection.Len(), selRow: g.SelRow,
+		cells: g.List.Cells, cols: string(b), orderKey: g.orderKey,
+		edits: g.edits, editCount: g.edits.count(), undo: len(g.undoStack), redo: len(g.redoStack),
+	}
+}
+
+// SelectionStats sums up the chosen block of cells, when it has more than
+// one: its size, then Excel's count, sum, average, minimum and maximum of
+// its numbers, and its NULLs.
 func (g *Grid) SelectionStats(src *Source) string {
+	if g.List.DragSelecting() {
+		return g.stats.status // a large block costs a frame or more: once the drag ends
+	}
+	cols := g.selectedCols(src)
+	if key := g.statsKey(src, cols); key != g.stats.statusKey {
+		g.stats.statusKey, g.stats.status = key, g.blockStats(src, cols)
+	}
+	return g.stats.status
+}
+
+func (g *Grid) blockStats(src *Source, cols []int) string {
 	rows := g.selectedRows(src)
-	if len(rows) < 2 || g.selCol >= len(src.Cols) {
+	if len(rows)*len(cols) < 2 {
 		return ""
 	}
 	nulls, count := 0, 0
 	sum := new(big.Float)
 	var minV, maxV *big.Float
-	for _, r := range rows {
-		v, _ := g.value(src, r, g.selCol)
-		if v == nil || v == unset || v == db.Default {
-			nulls++
-			continue
-		}
-		n, ok := new(big.Float).SetString(db.Display(v))
-		if !ok || !db.IsNumeric(v) {
-			count = -1
-			continue
-		}
-		if count >= 0 {
+	for _, col := range cols {
+		masked := g.isMasked(col)
+		for _, r := range rows {
+			v, _ := g.value(src, r, col)
+			if v == nil || v == unset || v == db.Default {
+				nulls++
+				continue
+			}
+			if masked || !db.IsNumeric(v) {
+				continue
+			}
+			n, ok := new(big.Float).SetString(db.Display(v))
+			if !ok {
+				continue
+			}
 			count++
-		}
-		sum.Add(sum, n)
-		if minV == nil || n.Cmp(minV) < 0 {
-			minV = n
-		}
-		if maxV == nil || n.Cmp(maxV) > 0 {
-			maxV = n
+			sum.Add(sum, n)
+			if minV == nil || n.Cmp(minV) < 0 {
+				minV = n
+			}
+			if maxV == nil || n.Cmp(maxV) > 0 {
+				maxV = n
+			}
 		}
 	}
-	nullNote := ""
+	text := widgets.Count(len(rows), "row") + " × " + widgets.Count(len(cols), "column")
+	if count > 0 {
+		avg := new(big.Float).Quo(sum, big.NewFloat(float64(count)))
+		num := func(f *big.Float) string {
+			s := f.Text('f', 10)
+			if strings.Contains(s, ".") {
+				s = strings.TrimRight(strings.TrimRight(s, "0"), ".")
+			}
+			return s
+		}
+		text += fmt.Sprintf(" · Count %d · Sum %s · Avg %s · Min %s · Max %s", count, num(sum), num(avg), num(minV), num(maxV))
+	}
 	if nulls > 0 {
-		nullNote = fmt.Sprintf(" · %d NULL", nulls)
+		text += fmt.Sprintf(" · %d NULL", nulls)
 	}
-	if count <= 0 {
-		return widgets.Count(len(rows), "row") + nullNote
-	}
-	avg := new(big.Float).Quo(sum, big.NewFloat(float64(count)))
-	num := func(f *big.Float) string {
-		s := f.Text('f', 10)
-		if strings.Contains(s, ".") {
-			s = strings.TrimRight(strings.TrimRight(s, "0"), ".")
-		}
-		return s
-	}
-	return fmt.Sprintf("%s · sum %s · avg %s · min %s · max %s%s", widgets.Count(count, "value"), num(sum), num(avg), num(minV), num(maxV), nullNote)
+	return text
 }
 
 // cellText is a value's text as a cell shows it: its first line, cut to
@@ -106,10 +160,12 @@ func formatMenu(a Host, m *ui.Menu) {
 		toggle("Raw Values, as Stored", &f.Raw)
 		m.Separator()
 		toggle("Group Thousands in Numbers", &f.GroupNumbers)
+		toggle("Numbers in Regional Format", &f.Regional)
 		toggle("Booleans as ✓ and ✗", &f.BoolTicks)
 		m.Separator()
 		choose("Dates as ISO 8601", &f.Dates, "")
 		choose("Dates as Oct 8, 2026", &f.Dates, "short")
+		choose("Dates in Regional Format", &f.Dates, "regional")
 		m.Separator()
 		choose("Binary as Text", &f.Binary, "")
 		choose("Binary as Hex", &f.Binary, "hex")
@@ -162,17 +218,19 @@ func (g *Grid) colorMenu(m *ui.Menu, src *Source, row, col int) {
 	if row >= len(src.Rows) {
 		return
 	}
-	name, value := src.Cols[col].Name, db.Display(src.Rows[row][col])
-	m.Submenu("Color Rows Where "+name+" = "+cellText(value, 24), func(m *ui.Menu) {
-		for _, c := range rowColors {
-			if m.Item(c.name).Chosen() {
-				g.colorRules = append([]colorRule{{Column: name, Value: value, Color: c.hex}}, g.colorRules...)
-				if g.colorsChanged != nil {
-					g.colorsChanged(g.colorRules)
+	if col != wholeRow {
+		name, value := src.Cols[col].Name, db.Display(src.Rows[row][col])
+		m.Submenu("Color Rows Where "+name+" = "+cellText(value, 24), func(m *ui.Menu) {
+			for _, c := range rowColors {
+				if m.Item(c.name).Chosen() {
+					g.colorRules = append([]colorRule{{Column: name, Value: value, Color: c.hex}}, g.colorRules...)
+					if g.colorsChanged != nil {
+						g.colorsChanged(g.colorRules)
+					}
 				}
 			}
-		}
-	})
+		})
+	}
 	if len(g.colorRules) > 0 && m.Item("Reset Row Colors").Chosen() {
 		g.colorRules = nil
 		if g.colorsChanged != nil {

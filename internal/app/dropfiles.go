@@ -41,6 +41,7 @@ func (a *App) openDropped(paths []string) {
 				q := query.New(a, cn, "", filepath.Base(path), text)
 				q.Path, q.Saved = path, text
 				a.AddTab(q)
+				addRecent(path)
 			})
 		case ".csv", ".tsv", ".parquet", ".json", ".jsonl", ".ndjson":
 			a.queryDataFile(p)
@@ -64,6 +65,7 @@ func (a *App) openFileDatabase(e db.Engine, path string) {
 	for _, cn := range a.conns {
 		if cn.Config.Engine == e && cn.Config.Database == path {
 			a.activate(navNode{kind: nodeConn, conn: cn.Config.ID})
+			addRecent(path)
 			return
 		}
 	}
@@ -73,6 +75,7 @@ func (a *App) openFileDatabase(e db.Engine, path string) {
 			return
 		}
 		a.activate(navNode{kind: nodeConn, conn: cn.Config.ID})
+		addRecent(path)
 	})
 }
 

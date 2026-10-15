@@ -52,6 +52,8 @@ func (h *fakeQueryHost) QueryDialogs() *Dialogs { return &h.dialogs }
 
 func (h *fakeQueryHost) AskSnippet(*Tab) {}
 
+func (h *fakeQueryHost) Online() bool { return true }
+
 func (h *fakeQueryHost) SaveSQLFile(*Tab, bool) { h.saves++ }
 
 func (h *fakeQueryHost) ScanQueries(*project.Project, bool) {}

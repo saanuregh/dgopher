@@ -157,3 +157,16 @@ func TestValueEditorTextKeys(t *testing.T) {
 		t.Fatalf("saved %#v", got)
 	}
 }
+
+// An editable value starts as the database gives it, never in the grid's
+// display format, which would be written back as the value.
+func TestValueEditorStartsWithRawValue(t *testing.T) {
+	a := NewFakeHost(t)
+	a.settings.ViewFormat.GroupNumbers = true
+	g, src := editableGrid()
+	src.Rows[0][0] = int64(1234567)
+	openValueEditor(a, g, src, 0, 0)
+	if got := a.dialogs.valueEdit.text; got != "1234567" {
+		t.Fatalf("editable value editor text %q, want 1234567", got)
+	}
+}

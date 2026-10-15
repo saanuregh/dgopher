@@ -16,7 +16,7 @@ import (
 )
 
 // rowCond is a filter of a column: op is "=", "<>", ">", "<", "null",
-// "notnull", "contains" or "in", which the grid also matches rows with
+// "notnull", "contains", "in" or "notin", which the grid also matches rows with
 // itself, or ">=", "<=", "notcontains", "prefix", "suffix" or "between",
 // which the filter builder writes as SQL.
 type rowCond struct {
@@ -38,6 +38,11 @@ func (c rowCond) matches(row []any) bool {
 		if v == nil {
 			return slices.Contains(c.vals, nil)
 		}
+	case "notin":
+		if v == nil {
+			return !slices.Contains(c.vals, nil)
+		}
+		return !slices.ContainsFunc(c.vals, func(x any) bool { return x != nil && compareValues(v, x) == 0 })
 	}
 	if v == nil {
 		return false
@@ -93,7 +98,7 @@ func condExprSQL(e db.Engine, col string, c rowCond) string {
 		return col + " IS NULL"
 	case "notnull":
 		return col + " IS NOT NULL"
-	case "in":
+	case "in", "notin":
 		var vals []string
 		null := false
 		for _, v := range c.vals {
@@ -103,14 +108,24 @@ func condExprSQL(e db.Engine, col string, c rowCond) string {
 			}
 			vals = append(vals, lit(v))
 		}
-		in := col + " IN (" + strings.Join(vals, ", ") + ")"
+		list := " (" + strings.Join(vals, ", ") + ")"
+		if c.op == "notin" {
+			// A row with NULL stays unless NULL is one of the values left out.
+			switch {
+			case null && len(vals) == 0:
+				return col + " IS NOT NULL"
+			case null:
+				return col + " NOT IN" + list
+			}
+			return "(" + col + " NOT IN" + list + " OR " + col + " IS NULL)"
+		}
 		switch {
 		case null && len(vals) == 0:
 			return col + " IS NULL"
 		case null:
-			return "(" + in + " OR " + col + " IS NULL)"
+			return "(" + col + " IN" + list + " OR " + col + " IS NULL)"
 		}
-		return in
+		return col + " IN" + list
 	case "contains":
 		return likeSQL(e, col, "%", c.vals[0], "%", false)
 	case "notcontains":
@@ -183,11 +198,14 @@ func (g *Grid) filterMenu(m *ui.Menu, a Host, src *Source, row, col int, apply f
 				}
 			}
 		})
-		clip := a.ReadClipboard()
+		// The clipboard is read once an item is chosen: reading it as the
+		// menu builds can block on the program that owns it (Wayland).
 		m.Submenu("By Clipboard Value", func(m *ui.Menu) {
 			for _, op := range ops {
-				if m.Item(fmt.Sprintf("%s %s %s", name, op, cellText(clip, 30))).Disabled(clip == "").Chosen() {
-					apply(rowCond{col: col, op: op, vals: []any{typedFilterValue(clip)}})
+				if m.Item(fmt.Sprintf("%s %s clipboard value", name, op)).Chosen() {
+					if clip := a.ReadClipboard(); clip != "" {
+						apply(rowCond{col: col, op: op, vals: []any{typedFilterValue(clip)}})
+					}
 				}
 			}
 		})
@@ -195,14 +213,12 @@ func (g *Grid) filterMenu(m *ui.Menu, a Host, src *Source, row, col int, apply f
 			openDistinct(a, g, src, col, apply)
 		}
 		if rows := g.selectedRows(src); len(rows) > 1 {
-			var vals []any
-			for _, r := range rows {
-				if x, _ := g.value(src, r, col); x != nil && x != unset && x != db.Default {
-					vals = append(vals, x)
-				}
-			}
-			if len(vals) > 0 && m.Item(fmt.Sprintf("%s IN (%d values chosen)", name, len(vals))).Chosen() {
+			vals := g.chosenValues(src, rows, col)
+			if len(vals) > 0 && m.Item(fmt.Sprintf("%s IN (%s chosen)", name, widgets.Count(len(vals), "value"))).Chosen() {
 				apply(rowCond{col: col, op: "in", vals: vals})
+			}
+			if len(vals) > 0 && m.Item(fmt.Sprintf("%s NOT IN (%s chosen)", name, widgets.Count(len(vals), "value"))).Chosen() {
+				apply(rowCond{col: col, op: "notin", vals: vals})
 			}
 		}
 		m.Separator()
@@ -492,4 +508,22 @@ func (g *Grid) filterFuncs() (func(rowCond), func(int)) {
 		return g.filterSQL, g.clearSQL
 	}
 	return g.addCond, g.clearConds
+}
+
+// chosenValues are the values of rows in col, each once in the order of
+// the rows, NULL too: a value is the same as another of its type and text.
+func (g *Grid) chosenValues(src *Source, rows []int, col int) []any {
+	seen := map[string]bool{}
+	var vals []any
+	for _, r := range rows {
+		x, _ := g.value(src, r, col)
+		if x == unset || x == db.Default {
+			continue
+		}
+		if k := fmt.Sprintf("%T\x00%s", x, db.Display(x)); !seen[k] {
+			seen[k] = true
+			vals = append(vals, x)
+		}
+	}
+	return vals
 }

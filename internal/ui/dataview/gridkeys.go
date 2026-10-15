@@ -68,7 +68,7 @@ func (g *Grid) copyFromNeighbour(src *Source, step int) {
 }
 
 // editKeys are DBeaver's keys of an editable grid.
-func (g *Grid) editKeys(c *ui.Context, src *Source, order []int) {
+func (g *Grid) editKeys(c *ui.Context, src *Source, order []int, escaped bool) {
 	pressed := func(id string) bool { return keymap.ListPressed(c, &g.List, id) }
 	row := -1
 	if g.SelRow >= 0 && g.SelRow < len(order) {
@@ -89,7 +89,7 @@ func (g *Grid) editKeys(c *ui.Context, src *Source, order []int) {
 		g.copyFromNeighbour(src, -1)
 	case pressed(keymap.CopyBelow):
 		g.copyFromNeighbour(src, 1)
-	case row >= 0 && g.editing == nil && g.changed(src, row, g.selCol) && g.List.Shortcut(c, 0, ui.KeyEscape):
+	case !escaped && row >= 0 && g.editing == nil && g.changed(src, row, g.selCol) && g.List.Shortcut(c, 0, ui.KeyEscape):
 		// Only a changed cell takes Escape, which otherwise closes what
 		// is open over the grid.
 		g.revertCell(src, row, g.selCol)
@@ -176,7 +176,7 @@ func (g *Grid) goTo(src *Source, text string, column bool) {
 	if column {
 		for i, c := range src.Cols {
 			if !g.hidden[i] && strings.HasPrefix(strings.ToLower(c.Name), strings.ToLower(text)) {
-				g.selCol = i
+				g.setCursorCol(i)
 				return
 			}
 		}
