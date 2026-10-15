@@ -1271,7 +1271,7 @@ func TestPendingChangesOfTwoResults(t *testing.T) {
 	q.Run(query.RunStatement)
 	edit("first")
 	q.Run(query.RunNewTab)
-	testutil.WaitFor(t, tt, "the second result", func() bool { return !q.Running && tt.HasText("Result 2") })
+	testutil.WaitFor(t, tt, "the second result", func() bool { _, ok := tt.Find("notes 2"); return !q.Running && ok })
 	edit("second")
 	q.Run(query.RunStatement)
 	tt.Frame()
@@ -1284,7 +1284,7 @@ func TestPendingChangesOfTwoResults(t *testing.T) {
 		}
 		tt.Frame()
 	}
-	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running && !tt.HasText("Result 2") && resultRows(tt, q, 2) })
+	testutil.WaitFor(t, tt, "the run", func() bool { _, ok := tt.Find("notes 2"); return !q.Running && !ok && resultRows(tt, q, 2) })
 }
 
 func TestNotifyWanted(t *testing.T) {

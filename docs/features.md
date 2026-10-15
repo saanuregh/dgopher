@@ -470,6 +470,10 @@ error.
 - **Run** the statement (⌘↵ or F5), the selection, or the whole script (⌘⇧↵
   or ⌥X). `⌘\` runs into a new result tab, keeping the others. Result tabs
   can be pinned.
+- **A result tab is named for what ran:** the table it reads, else the
+  statement's first words, numbered when repeated. Hovering it shows the
+  statement, and the ▶ of the statement whose result shows is marked in the
+  accent color, until that statement is edited.
 - **The results** sit under the editor and keep their share of its height as
   the window resizes. ⌘J hides them down to their row of result tabs and
   shows them again, as VS Code's panel; a run shows them. The buttons at the

@@ -60,6 +60,11 @@ func ListKeys(in ui.Element, sel *int, n int, list *ui.ListState, page int) (sub
 
 // Pill is a small tab of the results.
 func Pill(c *ui.Context, label string, on bool) ui.Element {
+	return IconPill(c, nil, label, on)
+}
+
+// IconPill is a Pill with an icon after its label, none for nil.
+func IconPill(c *ui.Context, ic *ui.SVG, label string, on bool) ui.Element {
 	t := c.Theme()
 	b := ui.ButtonBase(c).Padding(3, 10).Radius(6).Label(label)
 	if on {
@@ -68,10 +73,15 @@ func Pill(c *ui.Context, label string, on bool) ui.Element {
 		b.Background(PaletteOf(c).Hover)
 	}
 	b.Children(func() {
-		txt := ui.Text(c, label).FontSize(12)
-		if on {
-			txt.Bold()
-		}
+		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
+			txt := ui.Text(c, label).FontSize(12)
+			if on {
+				txt.Bold()
+			}
+			if ic != nil {
+				ui.Icon(c, ic).FontSize(11).TextColor(PaletteOf(c).Muted)
+			}
+		})
 	})
 	return b
 }

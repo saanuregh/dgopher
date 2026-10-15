@@ -64,6 +64,9 @@ type result struct {
 	skip int
 	// pinned keeps the result when the next run replaces the others.
 	pinned bool
+	// name and tip are its tab's name before numbering and its tooltip,
+	// made once from the statement (resultNames, resultTip).
+	name, tip string
 	// plan is what an explain's rows tell, nil for other rows, with the
 	// advice about it; planMode is how it shows, planSel the step chosen.
 	plan     *db.Plan
@@ -100,10 +103,12 @@ type Tab struct {
 	DiskConflict string
 	watch        FileWatch
 	watchedPath  string
-	// The statements' starts, and their first lines, in linesText.
+	// The statements' starts, their first lines and their texts, in
+	// linesText.
 	linesText  string
 	stmtStarts []int
 	stmtLines  []int
+	stmtTexts  []string
 	// The statement under the caret, as currentStatement last found it.
 	stmtText  string
 	stmtKey   [2]int
@@ -509,7 +514,7 @@ func (q *Tab) statementLines() []int {
 	if text == q.linesText && q.stmtStarts != nil {
 		return q.stmtLines
 	}
-	q.linesText, q.stmtStarts, q.stmtLines = text, []int{}, nil
+	q.linesText, q.stmtStarts, q.stmtLines, q.stmtTexts = text, []int{}, nil, nil
 	line, at := 0, 0 // the line of byte at, counted once through the text
 	for _, st := range sqltext.SplitWith(text, q.Editor.Dialect, SplitOptions(q.a.Settings())) {
 		if to := min(st.Start, len(text)); to > at {
@@ -518,8 +523,69 @@ func (q *Tab) statementLines() []int {
 		}
 		q.stmtStarts = append(q.stmtStarts, st.Start)
 		q.stmtLines = append(q.stmtLines, line)
+		q.stmtTexts = append(q.stmtTexts, strings.TrimSpace(st.Text))
 	}
 	return q.stmtLines
+}
+
+// written is a result's statement as the editor had it: without what the
+// app put before it, as EXPLAIN, and before its parameters were bound.
+func (r *result) written() string {
+	if r.stmt.Typed != "" {
+		return strings.TrimSpace(r.stmt.Typed)
+	}
+	return strings.TrimSpace(r.sql[min(r.skip, len(r.sql)):])
+}
+
+// shownLine is the first line of the statement of r in the editor as it
+// is now: the one at r's start while its text is the same, else the first
+// with that text; none once it was edited.
+func (q *Tab) shownLine(r *result) (int, bool) {
+	q.statementLines()
+	text := r.written()
+	at := -1
+	for i, t := range q.stmtTexts {
+		if t != text {
+			continue
+		}
+		if q.stmtStarts[i] == r.start {
+			return q.stmtLines[i], true
+		}
+		if at < 0 {
+			at = i
+		}
+	}
+	if at < 0 {
+		return 0, false
+	}
+	return q.stmtLines[at], true
+}
+
+// resultTip is the statement of a result's tab, on one line.
+func resultTip(r *result) string {
+	if r.tip == "" {
+		r.tip = widgets.OneLine(r.written(), 300)
+	}
+	return r.tip
+}
+
+// resultNames are the names of the results' tabs: the one table a result
+// reads, else its statement's first words; a name repeated is numbered
+// from its second time.
+func resultNames(results []*result) []string {
+	names := make([]string, len(results))
+	seen := map[string]int{}
+	for i, r := range results {
+		if r.name == "" {
+			r.name = cmp.Or(r.table.Name, widgets.OneLine(r.written(), 24))
+		}
+		name := r.name
+		if seen[name]++; seen[name] > 1 {
+			name = fmt.Sprintf("%s %d", name, seen[name])
+		}
+		names[i] = name
+	}
+	return names
 }
 
 // runLine runs the statement starting on a line, as its run button does,
@@ -1372,6 +1438,10 @@ func (q *Tab) View(c *ui.Context) {
 				q.Editor.HasCurrent = ok && q.Editor.HasFocus()
 				q.Editor.Run, q.Editor.RunTip = q.runLine, keymap.Hint("Run the statement", keymap.Run)
 				q.Editor.RunLines = q.statementLines()
+				q.Editor.HasShown = false
+				if r := q.current(); r != nil && a.Layout().Results != widgets.ResultsHidden {
+					q.Editor.ShownLine, q.Editor.HasShown = q.shownLine(r)
+				}
 				q.checkProblems()
 				q.syncVim()
 				// The focus asked while the tab was not in front waits for it
@@ -1520,21 +1590,24 @@ func (q *Tab) resultsView(c *ui.Context, a Host) {
 	panel.Children(func() {
 		ui.Row(c).Padding(4, 8).Gap(4).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 			ui.Row(c).Gap(2).Grow(1).Shrink(1).ClipX().Children(func() {
+				names := resultNames(results)
 				for i, r := range results {
 					if !r.rowsMode && r.err == "" {
 						continue
 					}
-					label := fmt.Sprintf("Result %d", i+1)
+					label := names[i]
 					switch {
 					case r.err != "" && r.view == nil:
 						label = "Error"
 					case r.err != "":
 						label += " ⚠"
 					}
+					var pin *ui.SVG
+					named := label
 					if r.pinned {
-						label += " (pinned)"
+						pin, named = widgets.IconPin, label+", pinned"
 					}
-					p := widgets.Pill(c, label, idx == i)
+					p := widgets.IconPill(c, pin, label, idx == i).Label(named).Tooltip(resultTip(r))
 					if p.Clicked() {
 						q.resultIdx = i
 						q.showResults()

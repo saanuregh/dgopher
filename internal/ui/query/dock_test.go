@@ -32,7 +32,7 @@ func TestResultsDockHidesAndMaximizes(t *testing.T) {
 	if _, shows := tt.Find("answer"); !(a.Layout().Results == widgets.ResultsHidden) || shows {
 		t.Fatalf("⌘J: hidden %v, the result shows %v", (a.Layout().Results == widgets.ResultsHidden), shows)
 	}
-	if _, ok := tt.Find("Result 1"); !ok {
+	if _, ok := tt.Find("SELECT 42 AS answer"); !ok {
 		t.Error("hidden, the dock's bar of results is gone")
 	}
 	tt.Key(ui.Cmd, ui.KeyJ)

@@ -44,6 +44,10 @@ type Editor struct {
 	RunLines []int
 	Run      func(line int)
 	RunTip   string
+	// ShownLine is the first line of the statement whose result shows,
+	// its ▶ marked while HasShown.
+	ShownLine int
+	HasShown  bool
 	// Problems are the mistakes of the text as it is when View is called,
 	// marked with a wavy line.
 	Problems []Problem
@@ -302,9 +306,15 @@ func (e *Editor) syncRunButtons(fontSize float32) {
 // runButton fills a run button, which runs its statement and gives the
 // editor back the keys.
 func (e *Editor) runButton(c *ui.Context, button ui.Element, line int) {
-	button.Center().Label(e.RunTip).Tooltip(e.RunTip).Cursor(ui.CursorPointer)
+	t := c.Theme()
+	tip, color := e.RunTip, t.Success
+	if e.HasShown && line == e.ShownLine {
+		tip, color = "Its result shows below. "+e.RunTip, t.Accent
+		button.Background(t.Accent.Alpha(0.18)).Radius(4)
+	}
+	button.Center().Label(tip).Tooltip(tip).Cursor(ui.CursorPointer)
 	button.Children(func() {
-		ui.Icon(c, widgets.IconPlay).FontSize(e.fontSize * 0.85).TextColor(c.Theme().Success)
+		ui.Icon(c, widgets.IconPlay).FontSize(e.fontSize * 0.85).TextColor(color)
 	})
 	if button.Clicked() && e.Run != nil {
 		e.Run(line)
