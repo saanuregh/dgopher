@@ -67,7 +67,9 @@ Keys marked *fixed* below cannot be changed.
 | ⌘⇧E | Explain Analyze: run the statement and measure it |
 | ⌘⌥⇧↵ | Commit the open transaction |
 | (none) | Roll back the open transaction; set a key if you want one |
-| ⌘J | Switch between the editor and its results |
+| ⌘J | Show or hide the results |
+| ⌘⇧J | Switch between the editor and its results |
+| (none) | Maximize the results over the editor, or restore them |
 | ⌃Space | Complete tables, columns and keywords |
 | ⌘⇧F | Format the SQL |
 | ⌘F, ⌘⌥F | Find, and replace |

@@ -49,20 +49,20 @@ func TestLayoutPersists(t *testing.T) {
 	if err := tt.Click("Hide Sidebar"); err != nil {
 		t.Fatal(err)
 	}
-	a.layout.EditorHeight, a.layout.RedisConsoleHeight = 410, 300 // as dragged
+	a.layout.EditorPercent, a.layout.RedisConsoleHeight = 60, 300 // as dragged
 	tt.Frame()
 
 	a, _ = run()
 	want := widgets.DefaultLayout()
-	want.SidebarWidth, want.SidebarHidden, want.EditorHeight, want.RedisConsoleHeight = 333, true, 410, 300
+	want.SidebarWidth, want.SidebarHidden, want.EditorPercent, want.RedisConsoleHeight = 333, true, 60, 300
 	if a.layout != want {
 		t.Fatalf("the next run's layout %+v, want %+v", a.layout, want)
 	}
 }
 
-// An editor the next run restores takes the height above its results
+// An editor the next run restores takes the percentage above its results
 // dragged last, as a new one does.
-func TestRestoredEditorTakesSavedHeight(t *testing.T) {
+func TestRestoredEditorTakesSavedPercent(t *testing.T) {
 	cfg, data, projDir := t.TempDir(), t.TempDir(), filepath.Join(t.TempDir(), "proj")
 	os.MkdirAll(projDir, 0o755)
 	hint := keymap.Hint("Run a statement", keymap.Run) + ", or " + keymap.Hint("the whole script", keymap.RunScript) + "."
@@ -100,7 +100,7 @@ func TestRestoredEditorTakesSavedHeight(t *testing.T) {
 	a.saveProject(p)
 	newAppEditor(t, a, tt, cn, "SELECT 1;")
 	before := resultsTop(a, tt)
-	a.layout.EditorHeight += 150 // as dragged
+	a.layout.EditorPercent += 25 // as dragged
 	tt.Frame()
 	a.saveWorkspace(true)
 
@@ -108,8 +108,9 @@ func TestRestoredEditorTakesSavedHeight(t *testing.T) {
 	if b.tabs.Len() != 1 {
 		t.Fatalf("restored %d tabs", b.tabs.Len())
 	}
-	if after := resultsTop(b, tt2); after < before+149 || after > before+151 {
-		t.Fatalf("the restored editor's results start at %v, %v before: want 150 lower", after, before)
+	// A quarter of a room some 600 high.
+	if after := resultsTop(b, tt2); after < before+100 || after > before+200 {
+		t.Fatalf("the restored editor's results start at %v, %v before: want about 150 lower", after, before)
 	}
 }
 

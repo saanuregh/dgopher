@@ -125,9 +125,10 @@ run kept away from your config also keeps away from your layout.
 - `windows`: each window's size, position, and whether it is maximized or
   full screen.
 - `kv`: one row per layout value: the sidebar's width and whether it shows,
-  the editor's height above its results (where new editors start), the
-  split of two tabs side by side, and the Redis browser's key list width
-  and console height.
+  the editor's share of the height above its results (where new editors
+  start), whether the results are hidden or maximized, the split of two
+  tabs side by side, and the Redis browser's key list width and console
+  height.
 
 Each value is written when a drag ends and read at start. A missing value
 keeps its default. If the file cannot be written, the layout lasts only

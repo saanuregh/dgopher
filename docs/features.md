@@ -470,6 +470,11 @@ error.
 - **Run** the statement (⌘↵ or F5), the selection, or the whole script (⌘⇧↵
   or ⌥X). `⌘\` runs into a new result tab, keeping the others. Result tabs
   can be pinned.
+- **The results** sit under the editor and keep their share of its height as
+  the window resizes. ⌘J hides them down to their row of result tabs and
+  shows them again, as VS Code's panel; a run shows them. The buttons at the
+  right of that row hide them and maximize them over the editor. Every
+  editor shares the choice, and it is kept for the next start.
 - **A ▶ in the gutter**, on the first line of each statement, runs that
   statement.
 - **On an error,** a script stops or continues, as a setting says. A failed
@@ -495,7 +500,7 @@ error.
 - A run asks only for values left empty there.
 - Values are kept for the connection's editors, for you alone, across
   restarts.
-- All but `${var}` are sent separately from the SQL. **Messages** lists the
+- All but `${var}` are sent separately from the SQL. **Output** lists the
   values a statement ran with.
 - A statement that mixes `:name` with `$1` or `?` placeholders is refused.
 

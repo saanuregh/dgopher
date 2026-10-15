@@ -119,9 +119,9 @@ type Tab struct {
 	paramKeys      []string
 	paramsBarState paramsBarState
 
-	Editor  editor.Editor
-	editorH float32
-	ac      completion
+	Editor        editor.Editor
+	editorPercent float32
+	ac            completion
 	// snippet is the fields of a snippet being filled in, nil for none.
 	snippet *snippetSession
 	// schema is the schema the session finds names in, as last read,
@@ -180,7 +180,7 @@ func (q *Tab) pressed(c *ui.Context, id string) bool {
 }
 
 func New(a Host, cn *connection.Conn, database, name, text string) *Tab {
-	q := &Tab{a: a, Conn: cn, Database: database, Name: name, editorH: a.Layout().EditorHeight}
+	q := &Tab{a: a, Conn: cn, Database: database, Name: name, editorPercent: a.Layout().EditorPercent}
 	q.Editor.State.Buffer = code.NewBuffer(text)
 	q.Editor.Dialect = safety.Dialect(cn.Config.Engine)
 	q.Editor.SplitOptions = SplitOptions(a.Settings())
@@ -758,6 +758,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 	oldCancel := q.cancel
 	ctx, cancel := context.WithCancel(context.Background())
 	q.Running, q.cancel, q.StartedAt = true, cancel, time.Now()
+	q.showResults() // a run shows what it returns
 	// A run replaces the results, but those pinned and, run into a new
 	// tab, all of them; the cursors of those it drops close, and a kept
 	// one that was still reading ends where it is.
@@ -1236,10 +1237,22 @@ func (q *Tab) View(c *ui.Context) {
 		q.Run(RunScript)
 	}
 	if q.pressed(c, keymap.ToggleResults) {
-		// Between the editor and its results, without the pointer.
-		if q.Editor.HasFocus() && q.current() != nil {
+		q.toggleResults()
+	}
+	if q.pressed(c, keymap.MaximizeResults) {
+		q.maximizeResults()
+	}
+	if q.pressed(c, keymap.FocusResults) {
+		// Between the editor and its results, without the pointer, showing
+		// the one it goes to.
+		l := a.Layout()
+		if (q.Editor.HasFocus() || l.Results == widgets.ResultsHidden) && q.current() != nil {
+			q.showResults()
 			*a.FocusWant() = "results"
 		} else {
+			if l.Results == widgets.ResultsMaximized {
+				l.Results = widgets.ResultsShown
+			}
 			*a.FocusWant() = "editor"
 		}
 	}
@@ -1352,7 +1365,7 @@ func (q *Tab) View(c *ui.Context) {
 				q.paramsBar(c, keys)
 			}
 		})
-		split := ui.SplitVertical(c, &q.editorH, func() {
+		editor := func() {
 			ui.Column(c).Fill().Children(func() {
 				q.Editor.SplitOptions = SplitOptions(a.Settings())
 				_, _, ok := q.currentStatement()
@@ -1373,11 +1386,21 @@ func (q *Tab) View(c *ui.Context) {
 				q.problemBar(c)
 				q.vimBar(c)
 			})
-		}, func() {
+		}
+		l := a.Layout()
+		switch l.Results {
+		case widgets.ResultsHidden:
+			ui.Column(c).Grow(1).Children(editor)
 			q.resultsView(c, a)
-		}).Grow(1)
-		if split.Changed() {
-			a.Layout().EditorHeight = q.editorH // where the next editor starts
+		case widgets.ResultsMaximized:
+			q.resultsView(c, a)
+		default:
+			split := ui.SplitVerticalPercent(c, &q.editorPercent, editor, func() {
+				q.resultsView(c, a)
+			}).Grow(1)
+			if split.Changed() {
+				l.EditorPercent = q.editorPercent // where the next editor starts
+			}
 		}
 	})
 }
@@ -1385,6 +1408,59 @@ func (q *Tab) View(c *ui.Context) {
 func (q *Tab) connectBar(c *ui.Context) {
 	if connect, _ := widgets.ConnectBar(c, q.Conn, widgets.ConnectState{Offline: !q.a.Online()}); connect {
 		q.a.Connect(q.Conn, nil)
+	}
+}
+
+// toggleResults hides the results down to their bar, or shows them; the
+// keys go back to the editor from results going out of sight.
+func (q *Tab) toggleResults() {
+	l := q.a.Layout()
+	if l.Results == widgets.ResultsHidden {
+		l.Results = widgets.ResultsShown
+		return
+	}
+	l.Results = widgets.ResultsHidden
+	if !q.Editor.HasFocus() {
+		*q.a.FocusWant() = "editor"
+	}
+}
+
+// showResults shows the results hidden, as they were before; maximized,
+// they stay so.
+func (q *Tab) showResults() {
+	if l := q.a.Layout(); l.Results == widgets.ResultsHidden {
+		l.Results = widgets.ResultsShown
+	}
+}
+
+// hideResultsAction is the icon and title of what hides the results, or
+// shows them hidden; maximizeResultsAction of what maximizes them, or
+// restores them maximized.
+func hideResultsAction(l *widgets.Layout) (*ui.SVG, string) {
+	if l.Results == widgets.ResultsHidden {
+		return widgets.IconPanelOpen, "Show Results"
+	}
+	return widgets.IconPanelClose, "Hide Results"
+}
+
+func maximizeResultsAction(l *widgets.Layout) (*ui.SVG, string) {
+	if l.Results == widgets.ResultsMaximized {
+		return widgets.IconMinimize, "Restore Results"
+	}
+	return widgets.IconMaximize, "Maximize Results"
+}
+
+// maximizeResults has the results fill the tab instead of the editor, or
+// gives the editor its place back.
+func (q *Tab) maximizeResults() {
+	l := q.a.Layout()
+	if l.Results == widgets.ResultsMaximized {
+		l.Results = widgets.ResultsShown
+		return
+	}
+	l.Results = widgets.ResultsMaximized
+	if q.Editor.HasFocus() && q.current() != nil {
+		*q.a.FocusWant() = "results"
 	}
 }
 
@@ -1432,7 +1508,12 @@ func (q *Tab) resultsView(c *ui.Context, a Host) {
 	if stale {
 		results, idx = q.stale, q.staleIdx
 	}
-	panel := ui.Column(c).Fill().Disabled(stale)
+	l := a.Layout()
+	hidden := l.Results == widgets.ResultsHidden
+	panel := ui.Column(c).Disabled(stale)
+	if !hidden {
+		panel.Fill()
+	}
 	if stale {
 		panel.Opacity(0.55)
 	}
@@ -1456,6 +1537,7 @@ func (q *Tab) resultsView(c *ui.Context, a Host) {
 					p := widgets.Pill(c, label, idx == i)
 					if p.Clicked() {
 						q.resultIdx = i
+						q.showResults()
 					}
 					p.ContextMenu(func(m *ui.Menu) {
 						title := "Pin"
@@ -1470,15 +1552,25 @@ func (q *Tab) resultsView(c *ui.Context, a Host) {
 						}
 					})
 				}
-				label := "Messages"
-				if n := len(q.messages); n > 0 {
-					label = fmt.Sprintf("Messages (%d)", n)
-				}
-				if widgets.Pill(c, label, idx >= len(results)).Clicked() {
-					q.resultIdx = len(q.results)
-				}
 			})
+			if widgets.ToggleIconButton(c, widgets.IconTerminal, "Output", idx >= len(results)).Clicked() {
+				q.resultIdx = len(q.results)
+				q.showResults()
+			}
+			if !hidden {
+				icon, label := maximizeResultsAction(l)
+				if widgets.IconButton(c, icon, label).Tooltip(keymap.Hint(label, keymap.MaximizeResults)).Clicked() {
+					q.maximizeResults()
+				}
+			}
+			icon, label := hideResultsAction(l)
+			if widgets.IconButton(c, icon, label).Tooltip(keymap.Hint(label, keymap.ToggleResults)).Clicked() {
+				q.toggleResults()
+			}
 		})
+		if hidden {
+			return
+		}
 		r := resultAt(results, idx)
 		switch {
 		case r == nil:

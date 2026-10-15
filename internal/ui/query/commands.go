@@ -23,6 +23,12 @@ func (q *Tab) Commands() []widgets.Command {
 		{Title: "Export from Query…", Icon: widgets.IconDownload, Run: q.exportFromQuery},
 		{Title: "Save As…", Key: keymap.SaveAs, Icon: widgets.IconSave, Run: func() { q.a.SaveSQLFile(q, true) }},
 	}
+	l := q.a.Layout()
+	hide, hideTitle := hideResultsAction(l)
+	maximize, maximizeTitle := maximizeResultsAction(l)
+	cmds = append(cmds,
+		widgets.Command{Title: hideTitle, Key: keymap.ToggleResults, Icon: hide, Run: q.toggleResults},
+		widgets.Command{Title: maximizeTitle, Key: keymap.MaximizeResults, Icon: maximize, Run: q.maximizeResults})
 	if q.Tx != db.TxNone && !q.Busy() {
 		if q.Tx == db.TxOpen {
 			cmds = append(cmds, widgets.Command{Title: "Commit", Detail: "the open transaction", Key: keymap.Commit, Icon: widgets.IconCheck, Run: func() { q.endOpenTx(true) }})
