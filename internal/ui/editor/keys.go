@@ -28,6 +28,7 @@ var editorActions = [...]editorAction{
 	{keymap.BlockComment, code.ToggleBlockComment},
 	{keymap.Find, code.Find},
 	{keymap.Replace, code.FindReplace},
+	{keymap.ShowHover, code.ShowHover},
 }
 
 // syncBindings binds the editor's keys of the keymap, as the user set

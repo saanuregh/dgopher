@@ -6,9 +6,11 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"dgopher/internal/keymap"
 	"dgopher/internal/project"
+	"dgopher/internal/settings"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo"
@@ -112,10 +114,9 @@ func (a *App) settingsView(c *ui.Context) {
 	th := c.Theme()
 	open := a.settingsOpen
 	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
-		backdrop.Background(widgets.Backdrop)
+		widgets.DialogLook(c, backdrop, panel)
 		_, winH := c.Size()
-		panel.Width(640).Height(min(620, winH-40)).Radius(12).Background(th.Background).Border(1, th.Border).
-			Shadow(0, 12, 40, 0, ui.RGBA(0, 0, 0, 0.3)).Role(ui.RoleDialog).Label("Settings")
+		panel.Width(640).Height(min(620, winH-40)).Radius(12).Background(th.Background).Border(1, th.Border).Role(ui.RoleDialog).Label("Settings")
 		ui.Row(c).Padding(16, 20, 8, 20).Children(func() {
 			ui.Text(c, "Settings").FontSize(16).Bold()
 		})
@@ -194,6 +195,70 @@ func (a *App) appearancePage(c *ui.Context) {
 			a.settingsDirty = true
 		}
 	}).Description("A family the system lacks shows in its own font.")
+	a.hoverCardsSetting(c)
+}
+
+// hoverSettings are the cards' settings as the user chose them.
+func hoverSettings(p settings.HoverCardPrefs) widgets.HoverSettings {
+	h := widgets.HoverSettings{Off: p.Off, Delay: widgets.DefaultHoverDelay}
+	if p.DelayMs > 0 {
+		h.Delay = time.Duration(p.DelayMs) * time.Millisecond
+	}
+	if len(p.Hidden) > 0 {
+		h.Hidden = map[string]bool{}
+		for _, s := range p.Hidden {
+			h.Hidden[s] = true
+		}
+	}
+	return h
+}
+
+// hoverCardSurfaces are the places cards show, as settings name them.
+var hoverCardSurfaces = []struct{ id, label string }{
+	{widgets.CardEditor, "In the SQL editor"},
+	{widgets.CardSidebar, "In the sidebar"},
+	{widgets.CardDiagram, "In ER diagrams"},
+}
+
+// hoverCardsSetting sets whether, where and how soon hover cards show.
+func (a *App) hoverCardsSetting(c *ui.Context) {
+	p := &a.settings.HoverCards
+	ui.Field(c, "Hover cards", func() {
+		ui.Column(c).Gap(6).Children(func() {
+			on := !p.Off
+			if ui.Checkbox(c, &on, "Show what the pointer rests on: tables, columns, functions, values").Changed() {
+				p.Off = !on
+				a.SaveSettings()
+			}
+			if p.Off {
+				return
+			}
+			ui.Row(c).Gap(12).Wrap().Children(func() {
+				for _, s := range hoverCardSurfaces {
+					shown := !slices.Contains(p.Hidden, s.id)
+					if ui.Checkbox(c.Key(s.id), &shown, s.label).Changed() {
+						p.Hidden = slices.DeleteFunc(p.Hidden, func(h string) bool { return h == s.id })
+						if !shown {
+							p.Hidden = append(p.Hidden, s.id)
+						}
+						a.SaveSettings()
+					}
+				}
+			})
+			delay := float64(widgets.DefaultHoverDelay.Milliseconds())
+			if p.DelayMs > 0 {
+				delay = float64(p.DelayMs)
+			}
+			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+				ui.Text(c, "Wait")
+				if ui.NumberInput(c, &delay, 100, 2000, 100).Width(90).Label("Wait before a card shows, in milliseconds").Changed() {
+					p.DelayMs = int(delay)
+					a.SaveSettings()
+				}
+				ui.Text(c, "ms before a card shows").TextColor(widgets.PaletteOf(c).Muted)
+			})
+		})
+	}).Description("Cards open once the pointer rests on a name, then at once on the next. " + keymap.Hint("In the editor", keymap.ShowHover) + " shows the card of the name at the caret.")
 }
 
 // makeThemesFolder makes the folder of the user's themes, when it is

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"dgopher/internal/params"
 	"dgopher/internal/project"
 	"dgopher/internal/safety"
+	"dgopher/internal/settings"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
@@ -34,6 +36,9 @@ type Host interface {
 	// may run on.
 	ProjectConns(p *project.Project) []*connection.Conn
 	Connect(cn *connection.Conn, then func())
+	// ConnectInline connects as Connect, for a view that shows a failure
+	// itself: no alert says it again.
+	ConnectInline(cn *connection.Conn, then func())
 	ShowError(title, message string)
 	Toast(text, action string, run func())
 	RecordTyped(cfg db.Config, t audit.TypedRun)
@@ -400,7 +405,8 @@ func (t *Tab) runPanel(i int, asked bool) {
 		// Its state shows while it connects, or why it did not; it runs
 		// once connected, or at the next refresh.
 		if cn.Status == connection.StatusIdle || asked && cn.Status == connection.StatusFailed {
-			t.h.Connect(cn, func() {
+			// The panel says why it did not connect.
+			t.h.ConnectInline(cn, func() {
 				if at := slices.Index(t.panels, s); at >= 0 {
 					t.runPanel(at, false)
 				}
@@ -467,11 +473,11 @@ func (t *Tab) connState(p Panel) (connecting bool, failed string) {
 func refreshLabel(secs int) string {
 	switch {
 	case secs == 0:
-		return "Refresh by hand"
+		return "Auto-refresh: Off"
 	case secs < 3600:
-		return fmt.Sprintf("Refresh every %d min", secs/60)
+		return fmt.Sprintf("Auto-refresh: %d min", secs/60)
 	}
-	return "Refresh every hour"
+	return "Auto-refresh: 1 hour"
 }
 
 func (t *Tab) View(c *ui.Context) {
@@ -482,15 +488,27 @@ func (t *Tab) View(c *ui.Context) {
 	}
 	t.autoRefresh(c)
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Row(c).Padding(6, 12).Gap(10).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Icon(c, widgets.IconLayers).TextColor(pal.Muted).FontSize(14)
-			ui.Text(c, t.d.Name).Bold().SingleLine()
-			if !t.lastRun.IsZero() {
-				ui.Text(c, "Read at "+t.lastRun.Format(time.TimeOnly)).FontSize(12).TextColor(pal.Muted)
-			}
+		widgets.Bar(c, "Dashboard", func() {
+			widgets.BarTitle(c, func() {
+				ui.Icon(c, widgets.IconLayers).TextColor(pal.Muted).FontSize(widgets.ToolIconSize)
+				ui.Text(c, t.d.Name).Bold().SingleLine()
+				// Where every panel runs, once, when that is one place: the
+				// panels then leave it out.
+				if len(t.d.Panels) > 0 && t.oneWhere() {
+					ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
+						if cn := t.conn(t.d.Panels[0]); cn != nil {
+							widgets.ConnState(c, cn)
+						}
+						ui.Text(c, t.where(t.d.Panels[0])).FontSize(12).TextColor(pal.Muted).SingleLine()
+					})
+				}
+				if !t.lastRun.IsZero() {
+					ui.Text(c, "Read at "+t.lastRun.Format(time.TimeOnly)).FontSize(12).TextColor(pal.Muted)
+				}
+			})
 			ui.Spacer(c)
 			labels := lists.Map(Refreshes, refreshLabel)
-			if ui.Select(c, &t.refresh, labels).Label("Refresh").Width(180).Changed() {
+			if ui.Select(c, &t.refresh, labels).Label("Refresh").FontSize(widgets.ToolFontSize).Changed() {
 				t.d.Refresh = Refreshes[max(slices.Index(labels, t.refresh), 0)]
 				t.save()
 			}
@@ -527,7 +545,8 @@ func (t *Tab) View(c *ui.Context) {
 			ui.Text(c, "No panels yet: Add Panel writes one's query here, or, in an editor, Add to Dashboard puts the statement at its caret here.").TextColor(pal.Muted).Padding(16)
 			return
 		}
-		ui.Scroll(c).Grow(1).Background(pal.EditorBg).Children(func() {
+		// The canvas as the chrome, so the panels on it come forward.
+		ui.Scroll(c).Grow(1).Background(pal.Sidebar).Children(func() {
 			ui.Column(c).Padding(12).Gap(12).Children(func() {
 				// Panels flow in rows of Columns grid columns.
 				for start := 0; start < len(t.d.Panels); {
@@ -620,8 +639,18 @@ func (t *Tab) panelView(c *ui.Context, i int, height float32) {
 	pal := widgets.PaletteOf(c)
 	p, s := &t.d.Panels[i], t.panels[i]
 	_, failed := t.connState(*p)
-	ui.Column(c.Key(s.key)).Grow(float32(p.Width)).Basis(0).Height(height).Radius(8).Background(th.Background).Border(1, th.Border).Clip().Children(func() {
-		ui.Column(c).Padding(6, 10).Gap(6).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+	cn := t.conn(*p)
+	// Where a panel runs, when the panels run in more than one place or it
+	// is not connected: otherwise the same line on every panel.
+	showWhere := t.editing || !t.oneWhere() || cn == nil || cn.Status != connection.StatusConnected
+	panel := ui.Column(c.Key(s.key)).Grow(float32(p.Width)).Basis(0).Height(height).Radius(10).Background(th.Background).Border(1, th.Border).Clip()
+	panel.Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.08))
+	panel.Children(func() {
+		head := ui.Column(c).Padding(8, 12, 4, 12).Gap(6)
+		if t.editing || s.editSQL {
+			head.PaddingY(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border)
+		}
+		head.Children(func() {
 			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 				ui.Column(c).Grow(1).Shrink(1).Children(func() {
 					if t.editing {
@@ -629,18 +658,27 @@ func (t *Tab) panelView(c *ui.Context, i int, height float32) {
 							p.Title, t.dirty = strings.TrimSpace(s.title), true
 						}
 					} else {
-						ui.Text(c, p.Title).Bold().FontSize(12.5).SingleLine()
+						ui.Text(c, p.Title).FontWeight(600).FontSize(13).SingleLine()
 					}
-					ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
-						if cn := t.conn(*p); cn != nil {
-							widgets.ConnState(c, cn)
-						}
-						ui.Text(c, t.where(*p)).FontSize(10.5).TextColor(pal.Muted).SingleLine().Shrink(1)
-					})
+					if showWhere {
+						ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
+							if cn != nil {
+								widgets.ConnState(c, cn)
+							}
+							ui.Text(c, t.where(*p)).FontSize(10.5).TextColor(pal.Muted).SingleLine().Shrink(1)
+						})
+					}
 				})
 				switch {
 				case s.src != nil:
-					ui.Text(c, widgets.Count(len(s.src.Rows), "row")+" · "+s.took.Round(time.Millisecond).String()).FontSize(11.5).TextColor(pal.Muted).Tooltip("Read at " + s.at.Format(time.TimeOnly))
+					// How much and how fast, on every panel: there when
+					// pointed at, as a detail.
+					stats := ui.Text(c, widgets.Count(len(s.src.Rows), "row")+" · "+s.took.Round(time.Millisecond).String()).FontSize(11).FontFeatures("tnum").TextColor(pal.Muted).Tooltip("Read at " + s.at.Format(time.TimeOnly))
+					shown := float32(0)
+					if panel.Hovered() || t.editing {
+						shown = 1
+					}
+					stats.Opacity(stats.AnimateTo("shown", shown, ui.Animation{Duration: 120 * time.Millisecond}))
 				}
 			})
 			// Under the title, wrapping in a narrow panel.
@@ -690,6 +728,16 @@ func (t *Tab) panelView(c *ui.Context, i int, height float32) {
 			t.chartView(c, p, s)
 		}
 	})
+}
+
+// oneWhere reports whether the panels all run in one place.
+func (t *Tab) oneWhere() bool {
+	for _, p := range t.d.Panels[min(1, len(t.d.Panels)):] {
+		if t.where(p) != t.where(t.d.Panels[0]) {
+			return false
+		}
+	}
+	return true
 }
 
 // where is where a panel runs, as its header shows it: its connection,
@@ -871,18 +919,53 @@ func chartSettingsEqual(a, b dataview.ChartSettings) bool {
 
 // tableView lists a panel's rows.
 func tableView(c *ui.Context, s *panelState) {
+	// Read rather than edited: numbers on the right, grouped, so their
+	// sizes compare down a column, as a report's.
 	cols := make([]ui.TableColumn, len(s.src.Cols))
+	numeric := make([]bool, len(s.src.Cols))
 	for i, col := range s.src.Cols {
 		cols[i] = ui.TableColumn{Title: col.Name}
+		for _, r := range s.src.Rows {
+			if r[i] != nil {
+				numeric[i] = db.IsNumeric(r[i])
+				break
+			}
+		}
+		if numeric[i] {
+			cols[i].Align, cols[i].Width = ui.End, 110 // by its label, not across the panel
+		}
 	}
+	pal := widgets.PaletteOf(c)
 	ui.Table(c, &s.list, cols, len(s.src.Rows), func(row, col int) {
 		v := s.src.Rows[row][col]
-		text := "NULL"
-		if v != nil {
-			text = widgets.OneLine(db.Display(v), 200)
+		switch {
+		case v == nil:
+			ui.Text(c, "NULL").FontSize(12.5).Italic().TextColor(pal.Null).SingleLine()
+		case numeric[col] && db.IsNumeric(v):
+			text := db.Display(v)
+			if groupable(s.src.Cols[col].Name) {
+				text = settings.ReadableNumber(text)
+			}
+			ui.Text(c, text).FontSize(12.5).FontFeatures("tnum").SingleLine()
+		default:
+			ui.Text(c, widgets.OneLine(db.Display(v), 200)).FontSize(12.5).SingleLine()
 		}
-		ui.Text(c, text).Font(widgets.MonoFont).FontSize(12).SingleLine()
-	}).Grow(1).Label("Panel rows")
+	}).Grow(1).Label("Panel rows").FontSize(12)
+}
+
+// groupable reports whether a column's numbers read better grouped by
+// thousands: not those that name rather than count, as IDs, years and
+// codes, which "2,024" would only garble.
+func groupable(column string) bool {
+	words := strings.FieldsFunc(strings.ToLower(column), func(r rune) bool { return r == '_' || r == ' ' || r == '-' })
+	if len(words) == 0 {
+		return true
+	}
+	switch words[len(words)-1] {
+	case "id", "year", "zip", "code", "phone", "no":
+		return false
+	}
+	return true
 }
 
 // valueView shows a panel's first value, large, under its column's name.
@@ -897,11 +980,16 @@ func valueView(c *ui.Context, s *panelState) {
 		text := "NULL"
 		if v != nil {
 			text = db.Display(v)
-			if f, err := strconv.ParseFloat(text, 64); err == nil {
+			if f, err := strconv.ParseFloat(text, 64); err == nil && !math.IsInf(f, 0) && !math.IsNaN(f) {
 				text = strconv.FormatFloat(f, 'f', -1, 64)
+				if groupable(s.src.Cols[0].Name) {
+					text = settings.ReadableNumber(text)
+				}
 			}
 		}
-		ui.Text(c, widgets.OneLine(text, 40)).FontSize(34).Bold().SingleLine()
+		// A refresh rolls the digits that changed, which says what moved.
+		ui.Text(c, widgets.OneLine(text, 40)).FontSize(32).FontWeight(600).LetterSpacing(-0.5).FontFeatures("tnum").SingleLine().
+			ContentTransition(ui.ContentTransition{Numeric: true})
 		ui.Text(c, s.src.Cols[0].Name).FontSize(12).TextColor(pal.Muted)
 	})
 }

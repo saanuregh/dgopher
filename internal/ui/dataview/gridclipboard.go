@@ -219,7 +219,7 @@ func clipView(a Host, c *ui.Context) {
 	if f.paste {
 		title = "Advanced Paste"
 	}
-	dlg := ui.Modal(c, &f.open, func() {
+	dlg := widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(460).Gap(12).Children(func() {
 			ui.Text(c, title).FontSize(15).Bold()
 			ui.Form(c, func() {

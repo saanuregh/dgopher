@@ -168,8 +168,9 @@ func TestLoadRefuses(t *testing.T) {
 	}
 }
 
-// A panel shows its connection under its title; its query's editor moves
-// it to another connection of the project, saved with the query.
+// A dashboard shows where its panels run, once when that is one place; a
+// panel's query editor moves it to another connection of the project,
+// saved with the query.
 func TestPanelConnection(t *testing.T) {
 	h := dataview.NewFakeHost(t)
 	dir := t.TempDir()
@@ -191,7 +192,7 @@ func TestPanelConnection(t *testing.T) {
 	h.AddTab(tab)
 	testutil.WaitFor(t, tt, "the panel", func() bool { return tab.panels[0].src != nil })
 	if !tt.HasText("Lite DB") {
-		t.Fatalf("no connection under the title: %q", tt.Texts())
+		t.Fatalf("no connection shown: %q", tt.Texts())
 	}
 	tab.editing = true
 	tt.Frame()
@@ -420,5 +421,15 @@ func TestAddPanel(t *testing.T) {
 	testutil.WaitFor(t, tt, "the panel's rows", func() bool { return s.src != nil && !s.running })
 	if saved, _ := os.ReadFile(path); !strings.Contains(string(saved), "SELECT 1 AS one") {
 		t.Fatalf("not saved: %s", saved)
+	}
+}
+
+// Counts and sums read grouped; what names a thing, as an ID or a year,
+// does not.
+func TestGroupable(t *testing.T) {
+	for col, want := range map[string]bool{"revenue": true, "units": true, "paid": true, "id": false, "customer_id": false, "Order Year": false, "zip": false, "": true} {
+		if got := groupable(col); got != want {
+			t.Errorf("groupable(%q) = %v", col, got)
+		}
 	}
 }

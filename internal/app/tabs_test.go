@@ -87,11 +87,8 @@ func tabsApp(t *testing.T) (*App, *ui.Tester) {
 // dragTo drags the tab titled from onto the one titled to.
 func dragTo(t *testing.T, tt *ui.Tester, from, to string) {
 	t.Helper()
-	f, ok1 := tt.Find(from)
-	g, ok2 := tt.Find(to)
-	if !ok1 || !ok2 {
-		t.Fatalf("no tab %s or %s: %q", from, to, tt.Texts())
-	}
+	// Where the tabs rest, once those a drag before moved slid there.
+	f, g := testutil.Settled(t, tt, from), testutil.Settled(t, tt, to)
 	x, y := f.X+f.W/2, f.Y+f.H/2
 	tt.Press(x, y)
 	for i := 1; i <= 8; i++ {
@@ -232,11 +229,13 @@ func TestTabOverflowList(t *testing.T) {
 	if err := tt.Click("Open Tabs"); err != nil {
 		t.Fatalf("%v: %q", err, tt.Texts())
 	}
-	if err := tt.ChooseMenuItem("a tab with a long title Z"); err != nil {
-		t.Fatal(err)
-	}
+	// The last of the list, by the keys: its title shows in the tab strip
+	// too.
 	tt.Frame()
-	if a.ActiveTab().Title() != "a tab with a long title Z" {
+	tt.Key(0, ui.KeyEnd)
+	tt.Key(0, ui.KeyEnter)
+	tt.Frame()
+	if a.ActiveTab().Title() != a.tabs.At(a.tabs.Len()-1).Title() || a.tabs.ActiveIndex() != a.tabs.Len()-1 {
 		t.Fatalf("in front: %s", a.ActiveTab().Title())
 	}
 }
@@ -507,18 +506,23 @@ func TestStatusBarPlaces(t *testing.T) {
 	if !tt.HasText("+2 more") {
 		t.Fatalf("no more button: %q", tt.Texts())
 	}
+	// The failed connection says so in its panel, without an alert, whose
+	// backdrop would take the click.
+	if a.alert != nil || !tt.HasText("Could not connect to broken: ") {
+		t.Fatalf("alert %+v; texts %q", a.alert, tt.Texts())
+	}
 	if err := tt.Click("+2 more"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tt.ChooseMenuItem("broken — failed: "+widgets.FirstLine(broken.Err), "Retry"); err == nil {
+	tt.Frame()
+	if !tt.HasText("four — connected") {
+		t.Fatalf("+2 more opened no list: %q", tt.Texts())
+	}
+	if tt.HasText("broken — failed: " + widgets.FirstLine(broken.Err)) {
 		t.Fatal("the failed connection is behind +2 more")
 	}
-	tt.CloseMenu()
-	if err := tt.Click("+2 more"); err != nil {
-		t.Fatal(err)
-	}
-	if err := tt.ChooseMenuItem("four — connected", "Disconnect"); err != nil {
-		t.Fatal(err)
+	if err := testutil.ChooseMenu(tt, "four — connected", "Disconnect"); err != nil {
+		t.Fatalf("%v; texts %q", err, tt.Texts())
 	}
 	tt.Frame()
 	if four.Status != connection.StatusIdle {
@@ -530,5 +534,36 @@ func TestStatusBarPlaces(t *testing.T) {
 	tt.Frame()
 	if !slices.Contains(tt.Texts(), "· other") {
 		t.Fatalf("no database in the status bar: %q", tt.Texts())
+	}
+}
+
+// A tab names its connection under its title only while another tab
+// shares the title.
+func TestTabSubtitleOnlyForSharedTitles(t *testing.T) {
+	a := newTestApp(t)
+	alpha := addConn(a, db.Config{ID: "alpha", Name: "alpha", Engine: db.SQLite, Database: ":memory:"})
+	beta := addConn(a, db.Config{ID: "beta", Name: "beta", Engine: db.SQLite, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1400, 800)
+	a.main.tabs.Append(query.New(a, alpha, "", "report", "SELECT 1;"))
+	a.main.tabs.Append(query.New(a, beta, "", "notes", "SELECT 1;"))
+	tt.Frame()
+	count := func(s string) int {
+		n := 0
+		for _, x := range tt.Texts() {
+			if x == s {
+				n++
+			}
+		}
+		return n
+	}
+	alphas, betas := count("alpha"), count("beta")
+	a.main.tabs.Append(query.New(a, beta, "", "report", "SELECT 1;"))
+	tt.Frame()
+	// Both report tabs name theirs; notes, alone, does not.
+	if got := count("alpha") - alphas; got != 1 {
+		t.Errorf("alpha shows %d more times, want 1 (the first report's subtitle)", got)
+	}
+	if got := count("beta") - betas; got != 1 {
+		t.Errorf("beta shows %d more times, want 1 (the second report's subtitle)", got)
 	}
 }

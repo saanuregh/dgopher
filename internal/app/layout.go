@@ -50,13 +50,21 @@ func (a *App) ReadClipboard() string {
 
 // view builds the window.
 func (a *App) view(c *ui.Context) {
+	// Tabs a key opened, closed or brought in front show so at once: a
+	// key asks for no motion, which only a click's change has.
+	tabs, front := a.tabs.Len(), a.ActiveTab()
 	a.drain()
 	a.now = c.Now()
 	widgets.ApplyTheme(c, strings.TrimSpace(a.settings.UIFontFamily))
+	widgets.HoverCards = hoverSettings(a.settings.HoverCards)
 	if a.clipboard == nil {
 		a.clipboard, a.readClip = c.WriteClipboard, c.ReadClipboard
 	}
 	a.shortcuts(c)
+	if a.instant || a.tabs.Len() != tabs || a.ActiveTab() != front {
+		c.DisableAnimations()
+		a.instant = false
+	}
 	root := ui.Column(c).Fill()
 	defer a.dropZone(c, root)
 	root.Children(func() {
@@ -81,6 +89,10 @@ func (a *App) view(c *ui.Context) {
 	if a.window == a.focusedWindow() {
 		a.overlays(c)
 	}
+	// Every menu of the window drawn in the app's theme, over the dialogs
+	// too, as a field's in one.
+	widgets.ShownMenus(c)
+	widgets.FinishCards(c)
 	a.saveWorkspace(false)
 	if a.settingsDirty && !c.Root().Dragging() {
 		a.settingsDirty = false
@@ -300,6 +312,13 @@ func (a *App) tabBar(c *ui.Context) {
 	var dropped *tabDrag // and where to, after the tabs are drawn
 	droppedAt := 0
 	height := barHeight(c)
+	// A tab names its connection under its title only where another
+	// shares the title, as two query-1.sql: its dot and tooltip say it
+	// otherwise, and the status bar for the one in front.
+	titles := map[string]int{}
+	for _, tb := range a.tabs.All() {
+		titles[tb.Title()]++
+	}
 	ui.ScrollHorizontal(c).TrackScroll(&w.tabScroll).Shrink(1).Children(func() {
 		ui.Row(c).AlignItems(ui.Stretch).Children(func() {
 			for i, tb := range a.tabs.All() {
@@ -324,7 +343,14 @@ func (a *App) tabBar(c *ui.Context) {
 					w.revealTab = false
 				}
 				hovered := item.Hovered()
-				item.BorderWidth(0, 1, 0, 0).BorderColor(t.Border)
+				item.Transition(tabMotion)
+				// A short line between two tabs in the back; the one in front
+				// stands out on its own.
+				if next := i + 1; !on && next < a.tabs.Len() && next != a.tabs.ActiveIndex() {
+					item.DrawOver(func(p *ui.Painter, r ui.Rect) {
+						p.Fill(ui.Rect{X: r.X + r.W - 1, Y: r.Y + r.H/2 - 9, W: 1, H: 18}, t.Border, 0)
+					})
+				}
 				// A tab dropped on another takes its place, which the side it
 				// comes from shows.
 				dragged, over := ui.DragOver[tabDrag](item)
@@ -352,16 +378,19 @@ func (a *App) tabBar(c *ui.Context) {
 						}
 						ui.Icon(c, ic).FontSize(12).TextColor(pal.Muted)
 						ui.Column(c).Shrink(1).Children(func() {
-							txt := ui.Text(c, tb.Title()).SingleLine().FontSize(12.5)
-							if on {
-								txt.Bold()
+							// The one in front in the text's color, the others
+							// muted: the weight stays, so no tab moves as
+							// another comes in front.
+							txt := ui.Text(c, tb.Title()).SingleLine().FontSize(12.5).FontWeight(500)
+							if !on && !hovered {
+								txt.TextColor(t.Text.Alpha(0.7))
 							}
-							groups := byConnection(tabPlaces(tb))
-							if sub := placesSubtitle(groups); sub != "" {
-								// Muted until connected, as the sidebar's.
+							if sub := placesSubtitle(groups); sub != "" && titles[tb.Title()] > 1 {
+								// Under the title, and fainter until connected,
+								// as the sidebar's.
 								col := pal.Muted
-								if anyConnected(groups) {
-									col = t.Text
+								if !anyConnected(groups) {
+									col = col.Alpha(0.6)
 								}
 								ui.Text(c, sub).SingleLine().FontSize(10.5).TextColor(col)
 							}
@@ -422,7 +451,7 @@ func (a *App) tabBar(c *ui.Context) {
 		})
 	})
 	if w.tabScroll.MaxX > 0 {
-		widgets.IconButton(c, widgets.IconDropdown, "Open Tabs").Menu(func(m *ui.Menu) {
+		widgets.MenuOn(c, widgets.IconButton(c, widgets.IconDropdown, "Open Tabs"), func(m *widgets.Menu) {
 			for i, tb := range a.tabs.All() {
 				label := tb.Title()
 				if sub := tabSubtitle(tb); sub != "" {
@@ -441,6 +470,17 @@ func (a *App) tabBar(c *ui.Context) {
 	if closed >= 0 {
 		a.closeTab(closed)
 	}
+}
+
+// tabMotion has a tab grow in as it opens and close up as it goes, its
+// neighbours sliding over. Its colors change at once: tabs change places
+// in front often, by keys as much as clicks.
+var tabMotion = ui.ElementTransition{
+	Position: true,
+	Size:     true,
+	Enter:    &ui.Motion{Collapse: true},
+	Exit:     &ui.Motion{Collapse: true},
+	Duration: 150 * time.Millisecond,
 }
 
 // tabDots are a tab's connections, problems first: a dot each, up to
@@ -612,14 +652,22 @@ func (a *App) welcome(c *ui.Context) {
 				})
 			})
 			ui.Grid(c).Columns(4).GapX(12).Children(func() {
-				card := func(ic *ui.SVG, title, detail string, onClick func()) {
-					b := ui.ButtonBase(c).Padding(14).Radius(10).Border(1, t.Border).Label(title)
+				card := func(ic *ui.SVG, title, detail, key string, onClick func()) {
+					b := ui.ButtonBase(c).Padding(14).Radius(10).Border(1, t.Border).Label(title).AlignItems(ui.Start) // tops in line, whatever their text
 					if b.Hovered() {
 						b.Background(pal.Hover).Border(1, t.Accent)
 					}
 					b.Children(func() {
-						ui.Column(c).Gap(6).AlignItems(ui.Start).Children(func() {
-							ui.Icon(c, ic).FontSize(18).TextColor(t.Accent)
+						ui.Column(c).Gap(6).Grow(1).AlignItems(ui.Stretch).Children(func() {
+							// The key at the far end of the icon's row, where
+							// it takes no room from the title.
+							ui.Row(c).Height(22).AlignItems(ui.Center).Children(func() { // one height, keycap or not
+								ui.Icon(c, ic).FontSize(18).TextColor(t.Accent)
+								ui.Spacer(c)
+								if k := keymap.First(key); k != "" {
+									widgets.Keycap(c, k)
+								}
+							})
 							ui.Text(c, title).Bold()
 							ui.Text(c, detail).FontSize(12).TextColor(pal.Muted)
 						})
@@ -628,15 +676,15 @@ func (a *App) welcome(c *ui.Context) {
 						onClick()
 					}
 				}
-				card(widgets.IconPlus, "New connection", keymap.Hint("A server or a file", keymap.NewConnection), func() { a.openConnForm(nil) })
-				card(widgets.IconPlug, "Paste a URL", "postgres://, mysql://, redis://…", func() {
+				card(widgets.IconPlus, "New connection", "A server or a file", keymap.NewConnection, func() { a.openConnForm(nil) })
+				card(widgets.IconPlug, "Paste a URL", "postgres://, mysql://, redis://…", "", func() {
 					a.openConnForm(nil)
 					if a.connForm != nil {
 						a.connForm.urlFocus = true
 					}
 				})
-				card(widgets.IconLayers, "Try the sample", "A small shop in SQLite, to explore", a.openSample)
-				card(widgets.IconFolder, "Add a project folder", keymap.Hint("A Git repository's connections and .sql files", keymap.AddFolder), a.addExistingProject)
+				card(widgets.IconLayers, "Try the sample", "A small shop in SQLite, to explore", "", a.openSample)
+				card(widgets.IconFolder, "Add a project folder", "A Git repository's connections and .sql files", keymap.AddFolder, a.addExistingProject)
 			})
 			if !a.settings.TourDone {
 				ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(10, 14).Radius(10).Background(t.Accent.Alpha(0.10)).Children(func() {
@@ -686,7 +734,7 @@ func (a *App) welcome(c *ui.Context) {
 						return // its key taken away
 					}
 					ui.Row(c).Gap(6).Children(func() {
-						ui.Text(c, keys).Font(widgets.MonoFont).FontSize(11.5).Padding(2, 6).Radius(4).Background(pal.Hover)
+						widgets.Keycap(c, keys)
 						ui.Text(c, what).FontSize(12.5).TextColor(pal.Muted)
 					})
 				}
@@ -747,7 +795,26 @@ func (a *App) statusBar(c *ui.Context) {
 	case a.busySince.IsZero():
 		a.busySince = time.Now()
 	}
-	if busy && widgets.Lasted(c, a.busySince) {
+	// Once up, it stays a moment: work ending just after it showed would
+	// otherwise flash it.
+	show := busy && widgets.Lasted(c, a.busySince)
+	switch {
+	case show:
+		if a.busyShown.IsZero() {
+			a.busyShown = time.Now()
+		}
+	case !a.busyShown.IsZero():
+		switch left := widgets.MinShown - time.Since(a.busyShown); {
+		case busy:
+			show = true // work began again while it was up: it stays
+		case left > 0:
+			show = true
+			c.After(left)
+		default:
+			a.busyShown = time.Time{}
+		}
+	}
+	if show {
 		widgets.ActivityBar(c)
 	} else {
 		ui.Box(c).Height(2).Background(pal.Sidebar).BorderWidth(1, 0, 0, 0).BorderColor(t.Border)
@@ -860,15 +927,15 @@ func (a *App) connChips(c *ui.Context, groups []connPlaces) {
 				}
 			})
 		})
-		chip.Menu(func(m *ui.Menu) { a.connMenu(m, g) })
+		widgets.MenuOn(c, chip, func(m *widgets.Menu) { a.connMenu(m, g) })
 	}
 	if rest := groups[len(shown):]; len(rest) > 0 {
 		label := fmt.Sprintf("+%d more", len(rest))
 		more := ui.ButtonBase(c).Padding(1, 6).Radius(4).Label(label).Tooltip(placesTooltip(rest))
 		more.Children(func() { ui.Text(c, label).FontSize(12).TextColor(pal.Muted) })
-		more.Menu(func(m *ui.Menu) {
+		widgets.MenuOn(c, more, func(m *widgets.Menu) {
 			for _, g := range rest {
-				m.Submenu(g.label()+" — "+connStateText(g.conn), func(m *ui.Menu) { a.connMenu(m, g) })
+				m.Submenu(g.label()+" — "+connStateText(g.conn), func(m *widgets.Menu) { a.connMenu(m, g) })
 			}
 		})
 	}
@@ -877,7 +944,7 @@ func (a *App) connChips(c *ui.Context, groups []connPlaces) {
 // connMenu is a status bar chip's menu: the connection's databases the tab
 // runs on, with the dashboard's panels on each, then what connects or
 // disconnects it.
-func (a *App) connMenu(m *ui.Menu, g connPlaces) {
+func (a *App) connMenu(m *widgets.Menu, g connPlaces) {
 	cn := g.conn
 	d, _ := a.ActiveTab().(*dashboard.Tab)
 	for _, database := range g.databases {
@@ -912,7 +979,7 @@ func connBadge(c *ui.Context, cn *connection.Conn) {
 
 // envBadge names a connection's environment in its color.
 func envBadge(c *ui.Context, cn *connection.Conn) {
-	ui.Row(c).Gap(5).Padding(1, 8).Radius(4).Background(widgets.EnvironmentColor(cn.Config.Env)).Children(func() {
+	ui.Row(c).Gap(5).Padding(1, 8).Radius(4).Background(widgets.LabelFill(widgets.EnvironmentColor(cn.Config.Env))).Children(func() {
 		ui.Text(c, cn.Config.Env.Label()).FontSize(11).Bold().TextColor(ui.RGB(255, 255, 255))
 	})
 }

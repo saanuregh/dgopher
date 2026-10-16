@@ -15,6 +15,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
 	"dgopher/internal/settings"
+	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo"
@@ -122,12 +123,21 @@ func (g *Grid) valuePanel(c *ui.Context, a Host, src *Source, row int) {
 	text := "NULL"
 	if v != nil && v != unset && v != db.Default {
 		switch g.viewer {
-		case "JSON":
-			text = PrettyValue(db.Display(v))
-		case "XML":
-			text = prettyXML(db.Display(v))
-		case "Hex":
-			text = hex.Dump(raw)
+		case "JSON", "XML", "Hex":
+			// Formatted once for each value and viewer, not in each frame.
+			shown := db.Display(v)
+			if vs := &g.valueShown; vs.viewer != g.viewer || vs.value != shown {
+				*vs = valueShown{viewer: g.viewer, value: shown}
+				switch g.viewer {
+				case "JSON":
+					vs.text = PrettyValue(shown)
+				case "XML":
+					vs.text = prettyXML(shown)
+				default:
+					vs.text = hex.Dump(raw)
+				}
+			}
+			text = g.valueShown.text
 		default:
 			text = a.Settings().ViewFormat.Format(v)
 		}
@@ -144,9 +154,20 @@ func (g *Grid) valuePanel(c *ui.Context, a Host, src *Source, row int) {
 		if g.viewer == "Image" && g.bitmap != nil {
 			ui.Scroll(c).Grow(1).Children(func() { ui.Image(c, g.bitmap).Padding(10) })
 		} else {
-			ui.Scroll(c).Grow(1).Children(func() {
-				ui.Text(c, text).Font(widgets.MonoFont).FontSize(12).Padding(10).Selectable()
-			})
+			area := &g.valueArea
+			area.Label, area.FontSize, area.ReadOnly, area.NoBorder, area.NoLineNumbers = "Value", 12, true, true, true
+			// A hex dump's lines are columns, which wrapping would break.
+			area.SoftWrap = g.viewer != "Hex"
+			switch g.viewer {
+			case "JSON":
+				area.Language = editor.LanguageJSON
+			case "XML":
+				area.Language = editor.LanguageXML
+			default:
+				area.Language = editor.LanguagePlain
+			}
+			el, _ := area.View(c, &text)
+			el.Grow(1)
 		}
 		ui.Row(c).Padding(6, 8).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 			if widgets.IconButton(c, widgets.IconCopy, "Copy the value").Clicked() {
@@ -200,6 +221,12 @@ func (g *Grid) valuePanel(c *ui.Context, a Host, src *Source, row int) {
 			}
 		})
 	})
+}
+
+// valueShown is the Value panel's text formatted by a viewer, of the
+// value as db.Display shows it.
+type valueShown struct {
+	viewer, value, text string
 }
 
 // viewerFor is the viewer a value's content asks for.

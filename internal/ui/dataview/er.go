@@ -7,6 +7,7 @@ import (
 	"math"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"dgopher/internal/connection"
@@ -14,6 +15,7 @@ import (
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/shader"
 )
 
 // erTable is a table drawn in an ER diagram.
@@ -48,6 +50,11 @@ type ERTab struct {
 	linking *erLink
 	// kept are where the tables stood before a reload, which they keep.
 	kept map[string][2]float32
+	// linkOn is the line the pointer is on, -1 for none. cardLine is the
+	// line whose card shows or waits, counted from 1 so that a new tab has
+	// none, opened at cardAt.
+	linkOn, cardLine int
+	cardAt           ui.Point
 }
 
 const (
@@ -270,40 +277,21 @@ func (e *ERTab) View(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Row(c).Padding(6, 10).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Icon(c, widgets.IconSchema).TextColor(pal.Muted).FontSize(14)
-			if e.focus != nil {
-				ui.Text(c, "Tables linked to "+e.focus.Name+" by foreign keys").Bold()
-			} else {
-				ui.Text(c, e.schema).Bold()
-			}
-			ui.Text(c, widgets.Count(len(e.tables), "table")).FontSize(12).TextColor(pal.Muted)
-			if e.more > 0 {
-				ui.Text(c, fmt.Sprintf("(%d more not drawn)", e.more)).FontSize(12).TextColor(th.Warning)
-			}
-			ui.Spacer(c)
-			ui.Text(c, "Drag a table by its name; double-click it to open its data.").FontSize(12).TextColor(pal.Muted)
-			widgets.ToolButton(c, widgets.IconDownload, "Save Image", "Save the diagram as a PNG or SVG image").Disabled(len(e.tables) == 0).Menu(func(m *ui.Menu) {
-				if m.Item("Save as PNG…").Chosen() {
-					e.save(exportPNG)
+		widgets.Bar(c, "Diagram", func() {
+			widgets.BarTitle(c, func() {
+				ui.Icon(c, widgets.IconSchema).TextColor(pal.Muted).FontSize(widgets.ToolIconSize)
+				if e.focus != nil {
+					ui.Text(c, "Tables linked to "+e.focus.Name+" by foreign keys").Bold()
+				} else {
+					ui.Text(c, e.schema).Bold()
 				}
-				if m.Item("Save as SVG…").Chosen() {
-					e.save(exportSVG)
+				ui.Text(c, widgets.Count(len(e.tables), "table")).FontSize(12).TextColor(pal.Muted)
+				if e.more > 0 {
+					ui.Text(c, fmt.Sprintf("(%d more not drawn)", e.more)).FontSize(12).TextColor(th.Warning)
 				}
 			})
-			if e.editable() == "" && widgets.ToolButton(c, widgets.IconPlus, "New Table", "Design a new table in "+e.schema).Clicked() {
-				OpenNewTable(a, e.conn, e.database, e.schema)
-			}
-			if widgets.ToolButton(c, widgets.IconRefresh, "Refresh", "Read the schema again, the tables staying where they are").Clicked() {
-				e.reload()
-			}
-			if widgets.ToolButton(c, widgets.IconLayers, "Arrange", "Lay the tables out again").Clicked() {
-				if e.focus != nil {
-					e.layoutFocus()
-				} else {
-					e.layout()
-				}
-			}
+			ui.Spacer(c)
+			e.tools(c, a)
 		})
 		switch {
 		case e.loading:
@@ -318,10 +306,64 @@ func (e *ERTab) View(c *ui.Context) {
 			ui.Text(c, "No tables in this schema.").TextColor(pal.Muted).Padding(12)
 			return
 		}
-		ui.ScrollBoth(c).TrackScroll(&e.scroll).Grow(1).Background(pal.EditorBg).Children(func() {
+		dots := ui.RGBA(255, 255, 255, 0.05)
+		if !th.Dark {
+			dots = ui.RGBA(0, 0, 0, 0.07)
+		}
+		ui.ScrollBoth(c).TrackScroll(&e.scroll).Grow(1).Background(pal.EditorBg).Draw(func(p *ui.Painter, r ui.Rect) {
+			// Dots under the tables, moving with them: a surface they are
+			// placed on, and moved about. Where the window draws on the
+			// CPU, as tests do, a shader costs seconds: none there.
+			if p.Accelerated() {
+				dotGrid.Draw(p, r, shader.Options{Uniforms: map[string]any{"Color": dots, "Offset": []float32{e.scroll.X, e.scroll.Y}}})
+			}
+		}).Children(func() {
 			e.canvas(c, a)
 		})
+		// How the canvas works, in its corner rather than in the bar.
+		ui.Text(c, "Drag a table by its name; double-click it to open its data.").FontSize(11.5).TextColor(pal.Muted).
+			Absolute().Left(14).Bottom(10)
 	})
+}
+
+// dotGrid draws a dot every 20 DIPs, a DIP across, of Color, the grid
+// moved by Offset, the scroll's.
+var dotGrid = shader.MustCompile(`package main
+
+var Color vec4
+var Offset vec2
+
+func Fragment(dst vec4, pos vec2) vec4 {
+	q := mod(pos+Offset, 20) - 10
+	a := Color.a * (1 - smoothstep(0.5, 1.1, length(q)))
+	return vec4(Color.rgb*a, a)
+}
+`)
+
+// tools are the diagram's buttons: save it, a new table, read it again,
+// arrange it.
+func (e *ERTab) tools(c *ui.Context, a Host) {
+	widgets.MenuOn(c, widgets.ToolButton(c, widgets.IconDownload, "Save Image", "Save the diagram as a PNG or SVG image").Disabled(len(e.tables) == 0), func(m *widgets.Menu) {
+		if m.Item("Save as PNG…").Chosen() {
+			e.save(exportPNG)
+		}
+		if m.Item("Save as SVG…").Chosen() {
+			e.save(exportSVG)
+		}
+	})
+	if e.editable() == "" && widgets.ToolButton(c, widgets.IconPlus, "New Table", "Design a new table in "+e.schema).Clicked() {
+		OpenNewTable(a, e.conn, e.database, e.schema)
+	}
+	if widgets.ToolButton(c, widgets.IconRefresh, "Refresh", "Read the schema again, the tables staying where they are").Clicked() {
+		e.reload()
+	}
+	if widgets.ToolButton(c, widgets.IconLayers, "Arrange", "Lay the tables out again").Clicked() {
+		if e.focus != nil {
+			e.layoutFocus()
+		} else {
+			e.layout()
+		}
+	}
 }
 
 // extent is the size of the diagram: its tables, with a margin.
@@ -336,22 +378,94 @@ func (e *ERTab) extent() (w, h float32) {
 func (e *ERTab) canvas(c *ui.Context, a Host) {
 	w, h := e.extent()
 	canvas := ui.Box(c).Size(w, h).Label("ER diagram of " + e.schema)
+	// The lines, in the canvas: drawn, and found under the pointer.
+	conns := e.connectors(ui.Rect{})
+	cardKey := ""
+	if i := e.cardLine - 1; i >= 0 && i < len(conns) {
+		cardKey = e.linkKey(conns[i])
+	}
+	px, py, over := canvas.PointerPosition()
+	on := -1
+	switch {
+	case cardKey != "" && widgets.PointerInCard(c) && widgets.HoverCardOpen(c) == cardKey:
+		// In the card, the line it is of stays the one pointed at, not
+		// one running under the card.
+		on = e.cardLine - 1
+	case over && e.dragged == nil && e.linking == nil:
+		on = linkAt(conns, px, py)
+	}
+	if on >= 0 && on+1 != e.cardLine {
+		e.cardLine, e.cardAt = on+1, ui.Point{X: px, Y: py}
+		cardKey = e.linkKey(conns[on])
+	}
+	// Alt+click on a line shows its card at once.
+	if on >= 0 && canvas.PressedInside() && c.Modifiers()&ui.Alt != 0 {
+		widgets.ShowCard(c, cardKey)
+	}
+	e.linkOn = on
 	canvas.Draw(func(p *ui.Painter, r ui.Rect) {
-		e.drawLinks(p, r, c)
+		e.drawLinks(p, r, c, conns)
 		e.drawLinking(p, r, c)
 	})
 	canvas.Children(func() {
 		for _, t := range e.tables {
 			e.box(c, a, t)
 		}
+		if i := e.cardLine - 1; i >= 0 && i < len(conns) {
+			e.linkCardView(c, a, conns[i], cardKey, on == i)
+		}
 	})
 }
 
-// drawLinks draws a connector for each foreign key, from the referencing
-// column to the referenced one.
-func (e *ERTab) drawLinks(p *ui.Painter, r ui.Rect, c *ui.Context) {
-	th := c.Theme()
-	col := th.Accent.Alpha(0.75)
+// linkKey is the key of a line's card.
+func (e *ERTab) linkKey(cn erConnector) string {
+	return fmt.Sprintf("er:%p:%s\x00%s", e, cn.from.obj.Name, strings.Join(cn.fk.Columns, ","))
+}
+
+// linkCardView gives a foreign key's line its card, at the point the
+// pointer came on it.
+func (e *ERTab) linkCardView(c *ui.Context, a Host, cn erConnector, key string, hovered bool) {
+	at := e.cardAt
+	anchor := ui.Box(c.Key("link card")).Absolute().Left(at.X).Top(at.Y).Size(1, 1).PassThrough()
+	widgets.HoverCard(c, anchor, widgets.CardDiagram, key, widgets.CardOptions{Place: widgets.PlaceBelow, Hovered: &hovered}, func(c *ui.Context, card *widgets.Card) {
+		fk := cn.fk
+		name := fk.Name
+		if name == "" {
+			name = cn.from.obj.Name + " → " + cn.to.obj.Name
+		}
+		card.Header(c, widgets.IconKey, widgets.ToneTable, name, "foreign key")
+		qualify := func(table string, cols []string) string {
+			return table + "." + strings.Join(cols, ", "+table+".")
+		}
+		card.Rows(c, [][2]string{
+			{"From", qualify(cn.from.obj.Name, fk.Columns)},
+			{"To", qualify(cn.to.obj.Name, fk.RefColumns)},
+			{"On delete", cmp.Or(fk.OnDelete, "NO ACTION")},
+			{"On update", cmp.Or(fk.OnUpdate, "NO ACTION")},
+		})
+		card.Actions(c, func(ac *widgets.CardActions) {
+			if ac.Button(c, "Open "+cn.from.obj.Name, "") {
+				a.OpenTable(e.conn, e.database, cn.from.obj, PageData)
+			}
+			if ac.Button(c, "Open "+cn.to.obj.Name, "") {
+				a.OpenTable(e.conn, e.database, cn.to.obj, PageData)
+			}
+		})
+	})
+}
+
+// erConnector is a foreign key's line: from the referencing column of
+// from to the referenced one of to, along pts.
+type erConnector struct {
+	from, to *erTable
+	fk       db.ForeignKey
+	pts      []ui.Point
+	self     bool
+}
+
+// connectors are the lines of the foreign keys, in a canvas at r.
+func (e *ERTab) connectors(r ui.Rect) []erConnector {
+	var out []erConnector
 	for _, t := range e.tables {
 		for _, fk := range t.fks {
 			ref := e.refOf(t, fk)
@@ -367,9 +481,8 @@ func (e *ERTab) drawLinks(p *ui.Painter, r ui.Rect, c *ui.Context) {
 			if ref == t {
 				// A reference to itself: a loop on the right.
 				x := r.X + t.x + erBoxW
-				p.Line(x, y0, x+18, y0, 1.5, col)
-				p.Line(x+18, y0, x+18, y1, 1.5, col)
-				p.Line(x+18, y1, x, y1, 1.5, col)
+				out = append(out, erConnector{from: t, to: ref, fk: fk, self: true,
+					pts: []ui.Point{{X: x, Y: y0}, {X: x + 18, Y: y0}, {X: x + 18, Y: y1}, {X: x, Y: y1}}})
 				continue
 			}
 			// Leave from the side facing the other table.
@@ -377,19 +490,123 @@ func (e *ERTab) drawLinks(p *ui.Painter, r ui.Rect, c *ui.Context) {
 			if ref.x > t.x {
 				x0, x1 = r.X+t.x+erBoxW, r.X+ref.x
 			}
-			mid := (x0 + x1) / 2
-			p.Line(x0, y0, mid, y0, 1.5, col)
-			p.Line(mid, y0, mid, y1, 1.5, col)
-			p.Line(mid, y1, x1, y1, 1.5, col)
-			// The referenced end: a bar, as crow's foot notation draws "one".
-			dir := float32(1)
-			if x1 < mid {
-				dir = -1
-			}
-			p.Line(x1-dir*6, y1-5, x1-dir*6, y1+5, 1.5, col)
-			p.Fill(ui.Rect{X: x0 - 3, Y: y0 - 3, W: 6, H: 6}, col, 3)
+			mid := e.channel(r, x0, x1, y0, y1)
+			out = append(out, erConnector{from: t, to: ref, fk: fk,
+				pts: []ui.Point{{X: x0, Y: y0}, {X: mid, Y: y0}, {X: mid, Y: y1}, {X: x1, Y: y1}}})
 		}
 	}
+	return out
+}
+
+// linkHit is how near a line the pointer is on it, in DIPs.
+const linkHit = 4
+
+// linkAt is the line the point (x, y) is on, -1 for none.
+func linkAt(conns []erConnector, x, y float32) int {
+	for i, cn := range conns {
+		for j := 1; j < len(cn.pts); j++ {
+			if segmentDistance(ui.Point{X: x, Y: y}, cn.pts[j-1], cn.pts[j]) <= linkHit {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// segmentDistance is how far p is from the segment from a to b.
+func segmentDistance(p, a, b ui.Point) float32 {
+	dx, dy := b.X-a.X, b.Y-a.Y
+	t := float32(0)
+	if l := dx*dx + dy*dy; l > 0 {
+		t = max(0, min(1, ((p.X-a.X)*dx+(p.Y-a.Y)*dy)/l))
+	}
+	cx, cy := a.X+t*dx-p.X, a.Y+t*dy-p.Y
+	return float32(math.Sqrt(float64(cx*cx + cy*cy)))
+}
+
+// drawLinks draws a connector for each foreign key, from the referencing
+// column to the referenced one, as connectors found them at the canvas's
+// origin; the one the pointer is on stands out.
+func (e *ERTab) drawLinks(p *ui.Painter, r ui.Rect, c *ui.Context, conns []erConnector) {
+	th := c.Theme()
+	for i, cn := range conns {
+		col, width := th.Accent.Alpha(0.75), float32(1.5)
+		if i == e.linkOn && e.linkOn >= 0 {
+			col, width = th.Accent, 2.5
+		}
+		pts := cn.pts
+		if cn.self {
+			for j := 1; j < len(pts); j++ {
+				p.Line(r.X+pts[j-1].X, r.Y+pts[j-1].Y, r.X+pts[j].X, r.Y+pts[j].Y, width, col)
+			}
+			continue
+		}
+		x0, y0, mid, x1, y1 := r.X+pts[0].X, r.Y+pts[0].Y, r.X+pts[1].X, r.X+pts[3].X, r.Y+pts[3].Y
+		p.StrokePath(elbow(x0, y0, mid, x1, y1), width, col)
+		// The referenced end: a bar, as crow's foot notation draws "one".
+		dir := float32(1)
+		if x1 < mid {
+			dir = -1
+		}
+		p.Line(x1-dir*6, y1-5, x1-dir*6, y1+5, width, col)
+		p.Fill(ui.Rect{X: x0 - 3, Y: y0 - 3, W: 6, H: 6}, col, 3)
+	}
+}
+
+// channel is the x where a connector from (x0, y0) to (x1, y1) turns:
+// halfway, unless a table stands there, then by the end it goes to or the
+// one it leaves, so that no line runs under a table and seems to join it.
+func (e *ERTab) channel(r ui.Rect, x0, x1, y0, y1 float32) float32 {
+	dir := float32(1)
+	if x1 < x0 {
+		dir = -1
+	}
+	const by = 24
+	for _, x := range []float32{(x0 + x1) / 2, x1 - dir*by, x0 + dir*by} {
+		if e.clear(r, x, x0, x1, y0, y1) {
+			return x
+		}
+	}
+	return (x0 + x1) / 2
+}
+
+// clear reports whether a connector turning at x crosses no table: its
+// way along at y0, then down to y1, then along to x1. The ends sit on
+// their tables' edges, which is not crossing them.
+func (e *ERTab) clear(r ui.Rect, x, x0, x1, y0, y1 float32) bool {
+	// across reports whether a segment from a to b at c, along or down,
+	// passes through the box from lo to hi there, between top and bottom.
+	across := func(a, b, c, lo, hi, top, bottom float32) bool {
+		return c > top && c < bottom && max(min(a, b), lo) < min(max(a, b), hi)
+	}
+	for _, t := range e.tables {
+		bx, by := r.X+t.x, r.Y+t.y
+		bw, bh := float32(erBoxW), t.height()
+		if across(x0, x, y0, bx, bx+bw, by, by+bh) || across(y0, y1, x, by, by+bh, bx, bx+bw) || across(x, x1, y1, bx, bx+bw, by, by+bh) {
+			return false
+		}
+	}
+	return true
+}
+
+// elbow is a connector from (x0, y0) along to x, down to y1 and along to
+// (x1, y1), its corners rounded.
+func elbow(x0, y0, x, x1, y1 float32) *ui.Path {
+	sign := func(v float32) float32 {
+		if v < 0 {
+			return -1
+		}
+		return 1
+	}
+	abs := func(v float32) float32 { return v * sign(v) }
+	rr := min(6, abs(y1-y0)/2, abs(x-x0), abs(x1-x))
+	path := (&ui.Path{}).MoveTo(x0, y0)
+	if rr <= 0 {
+		return path.LineTo(x, y0).LineTo(x, y1).LineTo(x1, y1)
+	}
+	a, b, v := sign(x-x0), sign(x1-x), sign(y1-y0)
+	return path.LineTo(x-a*rr, y0).QuadTo(x, y0, x, y0+v*rr).
+		LineTo(x, y1-v*rr).QuadTo(x, y1, x+b*rr, y1).LineTo(x1, y1)
 }
 
 // erMoves are how the arrow keys move a table.
@@ -403,7 +620,7 @@ func (e *ERTab) box(c *ui.Context, a Host, t *erTable) {
 	pal := widgets.PaletteOf(c)
 	box := ui.Column(c.Key("er-"+t.schema+"."+t.obj.Name)).Absolute().Left(t.x).Top(t.y).Width(erBoxW).Label("Table "+t.obj.Name).
 		Radius(8).Background(th.Background).Border(1, th.Border).Clip().
-		Shadow(0, 2, 8, 0, ui.RGBA(0, 0, 0, 0.08))
+		Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.2)).Shadow(0, 4, 12, 0, ui.RGBA(0, 0, 0, 0.12))
 	box.ContextMenu(func(m *ui.Menu) { e.tableMenu(m, t) })
 	box.Children(func() {
 		// The header takes the keys: ↵ opens the data, the arrows move
@@ -450,6 +667,11 @@ func (e *ERTab) box(c *ui.Context, a Host, t *erTable) {
 					break
 				}
 				row := ui.Row(c).Height(erRowH).Padding(0, 10).Gap(6)
+				// Every other row tinted, so that a name reads across to
+				// its type.
+				if i%2 == 1 {
+					row.Background(th.Surface)
+				}
 				if e.editable() == "" {
 					row.Cursor(ui.CursorPointer).Tooltip("Drag onto another table to refer to it")
 				}
@@ -463,15 +685,46 @@ func (e *ERTab) box(c *ui.Context, a Host, t *erTable) {
 					default:
 						ui.Box(c).Width(12)
 					}
-					name := ui.Text(c, col.Name).FontSize(12).SingleLine().Grow(1).Shrink(1)
-					if !col.Nullable {
-						name.FontWeight(600)
+					ui.Text(c, col.Name).FontSize(12).SingleLine().Grow(1).Shrink(1)
+					ui.Text(c, erType(col.Type)).Font(widgets.MonoFont).FontSize(10.5).TextColor(pal.Muted).SingleLine().MaxWidth(130)
+					// The exception named, not the rule, after the type as
+					// DDL writes it: most columns hold no NULL, which a
+					// weight on each would only repeat.
+					if col.Nullable && !col.PrimaryKey {
+						ui.Text(c, "NULL").FontSize(9).TextColor(pal.Muted.Alpha(0.7)).SingleLine().Shrink(0)
 					}
-					ui.Text(c, col.Type).FontSize(10.5).TextColor(pal.Muted).SingleLine().MaxWidth(100)
 				})
 			}
 		})
 	})
+}
+
+// erType is a column's type as the diagram shows it: the SQL standard's
+// long names by the short ones PostgreSQL also takes, as varchar for
+// character varying, which fit the box.
+func erType(typ string) string {
+	for _, a := range erTypeAliases {
+		if rest, ok := strings.CutPrefix(typ, a.long); ok && (rest == "" || rest[0] == '(' || rest[0] == '[') {
+			typ = a.short + rest
+			break
+		}
+	}
+	// A precision before the zone, as timestamp(3) with time zone.
+	for _, z := range []struct{ suffix, base, short string }{
+		{" with time zone", "timestamp", "timestamptz"}, {" with time zone", "time", "timetz"},
+		{" without time zone", "timestamp", "timestamp"}, {" without time zone", "time", "time"},
+	} {
+		if head, ok := strings.CutSuffix(typ, z.suffix); ok {
+			if rest, ok := strings.CutPrefix(head, z.base); ok && (rest == "" || rest[0] == '(') {
+				return z.short + rest
+			}
+		}
+	}
+	return typ
+}
+
+var erTypeAliases = []struct{ long, short string }{
+	{"character varying", "varchar"}, {"character", "char"}, {"bit varying", "varbit"},
 }
 
 func isFKColumn(t *erTable, name string) bool {

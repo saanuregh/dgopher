@@ -239,7 +239,7 @@ func ExportView(a Host, c *ui.Context) {
 	if len(chosen) > 0 {
 		example = chosen[0]
 	}
-	dlg := ui.Modal(c, &x.open, func() {
+	dlg := widgets.Modal(c, &x.open, func() {
 		ui.Column(c).Width(620).Gap(12).Children(func() {
 			ui.Text(c, x.title).FontSize(15).Bold().SingleLine()
 			if many {

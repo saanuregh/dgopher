@@ -255,7 +255,7 @@ func (a *App) startSync(x *rowCompareDialog) {
 		x.err = v.Blocked
 		return
 	}
-	v.Reasons = append([]string{"Each statement must change exactly one row, or every change is rolled back."}, v.Reasons...)
+	v.Reasons = append([]string{widgets.OneRowEach}, v.Reasons...)
 	if cfg.ManualCommit() {
 		v.Reasons = append(v.Reasons, "They commit once applied, though the connection commits by hand.")
 	}
@@ -327,7 +327,7 @@ func (a *App) rowCompareView(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	_, winH := c.Size()
-	dlg := ui.Modal(c, &x.open, func() {
+	dlg := widgets.Modal(c, &x.open, func() {
 		ui.Column(c).Width(900).MaxHeight(winH - 80).Gap(12).Children(func() {
 			ui.Text(c, "Compare the Rows of "+x.fromSchema+"."+x.fromTable+" · "+x.from.Config.Name).FontSize(15).Bold().SingleLine()
 			ui.Form(c, func() {

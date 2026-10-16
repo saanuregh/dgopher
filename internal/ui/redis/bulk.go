@@ -299,7 +299,7 @@ func (r *Tab) bulkView(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	ro := r.conn.Config.ReadOnly
-	dlg := ui.Modal(c, &b.open, func() {
+	dlg := widgets.Modal(c, &b.open, func() {
 		ui.Column(c).Width(560).Gap(12).Children(func() {
 			title := map[bulkKind]string{bulkDelete: "Delete Keys", bulkExport: "Export Keys", bulkImport: "Import Keys"}[b.kind]
 			ui.Text(c, title+" · "+r.conn.Config.Name).FontSize(15).Bold()

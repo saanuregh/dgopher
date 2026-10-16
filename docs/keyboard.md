@@ -75,6 +75,7 @@ Keys marked *fixed* below cannot be changed.
 | ⌘F, ⌘⌥F | Find, and replace |
 | ⌘⇧O | Go to a statement of the script |
 | F12, ⌘-click | Go to the definition of the name at the caret |
+| ⌘I | Show the card of the name at the caret |
 | ⇧F12 | Find the usages of the name at the caret |
 | F2 | Rename the name at the caret, everywhere in the file |
 | ⌥↵ | Fix the problem at the caret |

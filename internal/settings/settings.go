@@ -49,6 +49,8 @@ type Settings struct {
 	// ShowSensitive shows the values of columns that look sensitive, as
 	// passwords and tokens, which the grids otherwise hide.
 	ShowSensitive bool `json:"showSensitiveValues,omitempty"`
+	// HoverCards are how the cards about what the pointer rests on show.
+	HoverCards HoverCardPrefs `json:"hoverCards,omitzero"`
 	// Export keeps the export dialog's choices.
 	Export ExportPrefs `json:"export,omitzero"`
 	// AdvancedCopy is the last choice of the Advanced Copy dialog.
@@ -72,6 +74,17 @@ type Settings struct {
 	// later prompt marks what changed since, and a pull that lowers the
 	// care taken with one asks again.
 	TrustedDetails map[string]TrustedDetail `json:"trustedDetails,omitempty"`
+}
+
+// HoverCardPrefs are the user's choices of hover cards: none, how long
+// the pointer rests first, and the surfaces without them.
+type HoverCardPrefs struct {
+	Off bool `json:"off,omitempty"`
+	// DelayMs is the rest in milliseconds, 0 for the default.
+	DelayMs int `json:"delayMs,omitempty"`
+	// Hidden are the surfaces without cards: editor, sidebar, grid,
+	// diagram.
+	Hidden []string `json:"hidden,omitempty"`
 }
 
 // TrustedDetail is a shared connection as the user agreed to it: the
@@ -201,6 +214,20 @@ func (f ViewFormat) Format(v any) string {
 		return GroupDigits(s)
 	}
 	return s
+}
+
+// ReadableNumber writes a decimal number's text to be read at a glance:
+// with the regional separators where they are known, else its digits
+// grouped.
+func ReadableNumber(s string) string {
+	whole, frac, _ := strings.Cut(strings.TrimPrefix(s, "-"), ".")
+	switch {
+	case whole == "" || !allDigits(whole) || !allDigits(frac):
+		return s // not a plain decimal, as Infinity or a date
+	case RegionLocale != "":
+		return regionalNumber(s)
+	}
+	return GroupDigits(s)
 }
 
 // regionalNumber writes a decimal number's text with the regional

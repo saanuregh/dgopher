@@ -92,19 +92,22 @@ func SessionTx(sess *db.Session) (own, inside db.TxState) {
 // Viewer shows the rows of one source: its grid, toolbar, bars and status
 // line, and writes their edits.
 type Viewer struct {
-	a        Host
-	source   ViewerSource
-	cursor   *db.Cursor
-	src      Source
-	grid     *Grid
-	loading  bool
-	done     bool
-	err      string
-	elapsed  time.Duration
-	where    string // the filter applied
-	whereIn  string // the filter being typed
-	count    int64  // -1 until counted
-	counting bool
+	a       Host
+	source  ViewerSource
+	cursor  *db.Cursor
+	src     Source
+	grid    *Grid
+	loading bool
+	// loadStarted is when the read of the first page began, which the
+	// skeleton waits on.
+	loadStarted time.Time
+	done        bool
+	err         string
+	elapsed     time.Duration
+	where       string // the filter applied
+	whereIn     string // the filter being typed
+	count       int64  // -1 until counted
+	counting    bool
 	// countStarted is when the count began; countStop ends it.
 	countStarted time.Time
 	countStop    context.CancelFunc
@@ -166,6 +169,10 @@ type Viewer struct {
 	// columns and fks are the table's, nil until read.
 	columns []db.Column
 	fks     []db.ForeignKey
+	// refPreviews are the rows foreign keys' cards read, by table and
+	// value; refReading is set while one is read.
+	refPreviews map[string]*refPreview
+	refReading  bool
 	// bound names, for each column of the rows, the table's column it
 	// holds, "" for none; keyMissing says which key column the rows lack.
 	bound      []string
@@ -210,6 +217,8 @@ func NewViewer(a Host, src ViewerSource) *Viewer {
 func (v *Viewer) bindTable() {
 	cn := v.source.Conn
 	v.grid.referencesOf = v.referencingRows
+	v.grid.hasRefPreview, v.grid.fillRefPreview = v.refKeyColumn, v.refPreviewCard
+	v.grid.fillHeaderCard = v.headerColumnCard
 	v.grid.colorRules = rowColorRules(cn.Project, v.historyKey())
 	v.grid.colorsChanged = func(rules []colorRule) { saveRowColors(cn.Project, v.historyKey(), rules) }
 	v.grid.SQLOpts = SQLOptionsFor(cn, v.source.Table.Schema, v.source.Table.Name)
@@ -566,7 +575,7 @@ func (v *Viewer) reload() {
 		v.runAfterRead()
 		return
 	}
-	v.loading, v.err = true, ""
+	v.loading, v.err, v.loadStarted = true, "", time.Now()
 	v.fetchingAll = false
 	v.sortRead = v.grid.sort
 	query := v.selectSQL()
@@ -948,7 +957,7 @@ func (v *Viewer) reviewChanges() {
 		v.a.ShowError("Not allowed", verdict.Blocked)
 		return
 	}
-	verdict.Reasons = append([]string{"Each statement must change exactly one row, or every change is rolled back."}, verdict.Reasons...)
+	verdict.Reasons = append([]string{widgets.OneRowEach}, verdict.Reasons...)
 	if _, virtual, _ := v.keyColumns(); virtual {
 		verdict.Reasons = append(verdict.Reasons, "Rows are found by a virtual key, which the database does not hold unique: a statement that matches other rows too is rolled back.")
 	}
@@ -1194,7 +1203,7 @@ func (v *Viewer) View(c *ui.Context) {
 	case pressed(keymap.ToggleChart):
 		v.showChart = !v.showChart
 	}
-	ui.Toolbar(c, func() {
+	widgets.Bar(c, "Data", func() {
 		divider := func() { ui.Divider(c).Margin(0, 4) }
 		// A ButtonBase looks the same disabled: dimmed, it shows it.
 		disable := func(b ui.Element, d bool) ui.Element {
@@ -1218,11 +1227,20 @@ func (v *Viewer) View(c *ui.Context) {
 		box := ui.Row(c).Gap(6).Grow(1).Padding(0, 6).Radius(th.Radius).Background(th.Surface).Border(1, th.Border)
 		box.Children(func() {
 			ui.Icon(c, widgets.IconFilter).TextColor(pal.Muted).FontSize(13)
-			cb := ui.ComboboxBase(c, &v.whereIn)
-			placeholder := "WHERE …   e.g. status = 'active'"
-			if !v.source.Reads {
-				placeholder = writesNotReread
+			placeholder := writesNotReread
+			if v.source.Reads {
+				// The keyword the filter goes after, as the statement would
+				// read, and an example in the place of the condition.
+				// Faint while there is no filter, so that an empty box does
+				// not read as one applied.
+				kw := pal.Syntax[sqltext.Keyword].Alpha(0.4)
+				if v.whereIn != "" || v.where != "" {
+					kw = kw.Alpha(0.8)
+				}
+				ui.Text(c, "WHERE").Font(widgets.MonoFont).FontSize(12.5).TextColor(kw)
+				placeholder = "e.g. status = 'active'"
 			}
+			cb := ui.ComboboxBase(c, &v.whereIn)
 			in := cb.Input.Font(widgets.MonoFont).FontSize(12.5).Placeholder(placeholder).Grow(1).Padding(4, 2).Label("Filter")
 			if !v.source.Reads {
 				in.Disabled(true).Tooltip(writesNotReread)
@@ -1235,7 +1253,7 @@ func (v *Viewer) View(c *ui.Context) {
 				for _, s := range suggestions {
 					item := cb.Item(s).Padding(4, 8).Radius(4)
 					if item.Highlighted() {
-						item.Background(th.Accent).TextColor(th.AccentText)
+						item.Background(widgets.ChosenRow(c))
 					}
 					item.Children(func() { ui.Text(c, s).Font(widgets.MonoFont).FontSize(12.5).SingleLine() })
 				}
@@ -1302,13 +1320,13 @@ func (v *Viewer) View(c *ui.Context) {
 		if widgets.IconButton(c, widgets.IconDownload, "Export…").Clicked() {
 			OpenExport(a, v.exportSource())
 		}
-		widgets.IconButton(c, widgets.IconCompare, "Compare with other rows").Menu(v.compareMenu)
+		widgets.MenuOn(c, widgets.IconButton(c, widgets.IconCompare, "Compare with other rows"), v.compareMenu)
 		divider()
 		// The panels open at the right: their switch is there too.
 		if widgets.ToggleIconButton(c, widgets.IconSidebar, keymap.Hint("Value viewer", keymap.ValuePanel), v.grid.ShowValue).Clicked() {
 			v.grid.ShowValue = !v.grid.ShowValue
 		}
-	}).Label("Data").Padding(4, 8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border)
+	})
 	if v.builder != nil && v.source.Reads && len(v.src.Cols) > 0 {
 		v.builderView(c)
 	}
@@ -1319,17 +1337,18 @@ func (v *Viewer) View(c *ui.Context) {
 		widgets.AppearBar(ui.Row(c.Key("pending-changes")).Padding(6, 12).Gap(10).Background(pal.Modified).Children(func() {
 			ui.Text(c, fmt.Sprintf("%d pending change%s", n, widgets.Plural(n))).Bold()
 			ui.Text(c, "Nothing is written until you review and apply.").TextColor(pal.Muted).Grow(1)
-			if ui.Button(c, keymap.Hint("Undo", keymap.Undo)).Disabled(len(v.grid.undoStack) == 0).Tooltip("Undo the last change").Clicked() {
+			// The keys in the tooltips: labels short enough to scan.
+			if ui.Button(c, "Undo").Disabled(len(v.grid.undoStack) == 0).Tooltip(keymap.Hint("Undo the last change", keymap.Undo)).Clicked() {
 				v.grid.undo()
 			}
-			if ui.Button(c, keymap.Hint("Discard", keymap.Discard)).Clicked() {
+			if ui.Button(c, "Discard All").Tooltip(keymap.Hint("Drop every pending change", keymap.Discard)).Clicked() {
 				v.discard()
 			}
 			if v.applying && widgets.Lasted(c, v.applyStarted) &&
 				widgets.Appear(ui.Button(c.Key("stop-apply"), "Stop")).Tooltip("Stop before the next change: every change rolls back").Clicked() {
 				v.stopApply()
 			}
-			if ui.PrimaryButton(c, keymap.Hint("Review and Apply", keymap.Apply)).Disabled(v.applying).Clicked() {
+			if ui.PrimaryButton(c, "Review and Apply").Tooltip(keymap.Hint("Review the statements, then write them", keymap.Apply)).Disabled(v.applying).Clicked() {
 				v.Review(nil)
 			}
 		}))
@@ -1356,7 +1375,11 @@ func (v *Viewer) View(c *ui.Context) {
 		})
 	}
 	if v.src.Cols == nil {
-		ui.Spacer(c)
+		if v.loading {
+			widgets.Skeleton(c, v.loadStarted)
+		} else {
+			ui.Spacer(c)
+		}
 		noGrid()
 		return
 	}
@@ -1859,6 +1882,12 @@ func (v *Viewer) queryRows(q string, args []any, limit int, then func(cols []str
 		v.queryOnSession(q, args, limit, then)
 		return nil
 	}
+	return v.queryOnPool(q, args, limit, then)
+}
+
+// queryOnPool runs queryRows' statement on a connection of the pool,
+// never the editor's session, whose transaction it would join.
+func (v *Viewer) queryOnPool(q string, args []any, limit int, then func(cols []string, rows [][]any, err error)) (stop context.CancelFunc) {
 	poolOf := v.source.Conn.PoolFor(v.source.Database)
 	cfg, database := v.source.Conn.Config, v.source.Database
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -2096,7 +2125,7 @@ func openKeyForm(a Host, v *Viewer) {
 func keyFormView(a Host, c *ui.Context) {
 	f := a.Dialogs().keyForm
 	pal := widgets.PaletteOf(c)
-	dlg := ui.Modal(c, &f.open, func() {
+	dlg := widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(460).Gap(10).Children(func() {
 			ui.Text(c, "Virtual Key of "+f.v.source.Table.Name).FontSize(15).Bold()
 			ui.Text(c, "Choose the columns whose values tell each row apart. The key is kept in "+project.File+" for the team; each change must still match exactly one row.").FontSize(12).TextColor(pal.Muted)

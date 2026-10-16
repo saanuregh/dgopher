@@ -40,7 +40,6 @@ func (v *Viewer) presentationButtons(c *ui.Context) {
 // recordView shows the chosen row as a list of its fields, editable as the
 // grid is.
 func (g *Grid) recordView(c *ui.Context, a Host, src *Source, order []int) {
-	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	if g.SelRow < 0 && len(order) > 0 {
 		g.SelRow = 0
@@ -57,7 +56,7 @@ func (g *Grid) recordView(c *ui.Context, a Host, src *Source, order []int) {
 		}
 	}
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Row(c).Padding(4, 8).Gap(6).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		widgets.Bar(c, "Record", func() {
 			if widgets.IconButton(c, widgets.IconPrev, "Previous row").Disabled(g.SelRow == 0).Clicked() {
 				g.SelRow--
 			}
@@ -79,7 +78,7 @@ func (g *Grid) recordView(c *ui.Context, a Host, src *Source, order []int) {
 				ui.Text(c, src.Cols[field].Name).FontSize(12.5).Bold().SingleLine()
 				return
 			}
-			g.cell(c, a, src, data, field, g.recList.CellSelected(r, col))
+			g.cell(c, a, src, data, field)
 		}).Grow(1).Label("Record")
 		if g.recRow >= 0 && g.recRow < len(fields) && fields[g.recRow] != g.selCol {
 			g.setCursorCol(fields[g.recRow])

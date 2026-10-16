@@ -129,8 +129,8 @@ though the server received the values separately, as parameters.
   the first entry that was changed, removed, inserted or moved, and notices
   a log whose first entries are missing.
 - A hash chain alone cannot show entries cut off the end, or a log
-  rewritten whole by someone who can write its files. For those, **Copy
-  Head** copies the last entry's number and hash. Keep that somewhere else,
+  rewritten whole by someone who can write its files. For those, **More ›
+  Copy Head** copies the last entry's number and hash. Keep that somewhere else,
   such as a ticket or a change record. Compared later, it shows whether the
   log was rewritten or cut short.
 - The app never trims or clears the log. Clearing the query history leaves
@@ -143,7 +143,7 @@ though the server received the values separately, as parameters.
 
 ## Export
 
-**Export** saves the whole log to a file you choose
+**More › Export…** saves the whole log to a file you choose
 (`dgopher-audit-<date>.jsonl` by default): one JSON entry per line, oldest
 first. The file carries the same chain, so it can be verified on its own.
 

@@ -67,7 +67,7 @@ func (a *App) newModelView(c *ui.Context) {
 			labels, engines = append(labels, e.Label()), append(engines, e)
 		}
 	}
-	dlg := ui.Modal(c, &f.open, func() {
+	dlg := widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(420).Gap(12).Children(func() {
 			ui.Text(c, "New Data Model").FontSize(15).Bold()
 			ui.Form(c, func() {
@@ -202,7 +202,7 @@ func (a *App) saveModelView(c *ui.Context) {
 	f := a.savingModel
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	dlg := ui.Modal(c, &f.open, func() {
+	dlg := widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(460).Gap(12).Children(func() {
 			ui.Text(c, "Save as Data Model").FontSize(15).Bold()
 			ui.Text(c, "The tables of "+f.schema+", with their columns, keys, indexes and checks, in a file of the project's "+datamodel.Folder+

@@ -41,6 +41,7 @@ const (
 	Replace         = "editor.replace"
 	GoToStatement   = "editor.goToStatement"
 	GoToDefinition  = "editor.goToDefinition"
+	ShowHover       = "editor.showHover"
 	FindUsages      = "editor.findUsages"
 	QuickFix        = "editor.quickFix"
 	Rename          = "editor.rename"
@@ -155,6 +156,7 @@ var Commands = []Command{
 	command(Replace, Editor, "Replace in the editor", "Cmd+Alt+F"),
 	command(GoToStatement, Editor, "Go to a statement of the script", "Cmd+Shift+O"),
 	command(GoToDefinition, Editor, "Go to the definition of the name at the caret", "F12"),
+	command(ShowHover, Editor, "Show the card of the name at the caret", "Cmd+I"),
 	command(FindUsages, Editor, "Find the usages of the name at the caret", "Shift+F12"),
 	command(QuickFix, Editor, "Fix the problem at the caret", "Alt+Enter"),
 	command(Rename, Editor, "Rename the name at the caret, where it is used", "F2"),

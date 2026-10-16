@@ -160,7 +160,7 @@ func (a *App) addPanel(x *addToDashboard) {
 func (a *App) addToDashboardView(c *ui.Context) {
 	x := a.addingPanel
 	th := c.Theme()
-	dlg := ui.Modal(c, &x.open, func() {
+	dlg := widgets.Modal(c, &x.open, func() {
 		ui.Column(c).Width(520).Gap(12).Children(func() {
 			ui.Text(c, "Add to Dashboard").FontSize(15).Bold()
 			ui.Form(c, func() {

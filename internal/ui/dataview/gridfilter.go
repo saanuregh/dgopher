@@ -360,7 +360,7 @@ type filterPrompt struct {
 
 func filterPromptView(a Host, c *ui.Context) {
 	f := a.Dialogs().filterPrompt
-	ui.Modal(c, &f.open, func() {
+	widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(420).Gap(10).Children(func() {
 			ui.Text(c, "Filter: "+f.label).FontSize(15).Bold()
 			submit := ui.TextInput(c, &f.value).AutoFocus().Font(widgets.MonoFont).Label("Value").Submitted()
@@ -441,7 +441,7 @@ func distinctView(a Host, c *ui.Context) {
 			shown = append(shown, i)
 		}
 	}
-	dlg := ui.Modal(c, &f.open, func() {
+	dlg := widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(520).Height(520).Gap(10).Children(func() {
 			ui.Text(c, "Filter "+f.name+" by its values").FontSize(15).Bold()
 			ui.Row(c).Children(func() { widgets.SearchBox(c, &f.search, "Find a value", 0).AutoFocus() })

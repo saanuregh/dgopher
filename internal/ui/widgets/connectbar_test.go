@@ -12,8 +12,9 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// The bar says what its connection is at, with the button that goes on:
-// Connect, Retry after a failure (with why), Cancel once connecting lasts.
+// The bar has the button that goes on, the toolbar's: Connect, Retry after
+// a failure, Cancel once connecting lasts; and says what its connection is
+// at, with why it failed.
 func TestConnectBar(t *testing.T) {
 	cn := &connection.Conn{Config: db.Config{Name: "prod"}, Status: connection.StatusIdle}
 	var s widgets.ConnectState
@@ -40,7 +41,7 @@ func TestConnectBar(t *testing.T) {
 	cn.Status, cn.Err = connection.StatusFailed, "password authentication failed"
 	s.Default = true
 	tt.Frame()
-	if !tt.HasText("Not connected: password authentication failed") || !tt.HasText("Retry (↵)") {
+	if !tt.HasText("Not connected: password authentication failed") || !tt.HasText("Retry") || !tt.HasText(widgets.KeyLabel("↵")) {
 		t.Fatalf("failed: %q", tt.Texts())
 	}
 

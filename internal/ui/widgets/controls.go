@@ -74,9 +74,10 @@ func IconPill(c *ui.Context, ic *ui.SVG, label string, on bool) ui.Element {
 	}
 	b.Children(func() {
 		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
-			txt := ui.Text(c, label).FontSize(12)
-			if on {
-				txt.Bold()
+			// The weight stays as another comes in front, so no pill moves.
+			txt := ui.Text(c, label).FontSize(12).FontWeight(500)
+			if !on {
+				txt.TextColor(PaletteOf(c).Muted)
 			}
 			if ic != nil {
 				ui.Icon(c, ic).FontSize(11).TextColor(PaletteOf(c).Muted)
@@ -87,10 +88,10 @@ func IconPill(c *ui.Context, ic *ui.SVG, label string, on bool) ui.Element {
 }
 
 // ToolFontSize is the size of the labels of a toolbar's buttons, which
-// other controls there take to be as tall; toolIconSize their icons'.
+// other controls there take to be as tall; ToolIconSize their icons'.
 const (
 	ToolFontSize = 12.5
-	toolIconSize = 13
+	ToolIconSize = 13
 )
 
 // ToolButton is a button of a toolbar with an icon and a label.
@@ -98,11 +99,25 @@ const (
 // label and icon slide to the new ones, and the button eases to its new
 // width, rather than one button popping in for another.
 func ToolButton(c *ui.Context, ic *ui.SVG, label, tip string) ui.Element {
+	return toolButton(c, ic, label, tip, nil)
+}
+
+// LeadToolButton is the ToolButton of the toolbar's main action, as Run:
+// its icon in tint, its label a little heavier, the first the eye finds.
+func LeadToolButton(c *ui.Context, ic *ui.SVG, label, tip string, tint ui.Color) ui.Element {
+	return toolButton(c, ic, label, tip, &tint)
+}
+
+func toolButton(c *ui.Context, ic *ui.SVG, label, tip string, tint *ui.Color) ui.Element {
 	b := ui.Button(c, "").Label(label).Tooltip(tip).Transition(morph)
 	b.Children(func() {
 		ui.Row(c).Gap(5).Children(func() {
-			ui.Icon(c, ic).FontSize(toolIconSize).ContentTransition(ui.ContentTransition{})
-			ui.Text(c, label).FontSize(ToolFontSize).ContentTransition(ui.ContentTransition{})
+			icon := ui.Icon(c, ic).FontSize(ToolIconSize).ContentTransition(ui.ContentTransition{})
+			txt := ui.Text(c, label).FontSize(ToolFontSize).ContentTransition(ui.ContentTransition{})
+			if tint != nil {
+				icon.TextColor(*tint)
+				txt.FontWeight(600)
+			}
 		})
 	})
 	return b
@@ -160,29 +175,41 @@ func Appear(e ui.Element) ui.Element {
 // it does not ease its width, which would trail behind its parent's as a
 // panel opens or a splitter moves.
 func AppearBar(e ui.Element) ui.Element {
-	return e.Transition(ui.ElementTransition{Enter: appearing, Exit: appearing, Duration: morph.Duration})
+	return e.Transition(ui.ElementTransition{Enter: barAppearing, Exit: barAppearing, Duration: morph.Duration})
 }
+
+// barAppearing is appearing without the scale, which would zoom a bar as
+// wide as the window.
+var barAppearing = &ui.Motion{Opacity: 0, Collapse: true}
 
 // appearing is how what Appear has comes and goes.
 var appearing = &ui.Motion{Opacity: 0, Scale: 0.9, Collapse: true}
 
-// IconButton is a borderless button showing an icon.
+// IconButton is a borderless button showing an icon, muted until pointed
+// at, so that the chrome stays behind the work.
 func IconButton(c *ui.Context, ic *ui.SVG, label string) ui.Element {
-	b := ui.ButtonBase(c).Label(label).Tooltip(label).Padding(4).Radius(6)
-	if b.Hovered() {
-		b.Background(PaletteOf(c).Hover)
-	}
-	b.Children(func() { ui.Icon(c, ic).FontSize(14).TextColor(c.Theme().Text) })
-	return b
+	return iconButton(c, ic, label, false)
 }
 
 // ToggleIconButton is an IconButton that shows whether what it switches
 // is on.
 func ToggleIconButton(c *ui.Context, ic *ui.SVG, label string, on bool) ui.Element {
-	b := IconButton(c, ic, label)
-	if on {
-		b.Background(c.Theme().Accent.Alpha(0.15))
+	return iconButton(c, ic, label, on)
+}
+
+func iconButton(c *ui.Context, ic *ui.SVG, label string, on bool) ui.Element {
+	t := c.Theme()
+	b := ui.ButtonBase(c).Label(label).Tooltip(label).Padding(4).Radius(6)
+	col := PaletteOf(c).Muted
+	switch {
+	case on:
+		b.Background(t.Accent.Alpha(0.15))
+		col = t.Accent
+	case b.Hovered():
+		b.Background(PaletteOf(c).Hover)
+		col = t.Text
 	}
+	b.Children(func() { ui.Icon(c, ic).FontSize(14).TextColor(col) })
 	return b
 }
 
@@ -240,4 +267,27 @@ func ChoosePath(post func(func()), opts mygo.OpenDialogOptions, then func(path s
 		}
 		post(func() { then(paths[0]) })
 	}()
+}
+
+// Keycap shows a shortcut as the keys it is pressed with, as a key's cap.
+func Keycap(c *ui.Context, keys string) ui.Element {
+	pal := PaletteOf(c)
+	return ui.Text(c, KeyLabel(keys)).Font(MonoFont).FontSize(11).TextColor(pal.Muted).SingleLine().Shrink(0).
+		Padding(1, 5).Radius(4).Background(pal.Hover).Border(1, c.Theme().Border)
+}
+
+// Bar is the row of a view's tools, as the editor's along its top: tools
+// without a face until pointed at, text the size of their labels, and a
+// line under it, so that every view's bar is as tall and reads alike.
+// Titles and notes in it take its size unless they set their own.
+func Bar(c *ui.Context, label string, fn func()) ui.Element {
+	return ui.Toolbar(c, fn).Label(label).Padding(4, 8).FontSize(ToolFontSize).
+		BorderWidth(0, 0, 1, 0).BorderColor(c.Theme().Border)
+}
+
+// BarTitle is the start of a Bar: what the view shows, its icon, name and
+// notes, apart from one another as words are, where the bar's tools sit
+// closer.
+func BarTitle(c *ui.Context, fn func()) ui.Element {
+	return ui.Row(c).Gap(8).AlignItems(ui.Center).Shrink(1).MinWidth(0).Children(fn)
 }

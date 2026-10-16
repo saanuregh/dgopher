@@ -46,3 +46,12 @@ func TestExportLimit(t *testing.T) {
 		}
 	}
 }
+
+// Only plain decimals are grouped: a date or Infinity stays as written.
+func TestReadableNumber(t *testing.T) {
+	for in, want := range map[string]string{"987949": "987,949", "-1234.5": "-1,234.5", "15": "15", "2024-01-01": "2024-01-01", "+Inf": "+Inf", "1e+06": "1e+06"} {
+		if got := ReadableNumber(in); got != want {
+			t.Errorf("ReadableNumber(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

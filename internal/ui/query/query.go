@@ -146,6 +146,9 @@ type Tab struct {
 	staleFrom int
 	cancel    context.CancelFunc
 	StartedAt time.Time
+	// runReads is whether the run reads rows, which a skeleton stands for
+	// while it lasts.
+	runReads bool
 	dataview.SessionTxState
 	// autocommitOff is MySQL's autocommit off on the session as its last
 	// run left it (db.Session.AutocommitOff): with no transaction open,
@@ -154,7 +157,10 @@ type Tab struct {
 
 	results   []*result
 	resultIdx int // len(results) for the messages
-	messages  []message
+	// runsShown counts the runs whose results showed, which bring them up;
+	// runsFaded, those brought up so far.
+	runsShown, runsFaded uint64
+	messages             []message
 	// wasRunning is whether a run went on in the last frame, by which its
 	// end is announced.
 	wasRunning bool
@@ -170,6 +176,10 @@ type Tab struct {
 	// sessionLost is set when the session closed with its connection, left
 	// unused (ConnectionClosed): the next run is refused once.
 	sessionLost bool
+	// lexedText is the editor's text read for hovers and links;
+	// hoverAsked is set while the card key asks for one.
+	lexedText lexedText
+	lastLink  linkAsked
 }
 
 // key reports whether mods+key was pressed for this editor: while its
@@ -194,6 +204,9 @@ func New(a Host, cn *connection.Conn, database, name, text string) *Tab {
 	q.Editor.State.OnCompletion = q.complete
 	q.Editor.State.OnAcceptCompletion = q.acceptCompletion
 	q.Editor.State.ContextMenu = q.editorMenu
+	q.Editor.State.OnHover = q.hover
+	q.Editor.State.LinkAt = q.linkAt
+	q.Editor.State.OnLink = q.openLink
 	if text != "" {
 		n := len(q.Editor.Text())
 		q.Editor.Select(n, n)
@@ -824,6 +837,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 	oldCancel := q.cancel
 	ctx, cancel := context.WithCancel(context.Background())
 	q.Running, q.cancel, q.StartedAt = true, cancel, time.Now()
+	q.runReads = slices.ContainsFunc(stmts, func(s safety.Statement) bool { return s.Analysis.Class == sqltext.Read })
 	q.showResults() // a run shows what it returns
 	// A run replaces the results, but those pinned and, run into a new
 	// tab, all of them; the cursors of those it drops close, and a kept
@@ -1125,6 +1139,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 					r.view.CutShort()
 				}
 			}
+			q.runsShown++
 			// Show the error, else the last result with rows, else the
 			// messages.
 			q.resultIdx = len(q.results)
@@ -1283,7 +1298,6 @@ func (q *Tab) ResultEditable() bool {
 // View builds the tab.
 func (q *Tab) View(c *ui.Context) {
 	a := q.a
-	t := c.Theme()
 	if !q.closed {
 		q.watchFile()
 	}
@@ -1377,7 +1391,7 @@ func (q *Tab) View(c *ui.Context) {
 		q.endOpenTx(false)
 	}
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Toolbar(c, func() {
+		widgets.Bar(c, "Editor", func() {
 			// First, set apart: its label changes in place, Connect to
 			// Disconnect, in a button as wide whichever it shows. The
 			// buttons have keys of their own: one coming or going would else
@@ -1393,10 +1407,10 @@ func (q *Tab) View(c *ui.Context) {
 			// One button: Run turns to Stop, in place, once a run lasts; a
 			// quick one leaves it as it is.
 			if q.Running && widgets.Lasted(c, q.StartedAt) {
-				if widgets.ToolButton(c.Key("run"), widgets.IconStop, "Stop", "Stop the running statement (Esc)").Clicked() && q.cancel != nil {
+				if widgets.LeadToolButton(c.Key("run"), widgets.IconStop, "Stop", "Stop the running statement (Esc)", c.Theme().Danger).Clicked() && q.cancel != nil {
 					q.cancel()
 				}
-			} else if widgets.ToolButton(c.Key("run"), widgets.IconPlay, "Run", keymap.Hint("Run statement", keymap.Run)).Clicked() {
+			} else if widgets.LeadToolButton(c.Key("run"), widgets.IconPlay, "Run", keymap.Hint("Run statement", keymap.Run), c.Theme().Success).Clicked() {
 				q.Run(RunStatement)
 			}
 			if widgets.ToolButton(c.Key("run-script"), widgets.IconLayers, "Run Script", keymap.Hint("Run all statements", keymap.RunScript)).Clicked() {
@@ -1416,7 +1430,7 @@ func (q *Tab) View(c *ui.Context) {
 			}
 			ui.Spacer(c)
 			q.switcherView(c)
-		}).Label("Editor").Padding(4, 8).BorderWidth(0, 0, 1, 0).BorderColor(t.Border)
+		})
 		// The bars come and go, as one while a header is typed: in a
 		// column always there, the editor keeps its place, and the focus.
 		ui.Column(c).Children(func() {
@@ -1582,7 +1596,9 @@ func (q *Tab) resultsView(c *ui.Context, a Host) {
 	if !hidden {
 		panel.Fill()
 	}
-	if stale {
+	// The old results fade once the run has lasted: a quick run swaps
+	// them without a flicker.
+	if stale && widgets.Lasted(c, q.StartedAt) {
 		panel.Opacity(0.55)
 	}
 	panel.Children(func() {
@@ -1642,19 +1658,39 @@ func (q *Tab) resultsView(c *ui.Context, a Host) {
 		if hidden {
 			return
 		}
-		r := resultAt(results, idx)
-		switch {
-		case r == nil:
-			q.messagesView(c)
-		case r.view == nil:
-			q.errorPanel(c, r)
-		case r.plan != nil:
-			q.planView(c, r)
-		default:
-			r.view.View(c)
+		// What a run brought comes up out of a faint copy, so that a run
+		// whose rows look as before still shows it ran; choosing another
+		// result shows it at once.
+		body := ui.Column(c).Grow(1)
+		if q.runsFaded != q.runsShown {
+			q.runsFaded = q.runsShown
+			body.Jump("run", runFaint)
 		}
+		body.Opacity(body.AnimateTo("run", 1, runShown))
+		body.Children(func() {
+			r := resultAt(results, idx)
+			switch {
+			case r == nil && len(results) == 0 && q.Running && q.runReads:
+				// Nothing to show yet: where the rows will be.
+				widgets.Skeleton(c, q.StartedAt)
+			case r == nil:
+				q.messagesView(c)
+			case r.view == nil:
+				q.errorPanel(c, r)
+			case r.plan != nil:
+				q.planView(c, r)
+			default:
+				r.view.View(c)
+			}
+		})
 	})
 }
+
+// runShown is how the results of a run come up.
+var runShown = ui.Animation{Duration: 120 * time.Millisecond, Ease: ui.EaseOut}
+
+// runFaint is where they come up from.
+const runFaint = 0.6
 
 func (q *Tab) current() *result { return resultAt(q.results, q.resultIdx) }
 
@@ -1837,11 +1873,23 @@ func (q *Tab) rerun(s safety.Statement) {
 func (q *Tab) messagesView(c *ui.Context) {
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
+	if len(q.messages) == 0 {
+		// Nothing ran yet: what to press, in the middle of where its
+		// results will show.
+		ui.Column(c).Grow(1).Center().Gap(8).Children(func() {
+			for _, k := range []struct{ what, id string }{{"Run a statement", keymap.Run}, {"Run the script", keymap.RunScript}} {
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, k.what).FontSize(13).TextColor(pal.Muted)
+					if key := keymap.First(k.id); key != "" {
+						widgets.Keycap(c, key)
+					}
+				})
+			}
+		})
+		return
+	}
 	ui.Scroll(c).Grow(1).Children(func() {
 		ui.Column(c).Padding(8, 12).Gap(8).Children(func() {
-			if len(q.messages) == 0 {
-				ui.Text(c, keymap.Hint("Run a statement", keymap.Run)+", or "+keymap.Hint("the whole script", keymap.RunScript)+".").TextColor(pal.Muted)
-			}
 			for i := len(q.messages) - 1; i >= 0; i-- {
 				m := q.messages[i]
 				ui.Column(c).Gap(2).Children(func() {

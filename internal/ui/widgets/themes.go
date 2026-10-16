@@ -179,6 +179,7 @@ func UseTheme(t *Theme) {
 	if t.Base == "dark" {
 		pal, th = darkPalette, *ui.DarkTheme()
 	}
+	warmNeutrals(&th, false)
 	pal.Syntax = maps.Clone(pal.Syntax)
 	for name, value := range t.Colors {
 		themeColors[name](&th, &pal, ui.Hex(value))
@@ -201,7 +202,29 @@ func ApplyTheme(c *ui.Context, font string) {
 	root = *c.Theme()
 	if look != nil {
 		root = look.theme
+	} else {
+		warmNeutrals(&root, c.Preferences().HighContrast)
 	}
 	root.Font = font
 	c.SetTheme(&root)
+}
+
+// warmNeutrals gives a base theme the palette's warm grays in place of
+// MyGo's cool ones, so the controls and the panels around them are of one
+// family; with the desktop's higher contrast asked for, its borders and
+// muted text stay as the toolkit made them.
+func warmNeutrals(t *ui.Theme, highContrast bool) {
+	if t.Dark {
+		t.Background, t.Surface, t.SurfaceHover, t.SurfacePressed = ui.Hex("#1a1918"), ui.Hex("#252321"), ui.Hex("#2e2b29"), ui.Hex("#383532")
+		t.Text = ui.Hex("#f5f5f4")
+		if !highContrast {
+			t.Border, t.TextMuted = ui.Hex("#34312e"), ui.Hex("#a8a29e")
+		}
+		return
+	}
+	t.Surface, t.SurfaceHover, t.SurfacePressed = ui.Hex("#f5f5f4"), ui.Hex("#ebe9e7"), ui.Hex("#dedad7")
+	t.Text = ui.Hex("#1c1917")
+	if !highContrast {
+		t.Border, t.TextMuted = ui.Hex("#e2dfdc"), ui.Hex("#78716c")
+	}
 }

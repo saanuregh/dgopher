@@ -76,9 +76,10 @@ window buttons, without a row of its own:
 
 - **Where a tab runs.** Each tab shows its connection: a dot per
   connection in its color (up to three, then a count), filled while
-  connected, a ring while not, and a warning when one failed. Under the
-  title it shows the connection, and the database when it is not the
-  connection's own. The tooltip lists every connection and its state.
+  connected, a ring while not, and a warning when one failed. When two
+  tabs share a title, each shows its connection under it, and the database
+  when it is not the connection's own. The tooltip lists every connection
+  and its state.
 - **Reorder** by dragging a tab along the bar. The middle button closes it.
 - **Pin** a tab from its menu. A pinned tab moves to the front and shows a
   pin instead of its close button (click the pin to unpin). Close Others,
@@ -135,7 +136,8 @@ diagrams, Redis keys, activity, users and search tabs.
 
 - A connection's tab waits, unconnected, until its connection connects: on
   its own when it comes into view if the connection auto-connects, or when
-  you press Connect or ↵.
+  you press Connect or ↵. If it fails, the tab's bar says why, with Retry,
+  without an alert over it.
 - Opening the same table meanwhile takes the waiting tab's place.
 - Filters and sort start afresh.
 - The window's size and position are restored.
@@ -346,6 +348,8 @@ top row and its sections at the top.
   that schema's folders directly.
 - The navigator follows the tab in front, selecting its query file, table,
   dashboard, data model or connection, and opening what holds it.
+- Resting the pointer on a table or a view, or Alt+clicking it, shows its
+  [card](#hover-cards), beside the sidebar.
 
 ### Schema objects
 
@@ -439,7 +443,11 @@ error.
   create or drop tables are not checked for names.
 - **Go to Definition** (F12, or ⌘-click) opens what the name at the caret
   refers to: a table's or view's structure (also through an alias or one of
-  its columns), or a routine's definition.
+  its columns), or a routine's definition. With ⌘ held, the names the
+  catalog knows underline under the pointer, so a name that stays plain is
+  one it does not know.
+- **Hover cards** tell what a name is without leaving the query: see
+  [Hover cards](#hover-cards).
 - **Find Usages** (⇧F12) lists where the name is used in this file and the
   project's other query files.
 - **Rename in File** (F2) renames the name everywhere in the file, quoting
@@ -480,7 +488,8 @@ error.
   right of that row hide them and maximize them over the editor. Every
   editor shares the choice, and it is kept for the next start.
 - **A ▶ in the gutter**, on the first line of each statement, runs that
-  statement.
+  statement. It is faint but on the statement a run would send, green, and
+  on the one pointed at.
 - **On an error,** a script stops or continues, as a setting says. A failed
   statement shows the database's message, code, detail, hint, and where it
   went wrong; **Go to Error** puts the caret there.
@@ -552,6 +561,60 @@ Turn on in **Settings → Editor → Vim**.
   has the keys, Vim's Control keys win over the app's. Outside insert mode,
   keys Vim does not use (such as Page Up or ⌘F) act as in the editor.
 
+## Hover cards
+
+Rest the pointer on a name for a moment and a card tells what it is. In
+the navigator and diagrams, while one card shows the next opens at once,
+so a list can be read by moving down it. The pointer can go into a card,
+to click its buttons or select its text; it closes a moment after the
+pointer leaves it, and with Escape. The pin keeps a card open, in front,
+until closed.
+
+A card also opens without the wait: **Alt+click** a table of the navigator,
+a cell or a header of a grid, or a connector of a diagram, or choose
+**Show Card** in its menu; the editor's is ⌘I at the caret. A card opened
+so stays until Escape or a click outside it.
+
+- **In the SQL editor** (or ⌘I at the caret):
+  - a table or a view: its row estimate, size, comment, columns (keys and
+    foreign keys first, those the statement uses marked) and the tables it
+    joins. Clicking a column inserts it at the caret, by the table's alias;
+    clicking a joined table writes the `JOIN … ON …` after the statement's
+    FROM clause and joins.
+  - an alias: the table it stands for; a column, written `t.column` or alone
+    when one table has it: its type, constraints, foreign key and comment.
+  - `*`: the columns it reads, and **Expand** writes them out.
+  - a CTE or a subquery's alias: the columns it gives.
+  - a function: its signatures, as the server describes its built-in
+    functions (PostgreSQL, DuckDB and ClickHouse) or from a table kept with
+    the app (SQLite, MySQL and MariaDB); a routine of the schema: its
+    arguments, and its definition.
+  - a parameter: the value the next run sends.
+  - Keywords have no card. A problem at the name shows first, with its fix.
+- **In the navigator:** a table's or a view's card, with **New Query**.
+- **In grids**, only when asked for, as the pointer crosses cells all the
+  time: a column header shows its column; a cell shows its value whole,
+  with its column, and more where the value has it:
+  - JSON: the document indented and colored, its objects and arrays
+    folding; clicking a key copies the expression reading it, as the
+    engine writes it (`payload->'items'->0->>'sku'` on PostgreSQL,
+    `payload->>'$.items[0].sku'` on MySQL, SQLite and DuckDB,
+    `JSONExtractString(payload, 'items', 1, 'sku')` on ClickHouse).
+  - A foreign key: the row it points at, read once and kept, its sensitive
+    values hidden. On production it is read only when you click
+    **Show Row**. The read is recorded in the history like any other.
+  - A time: in your zone, in UTC, how long ago, and as Unix time; also for
+    whole numbers in a column named as a time, such as `created_at`.
+  - A long or cut text: the whole of it.
+  - A date kept as text, as SQLite keeps them, in a column named as one
+    (`created_at`, `order_date`): read as a time.
+  - A masked value has no card, which would show what the grid hides.
+- **In ER diagrams:** a connector's foreign key.
+
+Settings → Appearance → Hover cards turns the cards that open on a rest
+off, everywhere or in the editor, the navigator or diagrams, and sets how
+long the pointer rests first.
+
 ## Results grid
 
 One viewer shows both a query's results and a table's data.
@@ -560,8 +623,9 @@ One viewer shows both a query's results and a table's data.
 
 - Only the rows in view are built, so large results stay fast. A result
   keeps at most 200,000 rows.
-- Columns and headers start at the left, numbers too. The text view lines
-  numbers up on the right, as psql does.
+- Number columns and their headers line up on the right, digit under
+  digit; other columns start at the left. The text view does the same, as
+  psql does.
 - Columns resize, move, sort by several at once, pin to the left, hide (or
   hide those with no data), and fit to their values or the screen, from the
   header's menu.
@@ -574,6 +638,9 @@ One viewer shows both a query's results and a table's data.
   ⌘⌥N for the next page.
 - Move with ⌘G (go to a row), ⌘⇧G (go to a column), and ⌘↑ and ⌘↓ (first and
   last row).
+- Alt+click, or **Show Card** in the menu, on a header or a cell shows its
+  [card](#hover-cards): the value whole, as JSON, a time or the row a
+  foreign key points at where it is one.
 
 ### Choosing cells
 
@@ -664,7 +731,8 @@ count in one statement.
   transaction, one row per statement by primary key. See
   [Grid edits](safety.md#grid-edits).
 - **Edit Value…** (⇧↵) edits a cell in a form that suits its type, beside its
-  text: a tree for JSON, a list of an enum's values (read from
+  text: a colored tree for JSON, as its card shows it (a click on a key
+  copies the expression reading it), a list of an enum's values (read from
   PostgreSQL's catalog, or from the type elsewhere), a calendar and time for
   dates, and a switch for booleans.
 - **Foreign keys.** Choose from… in a cell's menu (or ⌥↓) lists the rows of
@@ -791,9 +859,11 @@ charts, and best sellers as a table](images/dashboard.png)
 - **Layout:** a grid of four columns; each panel is one to four columns
   wide. **Edit** arranges, resizes and retitles panels, and changes their
   queries, charts and connection (and on PostgreSQL, the database).
-- **Any connection:** panels can use any of the project's connections. Each
-  shows its connection under its title, and the database when it is not
-  the connection's own.
+- **Any connection:** panels can use any of the project's connections.
+  Where they all run in one place, the dashboard's header names it once;
+  otherwise each panel shows its connection under its title, and the
+  database when it is not the connection's own. A panel whose connection
+  fails says why in its place, without an alert.
 - **Parameters** are shared by the panels and edited in a bar above them.
   Their values are yours alone, kept apart from the dashboard file.
 - **Refresh** by hand (F5), or every 1, 5 or 15 minutes, or every hour,
@@ -850,6 +920,9 @@ products, joined by their foreign keys](images/er-diagram.png)
   arrows move it, and its menu (⇧F10) adds a foreign key from a column.
 - **Save** as PNG (drawn at twice the size on screen, up to 16,384 pixels a
   side; a large schema is drawn smaller) or as SVG.
+- **Point at a connector** to bring it forward and show its foreign key:
+  its columns, and what deleting or changing the referenced row does;
+  Alt+click shows it at once.
 
 ### Data models
 

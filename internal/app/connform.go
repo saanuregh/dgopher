@@ -298,10 +298,9 @@ func (a *App) connFormView(c *ui.Context) {
 	t := c.Theme()
 	engine := engineByLabel(f.engine)
 	dlg := ui.DialogBase(c, &f.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(widgets.Backdrop)
+		widgets.DialogLook(c, backdrop, panel)
 		_, winH := c.Size()
-		panel.Width(680).Height(min(800, winH-40)).Radius(12).Background(t.Background).Border(1, t.Border).
-			Shadow(0, 12, 40, 0, ui.RGBA(0, 0, 0, 0.3)).Role(ui.RoleDialog).Label("Connection")
+		panel.Width(680).Height(min(800, winH-40)).Radius(12).Background(t.Background).Border(1, t.Border).Role(ui.RoleDialog).Label("Connection")
 		title := "New Connection"
 		if f.editing != nil {
 			title = "Edit " + f.editing.Config.Name
@@ -410,14 +409,14 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 	pal := widgets.PaletteOf(c)
 	ui.Field(c, "From URL", func() {
 		in := ui.TextInput(c, &f.url).Font(widgets.MonoFont).FontSize(12.5).
-			Placeholder("Paste postgres://user:password@host:5432/db, mysql://…, redis://…, or a file path")
+			Placeholder("postgres://user:password@host:5432/db")
 		if f.urlFocus && in.Focus().Focused() {
 			f.urlFocus = false
 		}
 		if in.Submitted() || in.Changed() && strings.Contains(f.url, "://") {
 			a.fillFromURL(f)
 		}
-	}).Error(f.urlErr)
+	}).Description("Paste a postgres://, mysql://, clickhouse:// or redis:// URL, or a database file's path, to fill in the rest.").Error(f.urlErr)
 	ui.Field(c, "Engine", func() {
 		if ui.Segmented(c, &f.engineIdx, engineLabels()...).Label("Engine").Changed() {
 			a.syncEngineChoice(f, f.engineIdx)
@@ -510,22 +509,36 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 	}
 	ui.Field(c, "Environment", func() {
 		ui.Column(c).Gap(6).Children(func() {
+			// One track, as the engine's: the chosen in its color, the others
+			// with a dot of theirs; one weight, so nothing moves as the
+			// choice does.
 			seg := ui.SegmentedBase(c, &f.env, 3)
-			seg.Track.Gap(4).Children(func() {
+			seg.Track.Gap(2).Padding(2).Radius(8).Background(t.Surface).Children(func() {
 				for i, e := range db.Environments() {
-					s := seg.Segment(i).Padding(5, 12).Radius(6).Border(1, t.Border)
+					s := seg.Segment(i).Padding(4, 12).Radius(6)
 					if s.Clicked() || s.Changed() {
 						f.envChosen = true
 					}
 					col := widgets.EnvironmentColor(e)
-					if i == f.env {
-						s.Background(col).Border(1, col)
+					on := i == f.env
+					fill, ink := widgets.EnvironmentLabel(e, col, t.Surface)
+					if on {
+						s.Background(fill)
+					} else if s.Hovered() {
+						s.Background(t.SurfaceHover)
 					}
 					s.Children(func() {
-						txt := ui.Text(c, e.Label())
-						if i == f.env {
-							txt.TextColor(ui.RGB(255, 255, 255)).Bold()
-						}
+						ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+							dot := ui.Box(c).Size(8, 8).Radius(4).Background(col)
+							txt := ui.Text(c, e.Label()).FontWeight(500)
+							if on {
+								txt.TextColor(ink)
+								// On a solid fill the dot would vanish in it.
+								if e == db.Staging || e == db.Production {
+									dot.Background(ink)
+								}
+							}
+						})
 					})
 				}
 			})

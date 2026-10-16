@@ -82,7 +82,7 @@ func (a *App) catalogQueriesView(c *ui.Context) {
 	shown := v.shown()
 	v.sel = min(v.sel, max(0, len(shown)-1))
 	ui.DialogBase(c, &v.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(widgets.Backdrop)
+		widgets.DialogLook(c, backdrop, panel)
 		panel.Width(900).Height(600).Radius(12).Background(th.Background).Border(1, th.Border).Clip().Label("Catalog queries")
 		ui.Row(c).Padding(12, 16).Gap(10).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Text(c, "Catalog Queries · "+v.conn.Config.Name).FontSize(15).Bold().SingleLine().Shrink(1)
@@ -91,21 +91,22 @@ func (a *App) catalogQueriesView(c *ui.Context) {
 		})
 		ui.Text(c, "What the app reads on its own, as the navigator's tables and an editor's completions, beside the statements the audit log keeps.").
 			FontSize(12).TextColor(pal.Muted).Padding(8, 16)
-		ui.List(c, &v.list, len(shown), func(i int) {
-			e := shown[i]
-			muted, danger := widgets.RowColor(c, pal.Muted, i == v.sel), widgets.RowColor(c, th.Danger, i == v.sel)
-			ui.Row(c).Padding(5, 16).Gap(10).Children(func() {
-				ui.Text(c, e.At.Format("15:04:05.000")).Font(widgets.MonoFont).FontSize(11.5).TextColor(muted)
-				ui.Text(c, widgets.FormatDuration(e.Took)).FontSize(11.5).TextColor(muted).Width(56).TextAlign(ui.End)
-				if e.Err != "" {
-					ui.Text(c, "failed").FontSize(11.5).TextColor(danger).Tooltip(e.Err)
+		widgets.ChosenRows(c, func() {
+			ui.List(c, &v.list, len(shown), func(i int) {
+				e := shown[i]
+				ui.Row(c).Padding(5, 16).Gap(10).Children(func() {
+					ui.Text(c, e.At.Format("15:04:05.000")).Font(widgets.MonoFont).FontSize(11.5).TextColor(pal.Muted)
+					ui.Text(c, widgets.FormatDuration(e.Took)).FontSize(11.5).TextColor(pal.Muted).Width(56).TextAlign(ui.End)
+					if e.Err != "" {
+						ui.Text(c, "failed").FontSize(11.5).TextColor(th.Danger).Tooltip(e.Err)
+					}
+					ui.Text(c, widgets.OneLine(v.redactedSQL(e.SQL), 200)).Font(widgets.MonoFont).FontSize(12).SingleLine().Grow(1).Shrink(1)
+				})
+			}).Grow(1).Label("Catalog queries").Dividers(1, th.Border).Children(func() {
+				if len(shown) == 0 {
+					ui.Text(c, "No catalog query yet.").TextColor(pal.Muted).Padding(16)
 				}
-				ui.Text(c, widgets.OneLine(v.redactedSQL(e.SQL), 200)).Font(widgets.MonoFont).FontSize(12).SingleLine().Grow(1).Shrink(1)
 			})
-		}).Grow(1).Label("Catalog queries").Dividers(1, th.Border).Children(func() {
-			if len(shown) == 0 {
-				ui.Text(c, "No catalog query yet.").TextColor(pal.Muted).Padding(16)
-			}
 		})
 		if v.sel < len(shown) {
 			e := shown[v.sel]

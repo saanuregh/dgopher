@@ -82,12 +82,21 @@ type App struct {
 	// work once it has gone on a moment.
 	working   atomic.Int64
 	busySince time.Time
+	// busyShown is when the bar of the work last showed, which keeps it
+	// up a moment.
+	busyShown time.Time
+	// instant has the next frame show what changed at once, as what a
+	// picker chose by its keys.
+	instant bool
 
-	nav      navState
-	connForm *connForm
-	data     dataview.Dialogs
-	queries  query.Dialogs
-	confirm  *widgets.ConfirmRequest
+	nav navState
+	// cardWanted is the sidebar card a menu's Show Card or an Alt+click
+	// asked for, shown as its row is next built.
+	cardWanted string
+	connForm   *connForm
+	data       dataview.Dialogs
+	queries    query.Dialogs
+	confirm    *widgets.ConfirmRequest
 	// confirmQueue are the requests asked while another was shown.
 	confirmQueue []*widgets.ConfirmRequest
 	prompt       *passwordPrompt
@@ -570,6 +579,9 @@ type connectAttempt struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	started time.Time
+	// alert has a failure raise the error alert: unset while only views
+	// that show it themselves asked (ConnectInline).
+	alert bool
 }
 
 // startAttempt begins a connect attempt of cn, in place of any before.
@@ -622,8 +634,16 @@ func (a *App) CancelConnect(cn *connection.Conn) {
 	a.Record(&cn.Config, audit.Event{Kind: audit.KindConnect, Detail: connectionSummary(&cn.Config), Err: errors.New(why)})
 }
 
-// Connect opens a connection, then runs then on the main thread.
-func (a *App) Connect(cn *connection.Conn, then func()) {
+// Connect opens a connection, then runs then on the main thread; a
+// failure raises the error alert.
+func (a *App) Connect(cn *connection.Conn, then func()) { a.connect(cn, then, true) }
+
+// ConnectInline is Connect for a view that shows a failure itself, as a
+// dashboard's panel or a tab waiting for its connection: no alert says it
+// again, unless something else asks for the same attempt with Connect.
+func (a *App) ConnectInline(cn *connection.Conn, then func()) { a.connect(cn, then, false) }
+
+func (a *App) connect(cn *connection.Conn, then func(), alert bool) {
 	switch cn.Status {
 	case connection.StatusConnected:
 		if then != nil {
@@ -633,6 +653,9 @@ func (a *App) Connect(cn *connection.Conn, then func()) {
 	case connection.StatusConnecting:
 		if then != nil {
 			cn.Waiters = append(cn.Waiters, then)
+		}
+		if at := a.connecting[cn]; at != nil && alert {
+			at.alert = true
 		}
 		return
 	}
@@ -649,7 +672,7 @@ func (a *App) Connect(cn *connection.Conn, then func()) {
 		}
 		r := a.askTrust(cn, &cfg, details, "Connect to "+cfg.Name+"?", "Connect", func() {
 			a.trust(cn)
-			a.Connect(cn, then)
+			a.connect(cn, then, alert)
 		})
 		r.Trust = true
 		r.OnCancel = func() {
@@ -665,12 +688,15 @@ func (a *App) Connect(cn *connection.Conn, then func()) {
 	if why := envAllowed(&cfg); why != "" {
 		cn.Status, cn.Err = connection.StatusFailed, why
 		cn.Waiters = nil
-		a.ShowError("Could not connect to "+cfg.Name, why)
+		if alert {
+			a.ShowError("Could not connect to "+cfg.Name, why)
+		}
 		return
 	}
 	cn.Status, cn.Err = connection.StatusConnecting, ""
 	gen := cn.Generation
 	at := a.startAttempt(cn)
+	at.alert = alert
 	dataview.BackgroundResetOnPanic(a, func() {
 		a.endAttempt(cn, at)
 		if gen == cn.Generation {
@@ -796,7 +822,9 @@ func (a *App) open(cn *connection.Conn, cfg db.Config) {
 					a.askHostKey(cn, cfg, hk)
 					return
 				}
-				a.ShowError("Could not connect to "+cn.Config.Name, err.Error())
+				if at.alert {
+					a.ShowError("Could not connect to "+cn.Config.Name, err.Error())
+				}
 				return
 			}
 			cn.Reset()
@@ -1253,6 +1281,7 @@ func (a *App) askTrust(cn *connection.Conn, cfg *db.Config, details []widgets.Co
 	}
 	r := a.AskConfirm(cn, safety.Verdict{Reasons: reasons}, title, action, "", onConfirm)
 	r.Details = details
+	r.Harmless = true
 	return r
 }
 

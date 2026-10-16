@@ -314,7 +314,6 @@ func (t *TableTab) txBar(c *ui.Context) {
 
 func (t *TableTab) View(c *ui.Context) {
 	a := t.a
-	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	if want := a.FocusWant(); *want == "editor" && t.Page == PageData && a.KeysTo(t) {
 		*want = "results" // the tab chosen by its key: its rows take the keys
@@ -326,18 +325,20 @@ func (t *TableTab) View(c *ui.Context) {
 		t.endOpenTx(false)
 	}
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Row(c).Padding(6, 10).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ic := widgets.IconTable
-			if t.Object.Kind != db.KindTable {
-				ic = widgets.IconView
-			}
-			ui.Icon(c, ic).TextColor(pal.Muted).FontSize(14)
-			ui.Text(c, t.Object.Schema+"."+t.Object.Name).Bold().SingleLine().Shrink(1)
-			if t.Object.Engine != "" {
-				ui.Badge(c, t.Object.Engine)
-			}
+		widgets.Bar(c, "Table", func() {
+			widgets.BarTitle(c, func() {
+				ic := widgets.IconTable
+				if t.Object.Kind != db.KindTable {
+					ic = widgets.IconView
+				}
+				ui.Icon(c, ic).TextColor(pal.Muted).FontSize(widgets.ToolIconSize)
+				ui.Text(c, t.Object.Schema+"."+t.Object.Name).Bold().SingleLine().Shrink(1)
+				if t.Object.Engine != "" {
+					ui.Badge(c, t.Object.Engine)
+				}
+			})
 			ui.Spacer(c)
-			ui.Segmented(c, &t.Page, "Data", "Structure", "DDL", "Diagram").Label("Table page")
+			ui.Segmented(c, &t.Page, "Data", "Structure", "DDL", "Diagram").Label("Table page").FontSize(widgets.ToolFontSize)
 		})
 		switch t.Page {
 		case PageData:
@@ -367,7 +368,7 @@ func (t *TableTab) structureView(c *ui.Context, a Host) {
 		return
 	}
 	if t.Object.Kind == db.KindTable {
-		ui.Row(c).Padding(6, 10).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		widgets.Bar(c, "Structure", func() {
 			why := t.editBlocked()
 			if widgets.ToolButton(c, widgets.IconPencil, "Edit Structure", "Change the columns, keys, indexes and checks").Disabled(why != "").Tooltip(why).Clicked() {
 				t.editStructure()
@@ -446,8 +447,7 @@ func (t *TableTab) structureView(c *ui.Context, a Host) {
 }
 
 func (t *TableTab) ddlView(c *ui.Context, a Host) {
-	th := c.Theme()
-	ui.Row(c).Padding(6, 10).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+	widgets.Bar(c, "Definition", func() {
 		if widgets.ToolButton(c, widgets.IconCopy, "Copy", "Copy the definition").Clicked() {
 			a.WriteClipboard(t.ddl)
 		}

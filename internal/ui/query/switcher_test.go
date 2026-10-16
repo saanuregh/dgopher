@@ -20,7 +20,14 @@ func TestSchemaSwitcher(t *testing.T) {
 	if q.currentSchema() != "main" || !tt.HasText("main") {
 		t.Fatalf("current %q, texts %q", q.currentSchema(), tt.Texts())
 	}
-	q.switchSchema("sales")
+	// Chosen from the drop-down, which shows it once switched.
+	if err := tt.Click("main"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if err := tt.Click("sales"); err != nil {
+		t.Fatalf("%v; texts %q", err, tt.Texts())
+	}
 	testutil.WaitFor(t, tt, "the switch", func() bool { return !q.Running && q.schema == "sales" })
 	if !tt.HasText("sales") {
 		t.Fatalf("texts %q", tt.Texts())

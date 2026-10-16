@@ -140,9 +140,12 @@ func (t *searchTab) View(c *ui.Context) {
 		if t.err != "" {
 			ui.Text(c, t.err).TextColor(th.Danger).Padding(10, 12).Selectable()
 		}
-		list := ui.List(c, &t.list, len(t.hits), func(i int) {
-			t.hitRow(c, t.hits[i], i == t.row)
-		}).Grow(1).Label("Objects found").Dividers(1, th.Border)
+		var list ui.Element
+		widgets.ChosenRows(c, func() {
+			list = ui.List(c, &t.list, len(t.hits), func(i int) {
+				t.hitRow(c, t.hits[i])
+			}).Grow(1).Label("Objects found").Dividers(1, th.Border)
+		})
 		if list.Submitted() && t.row >= 0 && t.row < len(t.hits) {
 			t.open(t.hits[t.row])
 		}
@@ -166,9 +169,9 @@ func (t *searchTab) status() string {
 	return widgets.Count(len(t.hits), "object") + fmt.Sprintf(" matching %q in %s.", t.searched, where)
 }
 
-// hitRow is a hit of the search, on the selection's color when chosen.
-func (t *searchTab) hitRow(c *ui.Context, h db.SearchHit, chosen bool) {
-	muted := widgets.RowColor(c, widgets.PaletteOf(c).Muted, chosen)
+// hitRow is a hit of the search.
+func (t *searchTab) hitRow(c *ui.Context, h db.SearchHit) {
+	muted := widgets.PaletteOf(c).Muted
 	ui.Column(c).Padding(6, 12).Gap(2).Children(func() {
 		ui.Row(c).Gap(8).Children(func() {
 			ui.Icon(c, searchIcon(h)).TextColor(muted).FontSize(13)

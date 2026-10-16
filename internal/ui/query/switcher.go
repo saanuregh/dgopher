@@ -50,14 +50,13 @@ func (q *Tab) switcherView(c *ui.Context) {
 		return
 	}
 	if cn.SwitchesDatabase() {
+		// The app's own drop-down, in its theme, as the other choices:
+		// a copy, which shows the database switched to only once it is.
 		database := q.currentDatabase()
-		ui.MenuButton(c, database, func(m *ui.Menu) {
-			for _, name := range cn.Databases {
-				if m.Item(name).Checked(name == database).Chosen() {
-					q.switchDatabase(name)
-				}
-			}
-		}).Tooltip("The database the editor works in").FontSize(widgets.ToolFontSize) // as the toolbar's buttons, as tall
+		if ui.Select(c, &database, cn.Databases).Label("Database").Tooltip("The database the editor works in").
+			FontSize(widgets.ToolFontSize).Changed() { // as the toolbar's buttons, as tall
+			q.switchDatabase(database)
+		}
 	}
 	if schemaStatement(cn.Config.Engine, cn.DB.Dialect, "") == "" {
 		return
@@ -67,13 +66,10 @@ func (q *Tab) switcherView(c *ui.Context) {
 		connection.LoadSchemas(q.a, cn, q.Database, nil)
 	}
 	current := q.currentSchema()
-	ui.MenuButton(c, current, func(m *ui.Menu) {
-		for _, name := range schemas {
-			if m.Item(name).Checked(name == current).Chosen() {
-				q.switchSchema(name)
-			}
-		}
-	}).Tooltip("The schema unqualified names are found in").FontSize(widgets.ToolFontSize)
+	if ui.Select(c, &current, schemas).Label("Schema").Tooltip("The schema unqualified names are found in").
+		FontSize(widgets.ToolFontSize).Changed() {
+		q.switchSchema(current)
+	}
 }
 
 // switchSchema makes the editor's session find names in a schema, as its

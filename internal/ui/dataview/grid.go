@@ -18,6 +18,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/export"
 	"dgopher/internal/keymap"
+	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -123,10 +124,13 @@ type Grid struct {
 	// panelMax has it take the grid's place.
 	panel    int
 	panelMax bool
-	// The Value panel's viewer, its image, and the cell they are for.
-	viewer   string
-	bitmap   *ui.Bitmap
-	valueKey string
+	// The Value panel's viewer, its image, the cell they are for, and
+	// the area showing its text.
+	viewer     string
+	bitmap     *ui.Bitmap
+	valueKey   string
+	valueArea  editor.CodeArea
+	valueShown valueShown
 	// The Grouping panel's columns, and its groups when counted on the
 	// server; groupOnServer counts them there, for a table.
 	groupCols     []int
@@ -145,10 +149,27 @@ type Grid struct {
 	// referencesOf reads the rows of other tables that refer to a row,
 	// for a table; refsRow is the row they were read for.
 	referencesOf func(row int, then func([]refRows, error))
-	refsRow      int
-	refsShown    []refRows
-	refsErr      string
-	refsLoading  bool
+	// hasRefPreview reports whether a column's cells point at rows of another
+	// table, whose card fillRefPreview fills: the viewer's, of a table.
+	hasRefPreview  func(col int) bool
+	fillRefPreview func(c *ui.Context, card *widgets.Card, src *Source, row, col int, v any)
+	// fillHeaderCard fills a column header's card, reporting false for a
+	// column that is no table's: the viewer's.
+	fillHeaderCard func(c *ui.Context, card *widgets.Card, col int) bool
+	// cardCell and cardHeader are the cell and the column header whose
+	// card was last asked for, cardAsked and headerAsked set until it
+	// opens; cardRead is what the grid worked out of that cell.
+	cardCell               gridCell
+	cardHeader             int
+	cardAsked, headerAsked bool
+	// headerPressed is set while a header is pressed in the frame, which
+	// is no cell's Alt+click.
+	headerPressed bool
+	cardRead      cellCardRead
+	refsRow       int
+	refsShown     []refRows
+	refsErr       string
+	refsLoading   bool
 	// Exported records an export of rows in the audit log, for the
 	// grid's owner, who knows the connection.
 	Exported func(detail string, rows int)
@@ -193,7 +214,7 @@ type cellEdit struct {
 }
 
 func NewGrid() *Grid {
-	g := &Grid{SelRow: -1, refsRow: -1}
+	g := &Grid{SelRow: -1, refsRow: -1, cardCell: gridCell{-1, -1}, cardHeader: -1}
 	g.List.Selected = &g.SelRow
 	g.List.Selection = &g.selection
 	g.List.SortBy = &g.sort
@@ -408,8 +429,6 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 	g.List.Key = func(i int) any { return order[i] }
 	cols := make([]ui.TableColumn, 0, len(src.Cols)+1)
 	digits := len(strconv.Itoa(len(order) + 1))
-	// Every column starts at the left, numbers too, as in TablePlus: one
-	// rule down the whole grid.
 	cols = append(cols, ui.TableColumn{Title: "#", ID: "#", Width: float32(digits*8 + 18), Fixed: true, Frozen: true, RowHeader: true})
 	visible := make([]int, 0, len(src.Cols))
 	for i, col := range src.Cols {
@@ -417,7 +436,18 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 			continue
 		}
 		visible = append(visible, i)
-		cols = append(cols, ui.TableColumn{Title: col.Name, ID: colID(i), Width: widths[i], MinWidth: 40, Sortable: true, Frozen: g.pinned[i]})
+		// Numbers line up on the right, digit under digit, to compare by
+		// their length; their header with them.
+		align := ui.Start
+		if g.numericColumn(src, i) {
+			align = ui.End
+		}
+		cols = append(cols, ui.TableColumn{Title: col.Name, ID: colID(i), Width: widths[i], MinWidth: 40, Align: align, Sortable: true, Frozen: g.pinned[i]})
+	}
+	g.List.HeaderCell = func(cell ui.Element, col int) {
+		if col > 0 {
+			g.headerCard(c, src, cell, visible[col-1])
+		}
 	}
 	g.List.HeaderMenu = func(m *ui.Menu, col int) {
 		if col > 0 {
@@ -430,7 +460,9 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 	var table ui.Element
 	// Rows as dense as a spreadsheet's: the theme's spacing sizes them.
 	theme := c.Theme()
-	dense := *theme
+	// Chosen cells tinted, as a spreadsheet's, their values in their own
+	// colors: NULL stays NULL-colored, a number a number's.
+	dense := widgets.ChosenCells(*theme, theme.Background, pal.CellSelected)
 	dense.Spacing = 2.5
 	ui.Row(c).Grow(1).AlignItems(ui.Stretch).Children(func() {
 		switch g.mode {
@@ -461,9 +493,9 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 			if col == 0 {
 				numColor := pal.Muted
 				if g.List.CellSelected(r, col) {
-					numColor = theme.AccentText
+					numColor = theme.Text
 				}
-				num := ui.Text(c, strconv.Itoa(r+1)).FontSize(11).TextColor(numColor).SingleLine()
+				num := ui.Text(c, strconv.Itoa(r+1)).FontSize(11).FontFeatures("tnum").TextColor(numColor).SingleLine()
 				if g.edits != nil {
 					switch {
 					case data >= len(src.Rows):
@@ -474,8 +506,9 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 				}
 				return
 			}
-			g.cell(c, a, src, data, visible[col-1], g.List.CellSelected(r, col))
-		}).Grow(1).Label("Results").Draw(func(_ *ui.Painter, r ui.Rect) { g.viewW = r.W })
+			g.cell(c, a, src, data, visible[col-1])
+		}).Grow(1).Label("Results").Draw(func(_ *ui.Painter, r ui.Rect) { g.viewW = r.W }).
+			FontSize(12) // the header's, a step under the cells', which set their own
 		c.SetTheme(theme)
 		if table.Changed() {
 			g.selGen++
@@ -488,6 +521,19 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 			g.panelsView(c, a, src, order)
 		}
 	})
+	// Alt+click anywhere in a cell, its padding too, asks for its card:
+	// the click chose the cell. One on a header asks for the header's.
+	if table.PressedInside() && c.Modifiers()&ui.Alt != 0 && !g.headerPressed && g.SelRow >= 0 && g.SelRow < len(order) {
+		if data := order[g.SelRow]; g.selCol >= 0 && g.selCol < len(src.Cols) && g.hasCard(src, data, g.selCol) {
+			g.cardCell, g.cardAsked = gridCell{data, g.selCol}, true
+			c.Invalidate()
+		}
+	}
+	g.headerPressed = false
+	if !slices.Equal(g.sort, sortBefore) && c.Modifiers()&ui.Alt != 0 {
+		// An Alt+click on a header asks for its card, not a sort.
+		g.sort = sortBefore
+	}
 	if !slices.Equal(g.sort, sortBefore) {
 		g.sortChanged = true
 	}
@@ -526,12 +572,12 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 	return table
 }
 
-func (g *Grid) cell(c *ui.Context, a Host, src *Source, data, col int, chosen bool) {
+func (g *Grid) cell(c *ui.Context, a Host, src *Source, data, col int) {
 	pal := widgets.PaletteOf(c)
 	t := c.Theme()
 	if e := g.editing; e != nil && e.row == data && e.col == col {
 		in := ui.TextInputBase(c, &e.value).Font(widgets.MonoFont).FontSize(12).FillWidth().Padding(1, 4).
-			Background(t.Background).Border(1, t.Accent).Radius(3).Label("Cell value")
+			Background(t.Background).Border(1, t.Focus).Radius(3).Label("Cell value")
 		if !e.focused {
 			in.AutoFocus().Focus()
 		}
@@ -550,25 +596,38 @@ func (g *Grid) cell(c *ui.Context, a Host, src *Source, data, col int, chosen bo
 	}
 	v, changed := g.value(src, data, col)
 	box := ui.Box(c).FillWidth().Padding(0, 2)
+	if g.numericColumn(src, col) {
+		box.AlignItems(ui.End)
+	}
+	var fill ui.Color
 	if color, ok := g.rowColor(src, data); ok {
-		box.Background(ui.Hex(color).Alpha(0.45))
+		fill = ui.Hex(color).Alpha(0.45)
 	}
 	if g.edits != nil {
 		switch {
 		case data >= len(src.Rows):
-			box.Background(pal.Inserted)
+			fill = pal.Inserted
 		case g.edits.deleted[data]:
-			box.Background(pal.Deleted)
+			fill = pal.Deleted
 		case changed:
-			box.Background(pal.Modified)
+			fill = pal.Modified
 		}
 	}
-	null, muted := pal.Null, pal.Muted
-	if chosen {
-		// Faded, as on the grid's background, but on the selection color.
-		null = t.AccentText.Alpha(0.7)
-		muted = null
+	if fill != (ui.Color{}) {
+		// The whole cell, past the table's padding around this box, which
+		// the cell clips; under the text. A changed one has a bar along
+		// its edge too, which shows on a chosen cell.
+		padX := t.Space(2.5)
+		box.Draw(func(p *ui.Painter, r ui.Rect) {
+			cell := ui.Rect{X: r.X - padX, Y: r.Y - 40, W: r.W + 2*padX, H: r.H + 80}
+			p.Fill(cell, fill, 0)
+			if changed {
+				p.Fill(ui.Rect{X: cell.X, Y: cell.Y, W: 2, H: cell.H}, pal.Modified.Alpha(1), 0)
+			}
+		})
 	}
+	null, muted := pal.Null, pal.Muted
+	shown := ""
 	box.Children(func() {
 		var txt ui.Element
 		switch {
@@ -582,13 +641,15 @@ func (g *Grid) cell(c *ui.Context, a Host, src *Source, data, col int, chosen bo
 			if typed, ok := v.(db.Typed); ok {
 				v = string(typed)
 			}
-			txt = ui.Text(c, cellText(a.Settings().ViewFormat.Format(v), 200))
+			shown = cellText(a.Settings().ViewFormat.Format(v), cellTextRunes)
+			txt = ui.Text(c, shown).FontFeatures("tnum")
 		}
 		txt.SingleLine().FontSize(a.Settings().GridFontSize())
 		if g.edits != nil && g.edits.deleted[data] {
 			txt.Strikethrough()
 		}
 	})
+	g.cellCard(c, a, src, box, data, col, v, shown)
 	// The row takes the click and chooses, as the table does; the cell
 	// only hears of a double click on it. One that edits submits the table,
 	// which starts the edit.
@@ -743,6 +804,12 @@ func (g *Grid) copySelection(src *Source, f export.Format, header bool) string {
 const wholeRow = -1
 
 func (g *Grid) cellMenu(m *ui.Menu, a Host, src *Source, row, col int) {
+	if col != wholeRow && g.hasCard(src, row, col) {
+		if m.Item("Show Card").Chosen() {
+			g.cardCell, g.cardAsked = gridCell{row, col}, true
+		}
+		m.Separator()
+	}
 	if keymap.Item(m.Item("Copy"), keymap.Copy).Chosen() {
 		a.WriteClipboard(g.copySelection(src, export.TSV, false))
 	}
@@ -832,9 +899,10 @@ func SQLOptionsFor(cn *connection.Conn, schema, table string) export.Options {
 	return opt
 }
 
-// numericColumn reports whether a column holds numbers, which the text
-// presentation lines up on the right, NULLs included. Its type says so; without one, as for an
-// expression in SQLite, its first value that is not NULL does.
+// numericColumn reports whether a column holds numbers, which the grid
+// and the text presentation line up on the right, NULLs included. Its type
+// says so; without one, as for an expression in SQLite, its first value
+// that is not NULL does.
 func (g *Grid) numericColumn(src *Source, col int) bool {
 	if len(src.Cols) == 0 {
 		return false

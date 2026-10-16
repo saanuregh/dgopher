@@ -493,11 +493,16 @@ func (a *App) firstProjectSlug(p *project.Project) string {
 
 // newQueryFile opens an editor on a new file of the connection's project,
 // query-N.sql, holding text after the connection's header; then, when
-// set, goes on with the editor.
+// set, goes on with the editor once the connection connects.
 func (a *App) newQueryFile(cn *connection.Conn, database, text string, then func(*query.Tab)) {
+	// The editor opens at once, connected or not, as a restored one does:
+	// a connection that fails leaves it with Retry, not without an editor.
+	q := a.createQueryFile(cn, database, connection.HeaderLine(cn)+text)
+	if q == nil {
+		return
+	}
 	a.Connect(cn, func() {
-		q := a.createQueryFile(cn, database, connection.HeaderLine(cn)+text)
-		if q != nil && then != nil {
+		if then != nil {
 			then(q)
 		}
 	})
@@ -651,7 +656,7 @@ func (a *App) createProject(f *newProjectForm) {
 func (a *App) newProjectView(c *ui.Context) {
 	f := a.newProject
 	pal := widgets.PaletteOf(c)
-	dlg := ui.Modal(c, &f.open, func() {
+	dlg := widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(520).Gap(12).Children(func() {
 			ui.Text(c, "New Project").FontSize(15).Bold()
 			ui.Text(c, "A project is a folder to keep in Git: its "+project.File+" lists connections without passwords, and its queries are .sql files.").FontSize(12).TextColor(pal.Muted)
@@ -740,7 +745,7 @@ func (a *App) renameQueryFile(p *project.Project, path, name string) error {
 
 func (a *App) renameView(c *ui.Context) {
 	f := a.renaming
-	ui.Modal(c, &f.open, func() {
+	widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(420).Gap(10).Children(func() {
 			ui.Text(c, f.title).FontSize(15).Bold()
 			submit := ui.TextInput(c, &f.name).AutoFocus().Label("Name").Font(widgets.MonoFont).Submitted()

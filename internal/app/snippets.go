@@ -42,7 +42,7 @@ func (a *App) AskSnippet(q *query.Tab) {
 func (a *App) snippetFormView(c *ui.Context) {
 	f := a.snippetForm
 	pal := widgets.PaletteOf(c)
-	dlg := ui.Modal(c, &f.open, func() {
+	dlg := widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(520).Gap(10).Children(func() {
 			ui.Text(c, "Save as Snippet").FontSize(15).Bold()
 			submit := ui.TextInput(c, &f.name).AutoFocus().Label("Name").Placeholder("Name").Submitted()

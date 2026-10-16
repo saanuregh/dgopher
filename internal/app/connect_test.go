@@ -80,6 +80,7 @@ func slowConnect(t *testing.T, a *App, tt *ui.Tester, cn *connection.Conn) {
 	a.connecting[cn].started = time.Now().Add(-3 * time.Second)
 	a.busySince = time.Now().Add(-3 * time.Second)
 	tt.Frame()
+	tt.Advance(time.Second) // Cancel come in
 }
 
 // cancelledConnect checks that cn's connect ended as cancelled, audited,
@@ -144,6 +145,7 @@ func TestConnectCancelFromEditor(t *testing.T) {
 	// As an editor restored with the workspace, open before its connection.
 	a.AddTab(query.New(a, cn, "", "query", "select 1"))
 	tt.Frame()
+	tt.Advance(time.Second) // the tab and its Cancel come in
 	if err := tt.Click("Cancel"); err != nil {
 		t.Fatal(err)
 	}

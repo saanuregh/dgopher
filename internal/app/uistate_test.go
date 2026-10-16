@@ -8,7 +8,6 @@ import (
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
-	"dgopher/internal/keymap"
 	"dgopher/internal/state"
 	"dgopher/internal/store"
 	"dgopher/internal/testutil"
@@ -65,7 +64,7 @@ func TestLayoutPersists(t *testing.T) {
 func TestRestoredEditorTakesSavedPercent(t *testing.T) {
 	cfg, data, projDir := t.TempDir(), t.TempDir(), filepath.Join(t.TempDir(), "proj")
 	os.MkdirAll(projDir, 0o755)
-	hint := keymap.Hint("Run a statement", keymap.Run) + ", or " + keymap.Hint("the whole script", keymap.RunScript) + "."
+	hint := "Output" // the button in the results' bar
 	run := func() (*App, *ui.Tester) {
 		st, err := store.Open(cfg, store.MemorySecrets())
 		if err != nil {
@@ -86,7 +85,7 @@ func TestRestoredEditorTakesSavedPercent(t *testing.T) {
 		t.Helper()
 		q := a.ActiveTab().(*query.Tab)
 		a.Connect(q.Conn, nil)
-		testutil.WaitFor(t, tt, "the results' hint", func() bool { return q.Conn.Status == connection.StatusConnected && tt.HasText(hint) })
+		testutil.WaitFor(t, tt, "the results' bar", func() bool { return q.Conn.Status == connection.StatusConnected && tt.HasText(hint) })
 		r, _ := tt.Find(hint)
 		return float32(r.Y)
 	}

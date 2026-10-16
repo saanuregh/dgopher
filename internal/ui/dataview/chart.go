@@ -215,8 +215,11 @@ func niceTicks(lo, hi float64, n int) []float64 {
 			break
 		}
 	}
+	// From a tick at or under lo to one at or over hi, so that the axis
+	// holds the highest value under a line of its own.
 	var out []float64
-	for v := math.Floor(lo/step) * step; v <= hi+step*0.001; v += step {
+	top := math.Ceil(hi/step-0.001) * step
+	for v := math.Floor(lo/step) * step; v <= top+step*0.001; v += step {
 		out = append(out, v)
 	}
 	return out
@@ -418,7 +421,20 @@ func drawXY(c *ui.Context, p *ui.Painter, r ui.Rect, kind int, names []string, p
 		return plot.X + band*(float32(i)+0.5)
 	}
 	// X labels, as many as fit.
-	labelEvery := max(1, int(math.Ceil(float64(len(pts))*80/float64(plot.W))))
+	axisLabel := func(i int) string {
+		if timeAxis && continuous {
+			return fmtAxisTime(pts[i].x, xhi-xlo)
+		}
+		return shortLabel(pts[i].label)
+	}
+	// The widest of at most some 64 labels, spread along the axis: a long
+	// series is not measured whole on every paint.
+	widest := float32(0)
+	for i := 0; i < len(pts); i += max(1, len(pts)/64) {
+		lw, _ := p.MeasureText(0, ui.Span{Text: axisLabel(i), Size: 11})
+		widest = max(widest, lw)
+	}
+	labelEvery := max(1, int(math.Ceil(float64(len(pts))*float64(widest+16)/float64(plot.W))))
 	if continuous && !timeAxis {
 		for _, tv := range niceTicks(xlo, xhi, 6) {
 			if tv < xlo || tv > xhi {
@@ -429,14 +445,9 @@ func drawXY(c *ui.Context, p *ui.Painter, r ui.Rect, kind int, names []string, p
 		}
 	} else {
 		for i := 0; i < len(pts); i += labelEvery {
-			label := pts[i].label
-			if timeAxis && continuous {
-				label = fmtAxisTime(pts[i].x, xhi-xlo)
-			}
-			if len([]rune(label)) > 12 {
-				label = string([]rune(label)[:11]) + "…"
-			}
-			p.Text(xOf(i)-float32(len([]rune(label)))*3, plot.Y+plot.H+8, label, 11, muted)
+			label := axisLabel(i)
+			lw, _ := p.MeasureText(0, ui.Span{Text: label, Size: 11})
+			p.Text(xOf(i)-lw/2, plot.Y+plot.H+8, label, 11, muted)
 		}
 	}
 	p.Line(plot.X, yOf(0), plot.X+plot.W, yOf(0), 1, muted.Alpha(0.6))
@@ -514,11 +525,13 @@ func drawXY(c *ui.Context, p *ui.Painter, r ui.Rect, kind int, names []string, p
 				for k := len(run) - 1; k >= 0; k-- {
 					area.LineTo(xOf(run[k]), yOf(base(run[k], j)))
 				}
-				alpha := float32(0.3)
 				if stacked(kind) {
-					alpha = 0.7
+					p.FillPath(area.Close(), col.Alpha(0.7))
+				} else {
+					// Fading toward the axis: the line is the value, the fill
+					// only its weight.
+					p.FillPathGradient(area.Close(), ui.LinearGradient{From: col.Alpha(0.32), To: col.Alpha(0.02), Angle: 180})
 				}
-				p.FillPath(area.Close(), col.Alpha(alpha))
 				p.StrokePath(top, 2, col)
 				run = run[:0]
 			}
@@ -533,7 +546,7 @@ func drawXY(c *ui.Context, p *ui.Painter, r ui.Rect, kind int, names []string, p
 		}
 	case chartBar:
 		n := float32(len(names))
-		w := max(1, min(band*0.8/n, 48))
+		w := max(1, min(band*0.7/n, 40)) // bars, not slabs, on a wide panel
 		gap := float32(2)
 		if w < 6 {
 			gap = 0
@@ -550,7 +563,15 @@ func drawXY(c *ui.Context, p *ui.Painter, r ui.Rect, kind int, names []string, p
 				if hover >= 0 && hover != i {
 					col = col.Alpha(0.55)
 				}
-				p.Fill(ui.Rect{X: x + gap/2, Y: top, W: max(1, w-gap), H: max(1, h)}, col, min(4, (w-gap)/2))
+				bar := ui.Rect{X: x + gap/2, Y: top, W: max(1, w-gap), H: max(1, h)}
+				// Rounded where it ends, square on the axis it stands on.
+				rr := min(4, bar.W/2, bar.H)
+				ext := bar
+				ext.H += rr
+				if pts[i].ys[j] < 0 {
+					ext.Y -= rr
+				}
+				p.Clip(bar, 0, func() { p.Fill(ext, col, rr) })
 			}
 		}
 	case chartLine, chartScatter:
@@ -784,4 +805,12 @@ func (s *Chart) Use(settings ChartSettings, src *Source) {
 			s.ys[i] = slices.Contains(settings.Series, c.Name) && c.Name != s.x
 		}
 	}
+}
+
+// shortLabel is a category's label on the x axis, cut past 12 characters.
+func shortLabel(label string) string {
+	if r := []rune(label); len(r) > 12 {
+		return string(r[:11]) + "…"
+	}
+	return label
 }

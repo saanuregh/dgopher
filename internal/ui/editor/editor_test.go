@@ -276,10 +276,8 @@ func TestRunButtons(t *testing.T) {
 	}
 	r, _ := et.tt.Find(e.RunTip)
 	et.tt.Move(r.X+r.W/2, r.Y+r.H/2)
-	for deadline := time.Now().Add(3 * time.Second); count() < 3 && time.Now().Before(deadline); {
-		time.Sleep(50 * time.Millisecond)
-		et.tt.Frame()
-	}
+	et.tt.Frame()
+	et.tt.Advance(3 * time.Second) // the tooltip's delay
 	if count() != 3 {
 		t.Fatalf("no tooltip %q: %q", e.RunTip, et.tt.Texts())
 	}

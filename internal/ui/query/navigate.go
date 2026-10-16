@@ -236,7 +236,7 @@ func usagesView(a Host, c *ui.Context) {
 		a.OpenQueryFile(u.path, u.at)
 	}
 	ui.DialogBase(c, &d.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(widgets.PickerBackdrop).Justify(ui.Start).PaddingY(80)
+		widgets.PickerLook(c, backdrop, panel)
 		panel.Width(720).Radius(12).Background(th.Background).Border(1, th.Border).Clip().Label("Usages")
 		ui.Row(c).Padding(12, 16).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Text(c, d.name).Font(widgets.MonoFont).Bold()
@@ -247,18 +247,21 @@ func usagesView(a Host, c *ui.Context) {
 			ui.Text(c, fmt.Sprintf("used %d time%s, in %d file%s", len(d.usages), widgets.Plural(len(d.usages)), len(files), widgets.Plural(len(files)))).
 				FontSize(12.5).TextColor(pal.Muted)
 		})
-		list := ui.List(c, &d.list, len(d.usages), func(i int) {
-			u := d.usages[i]
-			row := ui.Row(c).Padding(6, 16).Gap(10)
-			row.Children(func() {
-				ui.Text(c, fmt.Sprintf("%s:%d", u.file, u.line)).FontSize(11.5).TextColor(pal.Muted).Width(180).SingleLine()
-				ui.Text(c, u.text).Font(widgets.MonoFont).FontSize(12.5).SingleLine().Grow(1).Shrink(1).
-					TextRanges(ui.TextRange{Start: u.match[0], End: u.match[1], Color: th.Accent, Weight: 700})
+		var list ui.Element
+		widgets.ChosenRows(c, func() {
+			list = ui.List(c, &d.list, len(d.usages), func(i int) {
+				u := d.usages[i]
+				row := ui.Row(c).Padding(6, 16).Gap(10)
+				row.Children(func() {
+					ui.Text(c, fmt.Sprintf("%s:%d", u.file, u.line)).FontSize(11.5).TextColor(pal.Muted).Width(180).SingleLine()
+					ui.Text(c, u.text).Font(widgets.MonoFont).FontSize(12.5).SingleLine().Grow(1).Shrink(1).
+						TextRanges(ui.TextRange{Start: u.match[0], End: u.match[1], Color: th.Accent, Weight: 700})
+				})
+			}).MaxHeight(440).Children(func() {
+				if len(d.usages) == 0 {
+					ui.Text(c, "Not used in the project's query files.").TextColor(pal.Muted).Padding(14)
+				}
 			})
-		}).MaxHeight(440).Children(func() {
-			if len(d.usages) == 0 {
-				ui.Text(c, "Not used in the project's query files.").TextColor(pal.Muted).Padding(14)
-			}
 		})
 		if list.Submitted() {
 			jump(d.sel)
@@ -292,7 +295,7 @@ func (q *Tab) askRename() {
 // the new name where it needs it.
 func renameInText(text string, id identifier, name string, d sqltext.Dialect, quote func(string) string) string {
 	written := name
-	if needsQuote(name) {
+	if sqltext.NeedsQuote(name) {
 		written = quote(name)
 	}
 	occ := occurrences(text, id, d)
@@ -308,7 +311,7 @@ func renameView(a Host, c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	q := f.q
 	n := len(occurrences(q.Editor.Text(), f.id, q.Editor.Dialect))
-	ui.Modal(c, &f.open, func() {
+	widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(440).Gap(10).Children(func() {
 			ui.Text(c, "Rename "+f.id.name).FontSize(15).Bold()
 			submit := ui.TextInput(c, &f.name).AutoFocus().Label("New name").Font(widgets.MonoFont).Submitted()

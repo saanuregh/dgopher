@@ -13,6 +13,7 @@ import (
 	"dgopher/internal/export"
 	"dgopher/internal/settings"
 	"dgopher/internal/testutil"
+	"dgopher/internal/ui/editor"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -559,8 +560,8 @@ func TestValuePanelViewers(t *testing.T) {
 	g.setCursorCol(2)
 	tt := ui.NewTester(func(c *ui.Context) { g.View(c, a, src) }, 900, 360)
 	tt.Frame()
-	if g.viewer != "JSON" || !testutil.HasTextContaining(tt, `"k": [`) {
-		t.Fatalf("viewer %q: %q", g.viewer, tt.Texts())
+	if g.viewer != "JSON" || g.valueArea.Language != editor.LanguageJSON {
+		t.Fatalf("viewer %q, area language %v", g.viewer, g.valueArea.Language)
 	}
 	testutil.Snapshot(t, tt, "value-panel")
 }

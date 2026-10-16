@@ -108,6 +108,7 @@ func TestOpenFileAsksWhenEdited(t *testing.T) {
 	if disk, _ := os.ReadFile(q.Path); string(disk) != "SELECT 'pulled';" {
 		t.Fatalf("the changed file was overwritten: %q", disk)
 	}
+	testutil.Settled(t, tt, "Reload") // the bar grown in
 	if err := tt.Click("Reload"); err != nil {
 		t.Fatal(err)
 	}

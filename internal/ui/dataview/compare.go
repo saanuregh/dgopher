@@ -47,7 +47,7 @@ func (v *Viewer) snapshot() *rowSnapshot {
 
 // compareMenu pins the rows to compare, or compares them with those
 // pinned.
-func (v *Viewer) compareMenu(m *ui.Menu) {
+func (v *Viewer) compareMenu(m *widgets.Menu) {
 	pinned := v.a.Dialogs().pinned
 	if m.Item("Pin These Rows for Comparison").Disabled(len(v.src.Cols) == 0).Chosen() {
 		v.a.Dialogs().pinned = v.snapshot()
@@ -281,22 +281,23 @@ func (t *CompareTab) CloseReason() string          { return "" }
 func (t *CompareTab) Close()                       {}
 
 func (t *CompareTab) View(c *ui.Context) {
-	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	same, changed, onlyA, onlyB := t.same, t.changed, t.onlyA, t.onlyB
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Row(c).Padding(8, 12).Gap(12).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Text(c, "A: "+t.a.title+"   B: "+t.b.title).Bold().SingleLine().Shrink(1)
-			ui.Text(c, fmt.Sprintf("%d the same · %d changed · %d only in A · %d only in B", same, changed, onlyA, onlyB)).
-				FontSize(12.5).TextColor(pal.Muted).SingleLine().Grow(1).Shrink(1)
+		widgets.Bar(c, "Comparison", func() {
+			widgets.BarTitle(c, func() {
+				ui.Text(c, "A: "+t.a.title+"   B: "+t.b.title).Bold().SingleLine().Shrink(1)
+				ui.Text(c, fmt.Sprintf("%d the same · %d changed · %d only in A · %d only in B", same, changed, onlyA, onlyB)).
+					TextColor(pal.Muted).SingleLine().Shrink(1)
+			}).Grow(1)
 			labels, values := t.matchChoices()
-			ui.Text(c, "Match rows by").FontSize(12.5).TextColor(pal.Muted)
-			ui.Select(c, &t.matchLabel, labels).Label("Match rows by")
+			ui.Text(c, "Match rows by").TextColor(pal.Muted)
+			ui.Select(c, &t.matchLabel, labels).Label("Match rows by").FontSize(widgets.ToolFontSize)
 			if by := values[max(0, slices.Index(labels, t.matchLabel))]; by != t.matchBy {
 				t.matchBy = by
 				t.compare()
 			}
-			if ui.Segmented(c, &t.shown, "Differences", "All Rows").Label("Rows shown").Changed() {
+			if ui.Segmented(c, &t.shown, "Differences", "All Rows").Label("Rows shown").FontSize(widgets.ToolFontSize).Changed() {
 				t.lay()
 			}
 		})

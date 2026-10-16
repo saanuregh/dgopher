@@ -156,7 +156,7 @@ func goToView(a Host, c *ui.Context) {
 	if f.column {
 		title, hint = "Go to Column", "Column name, or its start"
 	}
-	ui.Modal(c, &f.open, func() {
+	widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(360).Gap(10).Children(func() {
 			ui.Text(c, title).FontSize(15).Bold()
 			submit := ui.TextInput(c, &f.text).Placeholder(hint).AutoFocus().Label(hint).Submitted()

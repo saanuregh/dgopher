@@ -56,10 +56,7 @@ func TestQuickRunKeepsTab(t *testing.T) {
 		t.Fatalf("a reason before the run: %q", q.CloseReason())
 	}
 	closeLabel := "Close " + q.Title()
-	before, ok := tt.Find(closeLabel)
-	if !ok {
-		t.Fatalf("no %q: %q", closeLabel, tt.Texts())
-	}
+	before := testutil.Settled(t, tt, closeLabel) // once the new tab grew in
 	q.Run(query.RunStatement)
 	running := 0
 	for f := 0; f < 40 && (f < 2 || q.Running); f++ {

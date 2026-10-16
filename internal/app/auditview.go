@@ -140,18 +140,32 @@ func auditCount(shown, read int) string {
 	return fmt.Sprintf("%d entries", read)
 }
 
-func kindColor(c *ui.Context, kind string) ui.Color {
-	th := c.Theme()
+// kindColor is the color an entry's kind stands out in, of th, the
+// window's theme; none for the kinds that make most of the log.
+func kindColor(th *ui.Theme, kind string) (ui.Color, bool) {
 	switch kind {
 	case audit.KindBlocked:
-		return th.Danger
+		return th.Danger, true
 	case audit.KindConfirm, audit.KindKill, audit.KindTrust:
-		return th.Warning
+		return th.Warning, true
 	case audit.KindEdit, audit.KindImport:
-		return th.Accent
+		return th.Accent, true
 	}
-	return widgets.PaletteOf(c).Muted
+	return ui.Color{}, false
 }
+
+// auditTime is when an entry was written, as the log shows it: always
+// with its date, which a screenshot or a long session needs, and its year
+// when it is not now's.
+func auditTime(at, now time.Time) string {
+	if at.Year() != now.Year() {
+		return at.Format("Jan 02 2006 15:04:05")
+	}
+	return at.Format("Jan 02 15:04:05")
+}
+
+// auditAbout is how the log keeps its entries from changing unseen.
+const auditAbout = "Each entry carries the hash of the one before it: an entry changed, removed or inserted breaks the chain. To catch a cut-off end or a rewrite, keep a copy of the head elsewhere (More › Copy Head)."
 
 func (a *App) auditTab(c *ui.Context, h *historyState) {
 	v := h.audit
@@ -159,7 +173,7 @@ func (a *App) auditTab(c *ui.Context, h *historyState) {
 	pal := widgets.PaletteOf(c)
 	shown := v.shown()
 	ui.Row(c).Padding(8, 16).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-		ui.Icon(c, widgets.IconShield).FontSize(16).TextColor(th.Accent)
+		ui.Icon(c, widgets.IconShield).FontSize(16).TextColor(th.Accent).Tooltip(auditAbout)
 		widgets.SearchBox(c, &v.filter, "Filter by statement, connection, user or error", 0).AutoFocus()
 		ui.Select(c, &v.kind, auditKinds).Label("Kind")
 		if ui.Checkbox(c, &v.traffic, "Traffic").Disabled(v.log == nil).
@@ -169,9 +183,9 @@ func (a *App) auditTab(c *ui.Context, h *historyState) {
 		ui.Segmented(c, &v.origin, auditOrigins...).Label("Written by").
 			Tooltip("Typed: what a person wrote, in an editor, the console, a file or a dashboard. App: what the app sent for what was asked of it.")
 	})
-	ui.Row(c).Padding(8, 16).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-		ui.Text(c, auditCount(len(shown), len(v.events))).FontSize(12).TextColor(pal.Muted)
-		ui.Spacer(c)
+	// The count, the check of the chain and the rest, at the foot, so the
+	// entries start under the filters.
+	actions := func() {
 		switch {
 		case v.checking:
 		case v.verified != nil && v.verified.Intact():
@@ -195,39 +209,55 @@ func (a *App) auditTab(c *ui.Context, h *historyState) {
 				}
 			})
 		}
-		if v.log != nil && ui.Button(c, "Copy Head").Tooltip("The last entry's number and hash: keep them elsewhere, as in a ticket, to show later that the log was not rewritten or cut short").Clicked() {
-			seq, hash := v.log.Head()
-			a.WriteClipboard(fmt.Sprintf("dgopher audit head: entry %d, sha256 %s", seq, hash))
-			c.Toast("Copied the audit head")
+		// The rest, less often wanted, in a menu.
+		if l := v.log; l != nil {
+			widgets.MenuOn(c, widgets.IconButton(c, widgets.IconMore, "More"), func(m *widgets.Menu) {
+				if m.Item("Copy Head").Chosen() {
+					// The last entry's number and hash: kept elsewhere, as
+					// in a ticket, they show later that the log was not
+					// rewritten or cut short.
+					seq, hash := l.Head()
+					a.WriteClipboard(fmt.Sprintf("dgopher audit head: entry %d, sha256 %s", seq, hash))
+					c.Toast("Copied the audit head")
+				}
+				if m.Item("Export…").Chosen() {
+					a.exportAudit(l)
+				}
+				if m.Item("Show File").Chosen() {
+					mygo.Shell.ShowItemInFolder(v.file)
+				}
+			})
 		}
-		if v.log != nil && ui.Button(c, "Export…").Clicked() {
-			a.exportAudit(v.log)
-		}
-		if v.log != nil && ui.Button(c, "Show File").Clicked() {
-			mygo.Shell.ShowItemInFolder(v.file)
-		}
-	})
+	}
 	if msg := cmp.Or(v.err, v.missing); msg != "" {
 		ui.Text(c, msg).TextColor(th.Danger).Padding(10, 16).Selectable()
 	}
 	cols := []ui.TableColumn{
-		{Title: "Time", Width: 150}, {Title: "Kind", Width: 90}, {Title: "By", Width: 50}, {Title: "Connection", Width: 170},
+		{Title: "Time", Width: 170}, {Title: "Kind", Width: 90}, {Title: "By", Width: 50}, {Title: "Connection", Width: 170},
 		{Title: "What", MinWidth: 200}, {Title: "Rows", Width: 70, Align: ui.End}, {Title: "Took", Width: 70, Align: ui.End},
 	}
-	dense := *th
+	dense := widgets.ChosenCells(*th, th.Background, widgets.ChosenRow(c))
 	dense.Spacing = 2.5
 	c.SetTheme(&dense)
+	now := time.Now()
 	table := ui.Table(c, &v.list, cols, len(shown), func(r, col int) {
 		e := shown[r]
-		chosen := r == v.row
 		switch col {
 		case 0:
-			ui.Text(c, e.Time.Local().Format("Jan 02 15:04:05")).FontSize(12).Font(widgets.MonoFont).SingleLine()
+			at := e.Time.Local()
+			ui.Text(c, auditTime(at, now)).FontSize(12).Font(widgets.MonoFont).SingleLine().Tooltip(at.Format(time.RFC1123))
 		case 1:
-			ui.Text(c, e.Kind).FontSize(12).Bold().TextColor(widgets.RowColor(c, kindColor(c, e.Kind), chosen)).SingleLine()
+			// The kinds that change or refuse something as tinted chips;
+			// the rest, most of the log, plain.
+			kind := ui.Text(c, e.Kind).FontSize(12).SingleLine()
+			if col, ok := kindColor(th, e.Kind); ok {
+				kind.TextColor(col).FontWeight(500).Padding(0, 6).Radius(4).Background(col.Alpha(0.14))
+			} else {
+				kind.TextColor(pal.Muted)
+			}
 		case 2:
 			if e.Origin != "" {
-				ui.Text(c, e.Origin).FontSize(12).TextColor(widgets.RowColor(c, pal.Muted, chosen)).SingleLine()
+				ui.Text(c, e.Origin).FontSize(12).TextColor(pal.Muted).SingleLine()
 			}
 		case 3:
 			ui.Row(c).Gap(6).Children(func() {
@@ -241,17 +271,17 @@ func (a *App) auditTab(c *ui.Context, h *historyState) {
 			txt := ui.Text(c, widgets.OneLine(what, 200)).FontSize(12).Font(widgets.MonoFont).SingleLine()
 			switch {
 			case e.Error != "":
-				txt.TextColor(widgets.RowColor(c, th.Danger, chosen))
+				txt.TextColor(th.Danger)
 			case e.Kind == audit.KindTraffic:
-				txt.TextColor(widgets.RowColor(c, pal.Muted, chosen))
+				txt.TextColor(pal.Muted)
 			}
 		case 5:
 			if e.Rows > 0 {
-				ui.Text(c, fmt.Sprint(e.Rows)).FontSize(12)
+				ui.Text(c, fmt.Sprint(e.Rows)).FontSize(12).FontFeatures("tnum")
 			}
 		case 6:
 			if e.DurationMS > 0 {
-				ui.Text(c, widgets.FormatDuration(time.Duration(e.DurationMS)*time.Millisecond)).FontSize(12)
+				ui.Text(c, widgets.FormatDuration(time.Duration(e.DurationMS)*time.Millisecond)).FontSize(12).FontFeatures("tnum")
 			}
 		}
 	}).Grow(1).Label("Audit entries")
@@ -292,9 +322,9 @@ func (a *App) auditTab(c *ui.Context, h *historyState) {
 			})
 		})
 	}
-	ui.Row(c).Padding(10, 16).Gap(8).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
-		ui.Text(c, "Each entry carries the hash of the one before it: an entry changed, removed or inserted breaks the chain. To catch a cut-off end or a rewrite, keep a copy of the head elsewhere. Secrets are redacted. Enter opens a statement in a new editor.").
-			FontSize(12).TextColor(pal.Muted).Grow(1).Shrink(1)
+	ui.Row(c).Padding(10, 16).Gap(8).AlignItems(ui.Center).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+		ui.Text(c, auditCount(len(shown), len(v.events))+" · Secrets are redacted. ↵ opens a statement in a new editor.").FontSize(12).TextColor(pal.Muted).Grow(1).Shrink(1)
+		actions()
 		if ui.Button(c, "Close").Clicked() {
 			h.open = false
 		}

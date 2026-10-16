@@ -1,6 +1,7 @@
 package app
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"dgopher/internal/testutil"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/query"
+	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -83,7 +85,7 @@ func TestWaitingTabConnectsWhenShown(t *testing.T) {
 		t.Fatalf("status %v, texts %q", cn.Status, tt.Texts())
 	}
 	testutil.Snapshot(t, tt, "waiting-tab")
-	if !tt.HasText("Connect (↵)") {
+	if !tt.HasText(widgets.KeyLabel("↵")) {
 		t.Fatalf("no key on the button: %q", tt.Texts())
 	}
 	tt.Key(0, ui.KeyEnter)
@@ -161,6 +163,7 @@ func TestWaitingTabEnterAfterClick(t *testing.T) {
 	a.main.tabs.Append(&plainTab{"front"})
 	a.main.tabs.Append(&waitingTab{a: a, conn: cn, saved: savedTab{Kind: savedSearch, Connection: cn.Config.ID}})
 	tt.Frame()
+	tt.Advance(time.Second) // the tabs grown in
 	if err := tt.Click("lite · search"); err != nil {
 		t.Fatal(err)
 	}
@@ -169,25 +172,24 @@ func TestWaitingTabEnterAfterClick(t *testing.T) {
 	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
 }
 
-// A waiting tab has one button: Connect (↵) while it waits, kept as it
-// starts connecting but disabled, Cancel once connecting has lasted, Retry
-// (↵) once it failed; it keeps its end of the row and its height through
-// the three.
+// A waiting tab has one button: Connect while it waits, kept as it starts
+// connecting but disabled, Cancel once connecting has lasted, Retry once
+// it failed; it keeps its place and its height through the three.
 func TestWaitingTabOneButton(t *testing.T) {
 	a := newTestApp(t)
 	cn := addConn(a, silentPostgres(t))
 	tt := ui.NewTester(a.view, 1200, 760)
 	a.main.tabs.Append(&waitingTab{a: a, conn: cn, saved: savedTab{Kind: savedSearch, Connection: cn.Config.ID}})
 	tt.Frame()
-	connect, ok := tt.Find("Connect (↵)")
+	connect, ok := tt.Find("Connect")
 	if !ok {
 		t.Fatalf("no Connect button: %q", tt.Texts())
 	}
-	if err := tt.Click("Connect (↵)"); err != nil {
+	if err := tt.Click("Connect"); err != nil {
 		t.Fatal(err)
 	}
 	testutil.WaitFor(t, tt, "connecting", func() bool { return a.connecting[cn] != nil })
-	if r, ok := tt.Find("Connect (↵)"); !ok || r.X+r.W != connect.X+connect.W || r.Y != connect.Y {
+	if r, ok := tt.Find("Connect"); !ok || r.X+r.W != connect.X+connect.W || r.Y != connect.Y {
 		t.Fatalf("while connecting briefly: Connect found %v at %v, was at %v", ok, r, connect)
 	}
 	if _, ok := tt.Find("Cancel"); ok {
@@ -196,7 +198,7 @@ func TestWaitingTabOneButton(t *testing.T) {
 	a.connecting[cn].started = time.Now().Add(-3 * time.Second)
 	a.busySince = time.Now().Add(-3 * time.Second)
 	testutil.WaitFor(t, tt, "Cancel", func() bool { _, ok := tt.Find("Cancel"); return ok })
-	testutil.WaitFor(t, tt, "the label to have changed", func() bool { _, ok := tt.Find("Connect (↵)"); return !ok })
+	testutil.WaitFor(t, tt, "the label to have changed", func() bool { _, ok := tt.Find("Connect"); return !ok })
 	if r := testutil.Settled(t, tt, "Cancel"); r.X < connect.X || r.X+r.W > connect.X+connect.W || r.Y < connect.Y || r.Y+r.H > connect.Y+connect.H {
 		t.Fatalf("Cancel at %v, not where Connect was, %v", r, connect)
 	}
@@ -209,9 +211,9 @@ func TestWaitingTabOneButton(t *testing.T) {
 	if err := tt.Click("Cancel"); err != nil {
 		t.Fatal(err)
 	}
-	testutil.WaitFor(t, tt, "Retry", func() bool { _, ok := tt.Find("Retry (↵)"); return ok })
+	testutil.WaitFor(t, tt, "Retry", func() bool { _, ok := tt.Find("Retry"); return ok })
 	testutil.WaitFor(t, tt, "the label to have changed", func() bool { _, ok := tt.Find("Cancel"); return !ok })
-	if r := testutil.Settled(t, tt, "Retry (↵)"); r.X+r.W != connect.X+connect.W || r.Y != connect.Y {
+	if r := testutil.Settled(t, tt, "Retry"); r.X+r.W != connect.X+connect.W || r.Y != connect.Y {
 		t.Fatalf("Retry at %v, Connect was at %v", r, connect)
 	}
 }
@@ -256,4 +258,22 @@ func TestDisconnectKeepsTabs(t *testing.T) {
 		_, waiting := a.tabs.At(1).(*waitingTab)
 		return ok && !waiting && s.same(orders)
 	})
+}
+
+// A waiting tab whose connection fails says why in its bar, without an
+// alert over it; a connect asked from elsewhere still has one.
+func TestWaitingTabFailsInline(t *testing.T) {
+	a := newTestApp(t)
+	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: filepath.Join(t.TempDir(), "no", "x.sqlite")})
+	tt := ui.NewTester(a.view, 1200, 760)
+	a.main.tabs.Append(&waitingTab{a: a, conn: cn, saved: savedTab{Kind: savedSearch, Connection: cn.Config.ID}})
+	tt.Frame()
+	tt.Key(0, ui.KeyEnter)
+	testutil.WaitFor(t, tt, "the failure", func() bool { return cn.Status == connection.StatusFailed })
+	tt.Frame()
+	if a.alert != nil || !tt.HasText("Not connected: ") {
+		t.Fatalf("alert %+v; texts %q", a.alert, tt.Texts())
+	}
+	a.Connect(cn, nil)
+	testutil.WaitFor(t, tt, "the alert", func() bool { return a.alert != nil })
 }

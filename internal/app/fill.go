@@ -405,7 +405,7 @@ func (a *App) fillView(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	_, winH := c.Size()
-	dlg := ui.Modal(c, &x.open, func() {
+	dlg := widgets.Modal(c, &x.open, func() {
 		ui.Column(c).Width(980).MaxHeight(winH - 80).Gap(12).Children(func() {
 			ui.Text(c, "Generate Test Data for "+x.obj.Schema+"."+x.obj.Name).FontSize(15).Bold().SingleLine()
 			if x.loading {

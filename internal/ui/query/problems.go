@@ -338,7 +338,7 @@ func unknown(start, end int, what, name, where string, names []string, quote fun
 	if best != "" {
 		p.Message += " Did you mean " + best + "?"
 		p.Fix = best
-		if needsQuote(best) {
+		if sqltext.NeedsQuote(best) {
 			p.Fix = quote(best)
 		}
 	}

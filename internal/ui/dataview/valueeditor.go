@@ -1,9 +1,7 @@
 package dataview
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"regexp"
 	"slices"
 	"strings"
@@ -41,56 +39,13 @@ type valueEditor struct {
 	forms []string // those offered, the text last
 	form  string   // the one shown
 
-	enum     []string
-	choice   string     // the enum value chosen
-	when     time.Time  // the calendar's date and time
-	date     dateLayout // how the value spells its date
-	truth    int        // the switch: 0 true, 1 false
-	jsonOpen map[string]*bool
-	dismiss  widgets.DismissGuard
-
-	// The tree's JSON, decoded once for treeText, its objects as jsonObject.
-	treeText string
-	treeRoot any
-	treeErr  error
-	treeOK   bool
-}
-
-// jsonObject is a decoded JSON object with its keys sorted.
-type jsonObject struct {
-	keys   []string
-	values map[string]any
-}
-
-// sortedJSON turns every object under v into a jsonObject.
-func sortedJSON(v any) any {
-	switch x := v.(type) {
-	case map[string]any:
-		keys := make([]string, 0, len(x))
-		for k, item := range x {
-			keys = append(keys, k)
-			x[k] = sortedJSON(item)
-		}
-		slices.Sort(keys)
-		return jsonObject{keys: keys, values: x}
-	case []any:
-		for i, item := range x {
-			x[i] = sortedJSON(item)
-		}
-	}
-	return v
-}
-
-// decodedTree is e.text decoded, decoding only when the text changed.
-func (e *valueEditor) decodedTree() (any, error) {
-	if !e.treeOK || e.treeText != e.text {
-		dec := json.NewDecoder(bytes.NewReader([]byte(e.text)))
-		dec.UseNumber()
-		var root any
-		err := dec.Decode(&root)
-		e.treeText, e.treeRoot, e.treeErr, e.treeOK = e.text, sortedJSON(root), err, true
-	}
-	return e.treeRoot, e.treeErr
+	enum    []string
+	choice  string     // the enum value chosen
+	when    time.Time  // the calendar's date and time
+	date    dateLayout // how the value spells its date
+	truth   int        // the switch: 0 true, 1 false
+	tree    jsonTree
+	dismiss widgets.DismissGuard
 }
 
 // columnInfo is what the editor needs to know of a column of the rows:
@@ -114,7 +69,7 @@ func openValueEditor(a Host, g *Grid, src *Source, row, col int) {
 	}
 	e := &valueEditor{open: true, g: g, src: src, row: row, col: col, text: text,
 		editable: editable,
-		info:     columnInfo{Type: src.Cols[col].Type}, jsonOpen: map[string]*bool{}}
+		info:     columnInfo{Type: src.Cols[col].Type}}
 	if g.isMasked(col) {
 		e.text = MaskedText
 	}
@@ -246,7 +201,7 @@ func valueEditorView(a Host, c *ui.Context) {
 	e := a.Dialogs().valueEdit
 	pal := widgets.PaletteOf(c)
 	th := c.Theme()
-	dlg := ui.Modal(c, &e.open, func() {
+	dlg := widgets.Modal(c, &e.open, func() {
 		ui.Column(c).Width(640).Gap(10).Children(func() {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, e.src.Cols[e.col].Name).FontSize(15).Bold()
@@ -346,55 +301,26 @@ func (e *valueEditor) switchForm(form string) {
 	e.form = form
 }
 
-// treeView shows the JSON value as a tree of its objects and arrays.
+// valueTreeLines is how many lines of a tree the value editor shows at
+// most.
+const valueTreeLines = 2000
+
+// treeView shows the JSON value as a tree, its first levels open.
 func (e *valueEditor) treeView(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	root, err := e.decodedTree()
-	if err != nil {
-		ui.Text(c, "Not JSON: "+err.Error()).TextColor(th.Danger)
+	e.tree.read(e.text, 2)
+	if e.tree.node == nil {
+		ui.Text(c, "Not JSON: "+e.tree.err.Error()).TextColor(th.Danger)
 		return
 	}
-	ui.Scroll(c).Grow(1).Border(1, th.Border).Radius(6).Children(func() {
-		ui.Tree(c, func() { e.treeNode(c, "", "$", root) }).Padding(4).Label("JSON")
+	cut := false
+	ui.Scroll(c).Grow(1).Border(1, th.Border).Radius(6).Padding(4).Children(func() {
+		cut = e.tree.view(c, e.g.SQLOpts.Engine, e.src.Cols[e.col].Name, valueTreeLines)
 	})
-	ui.Text(c, "The Text editor changes the value.").FontSize(12).TextColor(pal.Muted)
-}
-
-// treeNode shows a JSON value under its key, at a path naming it.
-func (e *valueEditor) treeNode(c *ui.Context, key, path string, v any) {
-	open := func() *bool {
-		if e.jsonOpen[path] == nil {
-			o := strings.Count(path, ".")+strings.Count(path, "[") < 2 // the first levels start open
-			e.jsonOpen[path] = &o
-		}
-		return e.jsonOpen[path]
+	hint := e.tree.hint(c) + ". The Text editor changes the value."
+	if cut {
+		hint = "The document goes on: the Text editor shows it whole."
 	}
-	label := func(s string) string {
-		if key == "" {
-			return s
-		}
-		return key + ": " + s
-	}
-	switch x := v.(type) {
-	case jsonObject:
-		ui.TreeItem(c.Key(path), label(fmt.Sprintf("{%d}", len(x.keys))), open(), func() {
-			for _, k := range x.keys {
-				e.treeNode(c, k, path+"."+k, x.values[k])
-			}
-		})
-	case []any:
-		ui.TreeItem(c.Key(path), label(fmt.Sprintf("[%d]", len(x))), open(), func() {
-			for i, item := range x {
-				e.treeNode(c, fmt.Sprint(i), fmt.Sprintf("%s[%d]", path, i), item)
-			}
-		})
-	case string:
-		s, _ := json.Marshal(x)
-		ui.TreeItem(c.Key(path), label(cellText(string(s), 200)), nil, nil)
-	case nil:
-		ui.TreeItem(c.Key(path), label("null"), nil, nil)
-	default:
-		ui.TreeItem(c.Key(path), label(fmt.Sprint(x)), nil, nil)
-	}
+	ui.Text(c, hint).FontSize(12).TextColor(pal.Muted)
 }

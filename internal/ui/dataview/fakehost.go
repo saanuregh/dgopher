@@ -159,6 +159,7 @@ func (h *FakeHost) View(c *ui.Context) {
 			h.Confirm = nil
 		}
 	}
+	widgets.FinishCards(c)
 }
 
 func (h *FakeHost) Post(fn func()) {
@@ -216,7 +217,12 @@ func (h *FakeHost) FocusWant() *string { return &h.focus }
 func (h *FakeHost) Dialogs() *Dialogs { return &h.dialogs }
 
 // Connect opens the connection as the app does, without its prompts.
-func (h *FakeHost) Connect(cn *connection.Conn, then func()) {
+func (h *FakeHost) Connect(cn *connection.Conn, then func()) { h.connect(cn, then, true) }
+
+// ConnectInline is Connect without the error alert, as the app's.
+func (h *FakeHost) ConnectInline(cn *connection.Conn, then func()) { h.connect(cn, then, false) }
+
+func (h *FakeHost) connect(cn *connection.Conn, then func(), alert bool) {
 	switch cn.Status {
 	case connection.StatusConnected:
 		if then != nil {
@@ -248,7 +254,9 @@ func (h *FakeHost) Connect(cn *connection.Conn, then func()) {
 		return func() {
 			if err != nil {
 				cn.Status, cn.Err, cn.Waiters = connection.StatusFailed, err.Error(), nil
-				h.ShowError("Could not connect to "+cfg.Name, err.Error())
+				if alert {
+					h.ShowError("Could not connect to "+cfg.Name, err.Error())
+				}
 				return
 			}
 			cn.Reset()

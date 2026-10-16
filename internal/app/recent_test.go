@@ -8,6 +8,7 @@ import (
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/testutil"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -76,8 +77,8 @@ func TestOpenRecentMenu(t *testing.T) {
 	if err := tt.Click("Menu"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tt.ChooseMenuItem("File", "Open Recent", "a.sqlite"); err != nil {
-		t.Fatalf("%v; menu %q", err, tt.Menu())
+	if err := testutil.ChooseMenu(tt, "File", "Open Recent", "a.sqlite"); err != nil {
+		t.Fatalf("%v; texts %q", err, tt.Texts())
 	}
 	tt.Frame()
 	if !slices.ContainsFunc(a.conns, func(cn *connection.Conn) bool { return cn.Config.Engine == db.SQLite && cn.Config.Database == lite }) {
@@ -87,8 +88,8 @@ func TestOpenRecentMenu(t *testing.T) {
 	if err := tt.Click("Menu"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tt.ChooseMenuItem("File", "Open Recent", "Clear Recent"); err != nil {
-		t.Fatalf("%v; menu %q", err, tt.Menu())
+	if err := testutil.ChooseMenu(tt, "File", "Open Recent", "Clear Recent"); err != nil {
+		t.Fatalf("%v; texts %q", err, tt.Texts())
 	}
 	tt.Frame()
 	if len(*recent) != 0 {

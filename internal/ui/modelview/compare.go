@@ -83,7 +83,7 @@ func (t *Tab) compareView(c *ui.Context) {
 	f := t.comparing
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	dlg := ui.Modal(c, &f.open, func() {
+	dlg := widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(480).Gap(12).Children(func() {
 			ui.Text(c, "Compare "+t.m.Name).FontSize(15).Bold()
 			ui.Segmented(c, &f.with, "A Database", "Another Model").Label("Compare with").AutoFocus()
@@ -290,10 +290,12 @@ func (t *Tab) comparisonView(c *ui.Context) {
 	}
 	counts := r.counts
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Row(c).Padding(6, 12).Gap(10).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Text(c, "Compared with "+r.label).Bold().SingleLine().Shrink(1)
-			ui.Text(c, fmt.Sprintf("%d missing · %d differ · %d not in the model · %d the same",
-				counts[datamodel.OnlyInA], counts[datamodel.Changed], counts[datamodel.OnlyInB], counts[datamodel.Same])).FontSize(12).TextColor(pal.Muted).SingleLine()
+		widgets.Bar(c, "Comparison", func() {
+			widgets.BarTitle(c, func() {
+				ui.Text(c, "Compared with "+r.label).Bold().SingleLine().Shrink(1)
+				ui.Text(c, fmt.Sprintf("%d missing · %d differ · %d not in the model · %d the same",
+					counts[datamodel.OnlyInA], counts[datamodel.Changed], counts[datamodel.OnlyInB], counts[datamodel.Same])).FontSize(12).TextColor(pal.Muted).SingleLine()
+			})
 			ui.Spacer(c)
 			ui.Checkbox(c, &r.showSame, "Show the same")
 			if r.conn != nil && widgets.ToolButton(c, widgets.IconRefresh, "Compare Again", "Read the schema again").Disabled(r.applying).Clicked() {

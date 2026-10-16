@@ -174,6 +174,10 @@ func (g *Grid) editMenu(m *ui.Menu, src *Source, row, col int) {
 // headerMenu is the context menu of a column's header.
 func (g *Grid) headerMenu(m *ui.Menu, a Host, src *Source, col int) {
 	name := src.Cols[col].Name
+	if m.Item("Show Card").Chosen() {
+		g.cardHeader, g.headerAsked = col, true
+	}
+	m.Separator()
 	if keymap.Item(m.Item("Select Column"), keymap.SelectColumn).Chosen() {
 		g.List.SelectColumns(colID(col), colID(col))
 	}

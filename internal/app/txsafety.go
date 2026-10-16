@@ -241,7 +241,7 @@ func (a *App) idleWarningView(c *ui.Context) {
 	msg := fmt.Sprintf("The transaction of %s on %s has been idle for %s. It holds its locks until it ends, so it will be rolled back in %d seconds.",
 		w.tab.Title(), cfg.Name, idle, left)
 	choice := -1
-	ui.Modal(c, &w.open, func() {
+	widgets.Modal(c, &w.open, func() {
 		ui.Column(c).Width(460).Gap(12).Children(func() {
 			ui.Text(c, "Roll back the idle transaction?").FontSize(15).Bold()
 			ui.Text(c, msg).TextColor(widgets.PaletteOf(c).Muted)
@@ -288,7 +288,7 @@ func (a *App) txIndicator(c *ui.Context) {
 	}
 	b := widgets.Appear(ui.ButtonBase(c.Key("open-transactions")).Padding(1, 8).Radius(4).Background(c.Theme().Warning.Alpha(0.2)).Label(label))
 	b.Children(func() { ui.Text(c, label).FontSize(12).Bold().ContentTransition(ui.ContentTransition{}) })
-	b.Menu(func(m *ui.Menu) {
+	widgets.MenuOn(c, b, func(m *widgets.Menu) {
 		for _, h := range txs {
 			age := a.now.Sub(h.Times().Opened).Round(time.Second)
 			if m.Item(fmt.Sprintf("%s — %s — open %s", h.Title(), h.Connection().Config.Name, age)).Chosen() {

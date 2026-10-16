@@ -245,12 +245,7 @@ func (q *Tab) candidates(a Host, cc sqltext.CompletionContext) []suggestion {
 	}
 	dialect := cn.DB.Dialect
 	schema := cn.DefaultSchema
-	quote := func(name string) string {
-		if needsQuote(name) {
-			return dialect.Quote(name)
-		}
-		return name
-	}
+	quote := func(name string) string { return db.QuoteIfNeeded(dialect, name) }
 	var out []suggestion
 	columnsOf := func(tableSchema, table string) {
 		if tableSchema == "" {
@@ -342,18 +337,4 @@ func (q *Tab) snippetSuggestions() []suggestion {
 		}
 	}
 	return out
-}
-
-// needsQuote reports whether an identifier must be quoted.
-func needsQuote(s string) bool {
-	if s == "" {
-		return true
-	}
-	for i, r := range s {
-		if r == '_' || r >= 'a' && r <= 'z' || i > 0 && r >= '0' && r <= '9' {
-			continue
-		}
-		return true
-	}
-	return false
 }
