@@ -53,6 +53,8 @@ type Conn struct {
 	Objects       map[SchemaKey][]db.Object
 	Items         map[SchemaKey][]db.Item
 	Columns       map[ObjectKey][]db.Column
+	Relations     map[ObjectKey]Relations
+	Signatures    map[string][]db.Signature // by lower-case name; nil until read
 	Loading       map[any]bool
 	LoadErr       map[any]string
 }
@@ -100,6 +102,8 @@ func (cn *Conn) Reset() {
 	cn.Objects = map[SchemaKey][]db.Object{}
 	cn.Items = map[SchemaKey][]db.Item{}
 	cn.Columns = map[ObjectKey][]db.Column{}
+	cn.Relations = map[ObjectKey]Relations{}
+	cn.Signatures = nil
 	cn.Loading = map[any]bool{}
 	cn.LoadErr = map[any]string{}
 	cn.Databases = nil
@@ -112,6 +116,12 @@ func (cn *Conn) ForgetCatalog() {
 	clear(cn.Objects)
 	clear(cn.Items)
 	clear(cn.Columns)
+	clear(cn.Relations)
+	for k := range cn.LoadErr {
+		if _, ok := k.(relationsKey); ok {
+			delete(cn.LoadErr, k)
+		}
+	}
 }
 
 // PoolFor returns how to get the pool of one of the connection's
@@ -364,6 +374,18 @@ func LoadColumns(r Runner, cn *Conn, database, schema, name string, then func([]
 			}
 		}
 	})
+}
+
+// ColumnsOf is a table's columns as read so far, and whether they are
+// read; when they are not and no reading of them failed, it starts
+// reading them, as ObjectsOf does a schema's tables.
+func ColumnsOf(r Runner, cn *Conn, database, schema, name string) ([]db.Column, bool) {
+	key := ObjectKey{Database: database, Schema: schema, Name: name}
+	cols, ok := cn.Columns[key]
+	if !ok && cn.LoadErr[key] == "" {
+		LoadColumns(r, cn, database, schema, name, nil)
+	}
+	return cols, ok
 }
 
 // WantColumns reads a table's columns that no one opened the table for,

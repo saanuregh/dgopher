@@ -66,7 +66,7 @@ func (a *App) keysView(c *ui.Context) {
 	k := a.keys
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	ui.Modal(c, &k.open, func() {
+	widgets.Modal(c, &k.open, func() {
 		ui.Column(c).Width(720).Height(600).Gap(10).Children(func() {
 			ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, "Customize Keyboard Shortcuts").FontSize(16).Bold()

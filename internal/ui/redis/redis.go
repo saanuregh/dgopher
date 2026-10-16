@@ -492,7 +492,7 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 				if widgets.IconButton(c, widgets.IconPlus, "New key").Clicked() {
 					r.newKey = &newKeyForm{open: true, typ: "string"}
 				}
-				widgets.IconButton(c, widgets.IconMore, "More").Menu(func(m *ui.Menu) {
+				widgets.MenuOn(c, widgets.IconButton(c, widgets.IconMore, "More"), func(m *widgets.Menu) {
 					ro := r.conn.Config.ReadOnly
 					if m.Item("Delete Keys Matching…").Disabled(ro).Chosen() {
 						r.openBulk(bulkDelete)
@@ -522,32 +522,35 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 			ui.Text(c, r.scanErr).TextColor(th.Danger).Padding(8)
 		}
 		r.buildTree()
-		tree := ui.Outline(c, &r.tree, r.children[""], func(n string) []string {
-			if isFolder(n, r) {
-				return r.children[n]
-			}
-			return nil
-		}, func(n string) {
-			ui.Row(c).Gap(6).Grow(1).Children(func() {
-				sep := r.treeSep
+		var tree ui.Element
+		widgets.ChosenRows(c, func() {
+			tree = ui.Outline(c, &r.tree, r.children[""], func(n string) []string {
 				if isFolder(n, r) {
-					parent := strings.TrimSuffix(n, sep)
-					if i := strings.LastIndex(parent, sep); i >= 0 {
-						parent = parent[i+len(sep):]
+					return r.children[n]
+				}
+				return nil
+			}, func(n string) {
+				ui.Row(c).Gap(6).Grow(1).Children(func() {
+					sep := r.treeSep
+					if isFolder(n, r) {
+						parent := strings.TrimSuffix(n, sep)
+						if i := strings.LastIndex(parent, sep); i >= 0 {
+							parent = parent[i+len(sep):]
+						}
+						ui.Icon(c, widgets.IconSchema).TextColor(pal.Muted).FontSize(12)
+						ui.Text(c, parent).SingleLine().Grow(1).Shrink(1)
+						ui.Text(c, strconv.Itoa(r.countUnder(n))).FontSize(11).TextColor(pal.Muted)
+						return
 					}
-					ui.Icon(c, widgets.IconSchema).TextColor(pal.Muted).FontSize(12)
-					ui.Text(c, parent).SingleLine().Grow(1).Shrink(1)
-					ui.Text(c, strconv.Itoa(r.countUnder(n))).FontSize(11).TextColor(pal.Muted)
-					return
-				}
-				name := n
-				if i := strings.LastIndex(strings.TrimSuffix(n, sep), sep); i >= 0 {
-					name = n[i+len(sep):]
-				}
-				ui.Icon(c, widgets.IconKey).TextColor(pal.Muted).FontSize(12)
-				ui.Text(c, name).SingleLine().Grow(1).Shrink(1).Tooltip(n)
-			})
-		}).Grow(1).Label("Keys")
+					name := n
+					if i := strings.LastIndex(strings.TrimSuffix(n, sep), sep); i >= 0 {
+						name = n[i+len(sep):]
+					}
+					ui.Icon(c, widgets.IconKey).TextColor(pal.Muted).FontSize(12)
+					ui.Text(c, name).SingleLine().Grow(1).Shrink(1).Tooltip(n)
+				})
+			}).Grow(1).Label("Keys")
+		})
 		if want := a.FocusWant(); *want == "editor" && a.KeysTo(r) && r.tree.List.Focus(c) {
 			*want = "" // the tab chosen by its key takes the keys
 		}
@@ -962,7 +965,7 @@ func (r *Tab) newKeyView(c *ui.Context) {
 	if f == nil {
 		return
 	}
-	dlg := ui.Modal(c, &f.open, func() {
+	dlg := widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(420).Gap(10).Children(func() {
 			ui.Text(c, "New Key").FontSize(15).Bold()
 			ui.Select(c, &f.typ, newKeyTypes).Label("Type")

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"dgopher/internal/audit"
@@ -11,6 +12,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/safety"
 	"dgopher/internal/ui/dataview"
+	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -48,14 +50,13 @@ func (q *Tab) switcherView(c *ui.Context) {
 		return
 	}
 	if cn.SwitchesDatabase() {
+		// The app's own drop-down, in its theme, as the other choices:
+		// a copy, which shows the database switched to only once it is.
 		database := q.currentDatabase()
-		ui.MenuButton(c, database, func(m *ui.Menu) {
-			for _, name := range cn.Databases {
-				if m.Item(name).Checked(name == database).Chosen() {
-					q.switchDatabase(name)
-				}
-			}
-		}).Tooltip("The database the editor works in")
+		if ui.Select(c, &database, cn.Databases).Label("Database").Tooltip("The database the editor works in").
+			FontSize(widgets.ToolFontSize).Changed() { // as the toolbar's buttons, as tall
+			q.switchDatabase(database)
+		}
 	}
 	if schemaStatement(cn.Config.Engine, cn.DB.Dialect, "") == "" {
 		return
@@ -65,13 +66,10 @@ func (q *Tab) switcherView(c *ui.Context) {
 		connection.LoadSchemas(q.a, cn, q.Database, nil)
 	}
 	current := q.currentSchema()
-	ui.MenuButton(c, current, func(m *ui.Menu) {
-		for _, name := range schemas {
-			if m.Item(name).Checked(name == current).Chosen() {
-				q.switchSchema(name)
-			}
-		}
-	}).Tooltip("The schema unqualified names are found in")
+	if ui.Select(c, &current, schemas).Label("Schema").Tooltip("The schema unqualified names are found in").
+		FontSize(widgets.ToolFontSize).Changed() {
+		q.switchSchema(current)
+	}
 }
 
 // switchSchema makes the editor's session find names in a schema, as its
@@ -208,6 +206,45 @@ func (q *Tab) releaseConnection() {
 func (q *Tab) ConnectionClosed() {
 	q.sessionLost = q.sessionLost || q.sess != nil
 	q.releaseConnection()
+}
+
+// Disconnected lets the editor's session go with its connection, which
+// the user disconnected: a statement running stops, a transaction rolls
+// back and changes not applied are discarded. The editor stays, and
+// connects again at its next run.
+func (q *Tab) Disconnected() {
+	if q.Tx != db.TxNone {
+		q.a.Record(&q.Conn.Config, audit.Event{Kind: audit.KindStatement, Database: q.Database, Statement: "ROLLBACK", Detail: "disconnected with its transaction open"})
+	}
+	for _, r := range q.results {
+		if r.view != nil {
+			r.view.Discard()
+		}
+	}
+	if q.Running && q.cancel != nil {
+		q.cancel()
+	}
+	q.setTx(db.TxNone, db.TxNone)
+	q.uncommitted = 0
+	q.releaseConnection()
+}
+
+// DisconnectReason is what disconnecting loses of the editor, as
+// CloseReason is what closing it loses; "" for nothing.
+func (q *Tab) DisconnectReason() string {
+	switch {
+	case q.Running:
+		return "A statement is still running. Disconnecting cancels it."
+	case q.exports > 0:
+		return "An export is reading on this editor's session. Disconnecting stops it."
+	case q.pendingCount() > 0:
+		return fmt.Sprintf("%s to %s in the results not applied. Disconnecting discards them.", widgets.Count(q.pendingCount(), "change"), q.pendingTable())
+	case q.Tx != db.TxNone:
+		return "A transaction is open on this editor's session. Disconnecting rolls it back, losing its changes."
+	case q.uncommitted > 0:
+		return fmt.Sprintf("%d changed rows wait to be committed. Disconnecting rolls them back.", q.uncommitted)
+	}
+	return ""
 }
 
 // HoldsConnection reports work that needs the editor's session on cn as

@@ -103,7 +103,7 @@ func outlineView(a Host, c *ui.Context) {
 		d.q.GoTo(shown[i].start)
 	}
 	ui.DialogBase(c, &d.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(widgets.PickerBackdrop).Justify(ui.Start).PaddingY(80)
+		widgets.PickerLook(c, backdrop, panel)
 		panel.Width(640).Radius(12).Background(th.Background).Border(1, th.Border).Clip().Label("Go to statement")
 		ui.Row(c).Padding(10, 14).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Icon(c, widgets.IconSearch).TextColor(pal.Muted).FontSize(15)
@@ -113,23 +113,26 @@ func outlineView(a Host, c *ui.Context) {
 				jump(d.sel)
 			}
 		})
-		list := ui.List(c, &d.list, len(shown), func(i int) {
-			e := shown[i]
-			row := ui.Row(c).Padding(6, 14).Gap(10)
-			muted := widgets.RowColor(c, pal.Muted, i == d.sel)
-			row.Children(func() {
-				ui.Text(c, fmt.Sprint(e.line)).Font(widgets.MonoFont).FontSize(11.5).TextColor(muted).Width(40).TextAlign(ui.End)
-				ui.Column(c).Gap(1).Grow(1).Shrink(1).Children(func() {
-					ui.Text(c, e.text).Font(widgets.MonoFont).FontSize(12.5).SingleLine()
-					if e.comment != "" {
-						ui.Text(c, e.comment).FontSize(11.5).TextColor(muted).SingleLine()
-					}
+		var list ui.Element
+		widgets.ChosenRows(c, func() {
+			list = ui.List(c, &d.list, len(shown), func(i int) {
+				e := shown[i]
+				row := ui.Row(c).Padding(6, 14).Gap(10)
+				muted := pal.Muted
+				row.Children(func() {
+					ui.Text(c, fmt.Sprint(e.line)).Font(widgets.MonoFont).FontSize(11.5).TextColor(muted).Width(40).TextAlign(ui.End)
+					ui.Column(c).Gap(1).Grow(1).Shrink(1).Children(func() {
+						ui.Text(c, e.text).Font(widgets.MonoFont).FontSize(12.5).SingleLine()
+						if e.comment != "" {
+							ui.Text(c, e.comment).FontSize(11.5).TextColor(muted).SingleLine()
+						}
+					})
 				})
+			}).MaxHeight(420).Children(func() {
+				if len(shown) == 0 {
+					ui.Text(c, "No statement matches.").TextColor(pal.Muted).Padding(14)
+				}
 			})
-		}).MaxHeight(420).Children(func() {
-			if len(shown) == 0 {
-				ui.Text(c, "No statement matches.").TextColor(pal.Muted).Padding(14)
-			}
 		})
 		if list.Submitted() {
 			jump(d.sel)

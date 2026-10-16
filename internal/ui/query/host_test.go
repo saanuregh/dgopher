@@ -21,6 +21,8 @@ type fakeQueryHost struct {
 	*dataview.FakeHost
 	dialogs Dialogs
 	saves   int
+	// disconnects counts the editors' Disconnects.
+	disconnects int
 	// switched are the connections editors were asked to switch to.
 	switched []string
 	// opened are the query files asked for, as path@offset.
@@ -51,6 +53,10 @@ func newFakeQueryHost(t *testing.T) *fakeQueryHost {
 func (h *fakeQueryHost) QueryDialogs() *Dialogs { return &h.dialogs }
 
 func (h *fakeQueryHost) AskSnippet(*Tab) {}
+
+func (h *fakeQueryHost) Online() bool { return true }
+
+func (h *fakeQueryHost) Disconnect(cn *connection.Conn) { h.disconnects++ }
 
 func (h *fakeQueryHost) SaveSQLFile(*Tab, bool) { h.saves++ }
 

@@ -49,8 +49,10 @@ type FakeHost struct {
 	// long the work took.
 	Notified  []string
 	Clipboard string
-	Queries   []string // texts of the query tabs asked for
-	Events    []audit.Event
+	// ClipboardReads counts ReadClipboard calls.
+	ClipboardReads int
+	Queries        []string // texts of the query tabs asked for
+	Events         []audit.Event
 
 	mu    sync.Mutex
 	queue []func()
@@ -157,6 +159,7 @@ func (h *FakeHost) View(c *ui.Context) {
 			h.Confirm = nil
 		}
 	}
+	widgets.FinishCards(c)
 }
 
 func (h *FakeHost) Post(fn func()) {
@@ -202,7 +205,10 @@ func (h *FakeHost) Notify(started time.Time, title, body string, show func()) {
 
 func (h *FakeHost) WriteClipboard(text string) { h.Clipboard = text }
 
-func (h *FakeHost) ReadClipboard() string { return h.Clipboard }
+func (h *FakeHost) ReadClipboard() string {
+	h.ClipboardReads++
+	return h.Clipboard
+}
 
 func (h *FakeHost) Now() time.Time { return time.Now() }
 
@@ -211,7 +217,12 @@ func (h *FakeHost) FocusWant() *string { return &h.focus }
 func (h *FakeHost) Dialogs() *Dialogs { return &h.dialogs }
 
 // Connect opens the connection as the app does, without its prompts.
-func (h *FakeHost) Connect(cn *connection.Conn, then func()) {
+func (h *FakeHost) Connect(cn *connection.Conn, then func()) { h.connect(cn, then, true) }
+
+// ConnectInline is Connect without the error alert, as the app's.
+func (h *FakeHost) ConnectInline(cn *connection.Conn, then func()) { h.connect(cn, then, false) }
+
+func (h *FakeHost) connect(cn *connection.Conn, then func(), alert bool) {
 	switch cn.Status {
 	case connection.StatusConnected:
 		if then != nil {
@@ -243,7 +254,9 @@ func (h *FakeHost) Connect(cn *connection.Conn, then func()) {
 		return func() {
 			if err != nil {
 				cn.Status, cn.Err, cn.Waiters = connection.StatusFailed, err.Error(), nil
-				h.ShowError("Could not connect to "+cfg.Name, err.Error())
+				if alert {
+					h.ShowError("Could not connect to "+cfg.Name, err.Error())
+				}
 				return
 			}
 			cn.Reset()

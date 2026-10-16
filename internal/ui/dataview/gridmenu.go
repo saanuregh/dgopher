@@ -2,6 +2,7 @@ package dataview
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"dgopher/internal/db"
@@ -30,9 +31,7 @@ func (g *Grid) duplicateRow(src *Source, row int, keys map[int]bool) {
 	g.List.ScrollToEnd()
 }
 
-// setDefault sets a cell to its column's default.
-func (g *Grid) setDefault(src *Source, row, col int) {
-	g.checkpoint()
+func (g *Grid) setCellDefault(src *Source, row, col int) {
 	if row >= len(src.Rows) {
 		g.edits.inserted[row-len(src.Rows)][col] = unset
 		return
@@ -40,9 +39,19 @@ func (g *Grid) setDefault(src *Source, row, col int) {
 	g.setValue(src, row, col, db.Default)
 }
 
+// defaultAllowed says whether a cell of row can be set to DEFAULT: added
+// rows always, read rows only where the database allows it in an UPDATE.
+func (g *Grid) defaultAllowed(src *Source, row int) bool {
+	return row >= len(src.Rows) || !g.noDefaultUpdate
+}
+
 // revertCell forgets the change of a cell.
 func (g *Grid) revertCell(src *Source, row, col int) {
 	g.checkpoint()
+	g.forgetCell(src, row, col)
+}
+
+func (g *Grid) forgetCell(src *Source, row, col int) {
 	if row >= len(src.Rows) {
 		g.edits.inserted[row-len(src.Rows)][col] = unset
 		return
@@ -50,10 +59,7 @@ func (g *Grid) revertCell(src *Source, row, col int) {
 	delete(g.edits.updates[row], col)
 }
 
-// revertRow forgets the changes of a row: its edits, its deletion, or the
-// row itself when it was added.
-func (g *Grid) revertRow(src *Source, row int) {
-	g.checkpoint()
+func (g *Grid) forgetRow(src *Source, row int) {
 	if row >= len(src.Rows) {
 		i := row - len(src.Rows)
 		g.edits.inserted = append(g.edits.inserted[:i], g.edits.inserted[i+1:]...)
@@ -64,10 +70,63 @@ func (g *Grid) revertRow(src *Source, row int) {
 	g.orderKey = ""
 }
 
-// editMenu is the Edit submenu of a cell of an editable grid.
+// editableSelection calls fn on every chosen cell that can be edited,
+// skipping read-only columns and rows marked deleted, as paste does.
+func (g *Grid) editableSelection(src *Source, fn func(row, col int)) {
+	cols := g.selectedCols(src)
+	for _, row := range g.selectedRows(src) {
+		if row < len(src.Rows) && g.edits.deleted[row] {
+			continue
+		}
+		for _, col := range cols {
+			if g.readOnlyCols[col] == "" {
+				fn(row, col)
+			}
+		}
+	}
+}
+
+// setSelectedNull sets every editable chosen cell to NULL, as one undo step.
+func (g *Grid) setSelectedNull(src *Source) {
+	g.checkpoint()
+	g.editableSelection(src, func(row, col int) { g.setValue(src, row, col, nil) })
+}
+
+// setSelectedDefault sets every chosen cell that allows it to its default,
+// as one undo step.
+func (g *Grid) setSelectedDefault(src *Source) {
+	g.checkpoint()
+	g.editableSelection(src, func(row, col int) {
+		if g.defaultAllowed(src, row) {
+			g.setCellDefault(src, row, col)
+		}
+	})
+}
+
+// revertSelectedCells forgets the changes of every chosen cell, as one
+// undo step.
+func (g *Grid) revertSelectedCells(src *Source) {
+	g.checkpoint()
+	g.editableSelection(src, func(row, col int) { g.forgetCell(src, row, col) })
+}
+
+// revertSelectedRows forgets the changes of every chosen row, as one undo
+// step.
+func (g *Grid) revertSelectedRows(src *Source) {
+	g.checkpoint()
+	rows := g.selectedRows(src)
+	// From the last: an added row taken out moves those after it.
+	slices.SortFunc(rows, func(x, y int) int { return y - x })
+	for _, row := range rows {
+		g.forgetRow(src, row)
+	}
+}
+
+// editMenu is the Edit submenu of a cell of an editable grid. Its value
+// actions act on the whole selection, which always holds the clicked cell.
 func (g *Grid) editMenu(m *ui.Menu, src *Source, row, col int) {
 	m.Submenu("Edit", func(m *ui.Menu) {
-		if m.Item("Edit Cell").Shortcut(0, ui.KeyF2).Chosen() {
+		if col != wholeRow && m.Item("Edit Cell").Shortcut(0, ui.KeyF2).Chosen() {
 			g.startEdit(src, row, col)
 		}
 		m.Separator()
@@ -81,22 +140,33 @@ func (g *Grid) editMenu(m *ui.Menu, src *Source, row, col int) {
 			g.deleteSelected(src)
 		}
 		m.Separator()
-		if m.Item("Set to NULL").Chosen() {
-			g.checkpoint()
-			g.setValue(src, row, col, nil)
+		rows := g.selectedRows(src)
+		cells := len(rows) * len(g.selectedCols(src))
+		cellLabel := func(single, format string) string {
+			if cells <= 1 {
+				return single
+			}
+			return fmt.Sprintf(format, cells)
 		}
-		defaultOK := row >= len(src.Rows) || !g.noDefaultUpdate
+		if m.Item(cellLabel("Set to NULL", "Set %d Cells to NULL")).Chosen() {
+			g.setSelectedNull(src)
+		}
+		defaultOK := slices.ContainsFunc(rows, func(r int) bool { return g.defaultAllowed(src, r) })
 		// ⌘⌫ deletes rows here, as on a Mac keyboard without Delete: DEFAULT
 		// has no key of its own.
-		if m.Item("Set to DEFAULT").Disabled(!defaultOK).Chosen() {
-			g.setDefault(src, row, col)
+		if m.Item(cellLabel("Set to DEFAULT", "Set %d Cells to DEFAULT")).Disabled(!defaultOK).Chosen() {
+			g.setSelectedDefault(src)
 		}
 		m.Separator()
-		if m.Item("Revert Cell").Chosen() {
-			g.revertCell(src, row, col)
+		if m.Item(cellLabel("Revert Cell", "Revert %d Cells")).Chosen() {
+			g.revertSelectedCells(src)
 		}
-		if m.Item("Revert Row").Chosen() {
-			g.revertRow(src, row)
+		rowLabel := "Revert Row"
+		if len(rows) > 1 {
+			rowLabel = fmt.Sprintf("Revert %d Rows", len(rows))
+		}
+		if m.Item(rowLabel).Chosen() {
+			g.revertSelectedRows(src)
 		}
 	})
 }
@@ -104,6 +174,13 @@ func (g *Grid) editMenu(m *ui.Menu, src *Source, row, col int) {
 // headerMenu is the context menu of a column's header.
 func (g *Grid) headerMenu(m *ui.Menu, a Host, src *Source, col int) {
 	name := src.Cols[col].Name
+	if m.Item("Show Card").Chosen() {
+		g.cardHeader, g.headerAsked = col, true
+	}
+	m.Separator()
+	if keymap.Item(m.Item("Select Column"), keymap.SelectColumn).Chosen() {
+		g.List.SelectColumns(colID(col), colID(col))
+	}
 	if m.Item("Copy Column Name").Chosen() {
 		a.WriteClipboard(name)
 	}
@@ -171,7 +248,7 @@ func (g *Grid) hide(col int) {
 	}
 	g.hidden[col] = true
 	if g.selCol == col {
-		g.selCol = 0
+		g.setCursorCol(0)
 	}
 }
 

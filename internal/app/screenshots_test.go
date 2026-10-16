@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
@@ -34,6 +35,9 @@ func screenshotter(t *testing.T) func(tt *ui.Tester, name string) {
 	}
 	return func(tt *ui.Tester, name string) {
 		t.Helper()
+		// What comes in, as a tab opened or a dialog, done coming.
+		tt.Frame()
+		tt.Advance(time.Second)
 		f, err := os.Create(filepath.Join(out, name+".png"))
 		if err != nil {
 			t.Fatal(err)

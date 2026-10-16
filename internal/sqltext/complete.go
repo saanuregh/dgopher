@@ -231,6 +231,22 @@ func TableAlias(name string, taken []string, d Dialect) string {
 	return alias
 }
 
+// NeedsQuote reports whether an identifier must be quoted to keep its
+// case and characters: anything but lower-case letters, digits after the
+// first, and underscores.
+func NeedsQuote(s string) bool {
+	if s == "" {
+		return true
+	}
+	for i, r := range s {
+		if r == '_' || r >= 'a' && r <= 'z' || i > 0 && r >= '0' && r <= '9' {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
 // IsName reports whether a token may name a table, column or alias.
 func IsName(t Token) bool { return t.Kind == Identifier || t.Kind == QuotedIdent }
 

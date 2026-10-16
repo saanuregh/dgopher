@@ -69,7 +69,7 @@ func TestChart(t *testing.T) {
 		if r.err != "" {
 			t.Fatal(r.err)
 		}
-		q.editorH = 120
+		q.editorPercent = 20
 		tt.Frame()
 		if err := tt.Click("Chart"); err != nil {
 			t.Fatal(err)
@@ -817,14 +817,14 @@ func TestGutterRunButton(t *testing.T) {
 	}
 }
 
-// A new editor takes the height the last one dragged to, which the host
+// A new editor takes the percentage the last one dragged to, which the host
 // keeps.
-func TestEditorTakesLayoutHeight(t *testing.T) {
+func TestEditorTakesLayoutPercent(t *testing.T) {
 	a := newFakeQueryHost(t)
 	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
-	a.Layout().EditorHeight = 420
-	if q := New(a, cn, "", "q", ""); q.editorH != 420 {
-		t.Fatalf("height %v", q.editorH)
+	a.Layout().EditorPercent = 60
+	if q := New(a, cn, "", "q", ""); q.editorPercent != 60 {
+		t.Fatalf("percent %v", q.editorPercent)
 	}
 }
 

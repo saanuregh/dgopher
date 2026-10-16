@@ -9,7 +9,13 @@ import (
 	"time"
 
 	"dgopher/internal/db"
+
+	"github.com/egoist/mygo/i18n"
 )
+
+// RegionLocale is the locale of the user's regional formats, which the
+// app sets from the system's; "" leaves the regional formats off.
+var RegionLocale string
 
 // Settings are the user's preferences.
 type Settings struct {
@@ -43,6 +49,8 @@ type Settings struct {
 	// ShowSensitive shows the values of columns that look sensitive, as
 	// passwords and tokens, which the grids otherwise hide.
 	ShowSensitive bool `json:"showSensitiveValues,omitempty"`
+	// HoverCards are how the cards about what the pointer rests on show.
+	HoverCards HoverCardPrefs `json:"hoverCards,omitzero"`
 	// Export keeps the export dialog's choices.
 	Export ExportPrefs `json:"export,omitzero"`
 	// AdvancedCopy is the last choice of the Advanced Copy dialog.
@@ -66,6 +74,17 @@ type Settings struct {
 	// later prompt marks what changed since, and a pull that lowers the
 	// care taken with one asks again.
 	TrustedDetails map[string]TrustedDetail `json:"trustedDetails,omitempty"`
+}
+
+// HoverCardPrefs are the user's choices of hover cards: none, how long
+// the pointer rests first, and the surfaces without them.
+type HoverCardPrefs struct {
+	Off bool `json:"off,omitempty"`
+	// DelayMs is the rest in milliseconds, 0 for the default.
+	DelayMs int `json:"delayMs,omitempty"`
+	// Hidden are the surfaces without cards: editor, sidebar, grid,
+	// diagram.
+	Hidden []string `json:"hidden,omitempty"`
 }
 
 // TrustedDetail is a shared connection as the user agreed to it: the
@@ -132,7 +151,11 @@ type CopyOptions struct {
 type ViewFormat struct {
 	// GroupNumbers writes thousands separators in numbers.
 	GroupNumbers bool `json:"groupNumbers,omitempty"`
-	// Dates is "" for ISO 8601, or "short" for "Oct 8, 2026 14:05".
+	// Regional writes numbers with the regional decimal and grouping
+	// separators, every digit kept; it wins over GroupNumbers.
+	Regional bool `json:"regional,omitempty"`
+	// Dates is "" for ISO 8601, "short" for "Oct 8, 2026 14:05", or
+	// "regional" for the style of the user's regional formats.
 	Dates string `json:"dates,omitempty"`
 	// BoolTicks shows booleans as ✓ and ✗.
 	BoolTicks bool `json:"boolTicks,omitempty"`
@@ -175,12 +198,57 @@ func (f ViewFormat) Format(v any) string {
 			}
 			return x.Format("Jan 2, 2006 15:04")
 		}
+		if f.Dates == "regional" && RegionLocale != "" {
+			o := i18n.DateOptions{Date: i18n.MediumStyle, Time: i18n.ShortStyle}
+			if x.Hour() == 0 && x.Minute() == 0 && x.Second() == 0 {
+				o.Time = i18n.NoStyle
+			}
+			return i18n.FormatDate(RegionLocale, x, o)
+		}
 	}
 	s := db.Display(v)
+	if f.Regional && RegionLocale != "" && db.IsNumeric(v) {
+		return regionalNumber(s)
+	}
 	if f.GroupNumbers && db.IsNumeric(v) {
 		return GroupDigits(s)
 	}
 	return s
+}
+
+// ReadableNumber writes a decimal number's text to be read at a glance:
+// with the regional separators where they are known, else its digits
+// grouped.
+func ReadableNumber(s string) string {
+	whole, frac, _ := strings.Cut(strings.TrimPrefix(s, "-"), ".")
+	switch {
+	case whole == "" || !allDigits(whole) || !allDigits(frac):
+		return s // not a plain decimal, as Infinity or a date
+	case RegionLocale != "":
+		return regionalNumber(s)
+	}
+	return GroupDigits(s)
+}
+
+// regionalNumber writes a decimal number's text with the regional
+// separators, with as many fraction digits as it has so none is rounded;
+// text that is not a plain decimal, as NaN, stays as it is.
+func regionalNumber(s string) string {
+	whole, frac, _ := strings.Cut(strings.TrimPrefix(s, "-"), ".")
+	if whole == "" || !allDigits(whole) || !allDigits(frac) {
+		return s
+	}
+	n := len(frac)
+	return i18n.FormatNumber(RegionLocale, s, i18n.NumberOptions{MinFractionDigits: n, MaxFractionDigits: n})
+}
+
+func allDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // GroupDigits puts thousands separators in the integer part of a number.

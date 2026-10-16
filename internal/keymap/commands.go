@@ -30,35 +30,38 @@ const (
 	NavigatorStructure = "navigator.structure"
 	NavigatorDrop      = "navigator.drop"
 
-	Run            = "editor.run"
-	RunInNewTab    = "editor.runInNewTab"
-	RunScript      = "editor.runScript"
-	Explain        = "editor.explain"
-	ExplainAnalyze = "editor.explainAnalyze"
-	Format         = "editor.format"
-	Complete       = "editor.complete"
-	Find           = "editor.find"
-	Replace        = "editor.replace"
-	GoToStatement  = "editor.goToStatement"
-	GoToDefinition = "editor.goToDefinition"
-	FindUsages     = "editor.findUsages"
-	QuickFix       = "editor.quickFix"
-	Rename         = "editor.rename"
-	CursorAbove    = "editor.cursorAbove"
-	CursorBelow    = "editor.cursorBelow"
-	SelectNext     = "editor.selectNext"
-	SelectAll      = "editor.selectAll"
-	Fold           = "editor.fold"
-	Unfold         = "editor.unfold"
-	FoldAll        = "editor.foldAll"
-	UnfoldAll      = "editor.unfoldAll"
-	Comment        = "editor.comment"
-	BlockComment   = "editor.blockComment"
-	ToggleResults  = "editor.toggleResults"
-	Save           = "editor.save"
-	SaveAs         = "editor.saveAs"
-	Commit         = "editor.commit"
-	Rollback       = "editor.rollback"
+	Run             = "editor.run"
+	RunInNewTab     = "editor.runInNewTab"
+	RunScript       = "editor.runScript"
+	Explain         = "editor.explain"
+	ExplainAnalyze  = "editor.explainAnalyze"
+	Format          = "editor.format"
+	Complete        = "editor.complete"
+	Find            = "editor.find"
+	Replace         = "editor.replace"
+	GoToStatement   = "editor.goToStatement"
+	GoToDefinition  = "editor.goToDefinition"
+	ShowHover       = "editor.showHover"
+	FindUsages      = "editor.findUsages"
+	QuickFix        = "editor.quickFix"
+	Rename          = "editor.rename"
+	CursorAbove     = "editor.cursorAbove"
+	CursorBelow     = "editor.cursorBelow"
+	SelectNext      = "editor.selectNext"
+	SelectAll       = "editor.selectAll"
+	Fold            = "editor.fold"
+	Unfold          = "editor.unfold"
+	FoldAll         = "editor.foldAll"
+	UnfoldAll       = "editor.unfoldAll"
+	Comment         = "editor.comment"
+	BlockComment    = "editor.blockComment"
+	ToggleResults   = "editor.toggleResults"
+	FocusResults    = "editor.focusResults"
+	MaximizeResults = "editor.maximizeResults"
+	Save            = "editor.save"
+	SaveAs          = "editor.saveAs"
+	Commit          = "editor.commit"
+	Rollback        = "editor.rollback"
 
 	Copy             = "grid.copy"
 	AdvancedCopy     = "grid.advancedCopy"
@@ -76,6 +79,13 @@ const (
 	GoToColumn       = "grid.goToColumn"
 	FirstRow         = "grid.firstRow"
 	LastRow          = "grid.lastRow"
+	ExtendToFirstRow = "grid.extendToFirstRow"
+	ExtendToLastRow  = "grid.extendToLastRow"
+	SelectRow        = "grid.selectRow"
+	SelectColumn     = "grid.selectColumn"
+	SelectMatching   = "grid.selectMatching"
+	SelectChanged    = "grid.selectChanged"
+	InvertSelection  = "grid.invertSelection"
 	SortColumn       = "grid.sortColumn"
 	DistinctValues   = "grid.distinctValues"
 	NextPresentation = "grid.nextPresentation"
@@ -146,6 +156,7 @@ var Commands = []Command{
 	command(Replace, Editor, "Replace in the editor", "Cmd+Alt+F"),
 	command(GoToStatement, Editor, "Go to a statement of the script", "Cmd+Shift+O"),
 	command(GoToDefinition, Editor, "Go to the definition of the name at the caret", "F12"),
+	command(ShowHover, Editor, "Show the card of the name at the caret", "Cmd+I"),
 	command(FindUsages, Editor, "Find the usages of the name at the caret", "Shift+F12"),
 	command(QuickFix, Editor, "Fix the problem at the caret", "Alt+Enter"),
 	command(Rename, Editor, "Rename the name at the caret, where it is used", "F2"),
@@ -159,7 +170,9 @@ var Commands = []Command{
 	command(UnfoldAll, Editor, "Open every fold", "Cmd+Alt+Shift+]"),
 	command(Comment, Editor, "Comment or uncomment the lines", "Cmd+/"),
 	command(BlockComment, Editor, "Put the selection in a block comment, or take it out", "Cmd+Alt+/"),
-	command(ToggleResults, Editor, "Between the editor and its results", "Cmd+J"),
+	command(ToggleResults, Editor, "Show or hide the results", "Cmd+J"),
+	command(FocusResults, Editor, "Between the editor and its results", "Cmd+Shift+J"),
+	command(MaximizeResults, Editor, "Maximize the results over the editor, or restore them"),
 	command(Save, Editor, "Save the file now (it also saves as you type)", "Cmd+S"),
 	command(SaveAs, Editor, "Save the editor as a file", "Cmd+Shift+S"),
 	command(Commit, Editor, "Commit the open transaction, an editor's or a table's", "Cmd+Alt+Shift+Enter"),
@@ -182,6 +195,13 @@ var Commands = []Command{
 	command(GoToColumn, Grid, "Go to a column by name", "Cmd+Shift+G"),
 	command(FirstRow, Grid, "First row", "Cmd+Up"),
 	command(LastRow, Grid, "Last row", "Cmd+Down"),
+	command(ExtendToFirstRow, Grid, "Choose the rows up to the first", "Cmd+Shift+Up"),
+	command(ExtendToLastRow, Grid, "Choose the rows down to the last", "Cmd+Shift+Down"),
+	command(SelectRow, Grid, "Choose the whole rows of the chosen cells", "Alt+Shift+Space"),
+	command(SelectColumn, Grid, "Choose the whole columns of the chosen cells", "Cmd+Shift+Space"),
+	command(SelectMatching, Grid, "Choose the rows whose value in the column is the cell's"),
+	command(SelectChanged, Grid, "Choose the rows with pending changes"),
+	command(InvertSelection, Grid, "Choose the rows not chosen, and none of those that were"),
 	command(SortColumn, Grid, "Order by the chosen column: ascending, descending, none", "Cmd+2"),
 	command(DistinctValues, Grid, "The chosen column's distinct values, to filter by", "Cmd+F11"),
 	command(NextPresentation, Grid, "Next presentation: grid, record, text", "Cmd+`"),

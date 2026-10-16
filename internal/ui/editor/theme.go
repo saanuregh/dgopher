@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"dgopher/internal/sqltext"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -25,5 +26,18 @@ func themeFrom(t *ui.Theme, pal *widgets.Palette) *code.Theme {
 			ct.Tokens[k].Color = color
 		}
 	}
+	for k, kind := range borrowedColors {
+		if color, ok := pal.Syntax[kind]; ok {
+			ct.Tokens[k].Color = color
+		}
+	}
 	return ct
+}
+
+// borrowedColors are the kinds of tokens SQL has none of, colored as a
+// SQL kind: JSON's true, false and null as keywords, and its brackets and
+// commas as operators.
+var borrowedColors = map[code.TokenKind]sqltext.Kind{
+	code.TokenConstant:    sqltext.Keyword,
+	code.TokenPunctuation: sqltext.Operator,
 }

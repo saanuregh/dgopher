@@ -194,7 +194,7 @@ database. All sessions on it share one transaction:
 | Your project state and audit log | `.dgopher/state.sqlite` | `internal/state`, `internal/audit` |
 | Window layout | `ui.sqlite` in the data directory | `internal/state` (`OpenUI`) |
 | Settings, trust, known hosts | the config directory | `internal/store` |
-| Passwords | the system keychain, service `DGopher` | `internal/store` (`KeyringSecrets`) |
+| Passwords | the system keychain, service `DGopher` | `internal/store` (`MygoSecrets`) |
 
 [Where things are kept](storage.md) and [Project files](project-files.md)
 describe the files.
@@ -209,5 +209,10 @@ describe the files.
 - **Password commands.** `secretcmd.Run` (`internal/secretcmd`) runs a
   command without a shell. Its output never appears in an error, and
   `secretcmd.AuditText` drops its stderr before the audit log.
-- **Keychain.** `store.KeyringSecrets` keeps passwords under the service
-  `DGopher`. Tests use `store.MemorySecrets`.
+- **Keychain.** `store.MygoSecrets` keeps passwords under the service
+  `DGopher` with MyGo's `Secrets`. A password an older version kept with
+  go-keyring (`store.KeyringSecrets`) moves there the first time it is
+  read; the old item goes only once the new one reads back the same, and
+  never on macOS, where both are one Keychain item. Where MyGo's store
+  cannot work (Linux without libsecret), go-keyring keeps the passwords as
+  before. Tests use `store.MemorySecrets`.

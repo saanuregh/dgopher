@@ -251,13 +251,13 @@ func (a *App) paletteView(c *ui.Context) {
 	run := func(i int) {
 		if i >= 0 && i < len(p.shown) {
 			p.open = false
+			a.instant = true // a picker's choice shows at once, as a key's
 			p.shown[i].run()
 		}
 	}
 	ui.DialogBase(c, &p.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(widgets.PickerBackdrop).Justify(ui.Start).PaddingY(80)
-		panel.Width(600).Radius(12).Background(t.Background).Border(1, t.Border).Clip().
-			Shadow(0, 16, 48, 0, ui.RGBA(0, 0, 0, 0.3)).Label("Command palette")
+		widgets.PickerLook(c, backdrop, panel)
+		panel.Width(600).Radius(12).Background(t.Background).Border(1, t.Border).Clip().Label("Command palette")
 		ui.Row(c).Padding(10, 14).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 			ui.Icon(c, widgets.IconSearch).TextColor(pal.Muted).FontSize(15)
 			placeholder := "Search commands, connections and tables"
@@ -271,41 +271,41 @@ func (a *App) paletteView(c *ui.Context) {
 		})
 		p.row = p.index
 		p.list.Selected = &p.row
-		ui.List(c, &p.list, len(p.shown), func(i int) {
-			it := p.shown[i]
-			row := ui.Row(c).Padding(7, 14).Gap(10)
-			on := i == p.index
-			if on {
-				row.Background(t.Accent)
-			}
-			row.Children(func() {
-				col := pal.Muted
-				if on {
-					col = t.AccentText
-				}
-				if it.icon != nil {
-					ui.Icon(c, it.icon).FontSize(14).TextColor(col)
-				}
-				title := ui.Text(c, it.title).SingleLine().Shrink(1)
-				if on {
-					title.TextColor(t.AccentText)
-				}
-				ui.Text(c, it.detail).FontSize(12).TextColor(col).SingleLine().Grow(1).Shrink(1)
-				if k := keymap.First(it.key); k != "" {
-					ui.Text(c, k).FontSize(11.5).TextColor(col)
-				}
-				ui.Text(c, it.group).FontSize(11).TextColor(col)
-			})
-			if row.Clicked() {
-				run(i)
-			}
-		}).MaxHeight(380).Children(func() {
-			if len(p.shown) == 0 {
-				ui.Text(c, "Nothing matches.").TextColor(pal.Muted).Padding(14)
-			}
-		})
+		widgets.ChosenRows(c, func() { a.paletteList(c, p, run) })
 	})
 	if !p.open {
 		a.palette = nil
 	}
+}
+
+// paletteList is the palette's commands, the chosen one tinted.
+func (a *App) paletteList(c *ui.Context, p *paletteState, run func(int)) {
+	pal := widgets.PaletteOf(c)
+	ui.List(c, &p.list, len(p.shown), func(i int) {
+		it := p.shown[i]
+		row := ui.Row(c).Padding(7, 14).Gap(10)
+		row.Children(func() {
+			col := pal.Muted
+			if it.icon != nil {
+				ui.Icon(c, it.icon).FontSize(14).TextColor(col)
+			}
+			ui.Text(c, it.title).SingleLine().Shrink(1)
+			ui.Text(c, it.detail).FontSize(12).TextColor(col).SingleLine().Grow(1).Shrink(1)
+			if k := keymap.First(it.key); k != "" {
+				widgets.Keycap(c, k)
+			}
+			// Commands are most of the list: only the other kinds say
+			// what they are.
+			if it.group != "Command" {
+				ui.Text(c, it.group).FontSize(11).TextColor(col)
+			}
+		})
+		if row.Clicked() {
+			run(i)
+		}
+	}).MaxHeight(380).Padding(6).Children(func() {
+		if len(p.shown) == 0 {
+			ui.Text(c, "Nothing matches.").TextColor(pal.Muted).Padding(8)
+		}
+	})
 }

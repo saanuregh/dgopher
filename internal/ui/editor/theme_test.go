@@ -37,6 +37,8 @@ func TestThemeFromPalette(t *testing.T) {
 		"error":       {ct.Error, th.Danger},
 		"function":    {ct.Tokens[code.TokenFunction].Color, th.Text},
 		"type":        {ct.Tokens[code.TokenType].Color, th.Text},
+		"constant":    {ct.Tokens[code.TokenConstant].Color, pal.Syntax[sqltext.Keyword]},
+		"punctuation": {ct.Tokens[code.TokenPunctuation].Color, pal.Syntax[sqltext.Operator]},
 	} {
 		if c[0] != c[1] {
 			t.Errorf("%s is %v, want %v", name, c[0], c[1])

@@ -67,12 +67,15 @@ Keys marked *fixed* below cannot be changed.
 | ⌘⇧E | Explain Analyze: run the statement and measure it |
 | ⌘⌥⇧↵ | Commit the open transaction |
 | (none) | Roll back the open transaction; set a key if you want one |
-| ⌘J | Switch between the editor and its results |
+| ⌘J | Show or hide the results |
+| ⌘⇧J | Switch between the editor and its results |
+| (none) | Maximize the results over the editor, or restore them |
 | ⌃Space | Complete tables, columns and keywords |
 | ⌘⇧F | Format the SQL |
 | ⌘F, ⌘⌥F | Find, and replace |
 | ⌘⇧O | Go to a statement of the script |
 | F12, ⌘-click | Go to the definition of the name at the caret |
+| ⌘I | Show the card of the name at the caret |
 | ⇧F12 | Find the usages of the name at the caret |
 | F2 | Rename the name at the caret, everywhere in the file |
 | ⌥↵ | Fix the problem at the caret |
@@ -99,9 +102,9 @@ Keys marked *fixed* below cannot be changed.
 | ⌘⇧C | Advanced Copy: delimiter, column names, quoting, row numbers |
 | ⌘V | Paste over the chosen cell, as pending changes |
 | ⌘⇧V | Advanced Paste: delimiter, header row, as new rows |
-| Arrows (fixed) | Move between cells |
+| Arrows (fixed) | Move between cells; with ⇧, choose the cells between |
 | ↵, F2 (fixed) | Edit the cell |
-| Esc (fixed) | Revert the chosen cell's change |
+| Esc (fixed) | Leave the cursor's cell alone chosen; with one cell, revert its change |
 | ⇧↵ | Open the value editor |
 | Tab (fixed) | Record view of the chosen row |
 | ⌘` | Next view: grid, record, text |
@@ -111,6 +114,10 @@ Keys marked *fixed* below cannot be changed.
 | ⌘G | Go to a row by number |
 | ⌘⇧G | Go to a column by name |
 | ⌘↑, ⌘↓ | First and last row |
+| ⌘⇧↑, ⌘⇧↓ | Choose the rows up to the first, or down to the last |
+| ⌥⇧Space | Choose the whole rows of the chosen cells |
+| ⌘⇧Space | Choose the whole columns of the chosen cells |
+| ⌘A (fixed) | Choose every cell |
 | ⌥Space | Follow the cell's foreign key |
 | ⌥↓ | Choose the cell's value from the table its foreign key points at |
 | ⌥Insert | Add a row |

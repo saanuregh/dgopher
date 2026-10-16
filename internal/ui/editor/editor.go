@@ -44,6 +44,10 @@ type Editor struct {
 	RunLines []int
 	Run      func(line int)
 	RunTip   string
+	// ShownLine is the first line of the statement whose result shows,
+	// its ▶ marked while HasShown.
+	ShownLine int
+	HasShown  bool
 	// Problems are the mistakes of the text as it is when View is called,
 	// marked with a wavy line.
 	Problems []Problem
@@ -235,6 +239,13 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 		e.onInput = e.input
 	}
 	st.OnInput = e.onInput
+	if st.RenderHover == nil {
+		st.RenderHover = cardHover
+	}
+	// Cards off for the editor leave the resting pointer none; the key
+	// still shows one.
+	st.HoverDelay = widgets.HoverCards.Delay
+	st.NoPointerHover = !widgets.HoverCards.Shows(widgets.CardEditor)
 	st.LineBackgrounds = nil
 	if e.HasCurrent {
 		e.band[0] = code.LineBackground{First: e.CurrentLines[0], Last: e.CurrentLines[1], Color: pal.CurrentStatement}
@@ -247,7 +258,10 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 	if commands {
 		e.vimSync()
 	}
-	st.BlockCaret = commands
+	st.CursorShape = code.CursorBar
+	if commands {
+		st.CursorShape = code.CursorBlock
+	}
 	st.NoInputMethod = commands // letters are Vim's commands, not text to compose
 	el := code.View(c, st).Grow(1).FillWidth()
 	if e.WantFocus {
@@ -299,9 +313,22 @@ func (e *Editor) syncRunButtons(fontSize float32) {
 // runButton fills a run button, which runs its statement and gives the
 // editor back the keys.
 func (e *Editor) runButton(c *ui.Context, button ui.Element, line int) {
-	button.Center().Label(e.RunTip).Tooltip(e.RunTip).Cursor(ui.CursorPointer)
+	// Quiet but for the statement a run would send, the one pointed at,
+	// and the one whose result shows: a column of green would say nothing.
+	t := c.Theme()
+	tip, color, icon := e.RunTip, widgets.PaletteOf(c).LineNumber, widgets.IconPlay
+	if e.HasCurrent && line == e.CurrentLines[0] || button.Hovered() {
+		color = t.Success
+	}
+	// The statement whose result shows: its ▶ filled, in the accent.
+	if e.HasShown && line == e.ShownLine {
+		tip, color, icon = "Its result shows below. "+e.RunTip, t.Accent, widgets.IconPlayFilled
+	}
+	// Off the editor's edge, into the room the line numbers leave before
+	// their digits.
+	button.Left(4).Center().Label(tip).Tooltip(tip).Cursor(ui.CursorPointer)
 	button.Children(func() {
-		ui.Icon(c, widgets.IconPlay).FontSize(e.fontSize * 0.85).TextColor(c.Theme().Success)
+		ui.Icon(c, icon).FontSize(e.fontSize * 0.85).TextColor(color)
 	})
 	if button.Clicked() && e.Run != nil {
 		e.Run(line)

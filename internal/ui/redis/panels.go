@@ -52,6 +52,7 @@ type monitorState struct {
 	err     string
 	list    ui.ListState
 	started time.Time
+	resume  bool // as pubSubState's
 }
 
 type slowLogState struct {
@@ -76,7 +77,6 @@ type memoryState struct {
 }
 
 func (r *Tab) panelView(c *ui.Context) {
-	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	panels := [...]struct{ actions, view func(*ui.Context) }{
 		panelConsole: {r.consoleActions, r.consoleView},
@@ -87,8 +87,8 @@ func (r *Tab) panelView(c *ui.Context) {
 		panelSearch:  {r.searchActions, r.searchView},
 	}
 	ui.Column(c).Fill().Background(pal.EditorBg).Children(func() {
-		ui.Row(c).Padding(4, 10).Gap(8).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Segmented(c, &r.panel, "Console", "Monitor", "Slow Log", "Memory", "Pub/Sub", "Search").Label("Panel")
+		widgets.Bar(c, "Panels", func() {
+			ui.Segmented(c, &r.panel, "Console", "Monitor", "Slow Log", "Memory", "Pub/Sub", "Search").Label("Panel").FontSize(widgets.ToolFontSize)
 			ui.Spacer(c)
 			if r.panel >= 0 && r.panel < len(panels) {
 				panels[r.panel].actions(c)
@@ -109,7 +109,7 @@ func (r *Tab) startMonitor() {
 		return
 	}
 	v := safety.Verdict{Confirm: true, Reasons: []string{"MONITOR makes the server send the app every command it runs, which slows a busy server while it watches."}}
-	r.a.AskConfirm(r.conn, v, "Monitor "+cfg.Name+"?", "Monitor", "MONITOR", r.runMonitor)
+	r.a.AskConfirm(r.conn, v, "Monitor "+cfg.Name+"?", "Monitor", "MONITOR", r.runMonitor).Harmless = true
 }
 
 func (r *Tab) runMonitor() {
@@ -118,7 +118,7 @@ func (r *Tab) runMonitor() {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	m.cancel, m.err, m.started = cancel, "", time.Now()
+	m.cancel, m.err, m.resume, m.started = cancel, "", false, time.Now()
 	kv, cfg := r.conn.KV, r.conn.Config
 	lines := feed[db.MonitorLine]{keep: monitorKeep}
 	go func() {
@@ -136,13 +136,15 @@ func (r *Tab) runMonitor() {
 			r.a.Post(func() { m.lines = keepLatest(m.lines, batch, monitorKeep) })
 		})
 		start := time.Now()
-		err := kv.Monitor(ctx, lines.add)
+		err := monitor(kv, ctx, lines.add)
+		stopped := ctx.Err() != nil
 		close(done)
 		r.a.RecordRun(cfg, audit.KindCommand, cfg.Database, "MONITOR", -1, time.Since(start), err)
 		r.a.Post(func() {
 			m.cancel = nil
 			if err != nil {
 				m.err = err.Error()
+				m.resume = !stopped
 			}
 		})
 	}()
@@ -311,7 +313,7 @@ func (r *Tab) startAnalysis() {
 	}
 	n := widgets.HumanCount(memoryLimits[r.memory.limit])
 	v := safety.Verdict{Confirm: true, Reasons: []string{"The analysis scans up to " + n + " keys and asks the size and TTL of each, which adds to a busy server's load while it runs."}}
-	r.a.AskConfirm(r.conn, v, "Analyse the keys of "+cfg.Name+"?", "Analyse", "SCAN, TYPE, MEMORY USAGE and PTTL of up to "+n+" keys", r.analyseMemory)
+	r.a.AskConfirm(r.conn, v, "Analyse the keys of "+cfg.Name+"?", "Analyse", "SCAN, TYPE, MEMORY USAGE and PTTL of up to "+n+" keys", r.analyseMemory).Harmless = true
 }
 
 // analyseMemory reads the keys' sizes and TTLs, up to the limit chosen.

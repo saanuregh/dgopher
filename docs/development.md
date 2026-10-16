@@ -149,7 +149,9 @@ does not have yet:
   [egoist/mygo](https://github.com/egoist/mygo/pulls?q=author%3Asaanuregh),
   as they were sent;
 - frozen table columns;
-- the code editor's `GutterButtons` and `OnAcceptCompletion`.
+- the code editor's `GutterButtons` and `OnAcceptCompletion`;
+- the code editor's `LinkAt` and `OnLink`, which underline a name while
+  ⌘ is held and open it on a click.
 
 An API missing from upstream MyGo may exist there.
 

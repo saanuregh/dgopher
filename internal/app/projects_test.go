@@ -470,7 +470,7 @@ func TestAutosaveNeverOverwritesChangedFile(t *testing.T) {
 	if q.CloseReason() == "" {
 		t.Fatal("closing would drop the editor's text without asking")
 	}
-	if err := tt.Click("Use the File"); err != nil {
+	if err := tt.Click("Reload"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
@@ -795,7 +795,7 @@ func TestRestoredEditorWaitsToConnect(t *testing.T) {
 		tt.Frame()
 	}
 	q := b.tabs.At(0).(*query.Tab)
-	if q.Conn.Status != connection.StatusIdle || !tt.HasText("Not connected.") {
+	if q.Conn.Status != connection.StatusIdle || !hasExact(tt, "Connect") {
 		t.Fatalf("restored editor: status %v, %q", q.Conn.Status, tt.Texts())
 	}
 	testutil.SetCaret(tt, &q.Editor, 3)

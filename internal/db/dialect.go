@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+
+	"dgopher/internal/sqltext"
 )
 
 // Querier runs the queries that read a schema: a pool or a session's
@@ -120,6 +122,15 @@ type Dialect interface {
 
 // DialectOf returns the dialect of an engine.
 func DialectOf(e Engine) Dialect { return engineInfos[e].dialect }
+
+// QuoteIfNeeded quotes a name only where it must be, as people write
+// names: one of lower-case letters, digits and underscores stays bare.
+func QuoteIfNeeded(d Dialect, name string) string {
+	if sqltext.NeedsQuote(name) {
+		return d.Quote(name)
+	}
+	return name
+}
 
 // QualifiedName quotes a table name with its schema.
 func QualifiedName(d Dialect, schema, table string) string {

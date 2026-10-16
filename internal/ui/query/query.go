@@ -64,6 +64,9 @@ type result struct {
 	skip int
 	// pinned keeps the result when the next run replaces the others.
 	pinned bool
+	// name and tip are its tab's name before numbering and its tooltip,
+	// made once from the statement (resultNames, resultTip).
+	name, tip string
 	// plan is what an explain's rows tell, nil for other rows, with the
 	// advice about it; planMode is how it shows, planSel the step chosen.
 	plan     *db.Plan
@@ -98,10 +101,14 @@ type Tab struct {
 	// DiskConflict says why the file is not saved as typed: it changed or
 	// went on disk since the editor read it, as by a git pull.
 	DiskConflict string
-	// The statements' starts, and their first lines, in linesText.
+	watch        FileWatch
+	watchedPath  string
+	// The statements' starts, their first lines and their texts, in
+	// linesText.
 	linesText  string
 	stmtStarts []int
 	stmtLines  []int
+	stmtTexts  []string
 	// The statement under the caret, as currentStatement last found it.
 	stmtText  string
 	stmtKey   [2]int
@@ -117,9 +124,9 @@ type Tab struct {
 	paramKeys      []string
 	paramsBarState paramsBarState
 
-	Editor  editor.Editor
-	editorH float32
-	ac      completion
+	Editor        editor.Editor
+	editorPercent float32
+	ac            completion
 	// snippet is the fields of a snippet being filled in, nil for none.
 	snippet *snippetSession
 	// schema is the schema the session finds names in, as last read,
@@ -139,6 +146,9 @@ type Tab struct {
 	staleFrom int
 	cancel    context.CancelFunc
 	StartedAt time.Time
+	// runReads is whether the run reads rows, which a skeleton stands for
+	// while it lasts.
+	runReads bool
 	dataview.SessionTxState
 	// autocommitOff is MySQL's autocommit off on the session as its last
 	// run left it (db.Session.AutocommitOff): with no transaction open,
@@ -147,7 +157,10 @@ type Tab struct {
 
 	results   []*result
 	resultIdx int // len(results) for the messages
-	messages  []message
+	// runsShown counts the runs whose results showed, which bring them up;
+	// runsFaded, those brought up so far.
+	runsShown, runsFaded uint64
+	messages             []message
 	// wasRunning is whether a run went on in the last frame, by which its
 	// end is announced.
 	wasRunning bool
@@ -163,6 +176,10 @@ type Tab struct {
 	// sessionLost is set when the session closed with its connection, left
 	// unused (ConnectionClosed): the next run is refused once.
 	sessionLost bool
+	// lexedText is the editor's text read for hovers and links;
+	// hoverAsked is set while the card key asks for one.
+	lexedText lexedText
+	lastLink  linkAsked
 }
 
 // key reports whether mods+key was pressed for this editor: while its
@@ -178,7 +195,7 @@ func (q *Tab) pressed(c *ui.Context, id string) bool {
 }
 
 func New(a Host, cn *connection.Conn, database, name, text string) *Tab {
-	q := &Tab{a: a, Conn: cn, Database: database, Name: name, editorH: a.Layout().EditorHeight}
+	q := &Tab{a: a, Conn: cn, Database: database, Name: name, editorPercent: a.Layout().EditorPercent}
 	q.Editor.State.Buffer = code.NewBuffer(text)
 	q.Editor.Dialect = safety.Dialect(cn.Config.Engine)
 	q.Editor.SplitOptions = SplitOptions(a.Settings())
@@ -187,6 +204,9 @@ func New(a Host, cn *connection.Conn, database, name, text string) *Tab {
 	q.Editor.State.OnCompletion = q.complete
 	q.Editor.State.OnAcceptCompletion = q.acceptCompletion
 	q.Editor.State.ContextMenu = q.editorMenu
+	q.Editor.State.OnHover = q.hover
+	q.Editor.State.LinkAt = q.linkAt
+	q.Editor.State.OnLink = q.openLink
 	if text != "" {
 		n := len(q.Editor.Text())
 		q.Editor.Select(n, n)
@@ -244,6 +264,7 @@ func (q *Tab) Mark() string {
 // thread, and what may block runs on another goroutine.
 func (q *Tab) Close() {
 	q.closed = true
+	q.stopWatch()
 	q.Flush(false)
 	q.keepParamEdits()
 	if q.Created != "" && q.DiskConflict == "" && q.Saved == q.Created && q.Editor.FileText() == q.Created {
@@ -506,7 +527,7 @@ func (q *Tab) statementLines() []int {
 	if text == q.linesText && q.stmtStarts != nil {
 		return q.stmtLines
 	}
-	q.linesText, q.stmtStarts, q.stmtLines = text, []int{}, nil
+	q.linesText, q.stmtStarts, q.stmtLines, q.stmtTexts = text, []int{}, nil, nil
 	line, at := 0, 0 // the line of byte at, counted once through the text
 	for _, st := range sqltext.SplitWith(text, q.Editor.Dialect, SplitOptions(q.a.Settings())) {
 		if to := min(st.Start, len(text)); to > at {
@@ -515,8 +536,69 @@ func (q *Tab) statementLines() []int {
 		}
 		q.stmtStarts = append(q.stmtStarts, st.Start)
 		q.stmtLines = append(q.stmtLines, line)
+		q.stmtTexts = append(q.stmtTexts, strings.TrimSpace(st.Text))
 	}
 	return q.stmtLines
+}
+
+// written is a result's statement as the editor had it: without what the
+// app put before it, as EXPLAIN, and before its parameters were bound.
+func (r *result) written() string {
+	if r.stmt.Typed != "" {
+		return strings.TrimSpace(r.stmt.Typed)
+	}
+	return strings.TrimSpace(r.sql[min(r.skip, len(r.sql)):])
+}
+
+// shownLine is the first line of the statement of r in the editor as it
+// is now: the one at r's start while its text is the same, else the first
+// with that text; none once it was edited.
+func (q *Tab) shownLine(r *result) (int, bool) {
+	q.statementLines()
+	text := r.written()
+	at := -1
+	for i, t := range q.stmtTexts {
+		if t != text {
+			continue
+		}
+		if q.stmtStarts[i] == r.start {
+			return q.stmtLines[i], true
+		}
+		if at < 0 {
+			at = i
+		}
+	}
+	if at < 0 {
+		return 0, false
+	}
+	return q.stmtLines[at], true
+}
+
+// resultTip is the statement of a result's tab, on one line.
+func resultTip(r *result) string {
+	if r.tip == "" {
+		r.tip = widgets.OneLine(r.written(), 300)
+	}
+	return r.tip
+}
+
+// resultNames are the names of the results' tabs: the one table a result
+// reads, else its statement's first words; a name repeated is numbered
+// from its second time.
+func resultNames(results []*result) []string {
+	names := make([]string, len(results))
+	seen := map[string]int{}
+	for i, r := range results {
+		if r.name == "" {
+			r.name = cmp.Or(r.table.Name, widgets.OneLine(r.written(), 24))
+		}
+		name := r.name
+		if seen[name]++; seen[name] > 1 {
+			name = fmt.Sprintf("%s %d", name, seen[name])
+		}
+		names[i] = name
+	}
+	return names
 }
 
 // runLine runs the statement starting on a line, as its run button does,
@@ -755,6 +837,8 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 	oldCancel := q.cancel
 	ctx, cancel := context.WithCancel(context.Background())
 	q.Running, q.cancel, q.StartedAt = true, cancel, time.Now()
+	q.runReads = slices.ContainsFunc(stmts, func(s safety.Statement) bool { return s.Analysis.Class == sqltext.Read })
+	q.showResults() // a run shows what it returns
 	// A run replaces the results, but those pinned and, run into a new
 	// tab, all of them; the cursors of those it drops close, and a kept
 	// one that was still reading ends where it is.
@@ -1055,6 +1139,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 					r.view.CutShort()
 				}
 			}
+			q.runsShown++
 			// Show the error, else the last result with rows, else the
 			// messages.
 			q.resultIdx = len(q.results)
@@ -1213,7 +1298,9 @@ func (q *Tab) ResultEditable() bool {
 // View builds the tab.
 func (q *Tab) View(c *ui.Context) {
 	a := q.a
-	t := c.Theme()
+	if !q.closed {
+		q.watchFile()
+	}
 	// A screen reader hears a run end, as a sighted user sees its result.
 	if q.wasRunning && !q.Running && len(q.messages) > 0 {
 		c.Announce(q.messages[len(q.messages)-1].text)
@@ -1230,10 +1317,22 @@ func (q *Tab) View(c *ui.Context) {
 		q.Run(RunScript)
 	}
 	if q.pressed(c, keymap.ToggleResults) {
-		// Between the editor and its results, without the pointer.
-		if q.Editor.HasFocus() && q.current() != nil {
+		q.toggleResults()
+	}
+	if q.pressed(c, keymap.MaximizeResults) {
+		q.maximizeResults()
+	}
+	if q.pressed(c, keymap.FocusResults) {
+		// Between the editor and its results, without the pointer, showing
+		// the one it goes to.
+		l := a.Layout()
+		if (q.Editor.HasFocus() || l.Results == widgets.ResultsHidden) && q.current() != nil {
+			q.showResults()
 			*a.FocusWant() = "results"
 		} else {
+			if l.Results == widgets.ResultsMaximized {
+				l.Results = widgets.ResultsShown
+			}
 			*a.FocusWant() = "editor"
 		}
 	}
@@ -1292,39 +1391,46 @@ func (q *Tab) View(c *ui.Context) {
 		q.endOpenTx(false)
 	}
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Toolbar(c, func() {
+		widgets.Bar(c, "Editor", func() {
+			// First, set apart: its label changes in place, Connect to
+			// Disconnect, in a button as wide whichever it shows. The
+			// buttons have keys of their own: one coming or going would else
+			// pass the others' labels along, each sliding to its neighbor's.
+			state := widgets.ConnectState{Connecting: q.Conn.Status == connection.StatusConnecting, Offline: !a.Online()}
+			switch widgets.ConnectStatus(c, q.Conn, state) {
+			case widgets.ConnectAsked:
+				a.Connect(q.Conn, nil)
+			case widgets.DisconnectAsked:
+				a.Disconnect(q.Conn)
+			}
+			ui.Divider(c).Margin(0, 4)
 			// One button: Run turns to Stop, in place, once a run lasts; a
 			// quick one leaves it as it is.
 			if q.Running && widgets.Lasted(c, q.StartedAt) {
-				if widgets.ToolButton(c, widgets.IconStop, "Stop", "Stop the running statement (Esc)").Clicked() && q.cancel != nil {
+				if widgets.LeadToolButton(c.Key("run"), widgets.IconStop, "Stop", "Stop the running statement (Esc)", c.Theme().Danger).Clicked() && q.cancel != nil {
 					q.cancel()
 				}
-			} else if widgets.ToolButton(c, widgets.IconPlay, "Run", keymap.Hint("Run statement", keymap.Run)).Clicked() {
+			} else if widgets.LeadToolButton(c.Key("run"), widgets.IconPlay, "Run", keymap.Hint("Run statement", keymap.Run), c.Theme().Success).Clicked() {
 				q.Run(RunStatement)
 			}
-			if widgets.ToolButton(c, widgets.IconLayers, "Run Script", keymap.Hint("Run all statements", keymap.RunScript)).Clicked() {
+			if widgets.ToolButton(c.Key("run-script"), widgets.IconLayers, "Run Script", keymap.Hint("Run all statements", keymap.RunScript)).Clicked() {
 				q.Run(RunScript)
 			}
-			if widgets.ToolButton(c, widgets.IconCode, "Explain", keymap.Hint("Explain plan", keymap.Explain)).Clicked() {
+			if widgets.ToolButton(c.Key("explain"), widgets.IconCode, "Explain", keymap.Hint("Explain plan", keymap.Explain)).Clicked() {
 				q.Run(RunExplain)
 			}
-			if widgets.ToolButton(c, widgets.IconClock, "Analyze", keymap.Hint("Run the statement to measure its plan", keymap.ExplainAnalyze)).Clicked() {
+			if widgets.ToolButton(c.Key("analyze"), widgets.IconClock, "Analyze", keymap.Hint("Run the statement to measure its plan", keymap.ExplainAnalyze)).Clicked() {
 				q.Run(RunExplainAnalyze)
 			}
-			if widgets.ToolButton(c, widgets.IconWand, "Format", keymap.Hint("Format SQL", keymap.Format)).Clicked() {
+			if widgets.ToolButton(c.Key("format"), widgets.IconWand, "Format", keymap.Hint("Format SQL", keymap.Format)).Clicked() {
 				q.format()
 			}
-			if widgets.ToolButton(c, widgets.IconSave, "Save As", keymap.Hint("Save a copy under another name", keymap.SaveAs)).Clicked() {
+			if widgets.ToolButton(c.Key("save-as"), widgets.IconSave, "Save As", keymap.Hint("Save a copy under another name", keymap.SaveAs)).Clicked() {
 				a.SaveSQLFile(q, true)
 			}
 			ui.Spacer(c)
 			q.switcherView(c)
-			if q.Conn.Config.ManualCommit() {
-				ui.Badge(c, "Manual commit").Tooltip("Writes open a transaction that you commit or roll back")
-			} else if q.Conn.Config.Engine.IsSQL() && q.Conn.Config.Engine != db.ClickHouse {
-				ui.Badge(c, "Auto-commit")
-			}
-		}).Label("Editor").Padding(4, 8).BorderWidth(0, 0, 1, 0).BorderColor(t.Border)
+		})
 		// The bars come and go, as one while a header is typed: in a
 		// column always there, the editor keeps its place, and the focus.
 		ui.Column(c).Children(func() {
@@ -1339,20 +1445,21 @@ func (q *Tab) View(c *ui.Context) {
 			if id, exists := q.namesAnother(); id != "" {
 				q.headerBar(c, id, exists)
 			}
-			if q.Conn.Status == connection.StatusFailed || q.Conn.Status == connection.StatusIdle {
-				q.connectBar(c)
-			}
 			if keys := q.textParams(); len(keys) > 0 {
 				q.paramsBar(c, keys)
 			}
 		})
-		split := ui.SplitVertical(c, &q.editorH, func() {
+		editor := func() {
 			ui.Column(c).Fill().Children(func() {
 				q.Editor.SplitOptions = SplitOptions(a.Settings())
 				_, _, ok := q.currentStatement()
 				q.Editor.HasCurrent = ok && q.Editor.HasFocus()
 				q.Editor.Run, q.Editor.RunTip = q.runLine, keymap.Hint("Run the statement", keymap.Run)
 				q.Editor.RunLines = q.statementLines()
+				q.Editor.HasShown = false
+				if r := q.current(); r != nil && a.Layout().Results != widgets.ResultsHidden {
+					q.Editor.ShownLine, q.Editor.HasShown = q.shownLine(r)
+				}
 				q.checkProblems()
 				q.syncVim()
 				// The focus asked while the tab was not in front waits for it
@@ -1367,18 +1474,75 @@ func (q *Tab) View(c *ui.Context) {
 				q.problemBar(c)
 				q.vimBar(c)
 			})
-		}, func() {
+		}
+		l := a.Layout()
+		switch l.Results {
+		case widgets.ResultsHidden:
+			ui.Column(c).Grow(1).Children(editor)
 			q.resultsView(c, a)
-		}).Grow(1)
-		if split.Changed() {
-			a.Layout().EditorHeight = q.editorH // where the next editor starts
+		case widgets.ResultsMaximized:
+			q.resultsView(c, a)
+		default:
+			split := ui.SplitVerticalPercent(c, &q.editorPercent, editor, func() {
+				q.resultsView(c, a)
+			}).Grow(1)
+			if split.Changed() {
+				l.EditorPercent = q.editorPercent // where the next editor starts
+			}
 		}
 	})
 }
 
-func (q *Tab) connectBar(c *ui.Context) {
-	if connect, _ := widgets.ConnectBar(c, q.Conn, widgets.ConnectState{}); connect {
-		q.a.Connect(q.Conn, nil)
+// toggleResults hides the results down to their bar, or shows them; the
+// keys go back to the editor from results going out of sight.
+func (q *Tab) toggleResults() {
+	l := q.a.Layout()
+	if l.Results == widgets.ResultsHidden {
+		l.Results = widgets.ResultsShown
+		return
+	}
+	l.Results = widgets.ResultsHidden
+	if !q.Editor.HasFocus() {
+		*q.a.FocusWant() = "editor"
+	}
+}
+
+// showResults shows the results hidden, as they were before; maximized,
+// they stay so.
+func (q *Tab) showResults() {
+	if l := q.a.Layout(); l.Results == widgets.ResultsHidden {
+		l.Results = widgets.ResultsShown
+	}
+}
+
+// hideResultsAction is the icon and title of what hides the results, or
+// shows them hidden; maximizeResultsAction of what maximizes them, or
+// restores them maximized.
+func hideResultsAction(l *widgets.Layout) (*ui.SVG, string) {
+	if l.Results == widgets.ResultsHidden {
+		return widgets.IconPanelOpen, "Show Results"
+	}
+	return widgets.IconPanelClose, "Hide Results"
+}
+
+func maximizeResultsAction(l *widgets.Layout) (*ui.SVG, string) {
+	if l.Results == widgets.ResultsMaximized {
+		return widgets.IconMinimize, "Restore Results"
+	}
+	return widgets.IconMaximize, "Maximize Results"
+}
+
+// maximizeResults has the results fill the tab instead of the editor, or
+// gives the editor its place back.
+func (q *Tab) maximizeResults() {
+	l := q.a.Layout()
+	if l.Results == widgets.ResultsMaximized {
+		l.Results = widgets.ResultsShown
+		return
+	}
+	l.Results = widgets.ResultsMaximized
+	if q.Editor.HasFocus() && q.current() != nil {
+		*q.a.FocusWant() = "results"
 	}
 }
 
@@ -1426,30 +1590,41 @@ func (q *Tab) resultsView(c *ui.Context, a Host) {
 	if stale {
 		results, idx = q.stale, q.staleIdx
 	}
-	panel := ui.Column(c).Fill().Disabled(stale)
-	if stale {
+	l := a.Layout()
+	hidden := l.Results == widgets.ResultsHidden
+	panel := ui.Column(c).Disabled(stale)
+	if !hidden {
+		panel.Fill()
+	}
+	// The old results fade once the run has lasted: a quick run swaps
+	// them without a flicker.
+	if stale && widgets.Lasted(c, q.StartedAt) {
 		panel.Opacity(0.55)
 	}
 	panel.Children(func() {
 		ui.Row(c).Padding(4, 8).Gap(4).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 			ui.Row(c).Gap(2).Grow(1).Shrink(1).ClipX().Children(func() {
+				names := resultNames(results)
 				for i, r := range results {
 					if !r.rowsMode && r.err == "" {
 						continue
 					}
-					label := fmt.Sprintf("Result %d", i+1)
+					label := names[i]
 					switch {
 					case r.err != "" && r.view == nil:
 						label = "Error"
 					case r.err != "":
 						label += " ⚠"
 					}
+					var pin *ui.SVG
+					named := label
 					if r.pinned {
-						label += " (pinned)"
+						pin, named = widgets.IconPin, label+", pinned"
 					}
-					p := widgets.Pill(c, label, idx == i)
+					p := widgets.IconPill(c, pin, label, idx == i).Label(named).Tooltip(resultTip(r))
 					if p.Clicked() {
 						q.resultIdx = i
+						q.showResults()
 					}
 					p.ContextMenu(func(m *ui.Menu) {
 						title := "Pin"
@@ -1464,28 +1639,58 @@ func (q *Tab) resultsView(c *ui.Context, a Host) {
 						}
 					})
 				}
-				label := "Messages"
-				if n := len(q.messages); n > 0 {
-					label = fmt.Sprintf("Messages (%d)", n)
-				}
-				if widgets.Pill(c, label, idx >= len(results)).Clicked() {
-					q.resultIdx = len(q.results)
-				}
 			})
+			if widgets.ToggleIconButton(c, widgets.IconTerminal, "Output", idx >= len(results)).Clicked() {
+				q.resultIdx = len(q.results)
+				q.showResults()
+			}
+			if !hidden {
+				icon, label := maximizeResultsAction(l)
+				if widgets.IconButton(c, icon, label).Tooltip(keymap.Hint(label, keymap.MaximizeResults)).Clicked() {
+					q.maximizeResults()
+				}
+			}
+			icon, label := hideResultsAction(l)
+			if widgets.IconButton(c, icon, label).Tooltip(keymap.Hint(label, keymap.ToggleResults)).Clicked() {
+				q.toggleResults()
+			}
 		})
-		r := resultAt(results, idx)
-		switch {
-		case r == nil:
-			q.messagesView(c)
-		case r.view == nil:
-			q.errorPanel(c, r)
-		case r.plan != nil:
-			q.planView(c, r)
-		default:
-			r.view.View(c)
+		if hidden {
+			return
 		}
+		// What a run brought comes up out of a faint copy, so that a run
+		// whose rows look as before still shows it ran; choosing another
+		// result shows it at once.
+		body := ui.Column(c).Grow(1)
+		if q.runsFaded != q.runsShown {
+			q.runsFaded = q.runsShown
+			body.Jump("run", runFaint)
+		}
+		body.Opacity(body.AnimateTo("run", 1, runShown))
+		body.Children(func() {
+			r := resultAt(results, idx)
+			switch {
+			case r == nil && len(results) == 0 && q.Running && q.runReads:
+				// Nothing to show yet: where the rows will be.
+				widgets.Skeleton(c, q.StartedAt)
+			case r == nil:
+				q.messagesView(c)
+			case r.view == nil:
+				q.errorPanel(c, r)
+			case r.plan != nil:
+				q.planView(c, r)
+			default:
+				r.view.View(c)
+			}
+		})
 	})
 }
+
+// runShown is how the results of a run come up.
+var runShown = ui.Animation{Duration: 120 * time.Millisecond, Ease: ui.EaseOut}
+
+// runFaint is where they come up from.
+const runFaint = 0.6
 
 func (q *Tab) current() *result { return resultAt(q.results, q.resultIdx) }
 
@@ -1668,11 +1873,23 @@ func (q *Tab) rerun(s safety.Statement) {
 func (q *Tab) messagesView(c *ui.Context) {
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
+	if len(q.messages) == 0 {
+		// Nothing ran yet: what to press, in the middle of where its
+		// results will show.
+		ui.Column(c).Grow(1).Center().Gap(8).Children(func() {
+			for _, k := range []struct{ what, id string }{{"Run a statement", keymap.Run}, {"Run the script", keymap.RunScript}} {
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+					ui.Text(c, k.what).FontSize(13).TextColor(pal.Muted)
+					if key := keymap.First(k.id); key != "" {
+						widgets.Keycap(c, key)
+					}
+				})
+			}
+		})
+		return
+	}
 	ui.Scroll(c).Grow(1).Children(func() {
 		ui.Column(c).Padding(8, 12).Gap(8).Children(func() {
-			if len(q.messages) == 0 {
-				ui.Text(c, keymap.Hint("Run a statement", keymap.Run)+", or "+keymap.Hint("the whole script", keymap.RunScript)+".").TextColor(pal.Muted)
-			}
 			for i := len(q.messages) - 1; i >= 0; i-- {
 				m := q.messages[i]
 				ui.Column(c).Gap(2).Children(func() {
@@ -1739,7 +1956,7 @@ func (q *Tab) conflictBar(c *ui.Context) {
 		ui.Icon(c, widgets.IconAlert).TextColor(t.Warning).FontSize(14)
 		ui.Text(c, filepath.Base(q.Path)+" "+q.DiskConflict+": the editor's text is not saved.").Grow(1).Shrink(1).SingleLine().Tooltip(q.Path)
 		if disk, err := os.ReadFile(q.Path); err == nil {
-			if ui.Button(c, "Use the File").Tooltip("Replace the editor's text with the file's").Clicked() {
+			if ui.Button(c, "Reload").Tooltip("Replace the editor's text with the file's").Clicked() {
 				q.Editor.SetFileText(string(disk))
 				q.Saved, q.Typed, q.DiskConflict = string(disk), string(disk), ""
 			}

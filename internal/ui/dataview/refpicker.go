@@ -152,7 +152,7 @@ func refPickerView(a Host, c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	ui.DialogBase(c, &p.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(widgets.Backdrop)
+		widgets.DialogLook(c, backdrop, panel)
 		panel.Width(720).Height(520).Radius(12).Background(th.Background).Border(1, th.Border).Clip().Label("Choose a value")
 		ui.Row(c).Padding(12, 16).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Text(c, p.v.src.Cols[p.col].Name+" → "+p.fk.RefTable).FontSize(15).Bold().SingleLine().Shrink(1)
@@ -178,28 +178,31 @@ func refPickerView(a Host, c *ui.Context) {
 				}
 			}
 		})
-		list := ui.List(c, &p.list, len(p.rows), func(i int) {
-			ui.Row(c).Padding(5, 16).Gap(12).Children(func() {
-				for j, v := range p.rows[i] {
-					text := cellText(db.Display(v), 80)
-					switch {
-					case v == nil:
-						text = "NULL"
-					case p.masked[j]:
-						text = MaskedText
+		var list ui.Element
+		widgets.ChosenRows(c, func() {
+			list = ui.List(c, &p.list, len(p.rows), func(i int) {
+				ui.Row(c).Padding(5, 16).Gap(12).Children(func() {
+					for j, v := range p.rows[i] {
+						text := cellText(db.Display(v), 80)
+						switch {
+						case v == nil:
+							text = "NULL"
+						case p.masked[j]:
+							text = MaskedText
+						}
+						t := ui.Text(c, text).SingleLine()
+						if j == 0 {
+							t.Font(widgets.MonoFont).Width(140)
+						} else {
+							t.Grow(1).Shrink(1).TextColor(pal.Muted)
+						}
 					}
-					t := ui.Text(c, text).SingleLine()
-					if j == 0 {
-						t.Font(widgets.MonoFont).Width(140)
-					} else {
-						t.Grow(1).Shrink(1).TextColor(widgets.RowColor(c, pal.Muted, i == p.sel))
-					}
+				})
+			}).Grow(1).Label("Rows").Dividers(1, th.Border).Children(func() {
+				if !p.loading && len(p.rows) == 0 && p.err == "" {
+					ui.Text(c, "No rows match.").TextColor(pal.Muted).Padding(16)
 				}
 			})
-		}).Grow(1).Label("Rows").Dividers(1, th.Border).Children(func() {
-			if !p.loading && len(p.rows) == 0 && p.err == "" {
-				ui.Text(c, "No rows match.").TextColor(pal.Muted).Padding(16)
-			}
 		})
 		if list.Submitted() {
 			p.choose(p.sel)

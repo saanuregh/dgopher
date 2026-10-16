@@ -17,6 +17,12 @@ import (
 // pubSubKeep is how many messages the panel keeps, the latest.
 const pubSubKeep = 5000
 
+// subscribe and monitor are the server's, replaced in tests.
+var (
+	subscribe = (*db.KV).Subscribe
+	monitor   = (*db.KV).Monitor
+)
+
 type pubSubState struct {
 	listenIn  string             // channels and patterns as typed, by spaces
 	listening string             // what the subscription listens to
@@ -24,6 +30,9 @@ type pubSubState struct {
 	messages  []db.PubSubMessage
 	err       string
 	list      ui.ListState
+	// resume is set when the subscription ended with an error rather
+	// than a Stop: Online starts it again.
+	resume bool
 
 	channel string // the publish form's
 	message string
@@ -34,10 +43,13 @@ type pubSubState struct {
 }
 
 // listen subscribes to the channels and patterns typed.
-func (r *Tab) listen() {
+func (r *Tab) listen() { r.listenTo(r.pubsub.listenIn) }
+
+// listenTo subscribes to the channels and patterns of names.
+func (r *Tab) listenTo(names string) {
 	p := &r.pubsub
 	var channels, patterns []string
-	for _, name := range strings.Fields(p.listenIn) {
+	for _, name := range strings.Fields(names) {
 		if db.IsPattern(name) {
 			patterns = append(patterns, name)
 		} else {
@@ -48,7 +60,7 @@ func (r *Tab) listen() {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	p.cancel, p.err, p.listening = cancel, "", strings.Join(strings.Fields(p.listenIn), " ")
+	p.cancel, p.err, p.resume, p.listening = cancel, "", false, strings.Join(strings.Fields(names), " ")
 	kv, cfg := r.conn.KV, r.conn.Config
 	messages := feed[db.PubSubMessage]{keep: pubSubKeep}
 	go func() {
@@ -59,16 +71,30 @@ func (r *Tab) listen() {
 			r.a.Post(func() { p.messages = keepLatest(p.messages, batch, pubSubKeep) })
 		})
 		start := time.Now()
-		err := kv.Subscribe(ctx, channels, patterns, messages.add)
+		err := subscribe(kv, ctx, channels, patterns, messages.add)
+		stopped := ctx.Err() != nil
 		close(done)
 		r.a.RecordRun(cfg, audit.KindCommand, cfg.Database, "SUBSCRIBE "+strings.Join(append(channels, patterns...), " "), -1, time.Since(start), err)
 		r.a.Post(func() {
 			p.cancel = nil
 			if err != nil {
 				p.err = err.Error()
+				p.resume = !stopped
 			}
 		})
 	}()
+}
+
+// Online starts again the subscription and the MONITOR that ended with
+// an error, as the computer comes back online: MONITOR without asking
+// again, as the user agreed to it. A Stop is never undone.
+func (r *Tab) Online() {
+	if p := &r.pubsub; p.resume && p.cancel == nil {
+		r.listenTo(p.listening)
+	}
+	if m := &r.monitor; m.resume && m.cancel == nil {
+		r.runMonitor()
+	}
 }
 
 // publish sends the message typed to the channel typed, as the policy

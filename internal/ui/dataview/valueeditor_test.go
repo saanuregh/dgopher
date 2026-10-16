@@ -78,32 +78,37 @@ func TestValueEditorForms(t *testing.T) {
 
 	openValueEditor(a, v.grid, &v.src, 0, col("meta"))
 	e = a.Dialogs().valueEdit
+	tt.Advance(time.Second)
 	tt.Frame()
 	testutil.Snapshot(t, tt, "value-tree")
-	if e.form != formTree || !tt.HasText("tags: [2]") || !tt.HasText(`0: "a"`) {
+	if e.form != formTree || !tt.HasText(`"tags"`) || !tt.HasText(`"a"`) {
 		t.Fatalf("meta: %q %q", e.form, tt.Texts())
 	}
 	e.open = false
 	tt.Frame()
 }
 
-func TestValueEditorTreeRefreshesWhenTextChanges(t *testing.T) {
-	e := &valueEditor{text: `{"b":1,"a":2}`}
-	root, err := e.decodedTree()
-	if err != nil {
-		t.Fatal(err)
+func TestJSONTreeReadsAgainWhenTextChanges(t *testing.T) {
+	var tree jsonTree
+	tree.read(`{"b":1,"a":{"c":[1]}}`, 1)
+	if tree.node == nil || tree.node.children[0].key != "b" {
+		t.Fatalf("read %+v, %v", tree.node, tree.err)
 	}
-	if got := root.(jsonObject).keys; !slices.Equal(got, []string{"a", "b"}) {
-		t.Fatalf("keys = %v", got)
+	if a := tree.node.children[1]; !tree.folded[a.id] || tree.folded[tree.node.id] {
+		t.Fatalf("folded %v: the top open, the next level folded", tree.folded)
 	}
-	e.text = `{"c":3}`
-	root, _ = e.decodedTree()
-	if got := root.(jsonObject).keys; !slices.Equal(got, []string{"c"}) {
-		t.Fatalf("after the text changed, keys = %v", got)
+	tree.folded[tree.node.id] = true
+	tree.read(`{"b":1,"a":{"c":[1]}}`, 1)
+	if !tree.folded[tree.node.id] {
+		t.Fatal("the same text forgot its folds")
 	}
-	e.text = `{`
-	if _, err := e.decodedTree(); err == nil {
-		t.Fatal("broken JSON decoded")
+	tree.read(`{"c":3}`, 1)
+	if len(tree.node.children) != 1 || tree.node.children[0].key != "c" {
+		t.Fatalf("after the text changed: %+v", tree.node)
+	}
+	tree.read(`{`, 1)
+	if tree.node != nil || tree.err == nil {
+		t.Fatal("broken JSON read")
 	}
 }
 
@@ -155,5 +160,18 @@ func TestValueEditorTextKeys(t *testing.T) {
 	tt.Frame()
 	if got := g.edits.updates[1][1]; got != db.Typed("zb") {
 		t.Fatalf("saved %#v", got)
+	}
+}
+
+// An editable value starts as the database gives it, never in the grid's
+// display format, which would be written back as the value.
+func TestValueEditorStartsWithRawValue(t *testing.T) {
+	a := NewFakeHost(t)
+	a.settings.ViewFormat.GroupNumbers = true
+	g, src := editableGrid()
+	src.Rows[0][0] = int64(1234567)
+	openValueEditor(a, g, src, 0, 0)
+	if got := a.dialogs.valueEdit.text; got != "1234567" {
+		t.Fatalf("editable value editor text %q, want 1234567", got)
 	}
 }

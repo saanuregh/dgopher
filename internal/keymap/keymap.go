@@ -376,11 +376,17 @@ func Is(id string, mods ui.Modifiers, key ui.Key) bool {
 }
 
 // Item gives a menu item the command's first key.
-func Item(it *ui.MenuItem, id string) *ui.MenuItem {
+func Item[T shortcutter[T]](it T, id string) T {
 	if ch, ok := Primary(id); ok {
 		it.Shortcut(ch.Mods, ch.Key)
 	}
 	return it
+}
+
+// shortcutter is a menu item showing keys: the system's or one the app
+// draws.
+type shortcutter[T any] interface {
+	Shortcut(mods ui.Modifiers, key ui.Key) T
 }
 
 // Conflict is the command of a scope that one of the scopes overlap a

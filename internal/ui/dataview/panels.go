@@ -15,6 +15,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
 	"dgopher/internal/settings"
+	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo"
@@ -122,12 +123,21 @@ func (g *Grid) valuePanel(c *ui.Context, a Host, src *Source, row int) {
 	text := "NULL"
 	if v != nil && v != unset && v != db.Default {
 		switch g.viewer {
-		case "JSON":
-			text = PrettyValue(db.Display(v))
-		case "XML":
-			text = prettyXML(db.Display(v))
-		case "Hex":
-			text = hex.Dump(raw)
+		case "JSON", "XML", "Hex":
+			// Formatted once for each value and viewer, not in each frame.
+			shown := db.Display(v)
+			if vs := &g.valueShown; vs.viewer != g.viewer || vs.value != shown {
+				*vs = valueShown{viewer: g.viewer, value: shown}
+				switch g.viewer {
+				case "JSON":
+					vs.text = PrettyValue(shown)
+				case "XML":
+					vs.text = prettyXML(shown)
+				default:
+					vs.text = hex.Dump(raw)
+				}
+			}
+			text = g.valueShown.text
 		default:
 			text = a.Settings().ViewFormat.Format(v)
 		}
@@ -144,9 +154,20 @@ func (g *Grid) valuePanel(c *ui.Context, a Host, src *Source, row int) {
 		if g.viewer == "Image" && g.bitmap != nil {
 			ui.Scroll(c).Grow(1).Children(func() { ui.Image(c, g.bitmap).Padding(10) })
 		} else {
-			ui.Scroll(c).Grow(1).Children(func() {
-				ui.Text(c, text).Font(widgets.MonoFont).FontSize(12).Padding(10).Selectable()
-			})
+			area := &g.valueArea
+			area.Label, area.FontSize, area.ReadOnly, area.NoBorder, area.NoLineNumbers = "Value", 12, true, true, true
+			// A hex dump's lines are columns, which wrapping would break.
+			area.SoftWrap = g.viewer != "Hex"
+			switch g.viewer {
+			case "JSON":
+				area.Language = editor.LanguageJSON
+			case "XML":
+				area.Language = editor.LanguageXML
+			default:
+				area.Language = editor.LanguagePlain
+			}
+			el, _ := area.View(c, &text)
+			el.Grow(1)
 		}
 		ui.Row(c).Padding(6, 8).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 			if widgets.IconButton(c, widgets.IconCopy, "Copy the value").Clicked() {
@@ -200,6 +221,12 @@ func (g *Grid) valuePanel(c *ui.Context, a Host, src *Source, row int) {
 			}
 		})
 	})
+}
+
+// valueShown is the Value panel's text formatted by a viewer, of the
+// value as db.Display shows it.
+type valueShown struct {
+	viewer, value, text string
 }
 
 // viewerFor is the viewer a value's content asks for.
@@ -260,8 +287,9 @@ func prettyXML(s string) string {
 	return b.String()
 }
 
-// calcStats are DBeaver's Calc of the chosen column over the chosen rows.
+// calcStats are DBeaver's Calc of a chosen column over the chosen rows.
 type calcStats struct {
+	col                    int
 	count, distinct, nulls int
 	numeric                bool
 	sum, avg, min, max     float64
@@ -270,16 +298,31 @@ type calcStats struct {
 	modeCount              int
 }
 
-func (g *Grid) calc(src *Source) calcStats {
-	var s calcStats
-	if g.selCol >= len(src.Cols) {
-		return s
+// calc works out the Calc of every column of the chosen block, again only
+// when the choice or the rows changed.
+func (g *Grid) calc(src *Source) []calcStats {
+	if g.List.DragSelecting() {
+		return g.stats.calc // as the status bar's sums: once the drag ends
 	}
+	cols := g.selectedCols(src)
+	if key := g.statsKey(src, cols); key != g.stats.calcKey {
+		rows := g.selectedRows(src)
+		out := make([]calcStats, 0, len(cols))
+		for _, col := range cols {
+			out = append(out, g.calcColumn(src, rows, col))
+		}
+		g.stats.calcKey, g.stats.calc = key, out
+	}
+	return g.stats.calc
+}
+
+func (g *Grid) calcColumn(src *Source, rows []int, col int) calcStats {
+	s := calcStats{col: col}
 	seen := map[string]int{}
 	var nums []float64
 	s.numeric = true
-	for _, r := range g.selectedRows(src) {
-		v, _ := g.value(src, r, g.selCol)
+	for _, r := range rows {
+		v, _ := g.value(src, r, col)
 		if v == nil || v == unset || v == db.Default {
 			s.nulls++
 			continue
@@ -318,33 +361,33 @@ func (g *Grid) calc(src *Source) calcStats {
 
 func (g *Grid) calcPanel(c *ui.Context, src *Source) {
 	pal := widgets.PaletteOf(c)
-	s := g.calc(src)
+	stats := g.calc(src)
 	ui.Scroll(c).Grow(1).Children(func() {
 		ui.Column(c).Padding(10, 12).Gap(6).Children(func() {
-			if g.selCol < len(src.Cols) {
-				ui.Text(c, src.Cols[g.selCol].Name+" over the chosen rows").Bold()
-			}
 			line := func(k, v string) {
 				ui.Row(c).Gap(8).Children(func() {
 					ui.Text(c, k).TextColor(pal.Muted).Width(110)
 					ui.Text(c, v).Font(widgets.MonoFont).FontSize(12.5).Selectable()
 				})
 			}
-			line("Count", fmt.Sprint(s.count))
-			line("Distinct", fmt.Sprint(s.distinct))
-			line("NULLs", fmt.Sprint(s.nulls))
-			if s.numeric && !g.isMasked(g.selCol) {
-				num := func(f float64) string { return settings.GroupDigits(fmt.Sprint(f)) }
-				line("Sum", num(s.sum))
-				line("Average", num(s.avg))
-				line("Minimum", num(s.min))
-				line("Maximum", num(s.max))
-				line("Median", num(s.median))
+			for _, s := range stats {
+				ui.Text(c, src.Cols[s.col].Name+" over the chosen rows").Bold()
+				line("Count", fmt.Sprint(s.count))
+				line("Distinct", fmt.Sprint(s.distinct))
+				line("NULLs", fmt.Sprint(s.nulls))
+				if s.numeric && !g.isMasked(s.col) {
+					num := func(f float64) string { return settings.GroupDigits(fmt.Sprint(f)) }
+					line("Sum", num(s.sum))
+					line("Average", num(s.avg))
+					line("Minimum", num(s.min))
+					line("Maximum", num(s.max))
+					line("Median", num(s.median))
+				}
+				if s.modeCount > 1 && !g.isMasked(s.col) {
+					line("Most frequent", fmt.Sprintf("%s (%d)", cellText(s.mode, 40), s.modeCount))
+				}
 			}
-			if s.modeCount > 1 && !g.isMasked(g.selCol) {
-				line("Most frequent", fmt.Sprintf("%s (%d)", cellText(s.mode, 40), s.modeCount))
-			}
-			ui.Text(c, "Choose rows with ⇧ or ⌘ and a click.").FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, "Choose cells with a click or a drag: ⇧ extends, ⌘ adds rows.").FontSize(12).TextColor(pal.Muted)
 		})
 	})
 }

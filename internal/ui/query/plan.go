@@ -72,12 +72,11 @@ func formatNumber(f float64) string {
 // take and the advice about them, as a flame graph, or the rows as the
 // server gave them.
 func (q *Tab) planView(c *ui.Context, r *result) {
-	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Row(c).Padding(4, 10).Gap(10).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Segmented(c, &r.planMode, "Plan", "Flame Graph", "Rows").Label("Plan view")
-			ui.Text(c, planSummary(r.plan)).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1)
+		widgets.Bar(c, "Plan", func() {
+			ui.Segmented(c, &r.planMode, "Plan", "Flame Graph", "Rows").Label("Plan view").FontSize(widgets.ToolFontSize)
+			ui.Text(c, planSummary(r.plan)).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1).Margin(0, 0, 0, 8)
 		})
 		switch r.planMode {
 		case planRows:

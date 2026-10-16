@@ -61,14 +61,13 @@ func (r *Tab) loadDocs() {
 
 // complete completes the command being typed: the one command starting so,
 // or as far as all of them agree.
-func (r *Tab) complete() {
-	word := r.consoleIn
+func (r *Tab) complete(word string) string {
 	if strings.ContainsAny(word, " \t") {
-		return
+		return word
 	}
 	names := db.CompleteCommand(r.docs, word)
 	if len(names) == 0 {
-		return
+		return word
 	}
 	common := names[0]
 	for _, n := range names[1:] {
@@ -80,8 +79,9 @@ func (r *Tab) complete() {
 		common += " "
 	}
 	if len(common) > len(word) {
-		r.consoleIn = common
+		return common
 	}
+	return word
 }
 
 // helpView shows the syntax of the command typed, or the commands its
@@ -160,27 +160,33 @@ func (r *Tab) consoleView(c *ui.Context) {
 				in.SetTextSelection(end, end)
 				r.caretToEnd = false
 			}
-			typed := r.consoleIn
-			if in.Shortcut(0, ui.KeyUp) && len(r.history) > 0 {
-				r.histIdx = max(0, r.histIdx-1)
-				r.consoleIn = r.history[r.histIdx]
-			}
-			if in.Shortcut(0, ui.KeyDown) && len(r.history) > 0 {
-				r.histIdx = min(len(r.history), r.histIdx+1)
-				if r.histIdx == len(r.history) {
-					r.consoleIn = ""
-				} else {
-					r.consoleIn = r.history[r.histIdx]
+			in.OnTextKey(func(k ui.TextKey) bool {
+				if k.Mods != 0 {
+					return false
 				}
-			}
-			if in.Shortcut(0, ui.KeyTab) {
-				r.complete()
-			}
-			if r.consoleIn != typed {
-				// A line recalled or completed: the caret goes after it.
-				r.caretToEnd = true
-				c.AnimationFrame()
-			}
+				line := k.Text()
+				switch {
+				case k.Key == ui.KeyUp && len(r.history) > 0:
+					r.histIdx = max(0, r.histIdx-1)
+					line = r.history[r.histIdx]
+				case k.Key == ui.KeyDown && len(r.history) > 0:
+					r.histIdx = min(len(r.history), r.histIdx+1)
+					line = ""
+					if r.histIdx < len(r.history) {
+						line = r.history[r.histIdx]
+					}
+				case k.Key == ui.KeyTab:
+					line = r.complete(line)
+				default:
+					return false
+				}
+				if line != k.Text() {
+					// SetText leaves the caret where it was; the next frame moves it after the line.
+					k.SetText(line)
+					r.caretToEnd = true
+				}
+				return true
+			})
 			if in.Submitted() && r.file == nil {
 				r.runConsole(strings.TrimSpace(r.consoleIn))
 			}

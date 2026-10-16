@@ -163,10 +163,12 @@ func (t *usersTab) View(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Row(c).Padding(6, 10).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Icon(c, widgets.IconUsers).TextColor(pal.Muted).FontSize(14)
-			ui.Text(c, "Users and roles").Bold()
-			ui.Text(c, fmt.Sprintf("%d", len(t.accounts))).FontSize(12).TextColor(pal.Muted)
+		widgets.Bar(c, "Users", func() {
+			widgets.BarTitle(c, func() {
+				ui.Icon(c, widgets.IconUsers).TextColor(pal.Muted).FontSize(widgets.ToolIconSize)
+				ui.Text(c, "Users and roles").Bold()
+				ui.Text(c, fmt.Sprintf("%d", len(t.accounts))).FontSize(12).TextColor(pal.Muted)
+			})
 			ui.Spacer(c)
 			if ui.Button(c, "New User…").Clicked() {
 				t.openForm(formNewUser)
@@ -294,7 +296,7 @@ func (t *usersTab) formView(c *ui.Context) {
 	titles := map[accountFormKind]string{formNewUser: "New User", formNewRole: "New Role",
 		formPassword: "Change the Password of " + f.account.Label(), formGrant: "Grant to " + f.account.Label(),
 		formJoinRole: "Add " + f.account.Label() + " to a Role"}
-	dlg := ui.Modal(c, &f.open, func() {
+	dlg := widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(520).Gap(12).Children(func() {
 			ui.Text(c, titles[f.kind]).FontSize(15).Bold()
 			ui.Form(c, func() {

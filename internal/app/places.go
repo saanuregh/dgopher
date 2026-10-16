@@ -82,6 +82,11 @@ func placesSubtitle(groups []connPlaces) string {
 // tabSubtitle is a tab's subtitle (placesSubtitle).
 func tabSubtitle(t widgets.Tab) string { return placesSubtitle(byConnection(tabPlaces(t))) }
 
+// anyConnected reports whether a connection of groups is open.
+func anyConnected(groups []connPlaces) bool {
+	return slices.ContainsFunc(groups, func(g connPlaces) bool { return g.conn.Status == connection.StatusConnected })
+}
+
 // placesTooltip lists every place, with its connection's state.
 func placesTooltip(groups []connPlaces) string {
 	var lines []string

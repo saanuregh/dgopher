@@ -25,8 +25,8 @@ func TestTitleBar(t *testing.T) {
 	if err := tt.Click("Menu"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tt.ChooseMenuItem("Help", "Keyboard Shortcuts"); err != nil {
-		t.Fatalf("%v; menu %q", err, tt.Menu())
+	if err := testutil.ChooseMenu(tt, "Help", "Keyboard Shortcuts"); err != nil {
+		t.Fatalf("%v; texts %q", err, tt.Texts())
 	}
 	tt.Frame()
 	if !a.shortcutsOpen {

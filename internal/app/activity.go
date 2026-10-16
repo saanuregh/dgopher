@@ -358,10 +358,10 @@ func (t *activityTab) View(c *ui.Context) {
 		c.After(time.Second)
 	}
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Row(c).Padding(6, 10).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		widgets.Bar(c, "Server activity", func() {
 			if len(t.pages) > 1 {
 				names := lists.Map(t.pages, func(p activityPage) string { return p.name })
-				if ui.Segmented(c, &t.page, names...).Label("Page").Changed() {
+				if ui.Segmented(c, &t.page, names...).Label("Page").FontSize(widgets.ToolFontSize).Changed() {
 					t.showPage(t.page)
 				}
 			} else {

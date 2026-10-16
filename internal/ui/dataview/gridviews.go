@@ -40,7 +40,6 @@ func (v *Viewer) presentationButtons(c *ui.Context) {
 // recordView shows the chosen row as a list of its fields, editable as the
 // grid is.
 func (g *Grid) recordView(c *ui.Context, a Host, src *Source, order []int) {
-	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	if g.SelRow < 0 && len(order) > 0 {
 		g.SelRow = 0
@@ -57,7 +56,7 @@ func (g *Grid) recordView(c *ui.Context, a Host, src *Source, order []int) {
 		}
 	}
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Row(c).Padding(4, 8).Gap(6).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		widgets.Bar(c, "Record", func() {
 			if widgets.IconButton(c, widgets.IconPrev, "Previous row").Disabled(g.SelRow == 0).Clicked() {
 				g.SelRow--
 			}
@@ -68,16 +67,21 @@ func (g *Grid) recordView(c *ui.Context, a Host, src *Source, order []int) {
 		})
 		g.recList.Selected = &g.recRow
 		cols := []ui.TableColumn{{Title: "Field", ID: "field", Width: 200}, {Title: "Value", ID: "value"}}
+		g.recList.CellMenu = func(m *ui.Menu, r, col int) {
+			if col == 1 && r < len(fields) {
+				g.cellMenu(m, a, src, data, fields[r])
+			}
+		}
 		list := ui.Table(c, &g.recList, cols, len(fields), func(r, col int) {
 			field := fields[r]
 			if col == 0 {
 				ui.Text(c, src.Cols[field].Name).FontSize(12.5).Bold().SingleLine()
 				return
 			}
-			g.cell(c, a, src, g.SelRow, data, field)
+			g.cell(c, a, src, data, field)
 		}).Grow(1).Label("Record")
-		if g.recRow >= 0 && g.recRow < len(fields) {
-			g.selCol = fields[g.recRow]
+		if g.recRow >= 0 && g.recRow < len(fields) && fields[g.recRow] != g.selCol {
+			g.setCursorCol(fields[g.recRow])
 		}
 		if list.Valid() && g.recList.Shortcut(c, 0, ui.KeyTab) {
 			g.mode = viewGrid
@@ -108,6 +112,12 @@ func (g *Grid) plainText(a Host, src *Source, order []int, limit int) string {
 			cols = append(cols, i)
 		}
 	}
+	return g.plainTextColumns(a, src, order, cols, limit)
+}
+
+// plainTextColumns writes up to limit rows of some columns as an aligned
+// text table.
+func (g *Grid) plainTextColumns(a Host, src *Source, order, cols []int, limit int) string {
 	rows := order[:min(len(order), limit)]
 	cells := make([][]string, len(rows))
 	widths := lists.Map(cols, func(col int) int { return utf8.RuneCountInString(src.Cols[col].Name) })

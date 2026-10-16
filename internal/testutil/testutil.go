@@ -18,7 +18,11 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// WaitFor draws frames until cond holds.
+// WaitFor draws frames until cond holds, then lets the motion that came
+// with it end. The tester's clock, which stands
+// still on its own, moves on with the wall clock, which work in the
+// background follows: animations and Context.After come due as they would
+// in a window.
 func WaitFor(t *testing.T, tt *ui.Tester, what string, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
@@ -26,11 +30,22 @@ func WaitFor(t *testing.T, tt *ui.Tester, what string, cond func() bool) {
 		if time.Now().After(deadline) {
 			t.Fatalf("timed out waiting for %s; texts: %q", what, tt.Texts())
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(step)
 		tt.Frame()
+		tt.Advance(step)
 	}
+	// What came with it done coming, as a button fading in, which takes
+	// no click while it shows at nothing.
 	tt.Frame()
+	tt.Advance(settle)
 }
+
+// step is how long WaitFor waits between frames; settle, the time the
+// app's motion takes to end.
+const (
+	step   = 20 * time.Millisecond
+	settle = 300 * time.Millisecond
+)
 
 func Integration(t *testing.T) {
 	t.Helper()
@@ -124,4 +139,18 @@ func SetCaret(tt *ui.Tester, e *editor.Editor, at int) {
 	e.Select(at, at)
 	tt.Frame()
 	tt.Frame()
+}
+
+// ChooseMenu chooses an item of a menu the app draws (widgets.MenuOn),
+// open: a click on each label of path in turn, the submenus' and then the
+// item's.
+func ChooseMenu(tt *ui.Tester, path ...string) error {
+	for _, label := range path {
+		tt.Frame()
+		if err := tt.Click(label); err != nil {
+			return err
+		}
+	}
+	tt.Frame()
+	return nil
 }

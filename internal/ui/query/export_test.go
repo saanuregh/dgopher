@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"dgopher/internal/audit"
 	"dgopher/internal/db"
@@ -83,6 +84,7 @@ func TestExportFromQueryOnTheEditorsSession(t *testing.T) {
 	testutil.SetCaret(tt, &q.Editor, len(q.Editor.Text()))
 	q.exportFromQuery()
 	tt.Frame()
+	tt.Advance(time.Second) // the dialog come in
 	if err := tt.Click("Export"); err != nil {
 		t.Fatal(err)
 	}

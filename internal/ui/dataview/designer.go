@@ -232,7 +232,7 @@ func (d *designer) View(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	e := d.engine
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Row(c).Padding(10, 16).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		widgets.Bar(c, "Table design", func() {
 			name := ui.TextInput(c, &d.now.Name).Placeholder("table name").Label("Table name").Font(widgets.MonoFont).Width(240)
 			if d.was == nil {
 				name.AutoFocus()

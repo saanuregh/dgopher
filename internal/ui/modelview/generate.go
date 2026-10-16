@@ -77,7 +77,7 @@ func (t *Tab) generateView(c *ui.Context) {
 	if !slices.Contains(names, f.conn) && len(names) > 0 {
 		f.conn = names[0]
 	}
-	dlg := ui.Modal(c, &f.open, func() {
+	dlg := widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(720).Height(560).Gap(12).Children(func() {
 			ui.Text(c, "Generate DDL").FontSize(15).Bold()
 			ui.Row(c).Gap(12).Children(func() {

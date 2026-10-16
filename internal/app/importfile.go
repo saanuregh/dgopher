@@ -524,7 +524,7 @@ func (a *App) importView(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	dlg := ui.DialogBase(c, &x.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(widgets.Backdrop)
+		widgets.DialogLook(c, backdrop, panel)
 		_, winH := c.Size()
 		panel.Width(860).MaxHeight(winH-40).Radius(12).Background(th.Background).Border(1, th.Border).Clip().Label("Import")
 		ui.Column(c).Padding(16, 20).Gap(12).Children(func() {

@@ -249,7 +249,7 @@ func (g *Grid) profilePanel(c *ui.Context, a Host, src *Source) {
 	}
 	profiles := g.profiles
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Row(c).Padding(4, 8).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		widgets.Bar(c, "Profile", func() {
 			label := fmt.Sprintf("Of the %d rows read", len(src.Rows))
 			if g.profileServer != nil {
 				profiles = g.profileServer
@@ -341,7 +341,7 @@ func (g *Grid) profileRow(c *ui.Context, src *Source, i int, p columnProfile) {
 	})
 	if row.Clicked() {
 		if p.col >= 0 {
-			g.selCol = p.col
+			g.setCursorCol(p.col)
 		}
 	}
 }

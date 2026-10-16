@@ -168,6 +168,9 @@ func (e *ERTab) svgTable(b *strings.Builder, t *erTable) {
 			fmt.Fprintf(b, `<text x="%g" y="%g" font-size="11" fill="%s">+ %d more</text>`+"\n", x+10, ry, svgMuted, len(t.cols)-erMaxCols)
 			break
 		}
+		if i%2 == 1 {
+			fmt.Fprintf(b, `<rect x="%g" y="%g" width="%d" height="%d" fill="%s"/>`+"\n", x+1, ry-erRowH/2-4, erBoxW-2, erRowH, svgHeader)
+		}
 		switch {
 		case col.PrimaryKey:
 			fmt.Fprintf(b, `<text x="%g" y="%g" font-size="9" font-weight="700" fill="%s">PK</text>`+"\n", x+8, ry, svgKey)
@@ -179,7 +182,7 @@ func (e *ERTab) svgTable(b *strings.Builder, t *erTable) {
 			weight = "600"
 		}
 		fmt.Fprintf(b, `<text x="%g" y="%g" font-size="12" font-weight="%s" fill="%s">%s</text>`+"\n", x+28, ry, weight, svgInk, esc(fitText(col.Name, 20)))
-		fmt.Fprintf(b, `<text x="%g" y="%g" font-size="10.5" text-anchor="end" fill="%s">%s</text>`+"\n", x+erBoxW-10, ry, svgMuted, esc(fitText(col.Type, 16)))
+		fmt.Fprintf(b, `<text x="%g" y="%g" font-size="10.5" text-anchor="end" fill="%s">%s</text>`+"\n", x+erBoxW-10, ry, svgMuted, esc(fitText(erType(col.Type), 18)))
 	}
 	b.WriteString("</g>\n")
 }

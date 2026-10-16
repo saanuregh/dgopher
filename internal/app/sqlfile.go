@@ -191,7 +191,7 @@ func (a *App) sqlFileView(c *ui.Context) {
 	x := a.sqlFile
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	dlg := ui.Modal(c, &x.open, func() {
+	dlg := widgets.Modal(c, &x.open, func() {
 		ui.Column(c).Width(640).Gap(12).Children(func() {
 			ui.Text(c, "Run "+filepath.Base(x.path)+" on "+x.conn.Config.Name).FontSize(15).Bold()
 			ui.Text(c, x.path).Font(widgets.MonoFont).FontSize(12).TextColor(pal.Muted).SingleLine()

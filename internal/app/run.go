@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"dgopher/internal/keymap"
+	"dgopher/internal/settings"
 	"dgopher/internal/state"
 	"dgopher/internal/store"
 
@@ -32,7 +33,7 @@ func Run(args []string) error {
 	if err != nil {
 		return err
 	}
-	st, err := store.Open(dir, store.KeyringSecrets(keychainService))
+	st, err := store.Open(dir, store.MygoSecrets(keychainService))
 	if err != nil {
 		return err
 	}
@@ -61,7 +62,11 @@ func Run(args []string) error {
 	a.loadThemes()
 	a.applyTheme()
 	setMenuBar(a)
+	mygo.App.OnOpenFile(func(path string) { a.Post(func() { a.openDropped([]string{path}) }) })
 	mygo.App.WhenReady(func() {
+		a.watchProjects()
+		a.setOnline(mygo.Network.Status().Online)
+		mygo.Network.OnChanged(func(s mygo.NetworkStatus) { a.Post(func() { a.setOnline(s.Online) }) })
 		win := mygo.NewWindow(mygo.WindowOptions{
 			Title:          "DGopher",
 			TitleBarStyle:  mygo.TitleBarHidden,
@@ -113,6 +118,12 @@ func Run(args []string) error {
 				}()
 			}
 		}
+		// Grids in regional formats write numbers and dates as the user's
+		// regional settings do, in the app's language.
+		setRegion := func(r mygo.Region) { settings.RegionLocale = r.FormatLocale(mygo.App.Locale()) }
+		setRegion(mygo.App.Region())
+		mygo.App.OnRegionChanged(setRegion)
+		mygo.App.OnLocaleChanged(func(string) { setRegion(mygo.App.Region()) })
 		// What the window shows needs no notification left behind.
 		mygo.App.OnDidBecomeActive(mygo.ClearNotifications)
 		// Quitting asks first about what it would lose, as an open
@@ -288,6 +299,8 @@ type menuEntry struct {
 	// id is the keymap command it runs, whose key it shows; "" for none.
 	id  string
 	run func()
+	// openRecent makes it the Open Recent submenu.
+	openRecent bool
 }
 
 // appMenus are the app's menus: what File, View and Help hold.
@@ -298,6 +311,7 @@ func (a *App) appMenus() []menuGroup {
 			cmd("New Connection…", keymap.NewConnection),
 			cmd("New SQL Editor", keymap.NewEditor),
 			cmd("Open SQL Script…", keymap.OpenScript),
+			{label: "Open Recent", openRecent: true},
 			{label: "Run SQL File…", run: func() {
 				if cn := a.activeConn(); cn != nil && cn.Config.Engine.IsSQL() {
 					a.openSQLFileRun(cn, "")
@@ -341,6 +355,10 @@ func buildMenu(a *App) *mygo.Menu {
 		for _, e := range g.items {
 			if e.label == "" {
 				out = append(out, mygo.Separator())
+				continue
+			}
+			if e.openRecent {
+				out = append(out, &mygo.MenuItem{Role: mygo.RoleOpenRecent})
 				continue
 			}
 			run := e.run

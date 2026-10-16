@@ -204,7 +204,7 @@ func (t *waitingTab) Shown() {
 }
 
 func (t *waitingTab) connect() {
-	t.a.Connect(t.conn, func() { t.open() })
+	t.a.ConnectInline(t.conn, func() { t.open() })
 }
 
 // open puts the tab itself in this one's place, once; this one closes

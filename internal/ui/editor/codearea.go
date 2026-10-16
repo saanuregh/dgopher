@@ -19,6 +19,7 @@ const (
 	LanguagePlain AreaLanguage = iota
 	LanguageSQL                // in the area's Dialect
 	LanguageJSON
+	LanguageXML
 	// LanguageDetected is JSON when the text set from outside is JSON,
 	// else plain.
 	LanguageDetected
@@ -37,6 +38,8 @@ type CodeArea struct {
 	ReadOnly      bool
 	NoLineNumbers bool
 	NoFolding     bool
+	// SoftWrap wraps long lines at the area's width.
+	SoftWrap bool
 	// NoBorder leaves out the border of a text field, for an area that
 	// fills a page.
 	NoBorder bool
@@ -101,6 +104,14 @@ func (a *CodeArea) View(c *ui.Context, s *string) (ui.Element, bool) {
 		st.LineNumbers = code.LineNumbersOff
 	}
 	st.NoFolding = a.NoFolding
+	st.SoftWrap = a.SoftWrap
+	// Text only shown marks neither the caret's line nor the brackets
+	// around it until the user clicks into it; the editor has no switch
+	// for the brackets, whose outline then takes the background's color.
+	st.NoActiveLine = st.ReadOnly && !st.Focused()
+	if st.NoActiveLine {
+		st.Theme.MatchingBracket = st.Theme.Background
+	}
 	// A value is data: typed as it is, and Tab and Escape are the
 	// window's, as in a text field.
 	st.NoAutoClose = true
@@ -210,6 +221,8 @@ func (a *CodeArea) language() *code.Language {
 		return a.sql
 	case LanguageJSON:
 		return code.LanguageNamed("JSON")
+	case LanguageXML:
+		return code.LanguageNamed("XML")
 	case LanguageDetected:
 		return a.detected
 	}

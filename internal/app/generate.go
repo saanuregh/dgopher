@@ -234,7 +234,7 @@ func (a *App) generateView(c *ui.Context) {
 	g := a.generating
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	dlg := ui.Modal(c, &g.open, func() {
+	dlg := widgets.Modal(c, &g.open, func() {
 		ui.Column(c).Width(620).Gap(12).Children(func() {
 			ui.Text(c, "Generate from "+g.title()).FontSize(15).Bold().SingleLine()
 			ui.Row(c).Gap(12).Children(func() {

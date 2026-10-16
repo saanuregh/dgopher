@@ -3819,7 +3819,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-github.com/saanuregh/mygo v0.3.4-0.20261014121609-3a090923ccde
+github.com/saanuregh/mygo v0.3.4-0.20261016160541-37fcd0d33bd4
 ==============================================================================
 
 --- LICENSE ---
@@ -4603,7 +4603,7 @@ rights granted to you under this License for this implementation of Go
 shall terminate as of the date such litigation is filed.
 
 ==============================================================================
-golang.org/x/sync v0.23.0
+golang.org/x/sync v0.24.0
 ==============================================================================
 
 --- LICENSE ---
@@ -4721,7 +4721,7 @@ rights granted to you under this License for this implementation of Go
 shall terminate as of the date such litigation is filed.
 
 ==============================================================================
-golang.org/x/text v0.42.0
+golang.org/x/text v0.43.0
 ==============================================================================
 
 --- LICENSE ---

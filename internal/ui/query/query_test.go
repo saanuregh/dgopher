@@ -366,7 +366,7 @@ func TestPasteDoesNotComplete(t *testing.T) {
 // editor: past the editor's bottom, over the results, it takes a click.
 func TestCompletionPopupPastEditor(t *testing.T) {
 	_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "SELECT 1")
-	q.editorH = 80
+	q.editorPercent = 10
 	tt.Frame()
 	tt.Type(" ")
 	tt.Type("C")

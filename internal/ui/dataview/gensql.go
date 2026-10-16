@@ -122,7 +122,7 @@ func showSQL(a Host, title, text string, cn *connection.Conn, database string) {
 func sqlDialogView(a Host, c *ui.Context) {
 	d := a.Dialogs().sqlShown
 	pal := widgets.PaletteOf(c)
-	ui.Modal(c, &d.open, func() {
+	widgets.Modal(c, &d.open, func() {
 		ui.Column(c).Width(760).Gap(12).Children(func() {
 			ui.Text(c, d.title).FontSize(15).Bold()
 			ui.Scroll(c).MaxHeight(420).Radius(8).Background(pal.EditorBg).Children(func() {

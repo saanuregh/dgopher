@@ -43,6 +43,13 @@ lists the default keys.
   | CSV, TSV, Parquet, JSON or JSON Lines (`.csv`, `.tsv`, `.parquet`, `.json`, `.jsonl`, `.ndjson`) | queried in place with DuckDB |
   | Excel (`.xlsx`) or XML | imported into a new table of the connection chosen in the navigator |
 
+- **Open Recent** in the File menu (and the Dock, the jump list on Windows,
+  and recent files on Linux) lists the last SQL, SQLite and DuckDB files
+  opened, which open as a dropped file does.
+- **Offline.** While the computer is offline, the bar of an unconnected
+  editor says so. Redis subscriptions and MONITOR that stopped start again
+  once it is back online; nothing else runs again by itself.
+
 ## The window
 
 ### Title bar and menus
@@ -69,9 +76,10 @@ window buttons, without a row of its own:
 
 - **Where a tab runs.** Each tab shows its connection: a dot per
   connection in its color (up to three, then a count), filled while
-  connected, a ring while not, and a warning when one failed. Under the
-  title it shows the connection, and the database when it is not the
-  connection's own. The tooltip lists every connection and its state.
+  connected, a ring while not, and a warning when one failed. When two
+  tabs share a title, each shows its connection under it, and the database
+  when it is not the connection's own. The tooltip lists every connection
+  and its state.
 - **Reorder** by dragging a tab along the bar. The middle button closes it.
 - **Pin** a tab from its menu. A pinned tab moves to the front and shows a
   pin instead of its close button (click the pin to unpin). Close Others,
@@ -128,7 +136,8 @@ diagrams, Redis keys, activity, users and search tabs.
 
 - A connection's tab waits, unconnected, until its connection connects: on
   its own when it comes into view if the connection auto-connects, or when
-  you press Connect or ↵.
+  you press Connect or ↵. If it fails, the tab's bar says why, with Retry,
+  without an alert over it.
 - Opening the same table meanwhile takes the waiting tab's place.
 - Filters and sort start afresh.
 - The window's size and position are restored.
@@ -167,8 +176,10 @@ files.
   naming a connection the project lacks opens unconnected, so you can fix
   its line. A restored editor follows its file's line, as after a pull that
   changed it.
-- A file changed on disk while open is never overwritten. The editor offers
-  to use the file or keep your text.
+- A file changed on disk while open reloads at once when the editor holds
+  no unsaved text; otherwise it is never overwritten, and the editor offers
+  **Reload** or **Keep Mine**. A file deleted on disk is marked so.
+- The sidebar's list of query files follows the folder as files come and go.
 - An editor closed without typing anything removes its file.
 - **Duplicate** (in an editor tab's menu, a query file's menu, or the
   palette) opens a copy of the editor, including unsaved edits, in a new
@@ -337,6 +348,8 @@ top row and its sections at the top.
   that schema's folders directly.
 - The navigator follows the tab in front, selecting its query file, table,
   dashboard, data model or connection, and opening what holds it.
+- Resting the pointer on a table or a view, or Alt+clicking it, shows its
+  [card](#hover-cards), beside the sidebar.
 
 ### Schema objects
 
@@ -430,7 +443,11 @@ error.
   create or drop tables are not checked for names.
 - **Go to Definition** (F12, or ⌘-click) opens what the name at the caret
   refers to: a table's or view's structure (also through an alias or one of
-  its columns), or a routine's definition.
+  its columns), or a routine's definition. With ⌘ held, the names the
+  catalog knows underline under the pointer, so a name that stays plain is
+  one it does not know.
+- **Hover cards** tell what a name is without leaving the query: see
+  [Hover cards](#hover-cards).
 - **Find Usages** (⇧F12) lists where the name is used in this file and the
   project's other query files.
 - **Rename in File** (F2) renames the name everywhere in the file, quoting
@@ -461,8 +478,18 @@ error.
 - **Run** the statement (⌘↵ or F5), the selection, or the whole script (⌘⇧↵
   or ⌥X). `⌘\` runs into a new result tab, keeping the others. Result tabs
   can be pinned.
+- **A result tab is named for what ran:** the table it reads, else the
+  statement's first words, numbered when repeated. Hovering it shows the
+  statement, and the ▶ of the statement whose result shows is marked in the
+  accent color, until that statement is edited.
+- **The results** sit under the editor and keep their share of its height as
+  the window resizes. ⌘J hides them down to their row of result tabs and
+  shows them again, as VS Code's panel; a run shows them. The buttons at the
+  right of that row hide them and maximize them over the editor. Every
+  editor shares the choice, and it is kept for the next start.
 - **A ▶ in the gutter**, on the first line of each statement, runs that
-  statement.
+  statement. It is faint but on the statement a run would send, green, and
+  on the one pointed at.
 - **On an error,** a script stops or continues, as a setting says. A failed
   statement shows the database's message, code, detail, hint, and where it
   went wrong; **Go to Error** puts the caret there.
@@ -486,7 +513,7 @@ error.
 - A run asks only for values left empty there.
 - Values are kept for the connection's editors, for you alone, across
   restarts.
-- All but `${var}` are sent separately from the SQL. **Messages** lists the
+- All but `${var}` are sent separately from the SQL. **Output** lists the
   values a statement ran with.
 - A statement that mixes `:name` with `$1` or `?` placeholders is refused.
 
@@ -534,6 +561,60 @@ Turn on in **Settings → Editor → Vim**.
   has the keys, Vim's Control keys win over the app's. Outside insert mode,
   keys Vim does not use (such as Page Up or ⌘F) act as in the editor.
 
+## Hover cards
+
+Rest the pointer on a name for a moment and a card tells what it is. In
+the navigator and diagrams, while one card shows the next opens at once,
+so a list can be read by moving down it. The pointer can go into a card,
+to click its buttons or select its text; it closes a moment after the
+pointer leaves it, and with Escape. The pin keeps a card open, in front,
+until closed.
+
+A card also opens without the wait: **Alt+click** a table of the navigator,
+a cell or a header of a grid, or a connector of a diagram, or choose
+**Show Card** in its menu; the editor's is ⌘I at the caret. A card opened
+so stays until Escape or a click outside it.
+
+- **In the SQL editor** (or ⌘I at the caret):
+  - a table or a view: its row estimate, size, comment, columns (keys and
+    foreign keys first, those the statement uses marked) and the tables it
+    joins. Clicking a column inserts it at the caret, by the table's alias;
+    clicking a joined table writes the `JOIN … ON …` after the statement's
+    FROM clause and joins.
+  - an alias: the table it stands for; a column, written `t.column` or alone
+    when one table has it: its type, constraints, foreign key and comment.
+  - `*`: the columns it reads, and **Expand** writes them out.
+  - a CTE or a subquery's alias: the columns it gives.
+  - a function: its signatures, as the server describes its built-in
+    functions (PostgreSQL, DuckDB and ClickHouse) or from a table kept with
+    the app (SQLite, MySQL and MariaDB); a routine of the schema: its
+    arguments, and its definition.
+  - a parameter: the value the next run sends.
+  - Keywords have no card. A problem at the name shows first, with its fix.
+- **In the navigator:** a table's or a view's card, with **New Query**.
+- **In grids**, only when asked for, as the pointer crosses cells all the
+  time: a column header shows its column; a cell shows its value whole,
+  with its column, and more where the value has it:
+  - JSON: the document indented and colored, its objects and arrays
+    folding; clicking a key copies the expression reading it, as the
+    engine writes it (`payload->'items'->0->>'sku'` on PostgreSQL,
+    `payload->>'$.items[0].sku'` on MySQL, SQLite and DuckDB,
+    `JSONExtractString(payload, 'items', 1, 'sku')` on ClickHouse).
+  - A foreign key: the row it points at, read once and kept, its sensitive
+    values hidden. On production it is read only when you click
+    **Show Row**. The read is recorded in the history like any other.
+  - A time: in your zone, in UTC, how long ago, and as Unix time; also for
+    whole numbers in a column named as a time, such as `created_at`.
+  - A long or cut text: the whole of it.
+  - A date kept as text, as SQLite keeps them, in a column named as one
+    (`created_at`, `order_date`): read as a time.
+  - A masked value has no card, which would show what the grid hides.
+- **In ER diagrams:** a connector's foreign key.
+
+Settings → Appearance → Hover cards turns the cards that open on a rest
+off, everywhere or in the editor, the navigator or diagrams, and sets how
+long the pointer rests first.
+
 ## Results grid
 
 One viewer shows both a query's results and a table's data.
@@ -542,23 +623,48 @@ One viewer shows both a query's results and a table's data.
 
 - Only the rows in view are built, so large results stay fast. A result
   keeps at most 200,000 rows.
-- Columns and headers start at the left, numbers too. The text view lines
-  numbers up on the right, as psql does.
+- Number columns and their headers line up on the right, digit under
+  digit; other columns start at the left. The text view does the same, as
+  psql does.
 - Columns resize, move, sort by several at once, pin to the left, hide (or
   hide those with no data), and fit to their values or the screen, from the
   header's menu.
 - Three views: grid, record (Tab), and plain text (``⌘` `` cycles them).
-- Formats: thousands separators, dates, booleans, binary and NULL; row
+- Formats: thousands separators, dates, booleans, binary and NULL, and
+  numbers and dates in your region's format (which keeps every digit); row
   colors by value; zoom.
 - **Refresh**, **Fetch All** (with Stop, which keeps the rows read), and on
   a table **Count** (`SELECT COUNT(*)`, with Stop). The keys: F5, ⌘⇧= and
   ⌘⌥N for the next page.
 - Move with ⌘G (go to a row), ⌘⇧G (go to a column), and ⌘↑ and ⌘↓ (first and
   last row).
+- Alt+click, or **Show Card** in the menu, on a header or a cell shows its
+  [card](#hover-cards): the value whole, as JSON, a time or the row a
+  foreign key points at where it is one.
+
+### Choosing cells
+
+- **A block of cells**: drag over the cells, or click one and Shift-click
+  another, or extend with ⇧ and the arrows. ⌘-click adds a row or takes it
+  out; ⌘⇧↑ and ⌘⇧↓ extend to the first and last row.
+- **Whole rows**: click or drag down the row numbers, or press ⌥⇧Space.
+  **Whole columns**: Select Column in a header's menu, or ⌘⇧Space. The
+  corner above the row numbers, or ⌘A, chooses everything.
+- A right-click acts on the cell it is on: outside the chosen cells it
+  chooses that cell first. On a row number, it chooses the whole row, and
+  the menu leaves out what acts on one column (Edit Value, Filter, Order).
+- Esc leaves the cursor's cell alone chosen.
+- The cell menu's **Select** submenu also chooses the rows matching the
+  cell's value, the rows with pending changes, or the rows not chosen.
+- The status bar counts the chosen rows and columns, with the count, sum,
+  average, minimum and maximum of their numbers. While a drag chooses cells,
+  it and the Calc panel keep what they showed, and follow the new block when
+  the drag ends.
 
 ### Filtering and sorting
 
-- **Filter by a cell**: =, ≠, >, <, contains, NULL, or the rows chosen;
+- **Filter by a cell**: =, ≠, >, <, contains, NULL, or the values of the
+  rows chosen (`IN` or `NOT IN`);
   also by a typed value, the clipboard's value, or a list of distinct values
   with counts (⌘F11). The header menu removes a column's filters or clears
   them all.
@@ -568,8 +674,9 @@ One viewer shows both a query's results and a table's data.
   (`SELECT * FROM (…) q WHERE …`), with its parameter values. ⌘L focuses it.
 - **The filter builder**, beside the `WHERE` box, writes that filter from
   conditions you choose: a column, an operator (=, ≠, >, ≥, <, ≤, contains,
-  does not contain, starts with, ends with, in a list, between, is NULL,
-  is not NULL) and a value, matching all or any. The box then shows the SQL.
+  does not contain, starts with, ends with, in a list, not in a list,
+  between, is NULL, is not NULL) and a value, matching all or any. The box
+  then shows the SQL.
 - **The quick filter** narrows the rows already read without running
   anything.
 - **Sorting** runs on the server while rows remain to be read, and in memory
@@ -587,7 +694,7 @@ F7 shows the panels. Each can be maximized.
 | Panel | Shows |
 | --- | --- |
 | Value | the chosen value as text, JSON, XML, hex or an image; save it to a file or load it from one |
-| Calc | count, distinct, NULLs, sum, average, min, max, median and the most frequent value of the chosen cells |
+| Calc | count, distinct, NULLs, sum, average, min, max, median and the most frequent value of the chosen cells, for each chosen column |
 | Profile | every column at once: NULLs, distinct values, bounds, average and median, with a histogram of numbers and times or the most frequent text values |
 | Metadata | the result's columns and types |
 | Grouping | counts by the chosen columns, in memory or on the server |
@@ -599,12 +706,14 @@ count in one statement.
 
 ### Copy and paste
 
-- **Copy** (⌘C) the cell or the chosen rows; also with the header, or the
-  column names alone.
+- **Copy** (⌘C) the cell or the chosen cells, in the columns shown; also
+  with the header, or the column names alone. Hidden columns are never
+  copied.
 - **Advanced Copy** (⌘⇧C): choose the delimiter, column names, quoting and
   row numbers.
-- **Copy as** CSV, TSV, JSON, SQL, Markdown or a text table. Plain-text
-  copies hold up to 100,000 rows.
+- **Copy as** CSV, TSV, JSON, SQL, Markdown or a text table, a column's
+  values as `name IN (…)`, or the values as a list (`1, 'a', NULL`).
+  Plain-text copies hold up to 100,000 rows.
 - **Paste** (⌘V) over the chosen cell as pending changes. **Advanced Paste**
   (⌘⇧V) chooses the delimiter and header row, or pastes as new rows.
 - Open the rows in a spreadsheet app.
@@ -616,12 +725,14 @@ count in one statement.
 
 - Change cells, add, duplicate and delete rows, set NULL or DEFAULT (where
   the column has one), revert a row, and undo and redo (⌘Z, ⌘⇧Z), with
-  DBeaver's keys. ⌘D and ⌘⌥D copy the value from the row above or below.
+  DBeaver's keys. Set to NULL, Set to DEFAULT and Revert act on every chosen
+  cell, as one change to undo. ⌘D and ⌘⌥D copy the value from the row above or below.
 - ⌘S shows the changes as SQL to review, then applies them in one
   transaction, one row per statement by primary key. See
   [Grid edits](safety.md#grid-edits).
 - **Edit Value…** (⇧↵) edits a cell in a form that suits its type, beside its
-  text: a tree for JSON, a list of an enum's values (read from
+  text: a colored tree for JSON, as its card shows it (a click on a key
+  copies the expression reading it), a list of an enum's values (read from
   PostgreSQL's catalog, or from the type elsewhere), a calendar and time for
   dates, and a switch for booleans.
 - **Foreign keys.** Choose from… in a cell's menu (or ⌥↓) lists the rows of
@@ -748,9 +859,11 @@ charts, and best sellers as a table](images/dashboard.png)
 - **Layout:** a grid of four columns; each panel is one to four columns
   wide. **Edit** arranges, resizes and retitles panels, and changes their
   queries, charts and connection (and on PostgreSQL, the database).
-- **Any connection:** panels can use any of the project's connections. Each
-  shows its connection under its title, and the database when it is not
-  the connection's own.
+- **Any connection:** panels can use any of the project's connections.
+  Where they all run in one place, the dashboard's header names it once;
+  otherwise each panel shows its connection under its title, and the
+  database when it is not the connection's own. A panel whose connection
+  fails says why in its place, without an alert.
 - **Parameters** are shared by the panels and edited in a bar above them.
   Their values are yours alone, kept apart from the dashboard file.
 - **Refresh** by hand (F5), or every 1, 5 or 15 minutes, or every hour,
@@ -807,6 +920,9 @@ products, joined by their foreign keys](images/er-diagram.png)
   arrows move it, and its menu (⇧F10) adds a foreign key from a column.
 - **Save** as PNG (drawn at twice the size on screen, up to 16,384 pixels a
   side; a large schema is drawn smaller) or as SVG.
+- **Point at a connector** to bring it forward and show its foreign key:
+  its columns, and what deleting or changing the referenced row does;
+  Alt+click shows it at once.
 
 ### Data models
 

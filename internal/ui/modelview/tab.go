@@ -203,14 +203,16 @@ func (t *Tab) View(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Row(c).Padding(6, 12).Gap(10).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Icon(c, widgets.IconSchema).TextColor(pal.Muted).FontSize(14)
-			ui.Text(c, t.m.Name).Bold().SingleLine()
-			about := fmt.Sprintf("%s · %d table%s", t.m.Engine.Label(), len(t.m.Tables), widgets.Plural(len(t.m.Tables)))
-			if s := t.m.Source; s != nil {
-				about += " · from " + s.Connection + ", " + s.Schema
-			}
-			ui.Text(c, about).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1)
+		widgets.Bar(c, "Data model", func() {
+			widgets.BarTitle(c, func() {
+				ui.Icon(c, widgets.IconSchema).TextColor(pal.Muted).FontSize(widgets.ToolIconSize)
+				ui.Text(c, t.m.Name).Bold().SingleLine()
+				about := fmt.Sprintf("%s · %d table%s", t.m.Engine.Label(), len(t.m.Tables), widgets.Plural(len(t.m.Tables)))
+				if s := t.m.Source; s != nil {
+					about += " · from " + s.Connection + ", " + s.Schema
+				}
+				ui.Text(c, about).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1)
+			})
 			ui.Spacer(c)
 			if t.m.Source != nil && widgets.ToolButton(c, widgets.IconRefresh, "Update", "Read the model's tables again from the schema it was built from").
 				Disabled(t.updating || t.source() == nil).Clicked() {
@@ -253,7 +255,7 @@ func (t *Tab) View(c *ui.Context) {
 
 func (t *Tab) confirmUpdateView(c *ui.Context) {
 	s := t.m.Source
-	ui.Modal(c, &t.confirmUpdate, func() {
+	widgets.Modal(c, &t.confirmUpdate, func() {
 		ui.Column(c).Width(440).Gap(12).Children(func() {
 			ui.Text(c, "Update the model?").FontSize(15).Bold()
 			ui.Text(c, "Its tables are read again from "+s.Connection+", "+s.Schema+", in place of those it holds.")
@@ -280,13 +282,16 @@ func (t *Tab) tablesView(c *ui.Context) {
 	ui.Row(c).Grow(1).AlignItems(ui.Stretch).Children(func() {
 		ui.Column(c).Width(220).BorderWidth(0, 1, 0, 0).BorderColor(th.Border).Children(func() {
 			t.tables.Selected = &t.table
-			list := ui.List(c, &t.tables, len(t.m.Tables), func(i int) {
-				tb := t.m.Tables[i]
-				ui.Row(c).Gap(6).Padding(3, 10).AlignItems(ui.Center).Children(func() {
-					ui.Icon(c, widgets.IconTable).FontSize(12).TextColor(widgets.RowColor(c, pal.Muted, i == t.table))
-					ui.Text(c, tb.Name).Font(widgets.MonoFont).FontSize(12.5).SingleLine()
-				})
-			}).Grow(1).Label("Tables")
+			var list ui.Element
+			widgets.ChosenRows(c, func() {
+				list = ui.List(c, &t.tables, len(t.m.Tables), func(i int) {
+					tb := t.m.Tables[i]
+					ui.Row(c).Gap(6).Padding(3, 10).AlignItems(ui.Center).Children(func() {
+						ui.Icon(c, widgets.IconTable).FontSize(12).TextColor(pal.Muted)
+						ui.Text(c, tb.Name).Font(widgets.MonoFont).FontSize(12.5).SingleLine()
+					})
+				}).Grow(1).Label("Tables")
+			})
 			if list.Changed() && t.form != nil && !t.form.Changed() {
 				t.form = nil
 			}
@@ -299,7 +304,7 @@ func (t *Tab) tablesView(c *ui.Context) {
 		ui.Column(c).Grow(1).Children(func() {
 			switch {
 			case t.form != nil:
-				ui.Row(c).Padding(6, 12).Gap(8).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+				widgets.Bar(c, "Table form", func() {
 					label := "New table of the model"
 					if t.editing >= 0 {
 						label = "Editing " + t.m.Tables[t.editing].Name
@@ -316,7 +321,7 @@ func (t *Tab) tablesView(c *ui.Context) {
 			case len(t.m.Tables) == 0:
 				ui.Text(c, "The model has no tables: New Table designs one.").TextColor(pal.Muted).Padding(16)
 			default:
-				ui.Row(c).Padding(6, 12).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+				widgets.Bar(c, "Table", func() {
 					ui.Spacer(c)
 					if widgets.ToolButton(c, widgets.IconPencil, "Edit Table", "Change the table in the table form").Clicked() {
 						t.edit(t.table)
@@ -394,7 +399,7 @@ func (t *Tab) saveTable(design db.TableDesign) error {
 
 func (t *Tab) confirmDropView(c *ui.Context) {
 	name := t.m.Tables[t.table].Name
-	ui.Modal(c, &t.confirmDrop, func() {
+	widgets.Modal(c, &t.confirmDrop, func() {
 		ui.Column(c).Width(420).Gap(12).Children(func() {
 			ui.Text(c, "Drop "+name+" from the model?").FontSize(15).Bold()
 			ui.Text(c, "The model's file loses the table; no database changes.")

@@ -101,7 +101,7 @@ func (a *App) historyView(c *ui.Context) {
 	h := a.history
 	t := c.Theme()
 	ui.DialogBase(c, &h.open, func(backdrop, panel ui.Element) {
-		backdrop.Background(widgets.Backdrop)
+		widgets.DialogLook(c, backdrop, panel)
 		w, wh := c.Size()
 		panel.Width(min(1100, w-60)).Height(min(760, wh-50)).Radius(12).Background(t.Background).Border(1, t.Border).Clip().Label("History")
 		ui.Row(c).Padding(12, 16).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
@@ -143,21 +143,23 @@ func (a *App) queriesTab(c *ui.Context, h *historyState) {
 	if h.err != "" {
 		ui.Text(c, h.err).TextColor(t.Danger).Padding(12)
 	}
-	list := ui.List(c, &h.list, len(shown), func(i int) {
-		e := shown[i]
-		muted, danger := widgets.RowColor(c, pal.Muted, i == h.row), widgets.RowColor(c, t.Danger, i == h.row)
-		ui.Column(c).Padding(8, 16).Gap(3).Children(func() {
-			ui.Row(c).Gap(8).Children(func() {
-				ui.Text(c, e.Time.Local().Format("Jan 2 15:04:05")).FontSize(11).TextColor(muted)
-				ui.Text(c, e.Connection).FontSize(11).Bold()
-				ui.Text(c, widgets.FormatDuration(e.Duration)).FontSize(11).TextColor(muted)
-				if e.Error != "" {
-					ui.Text(c, "failed").FontSize(11).TextColor(danger).Tooltip(e.Error)
-				}
+	var list ui.Element
+	widgets.ChosenRows(c, func() {
+		list = ui.List(c, &h.list, len(shown), func(i int) {
+			e := shown[i]
+			ui.Column(c).Padding(8, 16).Gap(3).Children(func() {
+				ui.Row(c).Gap(8).Children(func() {
+					ui.Text(c, e.Time.Local().Format("Jan 2 15:04:05")).FontSize(11).TextColor(pal.Muted)
+					ui.Text(c, e.Connection).FontSize(11).Bold()
+					ui.Text(c, widgets.FormatDuration(e.Duration)).FontSize(11).TextColor(pal.Muted)
+					if e.Error != "" {
+						ui.Text(c, "failed").FontSize(11).TextColor(t.Danger).Tooltip(e.Error)
+					}
+				})
+				ui.Text(c, widgets.OneLine(e.SQL, 220)).Font(widgets.MonoFont).FontSize(12).SingleLine()
 			})
-			ui.Text(c, widgets.OneLine(e.SQL, 220)).Font(widgets.MonoFont).FontSize(12).SingleLine()
-		})
-	}).Grow(1).Label("History").Dividers(1, t.Border)
+		}).Grow(1).Label("History").Dividers(1, t.Border)
+	})
 	if list.Submitted() && h.row >= 0 && h.row < len(shown) {
 		e := shown[h.row]
 		a.openStatement(h, e.ConnectionID, e.Database, e.SQL)

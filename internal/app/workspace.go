@@ -273,6 +273,7 @@ func (a *App) openSQLFile(cn *connection.Conn) {
 				q.Path = paths[0]
 				q.Saved = string(data)
 				a.AddTab(q)
+				addRecent(paths[0])
 			})
 		})
 	}()

@@ -74,8 +74,9 @@ See the [Safety model](docs/safety.md).
   statement, `:name` parameters, folding, multiple carets, Vim keys, find
   and replace, Go to Definition, problems underlined as you type, and a
   session per editor.
-- **Results grid:** streams large results, filters (in SQL or with a
-  builder), sorts, edits rows inline, follows foreign keys both ways,
+- **Results grid:** streams large results, chooses blocks of cells as a
+  spreadsheet does, filters (in SQL or with a builder), sorts, edits rows
+  inline, follows foreign keys both ways,
   profiles every column, and opens values in JSON, XML, hex and image
   viewers.
 - **Query plans:** Explain and Explain Analyze as a tree of steps or a

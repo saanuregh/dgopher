@@ -103,7 +103,7 @@ func (a *App) questions(c *ui.Context) {
 		}
 	}
 	if p := a.prompt; p != nil {
-		ui.Modal(c, &p.open, func() {
+		widgets.Modal(c, &p.open, func() {
 			ui.Column(c).Width(360).Gap(12).Children(func() {
 				ui.Text(c, "Password for "+p.name).FontSize(15).Bold()
 				ui.Text(c, p.where).TextColor(pal.Muted)
@@ -132,7 +132,7 @@ func (a *App) questions(c *ui.Context) {
 		}
 	}
 	if h := a.hostKey; h != nil {
-		ui.Modal(c, &h.open, func() {
+		widgets.Modal(c, &h.open, func() {
 			ui.Column(c).Width(460).Gap(12).Children(func() {
 				ui.Text(c, "Trust this SSH server?").FontSize(15).Bold()
 				ui.Text(c, h.host+" has not been seen before. Compare its fingerprint with the one its administrator gives, then trust it to connect.")
@@ -185,7 +185,7 @@ func (a *App) questions(c *ui.Context) {
 		}
 	}
 	if al := a.alert; al != nil {
-		ui.Modal(c, &al.open, func() {
+		widgets.Modal(c, &al.open, func() {
 			ui.Column(c).Width(480).Gap(12).Children(func() {
 				ui.Row(c).Gap(8).Children(func() {
 					ui.Icon(c, widgets.IconAlert).TextColor(t.Danger).FontSize(16)
@@ -223,7 +223,7 @@ func (a *App) askDeleteConn(cn *connection.Conn) {
 				a.ShowError("Could not delete "+cn.Config.Name, err.Error())
 				return
 			}
-			a.disconnect(cn)
+			a.closeConnection(cn)
 			for i, x := range a.conns {
 				if x == cn {
 					a.conns = append(a.conns[:i], a.conns[i+1:]...)

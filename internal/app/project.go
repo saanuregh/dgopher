@@ -2,12 +2,14 @@ package app
 
 import (
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -132,7 +134,7 @@ func (a *App) dropProject(p *project.Project) int {
 	}
 	for i := len(a.conns) - 1; i >= 0; i-- {
 		if a.conns[i].Project == p {
-			a.disconnect(a.conns[i])
+			a.closeConnection(a.conns[i])
 			a.conns = slices.Delete(a.conns, i, i+1)
 		}
 	}
@@ -140,6 +142,11 @@ func (a *App) dropProject(p *project.Project) int {
 	delete(a.recordProjects, p.Prefix)
 	a.auditMu.Unlock()
 	p.Close()
+	if w := a.queryWatches[p]; w != nil {
+		w.Close()
+		delete(a.queryWatches, p)
+	}
+	delete(a.queryWatchAt, p)
 	i := slices.Index(a.projects, p)
 	if i >= 0 {
 		a.projects = slices.Delete(a.projects, i, i+1)
@@ -244,11 +251,13 @@ func (a *App) addConn(p *project.Project, cfg db.Config) *connection.Conn {
 	return cn
 }
 
-// ScanQueries lists the .sql files of the project, every few seconds.
+// ScanQueries lists the .sql files of the project: when its folder
+// changes, or, when it cannot be watched, every few seconds.
 func (a *App) ScanQueries(p *project.Project, now bool) {
-	if p.Err != "" || !now && time.Since(p.Scanned) < 3*time.Second {
+	if p.Err != "" || !now && (a.queryWatches[p] != nil || time.Since(p.Scanned) < 3*time.Second) {
 		return
 	}
+	a.watchQueries(p)
 	p.Scanned = time.Now()
 	root, known := p.Queries, p.FileConnections // replaced, never changed
 	a.Background(func() func() {
@@ -283,6 +292,51 @@ func (a *App) ScanQueries(p *project.Project, now bool) {
 			if err != nil {
 				p.ScanErr = err.Error()
 			}
+		}
+	})
+}
+
+// watchProjects follows the query folders of the projects loaded before
+// the app was ready to watch them.
+func (a *App) watchProjects() {
+	for _, p := range a.projects {
+		a.watchQueries(p)
+	}
+}
+
+// watchQueries starts following the project's query folder, unless it is
+// followed already or gone from the sidebar.
+func (a *App) watchQueries(p *project.Project) {
+	if a.queryWatches[p] != nil || !slices.Contains(a.projects, p) || time.Now().Before(a.queryWatchAt[p]) {
+		return
+	}
+	w, err := query.WatchFiles(context.Background(), p.Queries, mygo.FileWatchOptions{
+		Recursive: true,
+		Ignore: func(rel string, isDir bool) bool {
+			return isDir && rel != "." && strings.HasPrefix(path.Base(rel), ".")
+		},
+	})
+	if errors.Is(err, query.ErrNotReady) {
+		return // watchProjects starts it
+	}
+	if err != nil {
+		if a.queryWatchAt == nil {
+			a.queryWatchAt = map[*project.Project]time.Time{}
+		}
+		a.queryWatchAt[p] = time.Now().Add(time.Minute)
+		return
+	}
+	if a.queryWatches == nil {
+		a.queryWatches = map[*project.Project]query.FileWatch{}
+	}
+	a.queryWatches[p] = w
+	query.Follow(w, a.Post, func() {
+		if a.queryWatches[p] == w {
+			a.ScanQueries(p, true)
+		}
+	}, func() {
+		if a.queryWatches[p] == w {
+			delete(a.queryWatches, p)
 		}
 	})
 }
@@ -439,11 +493,16 @@ func (a *App) firstProjectSlug(p *project.Project) string {
 
 // newQueryFile opens an editor on a new file of the connection's project,
 // query-N.sql, holding text after the connection's header; then, when
-// set, goes on with the editor.
+// set, goes on with the editor once the connection connects.
 func (a *App) newQueryFile(cn *connection.Conn, database, text string, then func(*query.Tab)) {
+	// The editor opens at once, connected or not, as a restored one does:
+	// a connection that fails leaves it with Retry, not without an editor.
+	q := a.createQueryFile(cn, database, connection.HeaderLine(cn)+text)
+	if q == nil {
+		return
+	}
 	a.Connect(cn, func() {
-		q := a.createQueryFile(cn, database, connection.HeaderLine(cn)+text)
-		if q != nil && then != nil {
+		if then != nil {
 			then(q)
 		}
 	})
@@ -597,7 +656,7 @@ func (a *App) createProject(f *newProjectForm) {
 func (a *App) newProjectView(c *ui.Context) {
 	f := a.newProject
 	pal := widgets.PaletteOf(c)
-	dlg := ui.Modal(c, &f.open, func() {
+	dlg := widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(520).Gap(12).Children(func() {
 			ui.Text(c, "New Project").FontSize(15).Bold()
 			ui.Text(c, "A project is a folder to keep in Git: its "+project.File+" lists connections without passwords, and its queries are .sql files.").FontSize(12).TextColor(pal.Muted)
@@ -686,7 +745,7 @@ func (a *App) renameQueryFile(p *project.Project, path, name string) error {
 
 func (a *App) renameView(c *ui.Context) {
 	f := a.renaming
-	ui.Modal(c, &f.open, func() {
+	widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(420).Gap(10).Children(func() {
 			ui.Text(c, f.title).FontSize(15).Bold()
 			submit := ui.TextInput(c, &f.name).AutoFocus().Label("Name").Font(widgets.MonoFont).Submitted()

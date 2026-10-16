@@ -80,6 +80,7 @@ func slowConnect(t *testing.T, a *App, tt *ui.Tester, cn *connection.Conn) {
 	a.connecting[cn].started = time.Now().Add(-3 * time.Second)
 	a.busySince = time.Now().Add(-3 * time.Second)
 	tt.Frame()
+	tt.Advance(time.Second) // Cancel come in
 }
 
 // cancelledConnect checks that cn's connect ended as cancelled, audited,
@@ -144,12 +145,46 @@ func TestConnectCancelFromEditor(t *testing.T) {
 	// As an editor restored with the workspace, open before its connection.
 	a.AddTab(query.New(a, cn, "", "query", "select 1"))
 	tt.Frame()
+	tt.Advance(time.Second) // the tab and its Cancel come in
 	if err := tt.Click("Cancel"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
 	cancelledConnect(t, a, tt, cn)
-	if !tt.HasText("Not connected: you cancelled connecting") {
+	if _, ok := tt.Find("Connection failed: you cancelled connecting"); !ok {
 		t.Fatalf("the editor does not say the connect was cancelled: %q", tt.Texts())
+	}
+}
+
+// The editor's Connect button turns into Disconnect once connected, in
+// place, and back: disconnecting from there keeps the editor.
+func TestEditorConnectTurnsToDisconnect(t *testing.T) {
+	a := newTestApp(t)
+	// DuckDB, whose editor has a schema menu once connected.
+	cn := addConn(a, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"})
+	tt := ui.NewTester(a.view, 1100, 400)
+	q := query.New(a, cn, "", "query", "SELECT 1;")
+	a.AddTab(q)
+	tt.Frame()
+	bar, _ := tt.Find("Editor")
+	run, _ := tt.Find("Run")
+	if err := tt.Click("Connect"); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WaitFor(t, tt, "Disconnect", func() bool { _, ok := tt.Find("Disconnect"); return ok })
+	// The schema's menu comes, the toolbar as tall.
+	testutil.WaitFor(t, tt, "the schema menu", func() bool { return hasExact(tt, "main") })
+	if now, _ := tt.Find("Editor"); now.H != bar.H {
+		t.Errorf("connected, the toolbar is %v high, %v before", now.H, bar.H)
+	}
+	if now, _ := tt.Find("Run"); now.X != run.X {
+		t.Errorf("connected, Run moved from %v to %v", run.X, now.X)
+	}
+	if err := tt.Click("Disconnect"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if cn.Status != connection.StatusIdle || a.tabs.Len() != 1 || a.tabs.At(0) != q || !hasExact(tt, "Connect") {
+		t.Fatalf("after Disconnect: %v, %d tabs, %q", cn.Status, a.tabs.Len(), tt.Texts())
 	}
 }
