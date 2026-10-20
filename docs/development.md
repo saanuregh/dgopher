@@ -171,12 +171,12 @@ To move to a new MyGo release:
 
 The AI chat drives `claude`, `codex` and `pi` through
 [agent-cli-connector](https://github.com/saanuregh/agent-cli-connector).
-Until it is published, `go.mod` replaces it with a local checkout at
-`/home/sr/projects/personal/agent-cli-connector`; the build needs that
-checkout, and CI cannot fetch it. Once it is published, drop the replace:
+To work on both at once, point `go.mod` at a local checkout, and drop the
+replace before committing:
 
 ```sh
-go mod edit -dropreplace=github.com/saanuregh/agent-cli-connector && go get github.com/saanuregh/agent-cli-connector@latest && go mod tidy
+go mod edit -replace=github.com/saanuregh/agent-cli-connector=../agent-cli-connector
+go mod edit -dropreplace=github.com/saanuregh/agent-cli-connector && go mod tidy
 ```
 
 The chat's tests use the connector's scripted `agenttest` provider. To try

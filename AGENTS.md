@@ -61,7 +61,7 @@ integration tests too when it touches `internal/db`.
   `saanuregh/mygo`; an API missing upstream may exist there. Updating it is
   described in `docs/development.md`.
 - `DGOPHER_CONFIG_DIR` points manual runs away from the real config.
-- `go.mod` replaces agent-cli-connector with a local checkout until it is
-  published; see `docs/development.md`.
+- A local agent-cli-connector replace in `go.mod` must not be committed; see
+  `docs/development.md`.
 - `build/`, `.mygo/` and `./dgopher` are build outputs; leave them out of
   searches.
