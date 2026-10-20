@@ -123,7 +123,7 @@ func TestApplyLostConnectionKeepsRefusal(t *testing.T) {
 	}
 	// The changes not applied are dropped as the user's next statement runs.
 	edited := q.results[0]
-	testutil.SetCaret(tt, &q.Editor, strings.Index(q.Editor.Text(), "INSERT"))
+	testutil.SetCaret(tt, q.Editor, strings.Index(q.Editor.Text(), "INSERT"))
 	q.Run(RunStatement)
 	if a.Pending == nil {
 		t.Fatal("no question about the changes not applied")

@@ -29,4 +29,10 @@ type Host interface {
 	Online() bool
 	// Disconnect disconnects cn once the user agrees to what it loses.
 	Disconnect(cn *connection.Conn)
+	// Connections are the app's connections, as the navigator lists them,
+	// which the editor's AI chat reads.
+	Connections() []*connection.Conn
+	// ChatDir is the folder the AI chat of an editor without a project
+	// works in.
+	ChatDir() string
 }

@@ -384,9 +384,7 @@ func TestBindingsFromKeymap(t *testing.T) {
 	et := newEditorTest(t, "abc abc")
 	e := et.e
 	t.Cleanup(func() { keymap.Use(nil) })
-	if errs := keymap.Use(map[string][]string{keymap.SelectNext: {"Alt+N"}}); len(errs) > 0 {
-		t.Fatal(errs)
-	}
+	keymap.SetBindings(keymap.SelectNext, []keymap.Binding{{Keys: keymap.Of(ui.Alt, ui.KeyN)}})
 	e.Select(1, 1)
 	et.frames()
 	et.tt.Key(ui.Alt, ui.KeyN)
@@ -434,4 +432,22 @@ func TestSelectAfterSetTextHighlights(t *testing.T) {
 		}
 	}
 	t.Fatal("no keyword colored on the first line")
+}
+
+// Lines that just came are tinted as strong as asked, behind the current
+// statement's band.
+func TestLandedBand(t *testing.T) {
+	et := newEditorTest(t, "select 1;\nselect 2;\n")
+	e := et.e
+	e.Landed, e.LandedStrength = [2]int{1, 1}, 0.5
+	et.frames()
+	bands := e.State.LineBackgrounds
+	if len(bands) != 1 || bands[0].First != 1 || bands[0].Color.A == 0 || bands[0].Color.A >= widgets.LandedTint.A {
+		t.Fatalf("bands %+v", bands)
+	}
+	e.LandedStrength = 0
+	et.frames()
+	if e.State.LineBackgrounds != nil {
+		t.Fatal("a tint at strength 0")
+	}
 }

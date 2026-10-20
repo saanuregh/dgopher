@@ -61,9 +61,9 @@ func plainTabs(names ...string) []widgets.Tab {
 
 func order(w *window) string {
 	var names []string
-	for _, t := range w.tabs.All() {
+	for _, t := range w.tabs().All() {
 		n := t.Title()
-		if w.tabs.Pinned(t) {
+		if w.tabs().Pinned(t) {
 			n += "*"
 		}
 		names = append(names, n)
@@ -78,7 +78,7 @@ func tabsApp(t *testing.T) (*App, *ui.Tester) {
 	for _, tb := range plainTabs("a", "b", "c", "d") {
 		a.AddTab(tb)
 	}
-	a.tabs.SelectAt(0)
+	a.tabs().SelectAt(0)
 	tt := ui.NewTester(a.view, 1200, 700)
 	tt.Frame()
 	return a, tt
@@ -139,7 +139,7 @@ func TestPinCloseAndReopen(t *testing.T) {
 	if got := order(a.window); got != "c* a" {
 		t.Fatalf("closed to the right: %s", got)
 	}
-	a.tabs.SelectAt(0)
+	a.tabs().SelectAt(0)
 	a.closeActive()
 	tt.Frame()
 	if got := order(a.window); got != "c* a" || !testutil.HasTextContaining(tt, "is pinned") {
@@ -150,7 +150,7 @@ func TestPinCloseAndReopen(t *testing.T) {
 		t.Fatalf("closed all: %s", got)
 	}
 	menu(t, tt, "c", "Close")
-	if a.tabs.Len() != 0 {
+	if a.tabs().Len() != 0 {
 		t.Fatalf("Close left %s", order(a.window))
 	}
 	// Plain tabs do not open again: nothing was kept.
@@ -166,30 +166,30 @@ func TestReopenClosedTab(t *testing.T) {
 	q := newAppEditor(t, a, tt, cn, "SELECT a FROM t")
 	q.Editor.Replace(len(q.Editor.Text()), len(q.Editor.Text()), "\n-- kept")
 	a.OpenTable(cn, "", db.Object{Schema: "main", Name: "t", Kind: db.KindTable}, 0)
-	testutil.WaitFor(t, tt, "the table", func() bool { return a.tabs.Len() == 2 })
+	testutil.WaitFor(t, tt, "the table", func() bool { return a.tabs().Len() == 2 })
 	path := q.Path
 	a.closeTabOf(q)
-	a.closeTabOf(a.tabs.At(0))
+	a.closeTabOf(a.tabs().At(0))
 	tt.Frame()
-	if a.tabs.Len() != 0 || len(a.closedTabs) != 2 {
-		t.Fatalf("%d tabs, %d kept", a.tabs.Len(), len(a.closedTabs))
+	if a.tabs().Len() != 0 || len(a.closedTabs) != 2 {
+		t.Fatalf("%d tabs, %d kept", a.tabs().Len(), len(a.closedTabs))
 	}
 	a.reopenTab()
 	a.reopenTab()
-	testutil.WaitFor(t, tt, "both back", func() bool { return a.tabs.Len() == 2 })
-	if r, ok := a.tabs.At(0).(*query.Tab); !ok || r.Path != path || !strings.Contains(r.Editor.Text(), "-- kept") {
-		t.Fatalf("first %T %s", a.tabs.At(0), a.tabs.At(0).Title())
+	testutil.WaitFor(t, tt, "both back", func() bool { return a.tabs().Len() == 2 })
+	if r, ok := a.tabs().At(0).(*query.Tab); !ok || r.Path != path || !strings.Contains(r.Editor.Text(), "-- kept") {
+		t.Fatalf("first %T %s", a.tabs().At(0), a.tabs().At(0).Title())
 	}
-	if _, ok := a.tabs.At(1).(*dataview.TableTab); !ok {
-		t.Fatalf("second %T", a.tabs.At(1))
+	if _, ok := a.tabs().At(1).(*dataview.TableTab); !ok {
+		t.Fatalf("second %T", a.tabs().At(1))
 	}
-	a.closeTabOf(a.tabs.At(0))
+	a.closeTabOf(a.tabs().At(0))
 	tt.Frame()
 	os.Remove(path)
 	a.reopenTab()
 	tt.Frame()
-	if a.tabs.Len() != 1 || !testutil.HasTextContaining(tt, "is gone") {
-		t.Fatalf("a gone file: %d tabs, %q", a.tabs.Len(), tt.Texts())
+	if a.tabs().Len() != 1 || !testutil.HasTextContaining(tt, "is gone") {
+		t.Fatalf("a gone file: %d tabs, %q", a.tabs().Len(), tt.Texts())
 	}
 }
 
@@ -197,18 +197,18 @@ func TestReopenClosedTab(t *testing.T) {
 func TestMiddleClickClosesTab(t *testing.T) {
 	a, tt := tabsApp(t)
 	middle := ui.InputEvent{Kind: ui.InputPointerDown, Button: middleButton}
-	if a.closeOnMiddlePress(a.window, a.tabs.At(1), ui.InputEvent{Kind: ui.InputPointerDown}) {
+	if a.closeOnMiddlePress(a.window, a.tabs().At(1), ui.InputEvent{Kind: ui.InputPointerDown}) {
 		t.Fatal("took the primary button")
 	}
-	if !a.closeOnMiddlePress(a.window, a.tabs.At(1), middle) {
+	if !a.closeOnMiddlePress(a.window, a.tabs().At(1), middle) {
 		t.Fatal("did not take the middle button")
 	}
 	tt.Frame()
 	if got := order(a.window); got != "a c d" {
 		t.Fatalf("middle-clicked b: %s", got)
 	}
-	a.window.tabs.SetPinned(a.tabs.At(0), true)
-	if a.closeOnMiddlePress(a.window, a.tabs.At(0), middle) {
+	a.window.tabs().SetPinned(a.tabs().At(0), true)
+	if a.closeOnMiddlePress(a.window, a.tabs().At(0), middle) {
 		t.Fatal("closes a pinned tab")
 	}
 }
@@ -223,7 +223,7 @@ func TestTabOverflowList(t *testing.T) {
 	for i := range 30 {
 		a.AddTab(&plainTab{title: "a tab with a long title " + string(rune('A'+i))})
 	}
-	a.tabs.SelectAt(0)
+	a.tabs().SelectAt(0)
 	tt.Frame()
 	tt.Frame()
 	if err := tt.Click("Open Tabs"); err != nil {
@@ -235,7 +235,7 @@ func TestTabOverflowList(t *testing.T) {
 	tt.Key(0, ui.KeyEnd)
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
-	if a.ActiveTab().Title() != a.tabs.At(a.tabs.Len()-1).Title() || a.tabs.ActiveIndex() != a.tabs.Len()-1 {
+	if a.ActiveTab().Title() != a.tabs().At(a.tabs().Len()-1).Title() || a.tabs().ActiveIndex() != a.tabs().Len()-1 {
 		t.Fatalf("in front: %s", a.ActiveTab().Title())
 	}
 }
@@ -252,13 +252,13 @@ func TestPinnedEditorRestored(t *testing.T) {
 	tt := ui.NewTester(a.view, 1000, 700)
 	newAppEditor(t, a, tt, cn, "SELECT 1;")
 	second := newAppEditor(t, a, tt, cn, "SELECT 2;")
-	a.window.tabs.SetPinned(second, true)
+	a.window.tabs().SetPinned(second, true)
 	a.saveWorkspace(true)
 
 	b := startApp(t, st)
 	tt = ui.NewTester(b.view, 1000, 700)
 	tt.Frame()
-	if b.tabs.Len() != 2 || !b.main.tabs.Pinned(b.tabs.At(0)) || !strings.Contains(b.tabs.At(0).(*query.Tab).Editor.Text(), "SELECT 2") || b.main.tabs.Pinned(b.tabs.At(1)) {
+	if b.tabs().Len() != 2 || !b.main.tabs().Pinned(b.tabs().At(0)) || !strings.Contains(b.tabs().At(0).(*query.Tab).Editor.Text(), "SELECT 2") || b.main.tabs().Pinned(b.tabs().At(1)) {
 		t.Fatalf("restored: %s", order(b.main))
 	}
 }
@@ -290,7 +290,7 @@ func TestQueryFileShowsConnection(t *testing.T) {
 		t.Fatalf("the sidebar: %q", tt.Texts())
 	}
 	q := newAppEditor(t, a, tt, cn, "SELECT 1")
-	a.window.tabs.SetPinned(q, true)
+	a.window.tabs().SetPinned(q, true)
 	newAppEditor(t, a, tt, cn, "SELECT 2")
 	testutil.Snapshot(t, tt, "tabs-sidebar-connections")
 	if got := tabSubtitle(q); got != "Lite DB" {
@@ -330,8 +330,8 @@ func (t *lossyTab) CloseReason() string { return "unsaved" }
 // them once the bar is drawn.
 func TestUnpinFirstOfTwo(t *testing.T) {
 	a, tt := tabsApp(t)
-	a.window.tabs.SetPinned(a.tabs.At(0), true)
-	a.window.tabs.SetPinned(a.tabs.At(1), true)
+	a.window.tabs().SetPinned(a.tabs().At(0), true)
+	a.window.tabs().SetPinned(a.tabs().At(1), true)
 	tt.Frame()
 	if err := tt.Click("Unpin a"); err != nil {
 		t.Fatal(err)
@@ -352,7 +352,7 @@ func TestCloseAllAsksOnce(t *testing.T) {
 	}
 	tt := ui.NewTester(a.view, 1200, 700)
 	all := func(int, widgets.Tab) bool { return true }
-	a.closeTabs(a.window, all)
+	a.closeTabs(a.window.panes.Focused(), all)
 	tt.Frame()
 	r := a.closing
 	if r == nil || r.title != "Close 4 tabs?" || r.reason != "c: unsaved\n\na: unsaved" || order(a.window) != "a b c d" {
@@ -363,7 +363,7 @@ func TestCloseAllAsksOnce(t *testing.T) {
 	if order(a.window) != "a b c d" {
 		t.Fatalf("declined: %s", order(a.window))
 	}
-	a.closeTabs(a.window, all)
+	a.closeTabs(a.window.panes.Focused(), all)
 	tt.Frame()
 	a.closing.open = false
 	a.closing.onClose()
@@ -374,7 +374,7 @@ func TestCloseAllAsksOnce(t *testing.T) {
 	for _, name := range []string{"e", "f"} {
 		a.AddTab(&plainTab{name})
 	}
-	a.closeTabs(a.window, all)
+	a.closeTabs(a.window.panes.Focused(), all)
 	tt.Frame()
 	if a.closing != nil || order(a.window) != "" {
 		t.Fatalf("nothing lost: %+v, %s", a.closing, order(a.window))
@@ -386,7 +386,7 @@ func TestCloseAllAsksOnce(t *testing.T) {
 func TestCloseAllOffersCommit(t *testing.T) {
 	a, tt, q, file := txApp(t, 0)
 	a.AddTab(&lossyTab{plainTab{"other"}})
-	a.closeTabs(a.window, func(int, widgets.Tab) bool { return true })
+	a.closeTabs(a.window.panes.Focused(), func(int, widgets.Tab) bool { return true })
 	tt.Frame()
 	r := a.closing
 	if r == nil || len(r.txs) != 1 || r.txs[0] != q {
@@ -394,7 +394,7 @@ func TestCloseAllOffersCommit(t *testing.T) {
 	}
 	r.open = false
 	a.commitThen(r.txs, r.onClose)
-	testutil.WaitFor(t, tt, "the commit and the close", func() bool { return a.tabs.Len() == 0 })
+	testutil.WaitFor(t, tt, "the commit and the close", func() bool { return a.tabs().Len() == 0 })
 	if got := rowsIn(t, file); got != "1" {
 		t.Fatalf("rows after the commit: %q", got)
 	}
@@ -408,12 +408,12 @@ func TestSwitchConnectionKeepsPin(t *testing.T) {
 	tt := ui.NewTester(a.view, 1000, 700)
 	first := newAppEditor(t, a, tt, one, "SELECT 1")
 	second := newAppEditor(t, a, tt, one, "SELECT 2")
-	a.window.tabs.SetPinned(first, true)
-	a.window.tabs.SetPinned(second, true)
+	a.window.tabs().SetPinned(first, true)
+	a.window.tabs().SetPinned(second, true)
 	a.SwitchConnection(first, "two")
 	tt.Frame()
-	q, ok := a.tabs.At(0).(*query.Tab)
-	if !ok || q.Conn.Config.Name != "two" || !a.window.tabs.Pinned(q) || !a.window.tabs.Pinned(a.tabs.At(1)) {
+	q, ok := a.tabs().At(0).(*query.Tab)
+	if !ok || q.Conn.Config.Name != "two" || !a.window.tabs().Pinned(q) || !a.window.tabs().Pinned(a.tabs().At(1)) {
 		t.Fatalf("switched: %s", order(a.window))
 	}
 }
@@ -424,7 +424,7 @@ func TestReopenInAnotherWindow(t *testing.T) {
 	a, _ := tabsApp(t)
 	other := a.openWindow()
 	for _, tb := range plainTabs("p", "q", "r") {
-		other.tabs.Add(tb)
+		other.tabs().Add(tb)
 	}
 	a.closedTabs = append(a.closedTabs, closedTab{title: "r", at: 0, open: func() string { a.window = other; return "" }})
 	a.reopenTab()
@@ -544,8 +544,8 @@ func TestTabSubtitleOnlyForSharedTitles(t *testing.T) {
 	alpha := addConn(a, db.Config{ID: "alpha", Name: "alpha", Engine: db.SQLite, Database: ":memory:"})
 	beta := addConn(a, db.Config{ID: "beta", Name: "beta", Engine: db.SQLite, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1400, 800)
-	a.main.tabs.Append(query.New(a, alpha, "", "report", "SELECT 1;"))
-	a.main.tabs.Append(query.New(a, beta, "", "notes", "SELECT 1;"))
+	a.main.tabs().Append(query.New(a, alpha, "", "report", "SELECT 1;"))
+	a.main.tabs().Append(query.New(a, beta, "", "notes", "SELECT 1;"))
 	tt.Frame()
 	count := func(s string) int {
 		n := 0
@@ -557,7 +557,7 @@ func TestTabSubtitleOnlyForSharedTitles(t *testing.T) {
 		return n
 	}
 	alphas, betas := count("alpha"), count("beta")
-	a.main.tabs.Append(query.New(a, beta, "", "report", "SELECT 1;"))
+	a.main.tabs().Append(query.New(a, beta, "", "report", "SELECT 1;"))
 	tt.Frame()
 	// Both report tabs name theirs; notes, alone, does not.
 	if got := count("alpha") - alphas; got != 1 {

@@ -10,6 +10,7 @@ import (
 	"dgopher/internal/safety"
 	"dgopher/internal/testutil"
 	"dgopher/internal/ui/dataview"
+	"dgopher/internal/ui/panes"
 	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/widgets"
 
@@ -53,7 +54,7 @@ func rowsIn(t *testing.T, file string) string {
 func TestCloseAsksCommitOrRollback(t *testing.T) {
 	for _, commit := range []bool{true, false} {
 		a, tt, q, file := txApp(t, 0)
-		a.closeTab(a.tabs.ActiveIndex())
+		a.closeTab(a.tabs().ActiveIndex())
 		if a.closing == nil || len(a.closing.txs) != 1 || a.closing.txs[0] != q {
 			t.Fatalf("closing %+v", a.closing)
 		}
@@ -70,7 +71,7 @@ func TestCloseAsksCommitOrRollback(t *testing.T) {
 		} else {
 			r.onClose()
 		}
-		testutil.WaitFor(t, tt, "the tab to close", func() bool { return a.tabs.Len() == 0 })
+		testutil.WaitFor(t, tt, "the tab to close", func() bool { return a.tabs().Len() == 0 })
 		want := "0"
 		if commit {
 			want = "1"
@@ -258,7 +259,7 @@ func TestSharedTransactionOwner(t *testing.T) {
 		t.Fatalf("the quit prompt: %+v", a.closing)
 	}
 	a.closing = nil
-	a.endTab(other, "Close?", func(*window, int) {})
+	a.endTab(other, "Close?", func(*window, *panes.Group, int) {})
 	if a.closing != nil {
 		t.Fatalf("closing the other editor asks: %q", a.closing.reason)
 	}
@@ -283,7 +284,7 @@ func TestSharedTransactionOwner(t *testing.T) {
 // and waits for the run to end.
 func runAt(t *testing.T, tt *ui.Tester, q *query.Tab, at string, mode query.RunMode) {
 	t.Helper()
-	testutil.SetCaret(tt, &q.Editor, strings.Index(q.Editor.Text(), at))
+	testutil.SetCaret(tt, q.Editor, strings.Index(q.Editor.Text(), at))
 	q.Run(mode)
 	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running })
 }

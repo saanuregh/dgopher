@@ -234,7 +234,7 @@ func TestHistoryPerProject(t *testing.T) {
 	c1 := a.addConn(p1, db.Config{Name: "a", Engine: db.SQLite, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1000, 700)
 	q := newAppEditor(t, a, tt, c1, "SELECT 1;")
-	testutil.SetCaret(tt, &q.Editor, len(q.Editor.Text())-2)
+	testutil.SetCaret(tt, q.Editor, len(q.Editor.Text())-2)
 	q.Run(query.RunStatement)
 	testutil.WaitFor(t, tt, "the run", func() bool { return resultRows(tt, q, 1) })
 
@@ -486,8 +486,8 @@ func TestUntouchedEditorFileIsDeleted(t *testing.T) {
 	look := newAppEditor(t, a, tt, cn, "SELECT * FROM t;")
 	kept := newAppEditor(t, a, tt, cn, "")
 	kept.Editor.Replace(len(kept.Editor.Text()), len(kept.Editor.Text()), "SELECT 'kept';")
-	a.closeTab(a.tabs.Index(widgets.Tab(look)))
-	a.closeTab(a.tabs.Index(widgets.Tab(kept)))
+	a.closeTab(a.tabs().Index(widgets.Tab(look)))
+	a.closeTab(a.tabs().Index(widgets.Tab(kept)))
 	if _, err := os.Stat(look.Path); err == nil {
 		t.Fatal("an untouched editor left its file")
 	}
@@ -547,7 +547,7 @@ func TestDeclinedTrustPromptSticks(t *testing.T) {
 	a := newTestApp(t)
 	cn := addConn(a, db.Config{ID: "r", Name: "r", Engine: db.SQLite, Database: filepath.Join(t.TempDir(), "x.sqlite"), AutoConnect: true})
 	a.settings.TrustedShared = nil
-	a.tabs.Add(query.New(a, cn, "", "q.sql", "SELECT 1;"))
+	a.tabs().Add(query.New(a, cn, "", "q.sql", "SELECT 1;"))
 	tt := ui.NewTester(a.view, 1000, 700)
 	tt.Frame()
 	first := a.confirm
@@ -651,7 +651,7 @@ func TestConflictedTextSurvivesRestart(t *testing.T) {
 	testutil.WaitFor(t, tt, "the conflict", func() bool { return q.DiskConflict != "" })
 	a.saveWorkspace(true) // as on quit
 	b := startApp(t, st)
-	r := b.tabs.At(0).(*query.Tab)
+	r := b.tabs().At(0).(*query.Tab)
 	if r.Editor.Text() != "SELECT 'mine';" || r.Saved != "SELECT 'pulled';" || r.DiskConflict == "" {
 		t.Fatalf("restored %q over %q, conflict %q", r.Editor.Text(), r.Saved, r.DiskConflict)
 	}
@@ -684,7 +684,7 @@ func TestNewConnectionFromProjectMenu(t *testing.T) {
 	a := newTestApp(t)
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	other, _ := a.addProject(newProjectDir(t, "other"))
-	a.tabs.Add(query.New(a, cn, "", "q.sql", ""))
+	a.tabs().Add(query.New(a, cn, "", "q.sql", ""))
 	tt := ui.NewTester(a.view, 1000, 700)
 	tt.Frame()
 	if err := tt.RightClick("other"); err != nil {
@@ -794,11 +794,11 @@ func TestRestoredEditorWaitsToConnect(t *testing.T) {
 	for range 5 {
 		tt.Frame()
 	}
-	q := b.tabs.At(0).(*query.Tab)
+	q := b.tabs().At(0).(*query.Tab)
 	if q.Conn.Status != connection.StatusIdle || !hasExact(tt, "Connect") {
 		t.Fatalf("restored editor: status %v, %q", q.Conn.Status, tt.Texts())
 	}
-	testutil.SetCaret(tt, &q.Editor, 3)
+	testutil.SetCaret(tt, q.Editor, 3)
 	q.Run(query.RunStatement)
 	testutil.WaitFor(t, tt, "the run", func() bool { return resultRows(tt, q, 1) })
 }
@@ -844,14 +844,14 @@ func TestDuplicateEditor(t *testing.T) {
 	if err := tt.ChooseMenuItem("Duplicate"); err != nil {
 		t.Fatalf("%v: menu %q", err, tt.Menu())
 	}
-	testutil.WaitFor(t, tt, "the third copy", func() bool { return a.tabs.Len() == 3 })
+	testutil.WaitFor(t, tt, "the third copy", func() bool { return a.tabs().Len() == 3 })
 	// From the palette.
 	for _, it := range a.paletteItems(false) {
 		if it.title == "Duplicate Editor" {
 			it.run()
 		}
 	}
-	testutil.WaitFor(t, tt, "the fourth copy", func() bool { return a.tabs.Len() == 4 })
+	testutil.WaitFor(t, tt, "the fourth copy", func() bool { return a.tabs().Len() == 4 })
 }
 
 // The sidebar's menu of a query file duplicates it too: a file no editor
@@ -875,7 +875,7 @@ func TestDuplicateQueryFileFromSidebar(t *testing.T) {
 	if err := tt.ChooseMenuItem("Duplicate"); err != nil {
 		t.Fatalf("%v: menu %q", err, tt.Menu())
 	}
-	testutil.WaitFor(t, tt, "the copy", func() bool { return a.tabs.Len() == 1 })
+	testutil.WaitFor(t, tt, "the copy", func() bool { return a.tabs().Len() == 1 })
 	d := a.ActiveTab().(*query.Tab)
 	if d.Conn != cn || d.Editor.Text() != text || filepath.Base(d.Path) == "report.sql" {
 		t.Fatalf("the copy: %s on %s, %q", d.Path, d.Conn.Config.ID, d.Editor.Text())
@@ -913,7 +913,7 @@ func TestOpenQueryFileWaitsToConnect(t *testing.T) {
 		}
 	}
 	// Running connects it.
-	testutil.SetCaret(tt, &q.Editor, len(q.Editor.Text())-2)
+	testutil.SetCaret(tt, q.Editor, len(q.Editor.Text())-2)
 	q.Run(query.RunStatement)
 	testutil.WaitFor(t, tt, "the run", func() bool { return resultRows(tt, q, 1) })
 }
@@ -935,8 +935,8 @@ func TestRestoredEditorFollowsItsHeader(t *testing.T) {
 	os.WriteFile(q.Path, []byte("-- connection: beta\n\nSELECT 1;"), 0o644)
 
 	b := startApp(t, st)
-	if b.tabs.Len() != 1 || b.tabs.At(0).Connection().Config.ID != b.projects[0].Prefix+"beta" {
-		t.Fatalf("restored %v", b.tabs.Tabs())
+	if b.tabs().Len() != 1 || b.tabs().At(0).Connection().Config.ID != b.projects[0].Prefix+"beta" {
+		t.Fatalf("restored %v", b.tabs().Tabs())
 	}
 }
 
@@ -1392,8 +1392,8 @@ func TestNavigatorShallow(t *testing.T) {
 	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1000, 700)
 	a.openSample()
-	testutil.WaitFor(t, tt, "sample editor", func() bool { return a.tabs.Len() == 1 })
-	cn := a.tabs.At(0).(*query.Tab).Conn
+	testutil.WaitFor(t, tt, "sample editor", func() bool { return a.tabs().Len() == 1 })
+	cn := a.tabs().At(0).(*query.Tab).Conn
 	conn := navNode{kind: nodeConn, conn: cn.Config.ID}
 	a.nav.expand(conn)
 	testutil.WaitFor(t, tt, "the schema's folders", func() bool {
@@ -1576,14 +1576,15 @@ func TestProxyPasswordKeyedByHost(t *testing.T) {
 // A pull that lowers the care taken with a connection asks again.
 func TestLoweredProtectionAsks(t *testing.T) {
 	for name, lower := range map[string]func(*db.Config){
-		"Environment": func(c *db.Config) { c.Env = db.Staging },
-		"Read-only":   func(c *db.Config) { c.ReadOnly = false },
-		"Commit":      func(c *db.Config) { c.Commit = db.CommitAuto },
+		"Environment":         func(c *db.Config) { c.Env = db.Staging },
+		"Read-only":           func(c *db.Config) { c.ReadOnly = false },
+		"Commit":              func(c *db.Config) { c.Commit = db.CommitAuto },
+		"Rows to the AI chat": func(c *db.Config) { c.NoRowsToChat = false },
 	} {
 		t.Run(name, func(t *testing.T) {
 			a := newTestApp(t)
 			file := writeSQL(t, "x.sqlite", "")
-			cn := addConn(a, db.Config{ID: "s", Name: "s", Engine: db.SQLite, Database: file, Env: db.Production, ReadOnly: true})
+			cn := addConn(a, db.Config{ID: "s", Name: "s", Engine: db.SQLite, Database: file, Env: db.Production, ReadOnly: true, NoRowsToChat: true})
 			lower(&cn.Config)
 			a.Connect(cn, nil)
 			if a.confirm == nil {
@@ -1869,7 +1870,7 @@ func TestEverySendIsTraffic(t *testing.T) {
 	cn := a.addConn(p, db.Config{Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1000, 700)
 	q := newAppEditor(t, a, tt, cn, "SELECT 41 + 1 AS v;")
-	testutil.SetCaret(tt, &q.Editor, len(q.Editor.Text())-2)
+	testutil.SetCaret(tt, q.Editor, len(q.Editor.Text())-2)
 	q.Run(query.RunStatement)
 	testutil.WaitFor(t, tt, "the run", func() bool { return resultRows(tt, q, 1) })
 	a.recordSent(&cn.Config, db.Sent{Text: "ALTER USER u PASSWORD 'hunter2'", Args: 2})

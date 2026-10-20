@@ -44,6 +44,10 @@ const (
 
 var chartKinds = []string{"Bar", "Stacked Bar", "Line", "Area", "Stacked Area", "Scatter", "Pie", "Histogram"}
 
+// ChartKinds are the kinds a chart draws, by the names ChartSettings
+// takes.
+func ChartKinds() []string { return slices.Clone(chartKinds) }
+
 // stacked reports whether a kind draws its series on top of each other.
 func stacked(kind int) bool { return kind == chartStackedBar || kind == chartStackedArea }
 

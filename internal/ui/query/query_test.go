@@ -63,7 +63,7 @@ func TestErrorOffset(t *testing.T) {
 func TestErrorPanelGoToError(t *testing.T) {
 	_, tt, _, q := openEditor(t, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"}, 1100, 760, "SELECT 1;\n\nSELECT *\nFRM nowhere;")
 	at := strings.Index(q.Editor.Text(), "FRM")
-	testutil.SetCaret(tt, &q.Editor, at)
+	testutil.SetCaret(tt, q.Editor, at)
 	q.Run(RunStatement)
 	testutil.WaitFor(t, tt, "the error", func() bool { return !q.Running && tt.HasText("Go to Error") })
 	testutil.Snapshot(t, tt, "error-panel")
@@ -82,7 +82,7 @@ func TestErrorPanelGoToError(t *testing.T) {
 // match of at, and waits for the run.
 func runWith(t *testing.T, tt *ui.Tester, q *Tab, at string, mode RunMode) {
 	t.Helper()
-	testutil.SetCaret(tt, &q.Editor, strings.Index(q.Editor.Text(), at))
+	testutil.SetCaret(tt, q.Editor, strings.Index(q.Editor.Text(), at))
 	q.Run(mode)
 	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running })
 }
@@ -192,7 +192,7 @@ func TestStatementTimeout(t *testing.T) {
 // reviewed as one.
 func TestParametersBoundAndReviewed(t *testing.T) {
 	a, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:", Env: db.Production}, 1000, 700, "SELECT :n + 1 AS v")
-	testutil.SetCaret(tt, &q.Editor, strings.Index(q.Editor.Text(), "SELECT"))
+	testutil.SetCaret(tt, q.Editor, strings.Index(q.Editor.Text(), "SELECT"))
 	q.Run(RunStatement)
 	if a.dialogs.params == nil || len(a.dialogs.params.fields) != 1 {
 		t.Fatalf("no parameter dialog: %+v", a.dialogs.params)
@@ -207,7 +207,7 @@ func TestParametersBoundAndReviewed(t *testing.T) {
 	}
 	// The value is remembered, and a ${var} is reviewed after substitution.
 	q.Editor.SetText("-- connection: lite\n\n${stmt}")
-	testutil.SetCaret(tt, &q.Editor, len(q.Editor.Text()))
+	testutil.SetCaret(tt, q.Editor, len(q.Editor.Text()))
 	q.Run(RunStatement)
 	a.dialogs.params.fields[0].value = "DELETE FROM t"
 	a.dialogs.params.submit()
@@ -218,7 +218,7 @@ func TestParametersBoundAndReviewed(t *testing.T) {
 	a.Confirm = nil
 	// A value that adds a statement is refused outright.
 	q.Editor.SetText("-- connection: lite\n\nSELECT * FROM ${t}")
-	testutil.SetCaret(tt, &q.Editor, len(q.Editor.Text()))
+	testutil.SetCaret(tt, q.Editor, len(q.Editor.Text()))
 	q.Run(RunStatement)
 	a.dialogs.params.fields[0].value = "x; DROP TABLE y"
 	a.dialogs.params.submit()
@@ -243,7 +243,7 @@ func TestExplainSelectionNeverRuns(t *testing.T) {
 		t.Fatalf("ran %q", r.sql)
 	}
 	q.Editor.SetText("-- connection: lite\n\nSELECT count(*) FROM t")
-	testutil.SetCaret(tt, &q.Editor, len(q.Editor.Text()))
+	testutil.SetCaret(tt, q.Editor, len(q.Editor.Text()))
 	q.Run(RunStatement)
 	testutil.WaitFor(t, tt, "the count", func() bool { return !q.Running })
 	if got := db.Display(q.results[0].view.Rows()[0][0]); got != "1" {
@@ -255,7 +255,7 @@ func TestExplainSelectionNeverRuns(t *testing.T) {
 // destructive statement asks even after Run All.
 func TestProductionScriptConfirmsEachWrite(t *testing.T) {
 	a, tt, _, q := openEditor(t, db.Config{ID: "prod", Name: "prod", Engine: db.SQLite, Database: ":memory:", Env: db.Production}, 1000, 700, "CREATE TABLE t (a INT);\nINSERT INTO t VALUES (1);\nINSERT INTO t VALUES (2);\nINSERT INTO t VALUES (3);\nDELETE FROM t;\nSELECT count(*) FROM t;")
-	testutil.SetCaret(tt, &q.Editor, strings.Index(q.Editor.Text(), "CREATE"))
+	testutil.SetCaret(tt, q.Editor, strings.Index(q.Editor.Text(), "CREATE"))
 	q.Run(RunScript)
 	answer := func(want string, choose func(r *widgets.ConfirmRequest)) {
 		t.Helper()
@@ -309,7 +309,7 @@ func TestEditorMenuActsOnSelection(t *testing.T) {
 	tt.Frame()
 	// Without a selection, the statement at the caret.
 	q.Editor.SetText("-- connection: lite\n\nselect 'a' as x\n\nselect 2 as y")
-	testutil.SetCaret(tt, &q.Editor, strings.Index(q.Editor.Text(), "2 as"))
+	testutil.SetCaret(tt, q.Editor, strings.Index(q.Editor.Text(), "2 as"))
 	q.changeCase(true)
 	if !strings.HasSuffix(q.Editor.Text(), "select 'a' as x\n\nSELECT 2 AS Y") {
 		t.Fatalf("upper case of the statement: %q", q.Editor.Text())
@@ -416,7 +416,7 @@ func TestCompletingTableAddsAlias(t *testing.T) {
 	complete := func(before, after string) string {
 		t.Helper()
 		q.Editor.SetText(before + after)
-		testutil.SetCaret(tt, &q.Editor, len(before))
+		testutil.SetCaret(tt, q.Editor, len(before))
 		testutil.WaitFor(t, tt, "the table's suggestion", func() bool {
 			q.suggest(q.Editor.Caret(), true)
 			return offers(q, "reflex_order")
@@ -449,7 +449,7 @@ func TestCompletionAcceptsAliasAndParens(t *testing.T) {
 	setup.SQL.Exec("CREATE TABLE reflex_order (id INTEGER)")
 	setup.Close()
 	_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file}, 1000, 700, "")
-	e := &q.Editor
+	e := q.Editor
 	// complete types text, | marking the carets, asks at the newest, and
 	// accepts label.
 	complete := func(text, label string) string {
@@ -542,7 +542,7 @@ func TestEditorAuditTypedAndSent(t *testing.T) {
 	run := func(text, value string, mode RunMode) audit.Event {
 		t.Helper()
 		q.Editor.SetText("-- connection: lite\n\n" + text)
-		testutil.SetCaret(tt, &q.Editor, len(q.Editor.Text()))
+		testutil.SetCaret(tt, q.Editor, len(q.Editor.Text()))
 		n := len(a.Events)
 		q.Run(mode)
 		if value != "" {
@@ -572,7 +572,7 @@ func TestRunStatementAtCaretMultibyte(t *testing.T) {
 		testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running && len(q.results) > 0 })
 		return q.results[len(q.results)-1].sql
 	}
-	testutil.SetCaret(tt, &q.Editor, strings.Index(text, "é"))
+	testutil.SetCaret(tt, q.Editor, strings.Index(text, "é"))
 	q.Run(RunStatement)
 	if got := last(); got != "SELECT 'é' AS b" {
 		t.Fatalf("ran %q", got)
@@ -620,11 +620,13 @@ func TestSaveKeepsCRLF(t *testing.T) {
 // nothing typed.
 func TestCompleteKey(t *testing.T) {
 	defer keymap.Use(nil)
-	for _, key := range []string{"", "Alt+J"} {
+	for _, key := range []string{"", "alt-j"} {
 		if key != "" {
-			if errs := keymap.Use(map[string][]string{keymap.Complete: {key}}); errs != nil {
+			overrides, errs := keymap.Parse([]byte(`[{"context": "Editor", "bindings": {"ctrl-space": null, "` + key + `": "editor::ShowCompletions"}}]`))
+			if errs != nil {
 				t.Fatal(errs)
 			}
+			keymap.Use(overrides)
 		}
 		_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "SELECT 1 AS v ")
 		testutil.WaitFor(t, tt, "the editor's focus", func() bool { return q.Editor.HasFocus() })

@@ -59,7 +59,7 @@ func IsIdentRune(r rune) bool {
 // wait for is read.
 func (q *Tab) completionKeys(c *ui.Context) {
 	ac := &q.ac
-	e := &q.Editor
+	e := q.Editor
 	if q.pressed(c, keymap.Complete) && e.HasFocus() {
 		e.State.Run(code.ShowCompletions)
 	}
@@ -81,7 +81,7 @@ func (q *Tab) complete(r code.CompletionRequest) {
 // typed.
 func (q *Tab) suggest(caret int, explicit bool) {
 	ac := &q.ac
-	e := &q.Editor
+	e := q.Editor
 	text := e.Text()
 	caret = max(0, min(caret, len(text)))
 	ac.retry, ac.retryAt, ac.explicit = false, caret, explicit
@@ -115,7 +115,7 @@ func (q *Tab) show(start int, items []suggestion) {
 // table in FROM or JOIN with an alias, a snippet with its fields. It
 // leaves the others to the editor.
 func (q *Tab) acceptCompletion(it code.Completion, start, end int) bool {
-	e := &q.Editor
+	e := q.Editor
 	text := e.Text()
 	ins := cmp.Or(it.Insert, it.Label)
 	switch {
@@ -163,7 +163,7 @@ func (q *Tab) acceptCompletion(it code.Completion, start, end int) bool {
 // selection. place is given the end of the text replaced, and gives the
 // text and the selection to make in it. All is one step of undo.
 func (q *Tab) typeAtCarets(start, end int, place func(after int) (text string, selStart, selEnd int)) {
-	e := &q.Editor
+	e := q.Editor
 	text := e.Text()
 	n, typed := end-start, text[start:end]
 	newest := e.State.Selection()

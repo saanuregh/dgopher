@@ -219,7 +219,7 @@ func accelerator(id string) string {
 // menu bar takes the first key of each, where there is one, and the window
 // the others.
 var menuCommands = []string{keymap.Settings, keymap.NewConnection, keymap.NewEditor, keymap.OpenScript, keymap.AddFolder,
-	keymap.CloseTab, keymap.ReopenTab, keymap.Palette, keymap.OpenTable, keymap.History, keymap.AuditLog, keymap.ToggleSidebar, keymap.FullScreen, keymap.Quit}
+	keymap.CloseTab, keymap.ReopenTab, keymap.Palette, keymap.OpenTable, keymap.History, keymap.AuditLog, keymap.ToggleSidebar, keymap.FullScreen, keymap.Quit, keymap.OpenKeymap, keymap.NewNotebook, keymap.ToggleChat}
 
 // menuAction is what a command of the menu bar does.
 func (a *App) menuAction(id string) func() {
@@ -268,6 +268,18 @@ func (a *App) menuAction(id string) func() {
 		return a.openAudit
 	case keymap.ToggleSidebar:
 		return func() { a.layout.SidebarHidden = !a.layout.SidebarHidden }
+	case keymap.OpenKeymap:
+		return a.openKeymap
+	case keymap.ToggleChat:
+		return a.toggleChat
+	case keymap.NewNotebook:
+		return func() {
+			if cn := a.activeConn(); cn != nil && cn.Config.Engine.IsSQL() {
+				a.newNotebook(cn)
+			} else {
+				a.openPalette(false)
+			}
+		}
 	}
 	panic("no menu command " + id)
 }
@@ -310,6 +322,7 @@ func (a *App) appMenus() []menuGroup {
 		{"File", []menuEntry{
 			cmd("New Connection…", keymap.NewConnection),
 			cmd("New SQL Editor", keymap.NewEditor),
+			cmd("New SQL Notebook", keymap.NewNotebook),
 			cmd("Open SQL Script…", keymap.OpenScript),
 			{label: "Open Recent", openRecent: true},
 			{label: "Run SQL File…", run: func() {
@@ -332,6 +345,7 @@ func (a *App) appMenus() []menuGroup {
 			cmd("Query History", keymap.History),
 			cmd("Audit Log", keymap.AuditLog),
 			cmd("Toggle Sidebar", keymap.ToggleSidebar),
+			cmd("AI Chat", keymap.ToggleChat),
 			{},
 			cmd("Toggle Full Screen", keymap.FullScreen),
 		}},
@@ -340,6 +354,7 @@ func (a *App) appMenus() []menuGroup {
 		{"Help", []menuEntry{
 			{label: "Keyboard Shortcuts", run: func() { a.shortcutsOpen = true }},
 			{label: "Customize Keyboard Shortcuts…", run: func() { a.keys = &keysEditor{open: true} }},
+			cmd("Open keymap.json", keymap.OpenKeymap),
 			{},
 			{label: "Take the Tour", run: a.startTour},
 		}},

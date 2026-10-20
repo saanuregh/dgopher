@@ -5,7 +5,7 @@ DGopher keeps data in three places:
 | Place | Holds | Shared? |
 | --- | --- | --- |
 | [The project folder](#the-project-folder) | connections, query files, dashboards, data models, and your own state for the project | yes, through Git, except `.dgopher/` |
-| [The config directory](#the-config-directory) | your preferences, trusted connections and SSH hosts | no |
+| [The config directory](#the-config-directory) | your preferences, keys, trusted connections and SSH hosts | no |
 | [The data directory](#the-data-directory) | the windows' layout | no |
 
 Passwords are in none of them. See [Secrets](safety.md#secrets).
@@ -20,7 +20,7 @@ except `.dgopher/`:
 | Path | In Git | What |
 | --- | --- | --- |
 | `dgopher.json` | committed | connections (without passwords), snippets, per-table settings such as virtual keys and hidden columns, and the queries folder |
-| `queries/**/*.sql` | committed | SQL files, each starting with `-- connection: <id>` |
+| `queries/**/*.sql` | committed | SQL files, each starting with `-- connection: <id>`, and `-- view: notebook` for a notebook |
 | `dashboards/` | committed | dashboards |
 | `models/` | committed | data models |
 | `.dgopher/.gitignore` | ignored | holds `*`, so the folder ignores itself and your own `.gitignore` is never touched |
@@ -49,7 +49,7 @@ The `kv` table holds:
 
 | Key | What |
 | --- | --- |
-| `workspace.json` | the open tabs, in order, and the one in front: query files (with each one's connection, database, and unsaved text if its file changed on disk), dashboards, data models, and a connection's tabs by what they show, such as a table's schema, name and page |
+| `workspace.json` | the open tabs, in order, and the one in front: query files (with each one's connection, database, whether it showed as a notebook, and unsaved text if its file changed on disk), dashboards, data models, and a connection's tabs by what they show, such as a table's schema, name and page; and the main window's editor groups, each tab's group, and the tab in front of each |
 | `filters.json` | each table's recent grid filters |
 | `colors.json` | each table's row colors |
 | `query-parameters.json` | the editors' parameter values, per connection |
@@ -94,7 +94,9 @@ Set `DGOPHER_CONFIG_DIR` to use another directory.
 
 | File | What |
 | --- | --- |
-| `settings.json` | preferences, the project folders in the sidebar, your custom keys, and the connections you trusted (no secrets) |
+| `settings.json` | preferences, the project folders in the sidebar, the AI chat's agent with its model and effort, and the connections you trusted (no secrets) |
+| `keymap.json` | the keys you set, over the defaults ([Your keymap file](keyboard.md#your-keymap-file)); keys an older DGopher kept in `settings.json` move here |
+| `chat/` | where the AI chat of an editor on a connection without a project works |
 | `known_hosts` | SSH hosts trusted in the app; `~/.ssh/known_hosts` is also read |
 | `themes/` | your theme files (Settings → Appearance → Themes Folder) |
 
@@ -126,9 +128,8 @@ run kept away from your config also keeps away from your layout.
   full screen.
 - `kv`: one row per layout value: the sidebar's width and whether it shows,
   the editor's share of the height above its results (where new editors
-  start), whether the results are hidden or maximized, the split of two
-  tabs side by side, and the Redis browser's key list width and console
-  height.
+  start), whether the results are hidden or maximized, and the Redis
+  browser's key list width and console height.
 
 Each value is written when a drag ends and read at start. A missing value
 keeps its default. If the file cannot be written, the layout lasts only

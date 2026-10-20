@@ -59,8 +59,27 @@ func (a *App) workspaceBar(c *ui.Context) {
 				a.layout.SidebarHidden = false
 			}
 		}
-		a.tabBar(c)
-		ui.Spacer(c)
+		if !a.several() {
+			a.tabBar(c, a.window.panes.Focused()) // else each group has its own
+			ui.Spacer(c)
+		} else {
+			// What the keys go to, as each group's bar has the tabs.
+			ui.Spacer(c)
+			if t := a.ActiveTab(); t != nil {
+				title := t.Title()
+				if cn := t.Connection(); cn != nil {
+					title += " — " + cn.Config.Name
+				}
+				ui.Text(c, title).FontSize(12.5).TextColor(pal.Muted).SingleLine().Shrink(1)
+			}
+			ui.Spacer(c)
+		}
+		// The window's own state: keys of two in a row, and transactions
+		// open anywhere.
+		if k := keymap.Pending(); k != "" {
+			widgets.Keycap(c.Key("pending-key"), k+" …").Tooltip("Waiting for the second key; Esc forgets it")
+		}
+		a.txIndicator(c)
 		search := widgets.IconButton(c, widgets.IconSearch, "Search")
 		search.Tooltip("Search commands, tables and files (" + keymap.First(keymap.Palette) + ")")
 		if search.Clicked() {

@@ -1,0 +1,13 @@
+// A line of the glow's colors with a band of light sweeping along it,
+// again and again: work going on in one place.
+
+var Time float
+
+func Fragment(dst vec4, pos vec2) vec4 {
+	x := pos.x / rectSize().x
+	s := fract(Time*0.45)*1.6 - 0.3
+	k := exp(-(x-s)*(x-s)*28)
+	col := palette(x*0.6 + Time*0.08)
+	alpha := 0.6 + 0.4*k
+	return vec4(col*alpha, alpha)
+}

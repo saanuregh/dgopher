@@ -13,6 +13,7 @@ require (
 	github.com/otan/gopgkrb5 v1.0.6
 	github.com/pierrec/lz4/v4 v4.1.27
 	github.com/redis/rueidis v1.0.78
+	github.com/saanuregh/agent-cli-connector v0.0.0-00010101000000-000000000000
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/crypto v0.57.0
 	modernc.org/sqlite v1.60.1
@@ -80,3 +81,5 @@ require (
 tool github.com/egoist/mygo/cmd/mygo
 
 replace github.com/egoist/mygo => github.com/saanuregh/mygo v0.3.4-0.20261016160541-37fcd0d33bd4
+
+replace github.com/saanuregh/agent-cli-connector => /home/sr/projects/personal/agent-cli-connector

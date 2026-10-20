@@ -21,12 +21,12 @@ func TestWindows(t *testing.T) {
 	main := ui.NewTester(a.windowView(a.main), 1000, 700)
 	a.NewQueryTab(cn, "", "SELECT 1")
 	a.NewQueryTab(cn, "", "SELECT 2")
-	testutil.WaitFor(t, main, "the editors", func() bool { return a.main.tabs.Len() == 2 })
-	first, second := a.main.tabs.At(0), a.main.tabs.At(1)
+	testutil.WaitFor(t, main, "the editors", func() bool { return a.main.tabs().Len() == 2 })
+	first, second := a.main.tabs().At(0), a.main.tabs().At(1)
 
 	a.moveToWindow(second, nil)
-	if len(a.windows) != 2 || a.main.tabs.Len() != 1 {
-		t.Fatalf("windows %d, main's tabs %d", len(a.windows), a.main.tabs.Len())
+	if len(a.windows) != 2 || a.main.tabs().Len() != 1 {
+		t.Fatalf("windows %d, main's tabs %d", len(a.windows), a.main.tabs().Len())
 	}
 	w := a.windows[1]
 	other := ui.NewTester(a.windowView(w), 800, 600)
@@ -50,13 +50,13 @@ func TestWindows(t *testing.T) {
 	}
 
 	a.closeWindow(w)
-	if len(a.windows) != 1 || a.main.tabs.Len() != 2 {
-		t.Fatalf("after closing: windows %d, main's tabs %d", len(a.windows), a.main.tabs.Len())
+	if len(a.windows) != 1 || a.main.tabs().Len() != 2 {
+		t.Fatalf("after closing: windows %d, main's tabs %d", len(a.windows), a.main.tabs().Len())
 	}
 	a.moveToWindow(first, nil)
 	a.moveToWindow(first, a.main)
 	main.Frame()
-	if len(a.windows) != 1 || a.main.tabs.Len() != 2 {
+	if len(a.windows) != 1 || a.main.tabs().Len() != 2 {
 		t.Fatal("a window kept without tabs")
 	}
 
@@ -65,10 +65,10 @@ func TestWindows(t *testing.T) {
 	w = a.windows[1]
 	a.SwitchConnection(first.(*query.Tab), "lite")
 	main.Frame()
-	if len(a.windows) != 2 || w.tabs.Len() != 1 || w.tabs.At(0) == first {
-		t.Fatalf("after switching: windows %d, its tabs %d", len(a.windows), w.tabs.Len())
+	if len(a.windows) != 2 || w.tabs().Len() != 1 || w.tabs().At(0) == first {
+		t.Fatalf("after switching: windows %d, its tabs %d", len(a.windows), w.tabs().Len())
 	}
-	first = w.tabs.At(0)
+	first = w.tabs().At(0)
 
 	// Brought forward while another window draws, a tab stays in its
 	// window, and the window drawn stays the one drawn.
@@ -80,7 +80,7 @@ func TestWindows(t *testing.T) {
 
 	a.closeConnection(cn)
 	main.Frame()
-	if a.main.tabs.Len() != 0 || len(a.windows) != 1 {
-		t.Fatalf("after the connection went: main's tabs %d, windows %d", a.main.tabs.Len(), len(a.windows))
+	if a.main.tabs().Len() != 0 || len(a.windows) != 1 {
+		t.Fatalf("after the connection went: main's tabs %d, windows %d", a.main.tabs().Len(), len(a.windows))
 	}
 }

@@ -161,7 +161,7 @@ statement was written. A comment before `BEGIN`, `ROLLBACK TO SAVEPOINT`,
 `COMMIT AND CHAIN` and `XA START` leave a transaction open. A deadlock or
 an implicit commit ends it.
 
-The status bar lists every open transaction and how long it has been
+The title bar lists every open transaction and how long it has been
 open.
 
 MySQL's `SET autocommit = 0` does not open a transaction. The next
@@ -207,7 +207,7 @@ transaction. That transaction belongs to the tab that began it.
   their typed `COMMIT`, `END`, `ROLLBACK` (not `ROLLBACK TO`), `ABORT`,
   `BEGIN` and `START TRANSACTION`. The check runs before a run and again at
   each such statement, in case another tab began a transaction meanwhile.
-- The status bar, the idle warning and the close and quit prompts name only
+- The tab's status bar, the idle warning and the close and quit prompts name only
   the owner.
 - Work in other tabs counts as use of the owner's transaction, so it does
   not roll back as idle while they work.

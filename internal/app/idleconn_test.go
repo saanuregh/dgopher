@@ -93,7 +93,7 @@ func TestIdleConnectionDisconnects(t *testing.T) {
 	if cn.Status != connection.StatusIdle {
 		t.Fatal("connected again with its editor behind")
 	}
-	a.tabs.Select(q)
+	a.tabs().Select(q)
 	testutil.WaitFor(t, tt, "the editor brought back connecting", func() bool { return cn.Status == connection.StatusConnected })
 	// The next run is refused once: the new session has none of what the
 	// old one had set.
@@ -139,9 +139,9 @@ func TestIdleConnectionKeptByOtherTab(t *testing.T) {
 	node := navNode{kind: nodeConn, conn: cn.Config.ID}
 	a.nav.expand(node)
 	a.OpenTable(cn, "", db.Object{Schema: "main", Name: "t", Kind: db.KindTable}, 0)
-	testutil.WaitFor(t, tt, "the table", func() bool { return a.tabs.Len() == 1 })
+	testutil.WaitFor(t, tt, "the table", func() bool { return a.tabs().Len() == 1 })
 	stillConnected(t, tt, cn, 2500*time.Millisecond, "under an open table")
-	a.closeTab(a.tabs.ActiveIndex())
+	a.closeTab(a.tabs().ActiveIndex())
 	testutil.WaitFor(t, tt, "the idle disconnect", func() bool { return cn.Status == connection.StatusIdle })
 	sidebarStaysDisconnected(t, a, tt, cn)
 }

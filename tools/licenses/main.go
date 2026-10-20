@@ -97,7 +97,10 @@ func listModules() map[string]module {
 	for _, p := range platforms {
 		goos, goarch, _ := strings.Cut(p, "/")
 		cmd := exec.Command("go", "list", "-deps", "-f",
-			`{{with .Module}}{{if not .Main}}{{with or .Replace .}}{{.Path}}{{"\t"}}{{.Version}}{{"\t"}}{{.Dir}}{{end}}{{end}}{{end}}`, ".")
+			// A module replaced by a directory keeps its own path: the
+			// directory is where it is on this machine, not what it is.
+			`{{with .Module}}{{if not .Main}}{{if and .Replace .Replace.Version}}{{with .Replace}}{{.Path}}{{"\t"}}{{.Version}}{{"\t"}}{{.Dir}}{{end}}`+
+				`{{else if .Replace}}{{.Path}}{{"\t"}}{{.Version}}{{"\t"}}{{.Replace.Dir}}{{else}}{{.Path}}{{"\t"}}{{.Version}}{{"\t"}}{{.Dir}}{{end}}{{end}}{{end}}`, ".")
 		cmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH="+goarch, "CGO_ENABLED=1")
 		cmd.Stderr = os.Stderr
 		out, err := cmd.Output()
@@ -111,6 +114,9 @@ func listModules() map[string]module {
 			}
 			if f[2] == "" {
 				log.Fatalf("%s %s is not downloaded", f[0], f[1])
+			}
+			if strings.HasPrefix(f[1], "v0.0.0-00010101000000-") {
+				f[1] = "" // the version a module replaced by a directory has, which says nothing
 			}
 			modules[f[0]] = module{f[0], f[1], f[2]}
 		}

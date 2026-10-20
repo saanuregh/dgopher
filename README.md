@@ -34,7 +34,7 @@ To build from source, see [Development](docs/development.md).
 1. Open DGopher and choose **Try the sample** on the start page. It creates
    a small shop database in SQLite, so you need no server.
 2. Take the one-minute tour the start page offers.
-3. Press ⌘K (Ctrl+K on Linux and Windows) for the command palette, or ⌘N
+3. Press ⇧⌘P (Ctrl+Shift+P on Linux and Windows) for the command palette, or ⌘N
    for a new connection. You can paste a connection URL such as
    `postgres://user@host/db` into the form.
 
@@ -84,6 +84,18 @@ See the [Safety model](docs/safety.md).
   query slow.
 - **Charts and dashboards:** chart any result, and put any read query on a
   dashboard as a number, a chart or a table, with parameters and refresh.
+- **Notebooks:** show any SQL file as cells, Jupyter-style, each with its
+  own results, on one session, with Markdown between them. The file stays
+  SQL that runs as a script.
+- **Split editor groups:** put tabs side by side or one above another, in
+  as many groups as you like, with keys or by dragging a tab.
+- **Keys like Zed's:** every shortcut can be changed, in Settings or in a
+  `keymap.json` of contexts and keys in a row such as ⌘K ⌘S.
+- **AI chat:** ask Claude Code, Codex or pi about the SQL in front of you, beside
+  each editor. Each message carries the editor's connection, statement and
+  last error; it reads schemas, writes SQL you insert with a click, runs
+  only the reads you allow, and uses the model and effort you choose. It
+  has no file or shell access: DGopher's tools are all it can use.
 
 ### Work with data and schemas
 
@@ -120,6 +132,8 @@ See [Features](docs/features.md) for everything DGopher does.
 | ![A dashboard of the sample shop: revenue, orders, customers and products, revenue by month, customers by country, and best sellers](docs/images/dashboard.png) | ![The ER diagram of the sample shop's tables and their foreign keys](docs/images/er-diagram.png) |
 | ![The plan of a join on PostgreSQL, with the rows estimated and found and each step's share of the time](docs/images/query-plan.png) | ![The audit log of a project: statements, a confirmation, and a grid edit](docs/images/audit-log.png) |
 | ![A grid edit shown as SQL to review before it is applied](docs/images/edit-review.png) | ![A Redis database: its key tree and a hash opened beside it](docs/images/redis.png) |
+| ![An editor with its AI chat: a question about the statement, a tool call, and SQL to insert](docs/images/ai-chat.png) | ![A notebook of a Markdown cell and two SQL cells, each with its result](docs/images/notebook.png) |
+| ![Two editor groups side by side: an editor with its result, and a dashboard](docs/images/groups.png) | |
 
 ## Footprint
 

@@ -23,7 +23,6 @@ import (
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
-	"dgopher/internal/keymap"
 	"dgopher/internal/lists"
 	"dgopher/internal/project"
 	"dgopher/internal/safety"
@@ -33,6 +32,7 @@ import (
 	"dgopher/internal/state"
 	"dgopher/internal/store"
 	"dgopher/internal/ui/dataview"
+	"dgopher/internal/ui/panes"
 	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/redis"
 	"dgopher/internal/ui/widgets"
@@ -130,6 +130,7 @@ type App struct {
 	addingPanel    *addToDashboard
 	savingModel    *saveModelForm
 	keys           *keysEditor
+	keymapFile     keymapFile
 	themes         []widgets.Theme // the built-in and the user's
 	// The guided tour: whether it shows, its stop, and the bounds of the
 	// parts of the window it shows, as the last frame laid them out.
@@ -175,14 +176,12 @@ type App struct {
 func newApp(st *store.Store, uiState *state.DB) *App {
 	a := &App{st: st, settings: settings.Default(), layout: widgets.DefaultLayout()}
 	a.layoutSaved = a.layout
-	a.main = &window{}
+	a.main = newWindow()
 	a.window, a.windows = a.main, []*window{a.main}
 	if err := st.LoadJSON("settings.json", &a.settings); err != nil && !errors.Is(err, store.ErrNotFound) {
 		log.Println("settings:", err)
 	}
-	for _, err := range keymap.Use(a.settings.Keys) {
-		log.Println("settings: keys:", err)
-	}
+	a.loadKeymap()
 	if a.settings.PageSize <= 0 {
 		a.settings.PageSize = 500
 	}
@@ -966,7 +965,7 @@ func (a *App) AddTab(t widgets.Tab) {
 				continue
 			}
 			if waits, _ := savedTabOf(w); waits.same(s) {
-				inView := win.tabs.Active() == w || win.tabs.Side() == w
+				inView := win.panes.GroupOf(w).Tabs.Active() == w
 				a.ReplaceTab(w, t)
 				if !inView {
 					a.findTab(func(o widgets.Tab) bool { return o == t })
@@ -975,7 +974,7 @@ func (a *App) AddTab(t widgets.Tab) {
 			}
 		}
 	}
-	a.tabs.Add(t)
+	a.tabs().Add(t)
 }
 
 // ReplaceTab puts a tab in the place of another, which closes. In view
@@ -983,9 +982,9 @@ func (a *App) AddTab(t widgets.Tab) {
 // which would connect a waiting tab again just disconnected.
 func (a *App) ReplaceTab(old, next widgets.Tab) {
 	for _, w := range a.windows {
-		if w.tabs.Replace(old, next) {
-			if i := slices.Index(w.inView[:], old); i >= 0 {
-				w.inView[i] = next
+		if g := w.panes.GroupOf(old); g != nil && g.Tabs.Replace(old, next) {
+			if g.InView == old {
+				g.InView = next
 			}
 			old.Close()
 			return
@@ -993,17 +992,17 @@ func (a *App) ReplaceTab(old, next widgets.Tab) {
 	}
 }
 
-// KeysTo reports whether a tab takes the shortcuts pressed: the active
-// one, which is the focused pane's when two tabs show side by side.
+// KeysTo reports whether a tab takes the shortcuts pressed: the one in
+// front of the focused group.
 func (a *App) KeysTo(t widgets.Tab) bool { return t != nil && t == a.ActiveTab() }
 
 func (a *App) ActiveTab() widgets.Tab { return a.window.ActiveTab() }
 
 func (a *App) closeTab(i int) {
-	if i < 0 || i >= a.tabs.Len() {
+	if i < 0 || i >= a.tabs().Len() {
 		return
 	}
-	a.closeTabOf(a.tabs.At(i))
+	a.closeTabOf(a.tabs().At(i))
 }
 
 // closeTabOf closes a tab of any window, once the user agrees to what
@@ -1016,7 +1015,7 @@ func (a *App) closeActive() {
 	t := a.ActiveTab()
 	switch {
 	case t == nil:
-	case a.tabs.Pinned(t):
+	case a.tabs().Pinned(t):
 		a.toast = &pendingToast{text: t.Title() + " is pinned: close it from its menu, or unpin it first"}
 	default:
 		a.closeTabOf(t)
@@ -1026,11 +1025,11 @@ func (a *App) closeActive() {
 // endTab closes a tab once the user agrees to what closing it loses, at
 // once when it loses nothing, then runs then with the window and the
 // place it had.
-func (a *App) endTab(t widgets.Tab, title string, then func(w *window, at int)) {
+func (a *App) endTab(t widgets.Tab, title string, then func(w *window, g *panes.Group, at int)) {
 	end := func() {
-		if w, i, ok := a.removeTab(t); ok {
+		if w, g, i, ok := a.removeTab(t); ok {
 			t.Close()
-			then(w, i)
+			then(w, g, i)
 		}
 	}
 	reason := t.CloseReason()
@@ -1228,7 +1227,8 @@ func trustKeyOf(projectDir, id string) string { return projectDir + "\x00" + id 
 // trustSnapshot is a connection as the user agrees to it, without a
 // secret.
 func trustSnapshot(cfg *db.Config) settings.TrustedDetail {
-	return settings.TrustedDetail{Rows: detailRows(secretDetails(cfg)), Env: cfg.Env, ReadOnly: cfg.ReadOnly, ManualCommit: cfg.ManualCommit()}
+	return settings.TrustedDetail{Rows: detailRows(secretDetails(cfg)), Env: cfg.Env, ReadOnly: cfg.ReadOnly, ManualCommit: cfg.ManualCommit(),
+		NoRowsToChat: cfg.NoRowsToChat}
 }
 
 // detailRows are details as a snapshot keeps them, "Label: value".
@@ -1265,11 +1265,13 @@ func (a *App) trustCheck(cn *connection.Conn) (ask bool, details []widgets.Confi
 
 // protectionDropped reports whether a connection is treated with less
 // care than when the user agreed to it: a less careful environment,
-// read-only no more, or auto-commit where commits were manual. More care
-// asks nothing.
+// read-only no more, auto-commit where commits were manual, or its rows
+// sent to the AI chat where they were kept from it. More care asks
+// nothing.
 func protectionDropped(was settings.TrustedDetail, cfg *db.Config) bool {
 	rank := func(e db.Environment) int { return slices.Index(db.Environments(), db.NormalizeEnvironment(e)) }
-	return rank(cfg.Env) < rank(was.Env) || was.ReadOnly && !cfg.ReadOnly || was.ManualCommit && !cfg.ManualCommit()
+	return rank(cfg.Env) < rank(was.Env) || was.ReadOnly && !cfg.ReadOnly || was.ManualCommit && !cfg.ManualCommit() ||
+		was.NoRowsToChat && !cfg.NoRowsToChat
 }
 
 // askTrust asks whether a shared connection may connect as cfg says,
@@ -1377,6 +1379,11 @@ func protectionDetails(cfg *db.Config, was *settings.TrustedDetail) []widgets.Co
 		{Label: "Environment", Value: cfg.Env.Label(), Changed: was != nil && db.NormalizeEnvironment(was.Env) != db.NormalizeEnvironment(cfg.Env)},
 		{Label: "Read-only", Value: readOnly, Changed: was != nil && was.ReadOnly != cfg.ReadOnly},
 	}
+	chatRows := "yes: reads the AI chat runs send rows to its agent"
+	if cfg.NoRowsToChat {
+		chatRows = "no: the AI chat's agent sees the schema, no data"
+	}
+	out = append(out, widgets.ConfirmDetail{Label: "Rows to the AI chat", Value: chatRows, Changed: was != nil && was.NoRowsToChat != cfg.NoRowsToChat})
 	if cfg.Engine.Transactions() {
 		commit := "automatic: each statement commits"
 		if cfg.ManualCommit() {

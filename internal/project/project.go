@@ -425,7 +425,86 @@ var (
 	connHeader = regexp.MustCompile(`^\s*--\s*connection:\s*(\S+)`)
 	// connHeaderTyped is a header line up to a caret in its connection.
 	connHeaderTyped = regexp.MustCompile(`^\s*--\s*connection:\s*(\S*)$`)
+	// viewHeader is the header line naming the view the file opens in:
+	// one of the two, so that a comment of the user's starting "view:" is
+	// never taken for it, and rewritten.
+	viewHeader = regexp.MustCompile(`(?i)^\s*--\s*view:\s*(script|notebook)\s*$`)
 )
+
+// NotebookView is the view a header line names for a file to open as a
+// notebook; any other, or none, opens it as a script.
+const NotebookView = "notebook"
+
+// HeaderView returns the view a query file's header line names, as
+// NotebookView, "" when it names none.
+func HeaderView(text string) string {
+	for i, line := range strings.SplitN(text, "\n", headerLines+1) {
+		if i == headerLines {
+			break
+		}
+		if m := viewHeader.FindStringSubmatch(strings.TrimRight(line, "\r")); m != nil {
+			return strings.ToLower(m[1])
+		}
+	}
+	return ""
+}
+
+// SetHeaderView has a query file's header name the notebook view, after
+// the line naming its connection, or at the top without one; or, for the
+// script, takes the line out. The rest of the text keeps.
+func SetHeaderView(text string, notebook bool) string {
+	at, after := 0, -1
+	for i, line := range strings.SplitN(text, "\n", headerLines+1) {
+		if i == headerLines {
+			break
+		}
+		end := min(at+len(line)+1, len(text))
+		if viewHeader.MatchString(strings.TrimRight(line, "\r")) {
+			if notebook {
+				return text[:at] + "-- view: " + NotebookView + text[at+len(strings.TrimRight(line, "\r")):]
+			}
+			if at == 0 && strings.HasPrefix(text[end:], "\n") {
+				end++ // the blank line set the header apart, alone at the top
+			}
+			return text[:at] + text[end:]
+		}
+		if after < 0 && connHeader.MatchString(line) {
+			after = end
+		}
+		at = end
+	}
+	if !notebook {
+		return text
+	}
+	if after < 0 {
+		return "-- view: " + NotebookView + "\n\n" + text
+	}
+	if after == len(text) && !strings.HasSuffix(text, "\n") {
+		return text + "\n-- view: " + NotebookView + "\n"
+	}
+	return text[:after] + "-- view: " + NotebookView + "\n" + text[after:]
+}
+
+// HeaderEnd is where a query file's header ends: past its lines naming
+// the connection and the view, and the blank lines after them; 0 without
+// them.
+func HeaderEnd(text string) int {
+	at, end := 0, 0
+	for i, line := range strings.SplitN(text, "\n", headerLines+1) {
+		if i == headerLines {
+			break
+		}
+		next := min(at+len(line)+1, len(text))
+		if connHeader.MatchString(line) || viewHeader.MatchString(strings.TrimRight(line, "\r")) {
+			end = next
+		}
+		at = next
+	}
+	for end > 0 && end < len(text) && (text[end] == '\n' || text[end] == '\r') {
+		end++
+	}
+	return end
+}
 
 // HeaderConnection returns the connection a query file names in one of
 // its first lines, "" when it names none.

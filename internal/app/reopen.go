@@ -10,6 +10,7 @@ import (
 	"dgopher/internal/ui/dashboard"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/modelview"
+	"dgopher/internal/ui/panes"
 	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/redis"
 	"dgopher/internal/ui/widgets"
@@ -21,19 +22,23 @@ const maxClosedTabs = 20
 // closedTab is a tab the user closed, and how to open it again.
 type closedTab struct {
 	title string
-	at    int // its place in its window
+	// win, group and at are where it was: the window, its group, and its
+	// place there.
+	win   *window
+	group *panes.Group
+	at    int
 	// open opens it again, and says why it cannot, "" when it did.
 	open func() string
 }
 
 // rememberClosed keeps a tab the user closed, to open it again; one that
 // cannot be, as a table's design, is not kept.
-func (a *App) rememberClosed(t widgets.Tab, at int) {
+func (a *App) rememberClosed(t widgets.Tab, w *window, g *panes.Group, at int) {
 	open := a.reopener(t)
 	if open == nil {
 		return
 	}
-	a.closedTabs = append(a.closedTabs, closedTab{title: t.Title(), at: at, open: open})
+	a.closedTabs = append(a.closedTabs, closedTab{title: t.Title(), win: w, group: g, at: at, open: open})
 	if n := len(a.closedTabs); n > maxClosedTabs {
 		a.closedTabs = slices.Delete(a.closedTabs, 0, n-maxClosedTabs)
 	}
@@ -48,15 +53,20 @@ func (a *App) reopenTab() {
 	}
 	c := a.closedTabs[n-1]
 	a.closedTabs = a.closedTabs[:n-1]
-	w, before := a.window, a.tabs.Tabs()
+	// Into its group, while the group is there.
+	if slices.Contains(a.windows, c.win) && c.win.panes.Index(c.group) >= 0 {
+		a.window = c.win
+		c.win.panes.Focus(c.group)
+	}
+	w, before := a.window, a.tabs().Tabs()
 	if why := c.open(); why != "" {
 		a.ShowError("Could not reopen "+c.title, why)
 		return
 	}
 	// One open in another window came forward there, and stays as it is.
-	for _, t := range w.tabs.Tabs() {
+	for _, t := range w.tabs().Tabs() {
 		if !slices.Contains(before, t) {
-			w.tabs.Move(t, c.at)
+			w.tabs().Move(t, c.at)
 		}
 	}
 }
@@ -88,7 +98,7 @@ func (a *App) reopener(t widgets.Tab) func() string {
 		}
 	case *waitingTab:
 		s, _ := savedTabOf(t)
-		return a.withConn(s.Connection, gone, func(cn *connection.Conn) { a.tabs.Add(&waitingTab{a: a, conn: cn, saved: s}) })
+		return a.withConn(s.Connection, gone, func(cn *connection.Conn) { a.tabs().Add(&waitingTab{a: a, conn: cn, saved: s}) })
 	case *dataview.TableTab:
 		id, database, obj, page := t.Conn.Config.ID, t.Database, t.Object, t.Page
 		return a.withConn(id, gone, func(cn *connection.Conn) { a.OpenTable(cn, database, obj, page) })

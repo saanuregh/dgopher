@@ -1,6 +1,6 @@
-// Package tablist keeps a window's tabs: their order, the pinned ones, the
-// one in front and the one beside it. Only its methods change them, so
-// that every change keeps the rules List states.
+// Package tablist keeps a group's tabs: their order, the pinned ones and
+// the one in front. Only its methods change them, so that every change
+// keeps the rules List states.
 package tablist
 
 import (
@@ -10,18 +10,13 @@ import (
 	"dgopher/internal/ui/widgets"
 )
 
-// List is a window's tabs. The pinned ones come first, in the order
-// pinned, and a tab moves within its group; the tab in front stays in
-// front as others move; the tab beside it is never the one in front, and
-// a pin or a place beside goes with its tab.
+// List is a group's tabs. The pinned ones come first, in the order
+// pinned, and a tab moves within its kind, pinned or not; the tab in
+// front stays in front as others move, and a pin goes with its tab.
 type List struct {
 	tabs   []widgets.Tab
 	active int
 	pinned map[widgets.Tab]bool
-	// side is shown beside the tab in front, left of it when sideLeft is
-	// set; nil for none.
-	side     widgets.Tab
-	sideLeft bool
 }
 
 func (l *List) Len() int { return len(l.tabs) }
@@ -63,7 +58,6 @@ func (l *List) Select(t widgets.Tab) bool {
 // SelectAt brings the tab at i in front, i held within the list.
 func (l *List) SelectAt(i int) {
 	l.active = max(0, min(i, len(l.tabs)-1))
-	l.settle()
 }
 
 // Next brings the next tab in front, the first after the last.
@@ -116,15 +110,12 @@ func (l *List) Remove(t widgets.Tab) (int, bool) {
 	if l.active >= len(l.tabs) || l.active > i {
 		l.active--
 	}
-	if l.side == t {
-		l.side = nil
-	}
 	l.SelectAt(l.active)
 	return i, true
 }
 
-// Replace puts next in the place of old, pinned, in front or beside as
-// old was, and reports whether the list held old.
+// Replace puts next in the place of old, pinned and in front as old was,
+// and reports whether the list held old.
 func (l *List) Replace(old, next widgets.Tab) bool {
 	i := l.Index(old)
 	if i < 0 {
@@ -134,9 +125,6 @@ func (l *List) Replace(old, next widgets.Tab) bool {
 	if l.pinned[old] {
 		delete(l.pinned, old)
 		l.pin(next)
-	}
-	if l.side == old {
-		l.side = next
 	}
 	return true
 }
@@ -199,39 +187,4 @@ func (l *List) pin(t widgets.Tab) {
 		l.pinned = map[widgets.Tab]bool{}
 	}
 	l.pinned[t] = true
-}
-
-// Side is the tab shown beside the one in front, nil for none.
-func (l *List) Side() widgets.Tab { return l.side }
-
-// SideLeft reports whether the tab beside shows left of the one in front.
-func (l *List) SideLeft() bool { return l.sideLeft }
-
-// SetSide shows a tab of the list beside the one in front, left of it when
-// left is set: not the one in front, which leaves the split as it is. Nil
-// ends the split.
-func (l *List) SetSide(t widgets.Tab, left bool) {
-	switch {
-	case t == nil:
-		l.side = nil
-	case t != l.Active() && l.Contains(t):
-		l.side, l.sideLeft = t, left
-	}
-}
-
-// BringSide brings the tab beside in front, each staying where it is: the
-// one in front before goes beside it.
-func (l *List) BringSide() {
-	i := l.Index(l.side)
-	if i < 0 {
-		return
-	}
-	l.side, l.active, l.sideLeft = l.Active(), i, !l.sideLeft
-}
-
-// settle ends the split when the tab beside came in front.
-func (l *List) settle() {
-	if l.side != nil && l.side == l.Active() {
-		l.side = nil
-	}
 }

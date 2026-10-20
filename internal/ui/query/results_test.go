@@ -238,7 +238,7 @@ func TestQueryResultReadOnlyReasons(t *testing.T) {
 // its parameters; Count counts the wrapped rows.
 func TestQueryResultWhereFilter(t *testing.T) {
 	a, tt, q, _ := numbersEditor(t, 5, "SELECT * FROM n WHERE id <= :last")
-	testutil.SetCaret(tt, &q.Editor, 0)
+	testutil.SetCaret(tt, q.Editor, 0)
 	q.Run(RunStatement)
 	a.dialogs.params.fields[0].value = "13"
 	a.dialogs.params.submit()

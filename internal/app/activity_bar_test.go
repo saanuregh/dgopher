@@ -17,7 +17,7 @@ func TestActivityBar(t *testing.T) {
 	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1200, 800)
 	tt.Frame()
-	before, ok := tt.Find("No connection")
+	before, ok := tt.Find("Take the Tour")
 	if !ok {
 		t.Fatalf("texts %q", tt.Texts())
 	}
@@ -36,7 +36,7 @@ func TestActivityBar(t *testing.T) {
 		t.Fatalf("no bar while work goes on: %q", tt.Texts())
 	}
 	testutil.Snapshot(t, tt, "activity-bar")
-	if at, _ := tt.Find("No connection"); at != before {
+	if at, _ := tt.Find("Take the Tour"); at != before {
 		t.Fatalf("the status bar moved: %v, was %v", at, before)
 	}
 	close(release)

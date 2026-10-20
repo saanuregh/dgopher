@@ -116,6 +116,31 @@ func (s *Store) LoadJSON(name string, v any) error {
 	return json.Unmarshal(data, v)
 }
 
+// Path is where the named file of the directory is.
+func (s *Store) Path(name string) (string, error) { return s.path(name) }
+
+// ReadFile reads the named file; ErrNotFound if it does not exist.
+func (s *Store) ReadFile(name string) ([]byte, error) {
+	p, err := s.path(name)
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(p)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, ErrNotFound
+	}
+	return data, err
+}
+
+// WriteFile atomically replaces the named file with data.
+func (s *Store) WriteFile(name string, data []byte) error {
+	p, err := s.path(name)
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(p, data)
+}
+
 // SaveJSON atomically replaces the named file with v encoded as indented JSON.
 func (s *Store) SaveJSON(name string, v any) error {
 	p, err := s.path(name)

@@ -39,6 +39,7 @@ go test ./internal/sqltext -run TestSplit     # one test
 docker compose up -d --wait                  # start the integration servers (compose.yaml)
 DGOPHER_IT=1 go test ./...                   # also against the integration servers
 DGOPHER_SNAPSHOTS=/tmp/snaps go test ./...   # write PNGs of the UI under test
+DGOPHER_LIVE_CHAT=claude go test ./internal/ui/chat -run TestLiveChat   # the AI chat against a real CLI; spends tokens
 ```
 
 Run vet, gofmt and `go test ./...` before calling a change done, and the
@@ -60,5 +61,7 @@ integration tests too when it touches `internal/db`.
   `saanuregh/mygo`; an API missing upstream may exist there. Updating it is
   described in `docs/development.md`.
 - `DGOPHER_CONFIG_DIR` points manual runs away from the real config.
+- `go.mod` replaces agent-cli-connector with a local checkout until it is
+  published; see `docs/development.md`.
 - `build/`, `.mygo/` and `./dgopher` are build outputs; leave them out of
   searches.

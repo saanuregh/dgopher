@@ -58,6 +58,9 @@ type FakeHost struct {
 	queue []func()
 }
 
+// Connections are the connections added.
+func (h *FakeHost) Connections() []*connection.Conn { return h.Conns }
+
 // PendingRequest is a question about changes not applied yet, with what
 // each answer does.
 type PendingRequest struct {

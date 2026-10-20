@@ -60,10 +60,17 @@ type Settings struct {
 	// TourDone is set once the user took the guided tour, or ended it,
 	// which the start page then stops offering.
 	TourDone bool `json:"tourDone,omitempty"`
-	// Keys are the keys of the commands the user changed, by command, as
-	// "Cmd+Shift+F" (internal/keymap); none for a command they took every
-	// key from.
+	// Keys are the keys an older DGopher kept here, by command, as
+	// "Cmd+Shift+F": the first run moves them to keymap.json
+	// (internal/keymap), and they go from here.
 	Keys map[string][]string `json:"keys,omitempty"`
+	// ChatProvider is the agent a new AI chat talks to, as named in
+	// internal/ui/chat: "claude", "codex" or "pi".
+	ChatProvider string `json:"chatProvider,omitempty"`
+	// ChatModels and ChatEfforts are the model and reasoning effort an
+	// AI chat uses, by agent; none for the agent's default.
+	ChatModels  map[string]string `json:"chatModels,omitempty"`
+	ChatEfforts map[string]string `json:"chatEfforts,omitempty"`
 	// TrustedShared holds the connections the user agreed to connect
 	// to, by where they go and how they get the password
 	// (sharedFingerprint). It is kept here, not in a project, for a
@@ -95,6 +102,7 @@ type TrustedDetail struct {
 	Env          db.Environment `json:"environment"`
 	ReadOnly     bool           `json:"readOnly,omitempty"`
 	ManualCommit bool           `json:"manualCommit,omitempty"`
+	NoRowsToChat bool           `json:"noRowsToChat,omitempty"`
 }
 
 // Default returns the settings of a first run.

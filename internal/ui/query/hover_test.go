@@ -190,7 +190,7 @@ func TestShowHoverKey(t *testing.T) {
 	_, tt, _, q := hoverEditor(t, text)
 	q.GoTo(len(text) - 2)
 	tt.Frame()
-	ch := keymap.Chords(keymap.ShowHover)[0]
+	ch := keymap.Bindings(keymap.ShowHover)[0].Keys.First
 	tt.Key(ch.Mods, ch.Key)
 	tt.Frame()
 	tt.Frame()
@@ -280,7 +280,7 @@ func TestHoverEditorOff(t *testing.T) {
 	}
 	q.GoTo(len(text) - 2)
 	tt.Frame()
-	ch := keymap.Chords(keymap.ShowHover)[0]
+	ch := keymap.Bindings(keymap.ShowHover)[0].Keys.First
 	tt.Key(ch.Mods, ch.Key)
 	tt.Frame()
 	tt.Frame()

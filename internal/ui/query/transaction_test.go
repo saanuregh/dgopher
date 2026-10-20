@@ -294,7 +294,7 @@ func TestEndsTransactionAsksInEditor(t *testing.T) {
 	if q.Tx != db.TxOpen {
 		t.Fatalf("tx %v; messages %+v", q.Tx, q.messages)
 	}
-	testutil.SetCaret(tt, &q.Editor, strings.Index(q.Editor.Text(), "CREATE"))
+	testutil.SetCaret(tt, q.Editor, strings.Index(q.Editor.Text(), "CREATE"))
 	q.Run(RunStatement)
 	tt.Frame()
 	if a.Confirm == nil || !slices.ContainsFunc(a.Confirm.Reasons, func(r string) bool { return strings.Contains(r, "commits the open transaction") }) {
@@ -494,7 +494,7 @@ func TestInsideTxBegunMidRunStopsRun(t *testing.T) {
 		// The first SELECT holds the one connection long enough for the
 		// other session's BEGIN to wait for it, and run before the second.
 		q.Editor.SetText("SELECT sum(x) FROM range(1000000000) r(x);\n\nSELECT 1;\n\n" + c.end + ";")
-		testutil.SetCaret(tt, &q.Editor, 0)
+		testutil.SetCaret(tt, q.Editor, 0)
 		q.Run(RunScript)
 		for _, s := range []string{"BEGIN", "INSERT INTO t VALUES (1)"} {
 			if _, err := other.Exec(ctx, s); err != nil {
@@ -748,7 +748,7 @@ func TestProductionRunAllAsksImplicitCommit(t *testing.T) {
 	d := mysqlTable(t, cfg, "rv_runall")
 	a, tt, _, q := openEditor(t, cfg, 1200, 760, "INSERT INTO rv_runall VALUES (1, 1);\nINSERT INTO rv_runall VALUES (2, 2);\nCREATE INDEX rv_runall_v ON rv_runall (v);\nINSERT INTO rv_runall VALUES (3, 3);")
 	t.Cleanup(func() { q.sess.Close() })
-	testutil.SetCaret(tt, &q.Editor, 0)
+	testutil.SetCaret(tt, q.Editor, 0)
 	q.Run(RunScript)
 	testutil.WaitFor(t, tt, "the first question", func() bool { return a.Confirm != nil && strings.Contains(a.Confirm.Preview, "(1, 1)") })
 	r := a.Confirm

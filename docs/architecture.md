@@ -26,7 +26,7 @@ state on its own.
   The frame also checks idle transactions and idle connections.
 - State lives in structs: `App` (`internal/app/app.go`) holds the windows,
   connections, projects, dialogs and job list; each `window` holds its
-  tabs; each tab owns its own state.
+  groups of tabs; each tab owns its own state.
 
 ### Main thread and background work
 
@@ -61,12 +61,35 @@ Every tab implements `widgets.Tab` (`internal/ui/widgets/tab.go`):
 into view), `Marked`, `Worker` (busy) and `Commander` (its palette
 commands).
 
-### The tab list
+### Groups and the tab list
 
-`tablist.List` (`internal/ui/tablist`) keeps a window's tabs and their
-order, pins, the tab in front and the tab beside it. It is changed only
-through its methods, which keep its rules: pinned tabs come first, and the
-tab beside is never the tab in front.
+A window's work area is a tree of splits, `panes.Layout`
+(`internal/ui/panes`): an inner node splits two children side by side or
+one above the other, by percent; a leaf is a `panes.Group`, whose
+`tablist.List` (`internal/ui/tablist`) keeps the group's tabs, their order,
+pins and the tab in front. Both change only through their methods: a split
+always has two children, the last group never goes, and pinned tabs come
+first.
+
+One group is focused. `window.tabs()` is its list, so code acting on "the
+tabs" acts on the focused group; code meaning every tab iterates
+`window.allTabs()` or `App.everyTab()`. `App.KeysTo(t)` is true only for the
+focused group's tab in front, which is how a tab knows that keys are its.
+`App.removeTab` reports the group a tab left, and a group left empty is
+taken away after the frame (`dropEmptyGroup`).
+
+### Keys
+
+`internal/keymap` holds every action with keys and its default keys, by a
+Zed-style name such as `editor::Run`, and the user's overrides from
+`keymap.json` (`keymap.Parse`, `keymap.Use`). A place an action works asks
+`keymap.Pressed(c, id)` each frame. Keys of two in a row go through
+`keymap.Dispatch`, called once a frame at the window: it claims each
+sequence's first key, then the keys that can follow, and marks the action
+fired for the frame. An action of the window gives way to the same key of
+a narrower context that asked for its keys in the last frame
+(`shadowed`), as Zed's narrower context wins. `App.watchKeymap` reads the
+file again when it changes on disk.
 
 ### Host interfaces
 
@@ -80,6 +103,7 @@ the window, so it does not import `internal/app`:
 | `internal/ui/redis` | `redis.Host`: its own subset, with confirmations and audit recording |
 | `internal/ui/dashboard` | `dashboard.Host`: finding a project's connections |
 | `internal/ui/modelview` | `modelview.Host`: `dataview.Host`, plus finding connections |
+| `internal/ui/chat` | `chat.Host`: `dataview.Host`, plus the connections; `chat.Editor`: the editor a chat is about |
 
 `*app.App` implements all of them. Tests use `dataview.FakeHost` instead;
 see [Testing](testing.md).
@@ -121,6 +145,65 @@ as [traffic](audit-log.md#traffic).
 Other places that run SQL (the schema switcher, Run SQL File, grid edits,
 schema changes) use the same `Analyze` and `ReviewSQL` pair. Redis
 commands use `safety.ReviewRedis`.
+
+### The notebook view
+
+A SQL editor tab (`query.Tab`) shows as a script or as a notebook
+(`internal/ui/query/notebook.go`). `Tab.Editor` is the editor the keys go
+to: the script's, or the focused cell's, so completion, cards, find,
+format and the run keys work in a cell unchanged. `Tab.script` holds the
+file's text in both views; the notebook joins its cells into it
+(`syncNotebook`) and reads them again when it changes otherwise, as on
+disk.
+
+Every cell runs on the tab's one session through the same `Run`. A run
+first binds the cell (`bindCell`): its results become `Tab.results`, which
+the run replaces and appends to, and the cell bound before keeps its own.
+Checks that mean every result, such as pending changes, busy results or
+open cursors, read `allResults`; a run cuts short the cursors other cells
+still read, as the session runs one statement at a time. Run All advances
+from the run's end (`cellRunEnded`), never from the view.
+
+### AI chat
+
+`chat.Chat` (`internal/ui/chat`) is a SQL editor's chat: `query.Tab`
+holds one, drawn beside the editor, and is its `chat.Editor`, which gives
+the editor's connection, what it shows (`EditorContext`) and `InsertSQL`.
+`lockDown` starts the agent with DGopher's tools alone: Claude Code
+without built-in tools (`--tools ""`), settings sources or MCP servers from
+settings; pi without built-in tools, extensions, skills, prompt templates,
+MCP or project trust; both in the `dontAsk` permission mode, which refuses
+any other call without asking. Codex has no switch for its tools: its
+features that give tools are disabled (`codexFeaturesOff`, less those the
+installed Codex lacks, read once from `codex features list`, as it refuses
+to start on a name it does not know), web search and
+the config's MCP servers too (`codexConfig`), and it runs in the
+`readOnly` mode, its read-only sandbox. Code mode stays, as its models
+reach DGopher's tools through it, and with it `apply_patch`, which asks
+first. Whatever an agent asks the user to allow, the chat refuses unasked
+(`apply`): that refusal is what keeps Codex's patches out. `chart_in_editor` asks `chat.Editor.ChartSQL` to put a read in the
+editor and run it through `query.Tab.Run`; the run's end (`runEnded`)
+shows its first result's rows in the Chart view with the agent's
+`dataview.ChartSettings` (`Viewer.ShowChart`) and tells the tool of the
+rows. The run records `audit.TypedRun.Purpose`, which makes it the app's.
+Each message begins with an `<editor>` block made from `EditorContext`,
+which the view strips back off, showing its summary. The chat talks to an
+agent's command line through
+[agent-cli-connector](https://github.com/saanuregh/agent-cli-connector).
+The session's events are read on a goroutine and posted, in order, to the
+main thread, where `agent.Transcript` folds them into items to draw.
+Requests that need the user, the agent's permissions and questions and the
+app's tools' reads, wait in `Chat.requests` until answered. The models come
+from the provider's `ListModels`, read once per agent as the model menu
+opens or a session starts; the model and effort chosen go into the
+session's `Config`, or to `SetModel` and `SetEffort` once it runs.
+
+The app's tools (`tools.go`) run on the connector's goroutines: they read
+app state through `onMain`, which posts and waits; catalog reads go to the
+pool directly. `run_read_query` refuses what the safety policy does not
+read as a read needing no confirmation, and production; then waits for the
+user's answer on a channel, runs on a session of its own as a job of the
+connection, and records the run in the audit log.
 
 ## Connections and sessions
 

@@ -1,33 +1,41 @@
 # Keyboard shortcuts
 
 These are the default keys. Keys are written as on macOS; on Linux and
-Windows, ⌘ is Ctrl and ⌥ is Alt.
+Windows, ⌘ is Ctrl and ⌥ is Alt. Two keys in a row, as ⌘K →, are pressed
+one after the other: the title bar shows the first while it waits for the
+second, and Esc forgets it.
 
 - F1 lists every shortcut as currently set, and finds one by its key or
   what it does.
 - **Customize Keyboard Shortcuts…** (in Settings, the Help menu or the
-  palette) changes any of them. See
-  [Keyboard shortcuts](features.md#keyboard-shortcuts) in Features.
+  palette) changes any of them, and records two keys in a row.
+- **Open keymap.json** (⌘K ⌘S) opens the file the keys you set are kept
+  in, as Zed keeps them: see [Your keymap file](#your-keymap-file).
 
 The defaults are defined in
-[`internal/keymap/commands.go`](../internal/keymap/commands.go).
+[`internal/keymap/commands.go`](../internal/keymap/commands.go), each
+action by the name keymap.json gives it, as `editor::Run`.
 
 ## Everywhere
 
 | Key | Does |
 | --- | --- |
-| ⌘K | Command palette: every command, connection, table and snippet |
+| ⇧⌘P | Command palette: every command, connection, table and snippet |
 | ⌘P | Open a table or a query file by name |
 | ⌘T | New SQL editor on the current connection |
+| ⌘K ⌘T | New SQL notebook on the current connection |
+| ⌘K ⌘I | The editor's AI chat: show it, or hide it |
 | ⌘N | New connection |
 | ⌘O | Open a SQL script |
 | ⌘W | Close the tab |
 | ⇧⌘T | Reopen the tab closed last |
-| ⌘1…⌘9 | Go to tab 1 to 9; ⌘9 is the last tab. While a results grid has focus, ⌘2 sorts instead. |
-| Ctrl+Tab, Ctrl+⇧Tab | Next and previous tab |
+| ⌘1…⌘8 | Go to tab 1 to 8 of the group |
+| ⌘9 | Go to the last tab of the group |
+| Ctrl+Tab, Ctrl+⇧Tab | Next and previous tab of the group |
 | ⌘Y | Query history |
 | ⌘⇧A | Audit log |
 | ⌘, | Settings |
+| ⌘K ⌘S | Open keymap.json |
 | ⌘B | Show or hide the sidebar |
 | F11 | Enter or leave full screen |
 | ⌘0 | Focus the navigator |
@@ -41,6 +49,18 @@ In a dialog, ⌘↵ presses the main button from any field, and Esc closes the
 dialog.
 
 Keys marked *fixed* below cannot be changed.
+
+## Editor groups
+
+| Key | Does |
+| --- | --- |
+| ⌘K →, ⌘\ | Split right: the tab in a new group beside |
+| ⌘K ←, ⌘K ↑, ⌘K ↓ | Split left, up or down |
+| ⌘K ⇧→, ⌘K ⇧←, ⌘K ⇧↑, ⌘K ⇧↓ | Move the tab to the group on that side, made when there is none |
+| ⌘K ⌘→, ⌘K ⌘←, ⌘K ⌘↑, ⌘K ⌘↓ | Focus the group on that side |
+| ⌘K ⌘1…⌘K ⌘9 | Focus group 1 to 9 |
+| ⌘K ⌘W | Close the group: its tabs move to the group beside |
+| (none) | Focus the next group; join every group into one |
 
 ## Navigator
 
@@ -61,8 +81,8 @@ Keys marked *fixed* below cannot be changed.
 | Key | Does |
 | --- | --- |
 | ⌘↵, F5 | Run the statement at the caret, or the selection |
-| ⌘⇧↵, ⌥X | Run the whole script |
-| ⌘\ | Run into a new result tab, keeping the results shown |
+| ⌘⇧↵, ⌥X | Run the whole script; in a notebook, the whole cell |
+| ⌘⌥\ | Run into a new result tab, keeping the results shown |
 | ⌘E | Explain the statement |
 | ⌘⇧E | Explain Analyze: run the statement and measure it |
 | ⌘⌥⇧↵ | Commit the open transaction |
@@ -93,6 +113,30 @@ Keys marked *fixed* below cannot be changed.
 | Esc (fixed) | Cancel the running statement |
 | ⌘S | Save now (editors also save as you type) |
 | ⌘⇧S | Save as a file |
+| ⌘K ⌘N | Show the editor as a notebook of cells, or as one script |
+
+## Notebook
+
+A notebook's cells are editors: the SQL editor's keys work in them too.
+
+| Key | Does |
+| --- | --- |
+| ⇧↵ | Run the cell and go to the next, made when there is none |
+| ⌘⌥↵ | Run the cell, staying in it |
+| ⌘K ⌘↵ | Run every cell, from the first |
+| ⌘K ⌘A, ⌘K ⌘B | Add a SQL cell above or below |
+| ⌘K ⌘D | Delete the cell |
+| ⌥⇧↑, ⌥⇧↓ | Move the cell up or down |
+| ⌘K ⌘Y, ⌘K ⌘M | Change the cell to SQL or to Markdown |
+| ⌥PageUp, ⌥PageDown | Go to the cell above or below |
+| (none) | Run the cells above, or this one and those below; clear every cell's results |
+
+## AI chat
+
+| Key | Does |
+| --- | --- |
+| ↵ (fixed) | Send the message; ⇧↵ starts a new line |
+| ⌘. | Stop the reply |
 
 ## Results grid
 
@@ -110,7 +154,7 @@ Keys marked *fixed* below cannot be changed.
 | ⌘` | Next view: grid, record, text |
 | F7 | Show or hide the panels |
 | ⌘F11 | The column's distinct values, to filter by |
-| ⌘2 | Order by the chosen column: ascending, descending, none |
+| ⌘⌥S | Order by the chosen column: ascending, descending, none |
 | ⌘G | Go to a row by number |
 | ⌘⇧G | Go to a column by name |
 | ⌘↑, ⌘↓ | First and last row |
@@ -143,3 +187,44 @@ Keys marked *fixed* below cannot be changed.
 | Dashboard | F5 | Run the panels again |
 | ER diagram | ↵ | Open the chosen table's data |
 | ER diagram | Arrows | Move the chosen table |
+
+## Your keymap file
+
+The keys you set are kept in `keymap.json` in the
+[config directory](storage.md), over the defaults, as
+[Zed's](https://zed.dev/docs/key-bindings) are: a list of blocks, each the
+keys of a context. The app reads it again as soon as it changes on disk,
+and says what of it does not read.
+
+```json
+// // and /* */ comments and trailing commas are allowed.
+[
+  {
+    // Workspace is anywhere; Navigator, Editor, Notebook, Grid, Chat and
+    // Dialog are where their keys work.
+    "context": "Editor",
+    "bindings": {
+      "cmd-k cmd-f": "editor::Format",   // two keys in a row
+      "f5": null,                        // the key does nothing there
+      "alt-1": ["workspace::ActivatePane", 1]
+    }
+  }
+]
+```
+
+- **Keys** are written as `cmd-shift-f`: `cmd` is ⌘ on macOS and Ctrl
+  elsewhere, so that a file works on both; `ctrl`, `alt`, `shift` and
+  `super` are those keys everywhere. Two keys in a row are apart by a
+  space. A key that types, as a letter, needs ⌘, Ctrl or Alt, also as the
+  second of two.
+- **Actions** are named `namespace::Name`; the keys editor in Settings
+  shows each one's name. One that takes a number is written
+  `["pane::ActivateItem", 3]`. `null` takes a key from whatever the
+  defaults gave it, in that context.
+- **Contexts.** A key of a narrower context wins over the same key of
+  Workspace while that context has the focus. An action of Workspace may
+  be bound in a narrower context, where it then works only.
+- The first of two keys cannot also be a key on its own where both work.
+- The keys editor writes the same file, without its comments.
+- Keys an older DGopher kept in `settings.json` move to `keymap.json` the
+  first time this version runs.

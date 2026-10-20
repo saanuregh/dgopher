@@ -10,6 +10,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
 	"dgopher/internal/ui/dataview"
+	"dgopher/internal/ui/panes"
 	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/widgets"
 
@@ -72,11 +73,14 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 		paletteItem{title: "Toggle Sidebar", key: keymap.ToggleSidebar, group: "Command", icon: widgets.IconColumns, run: func() { a.layout.SidebarHidden = !a.layout.SidebarHidden }},
 		paletteItem{title: "Keyboard Shortcuts", key: keymap.ShortcutsList, group: "Command", icon: widgets.IconCode, run: func() { a.shortcutsOpen = true }},
 		paletteItem{title: "New Project…", group: "Command", icon: widgets.IconFolder, run: func() { a.openNewProject(nil) }},
+		paletteItem{title: "AI Chat", detail: "Claude Code, Codex or pi, beside the editor", key: keymap.ToggleChat, group: "Command", icon: widgets.IconSparkles, run: a.toggleChat},
 		paletteItem{title: "Add Existing Folder…", detail: "list a project folder", key: keymap.AddFolder, group: "Command", icon: widgets.IconFolder, run: a.addExistingProject},
 	)
 	if active != nil {
 		cmds = append(cmds, paletteItem{title: "New SQL Editor", detail: active.Config.Name, key: keymap.NewEditor, group: "Command", icon: widgets.IconCode, run: func() { a.NewQueryTab(active, "", "") }})
 		if active.Config.Engine.IsSQL() {
+			cmds = append(cmds, paletteItem{title: "New SQL Notebook", detail: active.Config.Name + ", cells with their own results", key: keymap.NewNotebook, group: "Command", icon: widgets.IconNotebook,
+				run: func() { a.newNotebook(active) }})
 			cmds = append(cmds, paletteItem{title: "Open SQL Script…", detail: active.Config.Name, key: keymap.OpenScript, group: "Command", icon: widgets.IconFile,
 				run: func() { a.openSQLFile(active) }})
 			cmds = append(cmds, paletteItem{title: "Run SQL File…", detail: active.Config.Name + ", without opening it", group: "Command", icon: widgets.IconFile,
@@ -102,32 +106,51 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 		}
 	}
 	if tab := a.ActiveTab(); tab != nil {
-		w := a.window
-		for _, bulk := range bulkCloses(tab, a.tabs.ActiveIndex()) {
-			if w.anyUnpinned(bulk.which) {
+		g := a.window.panes.Focused()
+		for _, bulk := range bulkCloses(tab, a.tabs().ActiveIndex()) {
+			if anyUnpinned(g, bulk.which) {
 				cmds = append(cmds, paletteItem{title: bulk.command, group: "Command", icon: widgets.IconX,
-					run: func() { a.closeTabs(w, bulk.which) }})
+					run: func() { a.closeTabs(g, bulk.which) }})
 			}
+		}
+		w := a.window
+		for _, s := range []struct {
+			title, id string
+			d         panes.Direction
+		}{{"Split Right", keymap.SplitRight, panes.Right}, {"Split Down", keymap.SplitDown, panes.Down}, {"Split Left", keymap.SplitLeft, panes.Left}, {"Split Up", keymap.SplitUp, panes.Up}} {
+			cmds = append(cmds, paletteItem{title: s.title, detail: "the tab in a new group", key: s.id, group: "Command", icon: widgets.IconColumns,
+				run: func() { a.splitTab(w, g, s.d) }})
+		}
+		if w.panes.Len() > 1 {
+			cmds = append(cmds,
+				paletteItem{title: "Close Group", detail: "its tabs move to the group beside", key: keymap.ClosePane, group: "Command", icon: widgets.IconX, run: func() { a.closeGroup(w, g) }},
+				paletteItem{title: "Join All Groups", detail: "every tab in this group", key: keymap.JoinPanes, group: "Command", icon: widgets.IconColumns, run: func() { a.joinGroups(w) }},
+				paletteItem{title: "Focus Next Group", key: keymap.NextPane, group: "Command", icon: widgets.IconColumns, run: func() { a.focusGroup(w, w.panes.Next(g)) }})
 		}
 	}
 	if tab := a.ActiveTab(); tab != nil {
-		w, pinned := a.window, a.tabs.Pinned(tab)
+		w, pinned := a.window, a.tabs().Pinned(tab)
 		title := "Pin Tab"
 		if pinned {
 			title = "Unpin Tab"
 		}
-		cmds = append(cmds, paletteItem{title: title, group: "Command", icon: widgets.IconPin, run: func() { w.tabs.SetPinned(tab, !pinned) }})
+		cmds = append(cmds, paletteItem{title: title, group: "Command", icon: widgets.IconPin, run: func() { w.tabs().SetPinned(tab, !pinned) }})
 	}
 	if len(a.closedTabs) > 0 {
 		cmds = append(cmds, paletteItem{title: "Reopen Closed Tab", key: keymap.ReopenTab, group: "Command", icon: widgets.IconUndo, run: a.reopenTab})
 	}
-	if tab := a.ActiveTab(); tab != nil && (a.window == a.main || a.tabs.Len() > 1) {
+	if tab := a.ActiveTab(); tab != nil && (a.window == a.main || a.window.tabCount() > 1) {
 		cmds = append(cmds, paletteItem{title: "Move Tab to New Window", group: "Command", icon: widgets.IconLayers, run: func() { a.Post(func() { a.moveToWindow(tab, nil) }) }})
 	}
 	if q, ok := a.ActiveTab().(*query.Tab); ok {
 		cmds = append(cmds, paletteItem{title: "Duplicate Editor", group: "Command", icon: widgets.IconFile, run: func() { a.Post(func() { a.duplicateQuery(q) }) }})
+		title, detail := "Show as Notebook", "cells, each with its own results"
+		if q.Notebook() {
+			title, detail = "Show as Script", "one editor of the whole file"
+		}
+		cmds = append(cmds, paletteItem{title: title, detail: detail, key: keymap.ToggleNotebook, group: "Command", icon: widgets.IconNotebook, run: q.ToggleNotebook})
 	}
-	if a.tabs.Len() > 0 {
+	if a.tabs().Len() > 0 {
 		cmds = append(cmds, paletteItem{title: "Close Tab", key: keymap.CloseTab, group: "Command", icon: widgets.IconX, run: a.closeActive})
 	}
 	for _, cn := range a.conns {
@@ -170,7 +193,8 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 	}
 	cmds = append(cmds, paletteItem{title: "Take the Tour", detail: "a minute on how DGopher works", group: "Command", icon: widgets.IconWand, run: a.startTour})
 	cmds = append(cmds, paletteItem{title: "Customize Keyboard Shortcuts…", detail: "change the keys of the commands", group: "Command", icon: widgets.IconSettings,
-		run: func() { a.keys = &keysEditor{open: true} }})
+		run: func() { a.keys = &keysEditor{open: true} }},
+		paletteItem{title: "Open keymap.json", detail: "the keys you set, as Zed keeps them", key: keymap.OpenKeymap, group: "Command", icon: widgets.IconFile, run: a.openKeymap})
 	for _, p := range a.projects {
 		// Each item keeps its own path: the closures outlive the loop.
 		names, paths := a.dashboardNames(p)

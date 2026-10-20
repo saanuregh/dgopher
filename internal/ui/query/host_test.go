@@ -30,6 +30,7 @@ type fakeQueryHost struct {
 	// afterRun, when set, runs after each statement recorded, on the
 	// goroutine that ran it.
 	afterRun func(kind string)
+	chatDir  string
 }
 
 func (h *fakeQueryHost) RecordRun(cfg db.Config, kind, database, stmt string, rows int64, d time.Duration, err error) {
@@ -47,7 +48,7 @@ func (h *fakeQueryHost) RecordTyped(cfg db.Config, t audit.TypedRun) {
 }
 
 func newFakeQueryHost(t *testing.T) *fakeQueryHost {
-	return &fakeQueryHost{FakeHost: dataview.NewFakeHost(t)}
+	return &fakeQueryHost{FakeHost: dataview.NewFakeHost(t), chatDir: t.TempDir()}
 }
 
 func (h *fakeQueryHost) QueryDialogs() *Dialogs { return &h.dialogs }
@@ -55,6 +56,8 @@ func (h *fakeQueryHost) QueryDialogs() *Dialogs { return &h.dialogs }
 func (h *fakeQueryHost) AskSnippet(*Tab) {}
 
 func (h *fakeQueryHost) Online() bool { return true }
+
+func (h *fakeQueryHost) ChatDir() string { return h.chatDir }
 
 func (h *fakeQueryHost) Disconnect(cn *connection.Conn) { h.disconnects++ }
 

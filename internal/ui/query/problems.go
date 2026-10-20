@@ -409,7 +409,7 @@ func (q *Tab) checkProblems() {
 
 // fixProblem mends the problem at the caret with its fix.
 func (q *Tab) fixProblem() {
-	e := &q.Editor
+	e := q.Editor
 	if p, ok := e.ProblemAt(e.Caret()); ok && p.Fix != "" {
 		e.Replace(p.Start, p.End, p.Fix)
 	}
@@ -417,7 +417,7 @@ func (q *Tab) fixProblem() {
 
 // problemBar says what is wrong where the caret is, and offers its fix.
 func (q *Tab) problemBar(c *ui.Context) {
-	e := &q.Editor
+	e := q.Editor
 	p, ok := e.ProblemAt(e.Caret())
 	if !ok || !e.HasFocus() {
 		return

@@ -48,6 +48,11 @@ type Editor struct {
 	// its ▶ marked while HasShown.
 	ShownLine int
 	HasShown  bool
+	// Landed are the first and last lines, from 0, of text that just
+	// came, as the AI chat's SQL, tinted behind as strong as
+	// LandedStrength, from 0, none, to 1.
+	Landed         [2]int
+	LandedStrength float32
 	// Problems are the mistakes of the text as it is when View is called,
 	// marked with a wavy line.
 	Problems []Problem
@@ -70,7 +75,7 @@ type Editor struct {
 		split   sqltext.SplitOptions
 	}
 	keys     []code.Binding
-	band     [1]code.LineBackground
+	band     [2]code.LineBackground
 	noLines  []int
 	fontSize float32
 	// shown are the problems given the editor, at version shownOf.
@@ -246,10 +251,17 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 	// still shows one.
 	st.HoverDelay = widgets.HoverCards.Delay
 	st.NoPointerHover = !widgets.HoverCards.Shows(widgets.CardEditor)
-	st.LineBackgrounds = nil
+	st.LineBackgrounds = e.band[:0]
 	if e.HasCurrent {
-		e.band[0] = code.LineBackground{First: e.CurrentLines[0], Last: e.CurrentLines[1], Color: pal.CurrentStatement}
-		st.LineBackgrounds = e.band[:]
+		st.LineBackgrounds = append(st.LineBackgrounds, code.LineBackground{First: e.CurrentLines[0], Last: e.CurrentLines[1], Color: pal.CurrentStatement})
+	}
+	if e.LandedStrength > 0 {
+		tint := widgets.LandedTint
+		tint.A = uint8(float32(tint.A) * min(e.LandedStrength, 1))
+		st.LineBackgrounds = append(st.LineBackgrounds, code.LineBackground{First: e.Landed[0], Last: e.Landed[1], Color: tint})
+	}
+	if len(st.LineBackgrounds) == 0 {
+		st.LineBackgrounds = nil
 	}
 	e.syncRunButtons(fontSize)
 	e.syncProblems(buf)
@@ -267,6 +279,9 @@ func (e *Editor) View(c *ui.Context, fontSize float32) ui.Element {
 	if e.WantFocus {
 		el.Focus()
 		e.WantFocus = !el.Focused()
+	}
+	if el.Focused() {
+		e.runFired()
 	}
 	if commands && el.Focused() {
 		// Vim's Control keys before the app's commands, which on Linux and

@@ -62,7 +62,7 @@ func TestChart(t *testing.T) {
 		{"chart-pie", "SELECT status, sum(total) AS revenue FROM shop.orders GROUP BY 1"},
 	} {
 		q := newEditor(t, a, tt, cn, c.sql)
-		testutil.SetCaret(tt, &q.Editor, 3)
+		testutil.SetCaret(tt, q.Editor, 3)
 		q.Run(RunStatement)
 		testutil.WaitFor(t, tt, "result", func() bool { return !q.Running && len(q.results) == 1 })
 		r := q.results[0]
@@ -257,7 +257,7 @@ func TestExplain(t *testing.T) {
 	} {
 		t.Run(string(cfg.Engine), func(t *testing.T) {
 			_, tt, _, q := openEditor(t, cfg, 1000, 700, "SELECT 1 + 1 AS two;")
-			testutil.SetCaret(tt, &q.Editor, 3)
+			testutil.SetCaret(tt, q.Editor, 3)
 			q.Run(RunExplain)
 			testutil.WaitFor(t, tt, "plan", func() bool { return !q.Running && len(q.results) == 1 })
 			if r := q.results[0]; r.err != "" || len(r.view.Rows()) == 0 {
@@ -277,7 +277,7 @@ func TestFileRunsOnlyOnItsConnection(t *testing.T) {
 	q := newEditor(t, a, tt, cn, "-- connection: beta\n\nSELECT 1 AS one;")
 	tt.Frame()
 	testutil.Snapshot(t, tt, "header-another-connection")
-	testutil.SetCaret(tt, &q.Editor, 25)
+	testutil.SetCaret(tt, q.Editor, 25)
 	q.Run(RunStatement)
 	tt.Frame()
 	if len(q.results) != 0 || len(a.Errors) != 1 || !strings.Contains(a.Errors[0], "names the connection beta") {
@@ -305,7 +305,7 @@ func TestFileRunsOnlyOnItsConnection(t *testing.T) {
 	if tt.HasText("This file names") {
 		t.Fatal("the bar shows for the editor's own connection")
 	}
-	testutil.SetCaret(tt, &q.Editor, 25)
+	testutil.SetCaret(tt, q.Editor, 25)
 	q.Run(RunStatement)
 	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running && len(q.results) == 1 })
 }
@@ -318,7 +318,7 @@ func TestCompleteHeaderConnection(t *testing.T) {
 	a.AddConn(db.Config{ID: "cache", Name: "Cache", Engine: db.Redis, Host: "localhost"})
 	tt := ui.NewTester(a.view, 1000, 700)
 	q := newEditor(t, a, tt, cn, "-- connection: \n\nSELECT 1;")
-	testutil.SetCaret(tt, &q.Editor, 15)
+	testutil.SetCaret(tt, q.Editor, 15)
 	tt.Type("b")
 	tt.Frame()
 	if !offers(q, "billing-prod") || slices.ContainsFunc(q.ac.items, func(s suggestion) bool { return s.label == "cache" }) {
@@ -351,9 +351,7 @@ func TestRunNotifies(t *testing.T) {
 // A command's key changed in the settings opens it in place of its own.
 func TestChangedKey(t *testing.T) {
 	defer keymap.Use(nil)
-	if errs := keymap.Use(map[string][]string{keymap.Find: {"Alt+F"}}); errs != nil {
-		t.Fatal(errs)
-	}
+	keymap.SetBindings(keymap.Find, []keymap.Binding{{Keys: keymap.Of(ui.Alt, ui.KeyF)}})
 	a := newFakeQueryHost(t)
 	cn := a.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1000, 700)

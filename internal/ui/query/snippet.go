@@ -126,7 +126,7 @@ type snippetSession struct {
 // InsertSnippet puts a snippet's SQL in place of the selection, its first
 // field chosen.
 func (q *Tab) InsertSnippet(sql string) {
-	e := &q.Editor
+	e := q.Editor
 	start, end := e.Selection()
 	q.insertSnippetAt(start, end, sql)
 	e.WantFocus = true
@@ -134,7 +134,7 @@ func (q *Tab) InsertSnippet(sql string) {
 
 func (q *Tab) insertSnippetAt(start, end int, sql string) {
 	text, fields := expandSnippet(sql)
-	e := &q.Editor
+	e := q.Editor
 	e.Replace(start, end, text)
 	q.snippet = nil
 	if len(fields) == 0 {
@@ -165,7 +165,7 @@ func (q *Tab) trackSnippet() {
 	if s == nil {
 		return
 	}
-	e := &q.Editor
+	e := q.Editor
 	v := e.State.Buffer.Version()
 	if v == s.version {
 		return

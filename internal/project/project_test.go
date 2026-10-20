@@ -182,3 +182,36 @@ func TestContains(t *testing.T) {
 		}
 	}
 }
+
+// The header names the view a file opens in, after its connection's line,
+// and only the script's view leaves no line.
+func TestHeaderView(t *testing.T) {
+	for _, c := range []struct{ in, notebook string }{
+		{"-- connection: lite\n\nSELECT 1;\n", "-- connection: lite\n-- view: notebook\n\nSELECT 1;\n"},
+		{"SELECT 1;\n", "-- view: notebook\n\nSELECT 1;\n"},
+		{"-- connection: lite\n-- view: script\n\nSELECT 1;\n", "-- connection: lite\n-- view: notebook\n\nSELECT 1;\n"},
+		{"", "-- view: notebook\n\n"},
+	} {
+		got := SetHeaderView(c.in, true)
+		if got != c.notebook || HeaderView(got) != NotebookView {
+			t.Fatalf("%q: %q", c.in, got)
+		}
+		if back := SetHeaderView(got, false); HeaderView(back) != "" || strings.Contains(back, "view:") {
+			t.Fatalf("back from %q: %q", got, back)
+		}
+		if rest := got[HeaderEnd(got):]; strings.Contains(rest, "--") {
+			t.Fatalf("%q: the header ends before %q", got, rest)
+		}
+	}
+	if back := SetHeaderView("-- view: notebook\n\nSELECT 1;\n", false); back != "SELECT 1;\n" {
+		t.Fatalf("back: %q", back)
+	}
+	// A comment of the user's that only starts like it stays as it is.
+	user := "-- connection: lite\n-- view: monthly_revenue\n\nSELECT 1;\n"
+	if got := SetHeaderView(user, true); got != "-- connection: lite\n-- view: notebook\n-- view: monthly_revenue\n\nSELECT 1;\n" || SetHeaderView(got, false) != user {
+		t.Fatalf("the user's comment changed: %q", got)
+	}
+	if HeaderView("SELECT 1;\n-- view: notebook\n") != NotebookView {
+		t.Fatal("a view line among the first lines is the header's")
+	}
+}
