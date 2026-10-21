@@ -216,7 +216,11 @@ type Config struct {
 	KeyFile  string      `json:"keyFile,omitempty"`
 	Env      Environment `json:"environment"`
 	ReadOnly bool        `json:"readOnly,omitempty"`
-	Commit   CommitMode  `json:"commit,omitempty"`
+	// NoRowsToChat keeps the connection's rows from the AI chat's agent:
+	// it reads the schema, and writes SQL, but runs no read for itself,
+	// and of a chart it draws hears the columns and the count alone.
+	NoRowsToChat bool       `json:"noRowsToChat,omitempty"`
+	Commit       CommitMode `json:"commit,omitempty"`
 	// StatementTimeout stops a statement after so many seconds; 0 never.
 	StatementTimeout int `json:"statementTimeout,omitempty"`
 	// IdleTxTimeout rolls back a transaction left idle for so many

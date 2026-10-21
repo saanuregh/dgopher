@@ -159,6 +159,9 @@ type Viewer struct {
 	sortRead  []ui.SortOrder
 	chart     Chart
 	showChart bool
+	// chartAsked is how the chart is to draw the result once its columns
+	// are read (ShowChart), nil for none.
+	chartAsked *ChartSettings
 	// truncated is set when the rows end before the last: a later
 	// statement closed their cursor, or the rows reached db.MaxRows.
 	truncated bool
@@ -732,6 +735,12 @@ func (v *Viewer) TableName() string {
 
 // Rows are the rows read.
 func (v *Viewer) Rows() [][]any { return v.src.Rows }
+
+// ShowChart shows the rows as a chart drawn as settings say, as far as
+// the columns allow.
+func (v *Viewer) ShowChart(settings ChartSettings) {
+	v.showChart, v.chartAsked = true, &settings
+}
 
 // Columns are the columns of the rows.
 func (v *Viewer) Columns() []db.ColumnInfo { return v.src.Cols }
@@ -1388,6 +1397,10 @@ func (v *Viewer) View(c *ui.Context) {
 	// statement that writes are not read again.
 	v.grid.serverSort = (!v.done || v.truncated) && v.source.Reads
 	if v.showChart {
+		if s := v.chartAsked; s != nil && len(v.src.Cols) > 0 {
+			v.chart.Use(*s, &v.src)
+			v.chartAsked = nil
+		}
 		ChartView(c, &v.chart, &v.src)
 		noGrid()
 	} else {

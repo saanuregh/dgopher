@@ -10,14 +10,21 @@ import (
 	"testing"
 	"time"
 
+	agent "github.com/saanuregh/agent-cli-connector"
+	"github.com/saanuregh/agent-cli-connector/agenttest"
+
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/datamodel"
 	"dgopher/internal/db"
+	"dgopher/internal/project"
 	"dgopher/internal/testutil"
+	"dgopher/internal/ui/chat"
 	"dgopher/internal/ui/dashboard"
 	"dgopher/internal/ui/dataview"
+	"dgopher/internal/ui/panes"
 	"dgopher/internal/ui/query"
+	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -65,7 +72,7 @@ func TestScreenshots(t *testing.T) {
 	tt.SetDark(true)
 	tt.SetScale(2)
 	a.openSampleIn(p)
-	testutil.WaitFor(t, tt, "the sample", func() bool { return a.tabs.Len() == 1 })
+	testutil.WaitFor(t, tt, "the sample", func() bool { return a.tabs().Len() == 1 })
 	a.closeTab(0)
 	shop := a.projectConns(p)[0]
 	shop.Config.Name = "shop"
@@ -156,7 +163,7 @@ LIMIT 10;
 	a.nav.expand(navNode{kind: nodeQueries, projectDir: p.Dir})
 	a.nav.expand(navNode{kind: nodeDashboards, projectDir: p.Dir})
 	a.nav.expand(navNode{kind: nodeModels, projectDir: p.Dir})
-	testutil.SetCaret(tt, &q.Editor, len(header)+60)
+	testutil.SetCaret(tt, q.Editor, len(header)+60)
 	q.Run(query.RunStatement)
 	testutil.WaitFor(t, tt, "the result", func() bool { return resultRows(tt, q, -1) })
 	tt.Frame()
@@ -193,7 +200,7 @@ LIMIT 10;
 
 	// The question left unanswered covers the screens below.
 	a.confirm = nil
-	a.closeTab(a.tabs.Len() - 1)
+	a.closeTab(a.tabs().Len() - 1)
 
 	// The changes of a grid edit, as SQL to review before they are applied.
 	a.OpenTable(shop, "", orders, dataview.PageData)
@@ -223,6 +230,81 @@ LIMIT 10;
 	a.openAuditOf(p)
 	testutil.WaitFor(t, tt, "the log", func() bool { return a.history.audit != nil && a.history.audit.read })
 	shot(tt, "audit-log")
+	a.history = nil
+
+	notebookShots(t, a, tt, p, shop, q, shot)
+}
+
+// notebookShots renders a notebook, two groups side by side, and an
+// editor's AI chat.
+func notebookShots(t *testing.T, a *App, tt *ui.Tester, p *project.Project, shop *connection.Conn, q *query.Tab, shot func(*ui.Tester, string)) {
+	// A notebook: Markdown, and cells each with its results.
+	nbText := connection.HeaderLine(shop) + `-- view: notebook
+
+-- %% [markdown]
+-- # Orders this quarter
+--
+-- Where the orders stand, then what they hold.
+
+-- %%
+SELECT status, count(*) AS orders
+FROM orders
+GROUP BY status
+ORDER BY orders DESC;
+
+-- %%
+SELECT p.category, sum(i.quantity) AS units
+FROM order_items i JOIN products p ON p.id = i.product_id
+GROUP BY p.category
+ORDER BY units DESC;
+`
+	if err := os.WriteFile(filepath.Join(p.Queries, "orders-notebook.sql"), []byte(nbText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var nb *query.Tab
+	a.openQueryFile(p, "orders-notebook.sql", func(t *query.Tab) { nb = t })
+	testutil.WaitFor(t, tt, "the notebook", func() bool { return nb != nil && nb.Notebook() })
+	if err := tt.Click("Run All"); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WaitFor(t, tt, "the cells' results", func() bool {
+		return !nb.Running && tt.HasText("[2]") && testutil.HasTextContaining(tt, "Hardware")
+	})
+	shot(tt, "notebook")
+
+	// Two groups: the editor and its result, the dashboard beside.
+	a.closeTabOf(nb)
+	a.window.tabs().Select(q)
+	a.openDashboard(p, dashboard.File(p, "Sales overview"))
+	a.splitTab(a.main, a.main.panes.Focused(), panes.Right)
+	a.main.panes.Groups()[0].Tabs.Select(q)
+	testutil.WaitFor(t, tt, "the groups", func() bool {
+		return a.main.panes.Len() == 2 && tt.HasText("Best sellers") && resultRows(tt, q, -1)
+	})
+	shot(tt, "groups")
+	a.joinGroups(a.main)
+
+	// The editor's AI chat: a question about its statement, the schema
+	// read, and SQL to insert.
+	saved := chat.NewProvider
+	defer func() { chat.NewProvider, widgets.ShadersWithoutGPU = saved, false }()
+	widgets.ShadersWithoutGPU = true
+	chat.NewProvider = func(string) agent.Provider {
+		return agenttest.New(func(turn *agenttest.Turn) error {
+			turn.Reasoning("They want revenue per order by country; the statement already works it out.")
+			turn.ToolCall(agent.ToolHost, "mcp__host__describe_table", `{"table":"orders"}`, `{"columns":["id","customer_id","status","ordered_at"]}`)
+			turn.Text("Your statement already has it as **avg_order**. To rank by it instead of total revenue, order by that column:\n\n" +
+				"```sql\nSELECT c.country,\n       round(sum(i.quantity * i.unit_price)\n             / count(DISTINCT o.id), 2) AS avg_order\nFROM orders o\nJOIN customers c   ON c.id = o.customer_id\nJOIN order_items i ON i.order_id = o.id\nWHERE o.status <> 'cancelled'\nGROUP BY c.country\nORDER BY avg_order DESC;\n```\n\n" +
+				"Countries with few orders can lead this list: add `HAVING count(DISTINCT o.id) >= 5` to keep them out.")
+			return nil
+		})
+	}
+	a.window.tabs().Select(q)
+	q.ToggleChat()
+	tt.Frame()
+	q.Chat().Send("Which countries spend the most per order?")
+	testutil.WaitFor(t, tt, "the reply", func() bool { return testutil.HasTextContaining(tt, "HAVING") && !q.Chat().Busy() })
+	shot(tt, "ai-chat")
 }
 
 // TestScreenshotsServers renders the images that need a server, which the
@@ -263,7 +345,7 @@ GROUP BY c.country
 ORDER BY revenue DESC;
 `)
 		testutil.WaitFor(t, tt, "connect", func() bool { return pg.Status == connection.StatusConnected })
-		testutil.SetCaret(tt, &plan.Editor, 3)
+		testutil.SetCaret(tt, plan.Editor, 3)
 		plan.Run(query.RunExplainAnalyze)
 		testutil.WaitFor(t, tt, "the plan", func() bool { return !plan.Running && testutil.HasTextContaining(tt, "Scan") })
 		tt.Frame()

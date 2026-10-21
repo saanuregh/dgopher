@@ -10,13 +10,9 @@ what does not work today and why, see [Known limitations](limitations.md).
 
 ## Interface
 
-- A notebook interface.
-- Split screen.
 - An editor interface for Redis.
 - Applets: customizable, block-based apps for database operations.
 - Translations. The app is in English only for now.
-- Keymap customization like [Zed's](https://zed.dev/docs/key-bindings): a
-  keymap file of bindings by context, with key sequences such as ⌘K ⌘L.
 
 ## Connections and engines
 

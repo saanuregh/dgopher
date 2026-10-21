@@ -115,7 +115,7 @@ type lexedText struct {
 }
 
 func (q *Tab) lexed() *lexedText {
-	e := &q.Editor
+	e := q.Editor
 	l := &q.lexedText
 	if v := e.State.Buffer.Version(); !l.read || l.version != v || l.dialect != e.Dialect || l.split != e.SplitOptions {
 		text := e.Text()
@@ -147,7 +147,7 @@ func (q *Tab) statementTokens(off int) []sqltext.Token {
 
 // hoverTarget resolves what the text at off names.
 func (q *Tab) hoverTarget(off int) (hoverTarget, bool) {
-	e := &q.Editor
+	e := q.Editor
 	text, d := e.Text(), e.Dialect
 	toks := q.statementTokens(off)
 	i := slices.IndexFunc(toks, func(t sqltext.Token) bool { return t.Start <= off && off < t.End })

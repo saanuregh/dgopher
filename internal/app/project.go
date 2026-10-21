@@ -19,6 +19,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/project"
+	"dgopher/internal/ui/panes"
 	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/widgets"
 
@@ -453,12 +454,12 @@ func (a *App) SwitchConnection(q *query.Tab, id string) {
 	if cn == nil || !cn.Config.Engine.IsSQL() {
 		return
 	}
-	pinned := slices.ContainsFunc(a.windows, func(w *window) bool { return w.tabs.Pinned(q) })
-	a.endTab(q, "Switch "+q.Title()+" to "+cn.Config.Name+"?", func(w *window, at int) {
+	pinned := slices.ContainsFunc(a.windows, func(w *window) bool { return w.pinned(q) })
+	a.endTab(q, "Switch "+q.Title()+" to "+cn.Config.Name+"?", func(w *window, g *panes.Group, at int) {
 		// Closing saved the editor's text, unless the user chose to lose
 		// it to the file on disk: the file is what reopens, or the text
 		// of an editor whose file was never written.
-		text := q.Editor.FileText()
+		text := q.FileText()
 		if q.Path != "" {
 			switch data, err := os.ReadFile(q.Path); {
 			case err == nil:
@@ -470,13 +471,15 @@ func (a *App) SwitchConnection(q *query.Tab, id string) {
 		}
 		nq := query.New(a, cn, "", q.Name, text)
 		nq.Path, nq.Saved = q.Path, text
-		w.tabs.Insert(nq, at, pinned)
+		g.Tabs.Insert(nq, at, pinned)
+		w.panes.Focus(g)
 		a.window = w
 	})
 }
 
 // openFileTab opens an editor on a file whose text was just read or
-// written.
+// written: as a script, or as a notebook where its header names that
+// view (query.New).
 func (a *App) openFileTab(cn *connection.Conn, database, path, text string) *query.Tab {
 	q := query.New(a, cn, database, filepath.Base(path), text)
 	q.Path, q.Saved = path, text
@@ -506,6 +509,18 @@ func (a *App) newQueryFile(cn *connection.Conn, database, text string, then func
 			then(q)
 		}
 	})
+}
+
+// newNotebook opens a new notebook on a connection: a new query file of
+// one empty cell, in the notebook view.
+func (a *App) newNotebook(cn *connection.Conn) {
+	if !cn.Config.Engine.IsSQL() {
+		a.ShowError("Not a SQL connection", cn.Config.Name+" runs no SQL: a notebook needs a SQL connection.")
+		return
+	}
+	if q := a.createQueryFile(cn, "", connection.HeaderLine(cn)+query.NewNotebookText); q != nil {
+		a.Connect(cn, nil)
+	}
 }
 
 // createQueryFile writes content in the next free query-N.sql of the
@@ -545,7 +560,9 @@ func (a *App) createQueryFile(cn *connection.Conn, database, content string) *qu
 // that names no connection takes the line naming the editor's. The copy
 // keeps its file when closed untouched: it may hold the only copy of what
 // the editor had, as when the editor then took its file's text instead.
-func (a *App) duplicateQuery(q *query.Tab) { a.copyQuery(q.Conn, q.Database, q.Editor.FileText()) }
+func (a *App) duplicateQuery(q *query.Tab) {
+	a.copyQuery(q.Conn, q.Database, q.FileText()) // its header names its view
+}
 
 // duplicateQueryFile opens a copy of a project's query file, as Duplicate
 // does an editor's: of what its open editor holds, else of the file, on

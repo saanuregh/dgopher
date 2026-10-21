@@ -38,8 +38,11 @@ var editorActions = [...]editorAction{
 func (e *Editor) syncBindings() {
 	e.keys = e.keys[:0]
 	for _, a := range editorActions {
-		for _, ch := range keymap.Chords(a.id) {
-			e.keys = append(e.keys, code.Binding{Mods: ch.Mods, Key: ch.Key, Command: a.command})
+		for _, b := range keymap.Bindings(a.id) {
+			// Keys of two are the window's to take (runFired).
+			if !b.Keys.Sequence() {
+				e.keys = append(e.keys, code.Binding{Mods: b.Keys.First.Mods, Key: b.Keys.First.Key, Command: a.command})
+			}
 		}
 	}
 	for _, b := range defaultBindings {
@@ -52,6 +55,16 @@ func (e *Editor) syncBindings() {
 	}
 	if !slices.Equal(e.keys, e.State.Bindings) {
 		e.State.Bindings = slices.Clone(e.keys)
+	}
+}
+
+// runFired runs the editor's commands whose keys of two the window took
+// in this frame (keymap.Dispatch): the editor never sees the first.
+func (e *Editor) runFired() {
+	for _, a := range editorActions {
+		if keymap.Fired(a.id) {
+			e.State.Run(a.command)
+		}
 	}
 }
 

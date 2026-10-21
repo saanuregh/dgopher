@@ -63,7 +63,7 @@ func TestRenameConn(t *testing.T) {
 	tt.Frame()
 	q := a.ActiveTab().(*query.Tab)
 	q.Editor.Replace(len(q.Editor.Text()), len(q.Editor.Text()), " -- edited")
-	testutil.SetCaret(tt, &q.Editor, len(q.Editor.Text()))
+	testutil.SetCaret(tt, q.Editor, len(q.Editor.Text()))
 	// An editor on a file of no project's queries keeps its text, as its
 	// file is not rewritten.
 	elsewhere := a.openFileTab(cn, "", outside, "-- connection: lite\n\nSELECT 6;")

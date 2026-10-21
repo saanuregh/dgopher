@@ -39,8 +39,8 @@ func TestSavedTabOfEachKind(t *testing.T) {
 			t.Fatalf("%s kept as %+v, %v", s.Kind, got, ok)
 		}
 	}
-	if a.tabs.Len() != 3 {
-		t.Fatalf("tabs %d", a.tabs.Len())
+	if a.tabs().Len() != 3 {
+		t.Fatalf("tabs %d", a.tabs().Len())
 	}
 	for _, kind := range []string{savedKeys, savedActivity, savedUsers} {
 		if a.openSaved(cn, savedTab{Kind: kind, Connection: cn.Config.ID}) {
@@ -73,11 +73,11 @@ func TestWaitingTabConnectsWhenShown(t *testing.T) {
 	first := &waitingTab{a: a, conn: cn, saved: table(cn)}
 	second := &waitingTab{a: a, conn: auto, saved: table(auto)}
 	diagram := &waitingTab{a: a, conn: cn, saved: savedTab{Kind: savedDiagram, Connection: cn.Config.ID, Schema: "main"}}
-	a.main.tabs.Append(first)
-	a.main.tabs.Append(second)
-	a.main.tabs.Append(diagram)
-	a.main.tabs.SetPinned(first, true)
-	a.main.tabs.Select(first)
+	a.main.tabs().Append(first)
+	a.main.tabs().Append(second)
+	a.main.tabs().Append(diagram)
+	a.main.tabs().SetPinned(first, true)
+	a.main.tabs().Select(first)
 	for range 3 {
 		tt.Frame()
 	}
@@ -89,16 +89,16 @@ func TestWaitingTabConnectsWhenShown(t *testing.T) {
 		t.Fatalf("no key on the button: %q", tt.Texts())
 	}
 	tt.Key(0, ui.KeyEnter)
-	testutil.WaitFor(t, tt, "the table", func() bool { _, ok := a.main.tabs.At(0).(*dataview.TableTab); return ok })
-	if a.main.tabs.Len() != 3 || !a.main.tabs.Pinned(a.main.tabs.At(0)) || a.ActiveTab() != a.main.tabs.At(0) {
-		t.Fatalf("tabs %d, pinned %v", a.main.tabs.Len(), a.main.tabs.Pinned(a.main.tabs.At(0)))
+	testutil.WaitFor(t, tt, "the table", func() bool { _, ok := a.main.tabs().At(0).(*dataview.TableTab); return ok })
+	if a.main.tabs().Len() != 3 || !a.main.tabs().Pinned(a.main.tabs().At(0)) || a.ActiveTab() != a.main.tabs().At(0) {
+		t.Fatalf("tabs %d, pinned %v", a.main.tabs().Len(), a.main.tabs().Pinned(a.main.tabs().At(0)))
 	}
-	a.main.tabs.Select(second)
-	testutil.WaitFor(t, tt, "the auto-connected table", func() bool { _, ok := a.main.tabs.At(1).(*dataview.TableTab); return ok })
+	a.main.tabs().Select(second)
+	testutil.WaitFor(t, tt, "the auto-connected table", func() bool { _, ok := a.main.tabs().At(1).(*dataview.TableTab); return ok })
 	dataview.OpenER(a, cn, "", "main")
 	tt.Frame()
-	if _, ok := a.main.tabs.At(2).(*dataview.ERTab); !ok || a.main.tabs.Len() != 3 || a.ActiveTab() != a.main.tabs.At(2) {
-		t.Fatalf("the diagram did not take the waiting tab's place: %d tabs, %T", a.main.tabs.Len(), a.main.tabs.At(2))
+	if _, ok := a.main.tabs().At(2).(*dataview.ERTab); !ok || a.main.tabs().Len() != 3 || a.ActiveTab() != a.main.tabs().At(2) {
+		t.Fatalf("the diagram did not take the waiting tab's place: %d tabs, %T", a.main.tabs().Len(), a.main.tabs().At(2))
 	}
 }
 
@@ -113,8 +113,8 @@ func TestWaitingTabEdges(t *testing.T) {
 		return savedTab{Kind: savedTable, Connection: cn.Config.ID, Schema: "main", Name: "orders", ObjectKind: string(db.KindTable)}
 	}
 	renamed := &waitingTab{a: a, conn: cn, saved: orders()}
-	a.main.tabs.Append(&plainTab{"front"})
-	a.main.tabs.Append(renamed)
+	a.main.tabs().Append(&plainTab{"front"})
+	a.main.tabs().Append(renamed)
 	cn.Config.ID += "2"
 	a.trust(cn)
 	connectNow(t, a, tt, cn)
@@ -123,22 +123,22 @@ func TestWaitingTabEdges(t *testing.T) {
 	}
 	a.OpenTable(cn, "", db.Object{Schema: "main", Name: "orders", Kind: db.KindTable, Rows: -1}, dataview.PageData)
 	tt.Frame()
-	if _, ok := a.main.tabs.At(1).(*dataview.TableTab); !ok || a.main.tabs.Len() != 2 {
-		t.Fatalf("after a change of ID, %d tabs, second %T", a.main.tabs.Len(), a.main.tabs.At(1))
+	if _, ok := a.main.tabs().At(1).(*dataview.TableTab); !ok || a.main.tabs().Len() != 2 {
+		t.Fatalf("after a change of ID, %d tabs, second %T", a.main.tabs().Len(), a.main.tabs().At(1))
 	}
 	if s, _ := savedTabOf(&waitingTab{a: a, conn: cn, saved: savedTab{Connection: "old"}}); s.Connection != cn.Config.ID {
 		t.Fatalf("kept as %q", s.Connection)
 	}
 
 	again := &waitingTab{a: a, conn: cn, saved: orders()}
-	a.main.tabs.Add(again)
+	a.main.tabs().Add(again)
 	testutil.WaitFor(t, tt, "the waiting tab to give way", func() bool { return !a.holds(again) })
-	if a.main.tabs.Len() != 2 {
-		t.Fatalf("tabs %d", a.main.tabs.Len())
+	if a.main.tabs().Len() != 2 {
+		t.Fatalf("tabs %d", a.main.tabs().Len())
 	}
 
 	users := &waitingTab{a: a, conn: cn, saved: savedTab{Kind: savedUsers, Connection: cn.Config.ID}}
-	a.main.tabs.Add(users)
+	a.main.tabs().Add(users)
 	for range 3 {
 		tt.Frame()
 	}
@@ -146,7 +146,7 @@ func TestWaitingTabEdges(t *testing.T) {
 		t.Fatalf("texts %q", tt.Texts())
 	}
 
-	a.rememberClosed(users, 2)
+	a.rememberClosed(users, a.main, a.main.panes.Focused(), 2)
 	a.removeTab(users)
 	a.reopenTab()
 	if w, ok := a.ActiveTab().(*waitingTab); !ok || w.saved.Kind != savedUsers {
@@ -160,8 +160,8 @@ func TestWaitingTabEnterAfterClick(t *testing.T) {
 	a := newTestApp(t)
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: writeSQL(t, "x.sqlite", "")})
 	tt := ui.NewTester(a.view, 1200, 760)
-	a.main.tabs.Append(&plainTab{"front"})
-	a.main.tabs.Append(&waitingTab{a: a, conn: cn, saved: savedTab{Kind: savedSearch, Connection: cn.Config.ID}})
+	a.main.tabs().Append(&plainTab{"front"})
+	a.main.tabs().Append(&waitingTab{a: a, conn: cn, saved: savedTab{Kind: savedSearch, Connection: cn.Config.ID}})
 	tt.Frame()
 	tt.Advance(time.Second) // the tabs grown in
 	if err := tt.Click("lite · search"); err != nil {
@@ -179,7 +179,7 @@ func TestWaitingTabOneButton(t *testing.T) {
 	a := newTestApp(t)
 	cn := addConn(a, silentPostgres(t))
 	tt := ui.NewTester(a.view, 1200, 760)
-	a.main.tabs.Append(&waitingTab{a: a, conn: cn, saved: savedTab{Kind: savedSearch, Connection: cn.Config.ID}})
+	a.main.tabs().Append(&waitingTab{a: a, conn: cn, saved: savedTab{Kind: savedSearch, Connection: cn.Config.ID}})
 	tt.Frame()
 	connect, ok := tt.Find("Connect")
 	if !ok {
@@ -241,12 +241,12 @@ func TestDisconnectKeepsTabs(t *testing.T) {
 	for range 3 {
 		tt.Frame()
 	}
-	if a.tabs.Len() != 2 || a.tabs.At(0) != q {
-		t.Fatalf("after disconnecting: %d tabs, the editor kept %v", a.tabs.Len(), a.tabs.At(0) == q)
+	if a.tabs().Len() != 2 || a.tabs().At(0) != q {
+		t.Fatalf("after disconnecting: %d tabs, the editor kept %v", a.tabs().Len(), a.tabs().At(0) == q)
 	}
-	wait, ok := a.tabs.At(1).(*waitingTab)
+	wait, ok := a.tabs().At(1).(*waitingTab)
 	if !ok || a.ActiveTab() != wait || !wait.saved.same(orders) {
-		t.Fatalf("the table's place holds %T, in front %v", a.tabs.At(1), a.ActiveTab() == a.tabs.At(1))
+		t.Fatalf("the table's place holds %T, in front %v", a.tabs().At(1), a.ActiveTab() == a.tabs().At(1))
 	}
 	if cn.Status != connection.StatusIdle {
 		t.Fatalf("connected again on its own: %v", cn.Status)
@@ -254,8 +254,8 @@ func TestDisconnectKeepsTabs(t *testing.T) {
 
 	connectNow(t, a, tt, cn)
 	testutil.WaitFor(t, tt, "the table", func() bool {
-		s, ok := savedTabOf(a.tabs.At(1))
-		_, waiting := a.tabs.At(1).(*waitingTab)
+		s, ok := savedTabOf(a.tabs().At(1))
+		_, waiting := a.tabs().At(1).(*waitingTab)
 		return ok && !waiting && s.same(orders)
 	})
 }
@@ -266,7 +266,7 @@ func TestWaitingTabFailsInline(t *testing.T) {
 	a := newTestApp(t)
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: filepath.Join(t.TempDir(), "no", "x.sqlite")})
 	tt := ui.NewTester(a.view, 1200, 760)
-	a.main.tabs.Append(&waitingTab{a: a, conn: cn, saved: savedTab{Kind: savedSearch, Connection: cn.Config.ID}})
+	a.main.tabs().Append(&waitingTab{a: a, conn: cn, saved: savedTab{Kind: savedSearch, Connection: cn.Config.ID}})
 	tt.Frame()
 	tt.Key(0, ui.KeyEnter)
 	testutil.WaitFor(t, tt, "the failure", func() bool { return cn.Status == connection.StatusFailed })

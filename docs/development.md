@@ -13,6 +13,7 @@ statements.
 - [Test](#test)
 - [Release](#release)
 - [MyGo](#mygo)
+- [agent-cli-connector](#agent-cli-connector)
 - [Third-party licenses](#third-party-licenses)
 - [Code layout](#code-layout)
 
@@ -166,6 +167,26 @@ To move to a new MyGo release:
    go mod edit -replace=github.com/egoist/mygo=github.com/saanuregh/mygo@<commit> && go mod tidy
    ```
 
+## agent-cli-connector
+
+The AI chat drives `claude`, `codex` and `pi` through
+[agent-cli-connector](https://github.com/saanuregh/agent-cli-connector).
+To work on both at once, point `go.mod` at a local checkout, and drop the
+replace before committing:
+
+```sh
+go mod edit -replace=github.com/saanuregh/agent-cli-connector=../agent-cli-connector
+go mod edit -dropreplace=github.com/saanuregh/agent-cli-connector && go mod tidy
+```
+
+The chat's tests use the connector's scripted `agenttest` provider. To try
+the real command lines, which must be installed and signed in, and which
+spend tokens:
+
+```sh
+DGOPHER_LIVE_CHAT=claude,codex,pi go test ./internal/ui/chat -run TestLiveChat -v
+```
+
 ## Third-party licenses
 
 Every bundle and installer ships `LICENSE` and
@@ -196,16 +217,18 @@ go run ./tools/licenses -duckdb <DuckDB source directory>
 | --- | --- |
 | `internal/app` | the window: navigator, tabs, menus, palette, dialogs, settings, and the quit flow |
 | `internal/ui/widgets` | the theme, icons, small controls, the confirm dialog, and the tab contract: what a tab may say about itself (icon, places, holding its connection, coming into view) |
-| `internal/ui/tablist` | a window's tabs: their order, pins, the one in front and the one beside it, changed only through its methods |
+| `internal/ui/panes` | a window's editor groups: the tree of splits, the focused group, and the neighbour in a direction |
+| `internal/ui/tablist` | a group's tabs: their order, pins and the one in front, changed only through its methods |
 | `internal/ui/editor` | the SQL editor, including Vim keys |
-| `internal/ui/query` | SQL editor tabs: running statements and scripts, plans, and parameters |
+| `internal/ui/query` | SQL editor tabs: running statements and scripts, plans, parameters, and the notebook view |
 | `internal/ui/dataview` | the results grid and its panels, table tabs, export, charts, the query builder and the ER diagram |
 | `internal/ui/dashboard` | dashboard tabs: panels of reads shown as charts, rows or values, with parameters and refresh, kept in a project's file |
 | `internal/ui/modelview` | data model tabs: a model's tables, its DDL, and its comparison with a database or another model |
 | `internal/ui/redis` | Redis tabs: the key tree, values and their editing, the console, and the monitor, slow log, memory and Pub/Sub panels |
-| `internal/keymap` | the commands that have keys, their default keys, and the keys the user set |
+| `internal/ui/chat` | a SQL editor's AI chat: an agent's session through agent-cli-connector, its transcript, its model and effort, and the app's tools it may call |
+| `internal/keymap` | the actions that have keys, their default keys, keymap.json, and keys of two in a row |
 
-The tab packages (`dataview`, `query`, `redis`, `dashboard`, `modelview`)
+The tab packages (`dataview`, `query`, `redis`, `dashboard`, `modelview`) and `chat`
 each declare a small `Host` interface for what they need from the window.
 `internal/app` implements all of them.
 

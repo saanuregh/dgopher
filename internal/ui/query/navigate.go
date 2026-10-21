@@ -64,7 +64,7 @@ func occurrences(text string, id identifier, d sqltext.Dialect) [][2]int {
 
 // GoTo puts the caret at a byte offset, in view.
 func (q *Tab) GoTo(at int) {
-	e := &q.Editor
+	e := q.Editor
 	e.Select(at, at)
 	e.State.GoTo(e.State.Buffer.Pos(e.Caret()))
 	e.WantFocus = true
@@ -74,7 +74,7 @@ func (q *Tab) GoTo(at int) {
 // view's structure, the table of a column or an alias, or a routine's
 // definition.
 func (q *Tab) goToDefinition() {
-	e := &q.Editor
+	e := q.Editor
 	id, ok := identifierAt(e.Text(), e.Caret(), e.Dialect)
 	if !ok {
 		q.note("Put the caret in a name to go to what it names.", "", true)
@@ -193,7 +193,7 @@ func usagesIn(text string, id identifier, path, file string, d sqltext.Dialect) 
 // findUsages lists where the name at the caret is used: in the editor,
 // then in the other query files of its project.
 func (q *Tab) findUsages() {
-	e := &q.Editor
+	e := q.Editor
 	id, ok := identifierAt(e.Text(), e.Caret(), e.Dialect)
 	if !ok {
 		q.note("Put the caret in a name to find where it is used.", "", true)
@@ -282,7 +282,7 @@ type renameForm struct {
 }
 
 func (q *Tab) askRename() {
-	e := &q.Editor
+	e := q.Editor
 	id, ok := identifierAt(e.Text(), e.Caret(), e.Dialect)
 	if !ok {
 		q.note("Put the caret in a name to rename it.", "", true)

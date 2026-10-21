@@ -56,7 +56,7 @@ func (a *App) shortcutsView(c *ui.Context) {
 						continue
 					}
 					ui.Column(c).Gap(6).Children(func() {
-						ui.Text(c, string(scope)).Bold().TextColor(pal.Muted).FontSize(12)
+						ui.Text(c, scope.Label()).Bold().TextColor(pal.Muted).FontSize(12)
 						for _, k := range rows {
 							ui.Row(c).Gap(10).AlignItems(ui.Start).Children(func() {
 								ui.Text(c, k[0]).Font(widgets.MonoFont).FontSize(11.5).Padding(2, 6).Radius(4).Background(pal.Hover).MinWidth(64)

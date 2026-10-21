@@ -18,7 +18,7 @@ func TestSidebarTableCard(t *testing.T) {
 	p, _ := a.addProject(newProjectDir(t, "acme"))
 	tt := ui.NewTester(a.view, 1200, 760)
 	a.openSampleIn(p)
-	testutil.WaitFor(t, tt, "the sample", func() bool { return a.tabs.Len() == 1 })
+	testutil.WaitFor(t, tt, "the sample", func() bool { return a.tabs().Len() == 1 })
 	tt.Advance(time.Second)
 	tt.Frame()
 	r, ok := tt.Find("customers")
@@ -37,9 +37,10 @@ func TestSidebarTableCard(t *testing.T) {
 	if err := tt.Click("Open Data"); err != nil {
 		t.Fatal(err)
 	}
-	tt.Frame()
-	if tab, ok := a.ActiveTab().(*dataview.TableTab); !ok || tab.Object.Name != "customers" {
-		t.Fatalf("opened %T", a.ActiveTab())
+	// The table opens once the sample's connection is up.
+	testutil.WaitFor(t, tt, "the table", func() bool { _, ok := a.ActiveTab().(*dataview.TableTab); return ok })
+	if tab := a.ActiveTab().(*dataview.TableTab); tab.Object.Name != "customers" {
+		t.Fatalf("opened %q", tab.Object.Name)
 	}
 }
 
@@ -50,7 +51,7 @@ func TestSidebarShowCard(t *testing.T) {
 	p, _ := a.addProject(newProjectDir(t, "acme"))
 	tt := ui.NewTester(a.view, 1200, 760)
 	a.openSampleIn(p)
-	testutil.WaitFor(t, tt, "the sample", func() bool { return a.tabs.Len() == 1 })
+	testutil.WaitFor(t, tt, "the sample", func() bool { return a.tabs().Len() == 1 })
 	tt.Advance(time.Second)
 	tt.Frame()
 	if err := tt.RightClick("customers"); err != nil {
@@ -79,8 +80,8 @@ func TestSidebarShowCard(t *testing.T) {
 	if !tt.HasText("Open Data") {
 		t.Fatalf("no card from Alt+click: %q", tt.Texts())
 	}
-	if n := a.nav.tree.Item(a.nav.row); n.name != "orders" || a.tabs.Len() != 1 {
-		t.Fatalf("Alt+click chose %q, %d tabs", n.name, a.tabs.Len())
+	if n := a.nav.tree.Item(a.nav.row); n.name != "orders" || a.tabs().Len() != 1 {
+		t.Fatalf("Alt+click chose %q, %d tabs", n.name, a.tabs().Len())
 	}
 }
 
@@ -91,7 +92,7 @@ func TestSidebarClickWithCards(t *testing.T) {
 	p, _ := a.addProject(newProjectDir(t, "acme"))
 	tt := ui.NewTester(a.view, 1200, 760)
 	a.openSampleIn(p)
-	testutil.WaitFor(t, tt, "the sample", func() bool { return a.tabs.Len() == 1 })
+	testutil.WaitFor(t, tt, "the sample", func() bool { return a.tabs().Len() == 1 })
 	tt.Advance(time.Second)
 	tt.Frame()
 	r, _ := tt.Find("orders")
@@ -109,7 +110,7 @@ func TestGridCellCardAltClick(t *testing.T) {
 	p, _ := a.addProject(newProjectDir(t, "acme"))
 	tt := ui.NewTester(a.view, 1300, 800)
 	a.openSampleIn(p)
-	testutil.WaitFor(t, tt, "the sample", func() bool { return a.tabs.Len() == 1 })
+	testutil.WaitFor(t, tt, "the sample", func() bool { return a.tabs().Len() == 1 })
 	tt.Advance(time.Second)
 	tt.Frame()
 	if err := tt.RightClick("orders"); err != nil {

@@ -88,12 +88,20 @@ type TypedRun struct {
 	Err            error
 	// History keeps it in the project's query history too, to run again.
 	History bool
+	// Purpose, when set, says why the app ran it: the text was the app's,
+	// as SQL the AI chat wrote and the user allowed, not the person's.
+	Purpose string
 }
 
-// Event is the audit entry of a typed run.
+// Event is the audit entry of a typed run, the app's when it has a
+// Purpose.
 func (t TypedRun) Event() Event {
-	return Event{Kind: t.Kind, Database: t.Database, Statement: t.Sent, Typed: t.Typed, Params: t.Params,
-		Origin: OriginTyped, Rows: t.Rows, DurationMS: t.Took.Milliseconds(), Err: t.Err}
+	origin := OriginTyped
+	if t.Purpose != "" {
+		origin = OriginApp
+	}
+	return Event{Kind: t.Kind, Database: t.Database, Statement: t.Sent, Typed: t.Typed, Params: t.Params, Purpose: t.Purpose,
+		Origin: origin, Rows: t.Rows, DurationMS: t.Took.Milliseconds(), Err: t.Err}
 }
 
 // WithOrigin names the app as the writer of a statement, edit or command

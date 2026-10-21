@@ -102,8 +102,8 @@ func (q *Tab) fileChanged() {
 		if q.DiskConflict == "was deleted on disk" || q.DiskConflict == "changed on disk" {
 			q.DiskConflict = ""
 		}
-	case q.Editor.FileText() == q.Saved:
-		q.Editor.SetFileText(string(disk))
+	case q.FileText() == q.Saved:
+		q.setFileText(string(disk))
 		q.Saved, q.Typed, q.DiskConflict = string(disk), string(disk), ""
 	default:
 		q.DiskConflict = "changed on disk"

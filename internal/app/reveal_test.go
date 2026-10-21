@@ -20,8 +20,8 @@ func TestNavigatorFollowsTab(t *testing.T) {
 	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1280, 800)
 	a.openSample()
-	testutil.WaitFor(t, tt, "sample editor", func() bool { return a.tabs.Len() == 1 })
-	cn := a.tabs.At(0).(*query.Tab).Conn
+	testutil.WaitFor(t, tt, "sample editor", func() bool { return a.tabs().Len() == 1 })
+	cn := a.tabs().At(0).(*query.Tab).Conn
 	chosen := func() navNode {
 		if a.nav.row < 0 || a.nav.row >= a.nav.tree.Rows() {
 			return navNode{}
@@ -67,10 +67,10 @@ func TestTabShowsUnsaved(t *testing.T) {
 	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1000, 700)
 	a.openSample()
-	testutil.WaitFor(t, tt, "sample editor", func() bool { return a.tabs.Len() == 1 })
-	q := a.tabs.At(0).(*query.Tab)
+	testutil.WaitFor(t, tt, "sample editor", func() bool { return a.tabs().Len() == 1 })
+	q := a.tabs().At(0).(*query.Tab)
 	a.NewQueryTab(q.Conn, "", "")
-	testutil.WaitFor(t, tt, "a second editor", func() bool { return a.tabs.Len() == 2 })
+	testutil.WaitFor(t, tt, "a second editor", func() bool { return a.tabs().Len() == 2 })
 	tt.Key(ui.Cmd, ui.Key1)
 	tt.Frame()
 	if q.Unsaved() {

@@ -104,8 +104,8 @@ func TestRestoredEditorTakesSavedPercent(t *testing.T) {
 	a.saveWorkspace(true)
 
 	b, tt2 := run()
-	if b.tabs.Len() != 1 {
-		t.Fatalf("restored %d tabs", b.tabs.Len())
+	if b.tabs().Len() != 1 {
+		t.Fatalf("restored %d tabs", b.tabs().Len())
 	}
 	// A quarter of a room some 600 high.
 	if after := resultsTop(b, tt2); after < before+100 || after > before+200 {

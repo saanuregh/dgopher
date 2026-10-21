@@ -184,7 +184,7 @@ func TestEditorConnectTurnsToDisconnect(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if cn.Status != connection.StatusIdle || a.tabs.Len() != 1 || a.tabs.At(0) != q || !hasExact(tt, "Connect") {
-		t.Fatalf("after Disconnect: %v, %d tabs, %q", cn.Status, a.tabs.Len(), tt.Texts())
+	if cn.Status != connection.StatusIdle || a.tabs().Len() != 1 || a.tabs().At(0) != q || !hasExact(tt, "Connect") {
+		t.Fatalf("after Disconnect: %v, %d tabs, %q", cn.Status, a.tabs().Len(), tt.Texts())
 	}
 }

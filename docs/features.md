@@ -20,6 +20,7 @@ lists the default keys.
 - [Server administration](#server-administration)
 - [Redis](#redis)
 - [History and snippets](#history-and-snippets)
+- [AI chat](#ai-chat)
 - [Settings and themes](#settings-and-themes)
 - [Accessibility](#accessibility)
 
@@ -65,7 +66,7 @@ window buttons, without a row of its own:
 
 ### Command palette
 
-- **⌘K** opens the palette: every command, connection, table, dashboard,
+- **⇧⌘P** opens the palette: every command, connection, table, dashboard,
   data model and snippet, by name. The current tab's commands come first,
   such as running, explaining, formatting, committing or rolling back in an
   editor, or refreshing, exporting, fetching, charting and applying rows.
@@ -93,24 +94,56 @@ window buttons, without a row of its own:
   and models. A tab whose file or connection is gone says so.
 - **Overflow.** Tabs that do not fit are listed by a button at the end of
   the bar.
-- **Side by side.** Open to the Side, in a tab's menu, shows the tab beside
-  the one in front, with a divider to drag. Keys go to the tab marked as in
-  front; clicking into the other brings it in front.
+
+### Editor groups
+
+![Two editor groups: a SQL editor and its result on the left, the sales
+dashboard on the right, each group with its tab bar](images/groups.png)
+
+- **Split.** A tab's menu, the palette or ⌘K → (also ⌘\) puts the tab in a
+  new group beside the one it was in; ⌘K ←, ⌘K ↑ and ⌘K ↓ split the other
+  ways. A SQL editor alone in its group splits into a copy of itself. Groups
+  nest: a group split down beside one split right, as far as you like, with
+  dividers to drag.
+- **Each group has its own tabs,** with a tab bar of its own once there are
+  two: its own order, pins, tab in front, overflow list, and buttons that
+  split it or close it. With one group, the tabs stay in the title bar;
+  with several, the title bar names the focused group's tab in front.
+- **The focused group** has the keys, and its tab in front is marked with a
+  line in the accent color. Keys, the window's title, the
+  navigator's highlight, the palette's commands, ⌘W, ⌘1…⌘9 and Next Tab
+  act on it. A press anywhere in a group, or ⌘K ⌘← … ⌘K ⌘↓ and ⌘K ⌘1…⌘9,
+  focuses it.
+- **Move a tab** between groups by dragging it to another group's tab bar,
+  by dropping it on the zones a group shows while a tab is dragged over
+  it (a side splits the group there, the middle joins it), with Move to
+  Group in its menu, or with ⌘K ⇧→ and the other arrows, which make the
+  group when there is none on that side.
+- **Close Group** (⌘K ⌘W) moves its tabs to the group beside it; nothing
+  closes. A group goes by itself with its last tab. Join All Groups, in the
+  palette, puts every tab in one.
+- Groups, the tabs in each, and the one focused come back after a restart.
 
 ### Status bar
 
-- It shows the connection of the tab in front, with its database, and its
-  environment in the environment's own color.
+- **Each group has its own,** under its tab in front, so a split never
+  describes another tab than the one above it. It shows the tab's
+  connection, with its database, and its environment in the environment's
+  own color; the server and its version, read-only, SSH, the editor's
+  transaction and its commit mode. As a group narrows, the server's
+  version gives way first. With no tab open, the welcome page has one for
+  the connection chosen in the navigator.
 - For a tab on several connections, such as a dashboard, it shows a chip
   per connection, problems first, up to three and then "+N more". Each chip
   lists its databases (and the dashboard's panels on them) and connects,
   retries or disconnects its connection.
-- It lists every open transaction and how long it has been open.
+- **The title bar** keeps what is the window's: every open transaction and
+  how long it has been open, and the first of two keys pressed in a row.
 - **Activity.** Once any work (a query, reading rows, a count, an export,
-  connecting…) has lasted 300 ms, a thin bar moves along the top of the
-  status bar. Quick work shows nothing. Long work offers Stop or Cancel
+  connecting…) has lasted 300 ms, a thin bar moves along the window's
+  bottom edge. Quick work shows nothing. Long work offers Stop or Cancel
   where it runs: Fetch All, Count and applying grid changes in the data
-  view, and connecting in the status bar, the navigator's menu and a
+  view, and connecting in the tab's status bar, the navigator's menu and a
   restored tab. A cancelled connect is audited, and one that finishes late
   is closed.
 
@@ -170,7 +203,8 @@ files.
 - Every SQL editor is a file in `queries/`, saved as you type. Its tab
   shows a dot until the file holds what you typed.
 - A `-- connection: <id>` line binds a file to a connection. Connection IDs
-  complete as you type the line.
+  complete as you type the line. A `-- view: notebook` line in the first
+  lines opens the file as a notebook; without it, it opens as a script.
 - A file runs only on the connection its line names. An editor whose file
   names another connection runs nothing and offers to switch to it. A file
   naming a connection the project lacks opens unconnected, so you can fix
@@ -535,9 +569,50 @@ See [How SQL is read](sql.md#parameters).
 ![The plan of a join on PostgreSQL, run by Explain Analyze: each step with
 the rows estimated and found, and its share of the time](images/query-plan.png)
 
+### Notebooks
+
+![A notebook: a Markdown cell titling it, and two SQL cells, each with
+its run count and its own result](images/notebook.png)
+
+- **Notebook view.** The Notebook button, ⌘K ⌘N or the palette shows an
+  editor as cells, as Jupyter does; Script shows it as one editor again.
+  New SQL Notebook (⌘K ⌘T, in the File menu and the palette) opens a new
+  query file as a notebook of one cell.
+- **Cells** are SQL, each its own editor with completion, cards, problems
+  and Vim keys, or Markdown, shown as it reads, and edited with a click on
+  a focused cell. Each SQL cell shows its results under it: rows in a grid,
+  plans, errors, and what statements without rows did. Its `[n]` numbers
+  its last run, and what it took shows under it.
+- **One session.** Every cell runs on the editor's session, as a
+  notebook's cells run on one kernel: a temporary table, a `SET` or a
+  transaction one cell begins, the next sees. Runs go through the same
+  safety policy, parameters, confirmations and audit log as the editor's.
+- **Running.** ⇧↵ runs the cell and goes to the next, making one after the
+  last; ⌘⌥↵ runs it and stays; ⌘↵ runs the statement at the caret, and
+  ⌘⇧↵ the whole cell. Run All (⌘K ⌘↵) runs the cells in order and stops at
+  an error, unless scripts skip errors (Settings → Editor); Esc or Stop
+  stops it. A thin line of light sweeps along the top of the cell
+  running, so a run is followed from cell to cell; [*] marks it and […]
+  those waiting.
+- **Cell actions,** shown on the focused cell or the one pointed at: move
+  up or down, change to SQL or Markdown, delete. ⌘K ⌘A and ⌘K ⌘B add a
+  cell above or below; Clear empties every cell's results.
+- **The file stays SQL.** A cell begins with a line `-- %%`, and a
+  Markdown cell with `-- %% [markdown]`, its lines commented, as
+  [jupytext's percent format](https://jupytext.readthedocs.io/en/latest/formats-scripts.html)
+  writes them, so the file runs as a script and diffs as text. A file
+  opens as a script, cells or not, unless its header has a
+  `-- view: notebook` line. Switching to the notebook view writes that
+  line under the `-- connection:` line, and switching back takes it out,
+  so the file opens as it was left, for everyone who shares it. A script
+  without cell lines shows a cell per statement, and its cells are
+  written only once one is edited. Results are not kept
+  in the file: it is shared, and they may hold what should not be.
+
 ### Files and sessions
 
-- Editors come back on the next launch. `.sql` files can be opened (⌘O) and
+- Editors come back on the next launch, as scripts or notebooks as they
+  showed. `.sql` files can be opened (⌘O) and
   saved (⌘S, or ⌘⇧S to save as).
 - A restored editor, or an opened file, does not connect on its own. Press
   Connect, or run a statement.
@@ -868,7 +943,7 @@ charts, and best sellers as a table](images/dashboard.png)
   Their values are yours alone, kept apart from the dashboard file.
 - **Refresh** by hand (F5), or every 1, 5 or 15 minutes, or every hour,
   while the dashboard shows. Automatic refresh does not reconnect a
-  connection that failed; reconnect it from the status bar.
+  connection that failed; reconnect it from its status bar.
 - **Safe by design:** a panel runs one read only. Its statement goes through
   the safety policy and is refused if it writes or would need a
   confirmation. On PostgreSQL and MySQL it runs in a read-only transaction,
@@ -1304,6 +1379,97 @@ One dialog per project, with two tabs:
   after another with Tab; `$0` marks where the caret ends.
 - A project's snippets are kept in `dgopher.json`, shared with the team.
 
+## AI chat
+
+![An editor with its AI chat beside it: a question about the statement at
+the caret, a tool call reading the orders table, and SQL to insert in the
+editor](images/ai-chat.png)
+
+Each SQL editor has an AI chat beside it: AI Chat in its bar, or ⌘K ⌘I,
+which also hides the chat once it has the keys, as its × does. It keeps
+the width you drag it to, whatever the window's. A new chat offers to
+explain the statement at the caret, make it faster, say why the last run
+failed, or write a query. With no editor in front,
+⌘K ⌘I opens a new one on the connection in front, with its chat. The chat
+talks to [Claude Code](https://claude.com/claude-code),
+[Codex](https://github.com/openai/codex) or
+[pi](https://github.com/earendil-works/pi), running the agent's own
+command line, signed in as you, through
+[agent-cli-connector](https://github.com/saanuregh/agent-cli-connector):
+install `claude`, `codex` or `pi` first.
+
+- **What it knows.** Each message carries what the editor shows: its
+  connection, its file, the selection or else the statement at the caret
+  with its lines, its text (up to 16 KB; only where it changed since the
+  last message, to spare tokens), and the last run's error. A line
+  under your message says what went, such as `query-1.sql · statement,
+  line 3 · pg_prime`. "This query" and "the error" mean the editor's.
+- **Only DGopher's tools.** The agent cannot read or change files, run
+  shell commands, or browse: its own tools are turned off, and nothing
+  from your or the project's agent settings loads (hooks, plugins,
+  skills, extensions, MCP servers). Anything else it tries is refused
+  without asking, with a line in the chat saying so. Codex, which has no
+  switch for all of its tools, has its shell, patches, web search,
+  plugins and the rest turned off one by one, runs in its read-only
+  sandbox, and has every approval it asks for refused. It runs in the project folder of the editor's
+  connection, else in a `chat` folder of the config directory, but cannot
+  touch either.
+- **SQL it writes** comes in SQL blocks, each with Insert, or Replace
+  Selection while the editor has one, and New Editor. Insert puts the SQL
+  in the editor as one change undo takes back; nothing runs until you run
+  it. The lines it lands on are tinted a moment, the tint fading.
+- **Connecting.** When a tool needs a connection that is not open, the
+  chat asks: Connect, or Not Now. Connect opens it as DGopher always does,
+  asking for a password where it needs one, and the tool goes on; calls
+  waiting for the same connection share the one card. With Not Now, the
+  agent answers without it.
+- **The app's tools.** It lists the connections, lists a schema's tables
+  and describes a table's columns, the editor's connection unless it names
+  another. It runs a statement only as a read you allow, on a connection
+  that is not production: one statement the safety policy reads as a read
+  and would run without asking. Each such read shows its SQL and waits for
+  Allow, Allow for This Chat (its reads of that connection, until the chat starts over) or
+  Deny. Its rows, up to 200, go to the agent's provider. Every read is in
+  the audit log; what is refused, too.
+- **Charts.** Asked for a chart, it charts a read in the editor itself:
+  a card shows the statement and the chart (kind, x column, series) and
+  waits for Allow. Then the statement goes at the end of the script,
+  selected, or in a new cell after the focused one, runs on the editor's
+  session as a run of yours does, and its result opens in the Chart view
+  as asked, where you change it as any chart. The same reads only, and
+  never on production or while a transaction is open in the editor. The
+  audit log records the run as the app's, for the chat. The first 10
+  rows go to the agent, to describe the chart.
+- **Its questions** show their choices as buttons.
+- **Agent, model and effort** are chosen under the message field, which
+  also shows what the next message carries of the editor. Switching
+  agents starts over. The model picker lists the agent's models (pi's by
+  provider) in a list of fixed height that scrolls, with a search field:
+  every word typed matches a model's name, ID or provider; ↑ and ↓ move,
+  ↵ chooses, Esc closes. The effort menu, the reasoning efforts the model takes. Both
+  apply from the next message on and are kept, by agent, for the next
+  chat.
+- **While it works,** its orb livens and a ring of color flows around the
+  message field; what it is doing shimmers. With the system's reduce
+  motion setting, they hold still.
+- **Replies** stream in as Markdown. Tool calls show on a line each, and
+  open to their input and output; the agent's thinking opens the same way.
+- ↵ sends and ⇧↵ starts a new line; what you send while it answers waits
+  for the answer to end. Stop (⌘.) stops the answer, and New Chat starts
+  over. While the chat has the keys, the editor's keys leave it alone, but
+  ⌘S.
+- **Conversations are kept.** Hiding the chat keeps its conversation, and
+  so does quitting: an editor that comes back after a restart brings its
+  chat back, open or hidden as it was, its messages read again from the
+  agent's own store, and the next message continues the same session.
+  Where the agent no longer has it, the next message starts a new one,
+  and the chat says so. New Chat starts over; closing the editor ends its
+  chat.
+- **Keeping data from the agent.** A connection with **No rows to the AI
+  chat** (Safety, in its form) shares its schema with the agent but no
+  data: run_read_query refuses it, and a chart of it still draws in the
+  editor while the agent hears only its columns and how many rows.
+
 ## Settings and themes
 
 Settings (⌘,) has five pages:
@@ -1319,19 +1485,21 @@ Settings (⌘,) has five pages:
 ### Keyboard shortcuts
 
 **Customize Keyboard Shortcuts…** (in Settings, the Help menu or the
-palette) records a key for any command, removes one, or resets it. F1 lists
+palette) records a key for any action, or two keys in a row, removes one,
+or resets it; each action shows its name, as `editor::Format`. F1 lists
 every shortcut as currently set, and finds one by its key or what it does.
 
-- A key that types needs ⌘, Ctrl or Alt, and a key that moves in lists
-  needs a modifier.
-- A key another command has in the same area, or everywhere, is refused,
-  naming that command. So are ⌘1…⌘9 and the grid's F2.
-- An editor's commands and its results' commands may share a key, as ⌘S
-  and F5 do.
-- Keys are saved as text such as `Cmd+Shift+F`, where Cmd is ⌘ on macOS and
-  Control elsewhere, so they carry between machines. (A Ctrl key recorded on
-  Linux is saved as Cmd, which is the same key there.) The menus show the
-  keys as set.
+- A key that types needs ⌘, Ctrl or Alt, also as the second of two, and a
+  key that moves in lists needs a modifier as the first.
+- A key another action has where both work is refused, naming that action;
+  so is the first of two keys that is another's key on its own, and the
+  grid's F2.
+- An editor's actions and its results' actions may share a key, as ⌘S and
+  F5 do.
+- The keys are kept in `keymap.json`, as Zed keeps them: contexts, keys in
+  a row, actions by name, and `null` to take a key away. It is read again
+  as soon as it changes on disk. See
+  [Your keymap file](keyboard.md#your-keymap-file).
 
 ### Themes
 

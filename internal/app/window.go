@@ -4,6 +4,8 @@ import (
 	"iter"
 	"slices"
 
+	"dgopher/internal/keymap"
+	"dgopher/internal/ui/panes"
 	"dgopher/internal/ui/tablist"
 	"dgopher/internal/ui/widgets"
 
@@ -11,31 +13,48 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// window is a window of the app and what it shows: its tabs, the one in
-// front, and the one beside it. The main window has the sidebar too; the
-// others are tabs moved out of it.
+// window is a window of the app and what it shows: its groups of tabs,
+// one of them focused. The main window has the sidebar too; the others
+// are tabs moved out of it.
 type window struct {
 	native *mygo.Window // nil before it is made, as in tests
 	title  string       // what the system's window was last titled
-	tabs   tablist.List
-	// splitW is how wide the left pane is, of a tab shown beside the one
-	// in front.
-	splitW float32
+	// panes are its groups of tabs, as a tree of splits.
+	panes *panes.Layout
 	// focusWant is where a key asked the keyboard focus to go: "nav",
 	// "filter", "editor" or "results". The view that holds that place
 	// takes it, and clears it once it has the focus.
 	focusWant string
-	// tabScroll is the tab bar's, whose overflow shows the list of tabs;
-	// revealTab scrolls the tab in front into view once.
-	tabScroll ui.ScrollState
-	revealTab bool
-	// inView are the tabs the window showed in its last frame: in front,
-	// and beside it.
-	inView [2]widgets.Tab
+	// several is whether the frame shows more than one group, decided as
+	// it begins: a menu's command splitting the window mid-frame shows in
+	// the next, so that the title bar and the groups agree on who draws
+	// which tab bar.
+	several bool
 }
 
-// ActiveTab is the tab in front of the window, nil for none.
-func (w *window) ActiveTab() widgets.Tab { return w.tabs.Active() }
+func newWindow() *window { return &window{panes: panes.New()} }
+
+// tabs are the tabs of the focused group, which keys and commands act
+// on.
+func (w *window) tabs() *tablist.List { return &w.panes.Focused().Tabs }
+
+// ActiveTab is the tab in front of the focused group, nil for none.
+func (w *window) ActiveTab() widgets.Tab { return w.tabs().Active() }
+
+// allTabs are the tabs of every group of the window.
+func (w *window) allTabs() []widgets.Tab { return w.panes.Tabs() }
+
+// holds reports whether a group of the window holds a tab.
+func (w *window) holds(t widgets.Tab) bool { return w.panes.GroupOf(t) != nil }
+
+// pinned reports whether a tab of the window is pinned in its group.
+func (w *window) pinned(t widgets.Tab) bool {
+	g := w.panes.GroupOf(t)
+	return g != nil && g.Tabs.Pinned(t)
+}
+
+// tabCount counts the tabs of every group.
+func (w *window) tabCount() int { return len(w.allTabs()) }
 
 // windowView draws a window. What was posted runs first with the focused
 // window current, so that a tab it opens shows where the user is.
@@ -52,14 +71,14 @@ func (a *App) windowView(w *window) func(*ui.Context) {
 // noteShown tells the tabs that came into view since the window's last
 // frame that they did (widgets.ShownNotifier), and draws again after.
 func (a *App) noteShown(c *ui.Context) {
-	now := [2]widgets.Tab{a.ActiveTab(), a.tabs.Side()}
-	for _, t := range now {
-		if s, ok := t.(widgets.ShownNotifier); ok && !slices.Contains(a.window.inView[:], t) {
+	for _, g := range a.window.panes.Groups() {
+		t := g.Tabs.Active()
+		if s, ok := t.(widgets.ShownNotifier); ok && g.InView != t {
 			s.Shown()
 			c.Invalidate()
 		}
+		g.InView = t
 	}
-	a.window.inView = now
 }
 
 // focusedWindow is the window the user last used.
@@ -74,7 +93,7 @@ func (a *App) focusedWindow() *window {
 func (a *App) everyTab() iter.Seq2[*window, widgets.Tab] {
 	return func(yield func(*window, widgets.Tab) bool) {
 		for _, w := range slices.Clone(a.windows) {
-			for _, t := range w.tabs.Tabs() {
+			for _, t := range w.allTabs() {
 				if !yield(w, t) {
 					return
 				}
@@ -89,7 +108,9 @@ func (a *App) everyTab() iter.Seq2[*window, widgets.Tab] {
 func (a *App) findTab(match func(widgets.Tab) bool) (widgets.Tab, bool) {
 	for w, t := range a.everyTab() {
 		if match(t) {
-			w.tabs.Select(t)
+			g := w.panes.GroupOf(t)
+			g.Tabs.Select(t)
+			w.panes.Focus(g)
 			if a.drawing == nil {
 				a.window = w
 			}
@@ -104,39 +125,54 @@ func (a *App) findTab(match func(widgets.Tab) bool) (widgets.Tab, bool) {
 }
 
 // removeTab takes a tab out of whichever window holds it, and reports the
-// window and the place it had. A window but the main one goes with its
-// last tab, after the frame: the caller may put another in its place, and
-// a window closing while it draws would draw no more.
-func (a *App) removeTab(t widgets.Tab) (*window, int, bool) {
+// window, the group and the place it had there. A group but the last goes
+// with its last tab, and a window but the main one with its last tab,
+// after the frame: the caller may put another in its place, and a window
+// closing while it draws would draw no more.
+func (a *App) removeTab(t widgets.Tab) (*window, *panes.Group, int, bool) {
 	for _, w := range a.windows {
-		if i, ok := w.tabs.Remove(t); ok {
-			if w.tabs.Len() == 0 && w != a.main {
-				a.Post(func() {
-					if w.tabs.Len() == 0 {
-						a.closeWindow(w)
-					}
-				})
-			}
-			return w, i, true
+		g := w.panes.GroupOf(t)
+		if g == nil {
+			continue
 		}
+		i, _ := g.Tabs.Remove(t)
+		if g.Tabs.Len() == 0 {
+			a.Post(func() { a.dropEmptyGroup(w, g) })
+		}
+		return w, g, i, true
 	}
-	return nil, 0, false
+	return nil, nil, 0, false
+}
+
+// dropEmptyGroup takes away a group left without tabs, and a window but
+// the main one left without any.
+func (a *App) dropEmptyGroup(w *window, g *panes.Group) {
+	if g.Tabs.Len() > 0 || !slices.Contains(a.windows, w) {
+		return
+	}
+	if w.panes.Len() > 1 {
+		w.panes.Remove(g)
+		return
+	}
+	if w != a.main && w.tabCount() == 0 {
+		a.closeWindow(w)
+	}
 }
 
 // moveToWindow moves a tab to a window, in front there; nil makes a new
 // window for it.
 func (a *App) moveToWindow(t widgets.Tab, to *window) {
-	if !slices.ContainsFunc(a.windows, func(w *window) bool { return w.tabs.Contains(t) }) {
+	if !slices.ContainsFunc(a.windows, func(w *window) bool { return w.holds(t) }) {
 		return // closed since the move was asked
 	}
 	if to == nil {
 		to = a.openWindow()
 	}
-	from, _, ok := a.removeTab(t)
+	from, _, _, ok := a.removeTab(t)
 	if !ok {
 		return
 	}
-	to.tabs.Add(t)
+	to.tabs().Add(t)
 	a.window = to
 	if to.native != nil && to != from {
 		to.native.Show()
@@ -146,7 +182,7 @@ func (a *App) moveToWindow(t widgets.Tab, to *window) {
 
 // openWindow makes a window of tabs, empty until a tab moves there.
 func (a *App) openWindow() *window {
-	w := &window{}
+	w := newWindow()
 	a.windows = append(a.windows, w)
 	if a.makeWindow != nil {
 		a.makeWindow(w)
@@ -161,8 +197,11 @@ func (a *App) closeWindow(w *window) {
 		return
 	}
 	a.windows = slices.DeleteFunc(a.windows, func(o *window) bool { return o == w })
-	for _, t := range w.tabs.TakeAll() {
-		a.main.tabs.Add(t)
+	keymap.Forget(w)
+	for _, g := range w.panes.Groups() {
+		for _, t := range g.Tabs.TakeAll() {
+			a.main.tabs().Add(t)
+		}
 	}
 	if a.window == w {
 		a.window = a.main

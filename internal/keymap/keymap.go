@@ -1,6 +1,7 @@
-// Package keymap is the app's commands that have keys, and the keys the
-// user gave them: every place a command's key works asks here whether it
-// was pressed, so that a key changed in the settings changes it there.
+// Package keymap is the app's actions that have keys, and the keys the
+// user gave them in keymap.json, as Zed keeps them: every place an
+// action's key works asks here whether it was pressed, so that a key
+// changed in the file or the settings changes it there.
 package keymap
 
 import (
@@ -15,23 +16,51 @@ import (
 	"dgopher/internal/lists"
 )
 
-// Scope is where a command's keys work.
+// Scope is a context where keys work, by the name keymap.json gives it.
 type Scope string
 
 const (
-	Global    Scope = "Anywhere"
-	Editor    Scope = "SQL editor"
-	Grid      Scope = "Results and table data"
+	Global    Scope = "Workspace"
 	Navigator Scope = "Navigator"
-	Dialog    Scope = "Dialogs"
+	Editor    Scope = "Editor"
+	Notebook  Scope = "Notebook"
+	Grid      Scope = "Grid"
+	Chat      Scope = "Chat"
+	Dialog    Scope = "Dialog"
 )
 
-// Scopes are the scopes in the order lists show them.
-var Scopes = []Scope{Global, Navigator, Editor, Grid, Dialog}
+// Scopes are the contexts in the order lists show them.
+var Scopes = []Scope{Global, Navigator, Editor, Notebook, Grid, Chat, Dialog}
 
-// overlaps reports whether keys of two scopes can be pressed in one
-// place: a scope's own, and the window's anywhere.
-func (s Scope) overlaps(o Scope) bool { return s == o || s == Global || o == Global }
+// Label names a context as the app's lists show it.
+func (s Scope) Label() string {
+	switch s {
+	case Global:
+		return "Anywhere"
+	case Editor:
+		return "SQL editor"
+	case Notebook:
+		return "Notebook cells"
+	case Grid:
+		return "Results and table data"
+	case Chat:
+		return "AI chat"
+	case Dialog:
+		return "Dialogs"
+	}
+	return string(s)
+}
+
+// contains reports whether keys bound in s work where inner's do: its
+// own, the window's anywhere, and an editor's in a notebook's cells,
+// which are editors.
+func (s Scope) contains(inner Scope) bool {
+	return s == inner || s == Global || s == Editor && inner == Notebook
+}
+
+// overlaps reports whether keys of two contexts can be pressed in one
+// place.
+func (s Scope) overlaps(o Scope) bool { return s.contains(o) || o.contains(s) }
 
 // Chord is a key with the modifiers held.
 type Chord struct {
@@ -39,38 +68,67 @@ type Chord struct {
 	Key  ui.Key
 }
 
+// Keystroke is what runs an action: a chord, or two pressed one after
+// the other, as cmd-k cmd-s. Then.Key is ui.KeyUnknown for one.
+type Keystroke struct {
+	First, Then Chord
+}
+
+// Of is a keystroke of one chord.
+func Of(mods ui.Modifiers, key ui.Key) Keystroke { return Keystroke{First: Chord{mods, key}} }
+
+// Sequence reports whether the keystroke is of two chords.
+func (k Keystroke) Sequence() bool { return k.Then.Key != ui.KeyUnknown }
+
+// Binding is a keystroke of an action, in the context it was bound in,
+// with the argument it passes, 0 for none.
+type Binding struct {
+	Keys  Keystroke
+	Scope Scope
+	Arg   int
+}
+
 // Command is something the app does on a key.
 type Command struct {
 	ID      string
 	Scope   Scope
 	Title   string
-	Default []Chord
-	written []string // the default keys as the registry writes them
+	Default []Binding
+	// TakesArg says the action reads an argument: a binding gives it as
+	// ["action", n].
+	TakesArg bool
+	// written are the default keys as the registry writes them, where cmd
+	// and ctrl differ, as they do on macOS alone.
+	written []string
 }
 
-// keyNames name the keys a chord may be of, as the settings write them.
+// keyNames name the keys a chord may be of, as keymap.json writes them.
 var keyNames = func() map[ui.Key]string {
 	names := map[ui.Key]string{
-		ui.KeyEnter: "Enter", ui.KeyEscape: "Esc", ui.KeyBackspace: "Backspace", ui.KeyTab: "Tab", ui.KeySpace: "Space",
-		ui.KeyDelete: "Delete", ui.KeyInsert: "Insert", ui.KeyHome: "Home", ui.KeyEnd: "End", ui.KeyPageUp: "PageUp",
-		ui.KeyPageDown: "PageDown", ui.KeyLeft: "Left", ui.KeyRight: "Right", ui.KeyUp: "Up", ui.KeyDown: "Down",
+		ui.KeyEnter: "enter", ui.KeyEscape: "escape", ui.KeyBackspace: "backspace", ui.KeyTab: "tab", ui.KeySpace: "space",
+		ui.KeyDelete: "delete", ui.KeyInsert: "insert", ui.KeyHome: "home", ui.KeyEnd: "end", ui.KeyPageUp: "pageup",
+		ui.KeyPageDown: "pagedown", ui.KeyLeft: "left", ui.KeyRight: "right", ui.KeyUp: "up", ui.KeyDown: "down",
 		ui.KeyMinus: "-", ui.KeyEqual: "=", ui.KeyComma: ",", ui.KeyPeriod: ".", ui.KeySlash: "/", ui.KeySemicolon: ";",
 		ui.KeyQuote: "'", ui.KeyBracketLeft: "[", ui.KeyBracketRight: "]", ui.KeyBackslash: "\\", ui.KeyBackquote: "`",
 	}
 	for i := range 12 {
-		names[ui.KeyF1+ui.Key(i)] = fmt.Sprint("F", i+1)
+		names[ui.KeyF1+ui.Key(i)] = fmt.Sprint("f", i+1)
 	}
 	for i := range 10 {
 		names[ui.Key0+ui.Key(i)] = fmt.Sprint(i)
 	}
 	for i := range 26 {
-		names[ui.KeyA+ui.Key(i)] = string(rune('A' + i))
+		names[ui.KeyA+ui.Key(i)] = string(rune('a' + i))
 	}
 	return names
 }()
 
+// keyAliases are other names keymap.json may give a key, as Zed's and
+// the settings' older ones.
+var keyAliases = map[string]ui.Key{"esc": ui.KeyEscape, "return": ui.KeyEnter, "del": ui.KeyDelete, "pgup": ui.KeyPageUp, "pgdn": ui.KeyPageDown}
+
 // Nameable reports whether a shortcut may be of a key: not a modifier
-// pressed alone, nor a key the settings have no name for.
+// pressed alone, nor a key keymap.json has no name for.
 func Nameable(k ui.Key) bool {
 	_, ok := keyNames[k]
 	return ok
@@ -78,25 +136,43 @@ func Nameable(k ui.Key) bool {
 
 // keyByName is a key by its name, in any case.
 func keyByName(name string) (ui.Key, bool) {
+	name = strings.ToLower(name)
+	if k, ok := keyAliases[name]; ok {
+		return k, true
+	}
 	for k, n := range keyNames {
-		if strings.EqualFold(n, name) {
+		if n == name {
 			return k, true
 		}
 	}
 	return ui.KeyUnknown, false
 }
 
-// modNames are the modifiers as the settings write them, Cmd first: the
+// modNames are the modifiers as keymap.json writes them, cmd first: the
 // platform's own, ⌘ on macOS and Control elsewhere, so that a key set on
-// one carries to the other.
-var modNames = []modName{{"Cmd", ui.Cmd}, {"Ctrl", ui.Ctrl}, {"Alt", ui.Alt}, {"Shift", ui.Shift}, {"Super", ui.Super}}
+// one carries to the other. The others are read too.
+var modNames = []modName{{"cmd", ui.Cmd}, {"ctrl", ui.Ctrl}, {"alt", ui.Alt}, {"shift", ui.Shift}, {"super", ui.Super}}
+
+var modAliases = map[string]ui.Modifiers{"secondary": ui.Cmd, "control": ui.Ctrl, "option": ui.Alt, "opt": ui.Alt, "win": ui.Super, "meta": ui.Super}
 
 type modName struct {
 	name string
 	mod  ui.Modifiers
 }
 
-// String writes a chord as the settings keep it, as "Cmd+Shift+F".
+func modByName(name string) (ui.Modifiers, bool) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if m, ok := modAliases[name]; ok {
+		return m, true
+	}
+	i := slices.IndexFunc(modNames, func(m modName) bool { return m.name == name })
+	if i < 0 {
+		return 0, false
+	}
+	return modNames[i].mod, true
+}
+
+// String writes a chord as keymap.json keeps it, as "cmd-shift-f".
 func (ch Chord) String() string {
 	var parts []string
 	mods := ch.Mods
@@ -106,38 +182,86 @@ func (ch Chord) String() string {
 			mods &^= m.mod
 		}
 	}
-	return strings.Join(append(parts, keyNames[ch.Key]), "+")
+	return strings.Join(append(parts, keyNames[ch.Key]), "-")
 }
 
-// ParseChord reads a chord as String writes it.
-func ParseChord(s string) (Chord, error) {
-	parts := strings.Split(s, "+")
-	var ch Chord
-	for _, p := range parts[:len(parts)-1] {
-		i := slices.IndexFunc(modNames, func(m modName) bool { return strings.EqualFold(m.name, strings.TrimSpace(p)) })
-		if i < 0 {
-			return Chord{}, fmt.Errorf("%q is no modifier key", p)
-		}
-		ch.Mods |= modNames[i].mod
+// String writes a keystroke as keymap.json keeps it, as "cmd-k cmd-s".
+func (k Keystroke) String() string {
+	if k.Sequence() {
+		return k.First.String() + " " + k.Then.String()
 	}
-	k, ok := keyByName(strings.TrimSpace(parts[len(parts)-1]))
+	return k.First.String()
+}
+
+// ParseChord reads a chord as String writes it; "+" may join its parts
+// too, as the settings once wrote them.
+func ParseChord(s string) (Chord, error) {
+	s = strings.TrimSpace(s)
+	sep := "-"
+	if strings.Contains(strings.TrimSuffix(s, "+"), "+") && !strings.Contains(s, "-") || strings.HasSuffix(s, "++") {
+		sep = "+"
+	}
+	// The key may be the separator itself, as cmd-- or "-".
+	keyName, mods := s, ""
+	switch i := strings.LastIndex(s, sep); {
+	case s == sep:
+	case strings.HasSuffix(s, sep+sep):
+		keyName, mods = sep, strings.TrimSuffix(s, sep+sep)
+	case i >= 0:
+		keyName, mods = s[i+1:], s[:i]
+	}
+	var ch Chord
+	if mods != "" {
+		for _, p := range strings.Split(mods, sep) {
+			m, ok := modByName(p)
+			if !ok {
+				return Chord{}, fmt.Errorf("%q is no modifier key", p)
+			}
+			ch.Mods |= m
+		}
+	}
+	k, ok := keyByName(strings.TrimSpace(keyName))
 	if !ok {
-		return Chord{}, fmt.Errorf("%q is no key a shortcut may be of", parts[len(parts)-1])
+		return Chord{}, fmt.Errorf("%q is no key a shortcut may be of", keyName)
 	}
 	ch.Key = k
 	return ch, nil
 }
 
+// ParseKeystroke reads a keystroke as String writes it: one chord, or two
+// apart by a space.
+func ParseKeystroke(s string) (Keystroke, error) {
+	parts := strings.Fields(s)
+	switch len(parts) {
+	case 0:
+		return Keystroke{}, errors.New("no key")
+	case 1, 2:
+	default:
+		return Keystroke{}, fmt.Errorf("%q: a shortcut is one key or two in a row", s)
+	}
+	var k Keystroke
+	var err error
+	if k.First, err = ParseChord(parts[0]); err != nil {
+		return Keystroke{}, err
+	}
+	if len(parts) == 2 {
+		if k.Then, err = ParseChord(parts[1]); err != nil {
+			return Keystroke{}, err
+		}
+	}
+	return k, nil
+}
+
 // Label writes a chord as the platform shows keys: "⌘⇧F" on macOS,
 // "Ctrl+Shift+F" elsewhere.
-func (ch Chord) Label() string {
-	key := keyNames[ch.Key]
-	if runtime.GOOS != "darwin" {
+func (ch Chord) Label() string { return ch.labelOn(runtime.GOOS == "darwin") }
+
+// labelOn writes a chord as macOS shows keys, or as the others do.
+func (ch Chord) labelOn(mac bool) string {
+	key := displayName(ch.Key)
+	if !mac {
 		var parts []string
-		for _, m := range []struct {
-			name string
-			mod  ui.Modifiers
-		}{{"Ctrl", ui.Ctrl}, {"Alt", ui.Alt}, {"Shift", ui.Shift}, {"Win", ui.Super}} {
+		for _, m := range []modName{{"Ctrl", ui.Ctrl}, {"Alt", ui.Alt}, {"Shift", ui.Shift}, {"Win", ui.Super}} {
 			if ch.Mods&m.mod != 0 {
 				parts = append(parts, m.name)
 			}
@@ -145,12 +269,9 @@ func (ch Chord) Label() string {
 		return strings.Join(append(parts, key), "+")
 	}
 	var b strings.Builder
-	for _, m := range []struct {
-		sym string
-		mod ui.Modifiers
-	}{{"⌃", ui.Ctrl}, {"⌥", ui.Alt}, {"⇧", ui.Shift}, {"⌘", ui.Super}} {
+	for _, m := range []modName{{"⌃", ui.Ctrl}, {"⌥", ui.Alt}, {"⇧", ui.Shift}, {"⌘", ui.Super}} {
 		if ch.Mods&m.mod != 0 {
-			b.WriteString(m.sym)
+			b.WriteString(m.name)
 		}
 	}
 	switch ch.Key {
@@ -168,6 +289,32 @@ func (ch Chord) Label() string {
 	return b.String() + key
 }
 
+// displayName is a key's name as labels show it: "Enter", "F5", "A".
+func displayName(k ui.Key) string {
+	switch k {
+	case ui.KeyEscape:
+		return "Esc"
+	case ui.KeyPageUp:
+		return "PageUp"
+	case ui.KeyPageDown:
+		return "PageDown"
+	}
+	n := keyNames[k]
+	if n == "" {
+		return "?"
+	}
+	return strings.ToUpper(n[:1]) + n[1:]
+}
+
+// Label writes a keystroke as the platform shows keys, its two chords
+// apart by a space.
+func (k Keystroke) Label() string {
+	if k.Sequence() {
+		return k.First.Label() + " " + k.Then.Label()
+	}
+	return k.First.Label()
+}
+
 // Accelerator writes a chord as a native menu takes it.
 func (ch Chord) Accelerator() string {
 	var parts []string
@@ -175,125 +322,84 @@ func (ch Chord) Accelerator() string {
 	if mods&ui.Cmd != 0 {
 		parts, mods = append(parts, "CmdOrCtrl"), mods&^ui.Cmd
 	}
-	for _, m := range []struct {
-		name string
-		mod  ui.Modifiers
-	}{{"Ctrl", ui.Ctrl}, {"Alt", ui.Alt}, {"Shift", ui.Shift}, {"Super", ui.Super}} {
+	for _, m := range []modName{{"Ctrl", ui.Ctrl}, {"Alt", ui.Alt}, {"Shift", ui.Shift}, {"Super", ui.Super}} {
 		if mods&m.mod != 0 {
 			parts = append(parts, m.name)
 		}
 	}
 	key := keyNames[ch.Key]
-	if len(key) == 1 {
-		key = strings.ToLower(key)
+	if len(key) > 1 {
+		key = displayName(ch.Key)
 	}
 	return strings.Join(append(parts, key), "+")
 }
 
-// keys are the user's keys of the commands they changed, by command;
-// none for a command they took every key from.
-var keys = map[string][]Chord{}
+// Bindings are an action's keys as they are now: those of its own the
+// user kept, then those the user gave it.
+func Bindings(id string) []Binding { return current.byCommand[id] }
 
-// Use sets the user's keys, as the settings keep them: the keys of the
-// commands changed, by command. A key that does not read is reported,
-// and left out.
-func Use(set map[string][]string) []error {
-	next := map[string][]Chord{}
-	var errs []error
-	for id, chords := range set {
-		if _, ok := Lookup(id); !ok {
-			errs = append(errs, fmt.Errorf("%q is no command with keys", id))
-			continue
-		}
-		read := []Chord{}
-		for _, s := range chords {
-			ch, err := ParseChord(s)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("%s: %w", id, err))
-				continue
-			}
-			read = append(read, ch)
-		}
-		// None read of keys given, the command keeps its own.
-		if len(read) > 0 || len(chords) == 0 {
-			next[id] = read
-		}
-	}
-	keys = next
-	return errs
-}
-
-// Chords are a command's keys: the user's, else its own.
-func Chords(id string) []Chord {
-	if chords, ok := keys[id]; ok {
-		return chords
-	}
-	cmd, _ := Lookup(id)
-	return cmd.Default
-}
-
-// Changed reports whether the user changed a command's keys.
+// Changed reports whether the user changed an action's keys.
 func Changed(id string) bool {
-	_, ok := keys[id]
-	return ok
-}
-
-// Primary is the key a menu shows for a command, its first.
-func Primary(id string) (Chord, bool) {
-	chords := Chords(id)
-	if len(chords) == 0 {
-		return Chord{}, false
-	}
-	return chords[0], true
-}
-
-// Label is a command's keys as the platform shows them, "" for none.
-func Label(id string) string {
-	return strings.Join(lists.Map(Chords(id), Chord.Label), "  or  ")
-}
-
-// Written are a command's keys as the settings keep them: one of its own
-// as the registry writes it, as Ctrl+Tab, which on Linux, where Ctrl and
-// Cmd are one key, would otherwise read Cmd+Tab and be ⌘Tab on macOS.
-func Written(id string, chords []Chord) []string {
 	cmd, _ := Lookup(id)
-	out := []string{}
-	for _, ch := range chords {
-		if i := slices.Index(cmd.Default, ch); i >= 0 {
-			out = append(out, cmd.written[i])
-		} else {
-			out = append(out, ch.String())
+	return !sameBindings(Bindings(id), cmd.Default)
+}
+
+// Primary is the key a menu shows for an action: its first of one chord
+// without an argument, which a native menu can take.
+func Primary(id string) (Chord, bool) {
+	for _, b := range Bindings(id) {
+		if !b.Keys.Sequence() && b.Arg == 0 {
+			return b.Keys.First, true
 		}
 	}
-	return out
+	return Chord{}, false
 }
 
-// SameKeys reports whether two lists hold the same keys, in any order.
-func SameKeys(a, b []Chord) bool {
-	return len(a) == len(b) && !slices.ContainsFunc(a, func(ch Chord) bool { return !slices.Contains(b, ch) })
+// Label is an action's keys as the platform shows them, "" for none.
+func Label(id string) string {
+	return strings.Join(lists.Map(Bindings(id), func(b Binding) string { return b.Keys.Label() }), "  or  ")
 }
 
-// reserved are keys that are no command's, in the scopes they are the
-// window's or a list's own: the tabs' ⌘1 … ⌘9, which a grid with the
-// keys takes for itself, and the grid's F2.
-var reserved = func() []reservedKey {
-	out := []reservedKey{{[]Scope{Grid}, Chord{0, ui.KeyF2}}}
-	for i := range 9 {
-		out = append(out, reservedKey{[]Scope{Global, Navigator, Editor}, Chord{ui.Cmd, ui.Key1 + ui.Key(i)}})
+// First is an action's first key as the platform shows it, "" for none.
+func First(id string) string {
+	if bs := Bindings(id); len(bs) > 0 {
+		return bs[0].Keys.Label()
 	}
-	return out
-}()
+	return ""
+}
+
+// Hint is a tooltip or a label with an action's first key after it, as
+// "Format SQL (⌘⇧F)"; the text alone for an action without keys.
+func Hint(text, id string) string {
+	if k := First(id); k != "" {
+		return text + " (" + k + ")"
+	}
+	return text
+}
+
+// sameBindings reports whether two lists hold the same keys, in any
+// order.
+func sameBindings(a, b []Binding) bool {
+	key := func(b Binding) Binding { b.Scope = ""; return b }
+	return len(a) == len(b) && !slices.ContainsFunc(a, func(x Binding) bool {
+		return !slices.ContainsFunc(b, func(y Binding) bool { return key(x) == key(y) })
+	})
+}
+
+// reserved are keys that are no action's, in the contexts where they are
+// a widget's own: the grid's F2.
+var reserved = []reservedKey{{[]Scope{Grid}, Chord{0, ui.KeyF2}}}
 
 type reservedKey struct {
 	scopes []Scope
 	chord  Chord
 }
 
-// Allowed says why a key cannot be a command's, nil when it can: a key
-// that types needs a modifier but Shift, one that moves or edits in a
-// list or a form any modifier, and a key that is another command's, or
-// the window's own, where both work is refused.
-func Allowed(id string, ch Chord) error {
+// typesOrMoves says why a chord cannot start or end a shortcut, nil when
+// it can: a key that types needs a modifier but Shift, as it would type
+// as well, and one that moves or edits in a list or a form any modifier,
+// but as the second of two.
+func typesOrMoves(ch Chord, first bool) error {
 	if !Nameable(ch.Key) {
 		return errors.New("that key cannot be a shortcut")
 	}
@@ -304,78 +410,80 @@ func Allowed(id string, ch Chord) error {
 		if ch.Mods&^ui.Shift == 0 {
 			return fmt.Errorf("%s types: add ⌘, Ctrl or Alt", ch.Label())
 		}
-	case ch.Mods == 0:
+	case ch.Mods == 0 && first:
+		// The second of two keys may move or edit: the window takes it,
+		// as the first was pressed, before the focus does.
 		return fmt.Errorf("%s moves or edits in lists and forms: add a modifier", ch.Label())
-	}
-	cmd, _ := Lookup(id)
-	for _, r := range reserved {
-		if r.chord == ch && slices.Contains(r.scopes, cmd.Scope) {
-			return fmt.Errorf("%s is the app's own, there", ch.Label())
-		}
-	}
-	if other, ok := Conflict(id, ch); ok {
-		return fmt.Errorf("%s is the key of “%s” (%s): remove it there first", ch.Label(), other.Title, other.Scope)
 	}
 	return nil
 }
 
-// LaterPressed reports whether a key of the command but its first was
-// pressed: the menu bar takes the first.
-func LaterPressed(c *ui.Context, id string) bool {
-	chords := Chords(id)
-	for _, ch := range chords[min(1, len(chords)):] {
-		if c.Shortcut(ch.Mods, ch.Key) {
-			return true
+// Allowed says why a keystroke cannot be an action's, nil when it can: a
+// first key that types or moves alone, a key that is another action's
+// where both work, the first of another's two keys, or a widget's own.
+func Allowed(id string, k Keystroke) error {
+	if err := typesOrMoves(k.First, true); err != nil {
+		return err
+	}
+	if k.Sequence() {
+		if err := typesOrMoves(k.Then, false); err != nil {
+			return err
 		}
 	}
-	return false
-}
-
-// First is a command's first key as the platform shows it, "" for none.
-func First(id string) string {
-	if ch, ok := Primary(id); ok {
-		return ch.Label()
-	}
-	return ""
-}
-
-// Hint is a tooltip or a label with a command's first key after it, as
-// "Format SQL (⌘⇧F)"; the text alone for a command without keys.
-func Hint(text, id string) string {
-	if k := First(id); k != "" {
-		return text + " (" + k + ")"
-	}
-	return text
-}
-
-// Pressed reports whether a key of the command was pressed, as
-// c.Shortcut does for one.
-func Pressed(c *ui.Context, id string) bool {
-	for _, ch := range Chords(id) {
-		if c.Shortcut(ch.Mods, ch.Key) {
-			return true
+	cmd, _ := Lookup(id)
+	for _, r := range reserved {
+		if !k.Sequence() && r.chord == k.First && slices.Contains(r.scopes, cmd.Scope) {
+			return fmt.Errorf("%s is the app's own, there", k.Label())
 		}
 	}
-	return false
+	if other, ok := Conflict(id, k); ok {
+		return fmt.Errorf("%s is the key of “%s” (%s): remove it there first", k.Label(), other.Title, other.Scope.Label())
+	}
+	if other, ok := prefixConflict(id, k); ok {
+		if k.Sequence() {
+			return fmt.Errorf("%s alone is the key of “%s” (%s): it cannot begin two keys", k.First.Label(), other.Title, other.Scope.Label())
+		}
+		return fmt.Errorf("%s begins a key of “%s” (%s)", k.Label(), other.Title, other.Scope.Label())
+	}
+	return nil
 }
 
-// ListPressed reports whether a key of the command was pressed in a
-// list, as its Shortcut does for one.
-func ListPressed(c *ui.Context, l *ui.ListState, id string) bool {
-	for _, ch := range Chords(id) {
-		if l.Shortcut(c, ch.Mods, ch.Key) {
-			return true
+// Conflict is the action of a context overlapping id's that already has
+// keystroke k, other than id.
+func Conflict(id string, k Keystroke) (Command, bool) {
+	cmd, _ := Lookup(id)
+	for s, bound := range current.bound {
+		if !s.overlaps(cmd.Scope) {
+			continue
+		}
+		if e, ok := bound[k]; ok && e.id != id {
+			other, _ := Lookup(e.id)
+			return other, true
 		}
 	}
-	return false
+	return Command{}, false
 }
 
-// Is reports whether a key pressed is one of the command's.
-func Is(id string, mods ui.Modifiers, key ui.Key) bool {
-	return slices.Contains(Chords(id), Chord{mods, key})
+// prefixConflict is an action of an overlapping context whose one key is
+// the first of k's two, or whose two begin with k alone.
+func prefixConflict(id string, k Keystroke) (Command, bool) {
+	// In any context: Dispatch claims the first key of a keystroke of two
+	// wherever the focus is (sequenceFrom).
+	for _, bound := range current.bound {
+		for other, e := range bound {
+			if e.id == id {
+				continue
+			}
+			if k.Sequence() != other.Sequence() && other.First == k.First {
+				c, _ := Lookup(e.id)
+				return c, true
+			}
+		}
+	}
+	return Command{}, false
 }
 
-// Item gives a menu item the command's first key.
+// Item gives a menu item the action's first key.
 func Item[T shortcutter[T]](it T, id string) T {
 	if ch, ok := Primary(id); ok {
 		it.Shortcut(ch.Mods, ch.Key)
@@ -389,19 +497,7 @@ type shortcutter[T any] interface {
 	Shortcut(mods ui.Modifiers, key ui.Key) T
 }
 
-// Conflict is the command of a scope that one of the scopes overlap a
-// chord already belongs to, other than id.
-func Conflict(id string, ch Chord) (Command, bool) {
-	cmd, _ := Lookup(id)
-	for _, other := range Commands {
-		if other.ID != id && cmd.Scope.overlaps(other.Scope) && slices.Contains(Chords(other.ID), ch) {
-			return other, true
-		}
-	}
-	return Command{}, false
-}
-
-// commandIndex maps a command's ID to its index in Commands.
+// commandIndex maps an action's ID to its index in Commands.
 var commandIndex = func() map[string]int {
 	m := make(map[string]int, len(Commands))
 	for i, c := range Commands {
@@ -412,7 +508,7 @@ var commandIndex = func() map[string]int {
 	return m
 }()
 
-// Lookup is a command by its ID.
+// Lookup is an action by its ID.
 func Lookup(id string) (Command, bool) {
 	i, ok := commandIndex[id]
 	if !ok {

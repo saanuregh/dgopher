@@ -13,6 +13,7 @@ require (
 	github.com/otan/gopgkrb5 v1.0.6
 	github.com/pierrec/lz4/v4 v4.1.27
 	github.com/redis/rueidis v1.0.78
+	github.com/saanuregh/agent-cli-connector v0.1.0
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/crypto v0.57.0
 	modernc.org/sqlite v1.60.1

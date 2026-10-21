@@ -18,6 +18,7 @@ import (
 	"dgopher/internal/ui/dashboard"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/modelview"
+	"dgopher/internal/ui/panes"
 	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/widgets"
 
@@ -36,6 +37,16 @@ type savedEditor struct {
 	// until the user chooses between the two.
 	Unsaved string `json:"unsaved,omitempty"`
 	Pinned  bool   `json:"pinned,omitempty"`
+	// Chat is the editor's AI chat, nil for none.
+	Chat *savedChat `json:"chat,omitempty"`
+}
+
+// savedChat is an editor's AI chat: its agent, the agent's session to
+// continue ("" before it started), and whether it showed.
+type savedChat struct {
+	Provider string `json:"provider"`
+	Session  string `json:"session,omitempty"`
+	Open     bool   `json:"open,omitempty"`
 }
 
 type savedWorkspace struct {
@@ -57,6 +68,14 @@ type savedWorkspace struct {
 	// Front is the tab in front, as in Order; "" when it was none of the
 	// project's. Active stays, for an older DGopher.
 	Front string `json:"front,omitempty"`
+	// Panes are the main window's groups, nil for one; Groups is each tab
+	// of Order's group there, by its place among them, GroupFronts the
+	// tabs in front of the groups, as in Order, and Focused the place of
+	// the group the keys went to.
+	Panes       *panes.Saved `json:"panes,omitempty"`
+	Groups      []int        `json:"groups,omitempty"`
+	GroupFronts []string     `json:"groupFronts,omitempty"`
+	Focused     int          `json:"focused,omitempty"`
 }
 
 const workspaceFile = "workspace.json"
@@ -79,8 +98,11 @@ func (a *App) workspaceOf(p *project.Project) savedWorkspace {
 			if win == a.main && t == a.main.ActiveTab() {
 				w.Active = len(w.Editors)
 			}
-			e := savedEditor{Connection: strings.TrimPrefix(t.Conn.Config.ID, p.Prefix), Database: t.Database, Path: p.StoredPath(t.Path), Pinned: win.tabs.Pinned(t)}
-			if text := t.Editor.FileText(); t.DiskConflict != "" && text != t.Saved {
+			e := savedEditor{Connection: strings.TrimPrefix(t.Conn.Config.ID, p.Prefix), Database: t.Database, Path: p.StoredPath(t.Path), Pinned: win.pinned(t)}
+			if provider, session, open := t.ChatState(); provider != "" {
+				e.Chat = &savedChat{Provider: provider, Session: session, Open: open}
+			}
+			if text := t.FileText(); t.DiskConflict != "" && text != t.Saved {
 				e.Unsaved = text
 			}
 			ref = tabRef("editors", len(w.Editors))
@@ -103,7 +125,7 @@ func (a *App) workspaceOf(p *project.Project) savedWorkspace {
 				continue
 			}
 			s.Connection = strings.TrimPrefix(s.Connection, p.Prefix)
-			s.Pinned = win.tabs.Pinned(t)
+			s.Pinned = win.pinned(t)
 			ref = tabRef("tabs", len(w.Tabs))
 			w.Tabs = append(w.Tabs, s)
 		}
@@ -111,6 +133,21 @@ func (a *App) workspaceOf(p *project.Project) savedWorkspace {
 		if win == a.main && t == a.main.ActiveTab() {
 			w.Front = ref
 		}
+		group := 0
+		if win == a.main {
+			g := a.main.panes.GroupOf(t)
+			group = a.main.panes.Index(g)
+			if g.Tabs.Active() == t {
+				w.GroupFronts = append(w.GroupFronts, ref)
+			}
+		}
+		w.Groups = append(w.Groups, group)
+	}
+	if a.main.panes.Len() > 1 {
+		w.Panes = a.main.panes.Save()
+		w.Focused = a.main.panes.Index(a.main.panes.Focused())
+	} else {
+		w.Groups, w.GroupFronts = nil, nil
 	}
 	return w
 }
@@ -159,10 +196,11 @@ func (a *App) restoreWorkspace(p *project.Project) {
 		ref    string
 		tab    widgets.Tab
 		pinned bool
+		group  int
 	}
 	var tabs []restored
 	keep := func(list string, i int, t widgets.Tab, pinned bool) {
-		tabs = append(tabs, restored{tabRef(list, i), t, pinned})
+		tabs = append(tabs, restored{ref: tabRef(list, i), tab: t, pinned: pinned})
 	}
 	// The workspace may come from a clone: only the project's own files
 	// come back, never one outside it or under its .git or .dgopher.
@@ -198,6 +236,9 @@ func (a *App) restoreWorkspace(p *project.Project) {
 			if err != nil {
 				q.DiskConflict = "was deleted on disk"
 			}
+		}
+		if c := e.Chat; c != nil {
+			q.RestoreChat(c.Provider, c.Session, c.Open)
 		}
 		keep("editors", i, q, e.Pinned)
 	}
@@ -242,15 +283,32 @@ func (a *App) restoreWorkspace(p *project.Project) {
 		return len(w.Order)
 	}
 	slices.SortStableFunc(tabs, func(x, y restored) int { return place(x.ref) - place(y.ref) })
-	for _, r := range tabs {
-		a.main.tabs.Append(r.tab)
-		if r.pinned {
-			a.main.tabs.SetPinned(r.tab, true)
-		}
-		if r.ref == front {
-			a.main.tabs.Select(r.tab)
+	// The groups come back with the first project's tabs, into a main
+	// window holding none yet.
+	if w.Panes != nil && a.main.panes.Len() == 1 && a.main.tabCount() == 0 {
+		a.main.panes = panes.Restore(w.Panes)
+	}
+	groups := a.main.panes.Groups()
+	for i := range tabs {
+		if at := place(tabs[i].ref); at < len(w.Groups) {
+			tabs[i].group = max(0, min(w.Groups[at], len(groups)-1))
 		}
 	}
+	for _, r := range tabs {
+		l := &groups[r.group].Tabs
+		l.Append(r.tab)
+		if r.pinned {
+			l.SetPinned(r.tab, true)
+		}
+		if r.ref == front || slices.Contains(w.GroupFronts, r.ref) {
+			l.Select(r.tab)
+		}
+	}
+	if w.Panes != nil && w.Focused >= 0 && w.Focused < len(groups) {
+		a.main.panes.Focus(groups[w.Focused])
+	}
+	// A group whose tabs did not come back goes as it is drawn
+	// (groupView): another project's tabs may come to it first.
 }
 
 // openSQLFile opens a file of SQL in an editor of a connection.
@@ -282,7 +340,7 @@ func (a *App) openSQLFile(cn *connection.Conn) {
 // SaveSQLFile writes an editor's SQL to its file, asking for one first
 // when it has none or saveAs is set.
 func (a *App) SaveSQLFile(q *query.Tab, saveAs bool) {
-	text := q.Editor.FileText()
+	text := q.FileText()
 	write := func(path string) {
 		err := os.WriteFile(path, []byte(text), 0o600)
 		a.Post(func() {

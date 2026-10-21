@@ -552,6 +552,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 	colorField(c, f)
 	ui.Field(c, "Safety", func() {
 		ui.Checkbox(c, &f.cfg.ReadOnly, "Read-only: refuse every write (the server enforces it too)")
+		ui.Checkbox(c, &f.cfg.NoRowsToChat, "No rows to the AI chat: its agent reads the schema and writes SQL, but sees no data")
 	})
 	ui.Field(c, "Project", func() {
 		if f.editing != nil {

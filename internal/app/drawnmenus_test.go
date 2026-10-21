@@ -17,7 +17,7 @@ func TestSidebarMenuItemClicked(t *testing.T) {
 	p, _ := a.addProject(newProjectDir(t, "acme"))
 	tt := ui.NewTester(a.view, 1200, 760)
 	a.openSampleIn(p)
-	testutil.WaitFor(t, tt, "the sample", func() bool { return a.tabs.Len() == 1 })
+	testutil.WaitFor(t, tt, "the sample", func() bool { return a.tabs().Len() == 1 })
 	tt.Advance(time.Second)
 	tt.Frame()
 	if err := tt.RightClick("customers"); err != nil {
@@ -27,12 +27,12 @@ func TestSidebarMenuItemClicked(t *testing.T) {
 	if !tt.HasText("View DDL") {
 		t.Fatalf("no menu: %q", tt.Texts())
 	}
-	before := a.tabs.Len()
+	before := a.tabs().Len()
 	if err := tt.Click("View DDL"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if a.tabs.Len() != before+1 || tt.HasText("Copy to Another Database…") {
-		t.Fatalf("View DDL: tabs %d -> %d, the menu still shown %v", before, a.tabs.Len(), tt.HasText("Copy to Another Database…"))
+	if a.tabs().Len() != before+1 || tt.HasText("Copy to Another Database…") {
+		t.Fatalf("View DDL: tabs %d -> %d, the menu still shown %v", before, a.tabs().Len(), tt.HasText("Copy to Another Database…"))
 	}
 }

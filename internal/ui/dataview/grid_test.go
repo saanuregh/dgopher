@@ -447,10 +447,10 @@ func TestGridShortcuts(t *testing.T) {
 	if g.SelRow != 1 {
 		t.Fatalf("⌘↓: row %d", g.SelRow)
 	}
-	tt.Key(ui.Cmd, ui.Key2)
+	tt.Key(ui.Cmd|ui.Alt, ui.KeyS)
 	tt.Frame()
 	if !slices.Equal(g.sort, []ui.SortOrder{{Column: colID(g.selCol)}}) {
-		t.Fatalf("⌘2: %+v", g.sort)
+		t.Fatalf("⌘⌥S: %+v", g.sort)
 	}
 	tt.Key(ui.Cmd, ui.KeyD) // the value of the row above
 	tt.Frame()

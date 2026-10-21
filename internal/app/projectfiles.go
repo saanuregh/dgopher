@@ -128,7 +128,7 @@ func (a *App) askDeleteFile(path, what, name string, after func()) {
 	}
 	a.closing = &closeRequest{open: true, title: "Delete " + name + "?", reason: reason, action: "Delete", onClose: func() {
 		if tab != nil {
-			if _, _, ok := a.removeTab(tab); ok {
+			if _, _, _, ok := a.removeTab(tab); ok {
 				tab.Close() // which may save it first: it goes after
 			}
 		}

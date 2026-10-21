@@ -124,9 +124,15 @@ type Tab struct {
 	paramKeys      []string
 	paramsBarState paramsBarState
 
-	Editor        editor.Editor
+	// Editor is the editor the keys go to: the script's, or in the
+	// notebook view the focused cell's. script holds the file's text, in
+	// either view (FileText).
+	Editor        *editor.Editor
+	script        *editor.Editor
 	editorPercent float32
-	ac            completion
+	// nb is the notebook view, nil for the script.
+	nb *notebook
+	ac completion
 	// snippet is the fields of a snippet being filled in, nil for none.
 	snippet *snippetSession
 	// schema is the schema the session finds names in, as last read,
@@ -180,38 +186,86 @@ type Tab struct {
 	// hoverAsked is set while the card key asks for one.
 	lexedText lexedText
 	lastLink  linkAsked
+	// chat is the editor's AI chat; chartAsk the chart it asked for on
+	// the next run's rows.
+	chat     editorChat
+	chartAsk *chartAsk
+	// flash tints a moment the lines where the chat's SQL landed: lines
+	// landedLines of the editor landedIn, the script's or a cell's.
+	flash       widgets.Flash
+	landedIn    *editor.Editor
+	landedLines [2]int
+	// chartRun is set while ChartSQL starts the chart's run.
+	chartRun bool
 }
 
 // key reports whether mods+key was pressed for this editor: while its
 // tab takes the shortcuts.
 func (q *Tab) key(c *ui.Context, mods ui.Modifiers, key ui.Key) bool {
-	return q.a.KeysTo(q) && c.Shortcut(mods, key)
+	return q.a.KeysTo(q) && !q.chat.focused && c.Shortcut(mods, key)
 }
 
 // pressed reports whether a key of a command was pressed, the keys going
 // to the tab.
 func (q *Tab) pressed(c *ui.Context, id string) bool {
-	return q.a.KeysTo(q) && keymap.Pressed(c, id)
+	return q.a.KeysTo(q) && (!q.chat.focused || id == keymap.Save) && keymap.Pressed(c, id)
 }
 
 func New(a Host, cn *connection.Conn, database, name, text string) *Tab {
 	q := &Tab{a: a, Conn: cn, Database: database, Name: name, editorPercent: a.Layout().EditorPercent}
-	q.Editor.State.Buffer = code.NewBuffer(text)
-	q.Editor.Dialect = safety.Dialect(cn.Config.Engine)
-	q.Editor.SplitOptions = SplitOptions(a.Settings())
+	q.script = q.newEditor(text)
+	q.Editor = q.script
 	q.Editor.WantFocus = true
-	q.Editor.KeyHook = q.snippetKey
-	q.Editor.State.OnCompletion = q.complete
-	q.Editor.State.OnAcceptCompletion = q.acceptCompletion
-	q.Editor.State.ContextMenu = q.editorMenu
-	q.Editor.State.OnHover = q.hover
-	q.Editor.State.LinkAt = q.linkAt
-	q.Editor.State.OnLink = q.openLink
 	if text != "" {
 		n := len(q.Editor.Text())
 		q.Editor.Select(n, n)
 	}
+	if project.HeaderView(text) == project.NotebookView {
+		q.ToggleNotebook() // as the file's header asks
+	}
 	return q
+}
+
+// newEditor is an editor of text with the tab's completion, cards, links
+// and menu, which act on the editor the keys go to: the script's, or a
+// notebook's focused cell's.
+func (q *Tab) newEditor(text string) *editor.Editor {
+	e := editor.New(text, safety.Dialect(q.Conn.Config.Engine))
+	e.SplitOptions = SplitOptions(q.a.Settings())
+	e.KeyHook = q.snippetKey
+	e.State.OnCompletion = q.complete
+	e.State.OnAcceptCompletion = q.acceptCompletion
+	e.State.ContextMenu = q.editorMenu
+	e.State.OnHover = q.hover
+	e.State.LinkAt = q.linkAt
+	e.State.OnLink = q.openLink
+	return e
+}
+
+// Text is the editor's text, its lines ending in \n: the script's, which
+// in the notebook view the cells are joined into.
+func (q *Tab) Text() string { return q.script.Text() }
+
+// FileText is the text of the editor's file, with its line endings: the
+// script's, which in the notebook view the cells are joined into.
+func (q *Tab) FileText() string { return q.script.FileText() }
+
+// setFileText puts the text of the file, as read, in place of the
+// editor's: in the notebook view, its cells are read from it again.
+func (q *Tab) setFileText(text string) {
+	q.script.SetFileText(text)
+	if q.nb != nil {
+		q.nb.readAgain(q)
+	}
+}
+
+// SetText puts text in place of the editor's, as a change the user can
+// undo: in the notebook view, its cells are read from it again.
+func (q *Tab) SetText(text string) {
+	q.script.ChangeTo(text)
+	if q.nb != nil {
+		q.nb.readAgain(q)
+	}
 }
 
 func (q *Tab) Title() string { return q.Name }
@@ -230,7 +284,7 @@ func (q *Tab) Shown() {
 
 // Unsaved reports text of the editor its file does not hold yet: typed
 // in the last second, or not written for a conflict.
-func (q *Tab) Unsaved() bool { return q.Path != "" && q.Editor.FileText() != q.Saved }
+func (q *Tab) Unsaved() bool { return q.Path != "" && q.FileText() != q.Saved }
 
 func (q *Tab) CloseReason() string {
 	switch {
@@ -240,6 +294,8 @@ func (q *Tab) CloseReason() string {
 		return "A statement is still running. Closing the editor cancels it."
 	case q.exports > 0:
 		return "An export is reading on this editor's session. Closing the editor stops it."
+	case q.chat.Chat != nil:
+		return q.chat.CloseReason()
 	}
 	return ""
 }
@@ -248,7 +304,7 @@ func (q *Tab) CloseReason() string {
 // transaction.
 func (q *Tab) Mark() string {
 	switch {
-	case q.Path != "" && q.DiskConflict != "" && q.Editor.FileText() != q.Saved:
+	case q.Path != "" && q.DiskConflict != "" && q.FileText() != q.Saved:
 		return q.Name + " " + q.DiskConflict + ". Closing the editor leaves the file as it is on disk, losing the editor's text."
 	case q.pendingCount() > 0:
 		return fmt.Sprintf("%s to %s in the results not applied. Closing discards them.", widgets.Count(q.pendingCount(), "change"), q.pendingTable())
@@ -264,10 +320,13 @@ func (q *Tab) Mark() string {
 // thread, and what may block runs on another goroutine.
 func (q *Tab) Close() {
 	q.closed = true
+	if q.chat.Chat != nil {
+		q.chat.Close()
+	}
 	q.stopWatch()
 	q.Flush(false)
 	q.keepParamEdits()
-	if q.Created != "" && q.DiskConflict == "" && q.Saved == q.Created && q.Editor.FileText() == q.Created {
+	if q.Created != "" && q.DiskConflict == "" && q.Saved == q.Created && q.FileText() == q.Created {
 		// Only what the app wrote goes: someone may have written there since.
 		if disk, err := os.ReadFile(q.Path); err == nil && string(disk) == q.Created && os.Remove(q.Path) == nil {
 			q.a.ScanQueries(q.Conn.Project, true)
@@ -276,12 +335,7 @@ func (q *Tab) Close() {
 	if q.Tx != db.TxNone {
 		q.a.Record(&q.Conn.Config, audit.Event{Kind: audit.KindStatement, Database: q.Database, Statement: "ROLLBACK", Detail: "the tab closed with its transaction open"})
 	}
-	var closers []func()
-	for _, r := range q.results {
-		if r.view != nil {
-			closers = append(closers, r.view.Release())
-		}
-	}
+	closers := releaseResults(q.allResults())
 	cancel, sess := q.cancel, q.sess
 	go func() {
 		defer dataview.RecoverBackground(q.a.Post, q.a.ShowError, nil)
@@ -298,7 +352,7 @@ func (q *Tab) Close() {
 // pendingCount counts the changes of the results not applied yet.
 func (q *Tab) pendingCount() int {
 	n := 0
-	for _, r := range q.results {
+	for _, r := range q.allResults() {
 		if r.view != nil {
 			n += r.view.PendingCount()
 		}
@@ -308,8 +362,9 @@ func (q *Tab) pendingCount() int {
 
 // pendingTable names the table of the first result with changes pending.
 func (q *Tab) pendingTable() string {
-	if i := slices.IndexFunc(q.results, hasPending); i >= 0 {
-		return q.results[i].view.TableName()
+	all := q.allResults()
+	if i := slices.IndexFunc(all, hasPending); i >= 0 {
+		return all[i].view.TableName()
 	}
 	return ""
 }
@@ -350,7 +405,7 @@ func (q *Tab) sessionBusy(self *result) string {
 	case q.exports > 0:
 		return "An export is reading on the editor's session."
 	}
-	for _, r := range q.results {
+	for _, r := range q.allResults() {
 		if r != self && r.view != nil && r.view.Busy() {
 			return "Another result is being read, or its changes applied."
 		}
@@ -361,7 +416,7 @@ func (q *Tab) sessionBusy(self *result) string {
 // cursorOpen says which result still reads its rows, which a statement on
 // the session would end; "" when none does.
 func (q *Tab) cursorOpen() string {
-	for i, r := range q.results {
+	for i, r := range q.allResults() {
 		if r.view != nil && r.view.HoldsCursor() {
 			return fmt.Sprintf("result %d is still reading its rows: Fetch All first, or run the next statement.", i+1)
 		}
@@ -371,7 +426,7 @@ func (q *Tab) cursorOpen() string {
 
 // resultsBusy reports a result reading or applying on the session.
 func (q *Tab) resultsBusy() bool {
-	for _, r := range q.results {
+	for _, r := range q.allResults() {
 		if r.view != nil && r.view.Busy() {
 			return true
 		}
@@ -382,8 +437,9 @@ func (q *Tab) resultsBusy() bool {
 // save applies the changes pending in results, reviewed one result after
 // the other, then saves the file, as DBeaver's ⌘S does in an editor.
 func (q *Tab) save() {
-	if i := slices.IndexFunc(q.results, hasPending); i >= 0 {
-		q.results[i].view.Review(q.save)
+	all := q.allResults()
+	if i := slices.IndexFunc(all, hasPending); i >= 0 {
+		all[i].view.Review(q.save)
 		return
 	}
 	q.a.SaveSQLFile(q, false)
@@ -486,7 +542,7 @@ func (q *Tab) analyzeRefusal() string {
 // namedConnection is the connection the file's header names, "" for
 // none.
 func (q *Tab) namedConnection() string {
-	if text := q.Editor.Text(); text != q.namedText {
+	if text := q.script.Text(); text != q.namedText {
 		q.named, q.namedText = project.HeaderConnection(text), text
 	}
 	return q.named
@@ -511,13 +567,22 @@ func (q *Tab) namesAnother() (id string, exists bool) {
 // another connection than the editor's: a file runs only on the one it
 // names, as the next person to open it would run it.
 func (q *Tab) refuseAnotherConnection() bool {
+	why := q.anotherConnection()
+	if why != "" {
+		q.a.ShowError("Not run", why)
+	}
+	return why != ""
+}
+
+// anotherConnection says why the file runs nothing here: it names
+// another connection; "" when it does not.
+func (q *Tab) anotherConnection() string {
 	id, _ := q.namesAnother()
 	if id == "" {
-		return false
+		return ""
 	}
-	q.a.ShowError("Not run", fmt.Sprintf("%s names the connection %s on its first lines, and this editor is on %s. A file runs only on the connection it names: switch the editor to %s, or change the line.",
-		q.Name, id, q.connID(), id))
-	return true
+	return fmt.Sprintf("%s names the connection %s on its first lines, and this editor is on %s. A file runs only on the connection it names: switch the editor to %s, or change the line.",
+		q.Name, id, q.connID(), id)
 }
 
 // statementLines are the first lines of the text's statements, which
@@ -618,12 +683,48 @@ func (q *Tab) runLine(line int) {
 // the results it replaces have no changes pending.
 func (q *Tab) Run(mode RunMode) {
 	if q.Running || q.refuseWhileResultsWork() || q.refuseAnotherConnection() {
-		return
+		return // a chart's run going on stays the chart's
+	}
+	if !q.chartRun {
+		// A run of the user's own: a chart the chat asked for whose run
+		// never started (a form cancelled, a run refused) goes, lest this
+		// one be taken for it, audited as the app's and its rows sent.
+		q.chartSkipped()
+	}
+	var cl *cell
+	if nb := q.nb; nb != nil {
+		// A notebook runs the focused cell's SQL, into its results; a run
+		// the user starts ends what Run All had left.
+		cl = nb.focused
+		if cl == nil || cl.markdown {
+			return
+		}
+		if !nb.fromQueue {
+			nb.queue = nil
+		}
+		nb.fromQueue = false
 	}
 	if q.Conn.Status != connection.StatusConnected {
-		// A connection without auto-connect opens here; the run resumes once it is open.
-		q.a.Connect(q.Conn, func() { q.Run(mode) })
+		// A connection without auto-connect opens here; the run resumes
+		// once it is open, in the cell it was asked in.
+		chart := q.chartRun // the chart's run, once connected, is still its
+		q.a.Connect(q.Conn, func() {
+			if cl != nil {
+				if q.nb == nil || q.nb.index(cl) < 0 {
+					return // the cell, or the notebook view, went meanwhile
+				}
+				q.focusCell(cl)
+			}
+			q.chartRun = chart
+			q.Run(mode)
+			q.chartRun = false
+		})
 		return
+	}
+	if nb := q.nb; nb != nil {
+		q.focusCell(cl)
+		q.bindCell(cl)
+		nb.running, nb.startedAt = cl, time.Now()
 	}
 	q.settlePending(q.replaced(mode), func() { q.run(mode) })
 }
@@ -633,22 +734,29 @@ func (q *Tab) Run(mode RunMode) {
 // the session, as a count or an export, which cancelled would abort the
 // editor's transaction.
 func (q *Tab) refuseWhileResultsWork() bool {
-	if q.exports > 0 {
-		q.a.ShowError("Not run", "An export is reading on the editor's session: run once it ends.")
-		return true
+	why := q.resultsWork()
+	if why != "" {
+		q.a.ShowError("Not run", why)
 	}
-	for _, r := range q.results {
+	return why != ""
+}
+
+// resultsWork says what works on the editor's session that a run would
+// disturb, "" for nothing.
+func (q *Tab) resultsWork() string {
+	if q.exports > 0 {
+		return "An export is reading on the editor's session: run once it ends."
+	}
+	for _, r := range q.allResults() {
 		switch {
 		case r.view == nil:
 		case r.view.Applying():
-			q.a.ShowError("Not run", "The changes of a result are being applied: run once they are.")
-			return true
+			return "The changes of a result are being applied: run once they are."
 		case r.view.Counting():
-			q.a.ShowError("Not run", "A result's values or an export are being read on the editor's session: run once that ends.")
-			return true
+			return "A result's values or an export are being read on the editor's session: run once that ends."
 		}
 	}
-	return false
+	return ""
 }
 
 func (q *Tab) run(mode RunMode) {
@@ -658,6 +766,7 @@ func (q *Tab) run(mode RunMode) {
 	if mode == RunExplainAnalyze {
 		if why := q.analyzeRefusal(); why != "" {
 			q.note(why, "", true)
+			q.cellSkipped()
 			return
 		}
 	}
@@ -669,6 +778,7 @@ func (q *Tab) run(mode RunMode) {
 			msg = "Select one statement to explain."
 		}
 		q.note(msg, "", true)
+		q.cellSkipped()
 		return
 	}
 	skip := 0
@@ -856,6 +966,13 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 			kept = append(kept, r)
 		}
 	}
+	// The cursors other cells still read close too: the session runs one
+	// statement at a time.
+	for _, r := range q.otherResults() {
+		if r.view != nil && !r.view.Done() {
+			closers = append(closers, r.view.CutShort())
+		}
+	}
 	q.newTab = false
 	stepConfirm := q.stepConfirm
 	q.stepConfirm = false
@@ -875,6 +992,10 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 	cfg := q.Conn.Config
 	sess, pool, database := q.sess, q.Conn.DB, q.Database
 	dialect := q.Editor.Dialect
+	purpose := ""
+	if q.chartAsk != nil {
+		purpose = chartPurpose // the chart's run, as Run drops one left over
+	}
 	go func() {
 		defer dataview.RecoverBackground(q.a.Post, q.a.ShowError, q.runStopped)
 		for _, close := range closers {
@@ -887,6 +1008,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 				q.a.Post(func() {
 					q.Running = false
 					q.note(err.Error(), "", true)
+					q.runEnded()
 				})
 				return
 			}
@@ -1045,7 +1167,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 			}
 			res.elapsed = time.Since(start)
 			q.a.RecordTyped(cfg, audit.TypedRun{Kind: audit.KindStatement, Database: database, Sent: s.SQL, Typed: s.Typed, Params: s.Shown,
-				Rows: rows, Took: res.elapsed, Err: err, History: true})
+				Rows: rows, Took: res.elapsed, Err: err, History: true, Purpose: purpose})
 			if guard != nil {
 				err = guard.finish(ctx, rows, err)
 			}
@@ -1158,6 +1280,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 			}
 			refreshAfterDDL(q.Conn, stmts)
 			q.notifyRun(len(stmts), q.results[firstNew:])
+			q.runEnded()
 		})
 	}()
 }
@@ -1306,6 +1429,12 @@ func (q *Tab) View(c *ui.Context) {
 		c.Announce(q.messages[len(q.messages)-1].text)
 	}
 	q.wasRunning = q.Running
+	if q.pressed(c, keymap.ToggleNotebook) {
+		q.ToggleNotebook()
+	}
+	if q.nb != nil {
+		q.notebookKeys(c)
+	}
 	// Shortcuts of the editor: by default, those of DataGrip and DBeaver.
 	if q.pressed(c, keymap.Run) {
 		q.Run(RunStatement)
@@ -1365,13 +1494,16 @@ func (q *Tab) View(c *ui.Context) {
 		q.Run(RunExplain)
 	}
 	if q.Running && q.key(c, 0, ui.KeyEscape) && q.cancel != nil {
+		if q.nb != nil {
+			q.nb.queue = nil // the cells after it do not run
+		}
 		q.cancel()
 	}
 	if q.pressed(c, keymap.Save) {
 		q.save()
 	}
 	// What is typed goes to the file once typing stops for a second.
-	if text := q.Editor.FileText(); q.Path != "" && q.DiskConflict == "" && text != q.Saved {
+	if text := q.FileText(); q.Path != "" && q.DiskConflict == "" && text != q.Saved {
 		if text != q.Typed {
 			q.Typed, q.typedAt = text, a.Now()
 		}
@@ -1390,6 +1522,12 @@ func (q *Tab) View(c *ui.Context) {
 	if q.pressed(c, keymap.Rollback) {
 		q.endOpenTx(false)
 	}
+	q.chatPanel(c, func() { q.body(c) })
+}
+
+// body is the editor's bar, the editor and its results.
+func (q *Tab) body(c *ui.Context) {
+	a := q.a
 	ui.Column(c).Grow(1).Children(func() {
 		widgets.Bar(c, "Editor", func() {
 			// First, set apart: its label changes in place, Connect to
@@ -1405,15 +1543,20 @@ func (q *Tab) View(c *ui.Context) {
 			}
 			ui.Divider(c).Margin(0, 4)
 			// One button: Run turns to Stop, in place, once a run lasts; a
-			// quick one leaves it as it is.
-			if q.Running && widgets.Lasted(c, q.StartedAt) {
+			// quick one leaves it as it is. A notebook has its own.
+			switch {
+			case q.nb != nil:
+				q.notebookBar(c)
+			case q.Running && widgets.Lasted(c, q.StartedAt):
 				if widgets.LeadToolButton(c.Key("run"), widgets.IconStop, "Stop", "Stop the running statement (Esc)", c.Theme().Danger).Clicked() && q.cancel != nil {
 					q.cancel()
 				}
-			} else if widgets.LeadToolButton(c.Key("run"), widgets.IconPlay, "Run", keymap.Hint("Run statement", keymap.Run), c.Theme().Success).Clicked() {
-				q.Run(RunStatement)
+			default:
+				if widgets.LeadToolButton(c.Key("run"), widgets.IconPlay, "Run", keymap.Hint("Run statement", keymap.Run), c.Theme().Success).Clicked() {
+					q.Run(RunStatement)
+				}
 			}
-			if widgets.ToolButton(c.Key("run-script"), widgets.IconLayers, "Run Script", keymap.Hint("Run all statements", keymap.RunScript)).Clicked() {
+			if q.nb == nil && widgets.ToolButton(c.Key("run-script"), widgets.IconLayers, "Run Script", keymap.Hint("Run all statements", keymap.RunScript)).Clicked() {
 				q.Run(RunScript)
 			}
 			if widgets.ToolButton(c.Key("explain"), widgets.IconCode, "Explain", keymap.Hint("Explain plan", keymap.Explain)).Clicked() {
@@ -1427,6 +1570,24 @@ func (q *Tab) View(c *ui.Context) {
 			}
 			if widgets.ToolButton(c.Key("save-as"), widgets.IconSave, "Save As", keymap.Hint("Save a copy under another name", keymap.SaveAs)).Clicked() {
 				a.SaveSQLFile(q, true)
+			}
+			view, viewTip := "Notebook", "Show the editor as a notebook of cells, each with its results"
+			if q.nb != nil {
+				view, viewTip = "Script", "Show the editor as one script"
+			}
+			if widgets.ToolButton(c.Key("view"), widgets.IconNotebook, view, keymap.Hint(viewTip, keymap.ToggleNotebook)).Clicked() {
+				q.ToggleNotebook()
+			}
+			chatTip := "Ask an AI agent about this editor"
+			if q.ChatOpen() {
+				chatTip = "Hide the AI chat"
+			}
+			if widgets.ToolButton(c.Key("chat"), widgets.IconSparkles, "AI Chat", keymap.Hint(chatTip, keymap.ToggleChat)).Clicked() {
+				if q.ChatOpen() {
+					q.hideChat()
+				} else {
+					q.ToggleChat()
+				}
 			}
 			ui.Spacer(c)
 			q.switcherView(c)
@@ -1452,6 +1613,7 @@ func (q *Tab) View(c *ui.Context) {
 		editor := func() {
 			ui.Column(c).Fill().Children(func() {
 				q.Editor.SplitOptions = SplitOptions(a.Settings())
+				q.tintLanded(c, q.Editor)
 				_, _, ok := q.currentStatement()
 				q.Editor.HasCurrent = ok && q.Editor.HasFocus()
 				q.Editor.Run, q.Editor.RunTip = q.runLine, keymap.Hint("Run the statement", keymap.Run)
@@ -1476,11 +1638,13 @@ func (q *Tab) View(c *ui.Context) {
 			})
 		}
 		l := a.Layout()
-		switch l.Results {
-		case widgets.ResultsHidden:
+		switch {
+		case q.nb != nil:
+			q.notebookView(c)
+		case l.Results == widgets.ResultsHidden:
 			ui.Column(c).Grow(1).Children(editor)
 			q.resultsView(c, a)
-		case widgets.ResultsMaximized:
+		case l.Results == widgets.ResultsMaximized:
 			q.resultsView(c, a)
 		default:
 			split := ui.SplitVerticalPercent(c, &q.editorPercent, editor, func() {
@@ -1924,7 +2088,7 @@ func refreshAfterDDL(cn *connection.Conn, stmts []safety.Statement) {
 // it: a file changed by someone else, as by a git pull, is not
 // overwritten, and the editor shows why.
 func (q *Tab) Flush(force bool) {
-	text := q.Editor.FileText()
+	text := q.FileText()
 	if q.Path == "" || text == q.Saved || q.DiskConflict != "" && !force {
 		return
 	}
@@ -1957,7 +2121,7 @@ func (q *Tab) conflictBar(c *ui.Context) {
 		ui.Text(c, filepath.Base(q.Path)+" "+q.DiskConflict+": the editor's text is not saved.").Grow(1).Shrink(1).SingleLine().Tooltip(q.Path)
 		if disk, err := os.ReadFile(q.Path); err == nil {
 			if ui.Button(c, "Reload").Tooltip("Replace the editor's text with the file's").Clicked() {
-				q.Editor.SetFileText(string(disk))
+				q.setFileText(string(disk))
 				q.Saved, q.Typed, q.DiskConflict = string(disk), string(disk), ""
 			}
 		}
@@ -2062,6 +2226,9 @@ func (q *Tab) goToError(r *result) {
 	at := errorOffset(r.sql, r.start, r.skip, r.errInfo)
 	if at < 0 {
 		return
+	}
+	if cl := q.cellOf(r); cl != nil && !cl.markdown {
+		q.focusCell(cl) // its start is in its cell's text
 	}
 	text := q.Editor.Text()
 	end := at

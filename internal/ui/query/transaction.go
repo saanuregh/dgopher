@@ -50,6 +50,10 @@ func (q *Tab) setTx(own, inside db.TxState) { q.KeepTx(own, inside, q.a.Now()) }
 func (q *Tab) runStopped() {
 	q.Running = false
 	q.readTxAgain()
+	if q.nb != nil {
+		q.nb.queue = nil // what follows a run that broke does not run
+	}
+	q.runEnded()
 }
 
 // endTxStopped ends a Commit or Roll Back that stopped on an internal

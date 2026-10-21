@@ -29,8 +29,7 @@ func list(names string) (*List, map[string]widgets.Tab) {
 	return l, by
 }
 
-// order names the tabs, pinned ones with a *, the one in front in [ ] and
-// the one beside it in ( ).
+// order names the tabs, pinned ones with a *, the one in front in [ ].
 func order(l *List) string {
 	var out []string
 	for _, t := range l.All() {
@@ -38,11 +37,8 @@ func order(l *List) string {
 		if l.Pinned(t) {
 			name += "*"
 		}
-		switch t {
-		case l.Active():
+		if t == l.Active() {
 			name = "[" + name + "]"
-		case l.Side():
-			name = "(" + name + ")"
 		}
 		out = append(out, name)
 	}
@@ -105,7 +101,7 @@ func TestMoveWithinGroup(t *testing.T) {
 }
 
 // Removing the tab in front brings the next forward, the last's the one
-// before; the tab beside goes with its tab, and a pin with its tab.
+// before; a pin goes with its tab.
 func TestRemove(t *testing.T) {
 	l, by := list("abcd")
 	l.Select(by["b"])
@@ -116,13 +112,8 @@ func TestRemove(t *testing.T) {
 	l.Select(by["d"])
 	l.Remove(by["d"])
 	check(t, l, "a [c]")
-	l.SetSide(by["a"], true)
-	check(t, l, "(a) [c]")
 	l.Remove(by["a"])
 	check(t, l, "[c]")
-	if l.Side() != nil {
-		t.Fatal("the tab beside stayed, removed")
-	}
 	l.SetPinned(by["c"], true)
 	l.Remove(by["c"])
 	if _, ok := l.Remove(by["c"]); ok || l.Len() != 0 || l.Active() != nil {
@@ -132,40 +123,16 @@ func TestRemove(t *testing.T) {
 	check(t, l, "[c]")
 }
 
-// The tab beside is never the one in front: bringing it forward swaps
-// them, each where it is, and choosing it ends the split.
-func TestSide(t *testing.T) {
-	l, by := list("abc")
-	l.SetSide(by["c"], false)
-	check(t, l, "a b [c]")
-	l.SetSide(by["a"], false)
-	check(t, l, "(a) b [c]")
-	l.BringSide()
-	check(t, l, "[a] b (c)")
-	if !l.SideLeft() {
-		t.Fatal("the side did not switch")
-	}
-	l.Select(by["c"])
-	check(t, l, "a b [c]")
-	if l.Side() != nil {
-		t.Fatal("the tab beside stayed, in front")
-	}
-	l.SetSide(by["b"], false)
-	l.SetSide(nil, false)
-	check(t, l, "a b [c]")
-}
-
-// A tab put in the place of another takes its place, pin and roles.
+// A tab put in the place of another takes its place, pin and front.
 func TestReplace(t *testing.T) {
 	l, by := list("abc")
 	l.SetPinned(by["b"], true)
 	l.Select(by["b"])
-	l.SetSide(by["c"], false)
 	x, y := tab("x"), tab("y")
 	if !l.Replace(by["b"], &x) || !l.Replace(by["c"], &y) {
 		t.Fatal("not replaced")
 	}
-	check(t, l, "[x*] a (y)")
+	check(t, l, "[x*] a y")
 	if l.Replace(by["b"], &y) {
 		t.Fatal("replaced a tab not in the list")
 	}
@@ -186,9 +153,8 @@ func TestInsert(t *testing.T) {
 func TestTakeAll(t *testing.T) {
 	l, by := list("ab")
 	l.SetPinned(by["b"], true)
-	l.SetSide(by["a"], false)
 	got := l.TakeAll()
-	if len(got) != 2 || got[0] != by["b"] || l.Len() != 0 || l.Active() != nil || l.Side() != nil || l.Pinned(by["b"]) {
+	if len(got) != 2 || got[0] != by["b"] || l.Len() != 0 || l.Active() != nil || l.Pinned(by["b"]) {
 		t.Fatalf("took %v, left %s", got, order(l))
 	}
 }

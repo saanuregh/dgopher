@@ -305,8 +305,8 @@ func (a *App) renameInQueries(p *project.Project, old, new string) []error {
 			continue
 		}
 		// An edit of the name alone: the carets stay where they are.
-		if text, ok := project.RenameHeaderConnection(q.Editor.Text(), old, new); ok {
-			q.Editor.ChangeTo(text)
+		if text, ok := project.RenameHeaderConnection(q.Text(), old, new); ok {
+			q.SetText(text)
 		}
 		q.Saved, _ = project.RenameHeaderConnection(q.Saved, old, new)
 		q.Created, _ = project.RenameHeaderConnection(q.Created, old, new)

@@ -12,6 +12,7 @@ import (
 	"dgopher/internal/keymap"
 	"dgopher/internal/ui/dashboard"
 	"dgopher/internal/ui/dataview"
+	"dgopher/internal/ui/panes"
 	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/widgets"
 
@@ -52,7 +53,7 @@ func (a *App) ReadClipboard() string {
 func (a *App) view(c *ui.Context) {
 	// Tabs a key opened, closed or brought in front show so at once: a
 	// key asks for no motion, which only a click's change has.
-	tabs, front := a.tabs.Len(), a.ActiveTab()
+	tabs, front := a.tabs().Len(), a.ActiveTab()
 	a.drain()
 	a.now = c.Now()
 	widgets.ApplyTheme(c, strings.TrimSpace(a.settings.UIFontFamily))
@@ -61,10 +62,11 @@ func (a *App) view(c *ui.Context) {
 		a.clipboard, a.readClip = c.WriteClipboard, c.ReadClipboard
 	}
 	a.shortcuts(c)
-	if a.instant || a.tabs.Len() != tabs || a.ActiveTab() != front {
+	if a.instant || a.tabs().Len() != tabs || a.ActiveTab() != front {
 		c.DisableAnimations()
 		a.instant = false
 	}
+	a.window.several = a.window.panes.Len() > 1
 	root := ui.Column(c).Fill()
 	defer a.dropZone(c, root)
 	root.Children(func() {
@@ -197,6 +199,9 @@ func (a *App) titleWindow() {
 
 // shortcuts handles the keys of the whole window.
 func (a *App) shortcuts(c *ui.Context) {
+	keymap.Dispatch(c, a.window)
+	a.watchKeymap(c)
+	a.openKeymapNow(c)
 	pressed := keymap.Pressed
 	if nativeMenuBar {
 		pressed = keymap.LaterPressed // the first keys are the menu bar's
@@ -206,16 +211,15 @@ func (a *App) shortcuts(c *ui.Context) {
 			a.menuAction(id)()
 		}
 	}
-	for i, k := range []ui.Key{ui.Key1, ui.Key2, ui.Key3, ui.Key4, ui.Key5, ui.Key6, ui.Key7, ui.Key8, ui.Key9} {
-		if c.Shortcut(ui.Cmd, k) && a.tabs.Len() > 0 {
-			at := i
-			if i == 8 {
-				at = a.tabs.Len() - 1 // ⌘9 is the last, as in browsers
-			}
-			a.tabs.SelectAt(at)
-			a.focusWant = "editor" // the keys go on in the tab chosen
-		}
+	if n, ok := keymap.PressedArg(c, keymap.ActivateTab); ok && a.tabs().Len() > 0 {
+		a.tabs().SelectAt(n - 1)
+		a.focusWant = "editor" // the keys go on in the tab chosen
 	}
+	if keymap.Pressed(c, keymap.LastTab) && a.tabs().Len() > 0 {
+		a.tabs().SelectAt(a.tabs().Len() - 1)
+		a.focusWant = "editor"
+	}
+	a.groupKeys(c)
 	switch {
 	case keymap.Pressed(c, keymap.FocusNavigator):
 		a.layout.SidebarHidden = false
@@ -225,13 +229,13 @@ func (a *App) shortcuts(c *ui.Context) {
 	case keymap.Pressed(c, keymap.ShortcutsList):
 		a.shortcutsOpen = !a.shortcutsOpen
 	case keymap.Pressed(c, keymap.NextTab):
-		if a.tabs.Len() > 0 {
-			a.tabs.Next()
+		if a.tabs().Len() > 0 {
+			a.tabs().Next()
 			a.focusWant = "editor"
 		}
 	case keymap.Pressed(c, keymap.PreviousTab):
-		if a.tabs.Len() > 0 {
-			a.tabs.Previous()
+		if a.tabs().Len() > 0 {
+			a.tabs().Previous()
 			a.focusWant = "editor"
 		}
 	}
@@ -243,24 +247,18 @@ func (a *App) workspace(c *ui.Context) {
 	a.tourPart(tourWorkspace, space)
 	space.Children(func() {
 		a.workspaceBar(c)
-		if a.tabs.Len() == 0 {
-			a.welcome(c)
+		if a.window.tabCount() == 0 {
+			ui.Column(c).Grow(1).Shrink(1).MinHeight(0).Children(func() { a.welcome(c) })
+			// The connection chosen in the navigator, as connecting it
+			// shows, with Cancel.
+			if cn := a.activeConn(); cn != nil {
+				a.statusOf(c, nil, []connPlaces{{conn: cn, databases: []string{""}}})
+			}
 			return
 		}
-		at, side := a.ActiveTab(), a.tabs.Side()
-		if side == nil {
-			a.pane(c, at, false)
-		} else {
-			left, right := at, side
-			if a.tabs.SideLeft() {
-				left, right = side, at
-			}
-			if a.splitW == 0 {
-				a.splitW = a.layout.SideWidth
-			}
-			if ui.Split(c, &a.splitW, func() { a.pane(c, left, true) }, func() { a.pane(c, right, true) }).Grow(1).Changed() {
-				a.layout.SideWidth = a.splitW // where the next split starts
-			}
+		a.paneNode(c, a.window.panes.Root())
+		if a.several() != (a.window.panes.Len() > 1) {
+			c.Invalidate() // split or joined as the frame was drawn
 		}
 		if a.focusWant == "editor" {
 			a.focusWant = "" // a tab without an editor keeps the focus where it is
@@ -268,62 +266,315 @@ func (a *App) workspace(c *ui.Context) {
 	})
 }
 
+// paneNode draws a node of the window's groups: a group, or a split of
+// two, which the user resizes.
+func (a *App) paneNode(c *ui.Context, n *panes.Node) {
+	if n.Leaf() {
+		a.groupView(c, n.Group)
+		return
+	}
+	split := ui.SplitPercent
+	if n.Axis == panes.Column {
+		split = ui.SplitVerticalPercent
+	}
+	split(c.Key(fmt.Sprintf("split-%p", n)), &n.Percent, func() { a.paneNode(c, n.First) }, func() { a.paneNode(c, n.Then) }).Grow(1)
+}
+
+// several reports whether the window shows more than one group, each
+// then with a tab bar of its own, as of the frame's start.
+func (a *App) several() bool { return a.window.several }
+
+// groupView draws a group: its tab bar when the window has several, the
+// tab in front, and where a dragged tab may go. The focus going into it,
+// or a press on it, makes it the focused group.
+func (a *App) groupView(c *ui.Context, g *panes.Group) {
+	th := c.Theme()
+	pal := widgets.PaletteOf(c)
+	w := a.window
+	col := ui.Column(c.Key(fmt.Sprintf("group-%d", g.ID))).Grow(1).Shrink(1).MinWidth(0).MinHeight(0)
+	col.Children(func() {
+		if a.several() {
+			bar := ui.Row(c).Height(barHeight(c)).Background(pal.Sidebar).BorderWidth(0, 0, 1, 0).BorderColor(th.Border)
+			bar.Children(func() {
+				a.tabBar(c, g)
+				ui.Spacer(c)
+				if widgets.IconButton(c, widgets.IconColumns, "Split Right").Tooltip(keymap.Hint("Split right", keymap.SplitRight)).Clicked() {
+					a.Post(func() { a.splitTab(w, g, panes.Right) })
+				}
+				if widgets.IconButton(c, widgets.IconX, "Close Group").Tooltip(keymap.Hint("Close the group: its tabs move beside", keymap.ClosePane)).Clicked() {
+					a.Post(func() { a.closeGroup(w, g) })
+				}
+			})
+			// Dropped on the bar past the tabs: last in the group.
+			if d, ok := ui.Drop[tabDrag](bar); ok {
+				a.Post(func() { a.moveTabToGroup(w, d.tab, g, g.Tabs.Len()) })
+			}
+		}
+		content := ui.Column(c).Grow(1).Shrink(1).MinHeight(0)
+		content.Children(func() {
+			if t := g.Tabs.Active(); t != nil {
+				a.pane(c, t)
+			} else {
+				a.Post(func() { a.dropEmptyGroup(w, g) }) // as a restored group no tab came back to
+				ui.Column(c).Grow(1).Center().Children(func() {
+					ui.Text(c, "No tabs in this group").TextColor(pal.Muted)
+				})
+			}
+			dragged, over := ui.DragOver[tabDrag](content)
+			if over || g.Dropping != nil {
+				t := cmp.Or[widgets.Tab](dragged.tab, g.Dropping)
+				if g.Dropping = cmp.Or(a.dropZones(c, w, g, t), dragged.tab); g.Dropping == nil {
+					c.Invalidate() // the zones go
+				}
+			}
+		})
+	})
+	// The keys coming into it, or a press anywhere on it, as on a chart or
+	// empty space that takes no keys.
+	keys := col.FocusWithin()
+	if (keys && !g.HadKeys || col.PressedInside()) && w.panes.Focused() != g {
+		w.panes.Focus(g)
+		c.Invalidate()
+	}
+	g.HadKeys = keys
+}
+
+// dropZones show, while a tab is dragged over a group, where it may go:
+// a side of the group, splitting it there, or its middle, joining it. It
+// returns the tab dragged over the zones, nil once it is over none.
+func (a *App) dropZones(c *ui.Context, w *window, g *panes.Group, t widgets.Tab) widgets.Tab {
+	th := c.Theme()
+	var over widgets.Tab
+	zone := func(label string, place func(ui.Element) ui.Element, then func(widgets.Tab)) {
+		b := place(ui.Box(c.Key("drop-"+label)).Absolute()).Radius(8).Border(1, th.Accent).Background(th.Accent.Alpha(0.10)).Center().Label(label)
+		if d, ok := ui.DragOver[tabDrag](b); ok {
+			b.Background(th.Accent.Alpha(0.28))
+			over = d.tab
+		}
+		b.Children(func() { ui.Text(c, label).FontSize(12).TextColor(th.Accent) })
+		if d, ok := ui.Drop[tabDrag](b); ok {
+			a.Post(func() { then(d.tab) })
+		}
+	}
+	split := func(d panes.Direction) func(widgets.Tab) {
+		return func(t widgets.Tab) {
+			ng := w.panes.Split(g, d)
+			a.moveTabToGroup(w, t, ng, 0)
+		}
+	}
+	zone("Split Left", func(e ui.Element) ui.Element { return e.Left(8).Top(56).Bottom(56).Width(96) }, split(panes.Left))
+	zone("Split Right", func(e ui.Element) ui.Element { return e.Right(8).Top(56).Bottom(56).Width(96) }, split(panes.Right))
+	zone("Split Up", func(e ui.Element) ui.Element { return e.Top(8).Left(112).Right(112).Height(44) }, split(panes.Up))
+	zone("Split Down", func(e ui.Element) ui.Element { return e.Bottom(8).Left(112).Right(112).Height(44) }, split(panes.Down))
+	if !g.Tabs.Contains(t) {
+		zone("Move Here", func(e ui.Element) ui.Element { return e.Top(64).Bottom(64).Left(112).Right(112) }, func(t widgets.Tab) { a.moveTabToGroup(w, t, g, g.Tabs.Len()) })
+	}
+	return over
+}
+
 // pane shows a tab, under the color of its connection's environment; of
-// two side by side, the one in front is marked, and the other comes in
-// front as the focus goes into it.
-func (a *App) pane(c *ui.Context, t widgets.Tab, split bool) {
+// several groups, the focused one's is marked.
+func (a *App) pane(c *ui.Context, t widgets.Tab) {
 	th := c.Theme()
 	// Keyed by a string: a pointer as the key loses the focus within.
-	col := ui.Column(c.Key(tabKey(t))).Grow(1).Children(func() {
+	ui.Column(c.Key(tabKey(t))).Grow(1).Shrink(1).MinHeight(0).Children(func() {
 		if cn := t.Connection(); cn != nil {
 			// The environment's color all along the top of the work: the
 			// first thing to see before typing into production.
 			ui.Box(c).FillWidth().Height(3).Background(widgets.SafetyColor(&cn.Config))
 		}
-		if split {
+		if a.several() {
 			band := th.Border
 			if t == a.ActiveTab() {
 				band = th.Accent
 			}
 			ui.Box(c).FillWidth().Height(2).Background(band)
 		}
-		ui.Column(c).Grow(1).Children(func() { t.View(c) })
+		ui.Column(c).Grow(1).Shrink(1).MinHeight(0).Children(func() { t.View(c) })
+		a.tabStatus(c, t)
 	})
-	if split && t == a.tabs.Side() && col.FocusWithin() {
-		a.tabs.BringSide()
+}
+
+// chooseTab brings the tab at i of a group in front, as a click on it
+// does, and gives the group the window's keys.
+func (a *App) chooseTab(g *panes.Group, i int) {
+	a.window.panes.Focus(g)
+	g.Tabs.SelectAt(i)
+}
+
+// moveTabToGroup moves a tab of the window to a group of it, at i, in
+// front there, and focuses that group; its old group goes when left
+// empty.
+func (a *App) moveTabToGroup(w *window, t widgets.Tab, to *panes.Group, i int) {
+	from := w.panes.GroupOf(t)
+	if from == nil || w.panes.Index(to) < 0 {
+		return
+	}
+	if from == to {
+		to.Tabs.Move(t, i)
+		w.panes.Focus(to)
+		return
+	}
+	pinned := from.Tabs.Pinned(t)
+	from.Tabs.Remove(t)
+	to.Tabs.Insert(t, i, pinned)
+	w.panes.Focus(to)
+	if from.Tabs.Len() == 0 {
+		a.dropEmptyGroup(w, from)
+	}
+	w.focusWant = "editor"
+}
+
+// splitTab moves the tab in front of a group to a new group beside it in
+// direction d; with no other tab to leave behind, a group of one tab is
+// split with a copy of a SQL editor, else the split is refused.
+func (a *App) splitTab(w *window, g *panes.Group, d panes.Direction) {
+	t := g.Tabs.Active()
+	if t == nil {
+		return
+	}
+	if g.Tabs.Len() == 1 {
+		q, ok := t.(*query.Tab)
+		if !ok {
+			a.toast = &pendingToast{text: "One tab cannot be split: open another to split the group"}
+			return
+		}
+		ng := w.panes.Split(g, d)
+		w.panes.Focus(ng)
+		a.window = w
+		a.duplicateQuery(q) // in front of the new group
+		return
+	}
+	ng := w.panes.Split(g, d)
+	a.moveTabToGroup(w, t, ng, 0)
+}
+
+// moveTabToward moves the tab in front of the focused group to the group
+// beside it in direction d, made when there is none.
+func (a *App) moveTabToward(w *window, d panes.Direction) {
+	g := w.panes.Focused()
+	t := g.Tabs.Active()
+	if t == nil {
+		return
+	}
+	if to := w.panes.Neighbor(g, d); to != nil {
+		a.moveTabToGroup(w, t, to, to.Tabs.Len())
+		return
+	}
+	if g.Tabs.Len() == 1 {
+		return // the group would be left empty beside itself
+	}
+	a.moveTabToGroup(w, t, w.panes.Split(g, d), 0)
+}
+
+// focusGroup gives the keys to a group, and the focus to its tab.
+func (a *App) focusGroup(w *window, g *panes.Group) {
+	if g == nil {
+		return
+	}
+	w.panes.Focus(g)
+	w.focusWant = "editor"
+}
+
+// closeGroup takes a group away, its tabs going to the group beside it,
+// unclosed: nothing in them is lost.
+func (a *App) closeGroup(w *window, g *panes.Group) {
+	if w.panes.Len() < 2 || w.panes.Index(g) < 0 {
+		return
+	}
+	tabs := g.Tabs.Tabs()
+	pinned := make([]bool, len(tabs))
+	for i, t := range tabs {
+		pinned[i] = g.Tabs.Pinned(t)
+	}
+	to := w.panes.Beside(g) // the one beside, whichever has the keys
+	g.Tabs.TakeAll()
+	w.panes.Remove(g)
+	for i, t := range tabs {
+		to.Tabs.Insert(t, to.Tabs.Len(), pinned[i])
+	}
+	w.panes.Focus(to)
+}
+
+// joinGroups puts every group's tabs in the focused one.
+func (a *App) joinGroups(w *window) {
+	for w.panes.Len() > 1 {
+		for _, g := range w.panes.Groups() {
+			if g != w.panes.Focused() {
+				a.closeGroup(w, g)
+				break
+			}
+		}
 	}
 }
 
-// chooseTab brings the tab at i in front, as a click on it does: the tab
-// shown beside the one in front changes places with it.
-func (a *App) chooseTab(i int) {
-	if a.tabs.At(i) == a.tabs.Side() {
-		a.tabs.BringSide()
-	} else {
-		a.tabs.SelectAt(i)
+// groupKeys handles the keys of the window's groups.
+func (a *App) groupKeys(c *ui.Context) {
+	w := a.window
+	g := w.panes.Focused()
+	pressed := func(id string) bool { return keymap.Pressed(c, id) }
+	directions := []struct {
+		d                  panes.Direction
+		split, move, focus string
+	}{
+		{panes.Right, keymap.SplitRight, keymap.MoveTabRight, keymap.FocusPaneRight},
+		{panes.Left, keymap.SplitLeft, keymap.MoveTabLeft, keymap.FocusPaneLeft},
+		{panes.Down, keymap.SplitDown, keymap.MoveTabDown, keymap.FocusPaneDown},
+		{panes.Up, keymap.SplitUp, keymap.MoveTabUp, keymap.FocusPaneUp},
+	}
+	for _, x := range directions {
+		if pressed(x.split) {
+			a.splitTab(w, g, x.d)
+		}
+	}
+	for _, x := range directions {
+		if pressed(x.move) {
+			a.moveTabToward(w, x.d)
+		}
+	}
+	for _, x := range directions {
+		if pressed(x.focus) {
+			a.focusGroup(w, w.panes.Neighbor(g, x.d))
+		}
+	}
+	if n, ok := keymap.PressedArg(c, keymap.ActivatePane); ok {
+		if groups := w.panes.Groups(); n >= 1 && n <= len(groups) {
+			a.focusGroup(w, groups[n-1])
+		}
+	}
+	if pressed(keymap.NextPane) {
+		a.focusGroup(w, w.panes.Next(g))
+	}
+	if pressed(keymap.ClosePane) {
+		a.closeGroup(w, g)
+	}
+	if pressed(keymap.JoinPanes) {
+		a.joinGroups(w)
 	}
 }
 
-func (a *App) tabBar(c *ui.Context) {
+func (a *App) tabBar(c *ui.Context, g *panes.Group) {
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
 	w := a.window
-	closed := -1
+	l := &g.Tabs
+	var closed widgets.Tab
 	var dropped *tabDrag // and where to, after the tabs are drawn
 	droppedAt := 0
 	height := barHeight(c)
+	focusedGroup := w.panes.Focused() == g
 	// A tab names its connection under its title only where another
 	// shares the title, as two query-1.sql: its dot and tooltip say it
 	// otherwise, and the status bar for the one in front.
 	titles := map[string]int{}
-	for _, tb := range a.tabs.All() {
+	for _, tb := range l.All() {
 		titles[tb.Title()]++
 	}
-	ui.ScrollHorizontal(c).TrackScroll(&w.tabScroll).Shrink(1).Children(func() {
+	ui.ScrollHorizontal(c).TrackScroll(&g.TabScroll).Shrink(1).Children(func() {
 		ui.Row(c).AlignItems(ui.Stretch).Children(func() {
-			for i, tb := range a.tabs.All() {
-				on := i == a.tabs.ActiveIndex()
-				pinned := w.tabs.Pinned(tb)
+			for i, tb := range l.All() {
+				on := i == l.ActiveIndex()
+				pinned := l.Pinned(tb)
 				groups := byConnection(tabPlaces(tb))
 				item := ui.ButtonBase(c.Key(tabKey(tb))).Padding(0, 6, 0, 12).Height(height).MaxWidth(260).Label(tb.Title()).
 					Drag(tabDrag{tb})
@@ -333,28 +584,32 @@ func (a *App) tabBar(c *ui.Context) {
 				switch {
 				case on:
 					item.Background(t.Background)
-				case tb == a.tabs.Side():
-					item.Background(t.Background.Alpha(0.6)) // shown beside the one in front
 				case item.Hovered():
 					item.Background(pal.Hover)
 				}
-				if on && w.revealTab {
+				if on && g.RevealTab {
 					item.ScrollIntoView()
-					w.revealTab = false
+					g.RevealTab = false
 				}
 				hovered := item.Hovered()
 				item.Transition(tabMotion)
 				// A short line between two tabs in the back; the one in front
 				// stands out on its own.
-				if next := i + 1; !on && next < a.tabs.Len() && next != a.tabs.ActiveIndex() {
+				if next := i + 1; !on && next < l.Len() && next != l.ActiveIndex() {
 					item.DrawOver(func(p *ui.Painter, r ui.Rect) {
 						p.Fill(ui.Rect{X: r.X + r.W - 1, Y: r.Y + r.H/2 - 9, W: 1, H: 18}, t.Border, 0)
 					})
 				}
+				if on && focusedGroup && a.several() {
+					// The tab the keys go to, of several groups.
+					item.DrawOver(func(p *ui.Painter, r ui.Rect) {
+						p.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: 2}, t.Accent, 0)
+					})
+				}
 				// A tab dropped on another takes its place, which the side it
-				// comes from shows.
+				// comes from shows; from another group, it goes before it.
 				dragged, over := ui.DragOver[tabDrag](item)
-				over = over && dragged.tab != tb && w.tabs.Pinned(dragged.tab) == pinned
+				over = over && dragged.tab != tb && (!l.Contains(dragged.tab) || l.Pinned(dragged.tab) == pinned)
 				if d, ok := ui.Drop[tabDrag](item); ok {
 					dropped, droppedAt = &d, i
 				}
@@ -362,7 +617,7 @@ func (a *App) tabBar(c *ui.Context) {
 				item.Children(func() {
 					if over {
 						bar := ui.Box(c).Absolute().Top(0).Bottom(0).Width(2).Background(t.Accent)
-						if a.tabs.Index(dragged.tab) > i {
+						if at := l.Index(dragged.tab); at < 0 || at > i {
 							bar.Left(0)
 						} else {
 							bar.Right(0)
@@ -413,7 +668,7 @@ func (a *App) tabBar(c *ui.Context) {
 								ui.Icon(c, widgets.IconPin).FontSize(11).TextColor(pal.Muted).ContentTransition(ui.ContentTransition{})
 							})
 							if pin.Clicked() {
-								a.Post(func() { w.tabs.SetPinned(tb, false) }) // after the tabs are drawn
+								a.Post(func() { l.SetPinned(tb, false) }) // after the tabs are drawn
 							}
 							return
 						}
@@ -439,36 +694,37 @@ func (a *App) tabBar(c *ui.Context) {
 							}
 						})
 						if x.Clicked() {
-							closed = i
+							closed = tb
 						}
 					})
 				})
 				if item.Clicked() {
-					a.chooseTab(i)
+					a.chooseTab(g, i)
 				}
-				item.ContextMenu(func(m *ui.Menu) { a.tabMenu(m, w, tb, i, on, &closed) })
+				item.ContextMenu(func(m *ui.Menu) { a.tabMenu(m, w, g, tb, i, on, &closed) })
 			}
 		})
 	})
-	if w.tabScroll.MaxX > 0 {
+	if g.TabScroll.MaxX > 0 {
 		widgets.MenuOn(c, widgets.IconButton(c, widgets.IconDropdown, "Open Tabs"), func(m *widgets.Menu) {
-			for i, tb := range a.tabs.All() {
+			for i, tb := range l.All() {
 				label := tb.Title()
 				if sub := tabSubtitle(tb); sub != "" {
 					label += " — " + sub
 				}
-				if m.Item(label).Checked(i == a.tabs.ActiveIndex()).Chosen() {
-					a.chooseTab(i)
-					w.revealTab = true
+				if m.Item(label).Checked(i == l.ActiveIndex()).Chosen() {
+					a.chooseTab(g, i)
+					g.RevealTab = true
 				}
 			}
 		})
 	}
 	if dropped != nil {
-		w.tabs.Move(dropped.tab, droppedAt)
+		d, at := *dropped, droppedAt
+		a.Post(func() { a.moveTabToGroup(w, d.tab, g, at) })
 	}
-	if closed >= 0 {
-		a.closeTab(closed)
+	if closed != nil {
+		a.closeTabOf(closed)
 	}
 }
 
@@ -505,51 +761,75 @@ const middleButton = 2
 // closeOnMiddlePress closes a tab of w pressed with the middle button,
 // but a pinned one, and reports whether it took the press.
 func (a *App) closeOnMiddlePress(w *window, tb widgets.Tab, ev ui.InputEvent) bool {
-	if ev.Kind != ui.InputPointerDown || ev.Button != middleButton || w.tabs.Pinned(tb) {
+	if ev.Kind != ui.InputPointerDown || ev.Button != middleButton || w.pinned(tb) {
 		return false
 	}
 	a.Post(func() { a.closeTabOf(tb) })
 	return true
 }
 
-// tabDrag is a tab dragged along its window's tab bar.
+// tabDrag is a tab dragged along a tab bar, to another group's, or to a
+// side of a group.
 type tabDrag struct{ tab widgets.Tab }
 
-// tabMenu is a tab's menu; Close sets closed to the tab's place.
-func (a *App) tabMenu(m *ui.Menu, w *window, tb widgets.Tab, i int, on bool, closed *int) {
+// tabMenu is a tab's menu; Close sets closed to the tab.
+func (a *App) tabMenu(m *ui.Menu, w *window, g *panes.Group, tb widgets.Tab, i int, on bool, closed *widgets.Tab) {
 	if q, ok := tb.(*query.Tab); ok && q.Path != "" && m.Item("Rename…").Chosen() {
 		a.askRename(q.Conn.Project, q.Path)
 	}
 	if q, ok := tb.(*query.Tab); ok && m.Item("Duplicate").Chosen() {
 		a.Post(func() { a.duplicateQuery(q) })
 	}
-	pinned := w.tabs.Pinned(tb)
+	pinned := g.Tabs.Pinned(tb)
 	pin := "Pin"
 	if pinned {
 		pin = "Unpin"
 	}
 	if m.Item(pin).Chosen() {
-		a.Post(func() { w.tabs.SetPinned(tb, !pinned) }) // after the tabs are drawn
+		a.Post(func() { g.Tabs.SetPinned(tb, !pinned) }) // after the tabs are drawn
 	}
-	if m.Item("Move to New Window").Disabled(a.window != a.main && a.tabs.Len() == 1).Chosen() {
+	if m.Item("Move to New Window").Disabled(a.window != a.main && w.tabCount() == 1).Chosen() {
 		a.Post(func() { a.moveToWindow(tb, nil) })
 	}
 	if a.window != a.main && m.Item("Move to Main Window").Chosen() {
 		a.Post(func() { a.moveToWindow(tb, a.main) })
 	}
-	if m.Item("Open to the Side").Disabled(on || tb == a.tabs.Side()).Chosen() {
-		a.tabs.SetSide(tb, false)
+	m.Separator()
+	_, isQuery := tb.(*query.Tab)
+	for _, s := range []struct {
+		label, id string
+		d         panes.Direction
+	}{{"Split Right", keymap.SplitRight, panes.Right}, {"Split Down", keymap.SplitDown, panes.Down}} {
+		if keymap.Item(m.Item(s.label), s.id).Disabled(g.Tabs.Len() == 1 && !isQuery).Chosen() {
+			a.Post(func() {
+				g.Tabs.Select(tb)
+				a.splitTab(w, g, s.d)
+			})
+		}
 	}
-	if a.tabs.Side() != nil && m.Item("Close the Side").Chosen() {
-		a.tabs.SetSide(nil, false)
+	if groups := w.panes.Groups(); len(groups) > 1 {
+		m.Submenu("Move to Group", func(m *ui.Menu) {
+			for n, to := range groups {
+				label := fmt.Sprintf("Group %d", n+1)
+				if front := to.Tabs.Active(); front != nil {
+					label += " — " + front.Title()
+				}
+				if m.Item(label).Disabled(to == g).Chosen() {
+					a.Post(func() { a.moveTabToGroup(w, tb, to, to.Tabs.Len()) })
+				}
+			}
+		})
+		if keymap.Item(m.Item("Close Group"), keymap.ClosePane).Chosen() {
+			a.Post(func() { a.closeGroup(w, g) })
+		}
 	}
 	m.Separator()
 	if keymap.Item(m.Item("Close"), keymap.CloseTab).Chosen() {
-		*closed = i
+		*closed = tb
 	}
 	for _, bulk := range bulkCloses(tb, i) {
-		if m.Item(bulk.label).Disabled(!w.anyUnpinned(bulk.which)).Chosen() {
-			a.closeTabs(w, bulk.which)
+		if m.Item(bulk.label).Disabled(!anyUnpinned(g, bulk.which)).Chosen() {
+			a.closeTabs(g, bulk.which)
 		}
 	}
 	m.Separator()
@@ -558,8 +838,8 @@ func (a *App) tabMenu(m *ui.Menu, w *window, tb widgets.Tab, i int, on bool, clo
 	}
 }
 
-// bulkClose is a command closing several tabs: those which says, of
-// those not pinned.
+// bulkClose is a command closing several tabs of a group: those which
+// says, of those not pinned.
 type bulkClose struct {
 	label, command string // in a tab's menu, in the palette
 	which          func(i int, t widgets.Tab) bool
@@ -575,23 +855,24 @@ func bulkCloses(tb widgets.Tab, i int) []bulkClose {
 	}
 }
 
-// anyUnpinned reports whether a tab not pinned is one which says.
-func (w *window) anyUnpinned(which func(i int, t widgets.Tab) bool) bool {
-	for j, t := range w.tabs.All() {
-		if !w.tabs.Pinned(t) && which(j, t) {
+// anyUnpinned reports whether a tab of a group not pinned is one which
+// says.
+func anyUnpinned(g *panes.Group, which func(i int, t widgets.Tab) bool) bool {
+	for j, t := range g.Tabs.All() {
+		if !g.Tabs.Pinned(t) && which(j, t) {
 			return true
 		}
 	}
 	return false
 }
 
-// closeTabs closes the tabs of a window which says, but the pinned ones,
+// closeTabs closes the tabs of a group which says, but the pinned ones,
 // from the right.
-func (a *App) closeTabs(w *window, which func(i int, t widgets.Tab) bool) {
+func (a *App) closeTabs(g *panes.Group, which func(i int, t widgets.Tab) bool) {
 	a.Post(func() {
 		var tabs []widgets.Tab
-		for j, t := range slices.Backward(w.tabs.Tabs()) {
-			if !w.tabs.Pinned(t) && which(j, t) {
+		for j, t := range slices.Backward(g.Tabs.Tabs()) {
+			if !g.Tabs.Pinned(t) && which(j, t) {
 				tabs = append(tabs, t)
 			}
 		}
@@ -619,9 +900,9 @@ func (a *App) closeTogether(tabs []widgets.Tab) {
 	}
 	end := func() {
 		for _, t := range tabs {
-			if _, at, ok := a.removeTab(t); ok {
+			if w, g, at, ok := a.removeTab(t); ok {
 				t.Close()
-				a.rememberClosed(t, at)
+				a.rememberClosed(t, w, g, at)
 			}
 		}
 	}
@@ -776,15 +1057,12 @@ func connSummary(cfg *db.Config) string {
 	return s
 }
 
+// statusBar is the window's edge under the work: the thin line of the
+// app's work going on. What a tab runs on is in its group's own status
+// bar (tabStatus).
 func (a *App) statusBar(c *ui.Context) {
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
-	var groups []connPlaces
-	if tab := a.ActiveTab(); tab != nil {
-		groups = byConnection(tabPlaces(tab))
-	} else if cn := a.activeConn(); cn != nil {
-		groups = []connPlaces{{conn: cn, databases: []string{""}}}
-	}
 	// Its top edge is the app's one sign of work going on: a thin bar,
 	// moving, once work has lasted a moment, in place of the line drawn
 	// there otherwise, so that nothing moves.
@@ -819,17 +1097,31 @@ func (a *App) statusBar(c *ui.Context) {
 	} else {
 		ui.Box(c).Height(2).Background(pal.Sidebar).BorderWidth(1, 0, 0, 0).BorderColor(t.Border)
 	}
-	ui.Row(c).Height(26).Padding(0, 10).Gap(12).Background(pal.Sidebar).Children(func() {
-		a.connectionStatus(c, groups)
+}
+
+// tabStatus is a tab's own status bar, under it, in its group: where it
+// runs, how, and its transaction; each group's describes its own tab, as
+// a split shows several.
+func (a *App) tabStatus(c *ui.Context, tab widgets.Tab) {
+	a.statusOf(c, tab, byConnection(tabPlaces(tab)))
+}
+
+// statusOf is a status bar of the connections of groups, and the
+// transaction of tab, nil for none.
+func (a *App) statusOf(c *ui.Context, tab widgets.Tab, groups []connPlaces) {
+	pal := widgets.PaletteOf(c)
+	th := c.Theme()
+	ui.Row(c.Key("tab-status")).Height(24).Padding(0, 10).Gap(10).AlignItems(ui.Center).Clip().
+		Background(pal.Sidebar).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+		a.connectionStatus(c, tab, groups)
 	})
 }
 
 // connectionStatus is the status bar's account of the connection of the
 // tab in front, or of the several it runs on.
-func (a *App) connectionStatus(c *ui.Context, groups []connPlaces) {
+func (a *App) connectionStatus(c *ui.Context, tab widgets.Tab, groups []connPlaces) {
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
-	a.txIndicator(c)
 	switch len(groups) {
 	case 0:
 		ui.Text(c, "No connection").FontSize(12).TextColor(pal.Muted)
@@ -837,7 +1129,7 @@ func (a *App) connectionStatus(c *ui.Context, groups []connPlaces) {
 		return
 	case 1:
 	default:
-		a.connChips(c, groups)
+		a.connChips(c, tab, groups)
 		ui.Spacer(c)
 		return
 	}
@@ -865,7 +1157,8 @@ func (a *App) connectionStatus(c *ui.Context, groups []connPlaces) {
 	case connection.StatusFailed:
 		status = "failed"
 	}
-	ui.Text(c, status).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1).ContentTransition(ui.ContentTransition{})
+	// The first to give way as the group narrows.
+	ui.Text(c, status).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1).MinWidth(0).ContentTransition(ui.ContentTransition{})
 	if cn.Config.ReadOnly {
 		ui.Row(c).Gap(4).Children(func() {
 			ui.Icon(c, widgets.IconLock).FontSize(11)
@@ -880,7 +1173,7 @@ func (a *App) connectionStatus(c *ui.Context, groups []connPlaces) {
 	if since, ok := a.connectStarted(cn); ok && widgets.Lasted(c, since) && widgets.Appear(widgets.StatusButton(c.Key("cancel-connect"), "Cancel")).Tooltip("Stop connecting").Clicked() {
 		a.CancelConnect(cn)
 	}
-	switch tb := a.ActiveTab().(type) {
+	switch tb := tab.(type) {
 	case *query.Tab:
 		switch tb.Tx {
 		case db.TxOpen:
@@ -905,7 +1198,7 @@ const maxChips = 3
 // connChips shows each connection of a tab running on several: its state,
 // its environment when staging or production, its name and databases,
 // which its menu acts on.
-func (a *App) connChips(c *ui.Context, groups []connPlaces) {
+func (a *App) connChips(c *ui.Context, tab widgets.Tab, groups []connPlaces) {
 	pal := widgets.PaletteOf(c)
 	shown := groups[:min(maxChips, len(groups))]
 	for _, g := range shown {
@@ -927,7 +1220,7 @@ func (a *App) connChips(c *ui.Context, groups []connPlaces) {
 				}
 			})
 		})
-		widgets.MenuOn(c, chip, func(m *widgets.Menu) { a.connMenu(m, g) })
+		widgets.MenuOn(c, chip, func(m *widgets.Menu) { a.connMenu(m, tab, g) })
 	}
 	if rest := groups[len(shown):]; len(rest) > 0 {
 		label := fmt.Sprintf("+%d more", len(rest))
@@ -935,7 +1228,7 @@ func (a *App) connChips(c *ui.Context, groups []connPlaces) {
 		more.Children(func() { ui.Text(c, label).FontSize(12).TextColor(pal.Muted) })
 		widgets.MenuOn(c, more, func(m *widgets.Menu) {
 			for _, g := range rest {
-				m.Submenu(g.label()+" — "+connStateText(g.conn), func(m *widgets.Menu) { a.connMenu(m, g) })
+				m.Submenu(g.label()+" — "+connStateText(g.conn), func(m *widgets.Menu) { a.connMenu(m, tab, g) })
 			}
 		})
 	}
@@ -944,9 +1237,9 @@ func (a *App) connChips(c *ui.Context, groups []connPlaces) {
 // connMenu is a status bar chip's menu: the connection's databases the tab
 // runs on, with the dashboard's panels on each, then what connects or
 // disconnects it.
-func (a *App) connMenu(m *widgets.Menu, g connPlaces) {
+func (a *App) connMenu(m *widgets.Menu, tab widgets.Tab, g connPlaces) {
 	cn := g.conn
-	d, _ := a.ActiveTab().(*dashboard.Tab)
+	d, _ := tab.(*dashboard.Tab) // the status bar's own tab, whichever group has the keys
 	for _, database := range g.databases {
 		label := cmp.Or(database, cn.Config.Database, cn.Config.Name)
 		if d != nil {
