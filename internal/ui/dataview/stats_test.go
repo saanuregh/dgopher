@@ -112,8 +112,12 @@ func BenchmarkStatusFrameAllSelected(b *testing.B) {
 // rows as before, and a cell edited again.
 func TestStatsFollowGridChanges(t *testing.T) {
 	tt, g, src := selectionGrid(t)
-	tt.Click("11")
-	tt.ClickWith(ui.Shift, "12")
+	if err := tt.Click("11"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ClickWith(ui.Shift, "12"); err != nil {
+		t.Fatal(err)
+	}
 	before := g.SelectionStats(src)
 	order := g.ViewOrder(src)
 	g.selectWhere(order, func(r int) bool { return r == 3 || r == 4 })
@@ -132,8 +136,12 @@ func TestStatsFollowGridChanges(t *testing.T) {
 // it caches stay cached.
 func TestRecordViewKeepsChoice(t *testing.T) {
 	tt, g, _ := selectionGrid(t)
-	tt.Click("aa")
-	tt.ClickWith(ui.Shift, "n2")
+	if err := tt.Click("aa"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ClickWith(ui.Shift, "n2"); err != nil {
+		t.Fatal(err)
+	}
 	g.mode = viewRecord
 	tt.Frame()
 	gen, cells := g.selGen, g.List.Cells

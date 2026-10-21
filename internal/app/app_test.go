@@ -902,7 +902,9 @@ func TestAuditTrail(t *testing.T) {
 	}
 	testutil.WaitFor(t, tt, "the check", func() bool { return tt.HasText(fmt.Sprintf("✓ Chain intact: %d entries", whole.Entries)) })
 	a.projects[0].Local.SQL().Exec("UPDATE audit SET event = replace(event, 'Ledger', 'Ledgr') WHERE seq = 2")
-	tt.Click("Verify Integrity")
+	if err := tt.Click("Verify Integrity"); err != nil {
+		t.Fatal(err)
+	}
 	testutil.WaitFor(t, tt, "the broken chain", func() bool {
 		return tt.HasText("✗ Entry 2: the entry was changed after it was written")
 	})

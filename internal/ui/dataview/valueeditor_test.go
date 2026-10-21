@@ -71,7 +71,9 @@ func TestValueEditorForms(t *testing.T) {
 	}
 	e.truth = 0
 	tt.Frame()
-	tt.Click("Save")
+	if err := tt.Click("Save"); err != nil {
+		t.Fatal(err)
+	}
 	if got := v.grid.edits.updates[0][col("done")]; got != db.Typed("1") {
 		t.Fatalf("done saved as %v", got)
 	}

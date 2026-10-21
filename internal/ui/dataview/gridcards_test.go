@@ -334,7 +334,9 @@ func TestPlainCellCard(t *testing.T) {
 	if !tt.HasText("status") || !tt.HasText("Copy") {
 		t.Fatalf("no card: %q", tt.Texts())
 	}
-	tt.Click("Copy")
+	if err := tt.Click("Copy"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Frame()
 	if tt.Clipboard() != "paid" {
 		t.Fatalf("copied %q", tt.Clipboard())
