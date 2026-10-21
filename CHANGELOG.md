@@ -2,6 +2,15 @@
 
 The changes of each version of DGopher.
 
+## 0.2.1
+
+### Added
+
+- Updates: DGopher checks for a new version once a day and offers to
+  install it, from Check for Updates… in the app menu or the title bar's
+  menu. Updates are signed, and the app installs only those signed with
+  DGopher's key. The Debian package does not update itself.
+
 ## 0.2.0
 
 ### Added
