@@ -2,6 +2,25 @@
 
 The changes of each version of DGopher.
 
+## 0.3.0
+
+### Added
+
+- Tabs: drag a tab out past the window's edge to open it in a new window.
+- Windows: the window's minimize, maximize and close buttons are drawn in
+  DGopher's theme, with Windows 11's snap layouts on maximize.
+
+### Changed
+
+- Faster drawing: only what changed is redrawn and laid out again, windows
+  out of sight draw nothing, and mouse-wheel scrolling glides (MyGo 0.6).
+- Titles beside smaller text line up on a shared baseline.
+- Linux: the Debian package and install script no longer require WebKitGTK.
+
+### Fixed
+
+- A file dropped on the middle of the window now opens.
+
 ## 0.2.1
 
 ### Added
