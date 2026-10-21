@@ -64,7 +64,7 @@ func (r *Tab) listenTo(names string) {
 	kv, cfg := r.conn.KV, r.conn.Config
 	messages := feed[db.PubSubMessage]{keep: pubSubKeep}
 	go func() {
-		defer dataview.RecoverBackground(r.a.Post, r.a.ShowError, func() { p.cancel = nil })
+		defer dataview.RecoverBackground(r.a.Post, r.a.ShowReport, func() { p.cancel = nil })
 		defer cancel()
 		done := make(chan struct{})
 		go messages.run(done, func(batch []db.PubSubMessage) {

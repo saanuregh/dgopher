@@ -20,7 +20,7 @@ func TestActivityGoesThroughPolicy(t *testing.T) {
 		at.src = dataview.Source{Cols: []db.ColumnInfo{{Name: "pid"}, {Name: "user"}}, Rows: [][]any{row}}
 		at.act(row, terminate)
 		if a.confirm == nil {
-			t.Fatalf("%s: no confirmation asked (alert %v)", cfg.Name, a.alert)
+			t.Fatalf("%s: no confirmation asked (alert %v)", cfg.Name, a.frontAlert())
 		}
 		return a.confirm.Title, a.confirm.Reasons, a.confirm.TypeName, a.confirm.Preview
 	}

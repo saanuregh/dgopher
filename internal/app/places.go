@@ -110,7 +110,7 @@ func connStateText(cn *connection.Conn) string {
 	case connection.StatusConnecting:
 		return "connecting…"
 	case connection.StatusFailed:
-		return "failed: " + widgets.FirstLine(cn.Err)
+		return "failed: " + widgets.FailureText(cn)
 	}
 	return "not connected"
 }

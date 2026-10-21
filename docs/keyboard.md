@@ -34,6 +34,8 @@ action by the name keymap.json gives it, as `editor::Run`.
 | Ctrl+Tab, Ctrl+⇧Tab | Next and previous tab of the group |
 | ⌘Y | Query history |
 | ⌘⇧A | Audit log |
+| ⌘K ⌘E | Show the latest error |
+| ⌘⇧N | Notifications: every error and message of this session |
 | ⌘, | Settings |
 | ⌘K ⌘S | Open keymap.json |
 | ⌘B | Show or hide the sidebar |

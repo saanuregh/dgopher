@@ -25,6 +25,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/lists"
 	"dgopher/internal/project"
+	"dgopher/internal/redact"
 	"dgopher/internal/safety"
 	"dgopher/internal/secretcmd"
 	"dgopher/internal/settings"
@@ -103,7 +104,7 @@ type App struct {
 	// promptQueue are the passwords asked while another was asked.
 	promptQueue []*passwordPrompt
 	hostKey     *hostKeyRequest
-	alert       *alertRequest
+	alerts      []*alertRequest // the first is shown, the others wait
 	palette     *paletteState
 	closing     *closeRequest
 	pending     *pendingAsk
@@ -145,7 +146,19 @@ type App struct {
 	idleWarn    *idleWarning
 	snippetForm *snippetForm
 	history     *historyState
-	toast       *pendingToast
+	toasts      []pendingToast // shown in the next frame
+	// notes are the session's notifications, oldest first.
+	notes      []notification
+	noteSeq    int
+	notesShown bool
+	noteOpen   int // the seq of the notification shown whole, 0 for none
+	// noteDetails is whether that notification's full text is shown.
+	noteDetails bool
+	// notesByKey is whether the list was opened by its key, which moves
+	// the focus into it; noteCursor is the seq of the row its arrows
+	// highlight, 0 for none.
+	notesByKey bool
+	noteCursor int
 
 	settingsOpen  bool
 	settingsPage  int // an index of settingsPages
@@ -205,7 +218,8 @@ func newApp(st *store.Store, uiState *state.DB) *App {
 	}
 	for _, cn := range a.conns {
 		if cn.Config.AutoConnect && cn.Project.Err == "" {
-			a.Connect(cn, nil)
+			// Not asked for now: a failure is marked and noted, not raised.
+			a.ConnectInline(cn, nil)
 		}
 	}
 	return a
@@ -252,7 +266,7 @@ func (a *App) Background(work func() func()) {
 				apply()
 			}
 		})
-		defer dataview.RecoverBackground(a.Post, a.ShowError, nil)
+		defer dataview.RecoverBackground(a.Post, a.ShowReport, nil)
 		apply = work()
 	}()
 }
@@ -450,39 +464,69 @@ func envAllowed(cfg *db.Config) string {
 	return fmt.Sprintf("A connection may only read its password from a variable whose name starts with %s, not %s.", projectEnvPrefix, cfg.PasswordEnv)
 }
 
-func (a *App) loadSecrets(cfg *db.Config) {
+// loadSecrets fills cfg's secrets from its variable and the keychain. It
+// returns, by secretNames name, why a keychain read failed for another
+// reason than absence; that secret is left empty, and what was read is
+// filled all the same.
+func (a *App) loadSecrets(cfg *db.Config) map[string]error {
 	if cfg.Password == "" && cfg.PasswordEnv != "" && envAllowed(cfg) == "" {
 		cfg.Password = os.Getenv(cfg.PasswordEnv)
 	}
 	sec := a.st.Secrets()
 	if !sec.Available() {
-		return
+		return nil
 	}
-	if cfg.Password == "" {
+	var unread map[string]error
+	get := func(v *string, what string) {
+		if *v != "" {
+			return
+		}
+		got, err := sec.Get(secretKey(cfg, what))
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			if unread == nil {
+				unread = map[string]error{}
+			}
+			unread[what] = err
+		}
+		*v = got
+	}
+	if passwordInKeychain(cfg) {
+		get(&cfg.Password, "password")
+	} else if cfg.Password == "" {
+		// Not the password's source: a read that fails here costs nothing.
 		cfg.Password, _ = sec.Get(secretKey(cfg, "password"))
 	}
-	if cfg.Redis.Mode == db.RedisSentinel && cfg.Redis.SentinelPassword == "" {
-		cfg.Redis.SentinelPassword, _ = sec.Get(secretKey(cfg, "sentinel-password"))
+	if cfg.Redis.Mode == db.RedisSentinel {
+		get(&cfg.Redis.SentinelPassword, "sentinel-password")
 	}
-	if cfg.Proxy.Kind != "" && cfg.Proxy.Password == "" {
-		cfg.Proxy.Password, _ = sec.Get(secretKey(cfg, "proxy-password"))
+	if cfg.Proxy.Kind != "" {
+		get(&cfg.Proxy.Password, "proxy-password")
 	}
 	if cfg.SSH.Enabled {
-		if cfg.SSH.Password == "" {
-			cfg.SSH.Password, _ = sec.Get(secretKey(cfg, "ssh-password"))
-		}
-		if cfg.SSH.KeyPassphrase == "" {
-			cfg.SSH.KeyPassphrase, _ = sec.Get(secretKey(cfg, "ssh-passphrase"))
-		}
+		get(&cfg.SSH.Password, "ssh-password")
+		get(&cfg.SSH.KeyPassphrase, "ssh-passphrase")
 	}
+	return unread
 }
 
-func (a *App) saveSecrets(cfg *db.Config, savePassword bool) error {
+// passwordInKeychain reports whether cfg's password is the keychain's to
+// give, so that one it cannot read leaves the connection without it.
+func passwordInKeychain(cfg *db.Config) bool {
+	return sourceOf(cfg) == sourceKeychain && !cfg.Engine.IsFile()
+}
+
+// saveSecrets keeps cfg's secrets in the keychain, and removes those left
+// empty, but for a name in keep: a secret the keychain could not read, so
+// that an empty field there is not a choice to remove it.
+func (a *App) saveSecrets(cfg *db.Config, savePassword bool, keep map[string]error) error {
 	sec := a.st.Secrets()
 	if !sec.Available() {
 		return nil
 	}
 	set := func(what, v string) error {
+		if v == "" && keep[what] != nil {
+			return nil
+		}
 		if v == "" || !savePassword {
 			return sec.Delete(secretKey(cfg, what))
 		}
@@ -495,6 +539,23 @@ func (a *App) saveSecrets(cfg *db.Config, savePassword bool) error {
 // secretNames are what a connection keeps in the keychain, as secretKey
 // names them.
 var secretNames = []string{"password", "ssh-password", "ssh-passphrase", "sentinel-password", "proxy-password"}
+
+// secretValue is the secret of cfg that secretNames calls what.
+func secretValue(cfg *db.Config, what string) string {
+	switch what {
+	case "password":
+		return cfg.Password
+	case "ssh-password":
+		return cfg.SSH.Password
+	case "ssh-passphrase":
+		return cfg.SSH.KeyPassphrase
+	case "sentinel-password":
+		return cfg.Redis.SentinelPassword
+	case "proxy-password":
+		return cfg.Proxy.Password
+	}
+	return ""
+}
 
 func (a *App) deleteSecrets(cfg *db.Config) {
 	sec := a.st.Secrets()
@@ -583,11 +644,12 @@ type connectAttempt struct {
 	alert bool
 }
 
-// startAttempt begins a connect attempt of cn, in place of any before.
-func (a *App) startAttempt(cn *connection.Conn) *connectAttempt {
+// startAttempt begins a connect attempt of cn, in place of any before;
+// alert is whether its failure raises its error.
+func (a *App) startAttempt(cn *connection.Conn, alert bool) *connectAttempt {
 	a.endAttempt(cn, nil)
 	ctx, cancel := context.WithCancel(context.Background())
-	at := &connectAttempt{ctx: ctx, cancel: cancel, started: time.Now()}
+	at := &connectAttempt{ctx: ctx, cancel: cancel, started: time.Now(), alert: alert}
 	if a.connecting == nil {
 		a.connecting = map[*connection.Conn]*connectAttempt{}
 	}
@@ -627,7 +689,7 @@ func (a *App) CancelConnect(cn *connection.Conn) {
 	cn.Generation++
 	// Not idle: what connects as it comes into view would connect again
 	// at once.
-	cn.Status, cn.Err = connection.StatusFailed, why
+	cn.Fail(errors.New(why))
 	cn.Waiters = nil
 	a.endAttempt(cn, nil)
 	a.Record(&cn.Config, audit.Event{Kind: audit.KindConnect, Detail: connectionSummary(&cn.Config), Err: errors.New(why)})
@@ -677,7 +739,7 @@ func (a *App) connect(cn *connection.Conn, then func(), alert bool) {
 		r.OnCancel = func() {
 			// Not idle: what connects as it comes into view, as an
 			// editor, would ask again each time.
-			cn.Status, cn.Err = connection.StatusFailed, "not connected: you did not agree to its destination"
+			cn.Fail(errors.New("not connected: you did not agree to its destination"))
 		}
 		return
 	}
@@ -685,39 +747,53 @@ func (a *App) connect(cn *connection.Conn, then func(), alert bool) {
 	// trusted before the details were kept, or with its care raised since.
 	a.trust(cn)
 	if why := envAllowed(&cfg); why != "" {
-		cn.Status, cn.Err = connection.StatusFailed, why
+		cn.Fail(errors.New(why))
 		cn.Waiters = nil
-		if alert {
-			a.ShowError("Could not connect to "+cfg.Name, why)
-		}
+		a.connectFailed(cn, alert)
 		return
 	}
-	cn.Status, cn.Err = connection.StatusConnecting, ""
+	cn.Status, cn.Err, cn.ErrKind = connection.StatusConnecting, "", db.ProblemUnknown
 	gen := cn.Generation
-	at := a.startAttempt(cn)
-	at.alert = alert
+	at := a.startAttempt(cn, alert)
 	dataview.BackgroundResetOnPanic(a, func() {
 		a.endAttempt(cn, at)
 		if gen == cn.Generation {
-			cn.Status, cn.Err = connection.StatusFailed, "stopped on an internal error"
+			cn.Fail(errors.New("stopped on an internal error"))
 			cn.Waiters = nil
 		}
 	}, func() func() {
-		a.loadSecrets(&cfg) // the keychain can take a while to answer
+		// The keychain can take a while to answer.
+		// Only the password has a source that says the keychain keeps it;
+		// the others may not exist, and the server says if one was needed.
+		if why := a.loadSecrets(&cfg)["password"]; why != nil {
+			// A password it could not give would reach the server as none.
+			err := &db.SecretReadError{Name: "password", Err: why}
+			return func() {
+				a.endAttempt(cn, at)
+				if gen != cn.Generation {
+					return
+				}
+				a.Record(&cfg, audit.Event{Kind: audit.KindConnect, Detail: connectionSummary(&cfg), Err: err})
+				cn.Fail(err)
+				cn.Waiters = nil
+				a.connectFailed(cn, at.alert)
+			}
+		}
 		lost := a.passwordLost(&cfg)
 		return func() {
 			if gen != cn.Generation {
 				return // disconnected meanwhile
 			}
-			a.askPasswordOrOpen(cn, cfg, lost)
+			a.askPasswordOrOpen(cn, cfg, lost, at.alert)
 		}
 	})
 }
 
 // askPasswordOrOpen opens a connection, once asked for its password when
 // it is asked every time, or when the keychain lost it (passwordLost),
-// which the user may then keep.
-func (a *App) askPasswordOrOpen(cn *connection.Conn, cfg db.Config, lost bool) {
+// which the user may then keep; alert is whether a failure raises its
+// error, past the prompt.
+func (a *App) askPasswordOrOpen(cn *connection.Conn, cfg db.Config, lost, alert bool) {
 	if (cfg.AskPassword || lost) && cfg.Password == "" && !cfg.Engine.IsFile() {
 		// The prompt is the user's to cancel; its time is not connecting's.
 		a.endAttempt(cn, nil)
@@ -730,18 +806,18 @@ func (a *App) askPasswordOrOpen(cn *connection.Conn, cfg db.Config, lost bool) {
 				a.keepPassword(&cfg, pw)
 			}
 			cfg.Password = pw
-			a.open(cn, cfg)
+			a.open(cn, cfg, alert)
 		}
 		p.onCancel = func() {
 			cn.Waiters = nil
 			// Not idle: what connects as it comes into view would ask
 			// again each time.
-			cn.Status, cn.Err = connection.StatusFailed, "no password was given"
+			cn.Fail(errors.New("no password was given"))
 		}
 		a.askPassword(p)
 		return
 	}
-	a.open(cn, cfg)
+	a.open(cn, cfg, alert)
 }
 
 // askPassword shows a password prompt, after the one shown if any.
@@ -753,14 +829,16 @@ func (a *App) askPassword(p *passwordPrompt) {
 	a.prompt = p
 }
 
-func (a *App) open(cn *connection.Conn, cfg db.Config) {
-	cn.Status, cn.Err = connection.StatusConnecting, ""
+// open connects cn with cfg; alert is whether a failure raises its error
+// when no attempt runs already, as after a prompt.
+func (a *App) open(cn *connection.Conn, cfg db.Config, alert bool) {
+	cn.Status, cn.Err, cn.ErrKind = connection.StatusConnecting, "", db.ProblemUnknown
 	known := a.knownHosts()
 	gen := cn.Generation
 	// Connect's, from the keychain on, unless a prompt came between.
 	at := a.connecting[cn]
 	if at == nil {
-		at = a.startAttempt(cn)
+		at = a.startAttempt(cn, alert)
 	}
 	// What the work opened, which the reset closes, tunnel and all, when
 	// the work stops on a panic before the main thread takes it.
@@ -770,7 +848,7 @@ func (a *App) open(cn *connection.Conn, cfg db.Config) {
 		go closePools(sqldb, kv)
 		a.endAttempt(cn, at)
 		if gen == cn.Generation {
-			cn.Status, cn.Err = connection.StatusFailed, "stopped on an internal error"
+			cn.Fail(errors.New("stopped on an internal error"))
 			cn.Waiters = nil
 		}
 	}, func() func() {
@@ -814,21 +892,27 @@ func (a *App) open(cn *connection.Conn, cfg db.Config) {
 			}
 			a.Record(&cfg, ev)
 			if err != nil {
-				cn.Status, cn.Err = connection.StatusFailed, err.Error()
+				cn.Fail(err)
 				cn.Waiters = nil
 				var hk *sshtunnel.HostKeyError
 				if errors.As(err, &hk) {
-					a.askHostKey(cn, cfg, hk)
+					a.askHostKey(cn, cfg, hk, at.alert)
 					return
 				}
-				if at.alert {
-					a.ShowError("Could not connect to "+cn.Config.Name, err.Error())
-				}
+				a.connectFailed(cn, at.alert)
 				return
 			}
 			cn.Reset()
 			cn.Status, cn.DB, cn.KV, cn.Version = connection.StatusConnected, sqldb, kv, version
 			cn.HeldAt = time.Now()
+			// A pool every session shares is a local file's: no tunnel
+			// to watch, and none to lose its transaction under.
+			if sqldb != nil && !sqldb.Single() {
+				a.watchRoute(cn, cn.Generation, sqldb.RouteDone(), sqldb.RouteErr)
+			}
+			if kv != nil {
+				a.watchRoute(cn, cn.Generation, kv.RouteDone(), kv.RouteErr)
+			}
 			waiters := cn.Waiters
 			cn.Waiters = nil
 			if cn.DB != nil {
@@ -842,7 +926,7 @@ func (a *App) open(cn *connection.Conn, cfg db.Config) {
 }
 
 // askHostKey asks whether to trust an SSH server seen for the first time.
-func (a *App) askHostKey(cn *connection.Conn, cfg db.Config, hk *sshtunnel.HostKeyError) {
+func (a *App) askHostKey(cn *connection.Conn, cfg db.Config, hk *sshtunnel.HostKeyError, alert bool) {
 	if hk.Mismatch {
 		a.ShowError("The SSH host key changed",
 			fmt.Sprintf("%s presented the key %s, which differs from the one in known_hosts. "+
@@ -856,7 +940,7 @@ func (a *App) askHostKey(cn *connection.Conn, cfg db.Config, hk *sshtunnel.HostK
 			return
 		}
 		a.Record(&cfg, audit.Event{Kind: audit.KindTrust, Detail: "trusted SSH host " + hk.Host + " with key " + hk.Fingerprint})
-		a.open(cn, cfg)
+		a.open(cn, cfg, alert)
 	}}
 }
 
@@ -865,6 +949,13 @@ func (a *App) askHostKey(cn *connection.Conn, cfg db.Config, hk *sshtunnel.HostK
 // connection holds wait for it, as at start, where they were. The table
 // designer, with nothing to wait with, closes.
 func (a *App) disconnect(cn *connection.Conn) {
+	a.releaseTabs(cn)
+	a.dropConnection(cn, "")
+}
+
+// releaseTabs lets the tabs of a connection that closes give up their
+// sessions, as disconnect says; an open transaction's rollback is audited.
+func (a *App) releaseTabs(cn *connection.Conn) {
 	for _, t := range a.everyTab() {
 		if t.Connection() != cn {
 			continue
@@ -883,7 +974,6 @@ func (a *App) disconnect(cn *connection.Conn) {
 			a.ReplaceTab(t, &waitingTab{a: a, conn: cn, saved: s})
 		}
 	}
-	a.dropConnection(cn, "")
 }
 
 // closeConnection closes a connection with its tabs, as when it goes.
@@ -910,10 +1000,10 @@ func (a *App) dropConnection(cn *connection.Conn, detail string) {
 	if sqldb != nil || kv != nil {
 		a.Record(&cn.Config, audit.Event{Kind: audit.KindDisconnect, Detail: detail})
 	}
-	cn.DB, cn.KV, cn.Status, cn.Err = nil, nil, connection.StatusIdle, ""
+	cn.DB, cn.KV, cn.Status, cn.Err, cn.ErrKind = nil, nil, connection.StatusIdle, "", db.ProblemUnknown
 	cn.Reset()
 	go func() {
-		defer dataview.RecoverBackground(a.Post, a.ShowError, nil)
+		defer dataview.RecoverBackground(a.Post, a.ShowReport, nil)
 		// The work running on the pool ends first, rolling back what it
 		// left open there.
 		stopJobs(jobs)
@@ -1016,7 +1106,7 @@ func (a *App) closeActive() {
 	switch {
 	case t == nil:
 	case a.tabs().Pinned(t):
-		a.toast = &pendingToast{text: t.Title() + " is pinned: close it from its menu, or unpin it first"}
+		a.Toast(t.Title()+" is pinned: close it from its menu, or unpin it first", "", nil)
 	default:
 		a.closeTabOf(t)
 	}
@@ -1078,12 +1168,78 @@ func (a *App) openRedis(cn *connection.Conn) {
 // Dialogs.
 
 type alertRequest struct {
-	open           bool
-	title, message string
+	open   bool
+	report widgets.ErrorReport
+	// details is whether the report's full text is shown under its hint.
+	details bool
 }
 
 func (a *App) ShowError(title, message string) {
-	a.alert = &alertRequest{open: true, title: title, message: message}
+	a.ShowReport(widgets.ErrorReport{Title: title, Detail: message})
+}
+
+// ShowReport shows an error, after those shown before it; one already
+// waiting with the same title and text is not shown twice. The one shown
+// does not count: its own action, as Retry, may raise it again.
+func (a *App) ShowReport(r widgets.ErrorReport) {
+	if a.showAlert(r) {
+		a.noteReport(r)
+	}
+}
+
+// showAlert queues r's dialog, unless the same one already waits, and
+// reports whether it did.
+func (a *App) showAlert(r widgets.ErrorReport) bool {
+	if len(a.alerts) > 1 && slices.ContainsFunc(a.alerts[1:], func(al *alertRequest) bool {
+		return al.report.Title == r.Title && al.report.Detail == r.Detail
+	}) {
+		return false
+	}
+	a.alerts = append(a.alerts, &alertRequest{open: true, report: r})
+	return true
+}
+
+// noteReport records an error report in the notifications.
+func (a *App) noteReport(r widgets.ErrorReport) {
+	a.note(notification{isError: true, title: r.Title, hint: r.Hint, detail: redact.Secrets(r.Detail), actions: r.Actions})
+}
+
+// connectFailed reports cn's failed connect: in an alert when asked for
+// one, else in the notifications alone, as the view that asked shows it.
+func (a *App) connectFailed(cn *connection.Conn, alert bool) {
+	r := a.connectionReport(cn, nil)
+	if alert {
+		a.ShowReport(r)
+		return
+	}
+	a.noteReport(r)
+}
+
+// connectionReport is a failed connection's report, whose Retry (retry,
+// or connecting, when nil) and Edit act only while the connection exists.
+// A notification keeps them for the session, so they hold its project and
+// ID rather than the connection and its catalog.
+func (a *App) connectionReport(cn *connection.Conn, retry func(*connection.Conn)) widgets.ErrorReport {
+	if retry == nil {
+		retry = func(cn *connection.Conn) { a.Connect(cn, nil) }
+	}
+	p, id := cn.Project, cn.Config.ID
+	kept := func(run func(*connection.Conn)) func() {
+		return func() {
+			if i := slices.IndexFunc(a.conns, func(x *connection.Conn) bool { return x.Project == p && x.Config.ID == id }); i >= 0 {
+				run(a.conns[i])
+			}
+		}
+	}
+	return widgets.ConnectionReport(cn, kept(retry), kept(a.openConnForm))
+}
+
+// frontAlert is the error shown, nil when there is none.
+func (a *App) frontAlert() *alertRequest {
+	if len(a.alerts) == 0 {
+		return nil
+	}
+	return a.alerts[0]
 }
 
 // pendingAsk asks what becomes of changes not applied yet before their

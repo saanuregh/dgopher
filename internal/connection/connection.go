@@ -38,6 +38,7 @@ type Conn struct {
 	ExpandWhenLoaded bool
 	Status           Status
 	Err              string
+	ErrKind          db.ProblemKind // what Err most likely means
 	DB               *db.DB
 	KV               *db.KV
 	Version          string
@@ -73,6 +74,11 @@ func (cn *Conn) PlaceOf(database string) Place {
 		database = ""
 	}
 	return Place{Conn: cn, Database: database}
+}
+
+// Fail marks the connection failed by err, keeping its text and kind.
+func (cn *Conn) Fail(err error) {
+	cn.Status, cn.Err, cn.ErrKind = StatusFailed, err.Error(), db.ClassifyConnectError(err)
 }
 
 // Rank orders connections problems first: failed, then not open, then

@@ -41,7 +41,15 @@ func (a *App) FocusWant() *string         { return &a.focusWant }
 func (a *App) Dialogs() *dataview.Dialogs { return &a.data }
 
 func (a *App) Toast(text, action string, run func()) {
-	a.toast = &pendingToast{text: text, action: action, run: run}
+	a.toast(text, action, run)
+	// Without its action, which is the toast's own moment's, as an Undo.
+	a.note(notification{title: text})
+}
+
+// toast shows text, with a button doing run when action is set, without
+// a notification.
+func (a *App) toast(text, action string, run func()) {
+	a.toasts = append(a.toasts, pendingToast{text: text, action: action, run: run})
 }
 
 func (a *App) Notify(started time.Time, title, body string, show func()) {

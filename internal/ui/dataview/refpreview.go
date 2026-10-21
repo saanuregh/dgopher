@@ -52,7 +52,7 @@ func (v *Viewer) refPreviewCard(c *ui.Context, card *widgets.Card, src *Source, 
 	case production && !p.asked && !p.read:
 		card.Note(c, "Production: the row is read only when you ask.")
 	case p.err != "":
-		card.Note(c, "Could not read the row: "+widgets.FirstLine(p.err))
+		card.Note(c, "Could not read the row: "+widgets.FirstLine(p.err)).Tooltip(p.err)
 	case p.read && p.row == nil:
 		card.Note(c, "No row of "+fk.RefTable+" has this value.")
 	case p.read:

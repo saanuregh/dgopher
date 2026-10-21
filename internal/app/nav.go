@@ -87,6 +87,111 @@ type navState struct {
 	// openConns are the IDs of the connections open in the tree as it
 	// last drew, and openConnsNow as it draws: one opened since connects.
 	openConns, openConnsNow map[string]bool
+	// errors are the errors of the notes that say one, by note, made
+	// again as each frame lists the tree: a note's text is a line of its
+	// error, so one whose error changes is a new note.
+	errors map[navNode]navError
+	// raised are the whole errors of the notes raised already, kept
+	// across frames until the note's error is gone or changes.
+	raised map[navNode]string
+}
+
+// navError is an error a note of the tree stands for.
+type navError struct {
+	title, full string
+	// refresh reads again what could not be read, nil when nothing does.
+	refresh func()
+}
+
+// errorNote is a note saying an error, whose text is n's name; it keeps
+// the error for the note to show whole.
+func (a *App) errorNote(n navNode, e navError) []navNode {
+	n.kind = nodeInfo
+	if a.nav.errors == nil {
+		a.nav.errors = map[navNode]navError{}
+	}
+	a.nav.errors[n] = e
+	return []navNode{n}
+}
+
+// catalogError is a note of a part of cn's catalog that could not be read,
+// which Refresh reads again.
+func (a *App) catalogError(cn *connection.Conn, what, text, full string) []navNode {
+	// A notification keeps Refresh: it holds the ID, not the connection.
+	id := cn.Config.ID
+	refresh := func() {
+		if cn := a.connByID(id); cn != nil {
+			a.refresh(cn)
+		}
+	}
+	return a.errorNote(navNode{conn: id, name: text}, navError{title: "Could not read " + what, full: full, refresh: refresh})
+}
+
+// navReport is the report of the error a note stands for, with what can
+// be done.
+func navReport(e navError) widgets.ErrorReport {
+	r := widgets.ErrorReport{Title: e.title, Detail: e.full}
+	if e.refresh != nil {
+		r.Actions = []widgets.ErrorAction{{Label: "Refresh", Run: e.refresh}}
+	}
+	return r
+}
+
+// showNavError raises the error a note stands for.
+func (a *App) showNavError(e navError) { a.ShowReport(navReport(e)) }
+
+// errorNoteText draws a note that says an error: a line of it, the whole
+// on hover; a click raises it. The first time it shows, a catalog error
+// (one Refresh reads again) is raised, the user's opening of its place
+// having asked for it; the others, read at startup, are only noted.
+func (a *App) errorNoteText(c *ui.Context, row ui.Element, n navNode, e navError) {
+	ui.Text(c, n.name).FontSize(12).TextColor(c.Theme().Danger).Italic().SingleLine().Tooltip(e.full)
+	if a.nav.raised[n] != e.full {
+		if a.nav.raised == nil {
+			a.nav.raised = map[navNode]string{}
+		}
+		a.nav.raised[n] = e.full
+		if e.refresh != nil {
+			a.showNavError(e)
+		} else {
+			a.noteReport(navReport(e))
+		}
+		c.Invalidate()
+	}
+	if row.Clicked() {
+		a.showNavError(e)
+	}
+}
+
+// forgetGoneErrors forgets the raised notes whose error the tree no longer
+// lists, so that failing again raises again.
+func (a *App) forgetGoneErrors() {
+	for n, full := range a.nav.raised {
+		if a.nav.errors[n].full != full {
+			delete(a.nav.raised, n)
+		}
+	}
+}
+
+// failedConn is the connection n is the row of when it failed to connect.
+func (a *App) failedConn(n navNode) *connection.Conn {
+	if n.kind != nodeConn {
+		return nil
+	}
+	if cn := a.connByID(n.conn); cn != nil && cn.Status == connection.StatusFailed {
+		return cn
+	}
+	return nil
+}
+
+// showConnError raises why cn failed to connect, unless that is in front
+// already, as after the click a double click starts with.
+func (a *App) showConnError(cn *connection.Conn) {
+	r := a.connectionReport(cn, nil)
+	if f := a.frontAlert(); f != nil && f.report.Title == r.Title && f.report.Detail == r.Detail {
+		return
+	}
+	a.ShowReport(r)
 }
 
 func (n *navState) init() {
@@ -99,20 +204,26 @@ func (n *navState) init() {
 
 // skipNotes keeps the choice off a note, as "Loading…" or "No tables",
 // which nothing is done with: it goes on to the next row the way it moved,
-// else back where it was; the next frame, asked at once, shows it.
+// else back where it was; the next frame, asked at once, shows it. A note
+// of an error is chosen, as Enter raises it.
 func (a *App) skipNotes(c *ui.Context) {
 	rows, r, was := a.nav.tree.Rows(), a.nav.row, a.nav.chose
-	if r >= 0 && r < rows && a.nav.tree.Item(r).kind == nodeInfo {
+	skipped := func(i int) bool {
+		n := a.nav.tree.Item(i)
+		_, isError := a.nav.errors[n]
+		return n.kind == nodeInfo && !isError
+	}
+	if r >= 0 && r < rows && skipped(r) {
 		step := 1
 		if r < was {
 			step = -1
 		}
 		to := -1
-		if was >= 0 && was < rows && a.nav.tree.Item(was).kind != nodeInfo {
+		if was >= 0 && was < rows && !skipped(was) {
 			to = was
 		}
 		for i := r; i >= 0 && i < rows; i += step {
-			if a.nav.tree.Item(i).kind != nodeInfo {
+			if !skipped(i) {
 				to = i
 				break
 			}
@@ -150,7 +261,7 @@ func (a *App) projectChildren(n navNode) []navNode {
 		return nil
 	}
 	if p.Err != "" {
-		return []navNode{{kind: nodeInfo, projectDir: p.Dir, name: widgets.FirstLine(p.Err)}}
+		return a.errorNote(navNode{projectDir: p.Dir, name: widgets.FirstLine(p.Err)}, navError{title: "Could not read the project", full: p.Err})
 	}
 	note := func(text string) []navNode { return []navNode{{kind: nodeInfo, projectDir: p.Dir, name: text}} }
 	files := func(kind nodeKind, paths []string, none string) []navNode {
@@ -198,7 +309,7 @@ func (a *App) projectChildren(n navNode) []navNode {
 			out = append(out, navNode{kind: nodeQueryFile, projectDir: p.Dir, name: f})
 		}
 		if p.ScanErr != "" {
-			out = append(out, navNode{kind: nodeInfo, projectDir: p.Dir, name: widgets.FirstLine(p.ScanErr)})
+			out = append(out, a.errorNote(navNode{projectDir: p.Dir, name: widgets.FirstLine(p.ScanErr)}, navError{title: "Could not list the .sql files", full: p.ScanErr})...)
 		}
 		if out == nil {
 			return note("No .sql files yet")
@@ -219,7 +330,7 @@ func (a *App) schemaChildren(cn *connection.Conn, n navNode, open bool) []navNod
 	objs, ok := cn.Objects[key]
 	if !ok {
 		if e := cn.LoadErr[key]; e != "" {
-			return info(cn, "Failed: "+widgets.FirstLine(e))
+			return a.catalogError(cn, "the tables", "Failed: "+widgets.FirstLine(e), e)
 		}
 		if open {
 			connection.LoadObjects(a, cn, n.database, n.schema)
@@ -246,10 +357,10 @@ func (a *App) schemaChildren(cn *connection.Conn, n navNode, open bool) []navNod
 		}
 	}
 	if e := cn.ItemsError(n.database, n.schema); e != "" {
-		out = append(out, info(cn, "Could not read the routines and other objects: "+widgets.FirstLine(e))...)
+		out = append(out, a.catalogError(cn, "the routines and other objects", "Could not read the routines and other objects: "+widgets.FirstLine(e), e)...)
 	}
 	if e := cn.SchemaColumnsError(n.database, n.schema); e != "" {
-		out = append(out, info(cn, "Could not read the columns at once, so each table's are read as needed: "+widgets.FirstLine(e))...)
+		out = append(out, a.catalogError(cn, "the columns at once", "Could not read the columns at once, so each table's are read as needed: "+widgets.FirstLine(e), e)...)
 	}
 	if out == nil {
 		return info(cn, "No tables")
@@ -284,7 +395,7 @@ func (a *App) navChildren(n navNode) []navNode {
 		case connection.StatusConnecting:
 			return info(cn, "Connecting…")
 		case connection.StatusFailed:
-			return info(cn, "Failed: "+widgets.FirstLine(cn.Err))
+			return nil
 		case connection.StatusIdle:
 			switch {
 			case opened:
@@ -408,7 +519,7 @@ func (a *App) schemaNodes(cn *connection.Conn, database string, open bool) []nav
 	schemas, ok := cn.Schemas[database]
 	if !ok {
 		if e := cn.SchemasError(database); e != "" {
-			return info(cn, "Failed: "+widgets.FirstLine(e))
+			return a.catalogError(cn, "the schemas", "Failed: "+widgets.FirstLine(e), e)
 		}
 		if open {
 			a.loadSchemas(cn, database)
@@ -479,6 +590,7 @@ func (a *App) sidebar(c *ui.Context) {
 			return
 		}
 		a.nav.openConns, a.nav.openConnsNow = a.nav.openConnsNow, map[string]bool{}
+		clear(a.nav.errors)
 		a.followTab()
 		a.openToReveal()
 		var tree ui.Element
@@ -487,6 +599,7 @@ func (a *App) sidebar(c *ui.Context) {
 				a.navRow(c, n)
 			}).Grow(1).PaddingX(6).Label("Navigator")
 		})
+		a.forgetGoneErrors()
 		a.chooseRevealed(c)
 		a.skipNotes(c)
 		if tree.Submitted() && a.nav.row >= 0 && a.nav.row < a.nav.tree.Rows() {
@@ -572,6 +685,14 @@ func (a *App) renameObject(cn *connection.Conn, database string, obj db.Object) 
 
 // activate does what a double click on a node does.
 func (a *App) activate(n navNode) {
+	if e, ok := a.nav.errors[n]; ok {
+		a.showNavError(e)
+		return
+	}
+	if cn := a.failedConn(n); cn != nil {
+		a.showConnError(cn)
+		return
+	}
 	switch n.kind {
 	case nodeProject, nodeConnections, nodeQueries, nodeDashboards, nodeModels:
 		if a.nav.tree.Open.Has(n) {
@@ -603,8 +724,7 @@ func (a *App) activate(n navNode) {
 			a.openRedis(cn)
 			return
 		}
-		a.nav.expand(n)
-		a.Connect(cn, func() { a.expandDefaults(cn) })
+		a.connectNode(cn, n)
 	case nodeObject:
 		if cn, obj, ok := a.object(n); ok {
 			a.OpenTable(cn, n.database, obj, dataview.PageData)
@@ -620,6 +740,12 @@ func (a *App) activate(n navNode) {
 			a.nav.expand(n)
 		}
 	}
+}
+
+// connectNode connects cn, opening its node n and then where it starts.
+func (a *App) connectNode(cn *connection.Conn, n navNode) {
+	a.nav.expand(n)
+	a.Connect(cn, func() { a.expandDefaults(cn) })
 }
 
 // expandDefaults opens the database and schema the connection starts in.
@@ -677,6 +803,9 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 			switch cn.Status {
 			case connection.StatusFailed:
 				ui.Icon(c, widgets.IconAlert).TextColor(t.Danger).FontSize(12).Tooltip(cn.Err)
+				if row.Clicked() {
+					a.showConnError(cn)
+				}
 			}
 			if cn.Config.ReadOnly {
 				ui.Icon(c, widgets.IconLock).TextColor(muted).FontSize(12).Tooltip("Read-only")
@@ -749,6 +878,10 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 				ui.Text(c, it.Detail).FontSize(11).TextColor(muted).SingleLine().Shrink(1)
 			}
 		case nodeInfo:
+			if e, ok := a.nav.errors[n]; ok {
+				a.errorNoteText(c, row, n, e)
+				break
+			}
 			ui.Text(c, n.name).FontSize(12).TextColor(muted).Italic().SingleLine()
 		}
 	})
@@ -807,7 +940,11 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 				a.refresh(cn)
 			}
 		} else if m.Item("Connect").Chosen() {
-			a.activate(n)
+			if cn.Config.Engine == db.Redis {
+				a.openRedis(cn)
+			} else {
+				a.connectNode(cn, n)
+			}
 		}
 		if _, ok := a.connectStarted(cn); ok && m.Item("Cancel Connecting").Chosen() {
 			a.CancelConnect(cn)
@@ -1207,6 +1344,10 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 			ui.Icon(c, ic).TextColor(muted).FontSize(12)
 			ui.Text(c, name).SingleLine().Shrink(1).Tooltip(n.name)
 		case nodeInfo:
+			if e, ok := a.nav.errors[n]; ok {
+				a.errorNoteText(c, row, n, e)
+				break
+			}
 			ui.Text(c, n.name).FontSize(12).TextColor(muted).Italic().SingleLine()
 		}
 	})

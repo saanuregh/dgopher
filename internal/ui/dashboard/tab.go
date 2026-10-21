@@ -40,6 +40,8 @@ type Host interface {
 	// itself: no alert says it again.
 	ConnectInline(cn *connection.Conn, then func())
 	ShowError(title, message string)
+	// ShowReport shows an error with its hint and actions.
+	ShowReport(r widgets.ErrorReport)
 	Toast(text, action string, run func())
 	RecordTyped(cfg db.Config, t audit.TypedRun)
 	NewQueryTab(cn *connection.Conn, database, text string)
@@ -405,8 +407,13 @@ func (t *Tab) runPanel(i int, asked bool) {
 		// Its state shows while it connects, or why it did not; it runs
 		// once connected, or at the next refresh.
 		if cn.Status == connection.StatusIdle || asked && cn.Status == connection.StatusFailed {
-			// The panel says why it did not connect.
-			t.h.ConnectInline(cn, func() {
+			// The panel says why it did not connect; a refresh the user
+			// asked for also raises it.
+			connect := t.h.ConnectInline
+			if asked {
+				connect = t.h.Connect
+			}
+			connect(cn, func() {
 				if at := slices.Index(t.panels, s); at >= 0 {
 					t.runPanel(at, false)
 				}

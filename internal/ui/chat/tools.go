@@ -225,7 +225,7 @@ func (t *Chat) askToConnect(ctx context.Context, cn *connection.Conn) error {
 // connectAnswered takes the user's answer to connecting, connects, and
 // waits until the connection opens or fails.
 func (t *Chat) connectAnswered(ctx context.Context, cn *connection.Conn, r *request, ask *connectAsk) {
-	defer dataview.RecoverBackground(t.a.Post, t.a.ShowError, nil)
+	defer dataview.RecoverBackground(t.a.Post, t.a.ShowReport, nil)
 	finish := func(err error) {
 		t.a.Post(func() {
 			ask.err = err

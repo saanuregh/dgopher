@@ -53,7 +53,7 @@ func TestRenameConn(t *testing.T) {
 	p.Local.SaveJSON("colors.json", map[string]any{"lite/main.t": []any{map[string]string{"column": "a", "value": "1", "color": "#fff"}}})
 	withPassword := cn.Config
 	withPassword.Password = "pw"
-	if err := a.saveSecrets(&withPassword, true); err != nil {
+	if err := a.saveSecrets(&withPassword, true, nil); err != nil {
 		t.Fatal(err)
 	}
 	oldKey, oldTrust := secretKey(&cn.Config, "password"), trustKey(cn)
@@ -176,7 +176,7 @@ func TestRenameConnUndone(t *testing.T) {
 	p.Local.SaveJSON("filters.json", map[string][]string{"lite/main.t": {"a = 1"}})
 	withPassword := cn.Config
 	withPassword.Password = "pw"
-	if err := a.saveSecrets(&withPassword, true); err != nil {
+	if err := a.saveSecrets(&withPassword, true, nil); err != nil {
 		t.Fatal(err)
 	}
 	renamed := cn.Config
@@ -285,7 +285,7 @@ func TestConnFormIDAndHostLeaveNoSecret(t *testing.T) {
 	a.saveProject(a.projects[0])
 	withPassword := cn.Config
 	withPassword.Password = "pw"
-	if err := a.saveSecrets(&withPassword, true); err != nil {
+	if err := a.saveSecrets(&withPassword, true, nil); err != nil {
 		t.Fatal(err)
 	}
 	tt := ui.NewTester(a.view, 1000, 760)

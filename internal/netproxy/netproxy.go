@@ -221,6 +221,13 @@ func Forward(addr string, dial func(ctx context.Context, network, addr string) (
 // LocalPort is the port connections to the server are made to.
 func (f *Forwarder) LocalPort() int { return f.listener.Addr().(*net.TCPAddr).Port }
 
+// Done never closes: a proxy's end is not detected, so it surfaces as
+// failing queries instead. A nil channel blocks forever.
+func (f *Forwarder) Done() <-chan struct{} { return nil }
+
+// Err is always nil; see Done.
+func (f *Forwarder) Err() error { return nil }
+
 // Close stops listening, and closes the connections forwarded.
 func (f *Forwarder) Close() error {
 	f.mu.Lock()

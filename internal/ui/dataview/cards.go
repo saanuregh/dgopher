@@ -101,7 +101,7 @@ func TableCard(c *ui.Context, card *widgets.Card, h Host, cn *connection.Conn, d
 	case connected && cn.LoadErr[key] == "":
 		card.Placeholder(c, 4)
 	case connected:
-		card.Note(c, "Could not read its columns: "+widgets.FirstLine(cn.LoadErr[key]))
+		card.Note(c, "Could not read its columns: "+widgets.FirstLine(cn.LoadErr[key])).Tooltip(cn.LoadErr[key])
 	default:
 		card.Note(c, "Connect to see its columns.")
 	}

@@ -214,7 +214,7 @@ func (a *App) saveDocs(schema string, format int, text string) {
 		ext = ".md"
 	}
 	go func() {
-		defer dataview.RecoverBackground(a.Post, a.ShowError, nil)
+		defer dataview.RecoverBackground(a.Post, a.ShowReport, nil)
 		path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{Title: "Save the Documentation", DefaultPath: schema + ext})
 		if err != nil || path == "" {
 			return
@@ -225,7 +225,7 @@ func (a *App) saveDocs(schema string, format int, text string) {
 				a.ShowError("Could not save the documentation", err.Error())
 				return
 			}
-			a.toast = &pendingToast{text: "Saved the documentation to " + filepath.Base(path)}
+			a.Toast("Saved the documentation to "+filepath.Base(path), "", nil)
 		})
 	}()
 }

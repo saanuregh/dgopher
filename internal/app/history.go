@@ -193,7 +193,7 @@ func (a *App) openStatement(h *historyState, connectionID, database, text string
 	cn := a.connByID(connectionID)
 	if cn == nil || !cn.Config.Engine.IsSQL() {
 		a.WriteClipboard(text)
-		a.toast = &pendingToast{text: "Copied the statement"}
+		a.Toast("Copied the statement", "", nil)
 		return
 	}
 	h.open = false

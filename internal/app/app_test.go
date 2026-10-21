@@ -884,7 +884,7 @@ func TestAuditTrail(t *testing.T) {
 	q.Editor.SetText("DELETE FROM accounts WHERE id = 1;")
 	testutil.SetCaret(tt, q.Editor, 3)
 	q.Run(query.RunStatement)
-	a.alert = nil
+	a.alerts = nil
 	cn.Config = ro
 
 	events := auditEvents(t, a)
@@ -944,7 +944,7 @@ func TestProjectSecretsStayWithTheirHost(t *testing.T) {
 	}
 	// A password kept for one host is not sent to another under the same ID.
 	mine := db.Config{ID: "p-x-db", Name: "db", Engine: db.Postgres, Host: "db.internal", User: "app", Password: "kept"}
-	a.saveSecrets(&mine, true)
+	a.saveSecrets(&mine, true, nil)
 	moved := mine
 	moved.Password, moved.Host = "", "attacker.example"
 	a.loadSecrets(&moved)
@@ -1046,7 +1046,7 @@ func TestQueryFileHeaderMustNameAConnection(t *testing.T) {
 	testutil.SetCaret(tt, q.Editor, 30)
 	q.Run(query.RunStatement)
 	tt.Frame()
-	if a.alert == nil || prod.Status != connection.StatusIdle {
+	if a.frontAlert() == nil || prod.Status != connection.StatusIdle {
 		t.Fatalf("ran on a connection the file does not name: status %v", prod.Status)
 	}
 }

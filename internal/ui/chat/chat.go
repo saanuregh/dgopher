@@ -274,7 +274,7 @@ func (t *Chat) Resume(session string) {
 	t.resume = session
 	gen, name := t.gen, t.provider
 	go func() {
-		defer dataview.RecoverBackground(t.a.Post, t.a.ShowError, nil)
+		defer dataview.RecoverBackground(t.a.Post, t.a.ShowReport, nil)
 		reader, ok := NewProvider(name).(agent.HistoryReader) // off the UI thread, as in start
 		if !ok {
 			return
@@ -316,7 +316,7 @@ func (t *Chat) Close() {
 	if sess := t.sess; sess != nil {
 		t.sess = nil
 		go func() {
-			defer dataview.RecoverBackground(t.a.Post, t.a.ShowError, nil)
+			defer dataview.RecoverBackground(t.a.Post, t.a.ShowReport, nil)
 			sess.Close()
 		}()
 	}
@@ -361,7 +361,7 @@ func (t *Chat) start() {
 	lockDown(t.provider, &cfg)
 	name := t.provider
 	go func() {
-		defer dataview.RecoverBackground(t.a.Post, t.a.ShowError, func() { t.starting = false })
+		defer dataview.RecoverBackground(t.a.Post, t.a.ShowReport, func() { t.starting = false })
 		// Made here, not on the UI thread: Codex's asks its command line
 		// which features it has.
 		provider := NewProvider(name)
@@ -464,7 +464,7 @@ func (t *Chat) contextPrompt() string {
 // watch hands the session's events to the UI thread, in order, until it
 // ends.
 func (t *Chat) watch(sess agent.Session, gen int) {
-	defer dataview.RecoverBackground(t.a.Post, t.a.ShowError, nil)
+	defer dataview.RecoverBackground(t.a.Post, t.a.ShowReport, nil)
 	for ev := range sess.Events() {
 		t.a.Post(func() {
 			if gen == t.gen {
@@ -587,7 +587,7 @@ func (t *Chat) sendNow(text string) {
 	in := agent.Text(text)
 	in.ClientID = id
 	go func() {
-		defer dataview.RecoverBackground(t.a.Post, t.a.ShowError, nil)
+		defer dataview.RecoverBackground(t.a.Post, t.a.ShowReport, nil)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 		if _, err := sess.Send(ctx, in); err != nil {
@@ -667,7 +667,7 @@ func (t *Chat) answerQuestion(r *request, q agent.Question, label string) {
 // goWithin runs f off the UI thread, its context ending after timeout.
 func (t *Chat) goWithin(timeout time.Duration, f func(ctx context.Context)) {
 	go func() {
-		defer dataview.RecoverBackground(t.a.Post, t.a.ShowError, nil)
+		defer dataview.RecoverBackground(t.a.Post, t.a.ShowReport, nil)
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		f(ctx)

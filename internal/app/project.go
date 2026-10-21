@@ -664,7 +664,7 @@ func (a *App) createProject(f *newProjectForm) {
 		return
 	}
 	f.open = false
-	a.toast = &pendingToast{text: "Created " + dir}
+	a.Toast("Created "+dir, "", nil)
 	if f.then != nil {
 		f.then(p)
 	}

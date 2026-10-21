@@ -339,7 +339,7 @@ func (t *activityTab) act(row []any, terminate bool) {
 					t.a.ShowError("Could not stop it", err.Error())
 					return
 				}
-				t.a.toast = &pendingToast{text: "Done: " + stmt}
+				t.a.Toast("Done: "+stmt, "", nil)
 				t.refresh()
 			}
 		})

@@ -373,7 +373,7 @@ func (a *App) runImport(x *importState) {
 				// The navigator reads the schema again, the new table in it.
 				cn.ForgetCatalog()
 			}
-			a.toast = &pendingToast{text: fmt.Sprintf("Imported %d rows into %s", n, target.Table)}
+			a.Toast(fmt.Sprintf("Imported %d rows into %s", n, target.Table), "", nil)
 			a.Notify(started, "Import finished", fmt.Sprintf("%s into %s", widgets.Count(n, "row"), target.Table), nil)
 			a.reloadTableTabs(cn, x.schema, target.Table)
 		}

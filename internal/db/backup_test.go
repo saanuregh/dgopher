@@ -44,8 +44,10 @@ func TestPlanBackupKeepsPasswordsOffTheCommandLine(t *testing.T) {
 // fixedRoute is an SSH tunnel's or a proxy's local port.
 type fixedRoute int
 
-func (r fixedRoute) LocalPort() int { return int(r) }
-func (fixedRoute) Close() error     { return nil }
+func (r fixedRoute) LocalPort() int      { return int(r) }
+func (fixedRoute) Close() error          { return nil }
+func (fixedRoute) Done() <-chan struct{} { return nil }
+func (fixedRoute) Err() error            { return nil }
 
 // A database's name is a value of libpq's connection string, quoted: a bare
 // --dbname holding = or starting postgresql:// is read as a connection

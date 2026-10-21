@@ -313,7 +313,7 @@ func (r *Tab) startCommandFile(path string, cmds []db.CommandLine) {
 	r.logConsole(consoleLine{input: true, text: "> run " + filepath.Base(path)})
 	kv := r.conn.KV
 	go func() {
-		defer dataview.RecoverBackground(r.a.Post, r.a.ShowError, func() { r.file = nil })
+		defer dataview.RecoverBackground(r.a.Post, r.a.ShowReport, func() { r.file = nil })
 		defer cancel()
 		for i, cmd := range cmds {
 			if ctx.Err() != nil {

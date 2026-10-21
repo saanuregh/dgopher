@@ -103,6 +103,7 @@ type Viewer struct {
 	loadStarted time.Time
 	done        bool
 	err         string
+	errHint     string // the hint of a connection error in err
 	elapsed     time.Duration
 	where       string // the filter applied
 	whereIn     string // the filter being typed
@@ -172,6 +173,8 @@ type Viewer struct {
 	// columns and fks are the table's, nil until read.
 	columns []db.Column
 	fks     []db.ForeignKey
+	// fkErr is the failed read of fks, "" when they were read.
+	fkErr string
 	// refPreviews are the rows foreign keys' cards read, by table and
 	// value; refReading is set while one is read.
 	refPreviews map[string]*refPreview
@@ -567,7 +570,7 @@ func (v *Viewer) reload() {
 		return
 	}
 	if err := v.checkFilter(v.where); err != nil {
-		v.err = "Filter: " + err.Error()
+		v.err, v.errHint = "Filter: "+err.Error(), ""
 		v.allAfterRead = false
 		v.runAfterRead()
 		return
@@ -578,7 +581,7 @@ func (v *Viewer) reload() {
 		v.runAfterRead()
 		return
 	}
-	v.loading, v.err, v.loadStarted = true, "", time.Now()
+	v.loading, v.err, v.errHint, v.loadStarted = true, "", "", time.Now()
 	v.fetchingAll = false
 	v.sortRead = v.grid.sort
 	query := v.selectSQL()
@@ -589,7 +592,7 @@ func (v *Viewer) reload() {
 	v.cancel = cancel
 	sess, pool, database, cfg := v.source.Session(), v.source.Conn.DB, v.source.Database, v.source.Conn.Config
 	go func() {
-		defer RecoverBackground(v.a.Post, v.a.ShowError, func() { v.loading = false })
+		defer RecoverBackground(v.a.Post, v.a.ShowReport, func() { v.loading = false })
 		closeOld()
 		start := time.Now()
 		var err error
@@ -623,7 +626,7 @@ func (v *Viewer) reload() {
 				defer v.runAfterRead()
 			}
 			if err != nil {
-				v.err = err.Error()
+				v.err, v.errHint = err.Error(), db.ClassifyConnectError(err).Hint()
 				v.allAfterRead = false
 				return
 			}
@@ -775,7 +778,7 @@ func (v *Viewer) fetchMore() {
 	c := v.cursor
 	n := min(v.a.Settings().PageSize, db.MaxRows-len(v.src.Rows))
 	go func() {
-		defer RecoverBackground(v.a.Post, v.a.ShowError, func() { v.loading = false })
+		defer RecoverBackground(v.a.Post, v.a.ShowReport, func() { v.loading = false })
 		rows, err := c.Fetch(n)
 		done := c.Done()
 		v.a.Post(func() {
@@ -790,7 +793,7 @@ func (v *Viewer) fetchMore() {
 			case errors.Is(err, db.ErrClosedEarly):
 				v.done, v.truncated, v.fetchingAll = true, true, false
 			case err != nil:
-				v.err = err.Error()
+				v.err, v.errHint = err.Error(), db.ClassifyConnectError(err).Hint()
 				v.fetchingAll = false
 			}
 			if v.fetchingAll {
@@ -802,7 +805,7 @@ func (v *Viewer) fetchMore() {
 
 func (v *Viewer) countRows() {
 	if err := v.checkFilter(v.where); err != nil {
-		v.err = "Filter: " + err.Error()
+		v.err, v.errHint = "Filter: "+err.Error(), ""
 		return
 	}
 	query := "SELECT COUNT(*) FROM " + v.from() + whereClause(v.where)
@@ -1018,7 +1021,7 @@ func (v *Viewer) apply(stmts, shown []db.Statement) {
 	job := fmt.Sprintf("Applying %s to %s on %s: stopping it rolls them back, and nothing of it stays.", widgets.Count(len(stmts), "change"), v.TableName(), cfg.Name)
 	finishJob := v.a.StartJob(v.source.Conn, job, v.stopApply)
 	go func() {
-		defer RecoverBackground(v.a.Post, v.a.ShowError, func() { v.applying = false })
+		defer RecoverBackground(v.a.Post, v.a.ShowReport, func() { v.applying = false })
 		defer finishJob()
 		defer cancel()
 		var err error
@@ -1381,6 +1384,9 @@ func (v *Viewer) View(c *ui.Context) {
 		ui.Row(c).Padding(6, 12).Gap(10).Background(th.Danger.Alpha(0.12)).Children(func() {
 			ui.Icon(c, widgets.IconAlert).TextColor(th.Danger).FontSize(14)
 			ui.Text(c, "Could not read the rows: "+widgets.FirstLine(v.err)+". The rows shown are those read before.").Grow(1).Shrink(1).Selectable().Tooltip(v.err)
+			if ui.Button(c, "Details").Clicked() {
+				v.a.ShowReport(widgets.ErrorReport{Title: "Could not read the rows", Hint: v.errHint, Detail: v.err})
+			}
 		})
 	}
 	if v.src.Cols == nil {
@@ -1626,7 +1632,9 @@ func (v *Viewer) cellMenu(m *ui.Menu, row, col int) {
 				v.openTableWhere(r.Schema, r.Table, where)
 			}
 		}
-		if !found {
+		if !found && v.fkErr != "" {
+			m.Item("Couldn't read foreign keys: " + widgets.OneLine(widgets.FirstLine(v.fkErr), 120)).Disabled(true)
+		} else if !found {
 			m.Item("No foreign keys from or to this cell").Disabled(true)
 		}
 	})
@@ -1959,7 +1967,7 @@ func (v *Viewer) queryOnSession(q string, args []any, limit int, then func(cols 
 	v.readCancel = cancel
 	cfg, database := v.source.Conn.Config, v.source.Database
 	go func() {
-		defer RecoverBackground(v.a.Post, v.a.ShowError, func() {
+		defer RecoverBackground(v.a.Post, v.a.ShowReport, func() {
 			v.sessionReads--
 			if v.sessionReads == 0 {
 				v.readCancel = nil

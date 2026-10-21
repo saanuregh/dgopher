@@ -33,6 +33,7 @@ type qbTable struct {
 	refs                []db.Reference
 	loading             bool
 	err                 string
+	fkErr               string // a failed read of its foreign keys, either way
 	chosen              []bool // its columns chosen, as cols
 	left                int    // 1 for a LEFT JOIN, else an inner one
 	on                  []qbOn
@@ -150,12 +151,13 @@ func (b *queryBuilder) addTable(a Host, schema, name string, on []qbOn) {
 		var cols []db.Column
 		var fks []db.ForeignKey
 		var refs []db.Reference
+		var fkErr, refErr error
 		if err == nil {
 			cols, err = d.Dialect.Columns(ctx, d.Catalog(), schema, name)
 		}
 		if err == nil {
-			fks, _ = d.Dialect.ForeignKeys(ctx, d.Catalog(), schema, name)
-			refs, _ = d.Dialect.ReferencedBy(ctx, d.Catalog(), schema, name)
+			fks, fkErr = d.Dialect.ForeignKeys(ctx, d.Catalog(), schema, name)
+			refs, refErr = d.Dialect.ReferencedBy(ctx, d.Catalog(), schema, name)
 		}
 		return func() {
 			t.loading = false
@@ -164,6 +166,7 @@ func (b *queryBuilder) addTable(a Host, schema, name string, on []qbOn) {
 				return
 			}
 			t.cols, t.fks, t.refs, t.chosen = cols, fks, refs, make([]bool, len(cols))
+			t.fkErr = errText(cmp.Or(fkErr, refErr))
 			if others := b.labels(t); len(t.on) == 0 && len(b.tables) > 1 && len(cols) > 0 && len(others) > 0 {
 				// Joined by hand: on its first column, to be chosen.
 				t.on = []qbOn{{column: cols[0].Name, other: others[0]}}
@@ -557,6 +560,9 @@ func (b *queryBuilder) tablesView(a Host, c *ui.Context) {
 				ui.Text(c, t.schema+"."+t.name).FontSize(12).TextColor(pal.Muted)
 				if t.err != "" {
 					ui.Text(c, t.err).FontSize(12).TextColor(th.Danger).Shrink(1)
+				}
+				if t.fkErr != "" {
+					ui.Text(c, "Couldn't read foreign keys").FontSize(12).TextColor(pal.Muted).Tooltip(t.fkErr)
 				}
 				if i == 0 {
 					return

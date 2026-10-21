@@ -193,7 +193,7 @@ func (a *App) checkIdleTransactions(c *ui.Context) {
 					return
 				}
 				a.Record(&cfg, audit.Event{Kind: audit.KindConfirm, Detail: "rolled back the transaction of " + h.Title() + ", idle past the connection's limit"})
-				a.toast = &pendingToast{text: "Rolled back the idle transaction of " + h.Title()}
+				a.Toast("Rolled back the idle transaction of "+h.Title(), "", nil)
 			})
 			return
 		}

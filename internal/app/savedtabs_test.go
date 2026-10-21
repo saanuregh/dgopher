@@ -260,9 +260,9 @@ func TestDisconnectKeepsTabs(t *testing.T) {
 	})
 }
 
-// A waiting tab whose connection fails says why in its bar, without an
-// alert over it; a connect asked from elsewhere still has one.
-func TestWaitingTabFailsInline(t *testing.T) {
+// A waiting tab whose connection fails says why in its bar; the user
+// asked, so the failure is also raised.
+func TestWaitingTabFailureSaysWhyAndAlerts(t *testing.T) {
 	a := newTestApp(t)
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: filepath.Join(t.TempDir(), "no", "x.sqlite")})
 	tt := ui.NewTester(a.view, 1200, 760)
@@ -271,9 +271,45 @@ func TestWaitingTabFailsInline(t *testing.T) {
 	tt.Key(0, ui.KeyEnter)
 	testutil.WaitFor(t, tt, "the failure", func() bool { return cn.Status == connection.StatusFailed })
 	tt.Frame()
-	if a.alert != nil || !tt.HasText("Not connected: ") {
-		t.Fatalf("alert %+v; texts %q", a.alert, tt.Texts())
+	testutil.WaitFor(t, tt, "the alert", func() bool { return a.frontAlert() != nil })
+	if !tt.HasText("Not connected: ") {
+		t.Fatalf("texts %q", tt.Texts())
 	}
-	a.Connect(cn, nil)
-	testutil.WaitFor(t, tt, "the alert", func() bool { return a.alert != nil })
+}
+
+// Connect clicked on a waiting tab raises the failure as an alert.
+func TestWaitingTabConnectClickAlerts(t *testing.T) {
+	a := newTestApp(t)
+	cn := addConn(a, db.Config{ID: "pg", Name: "pg", Engine: db.Postgres, Host: "127.0.0.1", Port: 1, User: "x", Database: "x"})
+	tt := ui.NewTester(a.windowView(a.main), 1200, 760)
+	w := &waitingTab{a: a, conn: cn, saved: savedTab{Kind: savedTable, Connection: cn.Config.ID, Schema: "public", Name: "orders", ObjectKind: string(db.KindTable)}}
+	a.main.tabs().Add(w)
+	tt.Frame()
+	if err := tt.Click("Connect"); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WaitFor(t, tt, "the alert", func() bool { return a.frontAlert() != nil })
+}
+
+// A waiting tab connecting by itself fails inline: no alert, one error note.
+func TestWaitingTabAutoConnectDoesNotAlert(t *testing.T) {
+	a := newTestApp(t)
+	cn := addConn(a, db.Config{ID: "pg", Name: "pg", Engine: db.Postgres, Host: "127.0.0.1", Port: 1, User: "x", Database: "x", AutoConnect: true})
+	tt := ui.NewTester(a.windowView(a.main), 1200, 760)
+	notesBefore := len(a.notes)
+	w := &waitingTab{a: a, conn: cn, saved: savedTab{Kind: savedTable, Connection: cn.Config.ID, Schema: "public", Name: "orders", ObjectKind: string(db.KindTable)}}
+	a.main.tabs().Add(w)
+	testutil.WaitFor(t, tt, "the failure", func() bool { return cn.Status == connection.StatusFailed })
+	for range 3 {
+		tt.Frame()
+	}
+	added := 0
+	for _, n := range a.notes[notesBefore:] {
+		if n.isError {
+			added++
+		}
+	}
+	if a.frontAlert() != nil || added != 1 {
+		t.Fatalf("alert %v, error notes %d", a.frontAlert(), added)
+	}
 }

@@ -49,6 +49,7 @@ func Run(args []string) error {
 		log.Println("ui state:", err)
 	}
 	a := newApp(st, uiState)
+	defer a.captureLog()()
 	// The windows' places are kept with the layout, and without it last
 	// the run too: never in a file of MyGo's own.
 	if uiState != nil {
@@ -226,7 +227,7 @@ func accelerator(id string) string {
 // menu bar takes the first key of each, where there is one, and the window
 // the others.
 var menuCommands = []string{keymap.Settings, keymap.NewConnection, keymap.NewEditor, keymap.OpenScript, keymap.AddFolder,
-	keymap.CloseTab, keymap.ReopenTab, keymap.Palette, keymap.OpenTable, keymap.History, keymap.AuditLog, keymap.ToggleSidebar, keymap.FullScreen, keymap.Quit, keymap.OpenKeymap, keymap.NewNotebook, keymap.ToggleChat}
+	keymap.CloseTab, keymap.ReopenTab, keymap.Palette, keymap.OpenTable, keymap.History, keymap.AuditLog, keymap.ToggleSidebar, keymap.FullScreen, keymap.Quit, keymap.OpenKeymap, keymap.NewNotebook, keymap.ToggleChat, keymap.ShowLatestError, keymap.ToggleNotifications}
 
 // menuAction is what a command of the menu bar does.
 func (a *App) menuAction(id string) func() {
@@ -273,6 +274,10 @@ func (a *App) menuAction(id string) func() {
 		return a.openHistory
 	case keymap.AuditLog:
 		return a.openAudit
+	case keymap.ShowLatestError:
+		return a.showLatestError
+	case keymap.ToggleNotifications:
+		return a.toggleNotificationsByKey
 	case keymap.ToggleSidebar:
 		return func() { a.layout.SidebarHidden = !a.layout.SidebarHidden }
 	case keymap.OpenKeymap:

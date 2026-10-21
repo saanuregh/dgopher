@@ -508,8 +508,8 @@ func TestStatusBarPlaces(t *testing.T) {
 	}
 	// The failed connection says so in its panel, without an alert, whose
 	// backdrop would take the click.
-	if a.alert != nil || !tt.HasText("Could not connect to broken: ") {
-		t.Fatalf("alert %+v; texts %q", a.alert, tt.Texts())
+	if a.frontAlert() != nil || !tt.HasText("Could not connect to broken: ") {
+		t.Fatalf("alert %+v; texts %q", a.frontAlert(), tt.Texts())
 	}
 	if err := tt.Click("+2 more"); err != nil {
 		t.Fatal(err)

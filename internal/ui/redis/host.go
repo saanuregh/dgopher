@@ -15,6 +15,8 @@ import (
 type Host interface {
 	connection.Runner
 	ShowError(title, message string)
+	// ShowReport shows an error with its hint and actions.
+	ShowReport(r widgets.ErrorReport)
 	WriteClipboard(text string)
 	// Layout is the windows' layout, which the app keeps as it changes.
 	Layout() *widgets.Layout

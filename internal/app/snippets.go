@@ -77,7 +77,7 @@ func (a *App) snippetFormView(c *ui.Context) {
 				}
 				a.saveProject(p)
 				f.open = false
-				a.toast = &pendingToast{text: "Saved snippet " + name}
+				a.Toast("Saved snippet "+name, "", nil)
 			}
 		})
 	})
@@ -99,7 +99,7 @@ func (a *App) insertSnippet(s project.Snippet) {
 		return
 	}
 	a.WriteClipboard(query.SnippetText(s.SQL))
-	a.toast = &pendingToast{text: "Copied " + s.Name + ": no editor is open"}
+	a.Toast("Copied "+s.Name+": no editor is open", "", nil)
 }
 
 // snippetItems lists the snippets in the command palette.

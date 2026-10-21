@@ -479,9 +479,10 @@ func (k *Card) Comment(c *ui.Context, s string) {
 	ui.Text(c, s).Padding(0, cardPadX, 10, cardIndent+cardPadX-12).Selectable()
 }
 
-// Note adds a sentence about the card's state, as why it shows less.
-func (k *Card) Note(c *ui.Context, s string) {
-	ui.Text(c, s).TextColor(PaletteOf(c).Muted).Italic().Padding(0, cardPadX, 10, cardIndent+cardPadX-12)
+// Note adds a sentence about the card's state, as why it shows less; a
+// tooltip can carry what it leaves out.
+func (k *Card) Note(c *ui.Context, s string) ui.Element {
+	return ui.Text(c, s).TextColor(PaletteOf(c).Muted).Italic().Padding(0, cardPadX, 10, cardIndent+cardPadX-12)
 }
 
 // CardPill is a short fact shown as a rounded label.

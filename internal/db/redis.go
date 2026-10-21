@@ -213,6 +213,27 @@ func dialNode(ctx context.Context, dialTCP func(context.Context, string) (net.Co
 	return conn, nil
 }
 
+// RouteDone closes when the SSH tunnel the client connects through ends;
+// nil when there is none.
+func (k *KV) RouteDone() <-chan struct{} {
+	if k.tunnel == nil {
+		return nil
+	}
+	return k.tunnel.Done()
+}
+
+// RouteErr is why the tunnel ended, as a *TunnelClosedError, nil while it
+// runs or after the client closed it.
+func (k *KV) RouteErr() error {
+	if k.tunnel == nil {
+		return nil
+	}
+	if err := k.tunnel.Err(); err != nil {
+		return &TunnelClosedError{Err: err}
+	}
+	return nil
+}
+
 // Close closes the connection and its tunnel.
 func (k *KV) Close() error {
 	k.Client.Close()

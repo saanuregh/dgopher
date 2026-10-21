@@ -199,12 +199,12 @@ func (t *waitingTab) Close() {}
 
 func (t *waitingTab) Shown() {
 	if t.conn.Status == connection.StatusIdle && t.conn.Config.AutoConnect {
-		t.connect()
+		t.a.ConnectInline(t.conn, func() { t.open() }) // not asked for: no dialog
 	}
 }
 
 func (t *waitingTab) connect() {
-	t.a.ConnectInline(t.conn, func() { t.open() })
+	t.a.Connect(t.conn, func() { t.open() })
 }
 
 // open puts the tab itself in this one's place, once; this one closes
@@ -246,12 +246,14 @@ func (t *waitingTab) View(c *ui.Context) {
 		connecting := t.conn.Status == connection.StatusConnecting || t.opening
 		since, started := t.a.connectStarted(t.conn)
 		// Its button is the tab's own, taking ↵, as a dialog's default does.
-		connect, cancel := widgets.ConnectBar(c, t.conn, widgets.ConnectState{
+		asked := widgets.ConnectBar(c, t.conn, widgets.ConnectState{
 			Connecting: connecting, Cancellable: started && !t.opening, Since: since, Default: true})
 		switch {
-		case cancel:
+		case asked == widgets.CancelAsked:
 			t.a.CancelConnect(t.conn)
-		case connect || !connecting && t.a.KeysTo(t) && c.Shortcut(0, ui.KeyEnter):
+		case asked == widgets.ConnectDetails:
+			t.a.ShowReport(t.a.connectionReport(t.conn, func(*connection.Conn) { t.connect() }))
+		case asked == widgets.ConnectAsked || !connecting && t.a.KeysTo(t) && c.Shortcut(0, ui.KeyEnter):
 			t.connect()
 		}
 		ui.Column(c).Grow(1).Center().Children(func() {
