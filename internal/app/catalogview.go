@@ -85,8 +85,10 @@ func (a *App) catalogQueriesView(c *ui.Context) {
 		widgets.DialogLook(c, backdrop, panel)
 		panel.Width(900).Height(600).Radius(12).Background(th.Background).Border(1, th.Border).Clip().Label("Catalog queries")
 		ui.Row(c).Padding(12, 16).Gap(10).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Text(c, "Catalog Queries · "+v.conn.Config.Name).FontSize(15).Bold().SingleLine().Shrink(1)
-			ui.Text(c, fmt.Sprintf("the latest %d", len(v.entries))).FontSize(12).TextColor(pal.Muted).Grow(1)
+			ui.Row(c).Gap(10).AlignItems(ui.Baseline).Grow(1).Shrink(1).Children(func() {
+				ui.Text(c, "Catalog Queries · "+v.conn.Config.Name).FontSize(15).Bold().SingleLine().Shrink(1)
+				ui.Text(c, fmt.Sprintf("the latest %d", len(v.entries))).FontSize(12).TextColor(pal.Muted)
+			})
 			widgets.SearchBox(c, &v.filter, "Filter by SQL", 220).AutoFocus()
 		})
 		ui.Text(c, "What the app reads on its own, as the navigator's tables and an editor's completions, beside the statements the audit log keeps.").

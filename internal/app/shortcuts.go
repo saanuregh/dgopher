@@ -41,7 +41,7 @@ func (a *App) shortcutsView(c *ui.Context) {
 		widgets.DialogLook(c, backdrop, panel)
 		_, h := c.Size()
 		panel.Width(760).Height(min(680, h-60)).Radius(12).Background(th.Background).Border(1, th.Border).Clip().Label("Keyboard shortcuts")
-		ui.Row(c).Padding(14, 20).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		ui.Row(c).Padding(14, 20).AlignItems(ui.Baseline).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Text(c, "Keyboard Shortcuts").FontSize(16).Bold().Grow(1)
 			ui.Text(c, "Change them in Settings · "+keymap.Label(keymap.ShortcutsList)+" or Esc to close").FontSize(12).TextColor(pal.Muted)
 		})

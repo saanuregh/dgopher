@@ -139,7 +139,7 @@ func (q *Tab) treeView(c *ui.Context, r *result) {
 		}
 		row.Children(func() {
 			ui.Row(c).Gap(10).AlignItems(ui.Center).FillWidth().Children(func() {
-				ui.Row(c).Gap(6).Grow(1).Shrink(1).PaddingX(float32(depth) * 16).Children(func() {
+				ui.Row(c).Gap(6).Grow(1).Shrink(1).PaddingX(float32(depth) * 16).AlignItems(ui.Baseline).Children(func() {
 					ui.Text(c, n.Op).Font(widgets.MonoFont).FontSize(12.5).Bold().SingleLine().Shrink(0)
 					if n.Target != "" && !opNames(n) {
 						ui.Text(c, n.Target).FontSize(12.5).SingleLine().Shrink(1)

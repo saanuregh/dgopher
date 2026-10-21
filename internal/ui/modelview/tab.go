@@ -436,7 +436,7 @@ func tableDetail(c *ui.Context, e db.Engine, tb db.TableDesign) {
 		})
 	}
 	ui.Column(c).Padding(12, 16).Gap(4).Children(func() {
-		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Gap(8).AlignItems(ui.Baseline).Children(func() {
 			ui.Text(c, tb.Name).Bold().FontSize(15).Font(widgets.MonoFont)
 			if tb.Schema != "" {
 				ui.Text(c, "in "+tb.Schema).FontSize(12).TextColor(pal.Muted)
