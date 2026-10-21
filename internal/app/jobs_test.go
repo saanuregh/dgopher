@@ -492,8 +492,9 @@ func TestStopJobsTimesOut(t *testing.T) {
 	}
 }
 
-// A panic in background work shows an error, its secrets hidden, and the
-// app goes on; a job's UI ends as it would have, and the job is no longer
+// A panic in background work shows an error, its secrets hidden, its
+// first line as the hint and its full text and stack under Details, and
+// the app goes on; a job's UI ends as it would have, and the job is no longer
 // running.
 func TestBackgroundPanicRecovered(t *testing.T) {
 	a, tt, cn, _ := liteApp(t, db.Development)
@@ -502,24 +503,27 @@ func TestBackgroundPanicRecovered(t *testing.T) {
 	dataview.RunJob(a, cn, "Panicking: stopping it loses nothing.", cancel, func() { stopped = true }, func() func() {
 		panic("dial postgres://u:hunter2@h/db failed\nsecond line")
 	})
-	testutil.WaitFor(t, tt, "the error", func() bool { return a.alert != nil && stopped })
-	al := a.alert
-	if al.title != "Something went wrong" || !strings.Contains(al.message, "A background task stopped on an internal error: dial postgres://u:") ||
-		strings.Contains(al.message, "hunter2") || strings.Contains(al.message, "second line") || !strings.Contains(al.message, "The app kept running") {
-		t.Fatalf("the error: %q: %q", al.title, al.message)
+	testutil.WaitFor(t, tt, "the error", func() bool { return a.frontAlert() != nil && stopped })
+	al := a.frontAlert()
+	r := al.report
+	if r.Title != "Something went wrong" || !strings.Contains(r.Hint, "A background task stopped on an internal error: dial postgres://u:") ||
+		strings.Contains(r.Hint, "second line") || !strings.Contains(r.Hint, "The app kept running") ||
+		!strings.Contains(r.Detail, "second line") || !strings.Contains(r.Detail, "goroutine") ||
+		strings.Contains(r.Hint+r.Detail, "hunter2") {
+		t.Fatalf("the error: %+v", r)
 	}
 	if jobs := a.runningJobs(); len(jobs) != 0 {
 		t.Fatalf("%d jobs still run", len(jobs))
 	}
-	a.alert = nil
+	a.alerts = nil
 
 	// So does the fake host of the feature packages' tests.
 	h := dataview.NewFakeHost(t)
 	ht := ui.NewTester(h.View, 800, 600)
 	h.Background(func() func() { panic("boom") })
 	testutil.WaitFor(t, ht, "the fake host's error", func() bool { return len(h.Errors) > 0 })
-	if !strings.HasPrefix(h.Errors[0], "Something went wrong: A background task stopped on an internal error: boom.") {
-		t.Fatalf("the fake host: %q", h.Errors)
+	if r := h.Reports[0]; r.Title != "Something went wrong" || !strings.HasPrefix(r.Hint, "A background task stopped on an internal error: boom.") {
+		t.Fatalf("the fake host: %+v", h.Reports)
 	}
 }
 
@@ -531,16 +535,16 @@ func TestBackgroundResetOnPanic(t *testing.T) {
 	tt := ui.NewTester(a.view, 800, 600)
 	reset := false
 	dataview.BackgroundResetOnPanic(a, func() { reset = true }, func() func() { panic("boom") })
-	testutil.WaitFor(t, tt, "the error and the reset", func() bool { return a.alert != nil && reset })
-	if !strings.Contains(a.alert.message, "boom") {
-		t.Fatalf("the error: %q", a.alert.message)
+	testutil.WaitFor(t, tt, "the error and the reset", func() bool { return a.frontAlert() != nil && reset })
+	if !strings.Contains(a.frontAlert().report.Detail, "boom") {
+		t.Fatalf("the error: %q", a.frontAlert().report.Detail)
 	}
-	a.alert = nil
+	a.alerts = nil
 
 	reset, applied := false, false
 	dataview.BackgroundResetOnPanic(a, func() { reset = true }, func() func() { return func() { applied = true } })
 	testutil.WaitFor(t, tt, "the apply", func() bool { return applied })
-	if reset || a.alert != nil {
-		t.Fatalf("reset %v, alert %v", reset, a.alert)
+	if reset || a.frontAlert() != nil {
+		t.Fatalf("reset %v, alert %v", reset, a.frontAlert())
 	}
 }

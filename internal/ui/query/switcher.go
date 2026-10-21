@@ -97,7 +97,7 @@ func (q *Tab) switchSchema(schema string) {
 		q.Running, q.StartedAt = true, time.Now()
 		sess, pool, database := q.sess, cn.DB, q.Database
 		go func() {
-			defer dataview.RecoverBackground(q.a.Post, q.a.ShowError, func() { q.Running = false })
+			defer dataview.RecoverBackground(q.a.Post, q.a.ShowReport, func() { q.Running = false })
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			var err error
@@ -189,7 +189,7 @@ func (q *Tab) releaseConnection() {
 	}
 	sess := q.sess
 	go func() {
-		defer dataview.RecoverBackground(q.a.Post, q.a.ShowError, nil)
+		defer dataview.RecoverBackground(q.a.Post, q.a.ShowReport, nil)
 		for _, close := range closers {
 			close()
 		}

@@ -46,6 +46,9 @@ type TableTab struct {
 	columns []db.Column
 	indexes []db.Index
 	fks     []db.ForeignKey
+	// idxErr and fkErr are the failed reads of indexes and foreign keys.
+	idxErr  string
+	fkErr   string
 	ddl     string
 	ddlArea editor.CodeArea
 	metaErr string
@@ -109,7 +112,7 @@ func (t *TableTab) Close() {
 		t.a.Record(&t.Conn.Config, audit.Event{Kind: audit.KindStatement, Database: t.Database, Statement: "ROLLBACK", Detail: "the tab closed with its transaction open"})
 	}
 	go func() {
-		defer RecoverBackground(t.a.Post, t.a.ShowError, nil)
+		defer RecoverBackground(t.a.Post, t.a.ShowReport, nil)
 		closeCursor()
 		if sess != nil {
 			sess.Close()
@@ -143,12 +146,13 @@ func (t *TableTab) loadMeta(then func()) {
 		var ixs []db.Index
 		var fks []db.ForeignKey
 		var ddl string
+		var idxErr, fkErr error
 		if err == nil {
 			cols, err = d.Dialect.Columns(ctx, d.Catalog(), obj.Schema, obj.Name)
 		}
 		if err == nil {
-			ixs, _ = d.Dialect.Indexes(ctx, d.Catalog(), obj.Schema, obj.Name)
-			fks, _ = d.Dialect.ForeignKeys(ctx, d.Catalog(), obj.Schema, obj.Name)
+			ixs, idxErr = d.Dialect.Indexes(ctx, d.Catalog(), obj.Schema, obj.Name)
+			fks, fkErr = d.Dialect.ForeignKeys(ctx, d.Catalog(), obj.Schema, obj.Name)
 			var derr error
 			ddl, derr = d.Dialect.DDL(ctx, d.Catalog(), obj.Schema, obj)
 			if derr != nil {
@@ -163,6 +167,8 @@ func (t *TableTab) loadMeta(then func()) {
 				t.metaErr = err.Error()
 			} else {
 				t.columns, t.indexes, t.fks, t.ddl = cols, ixs, fks, ddl
+				t.idxErr, t.fkErr = errText(idxErr), errText(fkErr)
+				t.view.fkErr = t.fkErr
 				cn.Columns[connection.ObjectKey{Database: database, Schema: obj.Schema, Name: obj.Name}] = cols
 				t.view.SetColumns(cols, fks)
 			}
@@ -193,7 +199,7 @@ func (t *TableTab) endTx(commit bool) {
 	}
 	t.ending = true
 	go func() {
-		defer RecoverBackground(t.a.Post, t.a.ShowError, t.endTxStopped)
+		defer RecoverBackground(t.a.Post, t.a.ShowReport, t.endTxStopped)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		var err error
@@ -386,6 +392,12 @@ func (t *TableTab) structureView(c *ui.Context, a Host) {
 					ui.Badge(c, fmt.Sprint(n))
 				})
 			}
+			failed := func(title, note, err string) {
+				ui.Row(c).Gap(8).Children(func() {
+					ui.Text(c, title).Bold()
+					ui.Text(c, note).TextColor(pal.Muted).Tooltip(err)
+				})
+			}
 			section("Columns", len(t.columns))
 			cols := []ui.TableColumn{{Title: "", ID: "k", Width: 28, Fixed: true}, {Title: "Name", Width: 200}, {Title: "Type", Width: 200}, {Title: "Null", Width: 90}, {Title: "Default", Width: 220}, {Title: "Comment"}}
 			ui.Table(c, nil, cols, len(t.columns), func(r, col int) {
@@ -413,7 +425,11 @@ func (t *TableTab) structureView(c *ui.Context, a Host) {
 					ui.Text(c, cl.Comment).TextColor(pal.Muted).SingleLine()
 				}
 			}).Height(float32(min(len(t.columns), 16)*34 + 40)).Label("Columns")
-			section("Indexes", len(t.indexes))
+			if t.idxErr != "" {
+				failed("Indexes", "Couldn't read indexes", t.idxErr)
+			} else {
+				section("Indexes", len(t.indexes))
+			}
 			for _, ix := range t.indexes {
 				ui.Row(c).Gap(8).Children(func() {
 					switch {
@@ -429,7 +445,9 @@ func (t *TableTab) structureView(c *ui.Context, a Host) {
 					ui.Text(c, ix.Definition).Font(widgets.MonoFont).FontSize(11.5).TextColor(pal.Muted).Selectable()
 				}
 			}
-			if len(t.fks) > 0 || t.Conn.Config.Engine != db.ClickHouse {
+			if t.fkErr != "" {
+				failed("Foreign keys", "Couldn't read foreign keys", t.fkErr)
+			} else if len(t.fks) > 0 || t.Conn.Config.Engine != db.ClickHouse {
 				section("Foreign keys", len(t.fks))
 			}
 			for _, fk := range t.fks {
@@ -513,4 +531,12 @@ func (t *TableTab) structureChanged(made db.TableDesign) {
 	obj.Name, obj.Comment = made.Name, made.Comment
 	t.a.ReplaceTab(t, NewTableTab(t.a, t.Conn, t.Database, obj, PageStructure))
 	t.a.Toast("Changed the structure of "+made.Name, "", nil)
+}
+
+// errText is the error's text, "" for nil.
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }

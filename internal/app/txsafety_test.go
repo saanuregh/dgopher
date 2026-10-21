@@ -229,10 +229,10 @@ func TestSharedTransactionOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if a.alert == nil || !strings.Contains(a.alert.message, owner.Title()) || other.Running {
-		t.Fatalf("the other editor's Commit: alert %+v, running %v", a.alert, other.Running)
+	if a.frontAlert() == nil || !strings.Contains(a.frontAlert().report.Detail, owner.Title()) || other.Running {
+		t.Fatalf("the other editor's Commit: alert %+v, running %v", a.frontAlert(), other.Running)
 	}
-	a.alert = nil
+	a.alerts = nil
 
 	// A table tab reads inside it too.
 	a.OpenTable(cn, "", db.Object{Schema: "main", Name: "t", Kind: db.KindTable, Rows: -1}, dataview.PageData)
@@ -246,10 +246,10 @@ func TestSharedTransactionOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if a.alert == nil || !strings.Contains(a.alert.message, owner.Title()) || !owner.OpenTx() {
-		t.Fatalf("the table tab's Roll Back: alert %+v, owner's tx %v", a.alert, owner.OpenTx())
+	if a.frontAlert() == nil || !strings.Contains(a.frontAlert().report.Detail, owner.Title()) || !owner.OpenTx() {
+		t.Fatalf("the table tab's Roll Back: alert %+v, owner's tx %v", a.frontAlert(), owner.OpenTx())
 	}
-	a.alert = nil
+	a.alerts = nil
 
 	if txs := a.openTxTabs(); len(txs) != 1 || txs[0] != owner {
 		t.Fatalf("open transactions %d", len(txs))

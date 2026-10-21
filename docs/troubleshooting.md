@@ -8,8 +8,9 @@
 - [Starting over](#starting-over)
 
 For what DGopher does not support, see [Known limitations](limitations.md).
-To see the app's own messages, start it from a terminal: they go to
-standard error ([Command line](command-line.md#logs)).
+The app's own messages are in the [notifications](features.md#notifications)
+list, and on standard error when it is started from a terminal
+([Command line](command-line.md#logs)).
 
 ## Installing and starting
 
@@ -43,6 +44,14 @@ DGopher. Or set the connection to read its password from a `DGOPHER_*`
 environment variable or a command, such as a password manager's CLI
 ([Secrets](safety.md#where-passwords-come-from)).
 
+### "Could not read the saved password from the keychain"
+
+The keychain is locked, or it refused DGopher access. The connection does
+not try without the password. Unlock the keychain (on Linux, GNOME Keyring
+or KWallet), allow DGopher if the system asks, then **Retry**. The
+connection's form shows the same note under the password; saving the form
+with the field empty keeps the saved password.
+
 ### The password is asked again after a pull
 
 A saved password belongs to where it was saved for: the host, port, user,
@@ -67,6 +76,14 @@ reinstalled. Check with its administrator, then remove the old key from
 `known_hosts` (DGopher's own, in the
 [config directory](storage.md#the-config-directory), or `~/.ssh/known_hosts`)
 before connecting again.
+
+### "SSH tunnel closed"
+
+The SSH tunnel under a connection ended: the network dropped, the SSH
+server restarted or closed the connection, or it stopped answering
+keepalives. The reason follows the message. The database sessions ended
+with it, so an open transaction was rolled back. Click **Reconnect** once
+the SSH server is reachable again.
 
 ### A cloud identity or MySQL clear-text password is refused
 

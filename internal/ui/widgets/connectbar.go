@@ -1,6 +1,7 @@
 package widgets
 
 import (
+	"strings"
 	"time"
 
 	"dgopher/internal/connection"
@@ -26,9 +27,9 @@ type ConnectState struct {
 
 // ConnectBar is the bar of a view waiting for cn, as a toolbar: the
 // button an editor's toolbar has first, which connects it, Retry after a
-// failure, Cancel once connecting lasts, then what the connection is at.
-// It reports which was clicked.
-func ConnectBar(c *ui.Context, cn *connection.Conn, s ConnectState) (connect, cancel bool) {
+// failure, Details beside it, Cancel once connecting lasts, then what the
+// connection is at. It reports which was clicked.
+func ConnectBar(c *ui.Context, cn *connection.Conn, s ConnectState) (asked ConnectAction) {
 	t := c.Theme()
 	failed := cn.Status == connection.StatusFailed && !s.Connecting
 	// A toolbar's look, its button in one, its message beside it: in the
@@ -37,11 +38,8 @@ func ConnectBar(c *ui.Context, cn *connection.Conn, s ConnectState) (connect, ca
 	ui.Row(c.Key("connect-bar")).Padding(4, 8).Gap(4).AlignItems(ui.Center).FontSize(ToolFontSize).
 		BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 		ui.Toolbar(c, func() {
-			switch ConnectStatus(c, cn, s) {
-			case ConnectAsked:
-				connect = true
-			case CancelAsked:
-				cancel = true
+			if a := ConnectStatus(c, cn, s); a != DisconnectAsked {
+				asked = a
 			}
 			// The key the view takes for the button, while it does.
 			if s.Default && !s.Connecting {
@@ -54,13 +52,13 @@ func ConnectBar(c *ui.Context, cn *connection.Conn, s ConnectState) (connect, ca
 		case s.Connecting:
 			label = "Connecting to " + cn.Config.Name + "…"
 		case failed:
-			label, color = "Not connected: "+FirstLine(cn.Err), t.Danger
+			label, color = "Not connected: "+FailureText(cn), t.Danger
 		case s.Offline && !cn.Config.Engine.IsFile():
 			label = "Offline: Connect works again once the computer is online."
 		}
 		ui.Text(c, label).TextColor(color).Grow(1).Shrink(1).SingleLine().Tooltip(label)
 	})
-	return connect, cancel
+	return asked
 }
 
 // ConnectAction is what a ConnectStatus button asked.
@@ -71,13 +69,25 @@ const (
 	ConnectAsked
 	CancelAsked
 	DisconnectAsked
+	// ConnectDetails asks for the whole error of a failed connection.
+	ConnectDetails
 )
+
+// FailureText is a failed connection's reason in a line: the hint of its
+// kind of failure, else the error's first line.
+func FailureText(cn *connection.Conn) string {
+	if h := cn.ErrKind.Hint(); h != "" {
+		return h
+	}
+	return FirstLine(cn.Err)
+}
 
 // ConnectStatus is the connection's button of a toolbar, one that changes
 // in place as the connection does, never its width, so that nothing beside
 // it moves: Connect, with a spinner while connecting, then Cancel once
 // that lasts; Disconnect once connected; Retry after a failure, before a
-// warning whose tooltip says why.
+// warning whose tooltip says why and Details, which asks for the whole
+// error.
 func ConnectStatus(c *ui.Context, cn *connection.Conn, s ConnectState) ConnectAction {
 	// Cancel is a button of its own: Connect, in focus, would carry the
 	// focus to it, and a second ↵ would cancel the connect it began. A
@@ -106,9 +116,16 @@ func ConnectStatus(c *ui.Context, cn *connection.Conn, s ConnectState) ConnectAc
 		return NoConnectAction
 	case cn.Status == connection.StatusFailed:
 		// The warning after the button, which stays where Connect was.
-		why := "Connection failed: " + FirstLine(cn.Err)
-		a := button(IconRefresh, "Retry", why+". Connect again.", ConnectAsked)
-		ui.Icon(c, IconAlert).FontSize(13).TextColor(c.Theme().Danger).Label(why).Tooltip(cn.Err)
+		why := "Connection failed: " + FailureText(cn)
+		tip := why
+		if !strings.HasSuffix(tip, ".") && !strings.HasSuffix(tip, "?") {
+			tip += "."
+		}
+		a := button(IconRefresh, "Retry", tip+" Connect again.", ConnectAsked)
+		ui.Text(c, FailureText(cn)).FontSize(12).TextColor(c.Theme().Danger).SingleLine().Shrink(1).MinWidth(0).Label(why).Tooltip(cn.Err)
+		if ToolButton(c.Key("details"), IconInfo, "Details", "Show why the connection failed").Clicked() {
+			a = ConnectDetails
+		}
 		return a
 	}
 	tip := "Connect to " + cn.Config.Name

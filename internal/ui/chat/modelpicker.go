@@ -135,7 +135,7 @@ func (t *Chat) modelPickerView(c *ui.Context, button ui.Element) {
 					case l.loading:
 						ui.Text(c, "Listing the models…").FontSize(12).TextColor(pal.Muted).Padding(6, 8)
 					case l.err != "":
-						ui.Text(c, "Not listed: "+widgets.OneLine(l.err, 120)).FontSize(12).TextColor(th.Danger).Padding(6, 8)
+						ui.Text(c, "Not listed: "+widgets.OneLine(l.err, 120)).FontSize(12).TextColor(th.Danger).Padding(6, 8).Tooltip(l.err)
 						if ui.Button(c, "Try Again").Clicked() {
 							forgetModels(t.provider)
 						}

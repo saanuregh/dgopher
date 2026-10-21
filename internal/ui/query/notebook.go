@@ -349,7 +349,7 @@ func (q *Tab) closeLater(closers []func()) {
 		return
 	}
 	go func() {
-		defer dataview.RecoverBackground(q.a.Post, q.a.ShowError, nil)
+		defer dataview.RecoverBackground(q.a.Post, q.a.ShowReport, nil)
 		for _, close := range closers {
 			close()
 		}

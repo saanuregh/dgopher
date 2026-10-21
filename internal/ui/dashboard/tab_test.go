@@ -433,3 +433,28 @@ func TestGroupable(t *testing.T) {
 		}
 	}
 }
+
+// A refresh the user asked for raises a failed connect; an automatic one
+// leaves it to the panel.
+func TestDashboardAskedRefreshAlerts(t *testing.T) {
+	h := dataview.NewFakeHost(t)
+	cn := h.AddConn(db.Config{ID: "pg", Name: "pg", Engine: db.Postgres, Host: "127.0.0.1", Port: 1, User: "x", Database: "x"})
+	tt := ui.NewTester(h.View, 1000, 600)
+	d := &Dashboard{Name: "Down", Panels: []Panel{{Title: "One", Connection: "pg", SQL: "SELECT 1", View: ViewValue, Width: 1}}}
+	path := File(h.Project, d.Name)
+	if _, err := d.Save(path, nil); err != nil {
+		t.Fatal(err)
+	}
+	tab, err := Open(h, h.Project, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.AddTab(tab)
+	testutil.WaitFor(t, tt, "the failure", func() bool { return cn.Status == connection.StatusFailed })
+	tt.Frame()
+	if len(h.Reports) != 0 {
+		t.Fatalf("an automatic connect reported: %+v", h.Reports)
+	}
+	tab.refreshAll(true)
+	testutil.WaitFor(t, tt, "the report", func() bool { return len(h.Reports) == 1 })
+}

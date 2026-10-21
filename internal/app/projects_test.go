@@ -193,8 +193,8 @@ func TestProjectFileChangedOnDiskIsKept(t *testing.T) {
 	if disk, _ := os.ReadFile(path); string(disk) != string(pulled) {
 		t.Fatalf("the pulled file was overwritten:\n%s", disk)
 	}
-	if a.alert == nil || !strings.Contains(a.alert.message, "changed on disk") {
-		t.Fatalf("no error said why: %+v", a.alert)
+	if a.frontAlert() == nil || !strings.Contains(a.frontAlert().report.Detail, "changed on disk") {
+		t.Fatalf("no error said why: %+v", a.frontAlert())
 	}
 }
 
@@ -377,7 +377,7 @@ func TestPasswordCommandConnects(t *testing.T) {
 	if !strings.Contains(bc.Err, "denied") || strings.Contains(bc.Err, "leaked") {
 		t.Fatalf("error %q", bc.Err)
 	}
-	a.alert = nil
+	a.alerts = nil
 	// What the commands printed is in no audit entry: the password, nor
 	// the output of the one that failed.
 	var log bytes.Buffer
@@ -960,6 +960,30 @@ func TestAutoConnectAtStart(t *testing.T) {
 	testutil.WaitFor(t, tt, "the auto-connect", func() bool { return auto.Status == connection.StatusConnected })
 	if lazy.Status != connection.StatusIdle {
 		t.Fatalf("a connection without auto-connect is %v", lazy.Status)
+	}
+}
+
+// An auto-connect that fails as DGopher starts raises no dialog: the
+// connection is marked failed and the failure is in the notifications.
+func TestAutoConnectAtStartFailsQuietly(t *testing.T) {
+	st, _ := store.Open(t.TempDir(), store.MemorySecrets())
+	a := startApp(t, st)
+	if _, err := a.addProject(newProjectDir(t, "p")); err != nil {
+		t.Fatal(err)
+	}
+	addConn(a, db.Config{ID: "pg", Name: "pg", Engine: db.Postgres, Host: "127.0.0.1", Port: 1, User: "x", Database: "x", AutoConnect: true})
+	a.saveProject(a.projects[0])
+
+	b := startApp(t, st)
+	tt := ui.NewTester(b.view, 1000, 700)
+	cn := b.connByID(b.projects[0].Prefix + "pg")
+	testutil.WaitFor(t, tt, "the failed auto-connect", func() bool { return cn.Status == connection.StatusFailed })
+	tt.Frame()
+	if b.frontAlert() != nil {
+		t.Fatalf("a dialog at start: %+v", b.frontAlert().report)
+	}
+	if n := len(b.notes); n == 0 || !b.notes[n-1].isError {
+		t.Fatalf("notes %+v", b.notes)
 	}
 }
 
@@ -1680,7 +1704,7 @@ func TestMissingKeychainPasswordAsks(t *testing.T) {
 		t.Fatal("the password under the old key stays")
 	}
 	testutil.WaitFor(t, tt, "the failure", func() bool { return cn.Status == connection.StatusFailed })
-	a.alert = nil
+	a.alerts = nil
 
 	none := addConn(a, db.Config{ID: "none", Name: "none", Engine: db.Postgres, Host: "127.0.0.1", Port: 1, User: "u", Proxy: proxy})
 	a.Connect(none, nil)

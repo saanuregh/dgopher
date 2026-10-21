@@ -186,11 +186,11 @@ func (a *App) startBackup(b *backupDialog) {
 				if restore {
 					cn.ForgetCatalog()
 					a.Notify(started, "Restored", b.what(), nil)
-					a.toast = &pendingToast{text: "Restored " + b.what()}
+					a.Toast("Restored "+b.what(), "", nil)
 					return
 				}
 				a.Notify(started, "Backed up", b.what(), nil)
-				a.toast = &pendingToast{text: "Backed up " + b.what() + " to " + filepath.Base(path)}
+				a.Toast("Backed up "+b.what()+" to "+filepath.Base(path), "", nil)
 			}
 		})
 	}

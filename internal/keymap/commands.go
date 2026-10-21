@@ -4,30 +4,32 @@ import "fmt"
 
 // The actions with keys, by the names keymap.json gives them.
 const (
-	Palette        = "command_palette::Toggle"
-	ConfirmDialog  = "menu::Confirm"
-	OpenTable      = "file_finder::Toggle"
-	NewEditor      = "workspace::NewEditor"
-	NewNotebook    = "workspace::NewNotebook"
-	NewConnection  = "workspace::NewConnection"
-	OpenScript     = "workspace::Open"
-	AddFolder      = "workspace::AddFolderToProject"
-	CloseTab       = "pane::CloseActiveItem"
-	ReopenTab      = "pane::ReopenClosedItem"
-	History        = "workspace::QueryHistory"
-	AuditLog       = "workspace::AuditLog"
-	Settings       = "app::OpenSettings"
-	OpenKeymap     = "app::OpenKeymap"
-	ToggleSidebar  = "workspace::ToggleLeftDock"
-	FullScreen     = "app::ToggleFullScreen"
-	Quit           = "app::Quit"
-	FocusNavigator = "workspace::FocusNavigator"
-	FocusFilter    = "workspace::FocusFilter"
-	ShortcutsList  = "app::ShowKeyBindings"
-	NextTab        = "pane::ActivateNextItem"
-	PreviousTab    = "pane::ActivatePreviousItem"
-	ActivateTab    = "pane::ActivateItem"
-	LastTab        = "pane::ActivateLastItem"
+	Palette             = "command_palette::Toggle"
+	ConfirmDialog       = "menu::Confirm"
+	OpenTable           = "file_finder::Toggle"
+	NewEditor           = "workspace::NewEditor"
+	NewNotebook         = "workspace::NewNotebook"
+	NewConnection       = "workspace::NewConnection"
+	OpenScript          = "workspace::Open"
+	AddFolder           = "workspace::AddFolderToProject"
+	CloseTab            = "pane::CloseActiveItem"
+	ReopenTab           = "pane::ReopenClosedItem"
+	History             = "workspace::QueryHistory"
+	AuditLog            = "workspace::AuditLog"
+	ShowLatestError     = "workspace::ShowLatestError"
+	ToggleNotifications = "workspace::ToggleNotifications"
+	Settings            = "app::OpenSettings"
+	OpenKeymap          = "app::OpenKeymap"
+	ToggleSidebar       = "workspace::ToggleLeftDock"
+	FullScreen          = "app::ToggleFullScreen"
+	Quit                = "app::Quit"
+	FocusNavigator      = "workspace::FocusNavigator"
+	FocusFilter         = "workspace::FocusFilter"
+	ShortcutsList       = "app::ShowKeyBindings"
+	NextTab             = "pane::ActivateNextItem"
+	PreviousTab         = "pane::ActivatePreviousItem"
+	ActivateTab         = "pane::ActivateItem"
+	LastTab             = "pane::ActivateLastItem"
 
 	SplitRight     = "pane::SplitRight"
 	SplitLeft      = "pane::SplitLeft"
@@ -183,6 +185,8 @@ var Commands = []Command{
 	command(ReopenTab, Global, "Reopen the tab closed last", "cmd-shift-t"),
 	command(History, Global, "Query history", "cmd-y"),
 	command(AuditLog, Global, "Audit log", "cmd-shift-a"),
+	command(ShowLatestError, Global, "Show the latest error", "cmd-k cmd-e"),
+	command(ToggleNotifications, Global, "Notifications: every error and message of this session", "cmd-shift-n"),
 	command(Settings, Global, "Settings", "cmd-,"),
 	command(OpenKeymap, Global, "Open keymap.json, the keys you set", "cmd-k cmd-s"),
 	command(ToggleSidebar, Global, "Show or hide the sidebar", "cmd-b"),

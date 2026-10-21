@@ -55,7 +55,7 @@ func TestConnFormKeepsEdits(t *testing.T) {
 	tt.Frame()
 	// Editing a saved connection, as loaded, is no edit.
 	cn := addConn(a, db.Config{ID: "pg", Name: "pg", Engine: db.Postgres, Host: "h", User: "u", Password: "secret", Env: db.Production})
-	a.saveSecrets(&cn.Config, true)
+	a.saveSecrets(&cn.Config, true, nil)
 	a.openConnForm(cn)
 	tt.Frame()
 	tt.Frame()

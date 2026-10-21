@@ -2,11 +2,14 @@ package app
 
 import (
 	"cmp"
+	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
+	"dgopher/internal/keymap"
 	"dgopher/internal/safety"
 	"dgopher/internal/ui/widgets"
 
@@ -88,7 +91,6 @@ func (a *App) dialogs(c *ui.Context) {
 
 // questions draws the questions, above every other dialog that may ask them.
 func (a *App) questions(c *ui.Context) {
-	t := c.Theme()
 	pal := widgets.PaletteOf(c)
 	if r := a.confirm; r != nil {
 		widgets.ConfirmView(c, r)
@@ -184,28 +186,23 @@ func (a *App) questions(c *ui.Context) {
 			a.closing = nil
 		}
 	}
-	if al := a.alert; al != nil {
+	if al := a.frontAlert(); al != nil {
+		r := al.report
+		if n := len(a.alerts); n > 1 {
+			r.Title += fmt.Sprintf(" (1 of %d)", n)
+		}
+		// OK ends the card's row of buttons, after the report's actions.
+		r.Actions = append(slices.Clip(r.Actions), widgets.ErrorAction{Label: "OK"})
 		widgets.Modal(c, &al.open, func() {
-			ui.Column(c).Width(480).Gap(12).Children(func() {
-				ui.Row(c).Gap(8).Children(func() {
-					ui.Icon(c, widgets.IconAlert).TextColor(t.Danger).FontSize(16)
-					ui.Text(c, al.title).FontSize(15).Bold()
-				})
-				ui.Scroll(c).MaxHeight(300).Children(func() {
-					ui.Text(c, al.message).Selectable()
-				})
-				ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-					if ui.Button(c, "Copy").Clicked() {
-						a.WriteClipboard(al.message)
-					}
-					if widgets.Activated(c, ui.PrimaryButton(c, "OK")) || c.Shortcut(0, ui.KeyEnter) {
-						al.open = false
-					}
-				})
+			ui.Column(c).Width(480).Children(func() {
+				if widgets.ErrorCard(c, r, &al.details, a.WriteClipboard) ||
+					keymap.Pressed(c, keymap.ConfirmDialog) || c.Shortcut(0, ui.KeyEnter) {
+					al.open = false
+				}
 			})
 		})
 		if !al.open {
-			a.alert = nil
+			a.alerts = slices.DeleteFunc(a.alerts, func(x *alertRequest) bool { return x == al })
 		}
 	}
 }
@@ -242,16 +239,19 @@ func (a *App) duplicateConn(cn *connection.Conn) {
 		return
 	}
 	cfg := cn.Config
-	if sourceOf(&cfg) == sourceKeychain {
-		a.loadSecrets(&cfg)
+	var unread map[string]error
+	if passwordInKeychain(&cfg) {
+		unread = a.loadSecrets(&cfg)
 	} else {
 		loaded := cfg
-		a.loadSecrets(&loaded)
+		unread = a.loadSecrets(&loaded)
 		cfg.SSH.Password, cfg.SSH.KeyPassphrase = loaded.SSH.Password, loaded.SSH.KeyPassphrase
+		// Only the SSH secrets are copied.
+		maps.DeleteFunc(unread, func(what string, _ error) bool { return !strings.HasPrefix(what, "ssh-") })
 	}
 	cfg.Name += " copy"
 	cfg.ID = a.uniqueConnID(cn.Project, cfg.Name)
-	if err := a.saveSecrets(&cfg, !cfg.AskPassword); err != nil {
+	if err := a.saveSecrets(&cfg, !cfg.AskPassword, unread); err != nil {
 		a.ShowError("Could not save the password in the keychain", err.Error())
 		return
 	}
@@ -263,4 +263,8 @@ func (a *App) duplicateConn(cn *connection.Conn) {
 		a.trust(dup)
 	}
 	a.saveProject(cn.Project)
+	if len(unread) > 0 {
+		a.Toast("Couldn't copy a saved password of "+cn.Config.Name+": the keychain could not be read. Type it in the copy's settings.",
+			"Edit Connection", func() { a.openConnForm(dup) })
+	}
 }

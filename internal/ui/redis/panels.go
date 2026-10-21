@@ -122,7 +122,7 @@ func (r *Tab) runMonitor() {
 	kv, cfg := r.conn.KV, r.conn.Config
 	lines := feed[db.MonitorLine]{keep: monitorKeep}
 	go func() {
-		defer dataview.RecoverBackground(r.a.Post, r.a.ShowError, func() { m.cancel = nil })
+		defer dataview.RecoverBackground(r.a.Post, r.a.ShowReport, func() { m.cancel = nil })
 		defer cancel()
 		done := make(chan struct{})
 		go lines.run(done, func(batch []db.MonitorLine) {

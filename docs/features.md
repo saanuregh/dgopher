@@ -60,8 +60,9 @@ window buttons, without a row of its own:
 
 - The sidebar's top row adds a project or a connection, and hides the
   sidebar.
-- The tab row shows the sidebar again, and holds the palette's search box
-  and the app menu: File, View, Help, Settings and Quit.
+- The tab row shows the sidebar again, and holds the
+  [notifications](#notifications) bell, the palette's search box and the
+  app menu: File, View, Help, Settings and Quit.
 - Both rows drag the window. On macOS the system menu bar is kept too.
 
 ### Command palette
@@ -177,7 +178,45 @@ diagrams, Redis keys, activity, users and search tabs.
 - Filters and sort start afresh.
 - The window's size and position are restored.
 
+### Errors
+
+- **An error says what most likely went wrong.** Connecting errors the app
+  recognizes (a rejected password, an unknown database, nothing listening,
+  a host not found, a timeout, a TLS or SSH problem, a keychain it could
+  not read) come with a short hint. The full text is always one click
+  away, under **Details**, with **Copy**.
+- **The fix is beside it:** Retry or Edit Connection for a connection that
+  failed, Reconnect for one that was lost, Refresh for part of the
+  navigator that could not be read.
+- **What you do that fails tells you at once,** in a dialog: a connect you
+  asked for (from the navigator, an editor, a waiting tab's Connect or a
+  dashboard's refresh), a lost SSH tunnel, and part of the navigator you
+  opened that could not be read. What the app does on its own, as a
+  restored tab connecting at start, says so in place and in the
+  [notifications](#notifications) instead.
+- **Errors wait their turn.** One raised while another is shown waits
+  behind it, and the first says "1 of 2". The same error is shown once.
+- **Every error is a key away.** **Show Latest Error** (⌘K ⌘E) shows the
+  newest again, and **Notifications** (⌘⇧N) lists them all.
+- In the navigator, a failed connection shows a red mark, and a part of
+  its tree that could not be read a red row. Choosing either, with the
+  arrow keys and Enter or a click, shows the error with its fix. Inside a
+  tab, the failure is said once, in words, where you connect: an editor's
+  toolbar says why beside **Retry** and **Details**. A failed chip of a tab
+  on several connections has **Show Error**.
+- A table's Structure says "Couldn't read indexes" or "Couldn't read
+  foreign keys" when a read failed, rather than none.
+
 ### Notifications
+
+The bell in the tab row, or ⌘⇧N, lists this session's notifications,
+newest first: every error, every brief message at the bottom of the
+window, and the app's own [log messages](command-line.md#logs). A number
+on the bell counts the errors you have not seen; opening the list clears
+it. Clicking a notification, or choosing it with the arrow keys and
+Enter, shows its full text and its fix; Esc closes the list. The list
+keeps the newest 200 and is empty again at the next start; **Clear All**
+empties it.
 
 A statement, script, export or import that took 10 seconds or more tells
 the system when it ends, if DGopher is in the background. The notice says
@@ -335,6 +374,11 @@ asked every time. [Secrets](safety.md#secrets) explains each.
 - Host keys are checked against `known_hosts`, including each jump host's.
   A new host must be trusted explicitly after you compare its fingerprint.
   A changed host key is refused as a possible attack.
+- **A tunnel that ends after connecting,** as when the network drops or
+  the SSH server restarts, fails its connection with "SSH tunnel closed"
+  and the reason, in a dialog. Open transactions were lost with it: each
+  one's rollback is audited and named in the error. Tabs stay open;
+  **Reconnect** connects again. The app never reconnects on its own.
 
 ### Proxies
 

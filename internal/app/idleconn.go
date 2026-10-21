@@ -86,7 +86,7 @@ func (a *App) disconnectIdle(cn *connection.Conn, idle time.Duration) {
 	}
 	span := idleSpan(idle)
 	a.dropConnection(cn, "idle for "+span)
-	a.toast = &pendingToast{text: "Disconnected " + cn.Config.Name + " after " + span + " idle"}
+	a.Toast("Disconnected "+cn.Config.Name+" after "+span+" idle", "", nil)
 }
 
 // idleSpan says how long a connection went unused, in whole hours when

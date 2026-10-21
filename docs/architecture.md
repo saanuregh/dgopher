@@ -226,6 +226,23 @@ finishes after you cancelled or disconnected is dropped.
   to one server connection, so `SET`, temporary tables and transactions
   last between statements. Closing a session rolls back what it left open.
 
+### Errors and notices
+
+- **`ShowReport(widgets.ErrorReport)`** shows an error: a title, a hint,
+  the full text and actions, drawn by `widgets.ErrorCard`. `ShowError` is
+  a report without hint or actions. Reports queue (`App.alerts`); one
+  equal to a waiting one is dropped. Every host interface has both.
+- **`Toast`** queues a brief message; every one queued in a frame shows.
+- **`App.note`** (`internal/app/notifications.go`) records the session's
+  notifications, behind the title bar's bell: every report and toast,
+  connect failures shown inline, and every standard-logger line, which
+  `captureLog` copies through `redact.Secrets` and posts to the main
+  thread.
+- **`db.ClassifyConnectError`** (`internal/db/connecterrors.go`) names what
+  a connect error most likely means, as a `db.ProblemKind` with a hint.
+  It runs before `redact`, which keeps the kind of an error whose text it
+  replaced. `Conn.Fail` keeps the kind in `Conn.ErrKind`.
+
 ### Lost connections
 
 When the driver reports a connection broken, the session drops it. If a
@@ -233,6 +250,14 @@ transaction was open, the error says it was lost. The first statement
 after the connection is remade gets `db.ErrSessionReset` instead of
 running, which is the refusal described in
 [After a lost connection](safety.md#after-a-lost-connection).
+
+A pool or Redis client reached through an SSH tunnel reports the tunnel's
+end (`DB.RouteDone`, `RouteErr`). `App.watchRoute`
+(`internal/app/routewatch.go`) waits for it; `routeLost` lets the tabs give
+up their sessions as a disconnect does, auditing an open transaction's
+rollback, then fails the connection with a `db.TunnelClosedError` and
+offers Reconnect. A pool closed by the app ends its tunnel too, which a
+changed `Conn.Generation` makes the watcher ignore.
 
 ### Idle limits
 

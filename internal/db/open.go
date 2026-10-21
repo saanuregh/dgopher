@@ -93,6 +93,29 @@ type DB struct {
 type route interface {
 	LocalPort() int
 	Close() error
+	Done() <-chan struct{}
+	Err() error
+}
+
+// RouteDone closes when the SSH tunnel the pool connects through ends; nil
+// when there is none.
+func (d *DB) RouteDone() <-chan struct{} {
+	if d.route == nil {
+		return nil
+	}
+	return d.route.Done()
+}
+
+// RouteErr is why the route ended, as a *TunnelClosedError, nil while it runs
+// or after the pool closed it.
+func (d *DB) RouteErr() error {
+	if d.route == nil {
+		return nil
+	}
+	if err := d.route.Err(); err != nil {
+		return &TunnelClosedError{Err: err}
+	}
+	return nil
 }
 
 // endpoint is where the driver connects, and the host its certificate
@@ -761,7 +784,7 @@ func redact(err error, cfg Config) error {
 	if msg == err.Error() {
 		return err
 	}
-	re := &redactedError{msg: msg}
+	re := &redactedError{msg: msg, kind: ClassifyConnectError(err)}
 	var ce *secretcmd.CommandError
 	var hk *sshtunnel.HostKeyError
 	switch {
@@ -789,10 +812,12 @@ func redactText(s string, cfg Config) string {
 // message. It still unwraps to what callers look for in it: a command's
 // failure, its own text redacted too, for the audit log to leave out what
 // the command printed; an unknown SSH host key, for the app to ask about.
-// Nothing else of the original is reachable, as it may quote a secret.
+// Nothing else of the original is reachable, as it may quote a secret, so
+// it keeps the original's class for ClassifyConnectError.
 type redactedError struct {
 	msg  string
 	kept error
+	kind ProblemKind
 }
 
 func (e *redactedError) Error() string { return e.msg }

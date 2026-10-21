@@ -171,14 +171,14 @@ func (a *App) overlays(c *ui.Context) {
 		a.keysView(c)
 	}
 	a.questions(c)
-	if tst := a.toast; tst != nil {
-		a.toast = nil
+	for _, tst := range a.toasts {
 		if tst.action != "" {
 			c.ToastAction(tst.text, tst.action, tst.run)
 		} else {
 			c.Toast(tst.text)
 		}
 	}
+	a.toasts = nil
 }
 
 // titleWindow names a window but the main one by its tab in front.
@@ -436,7 +436,7 @@ func (a *App) splitTab(w *window, g *panes.Group, d panes.Direction) {
 	if g.Tabs.Len() == 1 {
 		q, ok := t.(*query.Tab)
 		if !ok {
-			a.toast = &pendingToast{text: "One tab cannot be split: open another to split the group"}
+			a.Toast("One tab cannot be split: open another to split the group", "", nil)
 			return
 		}
 		ng := w.panes.Split(g, d)
@@ -743,7 +743,7 @@ var tabMotion = ui.ElementTransition{
 }
 
 // tabDots are a tab's connections, problems first: a dot each, up to
-// maxChips, then how many more, and a warning when the first failed.
+// maxChips, then how many more. A failure says why inside the tab.
 func tabDots(c *ui.Context, groups []connPlaces) {
 	ui.Row(c).Gap(2).AlignItems(ui.Center).Children(func() {
 		for _, g := range groups[:min(maxChips, len(groups))] {
@@ -751,9 +751,6 @@ func tabDots(c *ui.Context, groups []connPlaces) {
 		}
 		if n := len(groups) - maxChips; n > 0 {
 			ui.Text(c, fmt.Sprintf("+%d", n)).FontSize(10).TextColor(widgets.PaletteOf(c).Muted)
-		}
-		if groups[0].conn.Status == connection.StatusFailed {
-			ui.Icon(c, widgets.IconAlert).FontSize(10).TextColor(c.Theme().Danger)
 		}
 	})
 }
@@ -1158,10 +1155,12 @@ func (a *App) connectionStatus(c *ui.Context, tab widgets.Tab, groups []connPlac
 	case connection.StatusConnecting:
 		status = "connecting…"
 	case connection.StatusFailed:
-		status = "failed"
+		status = "" // the tab above says why, once
 	}
-	// The first to give way as the group narrows.
-	ui.Text(c, status).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1).MinWidth(0).ContentTransition(ui.ContentTransition{})
+	if status != "" {
+		// The first to give way as the group narrows.
+		ui.Text(c, status).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1).MinWidth(0).ContentTransition(ui.ContentTransition{})
+	}
 	if cn.Config.ReadOnly {
 		ui.Row(c).Gap(4).Children(func() {
 			ui.Icon(c, widgets.IconLock).FontSize(11)
@@ -1259,6 +1258,9 @@ func (a *App) connMenu(m *widgets.Menu, tab widgets.Tab, g connPlaces) {
 	case connection.StatusFailed:
 		if m.Item("Retry").Chosen() {
 			a.Connect(cn, nil)
+		}
+		if m.Item("Show Error").Chosen() {
+			a.ShowReport(a.connectionReport(cn, nil))
 		}
 	case connection.StatusIdle:
 		if m.Item("Connect").Chosen() {

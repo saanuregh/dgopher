@@ -47,8 +47,10 @@ where its form says:
 ## Logs
 
 DGopher writes its own log messages, such as a theme file that could not be
-read, to standard error. Start it from a terminal to see them. These are
-separate from the [audit log](audit-log.md).
+read, to standard error, and lists them, secrets hidden, in the
+[notifications](features.md#notifications) of the session. Start it from a
+terminal to see them all. These are separate from the
+[audit log](audit-log.md).
 
 ## Running a development copy
 

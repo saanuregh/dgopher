@@ -20,11 +20,10 @@ func TestConnectBar(t *testing.T) {
 	var s widgets.ConnectState
 	connects, cancels := 0, 0
 	tt := ui.NewTester(func(c *ui.Context) {
-		connect, cancel := widgets.ConnectBar(c, cn, s)
-		if connect {
+		switch widgets.ConnectBar(c, cn, s) {
+		case widgets.ConnectAsked:
 			connects++
-		}
-		if cancel {
+		case widgets.CancelAsked:
 			cancels++
 		}
 	}, 600, 80)
@@ -147,4 +146,32 @@ func TestConnectStatus(t *testing.T) {
 	cn.Status, s = connection.StatusConnected, widgets.ConnectState{}
 	testutil.Settled(t, tt, "Disconnect")
 	click("Disconnect", widgets.DisconnectAsked)
+}
+
+// A failed connection's bar says the hint of its kind of failure and
+// offers Details beside Retry, which the bar reports for its caller to
+// show the whole error.
+func TestConnectBarDetails(t *testing.T) {
+	cn := &connection.Conn{Config: db.Config{Name: "prod", Engine: db.Postgres}, Status: connection.StatusFailed,
+		Err: "dial tcp 127.0.0.1:1: connect: connection refused", ErrKind: db.ProblemRefused}
+	var asked []widgets.ConnectAction
+	tt := ui.NewTester(func(c *ui.Context) {
+		if a := widgets.ConnectBar(c, cn, widgets.ConnectState{}); a != widgets.NoConnectAction {
+			asked = append(asked, a)
+		}
+	}, 900, 80)
+	tt.Frame()
+	if !tt.HasText("Not connected: "+db.ProblemRefused.Hint()) || !tt.HasText("Retry") {
+		t.Fatalf("failed: %q", tt.Texts())
+	}
+	testutil.Settled(t, tt, "Details")
+	if err := tt.Click("Details"); err != nil || len(asked) != 1 || asked[0] != widgets.ConnectDetails {
+		t.Fatalf("Details: %v, asked %v", err, asked)
+	}
+
+	cn.Status = connection.StatusIdle
+	tt.Frame()
+	if tt.HasText("Details") {
+		t.Fatalf("idle offers Details: %q", tt.Texts())
+	}
 }

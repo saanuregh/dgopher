@@ -153,7 +153,7 @@ func (t *usersTab) apply(title string, stmts []string) {
 		if err != nil {
 			t.a.ShowError(title+" failed", err.Error())
 		} else {
-			t.a.toast = &pendingToast{text: "Done: " + title}
+			t.a.Toast("Done: "+title, "", nil)
 		}
 		t.refresh()
 	})

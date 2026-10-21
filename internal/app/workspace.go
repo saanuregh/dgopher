@@ -314,7 +314,7 @@ func (a *App) restoreWorkspace(p *project.Project) {
 // openSQLFile opens a file of SQL in an editor of a connection.
 func (a *App) openSQLFile(cn *connection.Conn) {
 	go func() {
-		defer dataview.RecoverBackground(a.Post, a.ShowError, nil)
+		defer dataview.RecoverBackground(a.Post, a.ShowReport, nil)
 		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{Title: "Open SQL Script",
 			Filters: []mygo.FileFilter{{Name: "SQL scripts", Extensions: []string{"sql"}}, {Name: "All files", Extensions: []string{"*"}}}})
 		if err != nil || len(paths) == 0 {
@@ -350,18 +350,18 @@ func (a *App) SaveSQLFile(q *query.Tab, saveAs bool) {
 			}
 			q.Path, q.Saved, q.Name = path, text, filepath.Base(path)
 			q.Created, q.DiskConflict = "", ""
-			a.toast = &pendingToast{text: "Saved " + filepath.Base(path)}
+			a.Toast("Saved "+filepath.Base(path), "", nil)
 		})
 	}
 	if q.Path != "" && !saveAs {
 		q.Flush(false)
 		if q.DiskConflict == "" {
-			a.toast = &pendingToast{text: "Saved " + filepath.Base(q.Path)}
+			a.Toast("Saved "+filepath.Base(q.Path), "", nil)
 		}
 		return
 	}
 	go func() {
-		defer dataview.RecoverBackground(a.Post, a.ShowError, nil)
+		defer dataview.RecoverBackground(a.Post, a.ShowReport, nil)
 		path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{Title: "Save SQL Script", DefaultPath: "query.sql",
 			Filters: []mygo.FileFilter{{Name: "SQL scripts", Extensions: []string{"sql"}}}})
 		if err != nil || path == "" {

@@ -42,7 +42,7 @@ func (t *Chat) models() *modelList {
 	modelLists[t.provider] = l
 	name := t.provider
 	go func() {
-		defer dataview.RecoverBackground(t.a.Post, t.a.ShowError, func() { l.loading = false })
+		defer dataview.RecoverBackground(t.a.Post, t.a.ShowReport, func() { l.loading = false })
 		// Made here, not on the UI thread: Codex's asks its command line
 		// which features it has.
 		lister, ok := NewProvider(name).(agent.ModelLister)
@@ -121,7 +121,7 @@ func (t *Chat) chooseModel(id string, effort agent.Effort) {
 		return // the session starts with them
 	}
 	go func() {
-		defer dataview.RecoverBackground(t.a.Post, t.a.ShowError, nil)
+		defer dataview.RecoverBackground(t.a.Post, t.a.ShowReport, nil)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		var err error

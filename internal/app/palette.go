@@ -69,6 +69,8 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 		paletteItem{title: "New Connection…", key: keymap.NewConnection, group: "Command", icon: widgets.IconPlus, run: func() { a.openConnForm(nil) }},
 		paletteItem{title: "Query History", key: keymap.History, group: "Command", icon: widgets.IconHistory, run: func() { a.openHistory() }},
 		paletteItem{title: "Audit Log", detail: "who did what, verifiable", key: keymap.AuditLog, group: "Command", icon: widgets.IconShield, run: a.openAudit},
+		paletteItem{title: "Show Latest Error", key: keymap.ShowLatestError, group: "Command", icon: widgets.IconAlert, run: a.showLatestError},
+		paletteItem{title: "Notifications", detail: "every error and message of this session", key: keymap.ToggleNotifications, group: "Command", icon: widgets.IconBell, run: a.toggleNotificationsByKey},
 		paletteItem{title: "Settings…", key: keymap.Settings, group: "Command", icon: widgets.IconSettings, run: a.openSettings},
 		paletteItem{title: "Toggle Sidebar", key: keymap.ToggleSidebar, group: "Command", icon: widgets.IconColumns, run: func() { a.layout.SidebarHidden = !a.layout.SidebarHidden }},
 		paletteItem{title: "Keyboard Shortcuts", key: keymap.ShortcutsList, group: "Command", icon: widgets.IconCode, run: func() { a.shortcutsOpen = true }},

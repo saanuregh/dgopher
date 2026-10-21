@@ -272,6 +272,12 @@ that point, so the rest never runs without what the lost session had set.
 A grid apply that loses its connection leaves the refusal for your next
 statement.
 
+An SSH tunnel that ends under a connection is different: nothing can be
+reached until it is opened again, so the app does not reconnect. The
+connection fails with "SSH tunnel closed", each open transaction's
+rollback is audited and named in the error it shows, and the tabs wait for
+**Reconnect**.
+
 ### Idle transactions
 
 A transaction left idle rolls back. A warning appears 10 seconds before,

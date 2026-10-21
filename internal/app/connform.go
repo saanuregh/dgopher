@@ -74,6 +74,10 @@ type connForm struct {
 	testResult string
 	testOK     bool
 	err        string
+
+	// unread are why the keychain failed to give secrets, by secretNames
+	// name: left empty, those are kept as they are.
+	unread map[string]error
 }
 
 var commitLabels = []string{"Default (manual on production)", "Auto-commit", "Manual commit"}
@@ -114,11 +118,11 @@ func (a *App) openConnForm(cn *connection.Conn) {
 		// The password shows only from the keychain: one from a variable
 		// must not end up there if the source changes.
 		loaded := cn.Config
-		a.loadSecrets(&loaded)
+		f.unread = a.loadSecrets(&loaded)
 		f.cfg.SSH.Password, f.cfg.SSH.KeyPassphrase = loaded.SSH.Password, loaded.SSH.KeyPassphrase
 		f.cfg.Redis.SentinelPassword = loaded.Redis.SentinelPassword
 		f.cfg.Proxy.Password = loaded.Proxy.Password
-		if sourceOf(&f.cfg) == sourceKeychain {
+		if passwordInKeychain(&f.cfg) {
 			f.cfg.Password = loaded.Password
 		}
 	} else {
@@ -762,7 +766,7 @@ func (a *App) newDatabaseFile(e db.Engine) {
 		name = "database.duckdb"
 	}
 	go func() {
-		defer dataview.RecoverBackground(a.Post, a.ShowError, nil)
+		defer dataview.RecoverBackground(a.Post, a.ShowReport, nil)
 		path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{Title: "New " + e.Label() + " Database", DefaultPath: name})
 		if err != nil || path == "" {
 			return
@@ -1015,7 +1019,7 @@ func (a *App) finishConnForm(f *connForm, cfg db.Config, connect bool) {
 	if cn == nil {
 		cfg.ID = a.uniqueConnID(f.project, cfg.Name)
 	}
-	if err := a.saveSecrets(&cfg, !cfg.AskPassword); err != nil {
+	if err := a.saveSecrets(&cfg, !cfg.AskPassword, f.unread); err != nil {
 		f.err = "Could not save the password in the keychain: " + err.Error()
 		return
 	}
@@ -1023,6 +1027,10 @@ func (a *App) finishConnForm(f *connForm, cfg db.Config, connect bool) {
 	// old destination go, once the new ones are safe.
 	if f.editing != nil {
 		for _, what := range secretNames {
+			// One the keychain could not read was never moved to the new key.
+			if f.unread[what] != nil && secretValue(&cfg, what) == "" {
+				continue
+			}
 			if secretKey(&f.loaded, what) != secretKey(&cfg, what) {
 				a.st.Secrets().Delete(secretKey(&f.loaded, what))
 			}
@@ -1055,7 +1063,7 @@ func (a *App) finishConnForm(f *connForm, cfg db.Config, connect bool) {
 			// Typed just now: use it once without keeping it.
 			c := cfg
 			c.Password = password
-			a.open(cn, c)
+			a.open(cn, c, true)
 			a.nav.expand(navNode{kind: nodeConn, conn: cn.Config.ID})
 			return
 		}
@@ -1215,6 +1223,7 @@ func (a *App) passwordField(c *ui.Context, f *connForm) {
 		ui.Field(c, "Password", func() {
 			ui.TextInput(c, &f.cfg.Password).Password()
 		}).Description(note)
+		unreadSecretNote(c, f, "password", f.cfg.Password, "password")
 	case sourceEnv:
 		ui.Field(c, "Variable", func() {
 			ui.TextInput(c, &f.cfg.PasswordEnv).Placeholder("DGOPHER_BILLING_PASSWORD").Font(widgets.MonoFont).FontSize(12.5)
@@ -1285,6 +1294,7 @@ func (a *App) proxyFields(c *ui.Context, f *connForm) {
 	ui.Field(c, "Proxy password", func() {
 		ui.TextInput(c, &f.cfg.Proxy.Password).Password().Placeholder("If the proxy asks for one").Label("Proxy password")
 	}).Description(note)
+	unreadSecretNote(c, f, "proxy-password", f.cfg.Proxy.Password, "proxy password")
 }
 
 // optionalSecretNote says where a password the server may not need is
@@ -1307,6 +1317,7 @@ func (a *App) sentinelFields(c *ui.Context, f *connForm) {
 	ui.Field(c, "Sentinel password", func() {
 		ui.TextInput(c, &f.cfg.Redis.SentinelPassword).Password().Placeholder("If the sentinels ask for one")
 	}).Description(note)
+	unreadSecretNote(c, f, "sentinel-password", f.cfg.Redis.SentinelPassword, "sentinel password")
 }
 
 // sshSecretFields shows the SSH password and passphrase, or the command
@@ -1325,9 +1336,11 @@ func (a *App) sshSecretFields(c *ui.Context, f *connForm) {
 	ui.Field(c, "Passphrase", func() {
 		ui.TextInput(c, &f.cfg.SSH.KeyPassphrase).Password().Placeholder("If the key has one")
 	})
+	unreadSecretNote(c, f, "ssh-passphrase", f.cfg.SSH.KeyPassphrase, "key passphrase")
 	ui.Field(c, "SSH password", func() {
 		ui.TextInput(c, &f.cfg.SSH.Password).Password().Placeholder("If no key is used")
 	})
+	unreadSecretNote(c, f, "ssh-password", f.cfg.SSH.Password, "SSH password")
 	var accounts []string
 	if f.cfg.SSH.KeyPassphrase != "" {
 		accounts = append(accounts, secretKey(cfg, "ssh-passphrase"))
@@ -1344,6 +1357,20 @@ func (a *App) sshSecretFields(c *ui.Context, f *connForm) {
 	}
 	ui.Field(c, "", func() {
 		ui.Text(c, note).FontSize(12).TextColor(widgets.PaletteOf(c).Muted).Selectable()
+	})
+}
+
+// unreadSecretNote says, under a secret's field the user left empty, that
+// the keychain could not give the secret saved for it, which an empty
+// field keeps.
+func unreadSecretNote(c *ui.Context, f *connForm, name, value, what string) {
+	why := f.unread[name]
+	if why == nil || value != "" {
+		return
+	}
+	note := "Couldn't read the saved " + what + " from the keychain: " + why.Error() + ". Leave this empty to keep it."
+	ui.Field(c, "", func() {
+		ui.Text(c, note).FontSize(12).TextColor(c.Theme().Warning).Selectable()
 	})
 }
 

@@ -40,6 +40,8 @@ type FakeHost struct {
 	Pending *PendingRequest
 	Discard func()
 	Errors  []string
+	// Reports are the errors shown, as Errors, with their hints and actions.
+	Reports []widgets.ErrorReport
 	Toasts  []string
 	// JobTitles are the jobs started, in order.
 	JobTitles []string
@@ -173,7 +175,7 @@ func (h *FakeHost) Post(fn func()) {
 
 func (h *FakeHost) Background(work func() func()) {
 	go func() {
-		defer RecoverBackground(h.Post, h.ShowError, nil)
+		defer RecoverBackground(h.Post, h.ShowReport, nil)
 		if done := work(); done != nil {
 			h.Post(done)
 		}
@@ -192,7 +194,14 @@ func (h *FakeHost) Layout() *widgets.Layout { return &h.layout }
 
 func (h *FakeHost) SaveSettings() {}
 
-func (h *FakeHost) ShowError(title, message string) { h.Errors = append(h.Errors, title+": "+message) }
+func (h *FakeHost) ShowError(title, message string) {
+	h.ShowReport(widgets.ErrorReport{Title: title, Detail: message})
+}
+
+func (h *FakeHost) ShowReport(r widgets.ErrorReport) {
+	h.Errors = append(h.Errors, r.Title+": "+r.Detail)
+	h.Reports = append(h.Reports, r)
+}
 
 func (h *FakeHost) Toast(text, action string, run func()) {
 	h.Toasts = append(h.Toasts, text)
@@ -256,7 +265,8 @@ func (h *FakeHost) connect(cn *connection.Conn, then func(), alert bool) {
 		}
 		return func() {
 			if err != nil {
-				cn.Status, cn.Err, cn.Waiters = connection.StatusFailed, err.Error(), nil
+				cn.Fail(err)
+				cn.Waiters = nil
 				if alert {
 					h.ShowError("Could not connect to "+cfg.Name, err.Error())
 				}

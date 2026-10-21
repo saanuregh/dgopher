@@ -390,7 +390,7 @@ func (a *App) runFill(x *fillDialog) {
 			}
 			x.open = false
 			text := fmt.Sprintf("Added %s generated rows to %s", widgets.HumanCount(written), obj.Name)
-			a.toast = &pendingToast{text: text}
+			a.Toast(text, "", nil)
 			a.Notify(started, "Rows generated", text, nil)
 			a.reloadTableTabs(cn, obj.Schema, obj.Name)
 		}

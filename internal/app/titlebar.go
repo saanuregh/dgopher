@@ -87,6 +87,7 @@ func (a *App) workspaceBar(c *ui.Context) {
 			widgets.Keycap(c.Key("pending-key"), k+" …").Tooltip("Waiting for the second key; Esc forgets it")
 		}
 		a.txIndicator(c)
+		a.notificationsButton(c)
 		search := widgets.IconButton(c, widgets.IconSearch, "Search")
 		search.Tooltip("Search commands, tables and files (" + keymap.First(keymap.Palette) + ")")
 		if search.Clicked() {

@@ -335,7 +335,7 @@ func (a *App) auditTab(c *ui.Context, h *historyState) {
 // the user chooses.
 func (a *App) exportAudit(l *audit.Log) {
 	go func() {
-		defer dataview.RecoverBackground(a.Post, a.ShowError, nil)
+		defer dataview.RecoverBackground(a.Post, a.ShowReport, nil)
 		path, err := mygo.Dialog.Save(mygo.SaveDialogOptions{Title: "Export the Audit Log",
 			DefaultPath: "dgopher-audit-" + time.Now().Format("20060102") + ".jsonl"})
 		if err != nil || path == "" {
@@ -353,7 +353,7 @@ func (a *App) exportAudit(l *audit.Log) {
 				a.ShowError("Could not export the audit log", err.Error())
 				return
 			}
-			a.toast = &pendingToast{text: "Exported the audit log to " + filepath.Base(path)}
+			a.Toast("Exported the audit log to "+filepath.Base(path), "", nil)
 		})
 	}()
 }

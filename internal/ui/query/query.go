@@ -59,6 +59,7 @@ type result struct {
 	// errInfo is what the database said of a failed statement, and start
 	// where the statement starts in the editor (-1 when unknown).
 	errInfo db.ErrorInfo
+	errHint string // the hint of a connection error, "" for others
 	start   int
 	// skip counts the bytes the app put before the editor's text.
 	skip int
@@ -338,7 +339,7 @@ func (q *Tab) Close() {
 	closers := releaseResults(q.allResults())
 	cancel, sess := q.cancel, q.sess
 	go func() {
-		defer dataview.RecoverBackground(q.a.Post, q.a.ShowError, nil)
+		defer dataview.RecoverBackground(q.a.Post, q.a.ShowReport, nil)
 		for _, close := range closers {
 			close()
 		}
@@ -997,7 +998,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 		purpose = chartPurpose // the chart's run, as Run drops one left over
 	}
 	go func() {
-		defer dataview.RecoverBackground(q.a.Post, q.a.ShowError, q.runStopped)
+		defer dataview.RecoverBackground(q.a.Post, q.a.ShowReport, q.runStopped)
 		for _, close := range closers {
 			close()
 		}
@@ -1174,6 +1175,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 			if err != nil {
 				res.err = err.Error()
 				res.errInfo = db.DescribeError(err)
+				res.errHint = runErrorHint(err, timedOut.Load())
 				if timedOut.Load() {
 					res.errInfo.Message = fmt.Sprintf("Stopped after the connection's statement timeout of %s. %s", timeout, res.errInfo.Message)
 				}
@@ -1336,7 +1338,7 @@ func (q *Tab) endTx(commit bool) {
 	q.Running = true
 	sess, cfg, database := q.sess, q.Conn.Config, q.Database
 	go func() {
-		defer dataview.RecoverBackground(q.a.Post, q.a.ShowError, q.endTxStopped)
+		defer dataview.RecoverBackground(q.a.Post, q.a.ShowReport, q.endTxStopped)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		var err error
@@ -1540,6 +1542,8 @@ func (q *Tab) body(c *ui.Context) {
 				a.Connect(q.Conn, nil)
 			case widgets.DisconnectAsked:
 				a.Disconnect(q.Conn)
+			case widgets.ConnectDetails:
+				a.ShowReport(widgets.ConnectionReport(q.Conn, func() { a.Connect(q.Conn, nil) }, nil))
 			}
 			ui.Divider(c).Margin(0, 4)
 			// One button: Run turns to Stop, in place, once a run lasts; a
@@ -2248,6 +2252,15 @@ func (q *Tab) goToError(r *result) {
 }
 
 // errorPanel shows what the database said of a failed statement.
+// runErrorHint is the hint of a run's error when the connection failed, ""
+// otherwise; a statement timeout is not the connect timeout it would read as.
+func runErrorHint(err error, timedOut bool) string {
+	if timedOut {
+		return ""
+	}
+	return db.ClassifyConnectError(err).Hint()
+}
+
 func (q *Tab) errorPanel(c *ui.Context, r *result) {
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
@@ -2261,6 +2274,9 @@ func (q *Tab) errorPanel(c *ui.Context, r *result) {
 				ui.Icon(c, widgets.IconAlert).TextColor(t.Danger).FontSize(18)
 				ui.Text(c, info.Message).FontSize(15).Bold().Selectable().Grow(1).Shrink(1)
 			})
+			if r.errHint != "" {
+				ui.Text(c, r.errHint).FontSize(13).TextColor(pal.Muted).Selectable()
+			}
 			field := func(label, value string) {
 				if value == "" {
 					return
