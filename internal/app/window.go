@@ -180,6 +180,35 @@ func (a *App) moveToWindow(t widgets.Tab, to *window) {
 	}
 }
 
+// tearOut moves a tab let go at, past the edge of the window from, to a
+// new window under the pointer, as in a browser. The only tab of a window
+// other than the main one stays, as Move to New Window leaves it.
+func (a *App) tearOut(from *window, t widgets.Tab, at ui.Point) {
+	if from != a.main && from.tabCount() == 1 {
+		return
+	}
+	a.moveToWindow(t, nil)
+	to := a.window
+	if to == from || !to.holds(t) || from.native == nil || to.native == nil {
+		return // closed since, or no system windows, as in tests
+	}
+	// The pointer over the new window's tab bar, where it let go. Where
+	// the system places windows itself, as Wayland does, it stays put.
+	b := from.native.ContentBounds()
+	to.native.SetPosition(b.X+int(at.X)-tearOutGrab, b.Y+int(at.Y)-titleBarHeight/2)
+}
+
+// tearOutGrab is how far right of a new window's left edge a tab torn out
+// of another lands under the pointer.
+const tearOutGrab = 120
+
+// outsideWindow reports whether at, in the window's coordinates, is past
+// its edge.
+func outsideWindow(c *ui.Context, at ui.Point) bool {
+	w, h := c.Size()
+	return at.X < 0 || at.Y < 0 || at.X >= w || at.Y >= h
+}
+
 // openWindow makes a window of tabs, empty until a tab moves there.
 func (a *App) openWindow() *window {
 	w := newWindow()
