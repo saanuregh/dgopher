@@ -24,8 +24,13 @@ Download the build for your system from the
 | macOS | Apple silicon, Intel (disk image) |
 | Windows | amd64 (installer) |
 
-The builds are not signed yet. On macOS, allow the app once in System
-Settings → Privacy & Security. On Windows, SmartScreen warns once.
+The builds are not signed for macOS or Windows yet. On macOS, allow the
+app once in System Settings → Privacy & Security. On Windows, SmartScreen
+warns once.
+
+The app checks for updates once a day and offers to install them, or
+choose **Check for Updates…** in the menu. The `.deb` is updated by
+installing the new one instead.
 
 To build from source, see [Development](docs/development.md).
 

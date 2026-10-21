@@ -5,8 +5,8 @@ what does not work today and why, see [Known limitations](limitations.md).
 
 ## Distribution
 
-- Signed installers, and updates installed by the app through MyGo's
-  updater.
+- Installers signed for macOS (Developer ID and notarization) and Windows,
+  so Gatekeeper and SmartScreen stop warning.
 
 ## Interface
 
