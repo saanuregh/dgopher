@@ -37,9 +37,10 @@ func TestSidebarTableCard(t *testing.T) {
 	if err := tt.Click("Open Data"); err != nil {
 		t.Fatal(err)
 	}
-	tt.Frame()
-	if tab, ok := a.ActiveTab().(*dataview.TableTab); !ok || tab.Object.Name != "customers" {
-		t.Fatalf("opened %T", a.ActiveTab())
+	// The table opens once the sample's connection is up.
+	testutil.WaitFor(t, tt, "the table", func() bool { _, ok := a.ActiveTab().(*dataview.TableTab); return ok })
+	if tab := a.ActiveTab().(*dataview.TableTab); tab.Object.Name != "customers" {
+		t.Fatalf("opened %q", tab.Object.Name)
 	}
 }
 
