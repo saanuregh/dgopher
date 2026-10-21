@@ -800,7 +800,11 @@ func TestDropFiles(t *testing.T) {
 	dir := t.TempDir()
 	file := dir + "/dropped.sqlite"
 	os.WriteFile(file, nil, 0o600)
-	a.openDropped([]string{file})
+	tt.Frame()
+	// At the center, under the hint the drag shows.
+	if !tt.DropFiles(600, 380, file) {
+		t.Fatal("the window did not take the dropped file")
+	}
 	testutil.WaitFor(t, tt, "connection", func() bool { return len(a.conns) == 1 && a.conns[0].Status == connection.StatusConnected })
 	a.openDropped([]string{file}) // once only
 	if len(a.conns) != 1 {
