@@ -119,8 +119,10 @@ DGOPHER_IT=1 DGOPHER_SCREENSHOTS=$PWD/docs/images go test ./internal/app -run Te
 Pushing a tag `v<version>` builds and publishes a release
 (`.github/workflows/release.yml`):
 
-1. Set `"version"` in `mygo.json` and commit. The workflow checks that the
-   tag matches it.
+1. Set `"version"` in `mygo.json`, add a `## <version>` section to
+   `CHANGELOG.md`, and commit. The workflow checks that the tag matches the
+   version. The update window shows that section as the release notes, and
+   a signed build fails without it.
 2. Tag and push:
 
    ```sh
@@ -128,10 +130,37 @@ Pushing a tag `v<version>` builds and publishes a release
    ```
 
 Each platform builds on a runner of its own system, because DuckDB needs
-cgo. Each uploads its installers: the macOS disk image, the Windows
-installer, and the Linux Debian package and archive. The release is
-published, with a `SHA256SUMS` of every file, once every platform's files
-are there.
+cgo. `go tool mygo build -upload` uploads its installers, the macOS disk
+image, the Windows installer, and the Linux Debian package, archive and
+`install.sh`, with its signed update: an archive of the app, a manifest
+(`update-<platform>.json`) and deltas from earlier versions. The release
+is published, with a `SHA256SUMS` of every file, once every platform's
+files are there. Installed apps then update to it.
+
+### The update signing key
+
+Updates are signed with the secret key of `go tool mygo keygen`, and the
+app accepts only updates signed with it. The public key is
+`updates.publicKey` in `mygo.json`. The secret key is the repository's
+`MYGO_UPDATER_PRIVATE_KEY` secret, and the release fails without it:
+
+```sh
+gh secret set MYGO_UPDATER_PRIVATE_KEY < ~/.config/mygo/update-keys/mygo-update.key
+```
+
+Keep a backup of `mygo-update.key` outside this machine, such as in a
+password manager. Losing it strands installed apps: they never accept an
+update again, and users must reinstall. Never commit it.
+
+A local build signs its update when given the key:
+
+```sh
+MYGO_UPDATER_PRIVATE_KEY="$(cat ~/.config/mygo/update-keys/mygo-update.key)" CGO_ENABLED=1 go tool mygo build
+```
+
+The macOS app, the Windows installer's per-user install, and the Linux app
+of `install.sh` or of the extracted `.tar.gz` update themselves. The
+`.deb` installs into `/opt`, which the app cannot write, so it does not.
 
 `.github/workflows/ci.yml` runs gofmt, vet and the tests on every push and
 pull request, on Linux and Windows. It does not run the integration tests.

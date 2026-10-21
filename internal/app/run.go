@@ -15,6 +15,8 @@ import (
 	"dgopher/internal/store"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/updater"
+	"github.com/egoist/mygo/plugins/updater/native"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -29,6 +31,7 @@ func Run(args []string) error {
 	if !mygo.App.RequestSingleInstanceLock() {
 		return nil // the running app comes to the front
 	}
+	mygo.Use(native.Plugin)
 	dir, err := store.DefaultDir()
 	if err != nil {
 		return err
@@ -389,6 +392,7 @@ func buildMenu(a *App) *mygo.Menu {
 	return mygo.NewMenu([]*mygo.MenuItem{
 		{Role: mygo.RoleAppMenu, Submenu: []*mygo.MenuItem{
 			{Role: mygo.RoleAbout},
+			updater.MenuItem(),
 			mygo.Separator(),
 			settings,
 			mygo.Separator(),

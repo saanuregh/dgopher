@@ -5,6 +5,7 @@ import (
 	"dgopher/internal/project"
 	"dgopher/internal/ui/widgets"
 
+	"github.com/egoist/mygo/plugins/updater"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -89,8 +90,8 @@ func (a *App) workspaceBar(c *ui.Context) {
 	})
 }
 
-// titleMenu is the title bar's menu: the app's menus, then its settings
-// and quitting, which macOS's menu bar has in the app's menu.
+// titleMenu is the title bar's menu: the app's menus, then its settings,
+// updates and quitting, which macOS's menu bar has in the app's menu.
 func (a *App) titleMenu(m *widgets.Menu) {
 	for _, g := range a.appMenus() {
 		m.Submenu(g.label, func(m *widgets.Menu) {
@@ -108,6 +109,9 @@ func (a *App) titleMenu(m *widgets.Menu) {
 	m.Separator()
 	if keymap.Item(m.Item("Settings…"), keymap.Settings).Chosen() {
 		a.openSettings()
+	}
+	if m.Item("Check for Updates…").Chosen() {
+		updater.CheckForUpdates()
 	}
 	if keymap.Item(m.Item("Quit"), keymap.Quit).Chosen() {
 		a.menuAction(keymap.Quit)()
