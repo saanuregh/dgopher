@@ -365,7 +365,7 @@ func (g *Grid) calcPanel(c *ui.Context, src *Source) {
 	ui.Scroll(c).Grow(1).Children(func() {
 		ui.Column(c).Padding(10, 12).Gap(6).Children(func() {
 			line := func(k, v string) {
-				ui.Row(c).Gap(8).Children(func() {
+				ui.Row(c).Gap(8).AlignItems(ui.Baseline).Children(func() {
 					ui.Text(c, k).TextColor(pal.Muted).Width(110)
 					ui.Text(c, v).Font(widgets.MonoFont).FontSize(12.5).Selectable()
 				})

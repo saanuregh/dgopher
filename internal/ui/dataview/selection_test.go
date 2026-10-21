@@ -58,26 +58,40 @@ func press(t *testing.T, tt *ui.Tester, text string) (float32, float32) {
 
 func TestShiftClickExtends(t *testing.T) {
 	tt, g, _ := selectionGrid(t)
-	tt.Click("bb")
+	if err := tt.Click("bb"); err != nil {
+		t.Fatal(err)
+	}
 	wantChosen(t, g, "click bb", []int{1}, 1)
-	tt.ClickWith(ui.Shift, "dd")
+	if err := tt.ClickWith(ui.Shift, "dd"); err != nil {
+		t.Fatal(err)
+	}
 	wantChosen(t, g, "Shift-click dd", []int{1, 2, 3}, 1)
 }
 
 func TestCmdClickToggles(t *testing.T) {
 	tt, g, _ := selectionGrid(t)
-	tt.Click("aa")
-	tt.ClickWith(ui.Cmd, "cc")
+	if err := tt.Click("aa"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ClickWith(ui.Cmd, "cc"); err != nil {
+		t.Fatal(err)
+	}
 	wantChosen(t, g, "Cmd-click cc", []int{0, 2}, 1)
-	tt.ClickWith(ui.Cmd, "aa")
+	if err := tt.ClickWith(ui.Cmd, "aa"); err != nil {
+		t.Fatal(err)
+	}
 	wantChosen(t, g, "Cmd-click aa again", []int{2}, 1)
 }
 
 func TestShiftArrowFromClickedRow(t *testing.T) {
 	tt, g, _ := selectionGrid(t)
-	tt.Click("bb")
+	if err := tt.Click("bb"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Key(0, ui.KeyDown)
-	tt.Click("aa")
+	if err := tt.Click("aa"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Key(ui.Shift, ui.KeyDown)
 	wantChosen(t, g, "click aa, Shift+Down", []int{0, 1}, 1)
 	tt.Key(0, ui.KeyRight)
@@ -86,7 +100,9 @@ func TestShiftArrowFromClickedRow(t *testing.T) {
 
 func TestRightClickDeletesClickedRow(t *testing.T) {
 	tt, g, _ := selectionGrid(t)
-	tt.Click("bb")
+	if err := tt.Click("bb"); err != nil {
+		t.Fatal(err)
+	}
 	if err := tt.RightClick("ee"); err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +154,9 @@ func TestDoubleClickEdits(t *testing.T) {
 
 func TestSelectSubmenu(t *testing.T) {
 	tt, g, src := selectionGrid(t)
-	tt.Click("bb")
+	if err := tt.Click("bb"); err != nil {
+		t.Fatal(err)
+	}
 	if err := tt.RightClick("bb"); err != nil {
 		t.Fatal(err)
 	}
@@ -149,14 +167,20 @@ func TestSelectSubmenu(t *testing.T) {
 	if got := chosenData(g); len(got) != 5 || !slices.Equal(g.selectedCols(src), []int{1}) {
 		t.Fatalf("Select Column: rows %v, columns %v", got, g.selectedCols(src))
 	}
-	tt.Click("cc")
-	tt.RightClick("cc")
+	if err := tt.Click("cc"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.RightClick("cc"); err != nil {
+		t.Fatal(err)
+	}
 	tt.ChooseMenuItem("Select", "Select Row")
 	tt.Frame()
 	if got := chosenData(g); !slices.Equal(got, []int{2}) || !slices.Equal(g.selectedCols(src), []int{0, 1, 2}) {
 		t.Fatalf("Select Row: rows %v, columns %v", got, g.selectedCols(src))
 	}
-	tt.RightClick("aa")
+	if err := tt.RightClick("aa"); err != nil {
+		t.Fatal(err)
+	}
 	tt.ChooseMenuItem("Select", "Select All")
 	tt.Frame()
 	if got := chosenData(g); len(got) != 5 || len(g.selectedCols(src)) != 3 {
@@ -166,12 +190,16 @@ func TestSelectSubmenu(t *testing.T) {
 
 func TestSelectColumnKey(t *testing.T) {
 	tt, g, src := selectionGrid(t)
-	tt.Click("n2")
+	if err := tt.Click("n2"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Key(ui.Cmd|ui.Shift, ui.KeySpace)
 	if got := chosenData(g); len(got) != 5 || !slices.Equal(g.selectedCols(src), []int{2}) {
 		t.Fatalf("Cmd+Shift+Space: rows %v, columns %v", got, g.selectedCols(src))
 	}
-	tt.Click("bb")
+	if err := tt.Click("bb"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Key(ui.Alt|ui.Shift, ui.KeySpace)
 	if got := chosenData(g); !slices.Equal(got, []int{1}) || len(g.selectedCols(src)) != 3 {
 		t.Fatalf("Alt+Shift+Space: rows %v, columns %v", got, g.selectedCols(src))
@@ -182,11 +210,17 @@ func TestSelectMatchingChangedInvert(t *testing.T) {
 	tt, g, src := selectionGrid(t)
 	src.Rows[3][2] = "n1" // dd's note as aa's
 	tt.Frame()
-	tt.RightClick("n2")
+	if err := tt.RightClick("n2"); err != nil {
+		t.Fatal(err)
+	}
 	tt.CloseMenu()
-	tt.Click("aa")
+	if err := tt.Click("aa"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Key(0, ui.KeyRight) // the note of aa: n1
-	tt.RightClick("n1")
+	if err := tt.RightClick("n1"); err != nil {
+		t.Fatal(err)
+	}
 	if err := tt.ChooseMenuItem("Select", "Select Matching Rows"); err != nil {
 		t.Fatal(err)
 	}
@@ -195,13 +229,17 @@ func TestSelectMatchingChangedInvert(t *testing.T) {
 		t.Fatalf("Select Matching Rows on n1: %v", got)
 	}
 	g.setValue(src, 4, 1, "zz")
-	tt.RightClick("aa")
+	if err := tt.RightClick("aa"); err != nil {
+		t.Fatal(err)
+	}
 	tt.ChooseMenuItem("Select", "Select Changed Rows")
 	tt.Frame()
 	if got := chosenData(g); !slices.Equal(got, []int{4}) {
 		t.Fatalf("Select Changed Rows: %v", got)
 	}
-	tt.RightClick("zz")
+	if err := tt.RightClick("zz"); err != nil {
+		t.Fatal(err)
+	}
 	tt.ChooseMenuItem("Select", "Invert Selection")
 	tt.Frame()
 	if got := chosenData(g); !slices.Equal(got, []int{0, 1, 2, 3}) {
@@ -213,13 +251,19 @@ func TestEscCollapsesThenReverts(t *testing.T) {
 	tt, g, src := selectionGrid(t)
 	g.setValue(src, 1, 1, "changed")
 	tt.Frame()
-	tt.Click("changed")
-	tt.ClickWith(ui.Shift, "n4")
+	if err := tt.Click("changed"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ClickWith(ui.Shift, "n4"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Key(0, ui.KeyEscape)
 	if got := chosenData(g); !slices.Equal(got, []int{3}) || len(g.selectedCols(src)) != 1 || !g.changed(src, 1, 1) {
 		t.Fatalf("Esc on a block: rows %v, columns %v, change kept %v", got, g.selectedCols(src), g.changed(src, 1, 1))
 	}
-	tt.Click("changed")
+	if err := tt.Click("changed"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Key(0, ui.KeyEscape)
 	if g.changed(src, 1, 1) {
 		t.Fatal("Esc on one changed cell did not revert it")
@@ -228,7 +272,9 @@ func TestEscCollapsesThenReverts(t *testing.T) {
 
 func TestShiftLastRowExtends(t *testing.T) {
 	tt, g, _ := selectionGrid(t)
-	tt.Click("bb")
+	if err := tt.Click("bb"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Key(ui.Cmd|ui.Shift, ui.KeyDown)
 	if got := chosenData(g); !slices.Equal(got, []int{1, 2, 3, 4}) {
 		t.Fatalf("Cmd+Shift+Down from bb: %v", got)
@@ -243,16 +289,26 @@ func TestShiftLastRowExtends(t *testing.T) {
 // the cursor, and from Edit Cell on a cell inside the block.
 func TestEditCollapsesToCell(t *testing.T) {
 	tt, g, src := selectionGrid(t)
-	tt.Click("bb")
-	tt.ClickWith(ui.Shift, "n4")
+	if err := tt.Click("bb"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ClickWith(ui.Shift, "n4"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Key(0, ui.KeyF2)
 	if g.editing == nil || chosenData(g) == nil || !slices.Equal(chosenData(g), []int{3}) || !slices.Equal(g.selectedCols(src), []int{2}) || g.SelRow != 3 {
 		t.Fatalf("F2 on a block: editing %+v, rows %v, columns %v, cursor row %d", g.editing, chosenData(g), g.selectedCols(src), g.SelRow)
 	}
 	tt.Key(0, ui.KeyEscape)
-	tt.Click("bb")
-	tt.ClickWith(ui.Shift, "n4")
-	tt.RightClick("cc")
+	if err := tt.Click("bb"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ClickWith(ui.Shift, "n4"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.RightClick("cc"); err != nil {
+		t.Fatal(err)
+	}
 	if err := tt.ChooseMenuItem("Edit", "Edit Cell"); err != nil {
 		t.Fatal(err)
 	}
@@ -268,8 +324,12 @@ func TestEditCollapsesToCell(t *testing.T) {
 // table column n+1).
 func TestChosenCellsKnown(t *testing.T) {
 	tt, g, _ := selectionGrid(t)
-	tt.Click("bb")
-	tt.ClickWith(ui.Shift, "n4")
+	if err := tt.Click("bb"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.ClickWith(ui.Shift, "n4"); err != nil {
+		t.Fatal(err)
+	}
 	for _, c := range []struct {
 		row, col int
 		want     bool
@@ -278,7 +338,9 @@ func TestChosenCellsKnown(t *testing.T) {
 			t.Errorf("block bb..n4: cell (%d, %d) chosen %v", c.row, c.col, got)
 		}
 	}
-	tt.Click("2")
+	if err := tt.Click("2"); err != nil {
+		t.Fatal(err)
+	}
 	if !g.List.CellSelected(1, 0) || !g.List.CellSelected(1, 1) || g.List.CellSelected(2, 0) {
 		t.Error("the row number of row 2 did not choose its whole row")
 	}
@@ -368,7 +430,9 @@ func TestRowNumberMenu(t *testing.T) {
 // what they showed; they follow the new block once the drag ends.
 func TestStatsWaitForDragEnd(t *testing.T) {
 	tt, g, src := selectionGrid(t)
-	tt.Click("11")
+	if err := tt.Click("11"); err != nil {
+		t.Fatal(err)
+	}
 	before, calcBefore := g.SelectionStats(src), len(g.calc(src))
 	x, y := press(t, tt, "11")
 	_, y13 := press(t, tt, "13")

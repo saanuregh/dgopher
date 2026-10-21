@@ -31,12 +31,13 @@
             libx11
             libxtst
             glib
+            libsecret # the system keychain, where saved passwords go
           ];
         in
         {
           default = pkgs.mkShell {
-            # go.mod asks for a newer Go; the go command fetches it.
-            packages = [ pkgs.go ];
+            # The Go of go.mod's go line; pkgs.go trails a minor release.
+            packages = [ pkgs.go_1_27 ];
             LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath guiLibraries;
             # DuckDB's driver is a cgo package; mygo keeps CGO_ENABLED when set.
             CGO_ENABLED = "1";

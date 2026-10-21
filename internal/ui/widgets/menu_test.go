@@ -54,12 +54,16 @@ func TestMenuClick(t *testing.T) {
 			t.Fatalf("no %s in the menu: %q", s, tt.Texts())
 		}
 	}
-	tt.Click("Locked")
+	if err := tt.Click("Locked"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Frame()
 	if len(chosen) != 0 || !tt.HasText("Open") {
 		t.Fatalf("a disabled item: chosen %q, open %v", chosen, tt.HasText("Open"))
 	}
-	tt.Click("Open")
+	if err := tt.Click("Open"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Frame()
 	if len(chosen) != 1 || chosen[0] != "Open" || tt.HasText("Wrap") {
 		t.Fatalf("chosen %q, still open %v", chosen, tt.HasText("Wrap"))
@@ -71,7 +75,9 @@ func TestMenuClick(t *testing.T) {
 func TestMenuSubmenu(t *testing.T) {
 	var chosen []string
 	tt := menuTester(t, &chosen)
-	tt.Click("Menu")
+	if err := tt.Click("Menu"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Frame()
 	r, _ := tt.Find("Recent")
 	tt.Move(r.X+r.W/2, r.Y+r.H/2)
@@ -90,7 +96,9 @@ func TestMenuSubmenu(t *testing.T) {
 func TestMenuKeys(t *testing.T) {
 	var chosen []string
 	tt := menuTester(t, &chosen)
-	tt.Click("Menu")
+	if err := tt.Click("Menu"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Frame()
 	tt.Key(0, ui.KeyDown) // Open
 	tt.Key(0, ui.KeyDown) // past Locked and the line: Wrap
@@ -99,7 +107,9 @@ func TestMenuKeys(t *testing.T) {
 	if len(chosen) != 1 || chosen[0] != "Wrap" {
 		t.Fatalf("chosen %q", chosen)
 	}
-	tt.Click("Menu")
+	if err := tt.Click("Menu"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Frame()
 	tt.Key(0, ui.KeyEnd) // Recent
 	tt.Key(0, ui.KeyRight)
@@ -110,7 +120,9 @@ func TestMenuKeys(t *testing.T) {
 	if len(chosen) != 2 || chosen[1] != "b.sql" {
 		t.Fatalf("chosen %q", chosen)
 	}
-	tt.Click("Menu")
+	if err := tt.Click("Menu"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Frame()
 	tt.Key(0, ui.KeyEscape)
 	tt.Frame()
@@ -125,7 +137,9 @@ func TestMenuKeys(t *testing.T) {
 func TestMenuHoverMovesDown(t *testing.T) {
 	var chosen []string
 	tt := menuTester(t, &chosen)
-	tt.Click("Menu")
+	if err := tt.Click("Menu"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Frame()
 	open, _ := tt.Find("Open")
 	wrap, _ := tt.Find("Wrap")

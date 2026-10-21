@@ -258,7 +258,9 @@ func TestHeaderMenuHidesAndPins(t *testing.T) {
 	if !g.hidden[1] || tt.HasText("empty") {
 		t.Fatal("the empty column still shows")
 	}
-	tt.RightClick("name")
+	if err := tt.RightClick("name"); err != nil {
+		t.Fatal(err)
+	}
 	tt.ChooseMenuItem("Pin Column")
 	tt.Frame()
 	if !g.pinned[2] {
@@ -266,7 +268,9 @@ func TestHeaderMenuHidesAndPins(t *testing.T) {
 	}
 	// The keys move in the order shown, the pinned name first, past the
 	// hidden column: Left from id goes to name.
-	tt.Click("1")
+	if err := tt.Click("1"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Key(0, ui.KeyLeft)
 	if g.selCol != 2 {
 		t.Fatalf("moved to %d", g.selCol)

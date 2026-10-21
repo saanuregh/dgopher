@@ -169,3 +169,20 @@ func TestFocusGroupByKey(t *testing.T) {
 		}
 	}
 }
+
+// A tab let go past the window's edge moves to a new window of its own,
+// as in a browser; let go inside, over nothing taking it, it stays.
+func TestDragTabOutOfWindow(t *testing.T) {
+	a, tt := tabsApp(t)
+	drag(tt, testutil.Settled(t, tt, "b"), 600, 690)
+	if len(a.windows) != 1 || a.main.tabCount() != 4 {
+		t.Fatalf("let go inside: %d windows, %d tabs in the main one", len(a.windows), a.main.tabCount())
+	}
+	drag(tt, testutil.Settled(t, tt, "b"), 600, 760)
+	if len(a.windows) != 2 || a.main.tabCount() != 3 {
+		t.Fatalf("let go below the window: %d windows, %d tabs in the main one", len(a.windows), a.main.tabCount())
+	}
+	if w := a.windows[1]; w.tabCount() != 1 || w.tabs().Active().Title() != "b" {
+		t.Fatalf("the new window holds %d tabs", w.tabCount())
+	}
+}

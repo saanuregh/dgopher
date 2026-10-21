@@ -1854,7 +1854,9 @@ func TestHistoryOfUnreadProject(t *testing.T) {
 	}
 	a.history.showQueries(a)
 	tt.Frame()
-	tt.Click("Clear History…")
+	if err := tt.Click("Clear History…"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Frame()
 	if a.closing != nil || !tt.HasText("The project could not be read: dgopher.json: not valid JSON") {
 		t.Fatalf("clearing an unread project's history was offered: %+v", a.closing)

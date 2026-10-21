@@ -578,6 +578,9 @@ func (a *App) tabBar(c *ui.Context, g *panes.Group) {
 				groups := byConnection(tabPlaces(tb))
 				item := ui.ButtonBase(c.Key(tabKey(tb))).Padding(0, 6, 0, 12).Height(height).MaxWidth(260).Label(tb.Title()).
 					Drag(tabDrag{tb})
+				if at, ok := item.DragMissed(); ok && outsideWindow(c, at) {
+					a.Post(func() { a.tearOut(w, tb, at) })
+				}
 				if len(groups) > 0 {
 					item.Tooltip(placesTooltip(groups))
 				}

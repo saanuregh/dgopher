@@ -33,7 +33,9 @@ func TestConnectBar(t *testing.T) {
 		t.Fatalf("idle: %q", tt.Texts())
 	}
 	testutil.Settled(t, tt, "Connect") // it fades in
-	tt.Click("Connect")
+	if err := tt.Click("Connect"); err != nil {
+		t.Fatal(err)
+	}
 	if connects != 1 || cancels != 0 {
 		t.Fatalf("Connect: %d connects, %d cancels", connects, cancels)
 	}
@@ -53,7 +55,9 @@ func TestConnectBar(t *testing.T) {
 	}
 	s.Since = time.Now().Add(-time.Second)
 	testutil.Settled(t, tt, "Cancel")
-	tt.Click("Cancel")
+	if err := tt.Click("Cancel"); err != nil {
+		t.Fatal(err)
+	}
 	if cancels != 1 || connects != 1 {
 		t.Fatalf("Cancel: %d connects, %d cancels", connects, cancels)
 	}
@@ -130,7 +134,9 @@ func TestConnectStatus(t *testing.T) {
 	tt.Frame()
 	wide("Connect")
 	asked = nil
-	tt.Click("Connect")
+	if err := tt.Click("Connect"); err != nil {
+		t.Fatal(err)
+	}
 	if !tt.HasText("Connect") || tt.HasText("Cancel") || len(asked) != 0 {
 		t.Fatalf("connecting at once: asked %v, %q", asked, tt.Texts())
 	}

@@ -150,7 +150,9 @@ dashboard on the right, each group with its tab bar](images/groups.png)
 ### More windows
 
 - A tab's **Move to New Window** puts it in a window of its own, titled by
-  its tab in front, beside the main window's sidebar.
+  its tab in front, beside the main window's sidebar. Dragging a tab out
+  past the window's edge does the same, the new window opening where it
+  was let go.
 - Tabs move between windows. Opening a tab that is already open brings it
   forward in its window.
 - Dialogs show in the window you are using.

@@ -59,6 +59,21 @@ func startApp(t *testing.T, st *store.Store) *App {
 	return a
 }
 
+// waitIdle waits until no tab works on its own, as a table reading its
+// first rows: a session one opened just before the test ends would reach
+// it only in a frame after shutdown, and stay open.
+func waitIdle(t *testing.T, a *App, tt *ui.Tester) {
+	t.Helper()
+	testutil.WaitFor(t, tt, "the tabs to be idle", func() bool {
+		for _, tb := range a.everyTab() {
+			if w, ok := tb.(widgets.Worker); ok && w.Busy() {
+				return false
+			}
+		}
+		return true
+	})
+}
+
 func TestWelcome(t *testing.T) {
 	a := newBareApp(t)
 	tt := ui.NewTester(a.view, 1200, 760)
@@ -800,7 +815,11 @@ func TestDropFiles(t *testing.T) {
 	dir := t.TempDir()
 	file := dir + "/dropped.sqlite"
 	os.WriteFile(file, nil, 0o600)
-	a.openDropped([]string{file})
+	tt.Frame()
+	// At the center, under the hint the drag shows.
+	if !tt.DropFiles(600, 380, file) {
+		t.Fatal("the window did not take the dropped file")
+	}
 	testutil.WaitFor(t, tt, "connection", func() bool { return len(a.conns) == 1 && a.conns[0].Status == connection.StatusConnected })
 	a.openDropped([]string{file}) // once only
 	if len(a.conns) != 1 {
@@ -898,7 +917,9 @@ func TestAuditTrail(t *testing.T) {
 	}
 	testutil.WaitFor(t, tt, "the check", func() bool { return tt.HasText(fmt.Sprintf("✓ Chain intact: %d entries", whole.Entries)) })
 	a.projects[0].Local.SQL().Exec("UPDATE audit SET event = replace(event, 'Ledger', 'Ledgr') WHERE seq = 2")
-	tt.Click("Verify Integrity")
+	if err := tt.Click("Verify Integrity"); err != nil {
+		t.Fatal(err)
+	}
 	testutil.WaitFor(t, tt, "the broken chain", func() bool {
 		return tt.HasText("✗ Entry 2: the entry was changed after it was written")
 	})
@@ -2233,4 +2254,28 @@ func TestCommandText(t *testing.T) {
 func hasExact(tt *ui.Tester, s string) bool {
 	_, ok := tt.Find(s)
 	return ok
+}
+
+// A mouse wheel scrolling the results to their end, gliding there, reads
+// the next page, as a trackpad's scrolling does.
+func TestWheelReadsNextPage(t *testing.T) {
+	a := newTestApp(t)
+	file := writeSQL(t, "numbers.sqlite", "")
+	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
+	tt := ui.NewTester(a.view, 1280, 820)
+	connectNow(t, a, tt, cn)
+	a.NewQueryTab(cn, "", "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 2000) SELECT i AS number FROM n;")
+	testutil.WaitFor(t, tt, "tab", func() bool { return a.tabs().Len() == 1 })
+	q := a.tabs().At(0).(*query.Tab)
+	q.Run(query.RunStatement)
+	page := a.Settings().PageSize
+	testutil.WaitFor(t, tt, "the first page", func() bool {
+		return !q.Running && tt.HasText(fmt.Sprintf("%d rows loaded", page))
+	})
+	header, _ := tt.Find("number")
+	testutil.WaitFor(t, tt, "the next page", func() bool {
+		tt.Wheel(header.X, header.Y+200, 0, 2000)
+		n, ok := resultCount(tt, q)
+		return ok && n > page
+	})
 }

@@ -71,32 +71,36 @@ func Run(args []string) error {
 		a.setOnline(mygo.Network.Status().Online)
 		mygo.Network.OnChanged(func(s mygo.NetworkStatus) { a.Post(func() { a.setOnline(s.Online) }) })
 		win := mygo.NewWindow(mygo.WindowOptions{
-			Title:          "DGopher",
-			TitleBarStyle:  mygo.TitleBarHidden,
-			TitleBarHeight: titleBarHeight,
-			Width:          1280,
-			Height:         820,
-			MinWidth:       760,
-			MinHeight:      480,
-			StateKey:       "main",
-			Content:        ui.View(a.windowView(a.main)),
+			Title:             "DGopher",
+			TitleBarStyle:     mygo.TitleBarHidden,
+			TitleBarHeight:    titleBarHeight,
+			HideWindowButtons: drawsWindowButtons,
+			Width:             1280,
+			Height:            820,
+			MinWidth:          760,
+			MinHeight:         480,
+			StateKey:          "main",
+			Content:           ui.View(a.windowView(a.main)),
 		})
 		a.main.native = win
+		a.followMaximized(a.main)
 		a.windowFocused = a.anyFocused
 		// The dialogs move to the window gaining the focus.
 		win.OnFocus(func() { a.lastFocused = a.main; a.invalidate() })
 		a.makeWindow = func(w *window) {
 			w.native = mygo.NewWindow(mygo.WindowOptions{
-				Title:          "DGopher",
-				TitleBarStyle:  mygo.TitleBarHidden,
-				TitleBarHeight: titleBarHeight,
-				Width:          1000,
-				Height:         720,
-				MinWidth:       560,
-				MinHeight:      360,
-				Content:        ui.View(a.windowView(w)),
+				Title:             "DGopher",
+				TitleBarStyle:     mygo.TitleBarHidden,
+				TitleBarHeight:    titleBarHeight,
+				HideWindowButtons: drawsWindowButtons,
+				Width:             1000,
+				Height:            720,
+				MinWidth:          560,
+				MinHeight:         360,
+				Content:           ui.View(a.windowView(w)),
 			})
 			w.native.OnFocus(func() { a.lastFocused = w; a.invalidate() })
+			a.followMaximized(w)
 			// Closed, its tabs go back to the main window.
 			w.native.OnClose(func(*mygo.CloseEvent) {
 				if !a.quitting {

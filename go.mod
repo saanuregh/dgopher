@@ -1,12 +1,12 @@
 module dgopher
 
-go 1.27.2
+go 1.27.3
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.48.0
 	github.com/andybalholm/brotli v1.2.2
 	github.com/duckdb/duckdb-go/v2 v2.10506.0
-	github.com/egoist/mygo v0.5.5
+	github.com/egoist/mygo v0.6.0
 	github.com/go-sql-driver/mysql v1.10.1
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/klauspost/compress v1.19.1
@@ -80,4 +80,4 @@ require (
 
 tool github.com/egoist/mygo/cmd/mygo
 
-replace github.com/egoist/mygo => github.com/saanuregh/mygo v0.3.4-0.20261016160541-37fcd0d33bd4
+replace github.com/egoist/mygo => github.com/saanuregh/mygo v0.3.4-0.20261021074100-25dc96d82595
