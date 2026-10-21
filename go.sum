@@ -120,8 +120,8 @@ github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
 github.com/saanuregh/agent-cli-connector v0.1.0 h1:IREZjy2lT3Ez9xQqUKLbBEJQTEGyJ9fDR+nyrgZLrWI=
 github.com/saanuregh/agent-cli-connector v0.1.0/go.mod h1:wkz3rz5YjDk83Ph0a0jWPO3yeHdsXfRcQQ6WKh06WWk=
-github.com/saanuregh/mygo v0.3.4-0.20261016160541-37fcd0d33bd4 h1:GMCSPOxAiqEHhL+1khwAJF19q/1FP+NRjfOnQokIVmQ=
-github.com/saanuregh/mygo v0.3.4-0.20261016160541-37fcd0d33bd4/go.mod h1:daHGetyAlBkHhIZOOIcAI7C82yLUY7HgeT2+Z6w2VPU=
+github.com/saanuregh/mygo v0.3.4-0.20261021074100-25dc96d82595 h1:Khma0wLrTOywZ2I9US6vvUuJaSc+j/NF/lvZDkZ1fwI=
+github.com/saanuregh/mygo v0.3.4-0.20261021074100-25dc96d82595/go.mod h1:daHGetyAlBkHhIZOOIcAI7C82yLUY7HgeT2+Z6w2VPU=
 github.com/segmentio/asm v1.2.1 h1:DTNbBqs57ioxAD4PrArqftgypG4/qNpXoJx8TVXxPR0=
 github.com/segmentio/asm v1.2.1/go.mod h1:BqMnlJP91P8d+4ibuonYZw9mfnzI9HfxselHZr5aAcs=
 github.com/shopspring/decimal v1.4.0 h1:bxl37RwXBklmTi0C79JfXCEBD1cqqHt0bbgBAGFp81k=

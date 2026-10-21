@@ -6,6 +6,7 @@
   "out": "build",
   "resources": ["LICENSE"],
   "macos": { "minimumSystemVersion": "13.0" },
+  "linux": { "webview": false },
   "updates": {
     "publicKey": "1U+TuNIUVQZqE0v3lc7/scOmmiV4xTXcnjf5o1ZO/iU=",
     "github": "saanuregh/dgopher"

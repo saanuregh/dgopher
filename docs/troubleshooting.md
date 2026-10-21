@@ -28,10 +28,6 @@ DGopher draws its window with GTK 3 and OpenGL. The `.deb` package installs
 what it needs. With the `.tar.gz`, install GTK 3 (`libgtk-3-0`), Pango,
 Cairo, HarfBuzz, Fontconfig and libepoxy from your distribution.
 
-The `.deb` also lists WebKitGTK (`libwebkit2gtk-4.1-0`) as a dependency.
-This comes from the MyGo build tool's defaults; DGopher does not use a
-webview.
-
 ## Passwords and the keychain
 
 ### "No system keychain is available"
