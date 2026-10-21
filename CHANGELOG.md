@@ -2,6 +2,40 @@
 
 The changes of each version of DGopher.
 
+## 0.4.0
+
+### Added
+
+- Errors say what most likely went wrong: a rejected password, an unknown
+  database, nothing listening, a host not found, a timeout, a TLS or SSH
+  problem, a keychain that could not be read. The full text is under
+  Details, with Copy, and the fix is beside it: Retry, Edit Connection,
+  Reconnect or Refresh.
+- Notifications: a bell in the title bar lists the session's errors,
+  messages and log lines. Show Latest Error (⌘K ⌘E) and Notifications
+  (⌘⇧N) open them from the keyboard.
+- An SSH tunnel that ends after connecting fails its connection with the
+  reason and offers Reconnect; open transactions' rollbacks are audited.
+
+### Changed
+
+- What you do that fails tells you at once in a dialog: a connect you asked
+  for, a lost SSH tunnel, part of the navigator you opened. Connects at
+  start and by restored tabs stay quiet and go to the notifications.
+- Errors wait their turn ("1 of 2") instead of replacing each other, and
+  every brief message shows.
+- A failed connection says why once, in the editor's toolbar; the navigator
+  marks it with ⚠, and its error rows take the keyboard's selection.
+- A table's Structure says "Couldn't read indexes" or "Couldn't read foreign
+  keys" rather than none.
+
+### Fixed
+
+- A keychain that could not be read no longer lets saving the connection
+  form delete the saved password.
+- A connect that asked for a password, or to trust an SSH host, now shows
+  its failure.
+
 ## 0.3.0
 
 ### Added
