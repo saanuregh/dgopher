@@ -103,6 +103,9 @@ func TestCmdAltSlashBlockCommentsInEditor(t *testing.T) {
 // tabs' row at the window's right edge, maximize turning to restore as
 // the window maximizes; elsewhere the system's stay.
 func TestWindowButtons(t *testing.T) {
+	own := drawsWindowButtons // true on Windows
+	t.Cleanup(func() { drawsWindowButtons = own })
+	drawsWindowButtons = false
 	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1000, 700)
 	tt.Frame()
@@ -110,7 +113,6 @@ func TestWindowButtons(t *testing.T) {
 		t.Fatal("window buttons drawn where the system draws them")
 	}
 	drawsWindowButtons = true
-	t.Cleanup(func() { drawsWindowButtons = false })
 	tt.Frame()
 	var right float32
 	for _, label := range []string{"Minimize", "Maximize", "Close"} {
