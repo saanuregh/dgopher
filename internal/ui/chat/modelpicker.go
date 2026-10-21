@@ -34,7 +34,7 @@ type pickEntry struct {
 // pickEntries are the models matching the search, the default first,
 // then by group, as the agent lists them.
 func (t *Chat) pickEntries(l *modelList, query string) []pickEntry {
-	def := pickEntry{label: "Default", group: ""}
+	def := pickEntry{label: "Default"}
 	if d := l.modelOf(""); d != nil {
 		if name := cmp.Or(d.DisplayName, d.ID); !strings.HasPrefix(name, "Default") {
 			def.detail = name
@@ -84,9 +84,6 @@ func (t *Chat) modelPickerView(c *ui.Context, button ui.Element) {
 	if button.Clicked() {
 		p.open = !p.open
 		p.query, p.hi, p.moved = "", 0, true
-		if p.open {
-			t.models()
-		}
 	}
 	if !p.open {
 		return

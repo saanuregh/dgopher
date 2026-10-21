@@ -435,6 +435,9 @@ var (
 // notebook; any other, or none, opens it as a script.
 const NotebookView = "notebook"
 
+// notebookHeader is the header line naming the notebook view.
+const notebookHeader = "-- view: " + NotebookView
+
 // HeaderView returns the view a query file's header line names, as
 // NotebookView, "" when it names none.
 func HeaderView(text string) string {
@@ -461,7 +464,7 @@ func SetHeaderView(text string, notebook bool) string {
 		end := min(at+len(line)+1, len(text))
 		if viewHeader.MatchString(strings.TrimRight(line, "\r")) {
 			if notebook {
-				return text[:at] + "-- view: " + NotebookView + text[at+len(strings.TrimRight(line, "\r")):]
+				return text[:at] + notebookHeader + text[at+len(strings.TrimRight(line, "\r")):]
 			}
 			if at == 0 && strings.HasPrefix(text[end:], "\n") {
 				end++ // the blank line set the header apart, alone at the top
@@ -477,12 +480,12 @@ func SetHeaderView(text string, notebook bool) string {
 		return text
 	}
 	if after < 0 {
-		return "-- view: " + NotebookView + "\n\n" + text
+		return notebookHeader + "\n\n" + text
 	}
 	if after == len(text) && !strings.HasSuffix(text, "\n") {
-		return text + "\n-- view: " + NotebookView + "\n"
+		return text + "\n" + notebookHeader + "\n"
 	}
-	return text[:after] + "-- view: " + NotebookView + "\n" + text[after:]
+	return text[:after] + notebookHeader + "\n" + text[after:]
 }
 
 // HeaderEnd is where a query file's header ends: past its lines naming

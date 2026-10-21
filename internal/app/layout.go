@@ -513,19 +513,28 @@ func (a *App) groupKeys(c *ui.Context) {
 	w := a.window
 	g := w.panes.Focused()
 	pressed := func(id string) bool { return keymap.Pressed(c, id) }
-	for id, d := range map[string]panes.Direction{keymap.SplitRight: panes.Right, keymap.SplitLeft: panes.Left, keymap.SplitDown: panes.Down, keymap.SplitUp: panes.Up} {
-		if pressed(id) {
-			a.splitTab(w, g, d)
+	directions := []struct {
+		d                  panes.Direction
+		split, move, focus string
+	}{
+		{panes.Right, keymap.SplitRight, keymap.MoveTabRight, keymap.FocusPaneRight},
+		{panes.Left, keymap.SplitLeft, keymap.MoveTabLeft, keymap.FocusPaneLeft},
+		{panes.Down, keymap.SplitDown, keymap.MoveTabDown, keymap.FocusPaneDown},
+		{panes.Up, keymap.SplitUp, keymap.MoveTabUp, keymap.FocusPaneUp},
+	}
+	for _, x := range directions {
+		if pressed(x.split) {
+			a.splitTab(w, g, x.d)
 		}
 	}
-	for id, d := range map[string]panes.Direction{keymap.MoveTabRight: panes.Right, keymap.MoveTabLeft: panes.Left, keymap.MoveTabDown: panes.Down, keymap.MoveTabUp: panes.Up} {
-		if pressed(id) {
-			a.moveTabToward(w, d)
+	for _, x := range directions {
+		if pressed(x.move) {
+			a.moveTabToward(w, x.d)
 		}
 	}
-	for id, d := range map[string]panes.Direction{keymap.FocusPaneRight: panes.Right, keymap.FocusPaneLeft: panes.Left, keymap.FocusPaneDown: panes.Down, keymap.FocusPaneUp: panes.Up} {
-		if pressed(id) {
-			a.focusGroup(w, w.panes.Neighbor(g, d))
+	for _, x := range directions {
+		if pressed(x.focus) {
+			a.focusGroup(w, w.panes.Neighbor(g, x.d))
 		}
 	}
 	if n, ok := keymap.PressedArg(c, keymap.ActivatePane); ok {

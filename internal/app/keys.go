@@ -67,12 +67,8 @@ func (a *App) loadKeymap() {
 func (a *App) readKeymap() {
 	f := &a.keymapFile
 	f.errs = nil
-	if p, err := a.st.Path(keymap.FileName); err == nil {
-		if info, err := os.Stat(p); err == nil {
-			f.modTime = info.ModTime()
-		} else {
-			f.modTime = time.Time{}
-		}
+	if mod, err := a.keymapModTime(); err == nil {
+		f.modTime = mod
 	}
 	data, err := a.st.ReadFile(keymap.FileName)
 	switch {
@@ -103,15 +99,8 @@ func (a *App) watchKeymap(c *ui.Context) {
 		return
 	}
 	f.checkedAt = now
-	p, err := a.st.Path(keymap.FileName)
-	if err != nil {
-		return
-	}
-	var mod time.Time
-	if info, err := os.Stat(p); err == nil {
-		mod = info.ModTime()
-	}
-	if mod.Equal(f.modTime) {
+	mod, err := a.keymapModTime()
+	if err != nil || mod.Equal(f.modTime) {
 		return
 	}
 	a.readKeymap()
@@ -122,6 +111,18 @@ func (a *App) watchKeymap(c *ui.Context) {
 	} else {
 		a.Toast("Keys read again from "+keymap.FileName, "", nil)
 	}
+}
+
+// keymapModTime is keymap.json's time on disk, zero while it is missing.
+func (a *App) keymapModTime() (time.Time, error) {
+	p, err := a.st.Path(keymap.FileName)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if info, err := os.Stat(p); err == nil {
+		return info.ModTime(), nil
+	}
+	return time.Time{}, nil
 }
 
 // setBindings gives an action exactly these keys, keeps them in

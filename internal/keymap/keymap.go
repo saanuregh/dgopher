@@ -261,10 +261,7 @@ func (ch Chord) labelOn(mac bool) string {
 	key := displayName(ch.Key)
 	if !mac {
 		var parts []string
-		for _, m := range []struct {
-			name string
-			mod  ui.Modifiers
-		}{{"Ctrl", ui.Ctrl}, {"Alt", ui.Alt}, {"Shift", ui.Shift}, {"Win", ui.Super}} {
+		for _, m := range []modName{{"Ctrl", ui.Ctrl}, {"Alt", ui.Alt}, {"Shift", ui.Shift}, {"Win", ui.Super}} {
 			if ch.Mods&m.mod != 0 {
 				parts = append(parts, m.name)
 			}
@@ -272,12 +269,9 @@ func (ch Chord) labelOn(mac bool) string {
 		return strings.Join(append(parts, key), "+")
 	}
 	var b strings.Builder
-	for _, m := range []struct {
-		sym string
-		mod ui.Modifiers
-	}{{"⌃", ui.Ctrl}, {"⌥", ui.Alt}, {"⇧", ui.Shift}, {"⌘", ui.Super}} {
+	for _, m := range []modName{{"⌃", ui.Ctrl}, {"⌥", ui.Alt}, {"⇧", ui.Shift}, {"⌘", ui.Super}} {
 		if ch.Mods&m.mod != 0 {
-			b.WriteString(m.sym)
+			b.WriteString(m.name)
 		}
 	}
 	switch ch.Key {
@@ -328,10 +322,7 @@ func (ch Chord) Accelerator() string {
 	if mods&ui.Cmd != 0 {
 		parts, mods = append(parts, "CmdOrCtrl"), mods&^ui.Cmd
 	}
-	for _, m := range []struct {
-		name string
-		mod  ui.Modifiers
-	}{{"Ctrl", ui.Ctrl}, {"Alt", ui.Alt}, {"Shift", ui.Shift}, {"Super", ui.Super}} {
+	for _, m := range []modName{{"Ctrl", ui.Ctrl}, {"Alt", ui.Alt}, {"Shift", ui.Shift}, {"Super", ui.Super}} {
 		if mods&m.mod != 0 {
 			parts = append(parts, m.name)
 		}
@@ -483,7 +474,7 @@ func prefixConflict(id string, k Keystroke) (Command, bool) {
 			if e.id == id {
 				continue
 			}
-			if k.Sequence() && !other.Sequence() && other.First == k.First || !k.Sequence() && other.Sequence() && other.First == k.First {
+			if k.Sequence() != other.Sequence() && other.First == k.First {
 				c, _ := Lookup(e.id)
 				return c, true
 			}

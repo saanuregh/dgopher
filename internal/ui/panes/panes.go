@@ -198,15 +198,21 @@ func (l *Layout) Beside(g *Group) *Group {
 	if n == nil || n.parent == nil {
 		return nil
 	}
+	return nearest(sibling(n))
+}
+
+// sibling is the node beside n, a split's child, and the side of it that
+// faces n.
+func sibling(n *Node) (*Node, Direction) {
 	p := n.parent
-	sibling, side := p.First, Right
-	if sibling == n {
-		sibling, side = p.Then, Left
+	other, side := p.First, Right
+	if other == n {
+		other, side = p.Then, Left
 	}
 	if p.Axis == Column {
 		side += Down - Right
 	}
-	return nearest(sibling, side)
+	return other, side
 }
 
 // Remove takes a group out, its place going to the node beside it, and
@@ -218,16 +224,10 @@ func (l *Layout) Remove(g *Group) *Group {
 		return nil
 	}
 	p := n.parent
-	sibling, side := p.First, Right // the sibling's side facing the group
-	if sibling == n {
-		sibling, side = p.Then, Left
-	}
-	if p.Axis == Column {
-		side += Down - Right
-	}
+	other, side := sibling(n)
 	// The sibling takes the parent's place.
 	l.groups = nil
-	*p = Node{Group: sibling.Group, Axis: sibling.Axis, Percent: sibling.Percent, First: sibling.First, Then: sibling.Then, parent: p.parent}
+	*p = Node{Group: other.Group, Axis: other.Axis, Percent: other.Percent, First: other.First, Then: other.Then, parent: p.parent}
 	if !p.Leaf() {
 		p.First.parent, p.Then.parent = p, p
 	}

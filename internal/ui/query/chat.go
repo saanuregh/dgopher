@@ -102,8 +102,7 @@ func (q *Tab) EditorContext() chat.EditorContext {
 	e := chat.EditorContext{File: q.Title(), Database: q.Database, Text: q.FileText()}
 	text := q.Editor.Text()
 	lines := func(start, end int) (int, int) {
-		first, _ := q.Editor.LineCol(start)
-		last, _ := q.Editor.LineCol(max(start, end-1))
+		first, last := lineSpan(q.Editor, start, end)
 		return first + 1, last + 1
 	}
 	if start, end := q.Editor.Selection(); start != end {
@@ -131,10 +130,17 @@ func (q *Tab) InsertSQL(sql string) {
 // landed tints a moment the lines of ed where the chat's SQL went, bytes
 // from to to.
 func (q *Tab) landed(ed *editor.Editor, from, to int) {
-	first, _ := ed.LineCol(from)
-	last, _ := ed.LineCol(max(from, to-1))
+	first, last := lineSpan(ed, from, to)
 	q.landedIn, q.landedLines = ed, [2]int{first, last}
 	q.flash.Start(q.a.Now())
+}
+
+// lineSpan is the first and last lines, from 0, of the bytes of ed from
+// from to to.
+func lineSpan(ed *editor.Editor, from, to int) (first, last int) {
+	first, _ = ed.LineCol(from)
+	last, _ = ed.LineCol(max(from, to-1))
+	return first, last
 }
 
 // tintLanded has ed tint the lines where the chat's SQL landed, fading,
@@ -188,9 +194,7 @@ func (q *Tab) ChartSQL(sql string, settings dataview.ChartSettings, done func(ch
 		text := q.script.Text()
 		sep := "\n\n"
 		switch {
-		case strings.TrimSpace(text) == "":
-			sep = ""
-		case strings.HasSuffix(text, "\n\n"):
+		case strings.TrimSpace(text) == "", strings.HasSuffix(text, "\n\n"):
 			sep = ""
 		case strings.HasSuffix(text, "\n"):
 			sep = "\n"

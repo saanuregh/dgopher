@@ -388,13 +388,8 @@ func FromLegacy(keys map[string][]string) ([]Override, []error) {
 	defer func() { current = saved }()
 	current = build(nil)
 	var errs []error
-	ids := make([]string, 0, len(keys))
-	for id := range keys {
-		ids = append(ids, id)
-	}
-	slices.Sort(ids)
 	var out []Override
-	for _, old := range ids {
+	for _, old := range slices.Sorted(maps.Keys(keys)) {
 		id, ok := legacyIDs[old]
 		if !ok {
 			errs = append(errs, fmt.Errorf("%q is no command with keys", old))

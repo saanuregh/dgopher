@@ -187,8 +187,7 @@ type Tab struct {
 	lexedText lexedText
 	lastLink  linkAsked
 	// chat is the editor's AI chat; chartAsk the chart it asked for on
-	// the next run's rows
-	// for the user's own.
+	// the next run's rows.
 	chat     editorChat
 	chartAsk *chartAsk
 	// flash tints a moment the lines where the chat's SQL landed: lines
@@ -438,8 +437,9 @@ func (q *Tab) resultsBusy() bool {
 // save applies the changes pending in results, reviewed one result after
 // the other, then saves the file, as DBeaver's ⌘S does in an editor.
 func (q *Tab) save() {
-	if all := q.allResults(); slices.IndexFunc(all, hasPending) >= 0 {
-		all[slices.IndexFunc(all, hasPending)].view.Review(q.save)
+	all := q.allResults()
+	if i := slices.IndexFunc(all, hasPending); i >= 0 {
+		all[i].view.Review(q.save)
 		return
 	}
 	q.a.SaveSQLFile(q, false)

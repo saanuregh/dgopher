@@ -91,14 +91,18 @@ type ProviderInfo struct {
 	Name, Label, Command string
 }
 
-func providerLabel(name string) string {
+// providerInfo is the provider of a name; one unknown is named, and
+// run, as it is.
+func providerInfo(name string) ProviderInfo {
 	for _, p := range Providers {
 		if p.Name == name {
-			return p.Label
+			return p
 		}
 	}
-	return name
+	return ProviderInfo{Name: name, Label: name, Command: name}
 }
+
+func providerLabel(name string) string { return providerInfo(name).Label }
 
 // NewProvider makes the provider of a name; tests put a scripted one in
 // its place.
@@ -440,16 +444,11 @@ var codexConfig = map[string]string{
 // startError says why the agent did not start, with what to do.
 func startError(provider string, err error) string {
 	msg := redact.Secrets(err.Error())
-	cmd := provider
-	for _, p := range Providers {
-		if p.Name == provider {
-			cmd = p.Command
-		}
-	}
+	p := providerInfo(provider)
 	if strings.Contains(msg, "executable file not found") || strings.Contains(msg, "no such file") {
-		return fmt.Sprintf("%s is not installed, or not on the PATH: the chat runs its command line, %s. Install it, sign in, then try again.", providerLabel(provider), cmd)
+		return fmt.Sprintf("%s is not installed, or not on the PATH: the chat runs its command line, %s. Install it, sign in, then try again.", p.Label, p.Command)
 	}
-	return providerLabel(provider) + " did not start: " + msg
+	return p.Label + " did not start: " + msg
 }
 
 // contextPrompt names the editor's connection.
@@ -608,12 +607,7 @@ func (t *Chat) Stop() {
 		return
 	}
 	t.denyAll("the user stopped the reply")
-	go func() {
-		defer dataview.RecoverBackground(t.a.Post, t.a.ShowError, nil)
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		sess.Interrupt(ctx)
-	}()
+	t.goWithin(10*time.Second, func(ctx context.Context) { sess.Interrupt(ctx) })
 }
 
 // Restart ends the conversation and starts a new one, with the same
@@ -647,10 +641,7 @@ func (t *Chat) answer(r *request, d decision, why string) {
 		}
 	case r.perm != nil:
 		perm := r.perm
-		go func() {
-			defer dataview.RecoverBackground(t.a.Post, t.a.ShowError, nil)
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
+		t.goWithin(30*time.Second, func(ctx context.Context) {
 			switch d {
 			case allow:
 				perm.Allow(ctx)
@@ -659,15 +650,10 @@ func (t *Chat) answer(r *request, d decision, why string) {
 			default:
 				perm.Deny(ctx, cmp.Or(why, "The user refused."))
 			}
-		}()
+		})
 	case r.question != nil:
 		q := r.question
-		go func() {
-			defer dataview.RecoverBackground(t.a.Post, t.a.ShowError, nil)
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			q.Cancel(ctx)
-		}()
+		t.goWithin(30*time.Second, func(ctx context.Context) { q.Cancel(ctx) })
 	}
 }
 
@@ -675,10 +661,15 @@ func (t *Chat) answer(r *request, d decision, why string) {
 func (t *Chat) answerQuestion(r *request, q agent.Question, label string) {
 	t.requests = slices.DeleteFunc(t.requests, func(o *request) bool { return o == r })
 	ui := r.question
+	t.goWithin(30*time.Second, func(ctx context.Context) { ui.Answer(ctx, map[string][]string{q.ID: {label}}) })
+}
+
+// goWithin runs f off the UI thread, its context ending after timeout.
+func (t *Chat) goWithin(timeout time.Duration, f func(ctx context.Context)) {
 	go func() {
 		defer dataview.RecoverBackground(t.a.Post, t.a.ShowError, nil)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
-		ui.Answer(ctx, map[string][]string{q.ID: {label}})
+		f(ctx)
 	}()
 }

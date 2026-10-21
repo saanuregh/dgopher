@@ -90,8 +90,6 @@ func parseCells(text string, d sqltext.Dialect, opts sqltext.SplitOptions) (prea
 	return pre.String(), cells
 }
 
-// markdownTag reports whether a marker's tag makes a Markdown cell, as
-// "[markdown]" or "[md]".
 // markdownTagged matches the tag of a Markdown cell, as markdownTag finds
 // it.
 var markdownTagged = regexp.MustCompile(`(?i)\[(markdown|md)\]`)
@@ -111,10 +109,9 @@ func retag(tag string, md bool) string {
 	return strings.Join(fields, " ")
 }
 
-func markdownTag(tag string) bool {
-	tag = strings.ToLower(strings.TrimSpace(tag))
-	return strings.Contains(tag, "[markdown]") || strings.Contains(tag, "[md]")
-}
+// markdownTag reports whether a marker's tag makes a Markdown cell, as
+// "[markdown]" or "[md]".
+func markdownTag(tag string) bool { return markdownTagged.MatchString(tag) }
 
 // cellText is a cell's text as the file holds it, without the blank lines
 // after it, and a Markdown cell's lines without their comment.

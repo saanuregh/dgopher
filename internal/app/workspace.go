@@ -296,9 +296,6 @@ func (a *App) restoreWorkspace(p *project.Project) {
 	}
 	for _, r := range tabs {
 		l := &groups[r.group].Tabs
-		if len(groups) == 1 {
-			l = a.main.tabs()
-		}
 		l.Append(r.tab)
 		if r.pinned {
 			l.SetPinned(r.tab, true)

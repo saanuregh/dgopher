@@ -270,23 +270,33 @@ func (t *Chat) connectAnswered(ctx context.Context, cn *connection.Conn, r *requ
 	finish(fmt.Errorf("%s had not connected after %s", cn.Config.Name, connectWait))
 }
 
+// schemaOf is the pool of the database a tool names, and its schema:
+// the one named, else the connection's default.
+func (t *Chat) schemaOf(ctx context.Context, p place) (*db.DB, string, error) {
+	c, err := t.connected(ctx, p.Connection, p.Database)
+	if err != nil {
+		return nil, "", err
+	}
+	d, err := c.poolOf(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	schema := p.Schema
+	if schema == "" {
+		schema, _ = d.Dialect.CurrentSchema(ctx, d.Catalog())
+	}
+	return d, schema, nil
+}
+
 type tableInfo struct {
 	Name string `json:"name"`
 	Kind string `json:"kind"`
 }
 
 func (t *Chat) listTables(ctx context.Context, p place) (agent.ToolResult, error) {
-	c, err := t.connected(ctx, p.Connection, p.Database)
+	d, schema, err := t.schemaOf(ctx, p)
 	if err != nil {
 		return agent.ErrorResult(err.Error()), nil
-	}
-	d, err := c.poolOf(ctx)
-	if err != nil {
-		return agent.ErrorResult(err.Error()), nil
-	}
-	schema := p.Schema
-	if schema == "" {
-		schema, _ = d.Dialect.CurrentSchema(ctx, d.Catalog())
 	}
 	schemas, _ := d.Dialect.Schemas(ctx, d.Catalog())
 	objs, err := d.Dialect.ObjectNames(ctx, d.Catalog(), schema)
@@ -298,17 +308,9 @@ func (t *Chat) listTables(ctx context.Context, p place) (agent.ToolResult, error
 }
 
 func (t *Chat) describeTable(ctx context.Context, p place) (agent.ToolResult, error) {
-	c, err := t.connected(ctx, p.Connection, p.Database)
+	d, schema, err := t.schemaOf(ctx, p)
 	if err != nil {
 		return agent.ErrorResult(err.Error()), nil
-	}
-	d, err := c.poolOf(ctx)
-	if err != nil {
-		return agent.ErrorResult(err.Error()), nil
-	}
-	schema := p.Schema
-	if schema == "" {
-		schema, _ = d.Dialect.CurrentSchema(ctx, d.Catalog())
 	}
 	cols, err := d.Dialect.Columns(ctx, d.Catalog(), schema, p.Table)
 	if err != nil {

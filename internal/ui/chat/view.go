@@ -144,12 +144,11 @@ func (t *Chat) followEnd() {
 // transcriptView shows the conversation.
 func (t *Chat) transcriptView(c *ui.Context) {
 	th := c.Theme()
-	items := t.transcript.Items()
-	if len(items) == 0 && len(t.sent) == 0 && len(t.waiting) == 0 && !t.starting && t.startErr == "" {
+	if t.transcriptEmpty() && !t.starting && t.startErr == "" {
 		t.emptyView(c)
 	}
 	keys := map[string]bool{} // the user's messages', unique
-	for _, it := range items {
+	for _, it := range t.transcript.Items() {
 		if it.SubagentID != "" {
 			continue // a subagent's work shows as its task's call
 		}
@@ -282,14 +281,14 @@ func (t *Chat) emptyView(c *ui.Context) {
 // userBubble is a message the user sent, with the editor's block it
 // carried as a line under it.
 func userBubble(c *ui.Context, text string) {
-	th := c.Theme()
+	th, muted := c.Theme(), widgets.PaletteOf(c).Muted
 	text, summary := splitContext(text)
 	ui.Column(c).AlignItems(ui.End).Gap(3).Transition(ui.ElementTransition{Enter: &ui.Motion{Opacity: 0, X: 16, Scale: 0.97}, Duration: 240 * time.Millisecond, Position: true}).Children(func() {
 		ui.Text(c, text).Padding(8, 12).Radius(14).Background(th.Accent.Alpha(0.12)).MaxWidth(620).Selectable()
 		if summary != "" {
 			ui.Row(c).Gap(4).AlignItems(ui.Center).Tooltip("What the message carried of the editor").Children(func() {
-				ui.Icon(c, widgets.IconCode).FontSize(10).TextColor(widgets.PaletteOf(c).Muted)
-				ui.Text(c, summary).FontSize(11).TextColor(widgets.PaletteOf(c).Muted).SingleLine()
+				ui.Icon(c, widgets.IconCode).FontSize(10).TextColor(muted)
+				ui.Text(c, summary).FontSize(11).TextColor(muted).SingleLine()
 			})
 		}
 	})
