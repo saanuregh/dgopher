@@ -1,7 +1,7 @@
 {
   "name": "DGopher",
   "identifier": "dev.dgopher.app",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "copyright": "© 2026 DGopher contributors",
   "out": "build",
   "resources": ["LICENSE"],
