@@ -2240,3 +2240,27 @@ func hasExact(tt *ui.Tester, s string) bool {
 	_, ok := tt.Find(s)
 	return ok
 }
+
+// A mouse wheel scrolling the results to their end, gliding there, reads
+// the next page, as a trackpad's scrolling does.
+func TestWheelReadsNextPage(t *testing.T) {
+	a := newTestApp(t)
+	file := writeSQL(t, "numbers.sqlite", "")
+	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
+	tt := ui.NewTester(a.view, 1280, 820)
+	connectNow(t, a, tt, cn)
+	a.NewQueryTab(cn, "", "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 2000) SELECT i AS number FROM n;")
+	testutil.WaitFor(t, tt, "tab", func() bool { return a.tabs().Len() == 1 })
+	q := a.tabs().At(0).(*query.Tab)
+	q.Run(query.RunStatement)
+	page := a.Settings().PageSize
+	testutil.WaitFor(t, tt, "the first page", func() bool {
+		return !q.Running && tt.HasText(fmt.Sprintf("%d rows loaded", page))
+	})
+	header, _ := tt.Find("number")
+	testutil.WaitFor(t, tt, "the next page", func() bool {
+		tt.Wheel(header.X, header.Y+200, 0, 2000)
+		n, ok := resultCount(tt, q)
+		return ok && n > page
+	})
+}
