@@ -59,6 +59,21 @@ func startApp(t *testing.T, st *store.Store) *App {
 	return a
 }
 
+// waitIdle waits until no tab works on its own, as a table reading its
+// first rows: a session one opened just before the test ends would reach
+// it only in a frame after shutdown, and stay open.
+func waitIdle(t *testing.T, a *App, tt *ui.Tester) {
+	t.Helper()
+	testutil.WaitFor(t, tt, "the tabs to be idle", func() bool {
+		for _, tb := range a.everyTab() {
+			if w, ok := tb.(widgets.Worker); ok && w.Busy() {
+				return false
+			}
+		}
+		return true
+	})
+}
+
 func TestWelcome(t *testing.T) {
 	a := newBareApp(t)
 	tt := ui.NewTester(a.view, 1200, 760)

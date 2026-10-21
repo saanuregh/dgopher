@@ -19,18 +19,17 @@ func TestSidebarTableCard(t *testing.T) {
 	tt := ui.NewTester(a.view, 1200, 760)
 	a.openSampleIn(p)
 	testutil.WaitFor(t, tt, "the sample", func() bool { return a.tabs().Len() == 1 })
-	tt.Advance(time.Second)
-	tt.Frame()
-	r, ok := tt.Find("customers")
-	if !ok {
-		t.Fatalf("no customers: %q", tt.Texts())
-	}
+	// The tables list once the sample's connection reads them, in real time.
+	testutil.WaitFor(t, tt, "the tables", func() bool { return tt.HasText("customers") })
+	r, _ := tt.Find("customers")
 	tt.Move(r.X+r.W/2, r.Y+r.H/2)
 	tt.Frame()
 	tt.Advance(widgets.DefaultHoverDelay)
 	tt.Frame()
-	testutil.WaitFor(t, tt, "the card", func() bool { return tt.HasText("Open Data") })
-	card, _ := tt.Find("Open Data")
+	// The card's joins load after it opens and move its buttons down: a
+	// click before they show could land where Open Data was.
+	testutil.WaitFor(t, tt, "the card's joins", func() bool { return tt.HasText("← orders") })
+	card := testutil.Settled(t, tt, "Open Data")
 	if card.X < a.layout.SidebarWidth {
 		t.Errorf("the card covers the sidebar: at %v, sidebar %v wide", card.X, a.layout.SidebarWidth)
 	}
@@ -42,6 +41,7 @@ func TestSidebarTableCard(t *testing.T) {
 	if tab := a.ActiveTab().(*dataview.TableTab); tab.Object.Name != "customers" {
 		t.Fatalf("opened %q", tab.Object.Name)
 	}
+	waitIdle(t, a, tt)
 }
 
 // A table's card opens from its menu's Show Card, and with Alt+click,
@@ -52,8 +52,7 @@ func TestSidebarShowCard(t *testing.T) {
 	tt := ui.NewTester(a.view, 1200, 760)
 	a.openSampleIn(p)
 	testutil.WaitFor(t, tt, "the sample", func() bool { return a.tabs().Len() == 1 })
-	tt.Advance(time.Second)
-	tt.Frame()
+	testutil.WaitFor(t, tt, "the tables", func() bool { return tt.HasText("customers") })
 	if err := tt.RightClick("customers"); err != nil {
 		t.Fatal(err)
 	}
@@ -93,8 +92,7 @@ func TestSidebarClickWithCards(t *testing.T) {
 	tt := ui.NewTester(a.view, 1200, 760)
 	a.openSampleIn(p)
 	testutil.WaitFor(t, tt, "the sample", func() bool { return a.tabs().Len() == 1 })
-	tt.Advance(time.Second)
-	tt.Frame()
+	testutil.WaitFor(t, tt, "the tables", func() bool { return tt.HasText("customers") })
 	r, _ := tt.Find("orders")
 	tt.ClickAt(r.X+r.W/2, r.Y+r.H/2)
 	tt.Frame()
@@ -111,8 +109,7 @@ func TestGridCellCardAltClick(t *testing.T) {
 	tt := ui.NewTester(a.view, 1300, 800)
 	a.openSampleIn(p)
 	testutil.WaitFor(t, tt, "the sample", func() bool { return a.tabs().Len() == 1 })
-	tt.Advance(time.Second)
-	tt.Frame()
+	testutil.WaitFor(t, tt, "the tables", func() bool { return tt.HasText("customers") })
 	if err := tt.RightClick("orders"); err != nil {
 		t.Fatal(err)
 	}

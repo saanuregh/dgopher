@@ -2,7 +2,6 @@ package app
 
 import (
 	"testing"
-	"time"
 
 	"dgopher/internal/testutil"
 
@@ -18,8 +17,7 @@ func TestSidebarMenuItemClicked(t *testing.T) {
 	tt := ui.NewTester(a.view, 1200, 760)
 	a.openSampleIn(p)
 	testutil.WaitFor(t, tt, "the sample", func() bool { return a.tabs().Len() == 1 })
-	tt.Advance(time.Second)
-	tt.Frame()
+	testutil.WaitFor(t, tt, "the tables", func() bool { return tt.HasText("customers") })
 	if err := tt.RightClick("customers"); err != nil {
 		t.Fatal(err)
 	}
@@ -35,4 +33,5 @@ func TestSidebarMenuItemClicked(t *testing.T) {
 	if a.tabs().Len() != before+1 || tt.HasText("Copy to Another Database…") {
 		t.Fatalf("View DDL: tabs %d -> %d, the menu still shown %v", before, a.tabs().Len(), tt.HasText("Copy to Another Database…"))
 	}
+	waitIdle(t, a, tt)
 }
