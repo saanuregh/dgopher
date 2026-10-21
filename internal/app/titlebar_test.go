@@ -98,3 +98,42 @@ func TestCmdAltSlashBlockCommentsInEditor(t *testing.T) {
 		t.Fatalf("⌘⌥/: text %q", text)
 	}
 }
+
+// Where the app draws the window's buttons, as on Windows, they end the
+// tabs' row at the window's right edge, maximize turning to restore as
+// the window maximizes; elsewhere the system's stay.
+func TestWindowButtons(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1000, 700)
+	tt.Frame()
+	if tt.HasText("Minimize") {
+		t.Fatal("window buttons drawn where the system draws them")
+	}
+	drawsWindowButtons = true
+	t.Cleanup(func() { drawsWindowButtons = false })
+	tt.Frame()
+	var right float32
+	for _, label := range []string{"Minimize", "Maximize", "Close"} {
+		r, ok := tt.Find(label)
+		if !ok {
+			t.Fatalf("no %s button; texts %q", label, tt.Texts())
+		}
+		if r.X < right || r.Y != 0 {
+			t.Fatalf("%s at %v, after %v", label, r, right)
+		}
+		right = r.X + r.W
+	}
+	if right != 1000 {
+		t.Fatalf("the buttons end at %v", right)
+	}
+	testutil.Snapshot(t, tt, "window-buttons")
+	a.main.maximized = true
+	tt.Frame()
+	if !tt.HasText("Restore") || tt.HasText("Maximize") {
+		t.Fatalf("maximized: texts %q", tt.Texts())
+	}
+	closeAt, _ := tt.Find("Close")
+	tt.Move(closeAt.X+closeAt.W/2, closeAt.Y+closeAt.H/2)
+	tt.Frame()
+	testutil.Snapshot(t, tt, "window-buttons-maximized")
+}

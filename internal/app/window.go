@@ -30,6 +30,9 @@ type window struct {
 	// the next, so that the title bar and the groups agree on who draws
 	// which tab bar.
 	several bool
+	// maximized follows the system's window, for the restore button the
+	// app draws (drawsWindowButtons).
+	maximized bool
 }
 
 func newWindow() *window { return &window{panes: panes.New()} }
@@ -178,6 +181,20 @@ func (a *App) moveToWindow(t widgets.Tab, to *window) {
 		to.native.Show()
 		to.native.Focus()
 	}
+}
+
+// followMaximized keeps w.maximized in step with its system window, for
+// the restore button the app draws.
+func (a *App) followMaximized(w *window) {
+	if !drawsWindowButtons {
+		return
+	}
+	set := func(on bool) func() {
+		return func() { a.Post(func() { w.maximized = on }) }
+	}
+	w.native.OnMaximize(set(true))
+	w.native.OnUnmaximize(set(false))
+	w.maximized = w.native.IsMaximized()
 }
 
 // tearOut moves a tab let go at, past the edge of the window from, to a

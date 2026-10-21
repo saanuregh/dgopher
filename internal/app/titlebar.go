@@ -1,6 +1,8 @@
 package app
 
 import (
+	"runtime"
+
 	"dgopher/internal/keymap"
 	"dgopher/internal/project"
 	"dgopher/internal/ui/widgets"
@@ -53,7 +55,11 @@ func (a *App) workspaceBar(c *ui.Context) {
 	if hidden {
 		left = bar.Left + 8 // the sidebar holds the controls on the left
 	}
-	ui.Row(c).Height(barHeight(c)).Padding(0, bar.Right+8, 0, left).Gap(2).
+	right := bar.Right + 8
+	if drawsWindowButtons {
+		right = 0 // the buttons go to the edge
+	}
+	ui.Row(c).Height(barHeight(c)).Padding(0, right, 0, left).Gap(2).
 		Background(pal.Sidebar).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).DragWindow().Children(func() {
 		if hidden && a.window == a.main {
 			if widgets.IconButton(c, widgets.IconSidebar, "Show Sidebar").Clicked() {
@@ -87,7 +93,89 @@ func (a *App) workspaceBar(c *ui.Context) {
 			a.openPalette(false)
 		}
 		widgets.MenuOn(c, widgets.IconButton(c, widgets.IconMenu, "Menu"), a.titleMenu)
+		if drawsWindowButtons {
+			ui.Box(c).Width(6)
+			a.windowButtons(c)
+		}
 	})
+}
+
+// drawsWindowButtons is whether the app draws the window's minimize,
+// maximize and close buttons itself (mygo.WindowOptions.HideWindowButtons):
+// on Windows, in its theme's colors, as Zed does. macOS keeps its traffic
+// lights, and Linux the desktop's buttons, which follow its button layout.
+var drawsWindowButtons = runtime.GOOS == "windows"
+
+// windowButtons draws the window's buttons at the end of its title bar,
+// as Windows 11's: as tall as the bar, the close button red under the
+// pointer, and the maximize button the one that shows the snap layouts.
+func (a *App) windowButtons(c *ui.Context) {
+	w := a.window
+	maximize, maximizeLabel := windowGlyphMaximize, "Maximize"
+	if w.maximized {
+		maximize, maximizeLabel = windowGlyphRestore, "Restore"
+	}
+	if windowButton(c, windowGlyphMinimize, "Minimize", false).Clicked() && w.native != nil {
+		w.native.Minimize()
+	}
+	if windowButton(c, maximize, maximizeLabel, false).MaximizeButton().Clicked() && w.native != nil {
+		w.native.ToggleMaximize()
+	}
+	// As the system's close button: the window's OnClose asks first about
+	// what closing would lose.
+	if windowButton(c, windowGlyphClose, "Close", true).Clicked() && w.native != nil {
+		w.native.Close()
+	}
+}
+
+// windowGlyph is the symbol of a window button.
+type windowGlyph int
+
+const (
+	windowGlyphMinimize windowGlyph = iota
+	windowGlyphMaximize
+	windowGlyphRestore
+	windowGlyphClose
+)
+
+// windowCloseRed is the background of Windows 11's close button under the
+// pointer, whatever the theme.
+var windowCloseRed = ui.Hex("#c42b1c")
+
+// windowButton is one of the window's buttons: 46 DIPs wide, its glyph
+// drawn in lines 10 DIPs across, as Windows draws its own.
+func windowButton(c *ui.Context, glyph windowGlyph, label string, closes bool) ui.Element {
+	t := c.Theme()
+	b := ui.ButtonBase(c).Width(46).Height(barHeight(c)).Label(label).Tooltip(label)
+	ink := t.Text
+	switch {
+	case closes && b.Hovered():
+		b.Background(windowCloseRed)
+		ink = ui.RGB(255, 255, 255)
+	case b.Hovered():
+		b.Background(t.Text.Alpha(0.08))
+	}
+	b.DrawOver(func(p *ui.Painter, r ui.Rect) {
+		const size, stroke = 10, 1
+		x, y := r.X+(r.W-size)/2, r.Y+(r.H-size)/2
+		switch glyph {
+		case windowGlyphMinimize:
+			p.Line(x, y+size/2, x+size, y+size/2, stroke, ink)
+		case windowGlyphMaximize:
+			p.Stroke(ui.Rect{X: x, Y: y, W: size, H: size}, ink, 1, stroke)
+		case windowGlyphRestore:
+			// A window in front of another, behind it to the top right.
+			p.Stroke(ui.Rect{X: x, Y: y + 2, W: size - 2, H: size - 2}, ink, 1, stroke)
+			p.Line(x+2, y, x+size, y, stroke, ink)
+			p.Line(x+size, y, x+size, y+size-2, stroke, ink)
+		case windowGlyphClose:
+			// Line draws only across or down: the diagonals are a path.
+			var cross ui.Path
+			cross.MoveTo(x, y).LineTo(x+size, y+size).MoveTo(x+size, y).LineTo(x, y+size)
+			p.StrokePath(&cross, stroke, ink)
+		}
+	})
+	return b
 }
 
 // titleMenu is the title bar's menu: the app's menus, then its settings,
