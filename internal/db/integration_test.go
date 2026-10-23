@@ -2003,3 +2003,52 @@ func TestIntegrationReconnectRefusesOnce(t *testing.T) {
 		})
 	}
 }
+
+// A ClickHouse user granted its database alone, as ClickHouse Cloud's
+// users often are, may not read system.projections or
+// system.data_skipping_indices: the catalog and a table's indexes are
+// read without them, over either protocol.
+func TestIntegrationClickHouseLimitedUser(t *testing.T) {
+	integration(t)
+	ctx := context.Background()
+	admin, err := Open(ctx, Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+	mustExec(t, admin, "DROP USER IF EXISTS it_limited", "DROP TABLE IF EXISTS default.it_limited",
+		"CREATE TABLE default.it_limited (a Int32, b String, INDEX ib b TYPE bloom_filter GRANULARITY 1, "+
+			"PROJECTION pb (SELECT b ORDER BY b)) ENGINE = MergeTree ORDER BY a",
+		"CREATE USER it_limited IDENTIFIED BY 'limited'", "GRANT SELECT ON default.* TO it_limited")
+	defer admin.SQL.ExecContext(ctx, "DROP USER IF EXISTS it_limited")
+	defer admin.SQL.ExecContext(ctx, "DROP TABLE IF EXISTS default.it_limited")
+	cfg := Config{Name: "limited", Engine: ClickHouse, Host: "127.0.0.1", User: "it_limited", Password: "limited"}
+	for _, c := range []struct {
+		name string
+		port int // the one cfg names, which chooses the protocol
+		ep   endpoint
+	}{
+		{"native", 9000, endpoint{host: "127.0.0.1", port: 19000, serverName: "127.0.0.1"}},
+		{"http", 8123, endpoint{host: "127.0.0.1", port: 18123, serverName: "127.0.0.1"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := cfg
+			cfg.Port = c.port
+			d, err := openWith(ctx, cfg, c.ep, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer d.Close()
+			if _, err := d.Dialect.Items(ctx, d.SQL, "default"); err != nil {
+				t.Errorf("items: %v", err)
+			}
+			ixs, err := d.Dialect.Indexes(ctx, d.SQL, "default", "it_limited")
+			if err != nil {
+				t.Fatalf("indexes: %v", err)
+			}
+			if len(ixs) == 0 || !ixs[0].Primary {
+				t.Errorf("indexes %+v: want the primary key, read from system.tables", ixs)
+			}
+		})
+	}
+}
