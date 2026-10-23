@@ -241,6 +241,9 @@ type Config struct {
 	// Redis says how a Redis connection reaches its data, when not on the
 	// one server of Host and Port.
 	Redis RedisConfig `json:"redis,omitzero"`
+	// ClickHouseProtocol is how a ClickHouse connection talks to its
+	// server.
+	ClickHouseProtocol ClickHouseProtocol `json:"clickhouseProtocol,omitempty"`
 	// KeySeparator splits a Redis connection's key names into folders;
 	// "" for the usual ":".
 	KeySeparator string `json:"keySeparator,omitempty"`
@@ -330,6 +333,28 @@ func (p *ProxyConfig) dialer() func(ctx context.Context, network, addr string) (
 		return nil
 	}
 	return netproxy.Config{Kind: p.Kind, Host: p.Host, Port: p.Port, User: p.User, Password: p.Password}.Dial
+}
+
+// ClickHouseProtocol is how a ClickHouse connection talks to its server.
+type ClickHouseProtocol string
+
+const (
+	// ClickHouseByPort is a connection saved before the choice: HTTP on
+	// 8123 and 8443, the native protocol elsewhere.
+	ClickHouseByPort ClickHouseProtocol = ""
+	ClickHouseNative ClickHouseProtocol = "native"
+	ClickHouseHTTP   ClickHouseProtocol = "http"
+)
+
+// UsesHTTP reports whether a ClickHouse connection talks HTTP.
+func (c *Config) UsesHTTP() bool {
+	if c.Engine != ClickHouse {
+		return false
+	}
+	if c.ClickHouseProtocol == ClickHouseByPort {
+		return c.Port == 8123 || c.Port == 8443
+	}
+	return c.ClickHouseProtocol == ClickHouseHTTP
 }
 
 // RedisMode is how a Redis connection reaches its data.
@@ -436,6 +461,13 @@ func (c *Config) Validate() error {
 		} else if n != 0 && c.Redis.Mode == RedisCluster {
 			errs = append(errs, "a Redis cluster has only database 0")
 		}
+	}
+	switch {
+	case c.ClickHouseProtocol == ClickHouseByPort:
+	case c.Engine != ClickHouse:
+		errs = append(errs, "a protocol is chosen for ClickHouse only")
+	case c.ClickHouseProtocol != ClickHouseNative && c.ClickHouseProtocol != ClickHouseHTTP:
+		errs = append(errs, fmt.Sprintf("unknown ClickHouse protocol %q", c.ClickHouseProtocol))
 	}
 	if c.Engine == Redis {
 		switch c.Redis.Mode {
@@ -550,11 +582,29 @@ func awsIdentityProblems(c *Config) []string {
 }
 
 func (c *Config) port() int {
-	switch {
-	case c.Port > 0:
+	if c.Port > 0 {
 		return c.Port
+	}
+	return c.DefaultPort()
+}
+
+// DefaultPort is the port the connection uses when it names none.
+// ClickHouse's follows the protocol, and TLS when it is sure to be on:
+// prefer falls back to plain text, which the plain port answers.
+func (c *Config) DefaultPort() int {
+	switch {
 	case c.Engine == Redis && c.Redis.Mode == RedisSentinel:
 		return SentinelPort
+	case c.Engine == ClickHouse:
+		secure := c.TLS == TLSRequire || c.TLS == TLSVerifyFull
+		switch {
+		case c.UsesHTTP() && secure:
+			return 8443
+		case c.UsesHTTP():
+			return 8123
+		case secure:
+			return 9440
+		}
 	}
 	return c.Engine.DefaultPort()
 }

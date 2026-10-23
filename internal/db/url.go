@@ -1,9 +1,11 @@
 package db
 
 import (
+	"cmp"
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -12,9 +14,21 @@ import (
 // print them: postgres://user:pass@host:5432/db?sslmode=require,
 // mysql://…, clickhouse://…, redis://…/0, rediss:// for TLS, or a path to
 // a SQLite or DuckDB file. The password, if any, comes back in Password.
+// ClickHouse's JDBC URLs, as DBeaver shows them, name HTTP in the scheme:
+// [jdbc:]clickhouse:http://… or :https://…, ch for clickhouse.
 func ParseURL(s string) (Config, error) {
 	s = strings.TrimSpace(s)
 	var cfg Config
+	var schemeTLS TLSMode
+	if m := clickhouseJDBC.FindStringSubmatch(s); m != nil {
+		s = "clickhouse://" + s[len(m[0]):]
+		switch strings.ToLower(m[1] + m[2]) {
+		case "https":
+			cfg.ClickHouseProtocol, schemeTLS = ClickHouseHTTP, TLSVerifyFull
+		case "http":
+			cfg.ClickHouseProtocol = ClickHouseHTTP
+		}
+	}
 	lower := strings.ToLower(s)
 	switch {
 	case strings.HasSuffix(lower, ".duckdb") && !strings.Contains(s, "://"):
@@ -62,7 +76,10 @@ func ParseURL(s string) (Config, error) {
 	if err != nil {
 		return cfg, err
 	}
-	if mode != "" {
+	if schemeTLS != "" && mode != "" && mode != schemeTLS {
+		return cfg, fmt.Errorf("the URL's https disagrees with its TLS parameters")
+	}
+	if mode = cmp.Or(mode, schemeTLS); mode != "" {
 		cfg.TLS = mode
 	}
 	if _, ok := q["tls_server_name"]; ok {
@@ -90,6 +107,10 @@ func ParseURL(s string) (Config, error) {
 	return cfg, nil
 }
 
+// clickhouseJDBC matches the scheme of a ClickHouse JDBC URL, with the
+// protocol it names, if any: jdbc:clickhouse://, ch:https://.
+var clickhouseJDBC = regexp.MustCompile(`(?i)^(?:jdbc:(?:clickhouse|ch)(?::(https?))?|(?:clickhouse|ch):(https?))://`)
+
 // urlTLSParams are the TLS parameters each scheme's tools take, and the
 // modes their values mean to that scheme's driver: MySQL's tls=true and
 // ClickHouse's secure=true verify the server, as rediss:// does, unless
@@ -108,6 +129,7 @@ var urlTLSParams = map[Engine]map[string]map[string]TLSMode{
 	},
 	ClickHouse: {
 		"secure": {"true": TLSVerifyFull, "false": TLSDisable},
+		"ssl":    {"true": TLSVerifyFull, "false": TLSDisable}, // JDBC's
 	},
 }
 

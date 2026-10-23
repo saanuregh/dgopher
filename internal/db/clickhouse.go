@@ -2,10 +2,12 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 )
 
 // ServerParam is an argument the server binds itself, as a ClickHouse
@@ -138,6 +140,9 @@ WHERE database = ? AND table = ? ORDER BY name`, []any{schema, table}, func(scan
 		out = append(out, ix)
 		return nil
 	})
+	if unreadableSystemTable(err) {
+		return out, nil
+	}
 	return out, err
 }
 
@@ -158,14 +163,24 @@ func (clickhouseDialect) ReferencedBy(context.Context, Querier, string, string) 
 }
 
 // Items lists the projections of the database's tables. A server before
-// system.projections, of version 24, lists none.
+// system.projections, of version 24, or a user not granted it, lists none.
 func (clickhouseDialect) Items(ctx context.Context, q Querier, schema string) ([]Item, error) {
 	items, err := scanItems(ctx, q, schema, `SELECT 'projection', name, table, lower(toString(type)), '' FROM system.projections
 WHERE database = ? ORDER BY table, name`, schema)
-	if err != nil && strings.Contains(err.Error(), "system.projections") && strings.Contains(err.Error(), "UNKNOWN_TABLE") {
+	if unreadableSystemTable(err) {
 		return nil, nil
 	}
 	return items, err
+}
+
+// unreadableSystemTable reports whether a system table is missing
+// (UNKNOWN_TABLE) or not granted to the user (ACCESS_DENIED): unlike
+// system.tables and system.columns, which ClickHouse shows filtered by
+// the user's grants, system.projections and system.data_skipping_indices
+// need a grant of their own, which ClickHouse Cloud's users often lack.
+func unreadableSystemTable(err error) bool {
+	var ch *proto.Exception
+	return errors.As(err, &ch) && (ch.Code == 60 || ch.Code == 497)
 }
 
 // ItemDDL writes the statement adding a projection to its table.

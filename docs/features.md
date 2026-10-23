@@ -286,7 +286,7 @@ when another connection in the project has it.
 | --- | --- |
 | PostgreSQL | browse its other databases from one connection |
 | MySQL and MariaDB | |
-| ClickHouse | native protocol, or HTTP on 8123 and 8443 |
+| ClickHouse | native protocol or HTTP, chosen under **Protocol**; the port defaults to 9000 or 8123, 9440 or 8443 with TLS required or verified |
 | SQLite | a file, or in memory; **New…** creates an empty file |
 | DuckDB | a file, or in memory; **New…** creates an empty file |
 | Redis | one server, a cluster, or the master Sentinel names |
@@ -331,12 +331,17 @@ including TLS.
 - Schemes: `postgres://`, `postgresql://`, `mysql://`, `mariadb://`,
   `clickhouse://`, `ch://`, `redis://`, `rediss://`, `sqlite://`,
   `sqlite3://`, `duckdb://` and `file://`.
+- ClickHouse's JDBC URLs, as DBeaver shows them, choose HTTP:
+  `clickhouse:http://`, `clickhouse:https://` (verify-full TLS), with
+  `ch` for `clickhouse` and an optional `jdbc:` before. A URL that names
+  no protocol keeps the old rule: HTTP on ports 8123 and 8443, native
+  elsewhere.
 - TLS is read as each driver reads it:
   - PostgreSQL's `sslmode`: `verify-ca` and `verify-full` become
     verify-full.
   - MySQL's `ssl-mode` or `tls`: `tls=true` becomes verify-full.
-  - ClickHouse's `secure` and `rediss://` become verify-full, or require
-    (encrypted, not verified) with `skip_verify`.
+  - ClickHouse's `secure` or JDBC's `ssl`, and `rediss://`, become
+    verify-full, or require (encrypted, not verified) with `skip_verify`.
   - `ssl=true` or `ssl=false` on PostgreSQL and MySQL become require or
     disable.
 - An unknown value, two values that disagree, or a `tls_server_name` is
