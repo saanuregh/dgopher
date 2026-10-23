@@ -25,7 +25,7 @@ You need:
   one automatically.
 - **A C compiler.** cgo is required: DuckDB is compiled in through
   [duckdb-go](https://github.com/duckdb/duckdb-go), which links it
-  statically. Set `CGO_ENABLED=1`.
+  statically, and so is agent-cli-connector. Set `CGO_ENABLED=1`.
 - **On Linux,** GTK 3 and OpenGL for the window. WebKitGTK is not needed.
 
 With Nix on Linux, `nix develop` gives a shell with Go, the GUI libraries
@@ -199,16 +199,32 @@ To move to a new MyGo release:
 ## agent-cli-connector
 
 The AI chat drives `claude`, `codex` and `pi` through
-[agent-cli-connector](https://github.com/saanuregh/agent-cli-connector).
-To work on both at once, point `go.mod` at a local checkout, and drop the
-replace before committing:
+[agent-cli-connector](https://github.com/saanuregh/agent-cli-connector), a
+Zig library. Its Go binding links the library into the binary with cgo, as
+duckdb-go does with DuckDB: a module per platform,
+`bindings/go/lib/<os>-<arch>`, holds the static library, so nothing is
+loaded or downloaded at run time.
+
+To work on both at once, build the static libraries in the checkout
+(`zig build go-libs`), then point `go.mod` at it: the binding and each
+platform's module. Before committing, drop the replaces and require the
+published version, `vX.Y.Z` (the connector's release that holds the
+change):
 
 ```sh
-go mod edit -replace=github.com/saanuregh/agent-cli-connector=../agent-cli-connector
-go mod edit -dropreplace=github.com/saanuregh/agent-cli-connector && go mod tidy
+mod=github.com/saanuregh/agent-cli-connector/bindings/go
+libs=$(cd ../agent-cli-connector/bindings/go/lib && ls -d */ | tr -d /)
+go mod edit -replace=$mod=../agent-cli-connector/bindings/go
+for p in $libs; do go mod edit -replace=$mod/lib/$p=../agent-cli-connector/bindings/go/lib/$p; done
+go mod tidy
+
+go mod edit -dropreplace=$mod
+for p in $libs; do go mod edit -dropreplace=$mod/lib/$p; done
+go get $mod@vX.Y.Z && go mod tidy
 ```
 
-The chat's tests use the connector's scripted `agenttest` provider. To try
+The chat's tests talk to the library's built-in `fake` provider
+(`chat.FakeAgent`), which replies with the message it was sent. To try
 the real command lines, which must be installed and signed in, and which
 spend tokens:
 

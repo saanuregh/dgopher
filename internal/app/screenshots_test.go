@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"image/png"
 	"os"
@@ -10,8 +11,7 @@ import (
 	"testing"
 	"time"
 
-	agent "github.com/saanuregh/agent-cli-connector"
-	"github.com/saanuregh/agent-cli-connector/agenttest"
+	agent "github.com/saanuregh/agent-cli-connector/bindings/go"
 
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
@@ -19,7 +19,6 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/project"
 	"dgopher/internal/testutil"
-	"dgopher/internal/ui/chat"
 	"dgopher/internal/ui/dashboard"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/panes"
@@ -285,25 +284,21 @@ ORDER BY units DESC;
 	a.joinGroups(a.main)
 
 	// The editor's AI chat: a question about its statement, the schema
-	// read, and SQL to insert.
-	saved := chat.NewProvider
-	defer func() { chat.NewProvider, widgets.ShadersWithoutGPU = saved, false }()
+	// read, and SQL to insert. Shown as written, without an agent.
+	defer func() { widgets.ShadersWithoutGPU = false }()
 	widgets.ShadersWithoutGPU = true
-	chat.NewProvider = func(string) agent.Provider {
-		return agenttest.New(func(turn *agenttest.Turn) error {
-			turn.Reasoning("They want revenue per order by country; the statement already works it out.")
-			turn.ToolCall(agent.ToolHost, "mcp__host__describe_table", `{"table":"orders"}`, `{"columns":["id","customer_id","status","ordered_at"]}`)
-			turn.Text("Your statement already has it as **avg_order**. To rank by it instead of total revenue, order by that column:\n\n" +
-				"```sql\nSELECT c.country,\n       round(sum(i.quantity * i.unit_price)\n             / count(DISTINCT o.id), 2) AS avg_order\nFROM orders o\nJOIN customers c   ON c.id = o.customer_id\nJOIN order_items i ON i.order_id = o.id\nWHERE o.status <> 'cancelled'\nGROUP BY c.country\nORDER BY avg_order DESC;\n```\n\n" +
-				"Countries with few orders can lead this list: add `HAVING count(DISTINCT o.id) >= 5` to keep them out.")
-			return nil
-		})
-	}
 	a.window.tabs().Select(q)
 	q.ToggleChat()
 	tt.Frame()
-	q.Chat().Send("Which countries spend the most per order?")
-	testutil.WaitFor(t, tt, "the reply", func() bool { return testutil.HasTextContaining(tt, "HAVING") && !q.Chat().Busy() })
+	q.Chat().Load([]agent.Item{
+		{ID: "u1", Kind: agent.ItemKindUserMessage, Text: "<editor summary=\"revenue-by-country.sql · statement, line 2 · shop\">\n</editor>\n\nWhich countries spend the most per order?"},
+		{ID: "r1", Kind: agent.ItemKindReasoning, Text: "They want revenue per order by country; the statement already works it out."},
+		{ID: "t1", Kind: agent.ItemKindToolCall, Tool: &agent.ToolCall{Kind: agent.ToolKindHost, Name: "mcp__host__describe_table", Input: json.RawMessage(`{"table":"orders"}`), Output: `{"columns":["id","customer_id","status","ordered_at"]}`}},
+		{ID: "a1", Kind: agent.ItemKindAssistantMessage, Text: "Your statement already has it as **avg_order**. To rank by it instead of total revenue, order by that column:\n\n" +
+			"```sql\nSELECT c.country,\n       round(sum(i.quantity * i.unit_price)\n             / count(DISTINCT o.id), 2) AS avg_order\nFROM orders o\nJOIN customers c   ON c.id = o.customer_id\nJOIN order_items i ON i.order_id = o.id\nWHERE o.status <> 'cancelled'\nGROUP BY c.country\nORDER BY avg_order DESC;\n```\n\n" +
+			"Countries with few orders can lead this list: add `HAVING count(DISTINCT o.id) >= 5` to keep them out."},
+	})
+	testutil.WaitFor(t, tt, "the reply", func() bool { return testutil.HasTextContaining(tt, "HAVING") })
 	shot(tt, "ai-chat")
 }
 

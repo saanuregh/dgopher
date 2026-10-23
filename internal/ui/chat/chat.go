@@ -13,18 +13,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"math/rand/v2"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
-	agent "github.com/saanuregh/agent-cli-connector"
-	"github.com/saanuregh/agent-cli-connector/claude"
-	"github.com/saanuregh/agent-cli-connector/codex"
-	"github.com/saanuregh/agent-cli-connector/pi"
+	agent "github.com/saanuregh/agent-cli-connector/bindings/go"
 
 	"dgopher/internal/connection"
 	"dgopher/internal/redact"
@@ -104,16 +101,29 @@ func providerInfo(name string) ProviderInfo {
 
 func providerLabel(name string) string { return providerInfo(name).Label }
 
-// NewProvider makes the provider of a name; tests put a scripted one in
-// its place.
-var NewProvider = func(name string) agent.Provider {
-	switch name {
-	case "pi":
-		return pi.New(pi.Options{})
+// OpenClient opens a client of the agent library for a provider, and
+// names the provider within it; tests open the library's fake in its
+// place.
+var OpenClient = func(ctx context.Context, provider string) (*agent.Client, string, error) {
+	var options any
+	switch provider {
+	case "claude":
+		options = agent.ClaudeOptions{ClientApp: "dgopher"}
 	case "codex":
-		return codex.New(codex.Options{Disable: codexOff(codexKnown()), Config: codexConfig})
-	default:
-		return claude.New(claude.Options{ClientApp: "dgopher"})
+		options = agent.CodexOptions{Disable: codexOff(codexKnown()), Config: codexConfig}
+	}
+	client, err := agent.Open(ctx, agent.WithProviders(map[string]any{provider: options}))
+	return client, provider, err
+}
+
+// FakeAgent has the chats talk to the agent library's fake, which replies
+// with the message it was sent, until the test ends.
+func FakeAgent(t dataview.TB) {
+	saved := OpenClient
+	t.Cleanup(func() { OpenClient = saved })
+	OpenClient = func(ctx context.Context, _ string) (*agent.Client, string, error) {
+		client, err := agent.Open(ctx, agent.WithProviders(map[string]any{"fake": nil}))
+		return client, "fake", err
 	}
 }
 
@@ -137,7 +147,7 @@ type Chat struct {
 	textSent *string
 	frameCtx EditorContext
 
-	sess     agent.Session
+	sess     *agent.Session
 	starting bool
 	// gen counts the sessions started, by which the events of one
 	// stopped are told from the next's.
@@ -186,6 +196,17 @@ type Chat struct {
 	// idPrefix starts the IDs of the chat's messages: its own, as a
 	// conversation continued holds those of the chats before.
 	idPrefix string
+
+	// clientMu guards the chat's own client of the agent library, opened
+	// off the UI thread and shared with no other chat; clientOpenedFor is
+	// the provider it was opened for, and clientProviderName that
+	// provider's name in it. clientClosed is set as the chat closes, before
+	// its client does, so that nothing opens or uses one after.
+	clientMu           sync.Mutex
+	client             *agent.Client
+	clientOpenedFor    string
+	clientProviderName string
+	clientClosed       atomic.Bool
 }
 
 type sentMessage struct {
@@ -207,10 +228,11 @@ type request struct {
 	conn   string
 	// connName names conn for the card.
 	connName string
-	// perm is the agent's request; question its question; answer the
-	// app's tool's, which waits for a decision.
+	// perm is the agent's request; question its question, both of sess;
+	// answer the app's tool's, which waits for a decision.
 	perm     *agent.PermissionRequest
 	question *agent.UserInputRequest
+	sess     *agent.Session
 	answer   chan decision
 	// always offers to allow reads of the connection for the rest of the
 	// chat; connect asks to connect a connection, not to run something.
@@ -275,13 +297,16 @@ func (t *Chat) Resume(session string) {
 	gen, name := t.gen, t.provider
 	go func() {
 		defer dataview.RecoverBackground(t.a.Post, t.a.ShowReport, nil)
-		reader, ok := NewProvider(name).(agent.HistoryReader) // off the UI thread, as in start
-		if !ok {
-			return
-		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		items, err := reader.ReadHistory(ctx, session, agent.ReadHistoryOptions{Cwd: t.dir, Limit: historyItems})
+		client, providerName, err := t.agentClient(ctx, name)
+		var items []agent.Item
+		if err == nil {
+			items, err = client.ReadHistory(ctx, providerName, session, agent.ReadHistoryOptions{Cwd: t.dir, Limit: historyItems})
+		}
+		if errors.Is(err, agent.ErrUnsupported) {
+			return
+		}
 		t.a.Post(func() {
 			if gen != t.gen || t.closed || !t.transcriptEmpty() {
 				return // started over, or written in, meanwhile
@@ -290,12 +315,14 @@ func (t *Chat) Resume(session string) {
 				t.notices = append(t.notices, notice{text: "The earlier conversation did not show: " + redact.Secrets(err.Error())})
 				return
 			}
-			for _, it := range items {
-				t.transcript.Apply(&agent.ItemCompleted{Item: it})
-			}
+			t.Load(items)
 		})
 	}()
 }
+
+// Load shows a conversation in place of the chat's, as one resumed
+// shows.
+func (t *Chat) Load(items []agent.Item) { t.transcript.Load(items) }
 
 // Busy reports a reply being written.
 func (t *Chat) Busy() bool { return t.running || t.starting }
@@ -309,16 +336,54 @@ func (t *Chat) CloseReason() string {
 	return ""
 }
 
-// Close stops the agent.
+// Close stops the agent, and closes the chat's client.
 func (t *Chat) Close() {
 	t.closed = true
+	t.clientClosed.Store(true)
 	t.denyAll("the chat was closed")
-	if sess := t.sess; sess != nil {
-		t.sess = nil
-		go func() {
-			defer dataview.RecoverBackground(t.a.Post, t.a.ShowReport, nil)
+	sess := t.sess
+	t.sess = nil
+	go func() {
+		defer dataview.RecoverBackground(t.a.Post, t.a.ShowReport, nil)
+		if sess != nil {
 			sess.Close()
-		}()
+		}
+		t.closeClient()
+	}()
+}
+
+// agentClient is the chat's client, opened for provider when it has none
+// or one of another provider, with provider's name in it. Off the UI
+// thread: opening it may run the agent's command line.
+func (t *Chat) agentClient(ctx context.Context, provider string) (*agent.Client, string, error) {
+	t.clientMu.Lock()
+	defer t.clientMu.Unlock()
+	if t.clientClosed.Load() {
+		return nil, "", agent.ErrClosed
+	}
+	if t.client != nil && t.clientOpenedFor == provider {
+		return t.client, t.clientProviderName, nil
+	}
+	if old := t.client; old != nil {
+		t.client = nil
+		go old.Close() // the chat started over with another agent
+	}
+	client, name, err := OpenClient(ctx, provider)
+	if err != nil {
+		return nil, "", err
+	}
+	t.client, t.clientOpenedFor, t.clientProviderName = client, provider, name
+	return client, name, nil
+}
+
+// closeClient closes the chat's client, for good.
+func (t *Chat) closeClient() {
+	t.clientMu.Lock()
+	client := t.client
+	t.client = nil
+	t.clientMu.Unlock()
+	if client != nil {
+		client.Close()
 	}
 }
 
@@ -350,24 +415,29 @@ func (t *Chat) start() {
 	gen := t.gen
 	cfg := agent.Config{
 		Cwd:                t.dir,
-		Resume:             t.resume,
+		ResumeID:           t.resume,
 		Model:              t.modelID,
 		Effort:             t.effort,
 		AppendSystemPrompt: systemPrompt + t.contextPrompt(),
-		Tools:              t.tools(),
-		Logger:             slog.New(slog.DiscardHandler),
 		Title:              "DGopher chat",
 	}
 	lockDown(t.provider, &cfg)
-	name := t.provider
+	name, tools := t.provider, t.tools()
 	go func() {
 		defer dataview.RecoverBackground(t.a.Post, t.a.ShowReport, func() { t.starting = false })
-		// Made here, not on the UI thread: Codex's asks its command line
-		// which features it has.
-		provider := NewProvider(name)
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		sess, err := provider.Start(ctx, cfg)
+		client, providerName, err := t.agentClient(ctx, name)
+		var sess *agent.Session
+		installed := true
+		if err == nil {
+			sess, err = client.Start(ctx, providerName, cfg, agent.WithTools(tools...))
+			if err != nil {
+				if st, checkErr := client.Check(ctx, providerName); checkErr == nil && !st.Installed {
+					installed = false
+				}
+			}
+		}
 		t.a.Post(func() {
 			if gen != t.gen || t.closed {
 				if err == nil {
@@ -376,7 +446,7 @@ func (t *Chat) start() {
 				return
 			}
 			t.starting = false
-			if err != nil && t.resume != "" {
+			if err != nil && installed && t.resume != "" {
 				// The conversation went from the agent's store: a new one,
 				// what was typed going to it.
 				t.resume, t.textSent = "", nil
@@ -385,11 +455,13 @@ func (t *Chat) start() {
 				return
 			}
 			if err != nil {
-				t.startErr = startError(t.provider, err)
+				t.startErr = startError(t.provider, err, installed)
 				return
 			}
 			t.sess = sess
-			go t.watch(sess, gen)
+			// Events keeps only what comes after its first call: before the
+			// first message, so that no reply goes unseen.
+			go t.watch(sess, sess.Events(), gen)
 			waiting := t.waiting
 			t.waiting = nil
 			for _, text := range waiting {
@@ -405,20 +477,22 @@ func (t *Chat) start() {
 // servers. Whatever is left that is not the app's, it refuses without
 // asking (dontAsk).
 func lockDown(provider string, cfg *agent.Config) {
-	cfg.PermissionMode = agent.PermissionDontAsk
+	cfg.PermissionMode = agent.PermissionModeDontAsk
 	switch provider {
 	case "codex":
 		// Codex has no switch for all of its tools: its shell, patches,
 		// web search and the rest go by feature (codexFeaturesOff) and
 		// config (codexConfig), and its sandbox, read-only, holds what
 		// would be left.
-		cfg.PermissionMode = agent.PermissionReadOnly
+		cfg.PermissionMode = agent.PermissionModeReadOnly
 	case "pi":
 		no := false
-		cfg.ProviderOptions = &pi.SessionOptions{NoBuiltinTools: true, NoExtensions: true, NoSkills: true,
-			NoPromptTemplates: true, NoMCP: true, TrustProject: &no}
+		cfg.ProviderOptions = mustJSON(agent.PiSessionOptions{NoBuiltinTools: true, NoExtensions: true, NoSkills: true,
+			NoPromptTemplates: true, NoMcp: true, TrustProject: &no})
 	default:
-		cfg.ProviderOptions = &claude.SessionOptions{BuiltinTools: []string{}, SettingSources: []string{}, StrictMCPConfig: true}
+		// Empty lists, not nil: none of Claude's tools, and none of the
+		// user's or the project's settings.
+		cfg.ProviderOptions = mustJSON(agent.ClaudeSessionOptions{BuiltinTools: []string{}, SettingSources: []string{}, StrictMcpConfig: true})
 	}
 }
 
@@ -441,11 +515,12 @@ var codexConfig = map[string]string{
 	"mcp_servers": "{}",
 }
 
-// startError says why the agent did not start, with what to do.
-func startError(provider string, err error) string {
+// startError says why the agent did not start, with what to do; installed
+// is false where the agent's command line was not found.
+func startError(provider string, err error, installed bool) string {
 	msg := redact.Secrets(err.Error())
 	p := providerInfo(provider)
-	if strings.Contains(msg, "executable file not found") || strings.Contains(msg, "no such file") {
+	if !installed {
 		return fmt.Sprintf("%s is not installed, or not on the PATH: the chat runs its command line, %s. Install it, sign in, then try again.", p.Label, p.Command)
 	}
 	return p.Label + " did not start: " + msg
@@ -463,12 +538,12 @@ func (t *Chat) contextPrompt() string {
 
 // watch hands the session's events to the UI thread, in order, until it
 // ends.
-func (t *Chat) watch(sess agent.Session, gen int) {
+func (t *Chat) watch(sess *agent.Session, events <-chan agent.Event, gen int) {
 	defer dataview.RecoverBackground(t.a.Post, t.a.ShowReport, nil)
-	for ev := range sess.Events() {
+	for ev := range events {
 		t.a.Post(func() {
 			if gen == t.gen {
-				t.apply(ev)
+				t.apply(sess, ev)
 			}
 		})
 	}
@@ -484,42 +559,41 @@ func (t *Chat) watch(sess agent.Session, gen int) {
 	})
 }
 
-// apply takes an event of the session.
-func (t *Chat) apply(ev agent.Event) {
+// apply takes an event of the session sess.
+func (t *Chat) apply(sess *agent.Session, ev agent.Event) {
 	t.transcript.Apply(ev)
-	switch ev := ev.(type) {
-	case *agent.SessionStarted:
-		t.model = ev.Info.Model
-	case *agent.SessionUpdated:
-		t.model = ev.Info.Model
-	case *agent.TurnStarted:
+	switch p := ev.Payload.(type) {
+	case agent.SessionStarted:
+		t.model = p.Info.Model
+	case agent.SessionUpdated:
+		t.model = p.Info.Model
+	case agent.TurnStarted:
 		t.running, t.turnAt = true, time.Now()
-	case *agent.TurnCompleted:
+	case agent.TurnCompleted:
 		t.running = false
-		if r := ev.Result; r != nil {
-			t.cost += r.Usage.CostUSD
-			if r.Err != nil && !errors.Is(r.Err, agent.ErrInterrupted) {
-				t.notices = append(t.notices, notice{text: redact.Secrets(r.Err.Error()), err: true})
-			}
+		r := p.Result
+		t.cost += r.Usage.CostUSD
+		if e := r.Error; e != nil && r.Status != agent.TurnStatusInterrupted && e.Kind != agent.ErrorKindInterrupted {
+			t.notices = append(t.notices, notice{text: redact.Secrets(cmp.Or(e.Message, string(e.Kind))), err: true})
 		}
-	case *agent.ItemCompleted:
-		if ev.Item.Kind == agent.ItemUserMessage {
-			t.sent = slices.DeleteFunc(t.sent, func(s sentMessage) bool { return s.id == ev.Item.ClientID || s.text == ev.Item.Text })
+	case agent.ItemCompleted:
+		if p.Item.Kind == agent.ItemKindUserMessage {
+			t.sent = slices.DeleteFunc(t.sent, func(s sentMessage) bool { return s.id == p.Item.ClientID || s.text == p.Item.Text })
 		}
-	case *agent.Notice:
-		if ev.Level != agent.NoticeInfo {
-			t.notices = append(t.notices, notice{text: redact.Secrets(ev.Message), err: ev.Level == agent.NoticeError})
+	case agent.Notice:
+		if p.Level != agent.NoticeLevelInfo {
+			t.notices = append(t.notices, notice{text: redact.Secrets(p.Message), err: p.Level == agent.NoticeLevelError})
 		}
-	case *agent.PermissionRequest:
+	case agent.PermissionRequest:
 		// The agent's own tools are not the chat's (lockDown): what one
 		// still asks is refused, unasked.
-		t.notices = append(t.notices, notice{text: "Refused: " + permissionTitle(ev) + ". The chat uses DGopher's tools alone."})
-		r := &request{id: ev.ID, perm: ev}
+		t.notices = append(t.notices, notice{text: "Refused: " + permissionTitle(&p) + ". The chat uses DGopher's tools alone."})
+		r := &request{id: p.ID, perm: &p, sess: sess}
 		t.answer(r, deny, "DGopher's chat allows only DGopher's own tools; write the SQL instead, or use them.")
-	case *agent.UserInputRequest:
-		t.requests = append(t.requests, &request{id: ev.ID, title: cmp.Or(ev.Title, "A question"), question: ev})
-	case *agent.RequestResolved:
-		id := ev.Request.RequestID()
+	case agent.UserInputRequest:
+		t.requests = append(t.requests, &request{id: p.ID, title: cmp.Or(p.Title, "A question"), question: &p, sess: sess})
+	case agent.RequestResolved:
+		id := p.RequestID
 		t.requests = slices.DeleteFunc(t.requests, func(r *request) bool { return r.answer == nil && r.id == id })
 	}
 }
@@ -529,11 +603,11 @@ func permissionTitle(r *agent.PermissionRequest) string {
 	switch {
 	case r.Title != "":
 		return r.Title
-	case r.Kind == agent.PermissionCommand && r.Command != "":
+	case r.Kind == agent.PermissionKindCommand && r.Command != "":
 		return "Run a command"
-	case r.Kind == agent.PermissionFileChange:
+	case r.Kind == agent.PermissionKindFileChange:
 		return "Change files"
-	case r.Kind == agent.PermissionPlanApproval:
+	case r.Kind == agent.PermissionKindPlanApproval:
 		return "Approve the plan"
 	case r.ToolName != "":
 		return "Use " + r.ToolName
@@ -640,28 +714,28 @@ func (t *Chat) answer(r *request, d decision, why string) {
 		default:
 		}
 	case r.perm != nil:
-		perm := r.perm
+		perm, sess := r.perm, r.sess
 		t.goWithin(30*time.Second, func(ctx context.Context) {
 			switch d {
 			case allow:
-				perm.Allow(ctx)
+				perm.Allow(ctx, sess)
 			case allowAlways:
-				perm.AllowForSession(ctx)
+				perm.Respond(ctx, sess, agent.PermissionResponse{Decision: agent.PermissionDecisionAllowSession})
 			default:
-				perm.Deny(ctx, cmp.Or(why, "The user refused."))
+				perm.Deny(ctx, sess, cmp.Or(why, "The user refused."))
 			}
 		})
 	case r.question != nil:
-		q := r.question
-		t.goWithin(30*time.Second, func(ctx context.Context) { q.Cancel(ctx) })
+		q, sess := r.question, r.sess
+		t.goWithin(30*time.Second, func(ctx context.Context) { q.Respond(ctx, sess, agent.UserInputResponse{Cancelled: true}) })
 	}
 }
 
 // answerQuestion answers the agent's question with an option.
 func (t *Chat) answerQuestion(r *request, q agent.Question, label string) {
 	t.requests = slices.DeleteFunc(t.requests, func(o *request) bool { return o == r })
-	ui := r.question
-	t.goWithin(30*time.Second, func(ctx context.Context) { ui.Answer(ctx, map[string][]string{q.ID: {label}}) })
+	ui, sess := r.question, r.sess
+	t.goWithin(30*time.Second, func(ctx context.Context) { ui.Answer(ctx, sess, map[string][]string{q.ID: {label}}) })
 }
 
 // goWithin runs f off the UI thread, its context ending after timeout.

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	agent "github.com/saanuregh/agent-cli-connector"
+	agent "github.com/saanuregh/agent-cli-connector/bindings/go"
 
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"

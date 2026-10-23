@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	agent "github.com/saanuregh/agent-cli-connector"
+	agent "github.com/saanuregh/agent-cli-connector/bindings/go"
 
 	"dgopher/internal/ui/widgets"
 
