@@ -459,7 +459,9 @@ func (t *Chat) start() {
 				return
 			}
 			t.sess = sess
-			go t.watch(sess, gen)
+			// Events keeps only what comes after its first call: before the
+			// first message, so that no reply goes unseen.
+			go t.watch(sess, sess.Events(), gen)
 			waiting := t.waiting
 			t.waiting = nil
 			for _, text := range waiting {
@@ -536,9 +538,9 @@ func (t *Chat) contextPrompt() string {
 
 // watch hands the session's events to the UI thread, in order, until it
 // ends.
-func (t *Chat) watch(sess *agent.Session, gen int) {
+func (t *Chat) watch(sess *agent.Session, events <-chan agent.Event, gen int) {
 	defer dataview.RecoverBackground(t.a.Post, t.a.ShowReport, nil)
-	for ev := range sess.Events() {
+	for ev := range events {
 		t.a.Post(func() {
 			if gen == t.gen {
 				t.apply(sess, ev)
