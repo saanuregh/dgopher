@@ -1,6 +1,7 @@
 package db
 
 import (
+	"cmp"
 	"context"
 	"strings"
 	"testing"
@@ -165,5 +166,52 @@ func TestValidateIdleConnectionTimeout(t *testing.T) {
 		if err := c.Validate(); (err != nil) != bad {
 			t.Errorf("%d: %v", timeout, err)
 		}
+	}
+}
+
+// A ClickHouse connection talks HTTP when it says so, or, saved before
+// it could, on the HTTP ports; its default port follows the protocol and
+// TLS that is sure to be on.
+func TestClickHouseProtocol(t *testing.T) {
+	for _, c := range []struct {
+		cfg      Config
+		http     bool
+		fallback int
+	}{
+		{Config{Engine: ClickHouse}, false, 9000},
+		{Config{Engine: ClickHouse, TLS: TLSPrefer}, false, 9000},
+		{Config{Engine: ClickHouse, TLS: TLSRequire}, false, 9440},
+		{Config{Engine: ClickHouse, TLS: TLSVerifyFull}, false, 9440},
+		{Config{Engine: ClickHouse, ClickHouseProtocol: ClickHouseHTTP}, true, 8123},
+		{Config{Engine: ClickHouse, ClickHouseProtocol: ClickHouseHTTP, TLS: TLSPrefer}, true, 8123},
+		{Config{Engine: ClickHouse, ClickHouseProtocol: ClickHouseHTTP, TLS: TLSVerifyFull}, true, 8443},
+		{Config{Engine: ClickHouse, Port: 8123}, true, 8123},
+		{Config{Engine: ClickHouse, Port: 8443, TLS: TLSRequire}, true, 8443},
+		{Config{Engine: ClickHouse, Port: 8123, ClickHouseProtocol: ClickHouseNative}, false, 9000},
+		{Config{Engine: ClickHouse, Port: 9100, ClickHouseProtocol: ClickHouseHTTP}, true, 8123},
+		{Config{Engine: Postgres, Port: 8123}, false, 5432},
+		{Config{Engine: Redis, Redis: RedisConfig{Mode: RedisSentinel}}, false, SentinelPort},
+	} {
+		if got := c.cfg.UsesHTTP(); got != c.http {
+			t.Errorf("%+v: UsesHTTP %v", c.cfg, got)
+		}
+		if got := c.cfg.DefaultPort(); got != c.fallback {
+			t.Errorf("%+v: DefaultPort %d, want %d", c.cfg, got, c.fallback)
+		}
+		if want := cmp.Or(c.cfg.Port, c.fallback); c.cfg.port() != want {
+			t.Errorf("%+v: port %d, want %d", c.cfg, c.cfg.port(), want)
+		}
+	}
+	base := Config{Name: "x", Engine: ClickHouse, Host: "h"}
+	for p, ok := range map[ClickHouseProtocol]bool{ClickHouseByPort: true, ClickHouseNative: true, ClickHouseHTTP: true, "grpc": false} {
+		c := base
+		c.ClickHouseProtocol = p
+		if err := c.Validate(); (err == nil) != ok {
+			t.Errorf("protocol %q: %v", p, err)
+		}
+	}
+	pg := Config{Name: "x", Engine: Postgres, Host: "h", ClickHouseProtocol: ClickHouseHTTP}
+	if err := pg.Validate(); err == nil || !strings.Contains(err.Error(), "ClickHouse only") {
+		t.Errorf("a protocol on PostgreSQL: %v", err)
 	}
 }

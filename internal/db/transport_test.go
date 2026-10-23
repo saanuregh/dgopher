@@ -369,9 +369,10 @@ func TestIntegrationTLSState(t *testing.T) {
 	}
 	k.Close()
 
-	// ClickHouse's HTTP interface, on a port the protocol is not chosen by.
-	ch := Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 8123, User: "default", Password: "dgopher"}
-	d, err := openWith(ctx, ch, endpoint{host: "127.0.0.1", port: 18123, serverName: "127.0.0.1"}, nil)
+	// ClickHouse's HTTP interface on a port the old rule would read as
+	// native: the protocol named is what decides.
+	ch := Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 18123, User: "default", Password: "dgopher", ClickHouseProtocol: ClickHouseHTTP}
+	d, err := Open(ctx, ch, nil)
 	if err != nil {
 		t.Fatalf("ClickHouse over HTTP: %v", err)
 	}
@@ -379,4 +380,15 @@ func TestIntegrationTLSState(t *testing.T) {
 	if v := d.ServerVersion(ctx); v == "" {
 		t.Error("ClickHouse over HTTP answered no version")
 	}
+	ch.ClickHouseProtocol = ClickHouseNative
+	if d, err := Open(ctx, ch, nil); err == nil {
+		d.Close()
+		t.Error("the native protocol opened the HTTP port")
+	}
+	ch.Port = 19000
+	n, err := Open(ctx, ch, nil)
+	if err != nil {
+		t.Fatalf("ClickHouse native, named: %v", err)
+	}
+	n.Close()
 }

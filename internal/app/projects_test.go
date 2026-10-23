@@ -1244,6 +1244,67 @@ func TestConnFormSentinel(t *testing.T) {
 	}
 }
 
+// ClickHouse's protocol is chosen in the form: a connection saved before
+// the choice shows the protocol its port gave it, a switch drops a port
+// left at the old protocol's default, and saving writes the choice.
+func TestConnFormClickHouseProtocol(t *testing.T) {
+	a := newTestApp(t)
+	a.openConnForm(nil)
+	tt := ui.NewTester(a.view, 1000, 1000)
+	f := a.connForm
+	tt.Frame()
+	if tt.HasText("Protocol") {
+		t.Fatal("PostgreSQL offers a protocol")
+	}
+	a.syncEngineChoice(f, slices.Index(db.Engines(), db.ClickHouse))
+	f.engineIdx = slices.Index(db.Engines(), db.ClickHouse)
+	tt.Frame()
+	if !tt.HasText("Protocol") || f.chProtocol != 0 {
+		t.Fatalf("ClickHouse form: protocol %d, %q", f.chProtocol, tt.Texts())
+	}
+	f.port = "9000"
+	a.switchClickHouseProtocol(f, 1)
+	if f.port != "" || f.chProtocol != 1 {
+		t.Fatalf("to HTTP: port %q, protocol %d", f.port, f.chProtocol)
+	}
+	f.port = "9100"
+	a.switchClickHouseProtocol(f, 0)
+	a.switchClickHouseProtocol(f, 1)
+	if f.port != "9100" {
+		t.Fatalf("a port of the user's own went: %q", f.port)
+	}
+	f.cfg.Name, f.cfg.Host = "events", "ch.example.com"
+	f.envChosen = true
+	if got := f.config(); got.ClickHouseProtocol != db.ClickHouseHTTP || got.Port != 9100 {
+		t.Fatalf("config %+v", got)
+	}
+	a.saveConnForm(f, false)
+	data, _ := os.ReadFile(filepath.Join(a.projects[0].Dir, project.File))
+	if !strings.Contains(string(data), `"clickhouseProtocol": "http"`) {
+		t.Fatalf("dgopher.json: %s", data)
+	}
+
+	// Saved before the choice, on 8443: HTTP; another engine keeps none.
+	cn := a.conns[0]
+	cn.Config.ClickHouseProtocol, cn.Config.Port = db.ClickHouseByPort, 8443
+	a.openConnForm(cn)
+	if a.connForm.chProtocol != 1 {
+		t.Fatal("a legacy 8443 connection does not show HTTP")
+	}
+	a.syncEngineChoice(a.connForm, slices.Index(db.Engines(), db.Postgres))
+	if got := a.connForm.config(); got.ClickHouseProtocol != db.ClickHouseByPort || got.Port != 0 {
+		t.Fatalf("PostgreSQL keeps protocol %q, port %d", got.ClickHouseProtocol, got.Port)
+	}
+
+	// A JDBC URL picks the protocol.
+	a.openConnForm(nil)
+	a.connForm.url = "jdbc:clickhouse:https://ch.example.com/logs"
+	a.fillFromURL(a.connForm)
+	if got := a.connForm.config(); got.ClickHouseProtocol != db.ClickHouseHTTP || got.TLS != db.TLSVerifyFull {
+		t.Fatalf("from URL: %+v", got)
+	}
+}
+
 // A cloud identity takes the password's place, on PostgreSQL and MySQL
 // only, and keeps no password of the form; it is part of what a shared
 // connection is trusted for.

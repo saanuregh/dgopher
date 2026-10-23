@@ -513,7 +513,7 @@ func openClickHouse(cfg Config, ep endpoint, tc *tls.Config, w wire) *sql.DB {
 		}},
 	}
 	opt.TLS = tc
-	if p := cfg.port(); p == 8123 || p == 8443 {
+	if cfg.UsesHTTP() {
 		opt.Protocol = clickhouse.HTTP
 		opt.TransportFunc = clickhouseTransport(opt.Addr[0])
 	}

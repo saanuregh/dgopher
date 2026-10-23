@@ -36,17 +36,18 @@ type connForm struct {
 	// id is the edited connection's ID, without the project's prefix.
 	id string
 
-	engine    string
-	engineIdx int
-	port      string
-	sshPort   string
-	env       int
-	tls       string
-	commit    string
-	page      int // the page shown: pageGeneral, pageOptions or pageNetwork
-	redisMode int // an index of redisModes
-	proxy     int // an index of proxyKinds
-	proxyPort string
+	engine     string
+	engineIdx  int
+	port       string
+	sshPort    string
+	env        int
+	tls        string
+	commit     string
+	page       int // the page shown: pageGeneral, pageOptions or pageNetwork
+	redisMode  int // an index of redisModes
+	chProtocol int // an index of chProtocols
+	proxy      int // an index of proxyKinds
+	proxyPort  string
 
 	// envChosen is set once the user picks the environment in the form,
 	// even the one shown; envAsked, once a save asked them to.
@@ -87,6 +88,20 @@ var commitModes = []db.CommitMode{db.CommitDefault, db.CommitAuto, db.CommitManu
 // form offers them, with their labels.
 var redisModes = []db.RedisMode{db.RedisStandalone, db.RedisCluster, db.RedisSentinel}
 var redisModeLabels = []string{"Single server", "Cluster", "Sentinel"}
+
+// chProtocols are the protocols a ClickHouse connection may talk, as the
+// form offers them, with their labels.
+var chProtocols = []db.ClickHouseProtocol{db.ClickHouseNative, db.ClickHouseHTTP}
+var chProtocolLabels = []string{"Native", "HTTP"}
+
+// chProtocolOf is the chProtocols index of the protocol cfg talks.
+func chProtocolOf(cfg *db.Config) int {
+	if cfg.UsesHTTP() {
+		return 1
+	}
+	return 0
+}
+
 var tlsLabels = map[db.TLSMode]string{
 	db.TLSDisable:    "Off",
 	db.TLSPrefer:     "Prefer (unverified)",
@@ -152,6 +167,7 @@ func (a *App) openConnForm(cn *connection.Conn) {
 		f.identity = f.cfg.Identity.Label()
 	}
 	f.redisMode = max(0, slices.Index(redisModes, f.cfg.Redis.Mode))
+	f.chProtocol = chProtocolOf(&f.cfg)
 	f.sshSource = sshSources[0]
 	if f.cfg.SSH.PasswordCommand != "" {
 		f.sshSource = sshSources[1]
@@ -186,6 +202,16 @@ func portText(port int) string {
 	return ""
 }
 
+// tlsMode is the TLS mode chosen, "" for none.
+func (f *connForm) tlsMode() db.TLSMode {
+	for mode, label := range tlsLabels {
+		if label == f.tls {
+			return mode
+		}
+	}
+	return ""
+}
+
 // config returns the connection the form describes.
 func (f *connForm) config() db.Config {
 	cfg := f.cfg
@@ -193,10 +219,8 @@ func (f *connForm) config() db.Config {
 	cfg.Port, _ = strconv.Atoi(strings.TrimSpace(f.port))
 	cfg.SSH.Port, _ = strconv.Atoi(strings.TrimSpace(f.sshPort))
 	cfg.Env = db.Environments()[f.env]
-	for mode, label := range tlsLabels {
-		if label == f.tls {
-			cfg.TLS = mode
-		}
+	if mode := f.tlsMode(); mode != "" {
+		cfg.TLS = mode
 	}
 	cfg.Commit = commitModes[max(0, slices.Index(commitLabels, f.commit))]
 	cfg.Name = strings.TrimSpace(cfg.Name)
@@ -271,6 +295,10 @@ func (f *connForm) config() db.Config {
 	cfg.Proxy.Port, _ = strconv.Atoi(strings.TrimSpace(f.proxyPort))
 	if cfg.Proxy.Kind == "" || cfg.Engine.IsFile() {
 		cfg.Proxy = db.ProxyConfig{}
+	}
+	cfg.ClickHouseProtocol = ""
+	if cfg.Engine == db.ClickHouse {
+		cfg.ClickHouseProtocol = chProtocols[f.chProtocol]
 	}
 	cfg.Redis.Mode = redisModes[f.redisMode]
 	cfg.Redis.Nodes, cfg.Redis.Master = strings.TrimSpace(cfg.Redis.Nodes), strings.TrimSpace(cfg.Redis.Master)
@@ -459,6 +487,16 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 		}).Error(f.fileError(engine))
 	} else {
 		mode := db.RedisStandalone
+		if engine == db.ClickHouse {
+			ui.Field(c, "Protocol", func() {
+				was := f.chProtocol
+				if ui.Segmented(c, &f.chProtocol, chProtocolLabels...).Label("Protocol").Changed() {
+					next := f.chProtocol
+					f.chProtocol = was
+					a.switchClickHouseProtocol(f, next)
+				}
+			})
+		}
 		if engine == db.Redis {
 			ui.Field(c, "Topology", func() {
 				ui.Segmented(c, &f.redisMode, redisModeLabels...).Label("Topology")
@@ -471,6 +509,9 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 			hostLabel, more = "A node", "More nodes"
 		case db.RedisSentinel:
 			hostLabel, port, more = "A sentinel", db.SentinelPort, "More sentinels"
+		}
+		if engine == db.ClickHouse {
+			port = clickHouseDefaultPort(chProtocols[f.chProtocol], f.tlsMode())
 		}
 		ui.Field(c, hostLabel, func() {
 			ui.Row(c).Gap(6).Children(func() {
@@ -734,12 +775,41 @@ func (a *App) syncEngineChoice(f *connForm, idx int) {
 	if f.cfg.User == "" || f.cfg.User == old.DefaultUser() {
 		f.cfg.User = e.DefaultUser()
 	}
-	if f.port == strconv.Itoa(old.DefaultPort()) {
+	if f.port == strconv.Itoa(old.DefaultPort()) || old == db.ClickHouse && isClickHouseDefaultPort(f.port, chProtocols...) {
 		f.port = ""
 	}
 	if e.IsFile() && !old.IsFile() {
 		f.cfg.Database = ""
 	}
+}
+
+// switchClickHouseProtocol chooses the protocol at idx of chProtocols,
+// dropping a port left at the old protocol's default.
+func (a *App) switchClickHouseProtocol(f *connForm, idx int) {
+	if isClickHouseDefaultPort(f.port, chProtocols[f.chProtocol]) {
+		f.port = ""
+	}
+	f.chProtocol = idx
+}
+
+// isClickHouseDefaultPort reports whether port is a default of one of
+// the protocols, with TLS or without.
+func isClickHouseDefaultPort(port string, protocols ...db.ClickHouseProtocol) bool {
+	for _, p := range protocols {
+		for _, mode := range []db.TLSMode{db.TLSDisable, db.TLSVerifyFull} {
+			if port == strconv.Itoa(clickHouseDefaultPort(p, mode)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// clickHouseDefaultPort is the port a ClickHouse connection of the
+// protocol and TLS mode takes when it names none.
+func clickHouseDefaultPort(p db.ClickHouseProtocol, tls db.TLSMode) int {
+	cfg := db.Config{Engine: db.ClickHouse, ClickHouseProtocol: p, TLS: tls}
+	return cfg.DefaultPort()
 }
 
 func (a *App) chooseFile(e db.Engine) {
@@ -1097,6 +1167,7 @@ func (a *App) fillFromURL(f *connForm) {
 	if cfg.TLS != "" {
 		f.tls = tlsLabels[cfg.TLS]
 	}
+	f.chProtocol = chProtocolOf(&cfg)
 }
 
 // passwordSource is where a connection's password comes from.
