@@ -2,6 +2,31 @@
 
 The changes of each version of DGopher.
 
+## 0.5.0
+
+### Added
+
+- ClickHouse: a Protocol switch on the connection form, Native or HTTP. A
+  connection saved before keeps the guess from its port (HTTP on 8123 and
+  8443) until it is saved from the form.
+- From URL reads ClickHouse's JDBC URLs as DBeaver shows them, including
+  `clickhouse:http://`, `clickhouse:https://`, `ch` and `ssl=true|false`.
+
+### Changed
+
+- ClickHouse without a port uses ClickHouse's own defaults: 9000 or 8123,
+  and 9440 or 8443 with TLS. A native connection with TLS and no port moves
+  from 9000 to 9440.
+- AI chat: each editor's chat has its own connection to its agent and
+  cannot reach another editor's chat. The agent library is now built into
+  the app.
+
+### Fixed
+
+- ClickHouse: a user granted only its own databases, as on ClickHouse
+  Cloud, can connect; projections and skip indices it cannot read show as
+  none instead of failing.
+
 ## 0.4.0
 
 ### Added
