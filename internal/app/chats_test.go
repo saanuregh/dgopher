@@ -5,9 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	agent "github.com/saanuregh/agent-cli-connector"
-	"github.com/saanuregh/agent-cli-connector/agenttest"
-
 	"dgopher/internal/db"
 	"dgopher/internal/store"
 	"dgopher/internal/testutil"
@@ -21,9 +18,7 @@ import (
 // front, with its chat; with an editor in front, it is that editor's.
 func TestToggleChatOpensEditor(t *testing.T) {
 	a := newTestApp(t)
-	saved := chat.NewProvider
-	t.Cleanup(func() { chat.NewProvider = saved })
-	chat.NewProvider = func(string) agent.Provider { return agenttest.New(nil) }
+	chat.FakeAgent(t)
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1300, 800)
 	tt.Frame()
@@ -45,11 +40,7 @@ func TestToggleChatOpensEditor(t *testing.T) {
 // An editor's chat comes back after a restart, open as it was, to
 // continue its session.
 func TestChatKeptAcrossRestart(t *testing.T) {
-	saved := chat.NewProvider
-	t.Cleanup(func() { chat.NewProvider = saved })
-	chat.NewProvider = func(string) agent.Provider {
-		return agenttest.New(func(turn *agenttest.Turn) error { turn.Text("hello"); return nil })
-	}
+	chat.FakeAgent(t)
 	cfgDir := t.TempDir()
 	st, _ := store.Open(cfgDir, store.MemorySecrets())
 	a := startApp(t, st)
@@ -66,7 +57,7 @@ func TestChatKeptAcrossRestart(t *testing.T) {
 	a.toggleChat()
 	q := a.ActiveTab().(*query.Tab)
 	q.Chat().Send("hi")
-	testutil.WaitFor(t, tt, "the reply", func() bool { return tt.HasText("hello") && !q.Chat().Busy() })
+	testutil.WaitFor(t, tt, "the session", func() bool { return q.Chat().SessionID() != "" && !q.Chat().Busy() })
 	_, session, _ := q.ChatState()
 	if session == "" {
 		t.Fatal("no session")

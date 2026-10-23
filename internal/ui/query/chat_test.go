@@ -6,8 +6,7 @@ import (
 	"testing"
 	"time"
 
-	agent "github.com/saanuregh/agent-cli-connector"
-	"github.com/saanuregh/agent-cli-connector/agenttest"
+	agent "github.com/saanuregh/agent-cli-connector/bindings/go"
 
 	"dgopher/internal/audit"
 	"dgopher/internal/db"
@@ -24,16 +23,7 @@ import (
 // caret, and what it inserts replaces the selection. The key again hides
 // it, the keys going back to the editor.
 func TestEditorChat(t *testing.T) {
-	saved := chat.NewProvider
-	t.Cleanup(func() { chat.NewProvider = saved })
-	got := make(chan string, 1)
-	chat.NewProvider = func(string) agent.Provider {
-		return agenttest.New(func(turn *agenttest.Turn) error {
-			got <- turn.Input().PlainText()
-			turn.Text("```sql\nSELECT 2 AS two;\n```")
-			return nil
-		})
-	}
+	chat.FakeAgent(t)
 	_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1400, 800, "SELECT 1;\n\nSELECT 41 + 1;\n")
 	q.Editor.Select(14, 14)
 	q.ToggleChat()
@@ -45,19 +35,16 @@ func TestEditorChat(t *testing.T) {
 	}
 	tt.Type("what is this")
 	tt.Key(0, ui.KeyEnter)
-	var sent string
-	testutil.WaitFor(t, tt, "the message", func() bool {
-		select {
-		case sent = <-got:
-			return true
-		default:
-			return false
-		}
+	// The fake's reply is the message: it carries the statement at the
+	// caret, and ends with what was typed.
+	testutil.WaitFor(t, tt, "the reply", func() bool {
+		return testutil.HasTextContaining(tt, "Statement at the caret, line 3:") && !q.Chat().Busy()
 	})
-	if !strings.Contains(sent, "Statement at the caret, line 3:\n```sql\nSELECT 41 + 1\n") || !strings.HasSuffix(sent, "what is this") {
-		t.Fatalf("sent:\n%s", sent)
+	if !testutil.HasTextContaining(tt, "Statement at the caret, line 3:\n```sql\nSELECT 41 + 1\n") || !testutil.HasTextContaining(tt, "</editor>\n\nwhat is this") {
+		t.Fatalf("sent: %q", tt.Texts())
 	}
-	testutil.WaitFor(t, tt, "the reply", func() bool { return tt.HasText("Insert") })
+	q.Chat().Load([]agent.Item{{ID: "a1", Kind: agent.ItemKindAssistantMessage, Text: "```sql\nSELECT 2 AS two;\n```"}})
+	testutil.WaitFor(t, tt, "the SQL", func() bool { return tt.HasText("Insert") })
 	q.Editor.Select(0, 9)
 	tt.Frame()
 	if err := tt.Click("Replace Selection"); err != nil {

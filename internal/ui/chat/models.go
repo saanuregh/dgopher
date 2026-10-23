@@ -2,10 +2,11 @@ package chat
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"time"
 
-	agent "github.com/saanuregh/agent-cli-connector"
+	agent "github.com/saanuregh/agent-cli-connector/bindings/go"
 
 	"dgopher/internal/redact"
 	"dgopher/internal/ui/dataview"
@@ -43,16 +44,26 @@ func (t *Chat) models() *modelList {
 	name := t.provider
 	go func() {
 		defer dataview.RecoverBackground(t.a.Post, t.a.ShowReport, func() { l.loading = false })
-		// Made here, not on the UI thread: Codex's asks its command line
-		// which features it has.
-		lister, ok := NewProvider(name).(agent.ModelLister)
-		if !ok {
-			t.a.Post(func() { l.loading = false })
-			return
-		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
-		models, err := lister.ListModels(ctx)
+		client, providerName, err := t.agentClient(ctx, name)
+		var models []agent.Model
+		if err == nil {
+			models, err = client.ListModels(ctx, providerName)
+		}
+		if errors.Is(err, agent.ErrUnsupported) {
+			err = nil // the agent lists none
+		}
+		if errors.Is(err, agent.ErrClosed) {
+			// The list is every chat's: this chat closing, or starting over
+			// with another agent, is no answer for the others.
+			t.a.Post(func() {
+				if modelLists[name] == l {
+					forgetModels(name)
+				}
+			})
+			return
+		}
 		t.a.Post(func() {
 			l.loading, l.models = false, models
 			if err != nil {

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	agent "github.com/saanuregh/agent-cli-connector"
+	agent "github.com/saanuregh/agent-cli-connector/bindings/go"
 
 	"dgopher/internal/keymap"
 	"dgopher/internal/ui/widgets"
@@ -152,7 +152,7 @@ func (t *Chat) transcriptView(c *ui.Context) {
 		if it.SubagentID != "" {
 			continue // a subagent's work shows as its task's call
 		}
-		if it.Kind == agent.ItemUserMessage {
+		if it.Kind == agent.ItemKindUserMessage {
 			if !it.Synthetic {
 				// Keyed as it was sent, so that it stays in place as the
 				// agent shows it back; by its item where an earlier chat's
@@ -225,7 +225,7 @@ func (t *Chat) writing() bool {
 		return false
 	}
 	last := items[len(items)-1]
-	return last.Status == agent.ItemRunning && (last.Kind == agent.ItemAssistantMessage || last.Kind == agent.ItemToolCall)
+	return last.Status == agent.ItemStatusInProgress && (last.Kind == agent.ItemKindAssistantMessage || last.Kind == agent.ItemKindToolCall)
 }
 
 // emptyView is a new chat: what it sees and does, and a few questions
@@ -300,16 +300,16 @@ func (t *Chat) itemView(c *ui.Context, it agent.Item) {
 	pal := widgets.PaletteOf(c)
 	key := c.Key("item-" + it.ID)
 	switch it.Kind {
-	case agent.ItemAssistantMessage, agent.ItemPlan:
+	case agent.ItemKindAssistantMessage, agent.ItemKindPlan:
 		ui.Column(key).FillWidth().Transition(entering).Children(func() {
 			opts := &markdown.Options{CodeBlock: t.codeBlock, WrapCode: true} // the panel is narrow
-			if it.Status == agent.ItemRunning {
+			if it.Status == agent.ItemStatusInProgress {
 				markdown.Stream(c, it.Text, opts).FillWidth()
 			} else {
 				markdown.View(c, it.Text, opts).FillWidth()
 			}
 		})
-	case agent.ItemReasoning:
+	case agent.ItemKindReasoning:
 		if strings.TrimSpace(it.Text) == "" {
 			return
 		}
@@ -330,11 +330,11 @@ func (t *Chat) itemView(c *ui.Context, it agent.Item) {
 		if b.Clicked() {
 			t.expanded[it.ID] = !open
 		}
-	case agent.ItemToolCall:
+	case agent.ItemKindToolCall:
 		t.toolView(key, c, it)
-	case agent.ItemError:
+	case agent.ItemKindError:
 		ui.Text(key, it.Text).TextColor(th.Danger).Selectable()
-	case agent.ItemCompaction:
+	case agent.ItemKindCompaction:
 		ui.Text(key, "The conversation was summarized to make room.").FontSize(12).TextColor(pal.Muted)
 	}
 }
@@ -356,7 +356,7 @@ func (t *Chat) toolView(key *ui.Context, c *ui.Context, it agent.Item) {
 				ui.Icon(c, toolIcon(call.Kind)).FontSize(12).TextColor(pal.Muted)
 				// Running only while the agent works: a call the agent left
 				// so, stopping, moves no more, nor asks for frames.
-				running := it.Status == agent.ItemRunning && t.Busy()
+				running := it.Status == agent.ItemStatusInProgress && t.Busy()
 				if running {
 					t.fx.shimmerText(c, toolName(call), 12.5)
 				} else {
@@ -366,11 +366,11 @@ func (t *Chat) toolView(key *ui.Context, c *ui.Context, it agent.Item) {
 				switch {
 				case running:
 					t.fx.orbView(c, 12, true)
-				case it.Status == agent.ItemRunning:
+				case it.Status == agent.ItemStatusInProgress:
 					ui.Text(c, "stopped").FontSize(11).TextColor(pal.Muted)
-				case it.Status == agent.ItemFailed || it.Status == agent.ItemDeclined:
+				case it.Status == agent.ItemStatusFailed || it.Status == agent.ItemStatusDeclined:
 					ui.Icon(c, widgets.IconX).FontSize(12).TextColor(th.Danger)
-				case it.Status == agent.ItemDone:
+				case it.Status == agent.ItemStatusCompleted:
 					if call.IsError {
 						ui.Icon(c, widgets.IconAlert).FontSize(12).TextColor(th.Warning)
 					} else {
@@ -475,15 +475,15 @@ func argsSummary(input json.RawMessage) string {
 
 func toolIcon(k agent.ToolKind) *ui.SVG {
 	switch k {
-	case agent.ToolShell:
+	case agent.ToolKindShell:
 		return widgets.IconTerminal
-	case agent.ToolRead:
+	case agent.ToolKindRead:
 		return widgets.IconFile
-	case agent.ToolEdit:
+	case agent.ToolKindEdit:
 		return widgets.IconPencil
-	case agent.ToolSearch, agent.ToolWeb:
+	case agent.ToolKindSearch, agent.ToolKindWeb:
 		return widgets.IconSearch
-	case agent.ToolHost, agent.ToolMCP:
+	case agent.ToolKindHost, agent.ToolKindMcp:
 		return widgets.IconDatabase
 	}
 	return widgets.IconCode

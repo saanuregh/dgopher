@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	agent "github.com/saanuregh/agent-cli-connector"
+	agent "github.com/saanuregh/agent-cli-connector/bindings/go"
 
 	"dgopher/internal/ui/dataview"
 )
@@ -21,17 +21,17 @@ const chartWait = 5 * time.Minute
 
 var chartSchema = json.RawMessage(`{"type":"object","properties":{
 	"sql":{"type":"string","description":"One statement that only reads, for the editor's connection, whose rows the chart draws."},
-	"kind":{"type":"string","enum":` + mustJSON(dataview.ChartKinds()) + `,"description":"The kind of chart."},
+	"kind":{"type":"string","enum":` + string(mustJSON(dataview.ChartKinds())) + `,"description":"The kind of chart."},
 	"x":{"type":"string","description":"The column along the x axis, or the labels of a pie."},
 	"series":{"type":"array","items":{"type":"string"},"description":"The numeric columns drawn as series."}},
 	"required":["sql","kind"]}`)
 
-func mustJSON(v any) string {
+func mustJSON(v any) json.RawMessage {
 	data, err := json.Marshal(v)
 	if err != nil {
 		panic(err)
 	}
-	return string(data)
+	return data
 }
 
 type chartArgs struct {

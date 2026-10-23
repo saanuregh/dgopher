@@ -190,11 +190,15 @@ Each message begins with an `<editor>` block made from `EditorContext`,
 which the view strips back off, showing its summary. The chat talks to an
 agent's command line through
 [agent-cli-connector](https://github.com/saanuregh/agent-cli-connector).
+Each chat opens its own `agent.Client` (`OpenClient`) for its session and
+an earlier conversation's history, and closes it with the chat, so no chat
+reaches another's session. The model list is the one thing shared: read
+through the first chat that asks, it is kept per agent for every chat.
 The session's events are read on a goroutine and posted, in order, to the
 main thread, where `agent.Transcript` folds them into items to draw.
 Requests that need the user, the agent's permissions and questions and the
 app's tools' reads, wait in `Chat.requests` until answered. The models come
-from the provider's `ListModels`, read once per agent as the model menu
+from the client's `ListModels`, read once per agent as the model menu
 opens or a session starts; the model and effort chosen go into the
 session's `Config`, or to `SetModel` and `SetEffort` once it runs.
 

@@ -13,7 +13,7 @@ require (
 	github.com/otan/gopgkrb5 v1.0.6
 	github.com/pierrec/lz4/v4 v4.1.27
 	github.com/redis/rueidis v1.0.78
-	github.com/saanuregh/agent-cli-connector v0.1.0
+	github.com/saanuregh/agent-cli-connector/bindings/go v0.4.1
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/crypto v0.57.0
 	modernc.org/sqlite v1.60.1
@@ -33,7 +33,7 @@ require (
 	github.com/duckdb/duckdb-go-bindings/lib/linux-arm64 v0.10506.0 // indirect
 	github.com/duckdb/duckdb-go-bindings/lib/windows-amd64 v0.10506.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/ebitengine/purego v0.11.1 // indirect
+	github.com/ebitengine/purego v0.11.2 // indirect
 	github.com/go-faster/city v1.0.1 // indirect
 	github.com/go-faster/errors v0.7.1 // indirect
 	github.com/go-text/typesetting v0.3.5 // indirect
@@ -57,6 +57,11 @@ require (
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/paulmach/orb v0.13.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	github.com/saanuregh/agent-cli-connector/bindings/go/lib/darwin-amd64 v0.4.1 // indirect
+	github.com/saanuregh/agent-cli-connector/bindings/go/lib/darwin-arm64 v0.4.1 // indirect
+	github.com/saanuregh/agent-cli-connector/bindings/go/lib/linux-amd64 v0.4.1 // indirect
+	github.com/saanuregh/agent-cli-connector/bindings/go/lib/linux-arm64 v0.4.1 // indirect
+	github.com/saanuregh/agent-cli-connector/bindings/go/lib/windows-amd64 v0.4.1 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/stretchr/testify v1.12.1 // indirect

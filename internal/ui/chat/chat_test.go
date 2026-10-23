@@ -4,15 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"unicode/utf8"
 
-	agent "github.com/saanuregh/agent-cli-connector"
-	"github.com/saanuregh/agent-cli-connector/agenttest"
-	"github.com/saanuregh/agent-cli-connector/claude"
-	"github.com/saanuregh/agent-cli-connector/pi"
+	agent "github.com/saanuregh/agent-cli-connector/bindings/go"
 
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
@@ -50,34 +48,18 @@ func (t chatTab) Title() string                { return "chat" }
 func (t chatTab) Connection() *connection.Conn { return t.conn() }
 func (t chatTab) View(c *ui.Context)           { t.Chat.View(c, true) }
 
-// lister is the scripted agent, with models to list.
-type lister struct {
-	*agenttest.Provider
-	models []agent.Model
-}
-
-func (l lister) ListModels(context.Context) ([]agent.Model, error) { return l.models, nil }
-
-// ReadHistory is an earlier conversation: a question and its answer.
-func (l lister) ReadHistory(_ context.Context, session string, _ agent.ReadHistoryOptions) ([]agent.Item, error) {
-	if session != "earlier" {
-		return nil, fmt.Errorf("no session %s", session)
-	}
-	return []agent.Item{
-		{ID: "h1", Kind: agent.ItemUserMessage, Text: "<editor summary=\"q.sql · lite\">\n</editor>\n\nhow many orders?"},
-		{ID: "h2", Kind: agent.ItemAssistantMessage, Text: "There are 42 orders."},
-	}, nil
-}
-
-// chatWith opens a chat whose agent plays script, about an editor on a
-// connected SQLite in memory.
-func chatWith(t *testing.T, script agenttest.Script, models ...agent.Model) (*dataview.FakeHost, *ui.Tester, *fakeEditor, *Chat, *agenttest.Provider) {
+// chatWith opens a chat about an editor on a connected SQLite in memory.
+// Its agent is the agent library's fake, which replies with the message
+// it was sent; models are those the chat's agent lists.
+func chatWith(t *testing.T, models ...agent.Model) (*dataview.FakeHost, *ui.Tester, *fakeEditor, *Chat) {
 	t.Helper()
-	saved, savedLists := NewProvider, modelLists
-	t.Cleanup(func() { NewProvider, modelLists = saved, savedLists })
+	savedLists := modelLists
+	t.Cleanup(func() { modelLists = savedLists })
 	modelLists = map[string]*modelList{}
-	p := agenttest.New(script)
-	NewProvider = func(string) agent.Provider { return lister{p, models} }
+	if models != nil {
+		modelLists["claude"] = &modelList{models: models}
+	}
+	FakeAgent(t)
 	h := dataview.NewFakeHost(t)
 	cn := h.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	ed := &fakeEditor{cn: cn}
@@ -86,31 +68,42 @@ func chatWith(t *testing.T, script agenttest.Script, models ...agent.Model) (*da
 	tt := ui.NewTester(h.View, 760, 760)
 	h.Connect(cn, nil)
 	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
-	return h, tt, ed, tab, p
+	t.Cleanup(tab.Close)
+	return h, tt, ed, tab
 }
+
+// replies are the agent's replies so far, ended or not.
+func replies(tab *Chat) []string {
+	var out []string
+	for _, it := range tab.transcript.Items() {
+		if it.Kind == agent.ItemKindAssistantMessage {
+			out = append(out, it.Text)
+		}
+	}
+	return out
+}
+
+// event is an event carrying payload.
+func event(payload agent.EventPayload) agent.Event { return agent.Event{Payload: payload} }
 
 // A message starts the agent and carries the editor's block, which shows
 // as a line under it; the reply streams in as Markdown.
 func TestConversation(t *testing.T) {
-	got := make(chan string, 1)
-	_, tt, ed, tab, _ := chatWith(t, func(turn *agenttest.Turn) error {
-		got <- turn.Input().PlainText()
-		turn.Reasoning("they say hello")
-		turn.Text("Hello **there**")
-		return nil
-	})
+	_, tt, ed, tab := chatWith(t)
 	testutil.WaitFor(t, tt, "the empty chat", func() bool { return testutil.HasTextContaining(tt, "about this editor") })
 	ed.ctx = EditorContext{File: "q.sql", Text: "SELECT 1;\nSELECT 2;\n", Statement: "SELECT 2;", From: 2, To: 2, LastError: "no such table: x"}
-	tab.Send("why does this fail")
-	testutil.WaitFor(t, tt, "the reply", func() bool { return testutil.HasTextContaining(tt, "there") && !tab.Busy() })
-	sent := <-got
-	for _, want := range []string{`<editor summary="q.sql · statement, line 2 · lite">`, "Connection: lite (SQLite, ", "Statement at the caret, line 2:\n```sql\nSELECT 2;\n```", "SELECT 1;\nSELECT 2;", "The last run's error: no such table: x", "</editor>\n\nwhy does this fail"} {
+	tab.Send("why does this **fail**")
+	testutil.WaitFor(t, tt, "the reply", func() bool { return len(replies(tab)) == 1 && tt.HasText("fail") && !tab.Busy() })
+	sent := replies(tab)[0] // the fake's reply is the message
+	for _, want := range []string{`<editor summary="q.sql · statement, line 2 · lite">`, "Connection: lite (SQLite, ", "Statement at the caret, line 2:\n```sql\nSELECT 2;\n```", "SELECT 1;\nSELECT 2;", "The last run's error: no such table: x", "</editor>\n\nwhy does this **fail**"} {
 		if !strings.Contains(sent, want) {
 			t.Fatalf("the message lacks %q:\n%s", want, sent)
 		}
 	}
-	if n := countText(tt, "why does this fail"); n != 1 || !tt.HasText("q.sql · statement, line 2 · lite") || !tt.HasText("Thinking ▸") {
-		t.Fatalf("the message shows %d times: %q", n, tt.Texts())
+	tab.transcript.Apply(event(agent.ItemCompleted{Item: agent.Item{ID: "r1", Kind: agent.ItemKindReasoning, Text: "they ask why"}}))
+	tt.Frame()
+	if !tt.HasText("q.sql · statement, line 2 · lite") || !tt.HasText("Thinking ▸") {
+		t.Fatalf("texts %q", tt.Texts())
 	}
 	widgets.ShadersWithoutGPU = true
 	t.Cleanup(func() { widgets.ShadersWithoutGPU = false })
@@ -148,9 +141,7 @@ func TestModelAndEffort(t *testing.T) {
 		{ID: "opus", DisplayName: "Opus", Efforts: []agent.Effort{agent.EffortLow, agent.EffortHigh, agent.EffortMax}},
 		{ID: "haiku", DisplayName: "Haiku"},
 	}
-	h, tt, _, tab, p := chatWith(t, func(turn *agenttest.Turn) error { turn.Text("ok"); return nil }, models...)
-	tab.models()
-	testutil.WaitFor(t, tt, "the models", func() bool { return !tab.listed().loading })
+	h, tt, _, tab := chatWith(t, models...)
 	if err := tt.Click("Default model ▾"); err != nil {
 		t.Fatal(err)
 	}
@@ -170,17 +161,19 @@ func TestModelAndEffort(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
+	if tab.effort != agent.EffortMax {
+		t.Fatalf("effort %q", tab.effort)
+	}
 	tab.Send("hi")
-	testutil.WaitFor(t, tt, "the reply", func() bool { return tt.HasText("ok") && !tab.Busy() })
-	info := p.Sessions()[0].Info()
-	if info.Model != "opus" || info.Effort != agent.EffortMax {
-		t.Fatalf("started with %q %q", info.Model, info.Effort)
+	testutil.WaitFor(t, tt, "the reply", func() bool { return len(replies(tab)) == 1 && !tab.Busy() })
+	if model := tab.sess.Info().Model; model != "opus" {
+		t.Fatalf("started with %q", model)
 	}
 	// Haiku takes no effort: the effort goes, and its menu.
 	tab.chooseModel("haiku", tab.effort)
-	testutil.WaitFor(t, tt, "the switch", func() bool { return p.Sessions()[0].Info().Model == "haiku" })
-	if tab.effort != "" || testutil.HasTextContaining(tt, "effort") {
-		t.Fatalf("effort %q", tab.effort)
+	testutil.WaitFor(t, tt, "the switch", func() bool { return tab.sess.Info().Model == "haiku" })
+	if tab.effort != "" || testutil.HasTextContaining(tt, "effort ▾") {
+		t.Fatalf("effort %q, texts %q", tab.effort, tt.Texts())
 	}
 	if s := h.Settings(); s.ChatModels["claude"] != "haiku" || len(s.ChatEfforts) != 0 {
 		t.Fatalf("kept %v %v", s.ChatModels, s.ChatEfforts)
@@ -192,11 +185,8 @@ func TestModelAndEffort(t *testing.T) {
 
 // A SQL block of a reply goes in the editor with a click.
 func TestInsertSQL(t *testing.T) {
-	_, tt, ed, tab, _ := chatWith(t, func(turn *agenttest.Turn) error {
-		turn.Text("Try:\n\n```sql\nSELECT 42;\n```\n")
-		return nil
-	})
-	tab.Send("write a query")
+	_, tt, ed, tab := chatWith(t)
+	tab.Send("Try:\n\n```sql\nSELECT 42;\n```\n")
 	testutil.WaitFor(t, tt, "the block", func() bool { return tt.HasText("Insert") && !tab.Busy() })
 	if err := tt.Click("Insert"); err != nil {
 		t.Fatal(err)
@@ -213,17 +203,11 @@ func TestInsertSQL(t *testing.T) {
 
 // What the agent's own tools ask to do is refused unasked, and said so.
 func TestAgentPermission(t *testing.T) {
-	decided := make(chan agent.PermissionDecision, 1)
-	_, tt, _, tab, _ := chatWith(t, func(turn *agenttest.Turn) error {
-		resp := turn.Permission(agent.PermissionRequest{Kind: agent.PermissionCommand, ToolName: "Bash", Command: "rm -rf build"})
-		decided <- resp.Decision
-		turn.Text("done")
-		return nil
-	})
-	tab.Send("clean")
-	testutil.WaitFor(t, tt, "the reply", func() bool { return tt.HasText("done") })
-	if d := <-decided; d != agent.DecisionDeny || len(tab.requests) != 0 || !testutil.HasTextContaining(tt, "Refused: Run a command") {
-		t.Fatalf("decided %q, %d cards, texts %q", d, len(tab.requests), tt.Texts())
+	_, tt, _, tab := chatWith(t)
+	tab.Send("needs permission") // the fake asks to run a command
+	testutil.WaitFor(t, tt, "the reply", func() bool { return tt.HasText("permission denied") && !tab.Busy() })
+	if len(tab.requests) != 0 || !testutil.HasTextContaining(tt, "Refused: Run a command") {
+		t.Fatalf("%d cards, texts %q", len(tab.requests), tt.Texts())
 	}
 }
 
@@ -231,7 +215,7 @@ func TestAgentPermission(t *testing.T) {
 // its rows; a write, or a read on production, it refuses without asking.
 // Without a connection named, it reads the editor's.
 func TestReadQueryTool(t *testing.T) {
-	h, tt, ed, tab, _ := chatWith(t, func(turn *agenttest.Turn) error { return nil })
+	h, tt, ed, tab := chatWith(t)
 	h.AddConn(db.Config{ID: "other", Name: "other", Engine: db.SQLite, Database: ":memory:"})
 	type answer struct {
 		res agent.ToolResult
@@ -301,7 +285,7 @@ func countText(tt *ui.Tester, s string) int {
 // Two requests waiting are both refused when the chat stops, and both
 // cards answer one at a time.
 func TestTwoRequests(t *testing.T) {
-	_, tt, _, tab, _ := chatWith(t, func(turn *agenttest.Turn) error { return nil })
+	_, tt, _, tab := chatWith(t)
 	answers := []chan decision{make(chan decision, 1), make(chan decision, 1), make(chan decision, 1)}
 	for i, ch := range answers {
 		tab.requests = append(tab.requests, &request{id: fmt.Sprint("r", i), title: fmt.Sprint("request ", i), answer: ch})
@@ -324,30 +308,37 @@ func TestTwoRequests(t *testing.T) {
 
 // Both agents get the app's tools alone: none of their own, nothing the
 // user's settings add, and whatever else refused without asking.
+// Checked as the library gets them: an empty list must reach it, as nil
+// would leave the agent its defaults.
 func TestLockDown(t *testing.T) {
 	var cfg agent.Config
 	lockDown("claude", &cfg)
-	c, ok := cfg.ProviderOptions.(*claude.SessionOptions)
-	if !ok || c.BuiltinTools == nil || len(c.BuiltinTools) != 0 || c.SettingSources == nil || len(c.SettingSources) != 0 || !c.StrictMCPConfig || cfg.PermissionMode != agent.PermissionDontAsk {
-		t.Fatalf("claude: %+v, %q", cfg.ProviderOptions, cfg.PermissionMode)
+	claude := string(cfg.ProviderOptions)
+	if cfg.PermissionMode != agent.PermissionModeDontAsk {
+		t.Fatalf("claude: %q", cfg.PermissionMode)
+	}
+	for _, want := range []string{`"builtin_tools":[]`, `"setting_sources":[]`, `"strict_mcp_config":true`} {
+		if !strings.Contains(claude, want) {
+			t.Fatalf("claude: %s", claude)
+		}
 	}
 	cfg = agent.Config{}
 	lockDown("codex", &cfg)
-	if cfg.PermissionMode != agent.PermissionReadOnly || !slices.Contains(codexFeaturesOff, "shell_tool") || codexConfig["mcp_servers"] != "{}" {
+	if cfg.PermissionMode != agent.PermissionModeReadOnly || !slices.Contains(codexFeaturesOff, "shell_tool") || codexConfig["mcp_servers"] != "{}" {
 		t.Fatalf("codex: %q", cfg.PermissionMode)
 	}
 	cfg = agent.Config{}
 	lockDown("pi", &cfg)
-	p, ok := cfg.ProviderOptions.(*pi.SessionOptions)
-	if !ok || !p.NoBuiltinTools || !p.NoExtensions || !p.NoSkills || !p.NoMCP || p.TrustProject == nil || *p.TrustProject || cfg.PermissionMode != agent.PermissionDontAsk {
-		t.Fatalf("pi: %+v, %q", cfg.ProviderOptions, cfg.PermissionMode)
+	var p agent.PiSessionOptions
+	if err := json.Unmarshal(cfg.ProviderOptions, &p); err != nil || !p.NoBuiltinTools || !p.NoExtensions || !p.NoSkills || !p.NoMcp || p.TrustProject == nil || *p.TrustProject || cfg.PermissionMode != agent.PermissionModeDontAsk {
+		t.Fatalf("pi: %s, %q, %v", cfg.ProviderOptions, cfg.PermissionMode, err)
 	}
 }
 
 // A chart waits for the user, then is the editor's, and the agent hears
 // of its first rows; a write, or a kind unknown, it refuses unasked.
 func TestChartTool(t *testing.T) {
-	_, tt, ed, tab, _ := chatWith(t, func(turn *agenttest.Turn) error { return nil })
+	_, tt, ed, tab := chatWith(t)
 	type answer struct {
 		res agent.ToolResult
 		err error
@@ -396,9 +387,9 @@ func TestChartTool(t *testing.T) {
 // A message the agent shows back while it is still kept as sent shows
 // once.
 func TestSentShownBack(t *testing.T) {
-	_, tt, _, tab, _ := chatWith(t, func(turn *agenttest.Turn) error { return nil })
+	_, tt, _, tab := chatWith(t)
 	tab.sent = []sentMessage{{id: "dgopher-1", text: "hello"}}
-	tab.transcript.Apply(&agent.ItemStarted{Item: agent.Item{ID: "u1", Kind: agent.ItemUserMessage, ClientID: "dgopher-1", Text: "hello"}})
+	tab.transcript.Apply(event(agent.ItemStarted{Item: agent.Item{ID: "u1", Kind: agent.ItemKindUserMessage, ClientID: "dgopher-1", Text: "hello"}}))
 	tt.Frame()
 	if n := countText(tt, "hello"); n != 1 {
 		t.Fatalf("shown %d times", n)
@@ -408,7 +399,7 @@ func TestSentShownBack(t *testing.T) {
 // A tool needing a connection not open asks the user to connect it, once
 // for every call waiting, and goes on once it is; refused, it says so.
 func TestAskToConnect(t *testing.T) {
-	h, tt, _, tab, _ := chatWith(t, func(turn *agenttest.Turn) error { return nil })
+	h, tt, _, tab := chatWith(t)
 	other := h.AddConn(db.Config{ID: "other", Name: "other", Engine: db.SQLite, Database: ":memory:"})
 	type answer struct {
 		res agent.ToolResult
@@ -468,9 +459,7 @@ func TestModelPickerSearch(t *testing.T) {
 		models = append(models, agent.Model{ID: fmt.Sprintf("%s/model-%d", provider, i), DisplayName: fmt.Sprintf("Model %d", i), Provider: provider})
 	}
 	models = append(models, agent.Model{ID: "openrouter/anthropic/claude-haiku-5.5", DisplayName: "Anthropic: Claude Haiku 5.5", Provider: "openrouter"})
-	_, tt, _, tab, _ := chatWith(t, func(turn *agenttest.Turn) error { return nil }, models...)
-	tab.models()
-	testutil.WaitFor(t, tt, "the models", func() bool { return !tab.listed().loading })
+	_, tt, _, tab := chatWith(t, models...)
 	if err := tt.Click("Default model ▾"); err != nil {
 		t.Fatal(err)
 	}
@@ -499,7 +488,7 @@ func TestModelPickerSearch(t *testing.T) {
 // A connection keeping its rows from the chat runs no read for the agent,
 // and its charts tell the agent their columns and count alone.
 func TestNoRowsToChat(t *testing.T) {
-	_, tt, ed, tab, _ := chatWith(t, func(turn *agenttest.Turn) error { return nil })
+	_, tt, ed, tab := chatWith(t)
 	ed.cn.Config.NoRowsToChat = true
 	read := make(chan agent.ToolResult, 1)
 	go func() {
@@ -546,18 +535,23 @@ func TestNoRowsToChat(t *testing.T) {
 	}
 }
 
-// An earlier run's conversation shows again, and the next message
-// continues its session.
+// The next message after Resume continues the earlier run's session. The
+// fake keeps no history, so the conversation is loaded here, and that it
+// shows is checked only as Load draws it.
 func TestResumeChat(t *testing.T) {
-	_, tt, _, tab, p := chatWith(t, func(turn *agenttest.Turn) error { turn.Text("still here"); return nil })
+	_, tt, _, tab := chatWith(t)
 	tab.Resume("earlier")
+	tab.Load([]agent.Item{
+		{ID: "h1", Kind: agent.ItemKindUserMessage, Text: "<editor summary=\"q.sql · lite\">\n</editor>\n\nhow many orders?"},
+		{ID: "h2", Kind: agent.ItemKindAssistantMessage, Text: "There are 42 orders."},
+	})
 	testutil.WaitFor(t, tt, "the history", func() bool { return tt.HasText("There are 42 orders.") })
 	if !tt.HasText("how many orders?") || !tt.HasText("q.sql · lite") || tab.SessionID() != "earlier" {
 		t.Fatalf("texts %q, session %q", tt.Texts(), tab.SessionID())
 	}
-	tab.Send("and today?")
-	testutil.WaitFor(t, tt, "the reply", func() bool { return tt.HasText("still here") && !tab.Busy() })
-	if id := p.Sessions()[0].Info().ID; id != "earlier" {
+	tab.Send("still here")
+	testutil.WaitFor(t, tt, "the reply", func() bool { return len(replies(tab)) == 2 && !tab.Busy() })
+	if id := tab.sess.ID(); id != "earlier" {
 		t.Fatalf("started session %q", id)
 	}
 	tab.Restart("claude")
@@ -569,9 +563,9 @@ func TestResumeChat(t *testing.T) {
 // A conversation holding one message ID twice, as an earlier chat's may,
 // shows both.
 func TestRepeatedMessageIDs(t *testing.T) {
-	_, tt, _, tab, _ := chatWith(t, func(turn *agenttest.Turn) error { return nil })
+	_, tt, _, tab := chatWith(t)
 	for i, text := range []string{"first", "second"} {
-		tab.transcript.Apply(&agent.ItemCompleted{Item: agent.Item{ID: fmt.Sprint("u", i), Kind: agent.ItemUserMessage, ClientID: "dgopher-1", Text: text}})
+		tab.transcript.Apply(event(agent.ItemCompleted{Item: agent.Item{ID: fmt.Sprint("u", i), Kind: agent.ItemKindUserMessage, ClientID: "dgopher-1", Text: text}}))
 	}
 	tt.Frame()
 	if !tt.HasText("first") || !tt.HasText("second") {
@@ -614,22 +608,13 @@ func TestCodexOff(t *testing.T) {
 // The editor's text goes with a message only where the agent has not had
 // it as it is: the statement at the caret goes with each.
 func TestTextSentOnce(t *testing.T) {
-	got := make(chan string, 3)
-	_, tt, ed, tab, _ := chatWith(t, func(turn *agenttest.Turn) error { got <- turn.Input().PlainText(); turn.Text("ok"); return nil })
+	_, tt, ed, tab := chatWith(t)
 	ed.ctx = EditorContext{Text: "SELECT 1;\nSELECT 2;\n", Statement: "SELECT 2;", From: 2, To: 2}
 	next := func(msg string) string {
+		n := len(replies(tab))
 		tab.Send(msg)
-		var sent string
-		testutil.WaitFor(t, tt, "the message", func() bool {
-			select {
-			case sent = <-got:
-				return true
-			default:
-				return false
-			}
-		})
-		testutil.WaitFor(t, tt, "the reply", func() bool { return !tab.Busy() })
-		return sent
+		testutil.WaitFor(t, tt, "the reply", func() bool { return len(replies(tab)) == n+1 && !tab.Busy() })
+		return replies(tab)[n] // the fake's reply is the message
 	}
 	first, second := next("one"), next("two")
 	if !strings.Contains(first, "SELECT 1;\nSELECT 2;") || strings.Contains(second, "SELECT 1;") ||
@@ -680,7 +665,7 @@ func TestFileReadersRefused(t *testing.T) {
 
 // No password in the editor goes to the agent.
 func TestContextRedacted(t *testing.T) {
-	_, _, ed, tab, _ := chatWith(t, func(turn *agenttest.Turn) error { return nil })
+	_, _, ed, tab := chatWith(t)
 	ed.ctx = EditorContext{Text: "ALTER ROLE app PASSWORD 's3cret';\n", Statement: "ALTER ROLE app PASSWORD 's3cret'", From: 1, To: 1}
 	if block := tab.withContext("hi"); strings.Contains(block, "s3cret") || !strings.Contains(block, "PASSWORD '•••'") {
 		t.Fatalf("block:\n%s", block)
@@ -697,10 +682,43 @@ func TestClipWholeCharacters(t *testing.T) {
 
 // A tool call left running by an agent that stopped shows as stopped.
 func TestToolLeftRunning(t *testing.T) {
-	_, tt, _, tab, _ := chatWith(t, func(turn *agenttest.Turn) error { return nil })
-	tab.transcript.Apply(&agent.ItemStarted{Item: agent.Item{ID: "t1", Kind: agent.ItemToolCall, Status: agent.ItemRunning, Tool: &agent.ToolCall{Name: "describe_table"}}})
+	_, tt, _, tab := chatWith(t)
+	tab.transcript.Apply(event(agent.ItemStarted{Item: agent.Item{ID: "t1", Kind: agent.ItemKindToolCall, Status: agent.ItemStatusInProgress, Tool: &agent.ToolCall{Name: "describe_table"}}}))
 	tt.Frame()
 	if tab.Busy() || !tt.HasText("stopped") {
 		t.Fatalf("busy %v, texts %q", tab.Busy(), tt.Texts())
+	}
+}
+
+// An agent whose command line is not there says to install it.
+func TestNotInstalled(t *testing.T) {
+	_, tt, _, tab := chatWith(t)
+	OpenClient = func(ctx context.Context, provider string) (*agent.Client, string, error) {
+		client, err := agent.Open(ctx, agent.WithProviders(map[string]any{provider: agent.ClaudeOptions{Path: filepath.Join(t.TempDir(), "claude")}}))
+		return client, provider, err
+	}
+	tab.Send("hi")
+	testutil.WaitFor(t, tt, "the error", func() bool { return tab.startErr != "" })
+	if !strings.Contains(tab.startErr, "Claude Code is not installed") {
+		t.Fatalf("start error %q", tab.startErr)
+	}
+}
+
+// The models are listed through the chat's own client: the fake lists
+// none, which is no error. Closing the chat while they load leaves no
+// error for the other chats.
+func TestModelsListed(t *testing.T) {
+	_, tt, _, tab := chatWith(t)
+	l := tab.models()
+	testutil.WaitFor(t, tt, "the models", func() bool { return !l.loading })
+	if l.err != "" || len(l.models) != 0 || modelLists["claude"] != l {
+		t.Fatalf("listed %v, error %q", l.models, l.err)
+	}
+	forgetModels("claude")
+	tab.Close()
+	l = tab.models()
+	testutil.WaitFor(t, tt, "the closed chat's list", func() bool { return modelLists["claude"] == nil })
+	if l.err != "" {
+		t.Fatalf("error %q kept for the other chats", l.err)
 	}
 }

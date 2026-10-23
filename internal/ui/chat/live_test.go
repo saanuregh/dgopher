@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	agent "github.com/saanuregh/agent-cli-connector"
+	agent "github.com/saanuregh/agent-cli-connector/bindings/go"
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
