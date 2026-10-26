@@ -66,6 +66,10 @@ type Source struct {
 // Grid shows rows in columns, with a chosen cell, and edits them when
 // edits is set.
 type Grid struct {
+	// fontPinch and wheelZoom zoom the grids' text with pinches and the
+	// wheel.
+	fontPinch widgets.FontPinch
+	wheelZoom widgets.WheelZoom
 	// keys is set while the grid's tab takes the shortcuts pressed
 	// anywhere, as ⌘` .
 	keys bool
@@ -464,7 +468,19 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 	// colors: NULL stays NULL-colored, a number a number's.
 	dense := widgets.ChosenCells(*theme, theme.Background, pal.CellSelected)
 	dense.Spacing = 2.5
-	ui.Row(c).Grow(1).AlignItems(ui.Stretch).Children(func() {
+	ui.Row(c).Grow(1).AlignItems(ui.Stretch).HandleInput(func(ev ui.InputEvent) bool {
+		switch step, wheel := g.wheelZoom.Step(ev); {
+		case ev.Kind == ui.InputZoom:
+			g.zoom(a, ev.Scale)
+		case wheel:
+			if step != 0 {
+				stepGridFont(a, step)
+			}
+		default:
+			return false
+		}
+		return true
+	}).Children(func() {
 		switch g.mode {
 		case viewRecord:
 			g.recordView(c, a, src, order)
@@ -549,6 +565,11 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 	if keymap.ListPressed(c, &g.List, keymap.ValuePanel) || keymap.ListPressed(c, &g.recList, keymap.ValuePanel) {
 		g.ShowValue = !g.ShowValue
 	}
+	for _, k := range gridZoomKeys {
+		if keymap.ListPressed(c, &g.List, k.id) || keymap.ListPressed(c, &g.recList, k.id) {
+			stepGridFont(a, k.step)
+		}
+	}
 	if keymap.ListPressed(c, &g.List, keymap.Copy) {
 		a.WriteClipboard(g.copySelection(src, export.TSV, false))
 	}
@@ -571,6 +592,13 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 	}
 	return table
 }
+
+// gridZoomKeys are the actions that zoom the grids' text, by the step
+// stepGridFont takes.
+var gridZoomKeys = []struct {
+	id   string
+	step int
+}{{keymap.GridZoomIn, 1}, {keymap.GridZoomOut, -1}, {keymap.GridZoomReset, 0}}
 
 func (g *Grid) cell(c *ui.Context, a Host, src *Source, data, col int) {
 	pal := widgets.PaletteOf(c)

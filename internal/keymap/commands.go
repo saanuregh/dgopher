@@ -91,6 +91,9 @@ const (
 	Commit          = "editor::Commit"
 	Rollback        = "editor::Rollback"
 	ToggleNotebook  = "editor::ToggleNotebook"
+	EditorZoomIn    = "editor::IncreaseFontSize"
+	EditorZoomOut   = "editor::DecreaseFontSize"
+	EditorZoomReset = "editor::ResetFontSize"
 
 	RunCell        = "notebook::RunCell"
 	RunCellAdvance = "notebook::RunCellAndAdvance"
@@ -143,6 +146,9 @@ const (
 	Discard          = "grid::Discard"
 	Refresh          = "grid::Refresh"
 	ToggleChart      = "grid::ToggleChart"
+	GridZoomIn       = "grid::IncreaseFontSize"
+	GridZoomOut      = "grid::DecreaseFontSize"
+	GridZoomReset    = "grid::ResetFontSize"
 )
 
 // command makes an action of its keys as keymap.json writes them.
@@ -261,6 +267,9 @@ var Commands = []Command{
 	// Rolling back loses the transaction's work: no key unless one is set.
 	command(Rollback, Editor, "Roll back the open transaction, an editor's or a table's"),
 	command(ToggleNotebook, Editor, "Show the editor as a notebook of cells, or as one script", "cmd-k cmd-n"),
+	command(EditorZoomIn, Editor, "Make the editors' text larger", "cmd-="),
+	command(EditorZoomOut, Editor, "Make the editors' text smaller", "cmd--"),
+	command(EditorZoomReset, Editor, "The editors' text at its default size", "cmd-k cmd-0"),
 
 	command(RunCellAdvance, Notebook, "Run the cell and go to the next, made when there is none", "shift-enter"),
 	command(RunCell, Notebook, "Run the cell, staying in it", "cmd-alt-enter"),
@@ -315,6 +324,9 @@ var Commands = []Command{
 	command(Discard, Grid, "Discard the pending changes; without any, read the rows again", "cmd-r"),
 	command(Refresh, Grid, "Read a table's rows again; scan the Redis keys, or run a dashboard's panels, again", "f5"),
 	command(ToggleChart, Grid, "Show or hide the chart of the rows"),
+	command(GridZoomIn, Grid, "Make the grids' text larger", "cmd-="),
+	command(GridZoomOut, Grid, "Make the grids' text smaller", "cmd--"),
+	command(GridZoomReset, Grid, "The grids' text at its default size", "cmd-k cmd-0"),
 }
 
 // Fixed are keys that are not actions, and cannot be changed: they move

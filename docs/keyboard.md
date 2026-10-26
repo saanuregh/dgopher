@@ -116,6 +116,8 @@ Keys marked *fixed* below cannot be changed.
 | ⌘S | Save now (editors also save as you type) |
 | ⌘⇧S | Save as a file |
 | ⌘K ⌘N | Show the editor as a notebook of cells, or as one script |
+| ⌘=, ⌘- | Make the editors' text larger or smaller; so do a pinch and ⌘ with the mouse wheel |
+| ⌘K ⌘0 | The editors' text at its default size |
 
 ## Notebook
 
@@ -177,6 +179,8 @@ A notebook's cells are editors: the SQL editor's keys work in them too.
 | ⌘⌥N | Fetch the next page of rows |
 | ⌘⇧= | Fetch every row |
 | (none) | Show or hide the chart of the rows |
+| ⌘=, ⌘- | Make the grids' text larger or smaller; so do a pinch and ⌘ with the mouse wheel |
+| ⌘K ⌘0 | The grids' text at its default size |
 
 ## Other views
 

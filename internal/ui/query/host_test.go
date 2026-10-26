@@ -8,6 +8,7 @@ import (
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 	"dgopher/internal/project"
 	"dgopher/internal/testutil"
 	"dgopher/internal/ui/dataview"
@@ -73,6 +74,7 @@ func (h *fakeQueryHost) OpenQueryFile(path string, at int) {
 
 // view draws the window, and the query tab's dialogs over it.
 func (h *fakeQueryHost) view(c *ui.Context) {
+	keymap.Dispatch(c, h) // the keys of two in a row, as the app's window takes them
 	h.FakeHost.View(c)
 	DialogsView(h, c)
 }

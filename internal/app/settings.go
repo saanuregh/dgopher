@@ -185,7 +185,7 @@ func (a *App) appearancePage(c *ui.Context) {
 	})
 	font := float64(a.settings.EditorFont)
 	ui.Field(c, "Editor font size", func() {
-		if ui.NumberInput(c, &font, 9, 24, 1).Changed() {
+		if ui.NumberInput(c, &font, settings.MinFontSize, settings.MaxEditorFont, 1).Changed() {
 			a.settings.EditorFont = float32(font)
 			a.SaveSettings()
 		}

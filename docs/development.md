@@ -181,7 +181,9 @@ does not have yet:
 - frozen table columns;
 - the code editor's `GutterButtons` and `OnAcceptCompletion`;
 - the code editor's `LinkAt` and `OnLink`, which underline a name while
-  ⌘ is held and open it on a click.
+  ⌘ is held and open it on a click;
+- `DragMissed`, which tells a drag's source it was let go over no target,
+  and where.
 
 An API missing from upstream MyGo may exist there.
 
