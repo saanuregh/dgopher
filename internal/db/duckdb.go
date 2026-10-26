@@ -257,12 +257,6 @@ func (d duckdbDialect) ObjectNames(ctx context.Context, q Querier, schema string
 	return d.Objects(ctx, q, schema)
 }
 
-// The backup dialog's notes.
-const (
-	duckdbBackupNote  = "EXPORT DATABASE writes the schema and each table's rows, in Parquet, in a new folder."
-	duckdbRestoreNote = "IMPORT DATABASE reads the folder in a DuckDB of its own, which reaches no file outside it; what it makes is then copied into the database, which must not have its tables."
-)
-
 // duckdbFileReaders are DuckDB's functions that read the server's
 // files or fetch URLs; callers only read them.
 var duckdbFileReaders = strings.Fields("read_text read_blob read_csv read_csv_auto read_json read_json_auto read_json_objects read_json_objects_auto " +
@@ -573,7 +567,9 @@ func (duckdbEngine) PlanRestore(ctx context.Context, d *DB, _, path string, _ bo
 }
 
 func (duckdbEngine) BackupNote(restore bool) string {
-	return backupNoteFor(restore, duckdbRestoreNote, duckdbBackupNote)
+	return backupNoteFor(restore,
+		"IMPORT DATABASE reads the folder in a DuckDB of its own, which reaches no file outside it; what it makes is then copied into the database, which must not have its tables.",
+		"EXPORT DATABASE writes the schema and each table's rows, in Parquet, in a new folder.")
 }
 
 func (duckdbEngine) BackupChoices() BackupChoices    { return BackupChoices{Folder: true} }

@@ -217,12 +217,6 @@ func (d sqliteDialect) ObjectNames(ctx context.Context, q Querier, schema string
 	return d.Objects(ctx, q, schema)
 }
 
-// The backup dialog's notes.
-const (
-	sqliteBackupNote  = "VACUUM INTO writes a copy of the database as it is, while it stays in use: open the copy as a connection to read it."
-	sqliteRestoreNote = "A SQL file runs as Run SQL File runs it; a copy of the database opens as a connection of its own."
-)
-
 // sqliteFileReaders are SQLite's functions that read the server's
 // files or fetch URLs; callers only read them.
 var sqliteFileReaders = strings.Fields("readfile fsdir load_extension")
@@ -517,7 +511,9 @@ func (sqliteEngine) PlanRestore(_ context.Context, d *DB, _, _ string, _ bool) (
 }
 
 func (sqliteEngine) BackupNote(restore bool) string {
-	return backupNoteFor(restore, sqliteRestoreNote, sqliteBackupNote)
+	return backupNoteFor(restore,
+		"A SQL file runs as Run SQL File runs it; a copy of the database opens as a connection of its own.",
+		"VACUUM INTO writes a copy of the database as it is, while it stays in use: open the copy as a connection to read it.")
 }
 
 func (sqliteEngine) BackupChoices() BackupChoices    { return BackupChoices{} }

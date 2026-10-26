@@ -380,12 +380,6 @@ JOIN pg_class parent ON parent.oid = i.inhparent JOIN pg_namespace pn ON pn.oid 
 	return queryString(ctx, q, query, it.ID)
 }
 
-// The backup dialog's notes.
-const (
-	pgDumpBackupNote  = "pg_dump writes it, reaching the server as the connection does; it must be installed, of the server's version or later."
-	pgDumpRestoreNote = "A .dump of pg_dump, or a SQL file."
-)
-
 const (
 	postgresStopQuery  = "SELECT pg_cancel_backend(%s)"
 	postgresEndSession = "SELECT pg_terminate_backend(%s)"
@@ -884,7 +878,9 @@ func (postgresEngine) PlanRestore(ctx context.Context, d *DB, database, path str
 }
 
 func (postgresEngine) BackupNote(restore bool) string {
-	return backupNoteFor(restore, pgDumpRestoreNote, pgDumpBackupNote)
+	return backupNoteFor(restore,
+		"A .dump of pg_dump, or a SQL file.",
+		"pg_dump writes it, reaching the server as the connection does; it must be installed, of the server's version or later.")
 }
 
 func (postgresEngine) BackupChoices() BackupChoices {
