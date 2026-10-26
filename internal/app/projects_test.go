@@ -422,7 +422,7 @@ func TestOwnConnectionIsTrusted(t *testing.T) {
 	file := writeSQL(t, "own.sqlite", "")
 	a.openConnForm(nil)
 	f := a.connForm
-	f.engine, f.engineIdx = db.SQLite.Label(), 4
+	f.engine = db.SQLite.Label()
 	f.cfg.Name, f.cfg.Database = "own", file
 	a.saveConnForm(f, false)
 	tt := ui.NewTester(a.view, 1000, 700)
@@ -1033,8 +1033,7 @@ func TestConnFormPages(t *testing.T) {
 	if _, ok := tt.Find("Network •"); !ok {
 		t.Fatalf("the SSH tunnel is not marked: %q", tt.Texts())
 	}
-	a.syncEngineChoice(f, slices.Index(db.Engines(), db.DuckDB))
-	f.engineIdx = slices.Index(db.Engines(), db.DuckDB)
+	a.syncEngineChoice(f, db.DuckDB)
 	tt.Frame()
 	if tt.HasText("Network") || !tt.HasText("File") {
 		t.Fatalf("file form: %q", tt.Texts())
@@ -1209,8 +1208,7 @@ func TestConnFormSentinel(t *testing.T) {
 	a.openConnForm(nil)
 	tt := ui.NewTester(a.view, 1000, 1000)
 	f := a.connForm
-	a.syncEngineChoice(f, slices.Index(db.Engines(), db.Redis))
-	f.engineIdx = slices.Index(db.Engines(), db.Redis)
+	a.syncEngineChoice(f, db.Redis)
 	f.redisMode = slices.Index(redisModes, db.RedisSentinel)
 	tt.Frame()
 	if !tt.HasText("A sentinel") || !tt.HasText("Master name") || !tt.HasText("Sentinel password") {
@@ -1256,8 +1254,7 @@ func TestConnFormClickHouseProtocol(t *testing.T) {
 	if tt.HasText("Protocol") {
 		t.Fatal("PostgreSQL offers a protocol")
 	}
-	a.syncEngineChoice(f, slices.Index(db.Engines(), db.ClickHouse))
-	f.engineIdx = slices.Index(db.Engines(), db.ClickHouse)
+	a.syncEngineChoice(f, db.ClickHouse)
 	tt.Frame()
 	if !tt.HasText("Protocol") || f.chProtocol != 0 {
 		t.Fatalf("ClickHouse form: protocol %d, %q", f.chProtocol, tt.Texts())
@@ -1291,7 +1288,7 @@ func TestConnFormClickHouseProtocol(t *testing.T) {
 	if a.connForm.chProtocol != 1 {
 		t.Fatal("a legacy 8443 connection does not show HTTP")
 	}
-	a.syncEngineChoice(a.connForm, slices.Index(db.Engines(), db.Postgres))
+	a.syncEngineChoice(a.connForm, db.Postgres)
 	if got := a.connForm.config(); got.ClickHouseProtocol != db.ClickHouseByPort || got.Port != 0 {
 		t.Fatalf("PostgreSQL keeps protocol %q, port %d", got.ClickHouseProtocol, got.Port)
 	}

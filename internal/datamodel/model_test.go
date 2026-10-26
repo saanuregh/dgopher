@@ -377,3 +377,27 @@ func TestScriptNotesStayComments(t *testing.T) {
 		}
 	}
 }
+
+// A model matches a flavor of its engine as its own engine: a MySQL model
+// compares with, migrates and is written for MariaDB as for MySQL.
+func TestModelOfFlavorsParent(t *testing.T) {
+	orders := db.TableDesign{Schema: "shop", Name: "orders", Columns: []db.ColumnDesign{
+		{Name: "id", Type: "int", PrimaryKey: true, Default: "auto_increment"},
+		{Name: "code", Type: "varchar(12)"},
+		{Name: "placed", Type: "datetime(3)", Nullable: true},
+	}}
+	mysql := &Model{Name: "shop", Engine: db.MySQL, Tables: []db.TableDesign{orders}}
+	mariadb := &Model{Name: "shop", Engine: db.MariaDB, Tables: []db.TableDesign{orders}}
+	diffs, err := Compare(mysql, mariadb)
+	if err != nil || len(diffs) != 1 || diffs[0].State != Same {
+		t.Fatalf("compared: %+v, %v", diffs, err)
+	}
+	if _, _, err := Migration(mysql, mariadb, "shop", false); err != nil {
+		t.Fatal(err)
+	}
+	want, wantNotes := Script(mysql, db.MySQL, "shop")
+	got, notes := Script(mysql, db.MariaDB, "shop")
+	if got.Text() != want.Text() || !slices.Equal(notes, wantNotes) {
+		t.Fatalf("for MariaDB:\n%s\n%q\nfor MySQL:\n%s\n%q", got.Text(), notes, want.Text(), wantNotes)
+	}
+}

@@ -219,6 +219,7 @@ type clickhouseEngine struct{ clickhouseDialect }
 var _ SQLRules = clickhouseEngine{}
 
 func (clickhouseEngine) Label() string                   { return "ClickHouse" }
+func (clickhouseEngine) Base() Engine                    { return ClickHouse }
 func (clickhouseEngine) ColorHex() string                { return "#d4a10a" }
 func (clickhouseEngine) DefaultPort() int                { return 9000 }
 func (clickhouseEngine) DefaultUser() string             { return "default" }
@@ -298,6 +299,10 @@ func (clickhouseEngine) LexDialect() sqltext.Dialect               { return sqlt
 func (clickhouseEngine) BeginStatement() string                    { return "BEGIN" }
 func (clickhouseEngine) ReadOnlyBeginSQL() string                  { return "" }
 func (clickhouseEngine) followsTransactionByVerbs() bool           { return false }
+
+func (clickhouseEngine) identify(context.Context, *sql.DB) (Engine, string, error) {
+	return ClickHouse, "", nil
+}
 
 func (clickhouseEngine) afterFailedStatement(v txByVerbs, _ error, _ bool, _ func() bool) txByVerbs {
 	return v

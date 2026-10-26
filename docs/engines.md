@@ -1,8 +1,10 @@
 # Engine support
 
-What each engine supports in DGopher. MariaDB connects as MySQL (a
-`mariadb://` URL is read as MySQL). [Features](features.md) describes each
-feature, and [Known limitations](limitations.md) explains the gaps.
+What each engine supports in DGopher. CockroachDB, YugabyteDB and
+TimescaleDB are engines of PostgreSQL's family, and MariaDB and TiDB of
+MySQL's: until their own columns are added here, each supports what its
+family's engine does. [Features](features.md) describes each feature, and
+[Known limitations](limitations.md) explains the gaps.
 
 - ✓ supported
 - — not supported, or does not apply

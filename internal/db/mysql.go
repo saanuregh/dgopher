@@ -232,6 +232,7 @@ type mysqlEngine struct{ mysqlDialect }
 var _ SQLRules = mysqlEngine{}
 
 func (mysqlEngine) Label() string                   { return "MySQL" }
+func (mysqlEngine) Base() Engine                    { return MySQL }
 func (mysqlEngine) ColorHex() string                { return "#00758f" }
 func (mysqlEngine) DefaultPort() int                { return 3306 }
 func (mysqlEngine) DefaultUser() string             { return "root" }
@@ -240,7 +241,7 @@ func (mysqlEngine) Transactions() bool              { return true }
 func (mysqlEngine) Savepoints() bool                { return true }
 func (mysqlEngine) TransactionalDDL() bool          { return false }
 func (mysqlEngine) DatabaseField() (string, string) { return "Database", "" }
-func (mysqlEngine) URLSchemes() []string            { return []string{"mysql", "mariadb"} }
+func (mysqlEngine) URLSchemes() []string            { return []string{"mysql"} }
 
 func (mysqlEngine) URLTLSParameters() map[string]map[string]TLSMode {
 	return mysqlURLTLS
@@ -342,6 +343,10 @@ func (mysqlEngine) LexDialect() sqltext.Dialect              { return sqltext.My
 func (mysqlEngine) BeginStatement() string                   { return "START TRANSACTION" }
 func (mysqlEngine) ReadOnlyBeginSQL() string                 { return "START TRANSACTION READ ONLY" }
 func (mysqlEngine) followsTransactionByVerbs() bool          { return true }
+
+func (mysqlEngine) identify(ctx context.Context, q *sql.DB) (Engine, string, error) {
+	return identifyMySQLFamily(ctx, q)
+}
 
 // The server rolls back the whole transaction of a deadlock's victim, and
 // of a lock wait timeout when told to. Under autocommit off a failed

@@ -171,10 +171,17 @@ func (a *App) overlays(c *ui.Context) {
 		a.keysView(c)
 	}
 	a.questions(c)
+	for _, ic := range a.identified {
+		a.offerIdentifiedEngine(ic.conn, ic.server)
+	}
+	a.identified = nil
 	for _, tst := range a.toasts {
-		if tst.action != "" {
+		switch {
+		case tst.life != 0:
+			c.AddToast(ui.Toast{ID: tst.id, Title: tst.text, Timeout: tst.life, Action: tst.action, OnAction: tst.run})
+		case tst.action != "":
 			c.ToastAction(tst.text, tst.action, tst.run)
-		} else {
+		default:
 			c.Toast(tst.text)
 		}
 	}
@@ -929,7 +936,7 @@ func (a *App) welcome(c *ui.Context) {
 				ui.Column(c).Gap(4).Children(func() {
 					ui.Text(c, "DGopher").FontSize(28).Bold()
 					ui.Text(c, "Dig into your databases.").FontSize(16)
-					ui.Text(c, "PostgreSQL, MySQL, ClickHouse, SQLite, DuckDB and Redis: fast, keyboard-first, careful with production.").TextColor(pal.Muted)
+					ui.Text(c, "PostgreSQL, MySQL, ClickHouse, SQLite, DuckDB, Redis and their kin: fast, keyboard-first, careful with production.").TextColor(pal.Muted)
 				})
 			})
 			ui.Grid(c).Columns(4).GapX(12).Children(func() {
@@ -1291,6 +1298,10 @@ type pendingToast struct {
 	text   string
 	action string
 	run    func()
+	// life is how long the toast shows, the default when zero.
+	life time.Duration
+	// id names a toast with a life, one per id showing.
+	id string
 }
 
 // tlsStateOf is whether an open connection uses TLS, as the server

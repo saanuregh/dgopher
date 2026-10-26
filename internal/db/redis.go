@@ -695,6 +695,7 @@ type redisEngine struct{}
 var _ KeyValueRules = redisEngine{}
 
 func (redisEngine) Label() string                   { return "Redis" }
+func (redisEngine) Base() Engine                    { return Redis }
 func (redisEngine) ColorHex() string                { return "#dc382d" }
 func (redisEngine) DefaultPort() int                { return 6379 }
 func (redisEngine) DefaultUser() string             { return "" }

@@ -269,6 +269,7 @@ type duckdbEngine struct{ duckdbDialect }
 var _ SQLRules = duckdbEngine{}
 
 func (duckdbEngine) Label() string                   { return "DuckDB" }
+func (duckdbEngine) Base() Engine                    { return DuckDB }
 func (duckdbEngine) ColorHex() string                { return "#c49a00" }
 func (duckdbEngine) DefaultPort() int                { return 0 }
 func (duckdbEngine) DefaultUser() string             { return "" }
@@ -333,6 +334,10 @@ func (duckdbEngine) LexDialect() sqltext.Dialect     { return sqltext.Postgres }
 func (duckdbEngine) BeginStatement() string          { return "BEGIN" }
 func (duckdbEngine) ReadOnlyBeginSQL() string        { return "" }
 func (duckdbEngine) followsTransactionByVerbs() bool { return true }
+
+func (duckdbEngine) identify(context.Context, *sql.DB) (Engine, string, error) {
+	return DuckDB, "", nil
+}
 
 // Any error but a parse error aborts DuckDB's transaction.
 func (duckdbEngine) afterFailedStatement(v txByVerbs, err error, _ bool, _ func() bool) txByVerbs {

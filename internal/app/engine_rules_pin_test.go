@@ -470,12 +470,19 @@ func TestPinConnectionFormDatabaseField(t *testing.T) {
 		"redis":      "Database=true Database index=true Database file=false",
 		"sqlite":     "Database=false Database index=false Database file=false",
 		"duckdb":     "Database=false Database index=false Database file=false",
+
+		// The flavors, as their parents.
+		"cockroachdb": "Database=true Database index=false Database file=false",
+		"yugabytedb":  "Database=true Database index=false Database file=false",
+		"timescaledb": "Database=true Database index=false Database file=false",
+		"mariadb":     "Database=true Database index=false Database file=false",
+		"tidb":        "Database=true Database index=false Database file=false",
 	}, func(add func(key, got string)) {
 		a := newTestApp(t)
 		tt := ui.NewTester(a.view, 1200, 900)
-		for i, e := range db.Engines() {
+		for _, e := range db.Engines() {
 			a.openConnForm(nil)
-			a.syncEngineChoice(a.connForm, i)
+			a.syncEngineChoice(a.connForm, e)
 			tt.Frame()
 			var shown []string
 			for _, l := range labels {

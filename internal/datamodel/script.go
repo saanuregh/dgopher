@@ -24,7 +24,7 @@ func Script(m *Model, to db.Engine, schema string) (db.SchemaChange, []string) {
 	for i, t := range m.Tables {
 		tables[i] = convert(m.Engine, to, fresh(to, moved(t, schema), &n), t.Schema == schema, &n)
 	}
-	if m.Engine != to {
+	if m.Engine.Base() != to.Base() {
 		apart(to, tables, &n)
 	}
 	ch := db.SchemaChange{Atomic: to.TransactionalDDL()}
@@ -178,7 +178,7 @@ func apart(to db.Engine, tables []db.TableDesign, n *notes) {
 // in its own schema, where on its own engine its indexes are written as
 // the engine wrote them.
 func convert(from, to db.Engine, t db.TableDesign, inPlace bool, n *notes) db.TableDesign {
-	same := from == to
+	same := from.Base() == to.Base()
 	keyed := keyedColumns(t)
 	toRules, toIsSQL := db.SQL(to)
 	fromRules, fromIsSQL := db.SQL(from)

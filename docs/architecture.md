@@ -310,9 +310,13 @@ database. All sessions on it share one transaction:
   An engine reusing another's behavior embeds its type and overrides
   methods; a method must not call another hook through its receiver,
   because embedding does not make that call reach the override. Such an
-  engine also needs a dialect type of its own, whose `Engine()` is its
-  own, returned by its `dialect()`: code holding only a `Dialect` finds
-  the rules by that `Engine()`, which `TestEngineRulesCover` checks.
+  engine (MariaDB on MySQL's type, CockroachDB on PostgreSQL's) declares
+  its own `Engine()` and a dialect type of its own, embedding the
+  parent's, whose `Engine()` is its own, returned by its `dialect()`: code
+  holding only a `Dialect` finds the rules by that `Engine()`, which
+  `TestEngineRulesCover` checks. The rules type embeds only the parent's
+  rules type, not the dialect too, or every dialect method would be
+  ambiguous.
 - `db.Dialect` (`internal/db/dialect.go`) is each SQL engine's behavior:
   quoting, placeholders, catalog queries, generated SQL. Each engine has its
   own file (`postgres.go`, `mysql.go`, …). Redis has no `Dialect`.

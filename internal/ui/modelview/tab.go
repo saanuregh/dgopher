@@ -127,11 +127,11 @@ func (t *Tab) save() error {
 	return nil
 }
 
-// conns are the project's connections of an engine.
+// conns are the project's connections of an engine, or of its flavors.
 func (t *Tab) conns(e db.Engine) []*connection.Conn {
 	var out []*connection.Conn
 	for _, cfg := range t.h.ProjectConfigs(t.Project) {
-		if cn := t.h.ConnByID(cfg.ID); cn != nil && cfg.Engine == e {
+		if cn := t.h.ConnByID(cfg.ID); cn != nil && cfg.Engine.Base() == e.Base() {
 			out = append(out, cn)
 		}
 	}
@@ -153,7 +153,7 @@ func (t *Tab) update() {
 	if cn == nil || t.updating {
 		return
 	}
-	if cn.Config.Engine != t.m.Engine {
+	if cn.Config.Engine.Base() != t.m.Engine.Base() {
 		t.err = fmt.Sprintf("%s is a %s connection now, and the model is of %s.", cn.Config.Name, cn.Config.Engine.Label(), t.m.Engine.Label())
 		return
 	}

@@ -30,8 +30,9 @@ tests.
   handles. A connection holds one `db.Store` (`Conn.Store`, read as
   `Conn.DB()` or `Conn.KV()`). Do not compare with an engine outside the
   reviewed list in `TestNoEngineSwitches`, which fails on a new
-  comparison. An engine built on another's type also needs a dialect type
-  of its own whose `Engine()` is its own, returned by its `dialect()`:
+  comparison. An engine built on another's type (as MariaDB on MySQL's)
+  declares its own `Engine()`, and a dialect type of its own embedding
+  the parent's, whose `Engine()` is its own, returned by its `dialect()`:
   rules are found through a `Dialect` too.
 - **DuckDB and in-memory SQLite share one connection** (`DB.single`), so all
   their sessions share one transaction.

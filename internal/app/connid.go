@@ -125,7 +125,7 @@ func (a *App) askRenameConn(cn *connection.Conn, old, id string, then func()) {
 
 // renameConn gives cn the ID id, without the project's prefix, and moves
 // what names it by its old one: dgopher.json and its tables' settings,
-// the query files, open editors (their unsaved text kept), dashboards and
+// the engine notice it dismissed, the query files, open editors (their unsaved text kept), dashboards and
 // data models, the keychain's secrets and the trust the user gave it. The
 // query history and the audit log keep the old ID, as written.
 //
@@ -165,10 +165,11 @@ func (a *App) renameConn(cn *connection.Conn, id string) error {
 		return fmt.Errorf("could not copy its secrets in the keychain: %w", err)
 	}
 	cn.Config.ID = renamed.ID
-	localErr := dataview.RenameConnection(p, old, id)
+	localErr := errors.Join(dataview.RenameConnection(p, old, id), renameIdentityDismissal(p, old, id))
 	if err := p.Save(a.ProjectConfigs(p)); err != nil {
 		cn.Config.ID = was.ID
 		dataview.RenameConnection(p, id, old)
+		renameIdentityDismissal(p, id, old)
 		for _, k := range copied {
 			a.st.Secrets().Delete(k)
 		}

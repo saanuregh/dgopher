@@ -28,6 +28,14 @@ func TestEngineFactsPinned(t *testing.T) {
 		SQLite:     {"SQLite", 0, "", sqltext.SQLite, "SELECT sqlite_version()", sqliteDialect{}, []BackupFormat{BackupCopy}},
 		DuckDB:     {"DuckDB", 0, "", sqltext.Postgres, "SELECT version()", duckdbDialect{}, []BackupFormat{BackupParquet}},
 		"unknown":  {"unknown", 0, "", sqltext.Generic, "", nil, nil},
+
+		// The flavors answer as their parent, but for their names, ports
+		// and users, until their own PRs.
+		CockroachDB: {"CockroachDB", 26257, "root", sqltext.Postgres, "SHOW server_version", cockroachdbDialect{}, []BackupFormat{BackupArchive, BackupSQL}},
+		YugabyteDB:  {"YugabyteDB", 5433, "yugabyte", sqltext.Postgres, "SHOW server_version", yugabytedbDialect{}, []BackupFormat{BackupArchive, BackupSQL}},
+		TimescaleDB: {"TimescaleDB", 5432, "postgres", sqltext.Postgres, "SHOW server_version", timescaledbDialect{}, []BackupFormat{BackupArchive, BackupSQL}},
+		MariaDB:     {"MariaDB", 3306, "root", sqltext.MySQL, "SELECT VERSION()", mariadbDialect{}, []BackupFormat{BackupSQL}},
+		TiDB:        {"TiDB", 4000, "root", sqltext.MySQL, "SELECT VERSION()", tidbDialect{}, []BackupFormat{BackupSQL}},
 	}
 	engines := append(Engines(), "unknown")
 	if len(engines) != len(want) {
@@ -58,7 +66,7 @@ func TestEngineFactsPinned(t *testing.T) {
 // Every engine has rules of its own, the SQL ones and only they answer
 // SQL's hooks, and each lexes as a dialect sqltext knows.
 func TestEngineRulesCover(t *testing.T) {
-	sqlEngines := []Engine{Postgres, MySQL, ClickHouse, SQLite, DuckDB}
+	sqlEngines := []Engine{Postgres, CockroachDB, YugabyteDB, TimescaleDB, MySQL, MariaDB, TiDB, ClickHouse, SQLite, DuckDB}
 	lexers := []sqltext.Dialect{sqltext.Generic, sqltext.Postgres, sqltext.MySQL, sqltext.ClickHouse, sqltext.SQLite}
 	if len(registeredRules) != len(Engines()) {
 		t.Errorf("%d engines have rules, want one each of %v", len(registeredRules), Engines())
