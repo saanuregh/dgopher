@@ -758,7 +758,8 @@ One viewer shows both a query's results and a table's data.
 - Three views: grid, record (Tab), and plain text (``⌘` `` cycles them).
 - Formats: thousands separators, dates, booleans, binary and NULL, and
   numbers and dates in your region's format (which keeps every digit); row
-  colors by value; zoom.
+  colors by value; zoom, also with ⌘= and ⌘-, ⌘K ⌘0 for the default size,
+  ⌘ with the mouse wheel and pinching a touchpad.
 - **Refresh**, **Fetch All** (with Stop, which keeps the rows read), and on
   a table **Count** (`SELECT COUNT(*)`, with Stop). The keys: F5, ⌘⇧= and
   ⌘⌥N for the next page.
@@ -1527,7 +1528,7 @@ Settings (⌘,) has five pages:
 
 | Page | Settings |
 | --- | --- |
-| Appearance | theme; editor and interface fonts; editor font size (9–24, 13 by default) |
+| Appearance | theme; editor and interface fonts; editor font size (9–24, 13 by default), which ⌘= and ⌘- in the editor, ⌘K ⌘0, ⌘ with the mouse wheel and pinching a touchpad change too |
 | Editor | where statements end; what a script does on an error; Vim; keyboard shortcuts |
 | Results | rows per page (50–10,000, 500 by default); when to notify (0–3,600 seconds, 10 by default) |
 | Safety | the large-change limit (1,000 rows by default); showing sensitive values |

@@ -282,6 +282,14 @@ func GroupDigits(s string) string {
 	return sign + b.String()
 }
 
+// The sizes the editor's and the grids' text may be set to, by Settings,
+// the grid's menu and pinching.
+const (
+	MinFontSize   = 9
+	MaxEditorFont = 24
+	MaxGridFont   = 22
+)
+
 // GridFontSize is the size of the grids' text.
 func (s Settings) GridFontSize() float32 {
 	if s.GridFont <= 0 {

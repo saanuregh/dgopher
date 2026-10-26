@@ -11,7 +11,9 @@ import (
 	"strings"
 
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 	"dgopher/internal/project"
+	"dgopher/internal/settings"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -174,19 +176,42 @@ func formatMenu(a Host, m *ui.Menu) {
 		choose("NULL as NULL", &f.NullText, "")
 		choose("NULL as [NULL]", &f.NullText, "[NULL]")
 		m.Separator()
-		if m.Item("Zoom In").Chosen() {
-			a.Settings().GridFont, changed = min(a.Settings().GridFontSize()+1, 22), true
+		if keymap.Item(m.Item("Zoom In"), keymap.GridZoomIn).Chosen() {
+			stepGridFont(a, 1)
 		}
-		if m.Item("Zoom Out").Chosen() {
-			a.Settings().GridFont, changed = max(a.Settings().GridFontSize()-1, 9), true
+		if keymap.Item(m.Item("Zoom Out"), keymap.GridZoomOut).Chosen() {
+			stepGridFont(a, -1)
 		}
-		if m.Item("Actual Size").Chosen() {
-			a.Settings().GridFont, changed = 0, true
+		if keymap.Item(m.Item("Actual Size"), keymap.GridZoomReset).Chosen() {
+			stepGridFont(a, 0)
 		}
 		if changed {
 			a.SaveSettings()
 		}
 	})
+}
+
+// stepGridFont makes the grids' text, of every tab, a size larger, or
+// smaller for a negative step; 0 puts it back at its default.
+func stepGridFont(a Host, step int) {
+	s := a.Settings()
+	size := float32(0)
+	if step != 0 {
+		size = min(max(s.GridFontSize()+float32(step), settings.MinFontSize), settings.MaxGridFont)
+	}
+	if size != s.GridFont {
+		s.GridFont = size
+		a.SaveSettings()
+	}
+}
+
+// zoom sets the grids' font size, of every tab, as a pinch zooms it.
+func (g *Grid) zoom(a Host, scale float32) {
+	s := a.Settings()
+	if size, ok := g.fontPinch.Zoom(s.GridFontSize(), scale, settings.MinFontSize, settings.MaxGridFont); ok {
+		s.GridFont = size
+		a.SaveSettings()
+	}
 }
 
 // colorRule colors the rows whose column holds a value.
