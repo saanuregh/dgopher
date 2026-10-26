@@ -17,6 +17,8 @@ func TestReviewSQL(t *testing.T) {
 	prod := &db.Config{Name: "prod", Engine: db.Postgres, Env: db.Production}
 	ro := &db.Config{Name: "replica", Engine: db.MySQL, Env: db.Development, ReadOnly: true}
 	pgRO := &db.Config{Name: "pg-replica", Engine: db.Postgres, Env: db.Development, ReadOnly: true}
+	tidbRO := &db.Config{Name: "tidb-replica", Engine: db.TiDB, Env: db.Development, ReadOnly: true}
+	tidbProd := &db.Config{Name: "tidb-prod", Engine: db.TiDB, Env: db.Production}
 	cases := []struct {
 		name     string
 		cfg      *db.Config
@@ -69,6 +71,12 @@ func TestReviewSQL(t *testing.T) {
 		{"escaped quotes and another string on read-only", ro, []string{`SELECT 'O\'Brien' AS n, 'x' AS m`}, false, false, false, false},
 		{"escaped quotes in a condition on read-only", ro, []string{`SELECT * FROM t WHERE a='O\'Brien' AND b='x'`}, false, false, false, false},
 		{"an E string on read-only", pgRO, []string{`SELECT E'a\'b'`}, false, false, false, false},
+		{"tidb set config on read-only", tidbRO, []string{"SET CONFIG tikv `split.qps-threshold` = 1000"}, true, false, false, true},
+		{"tidb set binding on read-only", tidbRO, []string{"SET BINDING DISABLED FOR SELECT * FROM t"}, true, false, false, true},
+		{"tidb set config on prod", tidbProd, []string{"SET CONFIG pd `log.level` = 'info'"}, false, true, false, true},
+		{"tidb set binding on prod", tidbProd, []string{"SET BINDING ENABLED FOR SELECT * FROM t"}, false, true, false, true},
+		{"tidb feature comment locks rows on read-only", tidbRO, []string{"SELECT * FROM t /*T![zz] ' */ /*T![clustered_index] FOR UPDATE */ /*T![zz] ' */"}, true, false, false, true},
+		{"tidb feature comment writes a file on read-only", tidbRO, []string{"SELECT * FROM t /*T![zz] ' */ /*T![clustered_index] INTO OUTFILE '/tmp/x' */ /*T![zz] ' */"}, true, false, false, true},
 		{"a path on read-only", pgRO, []string{`SELECT 'C:\path'`}, false, false, false, false},
 	}
 	for _, c := range cases {
@@ -121,16 +129,20 @@ func TestDisablesReadOnlyClickHouseEscapes(t *testing.T) {
 
 // A read-only switch hidden in a string by one quoting rule is read under
 // the others too.
-// A versioned executable comment, or MariaDB's on MySQL, the server may
-// skip: a read-only connection refuses what either reading writes.
+// A versioned executable comment, or MariaDB's or TiDB's on another
+// server, the server may skip: a read-only connection refuses what either
+// reading writes.
 func TestVersionedExecutableCommentHidesNothing(t *testing.T) {
-	for _, e := range []db.Engine{db.MySQL, db.MariaDB} {
+	for _, e := range []db.Engine{db.MySQL, db.MariaDB, db.TiDB} {
 		ro := &db.Config{Name: "ro", Engine: e, ReadOnly: true}
 		for _, sql := range []string{
 			"/*M!999999 SELECT */ DELETE FROM t WHERE id = 1",
 			"/*!99999 SELECT */ DELETE FROM t WHERE id = 1",
 			"/*!90000 SELECT */ /*!50000 DELETE */ FROM t WHERE id = 1",
 			"SET TRANSACTION READ /*!99999 ' */ WRITE -- '",
+			"/*T![clustered_index] DELETE FROM t WHERE id = 1 */",
+			"/*T! SELECT */ DELETE FROM t WHERE id = 1",
+			"SELECT * FROM t /*T![clustered_index] FOR UPDATE */",
 		} {
 			if v := ReviewSQL(ro, Analyze(ro, []string{sql})); v.Blocked == "" {
 				t.Errorf("%s: not blocked on a read-only connection: %s", e, sql)
@@ -299,6 +311,7 @@ func TestEndsTransactionWarns(t *testing.T) {
 	my := &db.Config{Name: "my", Engine: db.MySQL, Env: db.Development}
 	pg := &db.Config{Name: "pg", Engine: db.Postgres, Env: db.Development}
 	maria := &db.Config{Name: "maria", Engine: db.MariaDB, Env: db.Development}
+	tidb := &db.Config{Name: "tidb", Engine: db.TiDB, Env: db.Development}
 	for _, c := range []struct {
 		cfg   *db.Config
 		sql   string // statements split at ";"
@@ -328,6 +341,11 @@ func TestEndsTransactionWarns(t *testing.T) {
 		{maria, "ANALYZE FORMAT=JSON SELECT 1", true, false, false},
 		{maria, "INSERT INTO t VALUES (1); ANALYZE FORMAT=JSON UPDATE t SET a = 2 WHERE id = 1", false, true, false},
 		{maria, "INSERT INTO t VALUES (1); ANALYZE TABLE t", false, true, true},
+		{maria, "UPDATE t SET a = 1 WHERE id = 2; CREATE SEQUENCE s", false, true, true},
+		// TiDB commits on any DDL.
+		{tidb, "UPDATE t SET a = 1 WHERE id = 2; CREATE SEQUENCE s", false, true, true},
+		{tidb, "UPDATE t SET a = 1 WHERE id = 2; CREATE PLACEMENT POLICY p FOLLOWERS=1", false, true, true},
+		{tidb, "UPDATE t SET a = 1 WHERE id = 2; CREATE TEMPORARY TABLE x (a INT)", false, true, false},
 	} {
 		stmts := Analyze(c.cfg, strings.Split(c.sql, ";"))
 		v := ReviewSQL(c.cfg, stmts)
@@ -461,6 +479,40 @@ func TestIntegrationMariaDBExplainAnalyzeReadOnly(t *testing.T) {
 	d, err := db.Open(ctx, cfg, nil)
 	if err != nil {
 		t.Fatal(err)
+	}
+	defer d.Close()
+	s, err := d.Session(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	c, err := s.Query(ctx, run.Statement)
+	if err != nil {
+		t.Fatalf("%q on read-only: %v", run.Statement, err)
+	}
+	c.Close()
+}
+
+// TiDB has no read-only session: a read-only connection opens, the app
+// refuses its writes, and its Explain Analyze of a read runs.
+func TestIntegrationTiDBReadOnlyIsTheAppsCheck(t *testing.T) {
+	testutil.Integration(t)
+	optionalserver.SkipUnless(t, "tidb")
+	cfg := db.Config{Name: "tidb", Engine: db.TiDB, Host: "127.0.0.1", Port: 14000, User: "root", Password: "dgopher", Database: "shop", ReadOnly: true}
+	if v := ReviewSQL(&cfg, Analyze(&cfg, []string{"INSERT INTO t VALUES (1)"})); v.Blocked == "" {
+		t.Fatal("a write was not refused on a read-only connection")
+	}
+	run, ok := db.Explain(cfg.Engine, "SELECT 1", true)
+	if !ok {
+		t.Fatal("no Explain Analyze")
+	}
+	if v := ReviewSQL(&cfg, Analyze(&cfg, []string{run.Statement})); v.Blocked != "" || v.Writes {
+		t.Fatalf("%q: %+v", run.Statement, v)
+	}
+	ctx := context.Background()
+	d, err := db.Open(ctx, cfg, nil)
+	if err != nil {
+		t.Fatalf("a read-only connection did not open: %v", err)
 	}
 	defer d.Close()
 	s, err := d.Session(ctx)

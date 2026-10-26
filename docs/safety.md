@@ -73,6 +73,7 @@ A read-only connection refuses writes in two places:
   | PostgreSQL | `default_transaction_read_only` |
   | MySQL | `transaction_read_only` |
   | MariaDB | `tx_read_only`, which every release from 10.11 has |
+  | TiDB | none: TiDB refuses the read-only setting (error 1235), so the app's check is the only one |
   | ClickHouse | `readonly=2` |
   | SQLite | `mode=ro` with `query_only` |
   | DuckDB | `access_mode=READ_ONLY` |
@@ -233,7 +234,9 @@ On MySQL, a statement that commits an open transaction implicitly asks
 first, because Roll Back could no longer undo what ran before it. These
 are DDL and the rest of
 [MySQL's list](https://dev.mysql.com/doc/refman/8.4/en/implicit-commit.html),
-except statements on temporary tables.
+except statements on temporary tables. MariaDB adds `CREATE`, `ALTER` and
+`DROP SEQUENCE`; TiDB any `CREATE`, `ALTER` or `DROP` but a local
+temporary table's or a plan binding's, and `FLASHBACK` and `RECOVER`.
 
 When no transaction is open yet, it still asks if a write comes before it
 in the same run inside a transaction: the app's own in manual commit, or

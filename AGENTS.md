@@ -62,8 +62,8 @@ integration tests too when it touches `internal/db`.
 - Integration servers are the containers of `compose.yaml`: `dgopher-pg`,
   `dgopher-mysql`, `dgopher-ch`, `dgopher-redis`, `dgopher-redis8`,
   `dgopher-redis-cluster` and `dgopher-redis-sentinel`, and, started with
-  `docker compose --profile compat up -d --wait`, `dgopher-mariadb`; their
-  tests skip when it is not running. Their ports and passwords are in `internal/testutil/testutil.go`,
+  `docker compose --profile compat up -d --wait`, `dgopher-mariadb` and
+  `dgopher-tidb`; their tests skip when they are not running. Their ports and passwords are in `internal/testutil/testutil.go`,
   `internal/db/integration_test.go`, for the profiled servers
   `internal/testutil/optionalserver/optionalserver.go`, and, for Redis 8,
   `internal/db/redismodules_test.go` and `internal/ui/redis/redis_test.go`; keep `compose.yaml` matching them.

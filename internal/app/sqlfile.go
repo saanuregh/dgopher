@@ -457,7 +457,7 @@ func (a *App) runSQLFile(x *sqlFileRun) {
 			x.failures = failures
 			title := "SQL file finished"
 			if err != nil {
-				x.err = err.Error()
+				x.err = widgets.ErrorText(err)
 				title = "SQL file failed"
 			} else if len(failures) > 0 {
 				title = fmt.Sprintf("SQL file finished with %d errors", len(failures))

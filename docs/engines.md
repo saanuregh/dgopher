@@ -122,3 +122,30 @@ release still maintained.
   installed; through an SSH tunnel or proxy, verify-full TLS checks the
   server's name, which `mariadb-dump` cannot be told to skip.
 
+### TiDB
+
+Tested against TiDB 8.5; supported from 7.5, the oldest TiDB release
+PingCAP still maintains (until 2026-12-01; 8.1 then).
+
+- **Read-only** is the app's check only: TiDB refuses the read-only
+  setting, so the connection opens without it and the app refuses writes. A
+  read-only connection saved as MySQL that reaches a TiDB server fails to
+  open, and its error says to set its engine to TiDB.
+  Dashboards run their queries without a read-only transaction.
+- **Explain** and **Explain Analyze** use `FORMAT='tidb_json'`; the plan
+  shows TiDB's operators, with its own advice on full table scans and
+  sorts.
+- **Sessions** span every TiDB server, with a column naming it; **Locks**
+  shows the transactions waiting and those they wait for; **Slowest
+  statements** reads the statement summary, for its current window.
+  **Stop** and **End** do nothing when the cluster's `enable-global-kill`
+  is off.
+- A **write conflict** (error 9007, at commit in optimistic mode) says the
+  transaction clashed and can be run again; the app never retries it.
+- **Other objects** has sequences, and no routines, triggers or events,
+  which TiDB lacks. CHECK constraints are kept only when the cluster has
+  `tidb_enable_check_constraint` on. A clustered primary key cannot be
+  changed, and a foreign key keeps an index of its own.
+- **Backup** writes the schema only, by `mysqldump`: TiDB cannot give a
+  dump a consistent snapshot of the data.
+

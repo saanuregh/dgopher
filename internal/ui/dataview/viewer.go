@@ -1152,7 +1152,7 @@ func (v *Viewer) apply(stmts, shown []db.Statement) {
 				if errors.Is(err, errApplyStopped) && undoErr == nil {
 					v.a.Toast(fmt.Sprintf("Stopped: none of the %s were applied (rolled back).", widgets.Count(len(stmts), "change")), "", nil)
 				} else {
-					v.a.ShowError("The changes were not applied", err.Error())
+					v.a.ShowReport(widgets.ErrorReportOf("The changes were not applied", err))
 				}
 				if v.reloadAgain {
 					v.reloadAgain = false

@@ -43,6 +43,27 @@ services:
       interval: 2s
       retries: 60
 
+  # TiDB, in the compat profile: docker compose --profile compat up -d
+  # --wait tidb. One server on its own embedded store (unistore); the first
+  # start sets root's password (ALTER USER there leaves it empty; an
+  # UPDATE of mysql.user sets it), keeps CHECK constraints, which TiDB
+  # ignores by default, and makes the database.
+  tidb:
+    image: pingcap/tidb:v8.5.1
+    container_name: dgopher-tidb
+    profiles: ["compat"]
+    ports: ["127.0.0.1:14000:4000"]
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        printf "UPDATE mysql.user SET authentication_string = CONCAT('*', UPPER(SHA1(UNHEX(SHA1('dgopher'))))) WHERE User = 'root';\nFLUSH PRIVILEGES;\nSET GLOBAL tidb_enable_check_constraint = ON;\nCREATE DATABASE IF NOT EXISTS shop;\n" > /tmp/init.sql;
+        exec /tidb-server --store=unistore --path=/tmp/tidb --initialize-sql-file=/tmp/init.sql
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:10080/status"]
+      interval: 2s
+      retries: 60
+
   clickhouse:
     image: clickhouse/clickhouse-server:26.3
     container_name: dgopher-ch

@@ -59,10 +59,13 @@ func (t *Chat) chartInEditor(ctx context.Context, args chartArgs) (agent.ToolRes
 		if cn == nil || !cn.Config.Engine.IsSQL() {
 			return "the editor has no SQL connection"
 		}
-		if why := readRefusal(&cn.Config, sql); why != "" {
+		checked, why := readRefusal(&cn.Config, sql)
+		if why != "" {
 			t.a.RecordBlocked(cn, "AI chat: "+why, sql)
 			return why
 		}
+		// Charted is the statement checked, not the text around it.
+		sql = checked
 		r.title = "Chart in the editor on " + cn.Config.Name
 		r.sql = formatSQL(&cn.Config, sql)
 		noRows = cn.Config.NoRowsToChat

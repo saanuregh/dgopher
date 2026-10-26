@@ -2,6 +2,7 @@ package widgets
 
 import (
 	"dgopher/internal/connection"
+	"dgopher/internal/db"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -64,6 +65,21 @@ func ErrorCard(c *ui.Context, r ErrorReport, open *bool, copyText func(string)) 
 		r.Actions[clicked].Run()
 	}
 	return clicked >= 0
+}
+
+// ErrorReportOf is a database error's report: its text, and the hint
+// db.DescribeError finds, as for a transaction that clashed.
+func ErrorReportOf(title string, err error) ErrorReport {
+	return ErrorReport{Title: title, Hint: db.DescribeError(err).Hint, Detail: err.Error()}
+}
+
+// ErrorText is a database error's text followed by that hint, where the
+// error shows as text alone.
+func ErrorText(err error) string {
+	if hint := db.DescribeError(err).Hint; hint != "" {
+		return err.Error() + "\n\n" + hint
+	}
+	return err.Error()
 }
 
 // ConnectionReport is a failed connection's report, offering to edit the

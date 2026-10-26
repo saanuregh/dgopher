@@ -37,6 +37,7 @@ const (
 	ProblemSSHHostKey
 	ProblemTunnelClosed
 	ProblemKeychain
+	ProblemReadOnlyRefused
 )
 
 var problemHints = map[ProblemKind]string{
@@ -51,6 +52,7 @@ var problemHints = map[ProblemKind]string{
 	ProblemSSHHostKey:       "The SSH server's host key does not match the one trusted before.",
 	ProblemTunnelClosed:     "The SSH tunnel closed, so the connection to the database was lost.",
 	ProblemKeychain:         "A saved password could not be read from the keychain. Unlock the keychain, or edit the connection.",
+	ProblemReadOnlyRefused:  "This server refuses the read-only setting, as TiDB does: set the connection's engine to TiDB, whose read-only is the app's check.",
 }
 
 // Hint is a short plain-language cause and next step, "" for ProblemUnknown.
@@ -125,6 +127,12 @@ func ClassifyConnectError(err error) ProblemKind {
 			return ProblemAuth
 		case 1049:
 			return ProblemUnknownDatabase
+		case 1235:
+			// Not supported: TiDB's refusal of the read-only setting a
+			// read-only connection sends.
+			if strings.Contains(mysqlErr.Message, "READ ONLY") {
+				return ProblemReadOnlyRefused
+			}
 		}
 	}
 	var chErr *proto.Exception

@@ -29,6 +29,8 @@ type fakeEditor struct {
 	ctx      EditorContext
 	inserted []string
 	charted  []dataview.ChartSettings
+	// chartedSQL is the SQL each chart ran.
+	chartedSQL []string
 }
 
 func (e *fakeEditor) Connection() *connection.Conn { return e.cn }
@@ -37,6 +39,7 @@ func (e *fakeEditor) InsertSQL(sql string)         { e.inserted = append(e.inser
 
 func (e *fakeEditor) ChartSQL(sql string, s dataview.ChartSettings, done func(ChartResult)) string {
 	e.charted = append(e.charted, s)
+	e.chartedSQL = append(e.chartedSQL, sql)
 	done(ChartResult{Columns: []string{"k", "n"}, Rows: [][]any{{"a", 1}, {"b", 2}}})
 	return ""
 }
@@ -252,6 +255,24 @@ func TestReadQueryTool(t *testing.T) {
 		t.Fatal("not audited")
 	}
 
+	// The statement checked is the one run and audited, not the text around it.
+	got = call("SELECT 7 AS seven;\n-- a note")
+	testutil.WaitFor(t, tt, "the second request", func() bool { return len(tab.requests) == 1 && tt.HasText("Run a read on lite") })
+	if err := tt.Click("Allow"); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WaitFor(t, tt, "the second rows", func() bool {
+		select {
+		case a = <-got:
+			return true
+		default:
+			return false
+		}
+	})
+	if a.err != nil || a.res.IsError || !slices.ContainsFunc(h.Events, func(e audit.Event) bool { return e.Statement == "SELECT 7 AS seven" }) {
+		t.Fatalf("result %q, %v; events %+v", a.res.Text(), a.err, h.Events)
+	}
+
 	for _, sql := range []string{"DELETE FROM t", "SELECT 1; SELECT 2"} {
 		got := call(sql)
 		testutil.WaitFor(t, tt, "the refusal", func() bool {
@@ -267,7 +288,7 @@ func TestReadQueryTool(t *testing.T) {
 		}
 	}
 	ed.cn.Config.Env = db.Production
-	if why := readRefusal(&ed.cn.Config, "SELECT 1"); !strings.Contains(why, "production") {
+	if _, why := readRefusal(&ed.cn.Config, "SELECT 1"); !strings.Contains(why, "production") {
 		t.Fatalf("production: %q", why)
 	}
 }
@@ -362,7 +383,8 @@ func TestChartTool(t *testing.T) {
 		})
 		return a
 	}
-	got := call(chartArgs{SQL: "SELECT k, n FROM t", Kind: "Bar", X: "k", Series: []string{"n"}})
+	// What runs is the statement checked, not the text around it.
+	got := call(chartArgs{SQL: "SELECT k, n FROM t;\n-- a note", Kind: "Bar", X: "k", Series: []string{"n"}})
 	testutil.WaitFor(t, tt, "the card", func() bool { return tt.HasText("Chart in the editor on lite") })
 	if !testutil.HasTextContaining(tt, "bar chart of n by k") {
 		t.Fatalf("texts %q", tt.Texts())
@@ -376,6 +398,9 @@ func TestChartTool(t *testing.T) {
 	}
 	if len(ed.charted) != 1 || ed.charted[0].X != "k" || ed.charted[0].Series[0] != "n" {
 		t.Fatalf("charted %+v", ed.charted)
+	}
+	if ed.chartedSQL[0] != "SELECT k, n FROM t" {
+		t.Fatalf("charted SQL %q", ed.chartedSQL[0])
 	}
 	for _, args := range []chartArgs{{SQL: "DELETE FROM t", Kind: "Bar"}, {SQL: "SELECT 1", Kind: "Radar"}} {
 		if a := wait(call(args)); !a.res.IsError || len(tab.requests) != 0 {
@@ -656,7 +681,7 @@ func TestFileReadersRefused(t *testing.T) {
 		{db.Postgres, "SELECT count(*) FROM orders", false},
 	} {
 		cfg := db.Config{Name: "x", Engine: c.engine}
-		why := readRefusal(&cfg, c.sql)
+		_, why := readRefusal(&cfg, c.sql)
 		if got := strings.Contains(why, "files or URLs"); got != c.refuse {
 			t.Errorf("%s %q: %q", c.engine, c.sql, why)
 		}

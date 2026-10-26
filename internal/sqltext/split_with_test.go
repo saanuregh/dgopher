@@ -457,6 +457,12 @@ func TestSplitKeepsExecutableComments(t *testing.T) {
 	if len(got) != 2 || got[0].Text != "/*!40101 SET NAMES utf8mb4 */" || !strings.HasPrefix(got[1].Text, "/*!50003 CREATE*/") {
 		t.Fatalf("%+v", got)
 	}
+	// MariaDB's and TiDB's are run by their servers.
+	for _, src := range []string{"/*M!100000 DELETE FROM t */", "/*T! DELETE FROM t */", "/*T![clustered_index] DELETE FROM t */"} {
+		if got := SplitWith(src+";", MySQL, SplitOptions{}); len(got) != 1 || got[0].Text != src {
+			t.Errorf("%s: %+v", src, got)
+		}
+	}
 	if got := SplitWith("/* note */;", MySQL, SplitOptions{}); len(got) != 0 {
 		t.Fatalf("a plain comment kept: %+v", got)
 	}

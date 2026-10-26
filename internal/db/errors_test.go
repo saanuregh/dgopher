@@ -2,9 +2,14 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // Each engine's error gives the details it has: a code, and where in the
@@ -64,5 +69,27 @@ func TestDescribeError(t *testing.T) {
 				t.Fatalf("%q → %+v", err, info)
 			}
 		})
+	}
+}
+
+// A transaction that clashed with another, as TiDB's write conflict at
+// COMMIT, is said to be one that may be run again; the app never runs it
+// again itself. Other errors, MySQL's deadlock (SQLSTATE 40001) among
+// them, keep what they said.
+func TestConflictErrorHint(t *testing.T) {
+	conflict := fmt.Errorf("commit: %w", &mysql.MySQLError{Number: 9007, Message: "Write conflict, txnStartTS=1, conflictStartTS=2, reason=Optimistic [try again later]"})
+	if hint := DescribeError(conflict).Hint; !strings.Contains(hint, "never runs it again") {
+		t.Fatalf("described %+v", DescribeError(conflict))
+	}
+	for _, err := range []error{
+		&mysql.MySQLError{Number: 1213, SQLState: [5]byte{'4', '0', '0', '0', '1'}, Message: "Deadlock found"},
+		fmt.Errorf("plain"),
+	} {
+		if got := DescribeError(err).Hint; got != "" {
+			t.Errorf("%v: hint %q", err, got)
+		}
+	}
+	if got := DescribeError(&pgconn.PgError{Code: "40001", Hint: "its own"}).Hint; got != "its own" {
+		t.Errorf("PostgreSQL's hint replaced by %q", got)
 	}
 }

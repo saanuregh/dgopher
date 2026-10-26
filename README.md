@@ -51,7 +51,8 @@ To build from source, see [Development](docs/development.md).
   and its color shows everywhere.
 - On production, writes ask first, destructive statements need the
   connection's name typed, and manual commit is the default.
-- Read-only connections are enforced both in the app and on the server.
+- Read-only connections are enforced both in the app and on the server;
+  on TiDB, which refuses the server's read-only setting, by the app alone.
 - An open transaction is never closed silently. One left idle rolls back,
   after a warning.
 - Grid edits are shown as SQL to review, then applied in one transaction,

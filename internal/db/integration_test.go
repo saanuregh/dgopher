@@ -43,6 +43,7 @@ func skipUnlessRunning(t *testing.T, cfg Config) {
 }
 
 var mariadbConfig = Config{Name: "mariadb", Engine: MariaDB, Host: "127.0.0.1", Port: 13307, User: "root", Password: "dgopher", Database: "shop"}
+var tidbConfig = Config{Name: "tidb", Engine: TiDB, Host: "127.0.0.1", Port: 14000, User: "root", Password: "dgopher", Database: "shop"}
 
 type fixture struct {
 	cfg    Config
@@ -80,6 +81,12 @@ line two'), (3, 'Linus', NULL, NULL)`,
 		},
 		{
 			cfg:    mariadbConfig,
+			schema: "shop",
+			setup:  append([]string{`DROP VIEW IF EXISTS big_orders`, `DROP TABLE IF EXISTS orders`, `DROP TABLE IF EXISTS customers`}, common...),
+			sleep:  `SELECT SLEEP(10)`,
+		},
+		{
+			cfg:    tidbConfig,
 			schema: "shop",
 			setup:  append([]string{`DROP VIEW IF EXISTS big_orders`, `DROP TABLE IF EXISTS orders`, `DROP TABLE IF EXISTS customers`}, common...),
 			sleep:  `SELECT SLEEP(10)`,
@@ -338,7 +345,9 @@ func TestIntegrationReadOnly(t *testing.T) {
 			}
 			defer s.Close()
 			table := QualifiedName(d.Dialect, f.schema, "customers")
-			if _, err := s.Exec(ctx, "INSERT INTO "+table+" (id, name) VALUES (9, 'x')"); err == nil {
+			// TiDB has no read-only session: the app's check alone refuses
+			// writes there (internal/safety), and the connection opens.
+			if _, err := s.Exec(ctx, "INSERT INTO "+table+" (id, name) VALUES (9, 'x')"); err == nil && f.cfg.Engine != TiDB {
 				t.Fatal("the server accepted a write on a read-only connection")
 			}
 			c, err := s.Query(ctx, "SELECT COUNT(*) FROM "+table)
@@ -548,7 +557,7 @@ func TestIntegrationRedisBlockingConsole(t *testing.T) {
 
 func TestIntegrationMySQLCountsMatchedRows(t *testing.T) {
 	integration(t)
-	for _, e := range []Engine{MySQL, MariaDB} {
+	for _, e := range []Engine{MySQL, MariaDB, TiDB} {
 		t.Run(string(e), func(t *testing.T) {
 			d := open(t, fixtureOf(t, e))
 			s, _ := d.Session(context.Background())
@@ -951,6 +960,7 @@ func TestIntegrationUsers(t *testing.T) {
 		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"}, "public", "it_users"},
 		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"}, "shop", "it_users"},
 		{mariadbConfig, "shop", "it_users"},
+		{tidbConfig, "shop", "it_users"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default", "it_users"},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
@@ -1088,6 +1098,10 @@ func TestIntegrationItems(t *testing.T) {
 			},
 			map[string]string{"it_twice()": "DROP FUNCTION it_twice", "it_noop()": "DROP PROCEDURE it_noop",
 				"it_stamp on it_items_t": "DROP TRIGGER it_stamp", "it_tick": "DROP EVENT it_tick", "it_counter": "DROP SEQUENCE it_counter"}},
+		// TiDB has no routines, triggers or events.
+		{tidbConfig, "shop",
+			[]string{"DROP SEQUENCE IF EXISTS it_counter", "CREATE SEQUENCE it_counter START WITH 10 INCREMENT BY 5"},
+			map[string]string{"it_counter": "DROP SEQUENCE it_counter"}},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "items.sqlite")}, "main",
 			[]string{"CREATE TABLE t (id int)", "CREATE TRIGGER stamp AFTER INSERT ON t BEGIN UPDATE t SET id = id + 1 WHERE rowid = NEW.rowid; END"},
 			map[string]string{"stamp on t": "DROP TRIGGER stamp"}},
@@ -1165,6 +1179,7 @@ func TestIntegrationRename(t *testing.T) {
 		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"}, "public"},
 		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"}, "shop"},
 		{mariadbConfig, "shop"},
+		{tidbConfig, "shop"},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "r.sqlite")}, "main"},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default"},
@@ -1211,6 +1226,7 @@ func TestIntegrationSearch(t *testing.T) {
 		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"}, "public"},
 		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"}, "shop"},
 		{mariadbConfig, "shop"},
+		{tidbConfig, "shop"},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "s.sqlite")}, "main"},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default"},
@@ -1282,6 +1298,7 @@ func TestIntegrationTableDesign(t *testing.T) {
 		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"}, "shop", "int", "bigint", "varchar(50)", true, true, true},
 		// MariaDB writes integers with their display width.
 		{mariadbConfig, "shop", "int(11)", "bigint(20)", "varchar(50)", true, true, true},
+		{tidbConfig, "shop", "int", "bigint", "varchar(50)", true, true, true},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main", "INTEGER", "BIGINT", "VARCHAR", false, true, false},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default", "Int32", "Int64", "String", false, false, false},
 	} {
@@ -1347,7 +1364,13 @@ func TestIntegrationTableDesign(t *testing.T) {
 				!strings.Contains(was.Columns[2].Default, "1") || was.Columns[3].Comment != "free text" || was.Comment != "orders" {
 				t.Fatalf("read %+v", was)
 			}
-			if c.indexes && (len(was.Indexes) != 1 || was.Indexes[0].Name != "it_design_customer") {
+			// TiDB keeps the index it made for the foreign key, which MySQL
+			// drops once another index holds its columns.
+			wantIndexes := []string{"it_design_customer"}
+			if c.cfg.Engine == TiDB {
+				wantIndexes = append(wantIndexes, "it_design_customer_fkey")
+			}
+			if c.indexes && !slices.Equal(lists.Map(was.Indexes, func(ix IndexDesign) string { return ix.Name }), wantIndexes) {
 				t.Fatalf("indexes %+v", was.Indexes)
 			}
 			if c.keys && (len(was.ForeignKeys) != 1 || was.ForeignKeys[0].OnDelete != "SET NULL" || was.ForeignKeys[0].OnUpdate != "" ||
@@ -1370,10 +1393,13 @@ func TestIntegrationTableDesign(t *testing.T) {
 			if c.indexes {
 				now.Indexes = []IndexDesign{{Name: "it_design_placed", Columns: []string{"placed"}, Unique: true}}
 			}
+			// TiDB cannot change a clustered primary key, as one integer
+			// column's is (error 8200).
+			newKey := c.more && c.cfg.Engine != TiDB
 			if c.more {
 				now.ForeignKeys = nil
 				now.Checks = []CheckDesign{{Name: "it_design_qty_small", Expression: "qty < 1000"}}
-				now.Columns[2].PrimaryKey = true
+				now.Columns[2].PrimaryKey = newKey
 			}
 			ch, err = AlterTableChange(d.Dialect, was, now)
 			if err != nil {
@@ -1392,7 +1418,7 @@ func TestIntegrationTableDesign(t *testing.T) {
 			if c.indexes && (len(after.Indexes) != 1 || after.Indexes[0].Name != "it_design_placed" || !after.Indexes[0].Unique) {
 				t.Fatalf("indexes %+v", after.Indexes)
 			}
-			if c.more && (len(after.ForeignKeys) != 0 || len(after.Checks) != 1 || !after.Columns[2].PrimaryKey) {
+			if c.more && (len(after.ForeignKeys) != 0 || len(after.Checks) != 1 || after.Columns[2].PrimaryKey != newKey) {
 				t.Fatalf("keys %+v, checks %+v, columns %+v", after.ForeignKeys, after.Checks, after.Columns)
 			}
 			if again, err := AlterTableChange(d.Dialect, after, clone(after)); err != nil || len(again.Steps) != 0 {
@@ -1579,6 +1605,11 @@ func TestIntegrationPlans(t *testing.T) {
 				"INSERT INTO it_plan WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 1000) " +
 					"SELECT r.i * 3 + k.i, r.i % 100 FROM r CROSS JOIN (SELECT 0 AS i UNION ALL SELECT 1 UNION ALL SELECT 2) k", "ANALYZE TABLE it_plan"},
 			"SELECT * FROM it_plan WHERE g = 5", "table scan reads every row of it_plan"},
+		{tidbConfig, "shop",
+			[]string{"CREATE TABLE it_plan (id int, g int)",
+				"INSERT INTO it_plan WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 1000) " +
+					"SELECT r.i * 3 + k.i, r.i % 100 FROM r CROSS JOIN (SELECT 0 AS i UNION ALL SELECT 1 UNION ALL SELECT 2) k", "ANALYZE TABLE it_plan"},
+			"SELECT * FROM it_plan WHERE g = 5", "table scan reads every row of it_plan"},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "p.sqlite")}, "main",
 			[]string{"CREATE TABLE it_plan (id INTEGER, g INTEGER)"},
 			"SELECT * FROM it_plan WHERE g = 5 ORDER BY id", "SCAN reads every row of it_plan"},
@@ -1723,19 +1754,35 @@ func TestIntegrationUntrackedTransactionsAreSeen(t *testing.T) {
 		},
 	}
 	steps[MariaDB] = steps[MySQL]
-	for _, e := range []Engine{MySQL, MariaDB, SQLite, DuckDB} {
+	// TiDB has no START REPLICA, XA or procedures, and its AND CHAIN
+	// begins no transaction.
+	for _, st := range steps[MySQL] {
+		switch {
+		case strings.HasPrefix(st.sql, "START REPLICA"), strings.HasPrefix(st.sql, "XA "), strings.HasPrefix(st.sql, "CALL "):
+		case st.sql == "COMMIT AND CHAIN":
+			steps[TiDB] = append(steps[TiDB], step{sql: st.sql, want: TxNone}, step{sql: "START TRANSACTION", want: TxOpen})
+		default:
+			steps[TiDB] = append(steps[TiDB], st)
+		}
+	}
+	for _, e := range []Engine{MySQL, MariaDB, TiDB, SQLite, DuckDB} {
 		t.Run(string(e), func(t *testing.T) {
 			d := open(t, fixtureOf(t, e))
 			if e.Base() == MySQL {
-				for _, q := range []string{"DROP TABLE IF EXISTS untracked_commit", "DROP PROCEDURE IF EXISTS untracked_begin",
-					"CREATE PROCEDURE untracked_begin() START TRANSACTION"} {
+				setup := []string{"DROP TABLE IF EXISTS untracked_commit"}
+				if e != TiDB {
+					setup = append(setup, "DROP PROCEDURE IF EXISTS untracked_begin", "CREATE PROCEDURE untracked_begin() START TRANSACTION")
+				}
+				for _, q := range setup {
 					if _, err := d.SQL.Exec(q); err != nil {
 						t.Fatalf("%s: %v", q, err)
 					}
 				}
 				t.Cleanup(func() {
 					d.SQL.Exec("DROP TABLE IF EXISTS untracked_commit")
-					d.SQL.Exec("DROP PROCEDURE IF EXISTS untracked_begin")
+					if e != TiDB {
+						d.SQL.Exec("DROP PROCEDURE IF EXISTS untracked_begin")
+					}
 				})
 			}
 			s, err := d.Session(ctx)
@@ -1814,6 +1861,16 @@ func TestIntegrationCloseLeaksNothing(t *testing.T) {
 			},
 		},
 		{
+			e:    TiDB,
+			leak: []string{"USE information_schema", "SET @close_leak = 1", "SET SESSION sql_mode = 'ANSI_QUOTES'", "SET autocommit = 0"},
+			checks: []check{
+				{"SELECT DATABASE()", "shop"},
+				{"SELECT @close_leak IS NULL", "1"},
+				{"SELECT @@autocommit", "1"},
+				{"SELECT @@session.sql_mode LIKE '%ANSI_QUOTES%'", "0"},
+			},
+		},
+		{
 			e:    SQLite,
 			leak: []string{"PRAGMA foreign_keys = 0", "/* why */ BEGIN", "INSERT INTO customers (id, name) VALUES (99, 'leak')"},
 			checks: []check{
@@ -1875,7 +1932,7 @@ func TestIntegrationCloseLeaksNothing(t *testing.T) {
 // back only its statement unless innodb_rollback_on_timeout is on.
 func TestIntegrationDeadlockVictimIsNotOpen(t *testing.T) {
 	integration(t)
-	for _, e := range []Engine{MySQL, MariaDB} {
+	for _, e := range []Engine{MySQL, MariaDB, TiDB} {
 		t.Run(string(e), func(t *testing.T) { deadlockVictimIsNotOpen(t, e) })
 	}
 }
@@ -1985,6 +2042,8 @@ func TestIntegrationReconnectRefusesOnce(t *testing.T) {
 		{e: MySQL, set: "USE information_schema", before: "information_schema", after: "shop", table: "shop.customers",
 			lose: mysqlLose, sleep: "SELECT SLEEP(10)"},
 		{e: MariaDB, set: "USE information_schema", before: "information_schema", after: "shop", table: "shop.customers",
+			lose: mysqlLose, sleep: "SELECT SLEEP(10)"},
+		{e: TiDB, set: "USE information_schema", before: "information_schema", after: "shop", table: "shop.customers",
 			lose: mysqlLose, sleep: "SELECT SLEEP(10)"},
 	}
 	// untilRun runs a statement until it runs, and returns the errors before.

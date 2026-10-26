@@ -218,7 +218,7 @@ func TestCursorSQLiteStorageClass(t *testing.T) {
 }
 
 func TestCursorTextIsString(t *testing.T) {
-	binary := map[Engine]string{Postgres: "bytea", MySQL: "BLOB", MariaDB: "BLOB", SQLite: "BLOB", DuckDB: "BLOB"}
+	binary := map[Engine]string{Postgres: "bytea", MySQL: "BLOB", MariaDB: "BLOB", TiDB: "BLOB", SQLite: "BLOB", DuckDB: "BLOB"}
 	servers := os.Getenv("DGOPHER_IT") != ""
 	if servers {
 		integration(t)

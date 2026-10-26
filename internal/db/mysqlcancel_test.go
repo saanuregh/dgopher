@@ -69,11 +69,17 @@ func isCancelled(err error) bool {
 
 // A cancelled MySQL statement is stopped by KILL QUERY, which keeps the
 // session's connection: its transaction, variables and rows stay, and no
-// statement is refused after it.
+// statement is refused after it. TiDB's too.
 func TestIntegrationCancelKeepsSession(t *testing.T) {
 	integration(t)
+	for _, e := range []Engine{MySQL, TiDB} {
+		t.Run(string(e), func(t *testing.T) { cancelKeepsSession(t, e) })
+	}
+}
+
+func cancelKeepsSession(t *testing.T, e Engine) {
 	ctx := context.Background()
-	d := open(t, fixtureOf(t, MySQL))
+	d := open(t, fixtureOf(t, e))
 	mysqlCancelTable(t, d)
 	s, err := d.Session(ctx)
 	if err != nil {

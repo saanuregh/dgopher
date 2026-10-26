@@ -446,7 +446,8 @@ func osUserName() string {
 
 // openMySQL returns the pool of a MySQL server, and the connector that
 // makes its connections; readOnly is the session variable that makes a
-// read-only connection's transactions read-only.
+// read-only connection's transactions read-only, "" for a server that has
+// none, where the app's check alone refuses writes.
 func openMySQL(cfg Config, ep endpoint, tc *tls.Config, w wire, readOnly string) (*sql.DB, driver.Connector, error) {
 	mc := mysql.NewConfig()
 	mc.User = cfg.User
@@ -481,7 +482,7 @@ func openMySQL(cfg Config, ep endpoint, tc *tls.Config, w wire, readOnly string)
 		return nil, nil, err
 	}
 	var onConnect []string
-	if cfg.ReadOnly {
+	if cfg.ReadOnly && readOnly != "" {
 		// Sent as SET on every new connection.
 		mc.Params = map[string]string{readOnly: "1"}
 		onConnect = append(onConnect, "SET "+readOnly+" = 1")

@@ -473,11 +473,12 @@ func SplitWith(src string, d Dialect, o SplitOptions) []Statement {
 	return out
 }
 
-// executableComment reports whether a token is MySQL's /*! … */, which
-// MySQL runs as the statement it holds, as mysqldump writes triggers and
-// SET statements: a statement of such comments is not empty.
+// executableComment reports whether a token is MySQL's /*! … */,
+// MariaDB's /*M! … */ or TiDB's /*T! … */, which the server runs as the
+// statement it holds, as mysqldump writes triggers and SET statements: a
+// statement of such comments is not empty.
 func executableComment(t Token, d Dialect) bool {
-	return d == MySQL && t.Kind == Comment && strings.HasPrefix(t.Text, "/*!")
+	return d == MySQL && t.Kind == Comment && (strings.HasPrefix(t.Text, "/*!") || strings.HasPrefix(t.Text, "/*M!") || strings.HasPrefix(t.Text, "/*T!"))
 }
 
 // StatementAt is StatementAtWith in BlankLineAndSemicolon mode.

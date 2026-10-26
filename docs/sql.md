@@ -152,13 +152,16 @@ These count as writes:
   or its transaction, is open.
 - ClickHouse's `MOVE` (of users and roles between storages). PostgreSQL's
   `MOVE` only moves a cursor.
-- On MySQL and MariaDB, what an executable comment (`/*! … */`,
-  `/*!80000 … */`, MariaDB's `/*M! … */`) holds, and what it hides. A
-  server older than the comment's version skips it, and MySQL skips
-  MariaDB's, so the statement is read with each comment run and skipped,
-  and the strictest reading counts. A statement whose comments name more
-  versions than are read (`maxExecutableVersions` in `executable.go`)
-  also asks first.
+- On MySQL, MariaDB and TiDB, what an executable comment (`/*! … */`,
+  `/*!80000 … */`, MariaDB's `/*M! … */`, TiDB's `/*T! … */` and
+  `/*T![feature] … */`) holds, and what it hides. A server older than the
+  comment's version skips it, TiDB skips a `/*T![feature] … */` naming a
+  feature it lacks, and each server skips the others' kinds, so the
+  statement is read with each comment run and skipped, each feature list
+  in every combination, and the strictest reading counts. A statement
+  whose comments name more versions or feature lists than are read
+  (`maxExecutableVersions` and `maxExecutableFeatureLists` in
+  `executable.go`) also asks first.
 
 ### Statements that change the server
 
@@ -166,6 +169,8 @@ These change the server rather than the session, so they count as writes:
 
 - MySQL `RESET`, `SET GLOBAL`, `SET PERSIST`, `SET PASSWORD`,
   `SET DEFAULT ROLE` and `START REPLICA`.
+- TiDB `SET CONFIG`, which configures a cluster component, and
+  `SET BINDING`, which switches a global plan binding.
 - PostgreSQL `COMMIT PREPARED` and `ROLLBACK PREPARED`.
 - DuckDB `SET`s of a setting that names a file it writes, such as
   `log_query_path`, `profiling_output`, `temp_directory`,
