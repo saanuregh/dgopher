@@ -81,18 +81,20 @@ func TestLiteralRoundTrip(t *testing.T) {
 	integration(t)
 	hostile := []string{`it's`, `back\slash`, `\'; DROP TABLE x; --`, "new\nline", `trailing\`, `''`}
 	for _, f := range fixtures(t) {
-		d := open(t, f)
-		values := hostile
-		// PostgreSQL text cannot hold NUL.
-		if f.cfg.Engine != Postgres {
-			values = append(values[:len(values):len(values)], "nul\x00byte", "\x00", `\`+"\x00'")
-		}
-		for _, s := range values {
-			var got string
-			if err := d.SQL.QueryRow("SELECT " + Literal(f.cfg.Engine, s)).Scan(&got); err != nil || got != s {
-				t.Errorf("%s: %q came back as %q (%v)", f.cfg.Name, s, got, err)
+		t.Run(f.cfg.Name, func(t *testing.T) {
+			d := open(t, f)
+			values := hostile
+			// PostgreSQL text cannot hold NUL.
+			if f.cfg.Engine != Postgres {
+				values = append(values[:len(values):len(values)], "nul\x00byte", "\x00", `\`+"\x00'")
 			}
-		}
+			for _, s := range values {
+				var got string
+				if err := d.SQL.QueryRow("SELECT " + Literal(f.cfg.Engine, s)).Scan(&got); err != nil || got != s {
+					t.Errorf("%s: %q came back as %q (%v)", f.cfg.Name, s, got, err)
+				}
+			}
+		})
 	}
 }
 
@@ -216,7 +218,7 @@ func TestCursorSQLiteStorageClass(t *testing.T) {
 }
 
 func TestCursorTextIsString(t *testing.T) {
-	binary := map[Engine]string{Postgres: "bytea", MySQL: "BLOB", SQLite: "BLOB", DuckDB: "BLOB"}
+	binary := map[Engine]string{Postgres: "bytea", MySQL: "BLOB", MariaDB: "BLOB", SQLite: "BLOB", DuckDB: "BLOB"}
 	servers := os.Getenv("DGOPHER_IT") != ""
 	if servers {
 		integration(t)
@@ -225,47 +227,51 @@ func TestCursorTextIsString(t *testing.T) {
 		if f.cfg.Engine == ClickHouse {
 			continue
 		}
-		if f.cfg.Engine == Postgres || f.cfg.Engine == MySQL {
+		if f.cfg.Engine == Postgres || f.cfg.Engine.Base() == MySQL {
 			if !servers {
 				continue
 			}
 		}
-		d := open(t, f)
-		ctx := context.Background()
-		s, err := d.Session(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		bin := Literal(f.cfg.Engine, []byte("abc"))
-		for _, q := range []string{`DROP TABLE IF EXISTS zz_cursor`,
-			`CREATE TABLE zz_cursor (t TEXT, v VARCHAR(10), b ` + binary[f.cfg.Engine] + `)`,
-			`INSERT INTO zz_cursor VALUES ('abc', 'abc', ` + bin + `)`} {
-			if _, err := s.Exec(ctx, q); err != nil {
-				t.Fatalf("%s: %s: %v", f.cfg.Name, q, err)
-			}
-		}
-		c, err := s.Query(ctx, `SELECT t, v, b FROM zz_cursor`)
-		if err != nil {
-			t.Fatal(err)
-		}
-		rows, err := c.Fetch(10)
-		if err != nil || len(rows) != 1 {
-			t.Fatalf("%s: %v %v", f.cfg.Name, rows, err)
-		}
-		if _, ok := rows[0][0].(string); !ok {
-			t.Errorf("%s: TEXT read as %T", f.cfg.Name, rows[0][0])
-		}
-		if _, ok := rows[0][1].(string); !ok {
-			t.Errorf("%s: VARCHAR read as %T", f.cfg.Name, rows[0][1])
-		}
-		if b, ok := rows[0][2].([]byte); !ok || string(b) != "abc" {
-			t.Errorf("%s: binary read as %T %v", f.cfg.Name, rows[0][2], rows[0][2])
-		}
-		if _, err := s.Exec(ctx, `DROP TABLE zz_cursor`); err != nil {
-			t.Error(err)
-		}
-		s.Close()
+		t.Run(f.cfg.Name, func(t *testing.T) { cursorTextIsString(t, f, binary[f.cfg.Engine]) })
 	}
+}
+
+func cursorTextIsString(t *testing.T, f fixture, binary string) {
+	d := open(t, f)
+	ctx := context.Background()
+	s, err := d.Session(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := Literal(f.cfg.Engine, []byte("abc"))
+	for _, q := range []string{`DROP TABLE IF EXISTS zz_cursor`,
+		`CREATE TABLE zz_cursor (t TEXT, v VARCHAR(10), b ` + binary + `)`,
+		`INSERT INTO zz_cursor VALUES ('abc', 'abc', ` + bin + `)`} {
+		if _, err := s.Exec(ctx, q); err != nil {
+			t.Fatalf("%s: %s: %v", f.cfg.Name, q, err)
+		}
+	}
+	c, err := s.Query(ctx, `SELECT t, v, b FROM zz_cursor`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := c.Fetch(10)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("%s: %v %v", f.cfg.Name, rows, err)
+	}
+	if _, ok := rows[0][0].(string); !ok {
+		t.Errorf("%s: TEXT read as %T", f.cfg.Name, rows[0][0])
+	}
+	if _, ok := rows[0][1].(string); !ok {
+		t.Errorf("%s: VARCHAR read as %T", f.cfg.Name, rows[0][1])
+	}
+	if b, ok := rows[0][2].([]byte); !ok || string(b) != "abc" {
+		t.Errorf("%s: binary read as %T %v", f.cfg.Name, rows[0][2], rows[0][2])
+	}
+	if _, err := s.Exec(ctx, `DROP TABLE zz_cursor`); err != nil {
+		t.Error(err)
+	}
+	s.Close()
 }
 
 func BenchmarkBytesLiteralDuckDB64K(b *testing.B) {

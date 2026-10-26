@@ -190,8 +190,9 @@ WHERE conrelid = $1::regclass AND contype = 'c' ORDER BY conname`, []any{name}, 
 }
 
 // readMySQLDesign reads the check constraints, and each column's default
-// as an expression and what else MySQL keeps of it.
-func readMySQLDesign(ctx context.Context, d *DB, t *TableDesign) error {
+// as an expression, which defaultOf writes from information_schema's, and
+// what else MySQL keeps of it, c naming how the catalog is read.
+func readMySQLDesign(ctx context.Context, d *DB, t *TableDesign, defaultOf func(def *string, dataType, extra string) string, c catalogColumns) error {
 	err := scanRows(ctx, d.Catalog(), `SELECT COLUMN_NAME, DATA_TYPE, COLUMN_DEFAULT, EXTRA, COALESCE(CHARACTER_SET_NAME, ''), COALESCE(COLLATION_NAME, ''),
   COALESCE(GENERATION_EXPRESSION, '')
 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION`, []any{t.Schema, t.Name},
@@ -206,7 +207,7 @@ FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER 
 					continue
 				}
 				c := &t.Columns[i]
-				c.Default = mysqlDefault(def, dataType, extra)
+				c.Default = defaultOf(def, dataType, extra)
 				c.Generated = generation != ""
 				var more []string
 				if charset != "" {
@@ -227,7 +228,7 @@ FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER 
 	}
 	return readChecks(ctx, d, t, `SELECT cc.CONSTRAINT_NAME, cc.CHECK_CLAUSE
 FROM information_schema.TABLE_CONSTRAINTS tc
-JOIN information_schema.CHECK_CONSTRAINTS cc ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+JOIN information_schema.CHECK_CONSTRAINTS cc ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME`+c.checkJoin+`
 WHERE tc.TABLE_SCHEMA = ? AND tc.TABLE_NAME = ? AND tc.CONSTRAINT_TYPE = 'CHECK' ORDER BY cc.CONSTRAINT_NAME`)
 }
 

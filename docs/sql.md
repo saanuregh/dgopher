@@ -136,13 +136,15 @@ Limits:
 These count as writes:
 
 - `INTO` a table or file after `SELECT`, `TABLE` or `VALUES`.
-- `EXPLAIN ANALYZE` and `DESC ANALYZE` of a write.
+- `EXPLAIN ANALYZE` and `DESC ANALYZE` of a write, and MariaDB's `ANALYZE`
+  of a write, such as `ANALYZE UPDATE …`, which runs it.
 - A `WITH` (CTE) that changes data.
 - A call to a function with side effects. Examples:
   `pg_terminate_backend`, `pg_cancel_backend`, `setval`, `nextval`,
   `set_config`, `pg_notify`, `dblink_exec`, `lo_import`, `lo_export`, the
   advisory locks, replication slots and origins, `pg_stat_reset`; MySQL
-  `GET_LOCK`, `RELEASE_LOCK`, `SLEEP` and `BENCHMARK`; SQLite
+  `GET_LOCK`, `RELEASE_LOCK`, `SLEEP` and `BENCHMARK`; MariaDB's sequence
+  functions `NEXTVAL`, `SETVAL` and `LASTVAL`, and `NEXT VALUE FOR`; SQLite
   `load_extension`. The full list per engine is in `classify.go`. Quoted
   and escaped function names are decoded first.
 - `SELECT … FOR UPDATE` or `FOR SHARE` (MySQL: `LOCK IN SHARE MODE`), in a
@@ -150,6 +152,13 @@ These count as writes:
   or its transaction, is open.
 - ClickHouse's `MOVE` (of users and roles between storages). PostgreSQL's
   `MOVE` only moves a cursor.
+- On MySQL and MariaDB, what an executable comment (`/*! … */`,
+  `/*!80000 … */`, MariaDB's `/*M! … */`) holds, and what it hides. A
+  server older than the comment's version skips it, and MySQL skips
+  MariaDB's, so the statement is read with each comment run and skipped,
+  and the strictest reading counts. A statement whose comments name more
+  versions than are read (`maxExecutableVersions` in `executable.go`)
+  also asks first.
 
 ### Statements that change the server
 

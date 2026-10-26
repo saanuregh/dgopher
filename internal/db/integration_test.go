@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -18,6 +19,7 @@ import (
 	"dgopher/internal/netproxy/proxytest"
 	"dgopher/internal/sshtunnel"
 	"dgopher/internal/sshtunnel/sshtest"
+	"dgopher/internal/testutil/optionalserver"
 	"dgopher/internal/testutil/serverlock"
 )
 
@@ -32,6 +34,15 @@ func integration(t *testing.T) {
 	// the servers, as testutil.Integration has the others wait.
 	serverlock.Lock(t)
 }
+
+// skipUnlessRunning skips the test when cfg is of a profile's server that
+// is not running.
+func skipUnlessRunning(t *testing.T, cfg Config) {
+	t.Helper()
+	optionalserver.SkipUnlessRunningAt(t, net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)))
+}
+
+var mariadbConfig = Config{Name: "mariadb", Engine: MariaDB, Host: "127.0.0.1", Port: 13307, User: "root", Password: "dgopher", Database: "shop"}
 
 type fixture struct {
 	cfg    Config
@@ -68,6 +79,12 @@ line two'), (3, 'Linus', NULL, NULL)`,
 			sleep:  `SELECT SLEEP(10)`,
 		},
 		{
+			cfg:    mariadbConfig,
+			schema: "shop",
+			setup:  append([]string{`DROP VIEW IF EXISTS big_orders`, `DROP TABLE IF EXISTS orders`, `DROP TABLE IF EXISTS customers`}, common...),
+			sleep:  `SELECT SLEEP(10)`,
+		},
+		{
 			cfg:    Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher", Database: "default"},
 			schema: "it",
 			setup: []string{
@@ -98,6 +115,7 @@ line two'), (3, 'Linus', NULL, NULL)`,
 
 func open(t *testing.T, f fixture) *DB {
 	t.Helper()
+	skipUnlessRunning(t, f.cfg)
 	ctx := context.Background()
 	if f.cfg.Engine == DuckDB {
 		createDuck(t, f.cfg.Database)
@@ -530,13 +548,16 @@ func TestIntegrationRedisBlockingConsole(t *testing.T) {
 
 func TestIntegrationMySQLCountsMatchedRows(t *testing.T) {
 	integration(t)
-	f := fixtureOf(t, MySQL)
-	d := open(t, f)
-	s, _ := d.Session(context.Background())
-	defer s.Close()
-	n, err := s.Exec(context.Background(), "UPDATE customers SET name = name WHERE id = 1")
-	if err != nil || n != 1 {
-		t.Fatalf("an unchanged row reported %d affected (%v): edits would fail", n, err)
+	for _, e := range []Engine{MySQL, MariaDB} {
+		t.Run(string(e), func(t *testing.T) {
+			d := open(t, fixtureOf(t, e))
+			s, _ := d.Session(context.Background())
+			defer s.Close()
+			n, err := s.Exec(context.Background(), "UPDATE customers SET name = name WHERE id = 1")
+			if err != nil || n != 1 {
+				t.Fatalf("an unchanged row reported %d affected (%v): edits would fail", n, err)
+			}
+		})
 	}
 }
 
@@ -561,7 +582,7 @@ func TestIntegrationTLSPreferFallsBack(t *testing.T) {
 func TestIntegrationLostTransactionIsReported(t *testing.T) {
 	integration(t)
 	for _, f := range fixtures(t) {
-		if f.cfg.Engine != MySQL && f.cfg.Engine != Postgres {
+		if f.cfg.Engine.Base() != MySQL && f.cfg.Engine != Postgres {
 			continue
 		}
 		t.Run(f.cfg.Name, func(t *testing.T) {
@@ -570,7 +591,7 @@ func TestIntegrationLostTransactionIsReported(t *testing.T) {
 			s, _ := d.Session(bg)
 			defer s.Close()
 			table := QualifiedName(d.Dialect, f.schema, "customers")
-			if f.cfg.Engine == MySQL {
+			if f.cfg.Engine.Base() == MySQL {
 				s.Exec(bg, "SET SESSION cte_max_recursion_depth = 3000000")
 				s.mysqlID = 1 << 40 // no such connection
 			}
@@ -588,7 +609,7 @@ func TestIntegrationLostTransactionIsReported(t *testing.T) {
 			}
 			c.Fetch(10)
 			cancel() // Esc while the rows come
-			if f.cfg.Engine == MySQL {
+			if f.cfg.Engine.Base() == MySQL {
 				// The KILL failed, and the driver's context ended, which
 				// drops the connection; the rows read on would otherwise
 				// end first.
@@ -929,9 +950,11 @@ func TestIntegrationUsers(t *testing.T) {
 	}{
 		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"}, "public", "it_users"},
 		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"}, "shop", "it_users"},
+		{mariadbConfig, "shop", "it_users"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default", "it_users"},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
+			skipUnlessRunning(t, c.cfg)
 			d, err := Open(ctx, c.cfg, nil)
 			if err != nil {
 				t.Fatal(err)
@@ -943,7 +966,7 @@ func TestIntegrationUsers(t *testing.T) {
 				create += " ENGINE = Memory"
 			}
 			ada := Account{Name: "dgopher_it_ada"}
-			if c.cfg.Engine == MySQL {
+			if c.cfg.Engine.Base() == MySQL {
 				ada.Host = "%"
 			}
 			cleanup := func() {
@@ -1055,6 +1078,16 @@ func TestIntegrationItems(t *testing.T) {
 			},
 			map[string]string{"it_twice()": "DROP FUNCTION it_twice", "it_noop()": "DROP PROCEDURE it_noop",
 				"it_stamp on it_items_t": "DROP TRIGGER it_stamp", "it_tick": "DROP EVENT it_tick"}},
+		{mariadbConfig, "shop",
+			[]string{"DROP TABLE IF EXISTS it_items_t", "CREATE TABLE it_items_t (id int)",
+				"DROP FUNCTION IF EXISTS it_twice", "CREATE FUNCTION it_twice(a int) RETURNS int DETERMINISTIC RETURN a * 2",
+				"DROP PROCEDURE IF EXISTS it_noop", "CREATE PROCEDURE it_noop() BEGIN SELECT 1; END",
+				"CREATE TRIGGER it_stamp BEFORE INSERT ON it_items_t FOR EACH ROW SET NEW.id = NEW.id + 1",
+				"DROP EVENT IF EXISTS it_tick", "CREATE EVENT it_tick ON SCHEDULE EVERY 1 DAY DISABLE DO SELECT 1",
+				"DROP SEQUENCE IF EXISTS it_counter", "CREATE SEQUENCE it_counter START WITH 10 INCREMENT BY 5",
+			},
+			map[string]string{"it_twice()": "DROP FUNCTION it_twice", "it_noop()": "DROP PROCEDURE it_noop",
+				"it_stamp on it_items_t": "DROP TRIGGER it_stamp", "it_tick": "DROP EVENT it_tick", "it_counter": "DROP SEQUENCE it_counter"}},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "items.sqlite")}, "main",
 			[]string{"CREATE TABLE t (id int)", "CREATE TRIGGER stamp AFTER INSERT ON t BEGIN UPDATE t SET id = id + 1 WHERE rowid = NEW.rowid; END"},
 			map[string]string{"stamp on t": "DROP TRIGGER stamp"}},
@@ -1068,6 +1101,7 @@ func TestIntegrationItems(t *testing.T) {
 			map[string]string{"by_v on it_items_p": "ALTER TABLE it_items_p DROP PROJECTION by_v"}},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
+			skipUnlessRunning(t, c.cfg)
 			if c.cfg.Engine == SQLite {
 				os.WriteFile(c.cfg.Database, nil, 0o600)
 			}
@@ -1130,11 +1164,13 @@ func TestIntegrationRename(t *testing.T) {
 	}{
 		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"}, "public"},
 		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"}, "shop"},
+		{mariadbConfig, "shop"},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "r.sqlite")}, "main"},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default"},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
+			skipUnlessRunning(t, c.cfg)
 			if c.cfg.Engine == SQLite {
 				os.WriteFile(c.cfg.Database, nil, 0o600)
 			}
@@ -1174,11 +1210,13 @@ func TestIntegrationSearch(t *testing.T) {
 	}{
 		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"}, "public"},
 		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"}, "shop"},
+		{mariadbConfig, "shop"},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "s.sqlite")}, "main"},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default"},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
+			skipUnlessRunning(t, c.cfg)
 			if c.cfg.Engine == SQLite {
 				os.WriteFile(c.cfg.Database, nil, 0o600)
 			}
@@ -1242,10 +1280,13 @@ func TestIntegrationTableDesign(t *testing.T) {
 	}{
 		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"}, "public", "integer", "bigint", "text", true, true, true},
 		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"}, "shop", "int", "bigint", "varchar(50)", true, true, true},
+		// MariaDB writes integers with their display width.
+		{mariadbConfig, "shop", "int(11)", "bigint(20)", "varchar(50)", true, true, true},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main", "INTEGER", "BIGINT", "VARCHAR", false, true, false},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default", "Int32", "Int64", "String", false, false, false},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
+			skipUnlessRunning(t, c.cfg)
 			d, err := Open(ctx, c.cfg, nil)
 			if err != nil {
 				t.Fatal(err)
@@ -1320,7 +1361,7 @@ func TestIntegrationTableDesign(t *testing.T) {
 			now := clone(was)
 			now.Columns[3].Name, now.Columns[3].Default = "remark", Literal(c.cfg.Engine, "none")
 			now.Columns[2].Type, now.Columns[2].Comment = c.big, "how many"
-			now.Columns[1].Nullable = c.cfg.Engine == MySQL // the others make it NOT NULL
+			now.Columns[1].Nullable = c.cfg.Engine.Base() == MySQL // the others make it NOT NULL
 			if c.cfg.Engine == ClickHouse {
 				now.Columns[1].Default = "0" // which ClickHouse needs to take NULL away
 			}
@@ -1345,7 +1386,7 @@ func TestIntegrationTableDesign(t *testing.T) {
 			names := lists.Map(after.Columns, func(col ColumnDesign) string { return col.Name })
 			if !slices.Equal(names, []string{"id", "customer", "qty", "remark", "placed"}) || !strings.EqualFold(after.Columns[2].Type, c.big) ||
 				after.Columns[2].Comment != "how many" || !strings.Contains(after.Columns[3].Default, "none") || after.Comment != "the orders" ||
-				after.Columns[1].Nullable != (c.cfg.Engine == MySQL) {
+				after.Columns[1].Nullable != (c.cfg.Engine.Base() == MySQL) {
 				t.Fatalf("after %+v\n%s", after, ch.Text())
 			}
 			if c.indexes && (len(after.Indexes) != 1 || after.Indexes[0].Name != "it_design_placed" || !after.Indexes[0].Unique) {
@@ -1533,6 +1574,11 @@ func TestIntegrationPlans(t *testing.T) {
 				"INSERT INTO it_plan WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 1000) " +
 					"SELECT r.i * 3 + k.i, r.i % 100 FROM r CROSS JOIN (SELECT 0 AS i UNION ALL SELECT 1 UNION ALL SELECT 2) k", "ANALYZE TABLE it_plan"},
 			"SELECT * FROM it_plan WHERE g = 5", "table scan reads every row of it_plan"},
+		{mariadbConfig, "shop",
+			[]string{"CREATE TABLE it_plan (id int, g int)",
+				"INSERT INTO it_plan WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 1000) " +
+					"SELECT r.i * 3 + k.i, r.i % 100 FROM r CROSS JOIN (SELECT 0 AS i UNION ALL SELECT 1 UNION ALL SELECT 2) k", "ANALYZE TABLE it_plan"},
+			"SELECT * FROM it_plan WHERE g = 5", "table scan reads every row of it_plan"},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "p.sqlite")}, "main",
 			[]string{"CREATE TABLE it_plan (id INTEGER, g INTEGER)"},
 			"SELECT * FROM it_plan WHERE g = 5 ORDER BY id", "SCAN reads every row of it_plan"},
@@ -1545,6 +1591,7 @@ func TestIntegrationPlans(t *testing.T) {
 			"SELECT * FROM it_plan WHERE g = 5", "all 20 granules of"},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
+			skipUnlessRunning(t, c.cfg)
 			if c.cfg.Engine == SQLite {
 				os.WriteFile(c.cfg.Database, nil, 0o600)
 			}
@@ -1675,10 +1722,11 @@ func TestIntegrationUntrackedTransactionsAreSeen(t *testing.T) {
 			{sql: "COMMIT", want: TxNone},
 		},
 	}
-	for _, e := range []Engine{MySQL, SQLite, DuckDB} {
+	steps[MariaDB] = steps[MySQL]
+	for _, e := range []Engine{MySQL, MariaDB, SQLite, DuckDB} {
 		t.Run(string(e), func(t *testing.T) {
 			d := open(t, fixtureOf(t, e))
-			if e == MySQL {
+			if e.Base() == MySQL {
 				for _, q := range []string{"DROP TABLE IF EXISTS untracked_commit", "DROP PROCEDURE IF EXISTS untracked_begin",
 					"CREATE PROCEDURE untracked_begin() START TRANSACTION"} {
 					if _, err := d.SQL.Exec(q); err != nil {
@@ -1756,6 +1804,16 @@ func TestIntegrationCloseLeaksNothing(t *testing.T) {
 			},
 		},
 		{
+			e:    MariaDB,
+			leak: []string{"USE information_schema", "SET @close_leak = 1", "SET SESSION sql_mode = 'ANSI_QUOTES'", "SET autocommit = 0"},
+			checks: []check{
+				{"SELECT DATABASE()", "shop"},
+				{"SELECT @close_leak IS NULL", "1"},
+				{"SELECT @@autocommit", "1"},
+				{"SELECT @@session.sql_mode LIKE '%ANSI_QUOTES%'", "0"},
+			},
+		},
+		{
 			e:    SQLite,
 			leak: []string{"PRAGMA foreign_keys = 0", "/* why */ BEGIN", "INSERT INTO customers (id, name) VALUES (99, 'leak')"},
 			checks: []check{
@@ -1817,8 +1875,14 @@ func TestIntegrationCloseLeaksNothing(t *testing.T) {
 // back only its statement unless innodb_rollback_on_timeout is on.
 func TestIntegrationDeadlockVictimIsNotOpen(t *testing.T) {
 	integration(t)
+	for _, e := range []Engine{MySQL, MariaDB} {
+		t.Run(string(e), func(t *testing.T) { deadlockVictimIsNotOpen(t, e) })
+	}
+}
+
+func deadlockVictimIsNotOpen(t *testing.T, e Engine) {
 	ctx := context.Background()
-	d := open(t, fixtureOf(t, MySQL))
+	d := open(t, fixtureOf(t, e))
 	a, _ := d.Session(ctx)
 	defer a.Close()
 	b, _ := d.Session(ctx)
@@ -1920,6 +1984,8 @@ func TestIntegrationReconnectRefusesOnce(t *testing.T) {
 			lose: pgLose, sleep: "SELECT pg_sleep(10)"},
 		{e: MySQL, set: "USE information_schema", before: "information_schema", after: "shop", table: "shop.customers",
 			lose: mysqlLose, sleep: "SELECT SLEEP(10)"},
+		{e: MariaDB, set: "USE information_schema", before: "information_schema", after: "shop", table: "shop.customers",
+			lose: mysqlLose, sleep: "SELECT SLEEP(10)"},
 	}
 	// untilRun runs a statement until it runs, and returns the errors before.
 	untilRun := func(t *testing.T, s *Session, q string) []error {
@@ -1977,7 +2043,7 @@ func TestIntegrationReconnectRefusesOnce(t *testing.T) {
 			}
 
 			// A session that had run nothing reconnects without refusing.
-			if c.e == MySQL {
+			if c.e.Base() == MySQL {
 				fresh, err := d.Session(ctx)
 				if err != nil {
 					t.Fatal(err)

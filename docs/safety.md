@@ -72,6 +72,7 @@ A read-only connection refuses writes in two places:
   | --- | --- |
   | PostgreSQL | `default_transaction_read_only` |
   | MySQL | `transaction_read_only` |
+  | MariaDB | `tx_read_only`, which every release from 10.11 has |
   | ClickHouse | `readonly=2` |
   | SQLite | `mode=ro` with `query_only` |
   | DuckDB | `access_mode=READ_ONLY` |
@@ -119,8 +120,8 @@ These changes are not held for a count:
   could not undo such a table's changes says so.
 - In a MySQL session with autocommit off: the change waits for your
   `COMMIT` anyway.
-- `EXPLAIN ANALYZE`, `RETURNING`, and a `WITH` that changes rows. Their
-  rows are read, not counted.
+- `EXPLAIN ANALYZE`, MariaDB's `ANALYZE` of a statement, `RETURNING`, and
+  a `WITH` that changes rows. Their rows are read, not counted.
 - Run SQL File, imports, copies and generated rows. They ask once for
   everything they will run.
 

@@ -314,7 +314,7 @@ func (t *usersTab) formView(c *ui.Context) {
 				switch f.kind {
 				case formNewUser, formNewRole:
 					ui.Field(c, "Name", func() { ui.TextInput(c, &f.name).AutoFocus() })
-					if fields.Host {
+					if fields.Host && (f.kind == formNewUser || !fields.RoleWithoutHost) {
 						ui.Field(c, "Host", func() { ui.TextInput(c, &f.host) }).Description("Where it may connect from: % for anywhere.")
 					}
 					if f.kind == formNewUser {
@@ -395,8 +395,10 @@ func (t *usersTab) submit(f *accountForm) {
 			return
 		}
 		acc := db.Account{Name: name, Role: f.kind == formNewRole}
-		if isSQL && r.AccountForm().Host {
-			acc.Host = strings.TrimSpace(f.host)
+		if isSQL {
+			if form := r.AccountForm(); form.Host && (f.kind == formNewUser || !form.RoleWithoutHost) {
+				acc.Host = strings.TrimSpace(f.host)
+			}
 		}
 		var stmt string
 		stmt, err = db.CreateAccountSQL(d, db.NewAccount{Account: acc, Password: f.password, CreateDB: f.createDB, CreateRole: f.create})

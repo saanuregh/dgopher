@@ -1,11 +1,14 @@
 package safety
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
 
 	"dgopher/internal/db"
+	"dgopher/internal/testutil"
+	"dgopher/internal/testutil/optionalserver"
 )
 
 func TestReviewSQL(t *testing.T) {
@@ -33,6 +36,10 @@ func TestReviewSQL(t *testing.T) {
 		{"drop on dev", dev, []string{"DROP TABLE t"}, false, true, false, true},
 		{"write on read-only", ro, []string{"SELECT 1", "INSERT INTO t VALUES (1)"}, true, false, false, true},
 		{"read on read-only", ro, []string{"SELECT 1"}, false, false, false, false},
+		{"analyze of a select on read-only", ro, []string{"ANALYZE FORMAT=JSON SELECT 1"}, false, false, false, false},
+		{"analyze of an update on read-only", ro, []string{"ANALYZE FORMAT=JSON UPDATE t SET a=1"}, true, false, false, true},
+		{"plain analyze of a select on read-only", ro, []string{"ANALYZE SELECT 1"}, false, false, false, false},
+		{"analyze table on read-only", ro, []string{"ANALYZE TABLE t"}, true, false, false, true},
 		{"turning read-only off", ro, []string{"SET SESSION TRANSACTION READ WRITE"}, true, false, false, false},
 		{"read write with comments", ro, []string{"SET SESSION TRANSACTION READ/**/WRITE"}, true, false, false, false},
 		{"begin read write", ro, []string{"BEGIN READ  WRITE"}, true, false, false, false},
@@ -114,6 +121,27 @@ func TestDisablesReadOnlyClickHouseEscapes(t *testing.T) {
 
 // A read-only switch hidden in a string by one quoting rule is read under
 // the others too.
+// A versioned executable comment, or MariaDB's on MySQL, the server may
+// skip: a read-only connection refuses what either reading writes.
+func TestVersionedExecutableCommentHidesNothing(t *testing.T) {
+	for _, e := range []db.Engine{db.MySQL, db.MariaDB} {
+		ro := &db.Config{Name: "ro", Engine: e, ReadOnly: true}
+		for _, sql := range []string{
+			"/*M!999999 SELECT */ DELETE FROM t WHERE id = 1",
+			"/*!99999 SELECT */ DELETE FROM t WHERE id = 1",
+			"/*!90000 SELECT */ /*!50000 DELETE */ FROM t WHERE id = 1",
+			"SET TRANSACTION READ /*!99999 ' */ WRITE -- '",
+		} {
+			if v := ReviewSQL(ro, Analyze(ro, []string{sql})); v.Blocked == "" {
+				t.Errorf("%s: not blocked on a read-only connection: %s", e, sql)
+			}
+		}
+		if v := ReviewSQL(ro, Analyze(ro, []string{"SELECT 1 /*!50000 , 2 */ /*M!100000 , 3 */"})); v.Blocked != "" {
+			t.Errorf("%s: a SELECT was blocked: %s", e, v.Blocked)
+		}
+	}
+}
+
 func TestDisablesReadOnlyQuoting(t *testing.T) {
 	sql := `SELECT 'a\' ; SET SESSION TRANSACTION READ WRITE -- '`
 	if !disablesReadOnly(sql, Dialect(db.MySQL)) {
@@ -270,6 +298,7 @@ func TestManyRows(t *testing.T) {
 func TestEndsTransactionWarns(t *testing.T) {
 	my := &db.Config{Name: "my", Engine: db.MySQL, Env: db.Development}
 	pg := &db.Config{Name: "pg", Engine: db.Postgres, Env: db.Development}
+	maria := &db.Config{Name: "maria", Engine: db.MariaDB, Env: db.Development}
 	for _, c := range []struct {
 		cfg   *db.Config
 		sql   string // statements split at ";"
@@ -295,6 +324,10 @@ func TestEndsTransactionWarns(t *testing.T) {
 		{my, "INSERT INTO t VALUES (1); COMMIT; CREATE INDEX i ON t (a)", false, true, false},
 		{my, "INSERT INTO t VALUES (1); SAVEPOINT s; ROLLBACK WORK TO SAVEPOINT s; CREATE INDEX i ON t (a)", false, true, true},
 		{pg, "INSERT INTO t VALUES (1); CREATE INDEX i ON t (a)", false, true, false},
+		// MariaDB's Explain Analyze runs its statement in the transaction.
+		{maria, "ANALYZE FORMAT=JSON SELECT 1", true, false, false},
+		{maria, "INSERT INTO t VALUES (1); ANALYZE FORMAT=JSON UPDATE t SET a = 2 WHERE id = 1", false, true, false},
+		{maria, "INSERT INTO t VALUES (1); ANALYZE TABLE t", false, true, true},
 	} {
 		stmts := Analyze(c.cfg, strings.Split(c.sql, ";"))
 		v := ReviewSQL(c.cfg, stmts)
@@ -311,6 +344,11 @@ func TestEndsTransactionWarns(t *testing.T) {
 		if warned != c.asks || v.Confirm != c.asks {
 			t.Errorf("%s %q open %v opens %v: %+v", c.cfg.Engine, c.sql, c.open, c.opens, v)
 		}
+	}
+	// Manual commit opens a transaction before MariaDB's ANALYZE of a
+	// write, which it does only for a write that does not commit at once.
+	if s := Analyze(maria, []string{"ANALYZE UPDATE t SET a = 1"})[0]; CommitsImplicitly(maria.Engine, s) || !WritesInTransaction(maria.Engine, s) {
+		t.Errorf("ANALYZE UPDATE: commits %v, writes %v", CommitsImplicitly(maria.Engine, s), WritesInTransaction(maria.Engine, s))
 	}
 	// A second statement after the same writes is not said twice; one after
 	// other writes, in the transaction opened again, is.
@@ -404,4 +442,35 @@ func TestBeginsTransaction(t *testing.T) {
 			t.Errorf("%s: %v", sql, got)
 		}
 	}
+}
+
+// Explain Analyze on a read-only MariaDB connection is a read, and the
+// server runs it.
+func TestIntegrationMariaDBExplainAnalyzeReadOnly(t *testing.T) {
+	testutil.Integration(t)
+	optionalserver.SkipUnless(t, "mariadb")
+	cfg := db.Config{Name: "mariadb", Engine: db.MariaDB, Host: "127.0.0.1", Port: 13307, User: "root", Password: "dgopher", Database: "shop", ReadOnly: true}
+	run, ok := db.Explain(cfg.Engine, "SELECT 1", true)
+	if !ok {
+		t.Fatal("no Explain Analyze")
+	}
+	if v := ReviewSQL(&cfg, Analyze(&cfg, []string{run.Statement})); v.Blocked != "" || v.Writes {
+		t.Fatalf("%q: %+v", run.Statement, v)
+	}
+	ctx := context.Background()
+	d, err := db.Open(ctx, cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	s, err := d.Session(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	c, err := s.Query(ctx, run.Statement)
+	if err != nil {
+		t.Fatalf("%q on read-only: %v", run.Statement, err)
+	}
+	c.Close()
 }

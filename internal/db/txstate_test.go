@@ -410,6 +410,10 @@ func TestLexerFallbackVerbs(t *testing.T) {
 		{e: MySQL, before: offOpen, sql: "UPDATE t SET a = 1", err: deadlock, want: TxNone, wantAutoff: true},
 		{e: MySQL, before: open, sql: "UPDATE t SET a = 1", err: lockWait, rollsBack: true, want: TxNone},
 		{e: MySQL, before: open, sql: "UPDATE t SET a = 1", err: lockWait, want: TxOpen},
+		// MariaDB's ANALYZE of a statement runs it, committing nothing.
+		{e: MariaDB, before: open, sql: "ANALYZE FORMAT=JSON SELECT 1", want: TxOpen},
+		{e: MariaDB, before: open, sql: "ANALYZE UPDATE t SET a = 1", want: TxOpen},
+		{e: MariaDB, before: open, sql: "ANALYZE LOCAL TABLE t", want: TxNone},
 		{e: MySQL, before: open, sql: "INSERT INTO t VALUES (1)", err: duplicate, want: TxOpen},
 		// A failed CREATE TABLE may have committed: open stays, so that
 		// nothing is closed without asking.
@@ -518,6 +522,19 @@ func TestCommitsImplicitly(t *testing.T) {
 	for _, q := range keeps {
 		if CommitsImplicitly(MySQL, q) {
 			t.Errorf("MySQL %q: an implicit commit", q)
+		}
+	}
+	// ANALYZE commits only as ANALYZE TABLE; MariaDB's ANALYZE of a
+	// statement runs it.
+	for q, want := range map[string]bool{
+		"ANALYZE TABLES t": true, "ANALYZE NO_WRITE_TO_BINLOG TABLE t": true, "analyze local table t": true,
+		"ANALYZE FORMAT=JSON SELECT 1": false, "ANALYZE SELECT 1": false, "ANALYZE UPDATE t SET a = 1": false,
+		"ANALYZE FORMAT = JSON DELETE FROM t": false, "ANALYZE (SELECT 1)": false,
+	} {
+		for _, e := range []Engine{MySQL, MariaDB} {
+			if got := CommitsImplicitly(e, q); got != want {
+				t.Errorf("%s %q: implicit commit %v, want %v", e, q, got, want)
+			}
 		}
 	}
 	// Rules that scan on read past the leading words.

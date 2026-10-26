@@ -1,6 +1,7 @@
 package sqltext
 
 import (
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -386,6 +387,12 @@ func TestClassifyAuditCases(t *testing.T) {
 		{Postgres, "WITH x AS (SELECT setval('s', 1)) SELECT * FROM x", Write, false},
 		{MySQL, "SELECT GET_LOCK('a', 1)", Write, false},
 		{MySQL, "SELECT SLEEP(1)", Write, false},
+		{MySQL, "SELECT SETVAL(s, 1)", Write, false},
+		{MySQL, "SELECT nextval(s)", Write, false},
+		{MySQL, "SELECT LASTVAL(s)", Write, false},
+		{MySQL, "SELECT NEXT VALUE FOR s", Write, false},
+		{MySQL, "INSERT INTO t SELECT next value for s", Write, false},
+		{MySQL, "SELECT next, value, `for` FROM t", Read, false},
 		{SQLite, "SELECT load_extension('x')", Write, false},
 		{MySQL, "CREATE PROCEDURE p() BEGIN SELECT 1; DELETE FROM t; END", DDL, true},
 	}
@@ -467,6 +474,23 @@ func TestClassifyReadsNotBlocked(t *testing.T) {
 		{MySQL, "EXPLAIN ANALYZE FORMAT=TREE SELECT 1", Read},
 		{MySQL, "EXPLAIN FORMAT=JSON DELETE FROM t", Read},
 		{MySQL, "EXPLAIN ANALYZE FORMAT=TREE DELETE FROM t WHERE id = 1", Write},
+		{MySQL, "ANALYZE FORMAT=JSON SELECT 1", Read},
+		{MySQL, "ANALYZE FORMAT=JSON UPDATE t SET a=1", Write},
+		{MySQL, "ANALYZE SELECT 1", Read},
+		{MySQL, "ANALYZE SELECT GET_LOCK('k', 0)", Write},
+		{MySQL, "ANALYZE TABLE t", Write},
+		{MySQL, "ANALYZE NO_WRITE_TO_BINLOG TABLE t", Write},
+		{MySQL, "ANALYZE (SELECT 1)", Read},
+		{MySQL, "ANALYZE WITH x AS (SELECT 1) SELECT * FROM x", Read},
+		{MySQL, "ANALYZE REPLACE INTO t VALUES (1)", Write},
+		{MySQL, "ANALYZE DELETE FROM t WHERE id = 1", Write},
+		{MySQL, "ANALYZE SET SESSION x = 1", Write},
+		{MySQL, "ANALYZE BEGIN", Write},
+		{MySQL, "ANALYZE SHOW TABLES", Write},
+		{MySQL, "ANALYZE EXPLAIN SELECT 1", Write},
+		{Postgres, "ANALYZE", Write},
+		{Postgres, "ANALYZE VERBOSE t", Write},
+		{SQLite, "ANALYZE t", Write},
 	}
 	for _, tt := range tests {
 		t.Run(tt.src, func(t *testing.T) {
@@ -1304,6 +1328,36 @@ func TestClassifyStrictestKeepsClass(t *testing.T) {
 	got := ClassifyExecutable(src, MySQL)
 	if classRank(got.Class) < classRank(def.Class) || def.Dangerous && !got.Dangerous {
 		t.Fatalf("strictest %+v, less than the default reading %+v", got, def)
+	}
+}
+
+// A versioned executable comment, which a server older than its version
+// skips, and MariaDB's, which MySQL skips, are read both ways: what one
+// hides from the other counts.
+func TestClassifyExecutableVersions(t *testing.T) {
+	for src, want := range map[string]Class{
+		"/*M!999999 SELECT */ DELETE FROM t WHERE id = 1":           Write,
+		"/*!99999 SELECT */ DELETE FROM t WHERE id = 1":             Write,
+		"/*M! SELECT */ DELETE FROM t WHERE id = 1":                 Write,
+		"/*!90000 SELECT */ /*!50000 DELETE */ FROM t WHERE id = 1": Write,
+		"SELECT 1 /*!99999 , ' */ FROM t FOR UPDATE -- '":           Write,
+		"/*!99999 x /* y */ DELETE FROM t WHERE id = 1 */ SELECT 1": Write,
+		"/*!40101 SELECT 1 */":                                      Read,
+		"SELECT 1 /*!50000 , 2 */ /*M!100000 , 3 */":                Read,
+		"/*M!100000 SELECT 1 */":                                    Read,
+		"SELECT 1 /*!99999 /* , SLEEP(1) */ */":                     Read,
+	} {
+		if a := ClassifyExecutable(src, MySQL); a.Class != want {
+			t.Errorf("%s: got %+v, want class %v", src, a, want)
+		}
+	}
+	var many strings.Builder
+	many.WriteString("SELECT 1")
+	for v := range maxExecutableVersions + 1 {
+		fmt.Fprintf(&many, " /*!%d , %d */", 50000+v, v)
+	}
+	if a := ClassifyExecutable(many.String(), MySQL); !a.Dangerous {
+		t.Errorf("%d versions read: %+v", maxExecutableVersions+1, a)
 	}
 }
 

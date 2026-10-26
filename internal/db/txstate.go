@@ -328,8 +328,15 @@ func commitsImplicitly(words []string, all func() []string) bool {
 			object, temporary = ddlObject(all())
 		}
 		return implicitObjects[object] && !(temporary && object == "TABLE")
-	case "RENAME", "TRUNCATE", "GRANT", "REVOKE", "FLUSH", "ANALYZE", "CHECK", "OPTIMIZE", "REPAIR":
+	case "RENAME", "TRUNCATE", "GRANT", "REVOKE", "FLUSH", "CHECK", "OPTIMIZE", "REPAIR":
 		return true
+	case "ANALYZE":
+		// ANALYZE TABLE; MariaDB's ANALYZE of a statement only runs it.
+		i := 1
+		if w := wordAt(words, i); w == "NO_WRITE_TO_BINLOG" || w == "LOCAL" {
+			i++
+		}
+		return wordAt(words, i) == "TABLE" || wordAt(words, i) == "TABLES"
 	case "BEGIN":
 		return wordAt(words, 1) != "NOT"
 	case "START":

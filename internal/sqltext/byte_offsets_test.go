@@ -37,13 +37,12 @@ func TestTokenizeByteOffsets(t *testing.T) {
 
 func TestTokenizeExecutableByteOffsets(t *testing.T) {
 	src := "SELECT '日本' /*!40101 , café */, 🙂x"
-	for _, toks := range TokenizeExecutable(src, MySQL) {
-		text := UnwrapExecutable(src)
-		checkCoverage(t, text, toks)
-		at := strings.Index(text, "café")
-		if !hasToken(toks, at, at+len("café")) {
-			t.Fatalf("no token café at bytes %d of %q: %+v", at, text, toks)
-		}
+	toks := TokenizeExecutable(src, MySQL)[0]
+	text := UnwrapExecutable(src)
+	checkCoverage(t, text, toks)
+	at := strings.Index(text, "café")
+	if !hasToken(toks, at, at+len("café")) {
+		t.Fatalf("no token café at bytes %d of %q: %+v", at, text, toks)
 	}
 }
 

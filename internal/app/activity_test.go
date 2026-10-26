@@ -1,11 +1,15 @@
 package app
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
 	"dgopher/internal/db"
+	"dgopher/internal/testutil"
 	"dgopher/internal/ui/dataview"
+
+	"github.com/egoist/mygo/ui"
 )
 
 // Cancel and End session pass the safety policy, as a connection that
@@ -38,5 +42,25 @@ func TestActivityGoesThroughPolicy(t *testing.T) {
 	_, reasons, typeName, preview := ask(db.Config{ID: "rd", Name: "rd", Engine: db.Redis, Env: db.Production, ReadOnly: true}, true)
 	if preview != "CLIENT KILL ID 42" || !typeName || len(reasons) < 3 {
 		t.Fatalf("Redis: %q %q %v", preview, reasons, typeName)
+	}
+}
+
+// A page that loads empty says why, when its engine knows why it may be.
+func TestActivityEmptyPageHint(t *testing.T) {
+	a := newTestApp(t)
+	cn := addConn(a, db.Config{ID: "maria", Name: "maria", Engine: db.MariaDB})
+	pages := db.MariaDB.ActivityPages()
+	stats := slices.IndexFunc(pages, func(p db.ActivityPage) bool { return p.Name == "Statistics" })
+	at := &activityTab{a: a, conn: cn, grid: dataview.NewGrid(), pages: pages, page: stats}
+	at.src = dataview.Source{Cols: []db.ColumnInfo{{Name: "query"}}}
+	tt := ui.NewTester(at.View, 1200, 800)
+	tt.Frame()
+	if !testutil.HasTextContaining(tt, "performance_schema=ON") {
+		t.Fatalf("no hint on an empty page: %q", tt.Texts())
+	}
+	at.src.Rows = [][]any{{"SELECT 1"}}
+	tt.Frame()
+	if testutil.HasTextContaining(tt, "performance_schema=ON") {
+		t.Fatalf("a hint on a page with rows: %q", tt.Texts())
 	}
 }
