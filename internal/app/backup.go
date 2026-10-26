@@ -26,7 +26,7 @@ type backupDialog struct {
 	database string // PostgreSQL's database, MySQL's schema; "" for the connection's
 	restore  bool
 
-	format  int // an index of db.BackupFormats
+	format  int // an index of the engine's BackupFormats
 	content int // a db.BackupContent
 	path    string
 	clean   bool // a restore drops what it makes first
@@ -50,7 +50,19 @@ func (b *backupDialog) inputs() any {
 
 // backupSupported says whether a connection's databases are backed up by
 // the app.
-func backupSupported(e db.Engine) bool { return len(db.BackupFormats(e)) > 0 }
+func backupSupported(e db.Engine) bool {
+	formats, _ := backupRules(e)
+	return len(formats) > 0
+}
+
+// backupRules are the forms an engine's databases are backed up in, and
+// what the dialog asks of them: none for an engine without SQL rules.
+func backupRules(e db.Engine) ([]db.BackupFormat, db.BackupChoices) {
+	if r, ok := db.SQL(e); ok {
+		return r.BackupFormats(), r.BackupChoices()
+	}
+	return nil, db.BackupChoices{}
+}
 
 func (a *App) openBackup(cn *connection.Conn, database string, restore bool) {
 	if restore && cn.Config.ReadOnly {
@@ -72,8 +84,9 @@ func (b *backupDialog) what() string {
 // choosePath asks where the backup goes, or which one to restore.
 func (a *App) choosePath(b *backupDialog) {
 	e := b.conn.Config.Engine
-	folder := e == db.DuckDB
-	format := db.BackupFormats(e)[b.format]
+	formats, choices := backupRules(e)
+	folder := choices.Folder
+	format := formats[b.format]
 	name := strings.NewReplacer("/", "_", " ", "_").Replace(b.what()) + "-" + time.Now().Format("20060102-1504")
 	switch format {
 	case db.BackupArchive:
@@ -117,7 +130,8 @@ func restoreVerdict(cn *connection.Conn, what string) safety.Verdict {
 func (a *App) startBackup(b *backupDialog) {
 	cn := b.conn
 	cfg := cn.Config
-	if b.restore && cfg.Engine != db.DuckDB && !db.IsArchive(b.path) {
+	formats, choices := backupRules(cfg.Engine)
+	if b.restore && !choices.Folder && !db.IsArchive(b.path) {
 		// A SQL file restores as any SQL file runs, asked once, as any
 		// restore is, once read through.
 		b.open = false
@@ -126,7 +140,7 @@ func (a *App) startBackup(b *backupDialog) {
 	}
 	poolOf := cn.PoolFor(b.database)
 	base := cn.DB
-	opts := db.BackupOptions{Format: db.BackupFormats(cfg.Engine)[b.format], Content: db.BackupContent(b.content), Database: b.database, Path: b.path}
+	opts := db.BackupOptions{Format: formats[b.format], Content: db.BackupContent(b.content), Database: b.database, Path: b.path}
 	// planned is a restore planned before it was asked, as DuckDB's is.
 	run := func(planned *db.ToolRun) {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -160,7 +174,7 @@ func (a *App) startBackup(b *backupDialog) {
 					}
 				case tool.Statement != "":
 					var d *db.DB
-					if d, err = poolOf(ctx); err == nil && cfg.Engine == db.DuckDB {
+					if d, err = poolOf(ctx); err == nil && choices.Folder {
 						err = db.BackupDuckDB(ctx, d, tool.Statement)
 					} else if err == nil {
 						_, err = d.SQL.ExecContext(ctx, tool.Statement)
@@ -205,7 +219,7 @@ func (a *App) startBackup(b *backupDialog) {
 		v.Reasons = append(v.Reasons, "Drop objects first: what the backup holds is dropped from "+b.what()+" before it is made again.")
 	}
 	title := "Restore into " + b.what() + "?"
-	if cfg.Engine != db.DuckDB {
+	if !choices.Folder {
 		a.AskConfirm(cn, v, title, "Restore", b.path, func() { run(nil) })
 		return
 	}
@@ -255,8 +269,11 @@ func (a *App) backupView(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	e := b.conn.Config.Engine
-	formats := db.BackupFormats(e)
-	note := backupNote(e, b.restore)
+	formats, choices := backupRules(e)
+	note := ""
+	if r, ok := db.SQL(e); ok {
+		note = r.BackupNote(b.restore)
+	}
 	if !b.restore && b.conn.DB != nil && db.MysqldumpChecksCAOnly(b.conn.DB) {
 		note += " Through the tunnel or proxy, verify-full checks the server's certificate against the CA file only, not the server's name, which mysqldump cannot be told."
 	}
@@ -273,18 +290,18 @@ func (a *App) backupView(c *ui.Context) {
 						labels := lists.Map(formats, db.BackupFormat.Label)
 						ui.Field(c, "Format", func() { ui.Segmented(c, &b.format, labels...).Label("Format").Disabled(b.running) })
 					}
-					if e == db.Postgres || e == db.MySQL {
+					if choices.Content {
 						ui.Field(c, "Keep", func() {
 							ui.Segmented(c, &b.content, "Schema and Data", "Schema Only", "Data Only").Label("Keep").Disabled(b.running)
 						})
 					}
-				} else if e == db.Postgres {
+				} else if choices.Clean {
 					ui.Field(c, "", func() {
 						ui.Checkbox(c, &b.clean, "Drop what the backup makes before making it").Disabled(b.running)
 					}).Description("A pg_dump archive restores in one transaction with pg_restore; a SQL file runs as Run SQL File runs it.")
 				}
 				label := "File"
-				if e == db.DuckDB {
+				if choices.Folder {
 					label = "Folder"
 				}
 				ui.Field(c, label, func() {
@@ -331,34 +348,17 @@ func (a *App) backupView(c *ui.Context) {
 	}
 }
 
-// backupNote says how an engine's databases are backed up, or restored.
-func backupNote(e db.Engine, restore bool) string {
-	switch {
-	case restore && e == db.DuckDB:
-		return "IMPORT DATABASE reads the folder in a DuckDB of its own, which reaches no file outside it; what it makes is then copied into the database, which must not have its tables."
-	case restore && e == db.Postgres:
-		return "A .dump of pg_dump, or a SQL file."
-	case restore && e == db.SQLite:
-		return "A SQL file runs as Run SQL File runs it; a copy of the database opens as a connection of its own."
-	case restore:
-		return "A SQL file, as mysqldump writes, runs as Run SQL File runs it."
-	case e == db.SQLite:
-		return "VACUUM INTO writes a copy of the database as it is, while it stays in use: open the copy as a connection to read it."
-	case e == db.DuckDB:
-		return "EXPORT DATABASE writes the schema and each table's rows, in Parquet, in a new folder."
-	case e == db.Postgres:
-		return "pg_dump writes it, reaching the server as the connection does; it must be installed, of the server's version or later."
-	}
-	return "mysqldump writes it, in one transaction, with routines, triggers and events; it must be installed."
-}
-
 // backupTarget is the database a navigator node backs up: a PostgreSQL
 // database's, or a MySQL schema, which is a database.
 func backupTarget(cn *connection.Conn, n navNode) (string, bool) {
+	scope := db.BackupScopeNone
+	if r, ok := db.SQL(cn.Config.Engine); ok {
+		scope = r.BackupScope()
+	}
 	switch {
-	case cn.Config.Engine == db.Postgres && n.kind == nodeDatabase:
+	case scope == db.BackupScopeDatabase && n.kind == nodeDatabase:
 		return n.database, true
-	case cn.Config.Engine == db.MySQL && n.kind == nodeSchema:
+	case scope == db.BackupScopeSchema && n.kind == nodeSchema:
 		return n.schema, true
 	}
 	return "", false

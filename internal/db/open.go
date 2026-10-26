@@ -241,29 +241,15 @@ func openWire(ctx context.Context, cfg Config, ep endpoint, r route, w wire) (*D
 	if err != nil {
 		return nil, err
 	}
-	var sqldb *sql.DB
-	var mysqlConnector driver.Connector
-	single := false
-	switch cfg.Engine {
-	case Postgres:
-		sqldb, err = openPostgres(cfg, ep, tc, w)
-	case MySQL:
-		sqldb, mysqlConnector, err = openMySQL(cfg, ep, tc, w)
-	case ClickHouse:
-		if cfg.TLS == TLSPrefer && !speaksTLS(ctx, ep, tc) {
-			tc = nil
-		}
-		sqldb = openClickHouse(cfg, ep, tc, w)
-	case SQLite:
-		sqldb, err = openSQLite(cfg, w)
-		single = isMemory(cfg.Database)
-	case DuckDB:
-		sqldb, err = openDuckDB(cfg, w)
-		single = true
+	rules, ok := SQL(cfg.Engine)
+	if !ok {
+		return nil, fmt.Errorf("%s is not a SQL database", cfg.Engine.Label())
 	}
+	p, err := rules.open(ctx, cfg, ep, tc, w)
 	if err != nil {
 		return nil, err
 	}
+	sqldb, single := p.sql, p.single
 	if single {
 		sqldb.SetMaxOpenConns(1)
 		sqldb.SetMaxIdleConns(1)
@@ -278,17 +264,22 @@ func openWire(ctx context.Context, cfg Config, ep endpoint, r route, w wire) (*D
 		sqldb.Close()
 		return nil, redact(err, cfg)
 	}
-	d := &DB{Config: cfg, Dialect: DialectOf(cfg.Engine), SQL: sqldb, who: w.who, route: r, single: single, mysqlConnector: mysqlConnector, used: new(atomic.Int64)}
+	d := &DB{Config: cfg, Dialect: DialectOf(cfg.Engine), SQL: sqldb, who: w.who, route: r, single: single, mysqlConnector: p.connector, used: new(atomic.Int64)}
 	d.touch()
-	switch {
-	case cfg.Engine == Postgres, cfg.Engine == MySQL && cfg.TLS == TLSPrefer:
-		d.tlsState = negotiatedTLS(pingCtx, sqldb, cfg.Engine)
-	case cfg.Engine == MySQL, cfg.Engine == ClickHouse:
-		// Without prefer's fallback to plain text, the connection uses
-		// TLS exactly when it was asked for.
-		d.tlsState = tlsWord(tc != nil)
-	}
+	d.tlsState = rules.tlsState(pingCtx, sqldb, cfg, p.tls)
 	return d, nil
+}
+
+// openedPool is what an engine's open makes.
+type openedPool struct {
+	sql *sql.DB
+	// connector makes the pool's connections, for the MySQL pool's
+	// mysqlConnector; nil for the other engines.
+	connector driver.Connector
+	// single: the pool is one connection every session shares.
+	single bool
+	// tls is the TLS configuration the pool connects with, nil for none.
+	tls *tls.Config
 }
 
 // TLSState says whether the connection opened over TLS, "TLS" or
@@ -303,16 +294,19 @@ func tlsWord(on bool) string {
 	return "no TLS"
 }
 
-// negotiatedTLS reads whether a connection of the pool uses TLS: for
-// PostgreSQL from pgx's connection, for MySQL from the session's cipher.
-func negotiatedTLS(ctx context.Context, sqldb *sql.DB, e Engine) string {
-	if e == MySQL {
-		var name, cipher string
-		if err := sqldb.QueryRowContext(ctx, "SHOW SESSION STATUS LIKE 'Ssl_cipher'").Scan(&name, &cipher); err != nil {
-			return ""
-		}
-		return tlsWord(cipher != "")
+// negotiatedMySQLTLS reads whether a connection of a MySQL pool uses TLS,
+// from the session's cipher.
+func negotiatedMySQLTLS(ctx context.Context, sqldb *sql.DB) string {
+	var name, cipher string
+	if err := sqldb.QueryRowContext(ctx, "SHOW SESSION STATUS LIKE 'Ssl_cipher'").Scan(&name, &cipher); err != nil {
+		return ""
 	}
+	return tlsWord(cipher != "")
+}
+
+// negotiatedPostgresTLS reads whether a connection of a PostgreSQL pool
+// uses TLS, from pgx's connection.
+func negotiatedPostgresTLS(ctx context.Context, sqldb *sql.DB) string {
 	conn, err := sqldb.Conn(ctx)
 	if err != nil {
 		return ""
@@ -559,7 +553,7 @@ func (o onlyHost) RoundTrip(r *http.Request) (*http.Response, error) {
 // databases are schemas of one connection, it returns d.
 func (d *DB) Database(ctx context.Context, name string) (*DB, error) {
 	d.touch()
-	if d.Config.Engine != Postgres || name == "" || name == d.Config.Database {
+	if !rulesOf(d.Config.Engine).DatabasesNeedOwnConnection() || name == "" || name == d.Config.Database {
 		return d, nil
 	}
 	d.mu.Lock()
@@ -648,7 +642,12 @@ func (d *DB) ServerVersion(ctx context.Context) string {
 }
 
 // serverVersionQuery is the statement that reads an engine's server version.
-func serverVersionQuery(e Engine) string { return engineInfos[e].versionQuery }
+func serverVersionQuery(e Engine) string {
+	if r, ok := SQL(e); ok {
+		return r.VersionQuery()
+	}
+	return ""
+}
 
 func isMemory(path string) bool {
 	return path == ":memory:" || strings.Contains(path, "mode=memory")
@@ -702,28 +701,14 @@ func CreateFile(ctx context.Context, e Engine, path string) error {
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	switch e {
-	case SQLite:
-		// An empty file is an empty SQLite database.
-		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-		if err != nil {
-			return err
-		}
-		return f.Close()
-	case DuckDB:
-		// An empty file is not a DuckDB database: DuckDB writes its
-		// header as it opens a path that does not exist.
-		if strings.Contains(path, "?") {
-			return fmt.Errorf("%s: DuckDB cannot open a path that contains '?'", path)
-		}
-		sqldb, err := sql.Open("duckdb", path)
-		if err != nil {
-			return err
-		}
-		return errors.Join(sqldb.PingContext(ctx), sqldb.Close())
+	if r, ok := SQL(e); ok {
+		return r.CreateFile(ctx, path)
 	}
-	return fmt.Errorf("%s keeps no database in a file", e.Label())
+	return noFileError(e)
 }
+
+// noFileError is CreateFile's error for an engine without files.
+func noFileError(e Engine) error { return fmt.Errorf("%s keeps no database in a file", e.Label()) }
 
 func openDuckDB(cfg Config, w wire) (*sql.DB, error) {
 	path := ExpandPath(cfg.Database)

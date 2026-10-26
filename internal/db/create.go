@@ -1,7 +1,6 @@
 package db
 
 import (
-	"errors"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,41 +17,38 @@ type NewColumn struct {
 // ClickHouse every column may hold NULL, as a file's may, and the table
 // is a MergeTree, kept in the order the rows came.
 func CreateTableSQL(d Dialect, schema, table string, cols []NewColumn) string {
+	r := rulesOfDialect(d)
 	defs := make([]string, len(cols))
 	for i, c := range cols {
 		typ := c.Type
-		if d.Engine() == ClickHouse && !strings.HasPrefix(typ, "Nullable(") {
+		if r.NullableWrapper() && !strings.HasPrefix(typ, "Nullable(") {
 			typ = "Nullable(" + typ + ")"
 		}
 		defs[i] = "  " + d.Quote(c.Name) + " " + typ
 	}
-	sql := "CREATE TABLE " + QualifiedName(d, schema, table) + " (\n" + strings.Join(defs, ",\n") + "\n)"
-	if d.Engine() == ClickHouse {
-		sql += " ENGINE = MergeTree ORDER BY tuple()"
-	}
-	return sql
+	return "CREATE TABLE " + QualifiedName(d, schema, table) + " (\n" + strings.Join(defs, ",\n") + "\n)" + r.CreateTableSuffix(d, TableDesign{}, nil)
 }
 
 var duckDecimal = regexp.MustCompile(`^DECIMAL\((\d+),\s*(\d+)\)$`)
 
 // ColumnType is the type of an engine's column that holds a DuckDB type's
 // values exactly, as a file read by DuckDB gives them: SQLite keeps as
-// text what its numbers and dates would round or lose.
+// text what its numbers and dates would round or lose. An engine without
+// SQL rules gets DuckDB's.
 func ColumnType(e Engine, duckType string) string {
-	t := strings.ToUpper(strings.TrimSpace(duckType))
-	pick := func(postgres, mysql, sqlite, clickhouse, duckdb string) string {
-		switch e {
-		case Postgres:
-			return postgres
-		case MySQL:
-			return mysql
-		case SQLite:
-			return sqlite
-		case ClickHouse:
-			return clickhouse
-		}
-		return duckdb
+	if r, ok := SQL(e); ok {
+		return r.ColumnTypeFor(duckType)
 	}
+	return columnTypesFor(duckType).duckdb
+}
+
+// engineTypes are a type of each engine.
+type engineTypes struct{ postgres, mysql, sqlite, clickhouse, duckdb string }
+
+// columnTypesFor are the types of each engine's column that hold a DuckDB
+// type's values exactly.
+func columnTypesFor(duckType string) engineTypes {
+	t := strings.ToUpper(strings.TrimSpace(duckType))
 	if m := duckDecimal.FindStringSubmatch(t); m != nil {
 		p, _ := strconv.Atoi(m[1])
 		dec := "(" + m[1] + "," + m[2] + ")"
@@ -60,35 +56,35 @@ func ColumnType(e Engine, duckType string) string {
 		if p > 15 {
 			sqlite = "TEXT" // past a float's digits, which NUMERIC rounds to
 		}
-		return pick("numeric"+dec, "DECIMAL"+dec, sqlite, "Decimal"+dec, "DECIMAL"+dec)
+		return engineTypes{"numeric" + dec, "DECIMAL" + dec, sqlite, "Decimal" + dec, "DECIMAL" + dec}
 	}
 	switch t {
 	case "BOOLEAN":
-		return pick("boolean", "BOOLEAN", "INTEGER", "Bool", "BOOLEAN")
+		return engineTypes{"boolean", "BOOLEAN", "INTEGER", "Bool", "BOOLEAN"}
 	case "TINYINT", "SMALLINT", "INTEGER", "BIGINT", "UTINYINT", "USMALLINT", "UINTEGER":
-		return pick("bigint", "BIGINT", "INTEGER", "Int64", "BIGINT")
+		return engineTypes{"bigint", "BIGINT", "INTEGER", "Int64", "BIGINT"}
 	case "UBIGINT", "HUGEINT", "UHUGEINT":
-		return pick("numeric(39,0)", "DECIMAL(39,0)", "TEXT", "Int128", "HUGEINT")
+		return engineTypes{"numeric(39,0)", "DECIMAL(39,0)", "TEXT", "Int128", "HUGEINT"}
 	case "FLOAT":
-		return pick("real", "FLOAT", "REAL", "Float32", "FLOAT")
+		return engineTypes{"real", "FLOAT", "REAL", "Float32", "FLOAT"}
 	case "DOUBLE":
-		return pick("double precision", "DOUBLE", "REAL", "Float64", "DOUBLE")
+		return engineTypes{"double precision", "DOUBLE", "REAL", "Float64", "DOUBLE"}
 	case "DATE":
-		return pick("date", "DATE", "TEXT", "Date32", "DATE")
+		return engineTypes{"date", "DATE", "TEXT", "Date32", "DATE"}
 	case "TIMESTAMP", "TIMESTAMP_S", "TIMESTAMP_MS", "TIMESTAMP_NS":
-		return pick("timestamp", "DATETIME(6)", "TEXT", "DateTime64(6)", "TIMESTAMP")
+		return engineTypes{"timestamp", "DATETIME(6)", "TEXT", "DateTime64(6)", "TIMESTAMP"}
 	case "TIMESTAMP WITH TIME ZONE", "TIMESTAMPTZ":
-		return pick("timestamptz", "DATETIME(6)", "TEXT", "DateTime64(6, 'UTC')", "TIMESTAMPTZ")
+		return engineTypes{"timestamptz", "DATETIME(6)", "TEXT", "DateTime64(6, 'UTC')", "TIMESTAMPTZ"}
 	case "TIME":
-		return pick("time", "TIME(6)", "TEXT", "String", "TIME")
+		return engineTypes{"time", "TIME(6)", "TEXT", "String", "TIME"}
 	case "UUID":
-		return pick("uuid", "CHAR(36)", "TEXT", "UUID", "UUID")
+		return engineTypes{"uuid", "CHAR(36)", "TEXT", "UUID", "UUID"}
 	case "JSON":
-		return pick("jsonb", "JSON", "TEXT", "String", "JSON")
+		return engineTypes{"jsonb", "JSON", "TEXT", "String", "JSON"}
 	case "BLOB":
-		return pick("bytea", "LONGBLOB", "BLOB", "String", "BLOB")
+		return engineTypes{"bytea", "LONGBLOB", "BLOB", "String", "BLOB"}
 	}
-	return pick("text", "LONGTEXT", "TEXT", "String", "VARCHAR")
+	return engineTypes{"text", "LONGTEXT", "TEXT", "String", "VARCHAR"}
 }
 
 // InsertBatch is how many rows of cols columns a multi-row INSERT holds:
@@ -96,8 +92,8 @@ func ColumnType(e Engine, duckType string) string {
 // have.
 func InsertBatch(e Engine, cols int) int {
 	params := 65535
-	if e == SQLite {
-		params = 32766
+	if r, ok := SQL(e); ok {
+		params = r.MaxParameters()
 	}
 	return max(1, min(1000, params/max(1, cols)))
 }
@@ -121,17 +117,17 @@ func (t *EditTarget) InsertRows(cols []Column, rows [][]any) Statement {
 
 // RenameObjectSQL writes the statement renaming a table or a view.
 func RenameObjectSQL(d Dialect, obj Object, name string) (string, error) {
-	from := QualifiedName(d, obj.Schema, obj.Name)
-	switch d.Engine() {
-	case MySQL, ClickHouse:
-		// RENAME TABLE renames views too, and may move between databases:
-		// the new name stays in the same one.
-		return "RENAME TABLE " + from + " TO " + QualifiedName(d, obj.Schema, name), nil
-	case SQLite:
-		if obj.Kind != KindTable {
-			return "", errors.New("SQLite cannot rename a view: drop it and create it again under the new name")
-		}
-	}
+	return rulesOfDialect(d).RenameObjectSQL(obj, name)
+}
+
+// renameTableSQL renames with RENAME TABLE, which renames views too, and
+// may move between databases: the new name stays in the same one.
+func renameTableSQL(d Dialect, obj Object, name string) string {
+	return "RENAME TABLE " + QualifiedName(d, obj.Schema, obj.Name) + " TO " + QualifiedName(d, obj.Schema, name)
+}
+
+// alterRenameSQL renames an object with ALTER, as standard SQL does.
+func alterRenameSQL(d Dialect, obj Object, name string) string {
 	kind := "TABLE"
 	switch obj.Kind {
 	case KindView:
@@ -141,7 +137,7 @@ func RenameObjectSQL(d Dialect, obj Object, name string) (string, error) {
 	case KindForeignTable:
 		kind = "FOREIGN TABLE"
 	}
-	return "ALTER " + kind + " " + from + " RENAME TO " + d.Quote(name), nil
+	return "ALTER " + kind + " " + QualifiedName(d, obj.Schema, obj.Name) + " RENAME TO " + d.Quote(name)
 }
 
 // RenameColumnSQL writes the statement renaming a column of a table.

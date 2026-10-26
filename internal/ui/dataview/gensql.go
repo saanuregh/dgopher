@@ -159,18 +159,13 @@ func (s sqlGen) template(kind string, cols []db.ColumnInfo, fks []db.ForeignKey)
 		parts := lists.Map(s.key, func(k string) string { return s.dialect.Quote(k) + " = :" + paramName(k) })
 		return strings.Join(parts, " AND ")
 	}
-	var sets, upserts []string
+	var sets, updated []string
 	for i, c := range cols {
 		if inStrings(s.key, c.Name) {
 			continue
 		}
 		sets = append(sets, quoted[i]+" = "+params[i])
-		switch s.engine {
-		case db.MySQL:
-			upserts = append(upserts, quoted[i]+" = VALUES("+quoted[i]+")")
-		default:
-			upserts = append(upserts, quoted[i]+" = EXCLUDED."+quoted[i])
-		}
+		updated = append(updated, quoted[i])
 	}
 	insert := "INSERT INTO " + s.name() + " (" + strings.Join(quoted, ", ") + ")\nVALUES (" + strings.Join(params, ", ") + ")"
 	switch kind {
@@ -192,21 +187,16 @@ func (s sqlGen) template(kind string, cols []db.ColumnInfo, fks []db.ForeignKey)
 		}
 		return "DELETE FROM " + s.name() + "\nWHERE " + keyMatch() + ";"
 	case "upsert":
-		switch {
-		case s.key == nil:
+		if s.key == nil {
 			return "-- No unique key: the database cannot tell an existing row from a new one.\n" + insert + ";"
-		case s.engine == db.ClickHouse:
-			return "-- ClickHouse has no upsert: a ReplacingMergeTree keeps the last row of a key.\n" + insert + ";"
-		case s.engine == db.MySQL && len(upserts) == 0:
-			return "INSERT IGNORE" + strings.TrimPrefix(insert, "INSERT") + ";"
-		case s.engine == db.MySQL:
-			return insert + "\nON DUPLICATE KEY UPDATE " + strings.Join(upserts, ", ") + ";"
 		}
-		keys := db.QuoteNames(s.dialect, s.key)
-		if len(upserts) == 0 {
-			return insert + "\nON CONFLICT (" + keys + ") DO NOTHING;"
+		keys := lists.Map(s.key, func(k string) string { return s.dialect.Quote(k) })
+		r, ok := db.SQL(s.engine)
+		if !ok {
+			// Unreached: s.dialect, which quoted the keys, is the engine's.
+			return insert + ";"
 		}
-		return insert + "\nON CONFLICT (" + keys + ") DO UPDATE SET " + strings.Join(upserts, ", ") + ";"
+		return r.UpsertSQL(insert, keys, updated) + ";"
 	case "join":
 		var b strings.Builder
 		b.WriteString("SELECT *\nFROM " + s.name() + " t")

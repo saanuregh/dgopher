@@ -533,9 +533,7 @@ func sqlLiteral(v any, e db.Engine) string {
 	if isNil(v) {
 		return "NULL"
 	}
-	switch e {
-	case db.Postgres, db.MySQL, db.ClickHouse, db.DuckDB:
-	default:
+	if _, ok := db.SQL(e); !ok {
 		// Standard SQL has no escape for NUL; SQLite, whose literals are
 		// otherwise standard, joins it in with char(0).
 		e = db.SQLite

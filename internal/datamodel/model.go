@@ -89,7 +89,10 @@ func (m *Model) Check() error {
 }
 
 // Engine reports whether a model may be of an engine: one of SQL tables.
-func Engine(e db.Engine) bool { return e != db.Redis && db.DialectOf(e) != nil }
+func Engine(e db.Engine) bool {
+	_, ok := db.SQL(e)
+	return ok
+}
 
 // Table finds a table of the model by its schema and name.
 func (m *Model) Table(schema, name string) (db.TableDesign, bool) {
@@ -164,19 +167,8 @@ func Modelled(e db.Engine, t db.TableDesign) db.TableDesign {
 	for i := range t.Checks {
 		t.Checks[i].Read = false
 	}
-	if e == db.MySQL {
-		// MySQL makes an index for a key, which it names as the key: the
-		// key makes it again.
-		t.Indexes = slices.DeleteFunc(t.Indexes, func(ix db.IndexDesign) bool {
-			return slices.ContainsFunc(t.ForeignKeys, func(fk db.ForeignKeyDesign) bool {
-				return fk.Name == ix.Name && slices.Equal(fk.Columns, ix.Columns[:min(len(fk.Columns), len(ix.Columns))])
-			})
-		})
-	}
-	if e == db.ClickHouse {
-		// Its sorting key is the primary key's columns, written from them.
-		t.Indexes = slices.DeleteFunc(t.Indexes, func(ix db.IndexDesign) bool { return ix.Name == "ORDER BY" })
-		t.PrimaryKeyName = ""
+	if r, ok := db.SQL(e); ok {
+		r.NormalizeModelTable(&t)
 	}
 	return t
 }

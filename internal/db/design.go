@@ -86,28 +86,6 @@ type CheckDesign struct {
 	Expression string `json:"expression"`
 }
 
-// CommonTypes are types of an engine's columns the table form offers;
-// any other may be typed.
-func CommonTypes(e Engine) []string {
-	switch e {
-	case Postgres:
-		return []string{"integer", "bigint", "smallint", "numeric(12,2)", "real", "double precision", "boolean", "text", "varchar(255)",
-			"date", "timestamp", "timestamptz", "time", "interval", "uuid", "jsonb", "bytea"}
-	case MySQL:
-		return []string{"int", "bigint", "smallint", "tinyint(1)", "decimal(12,2)", "float", "double", "varchar(255)", "text",
-			"date", "datetime", "timestamp", "time", "json", "blob"}
-	case SQLite:
-		return []string{"INTEGER", "REAL", "TEXT", "BLOB", "NUMERIC"}
-	case DuckDB:
-		return []string{"INTEGER", "BIGINT", "SMALLINT", "DECIMAL(12,2)", "DOUBLE", "BOOLEAN", "VARCHAR", "DATE", "TIMESTAMP",
-			"TIMESTAMPTZ", "TIME", "INTERVAL", "UUID", "JSON", "BLOB"}
-	case ClickHouse:
-		return []string{"Int32", "Int64", "UInt32", "UInt64", "Float64", "Decimal(12,2)", "Bool", "String", "LowCardinality(String)",
-			"Date", "Date32", "DateTime", "DateTime64(3)", "UUID"}
-	}
-	return nil
-}
-
 // ReferentialActions are what a foreign key may do when the row it
 // points at is deleted or its key changes.
 var ReferentialActions = []string{"NO ACTION", "RESTRICT", "CASCADE", "SET NULL", "SET DEFAULT"}
@@ -137,6 +115,7 @@ func actionsSQL(onDelete, onUpdate string) string {
 func ReadTableDesign(ctx context.Context, d *DB, obj Object) (TableDesign, error) {
 	t := TableDesign{Schema: obj.Schema, Name: obj.Name, Comment: obj.Comment}
 	dl, q := d.Dialect, d.Catalog()
+	r := rulesOfDialect(dl)
 	cols, err := dl.Columns(ctx, q, obj.Schema, obj.Name)
 	if err != nil {
 		return t, err
@@ -149,7 +128,7 @@ func ReadTableDesign(ctx context.Context, d *DB, obj Object) (TableDesign, error
 		if c.HasDefault {
 			cd.Default = c.Default
 		}
-		if dl.Engine() == ClickHouse {
+		if r.NullableWrapper() {
 			if inner, ok := strings.CutPrefix(c.Type, "Nullable("); ok {
 				cd.Type, cd.Nullable = strings.TrimSuffix(inner, ")"), true
 			}
@@ -176,16 +155,7 @@ func ReadTableDesign(ctx context.Context, d *DB, obj Object) (TableDesign, error
 			RefSchema: fk.RefSchema, RefTable: fk.RefTable, RefColumns: fk.RefColumns, OnDelete: fk.OnDelete, OnUpdate: fk.OnUpdate,
 			Definition: fk.Definition})
 	}
-	switch dl.Engine() {
-	case Postgres:
-		err = readPostgresDesign(ctx, d, &t)
-	case MySQL:
-		err = readMySQLDesign(ctx, d, &t)
-	case DuckDB:
-		err = readDuckDBChecks(ctx, d, &t)
-	case SQLite:
-		err = readSQLiteDesign(ctx, d, &t)
-	}
+	err = r.ReadDesignExtras(ctx, d, &t)
 	return t, err
 }
 

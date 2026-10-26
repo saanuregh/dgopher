@@ -1513,7 +1513,7 @@ func TestIntegrationCloudIdentity(t *testing.T) {
 	}
 }
 
-// Each engine's EXPLAIN, in the form ExplainPrefix asks for, reads as a
+// Each engine's EXPLAIN, in the form Explain asks for, reads as a
 // plan, and a scan of every row to keep few is advised against.
 func TestIntegrationPlans(t *testing.T) {
 	integration(t)
@@ -1558,11 +1558,12 @@ func TestIntegrationPlans(t *testing.T) {
 			defer d.SQL.ExecContext(ctx, "DROP TABLE IF EXISTS "+table)
 			mustExec(t, d, c.setup...)
 			for _, analyze := range []bool{false, true} {
-				prefix := ExplainPrefix(c.cfg.Engine, analyze)
-				if prefix == "" {
+				run, ok := Explain(c.cfg.Engine, c.query, analyze)
+				if !ok {
 					continue
 				}
-				rows, err := d.SQL.QueryContext(ctx, prefix+c.query)
+				prefix := run.Statement[:run.Offset]
+				rows, err := d.SQL.QueryContext(ctx, run.Statement)
 				if err != nil {
 					t.Fatal(prefix, err)
 				}
@@ -1578,7 +1579,8 @@ func TestIntegrationPlans(t *testing.T) {
 					all = append(all, vals)
 				}
 				rows.Close()
-				p, ok := ParsePlan(c.cfg.Engine, cols, all)
+				r, _ := SQL(c.cfg.Engine)
+				p, ok := r.ParsePlan(cols, all)
 				if !ok || p.Root == nil || p.Analyzed != analyze {
 					t.Fatalf("%s: plan %+v %v from %v", prefix, p, ok, all)
 				}

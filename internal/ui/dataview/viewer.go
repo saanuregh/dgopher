@@ -210,7 +210,8 @@ func NewViewer(a Host, src ViewerSource) *Viewer {
 		}
 		v.a.Record(&v.source.Conn.Config, e)
 	}
-	v.grid.noDefaultUpdate = cn.Config.Engine == db.SQLite
+	r, ok := db.SQL(cn.Config.Engine)
+	v.grid.noDefaultUpdate = ok && !r.UpdateSetsDefault()
 	v.grid.SQLOpts = SQLOptionsFor(cn, "", "")
 	if src.Table != nil {
 		v.bindTable()
@@ -454,7 +455,7 @@ func (v *Viewer) stopFetchAll() { v.fetchingAll, v.allAfterRead = false, false }
 // DuckDB's one connection, ending its statement aborts the transaction
 // open there.
 func (v *Viewer) countStopRefusal() string {
-	if v.source.Conn.Config.Engine != db.DuckDB || v.source.Conn.DB == nil {
+	if r, ok := db.SQL(v.source.Conn.Config.Engine); !ok || !r.InterruptAbortsTransaction() || v.source.Conn.DB == nil {
 		return ""
 	}
 	if state, _ := v.source.Conn.DB.SharedTx(); state != db.TxNone {
@@ -543,9 +544,10 @@ func (v *Viewer) selectSQL() string {
 		q = "SELECT * FROM " + v.from()
 	}
 	q += whereClause(w)
+	r, isSQL := db.SQL(v.source.Conn.Config.Engine)
 	if len(order) > 0 {
 		q += " ORDER BY " + strings.Join(order, ", ")
-	} else if key, _, err := v.keyColumns(); err == nil && !v.source.Wrap && v.source.Conn.Config.Engine != db.ClickHouse {
+	} else if key, _, err := v.keyColumns(); err == nil && !v.source.Wrap && (!isSQL || r.StableOrderByKey()) {
 		// A stable order, so that pages and edits find the same rows.
 		q += " ORDER BY " + db.QuoteNames(v.dialect(), key)
 	}

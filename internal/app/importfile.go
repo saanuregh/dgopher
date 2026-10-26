@@ -451,7 +451,7 @@ func writeRows(ctx context.Context, a *App, pool *db.DB, cfg db.Config, database
 		}
 		return err
 	}
-	ddlCommits := w.create != "" && (engine == db.MySQL || engine == db.ClickHouse)
+	ddlCommits := w.create != "" && db.SchemaChangesCommit(engine)
 	if ddlCommits {
 		if err := exec(w.create); err != nil {
 			return 0, err

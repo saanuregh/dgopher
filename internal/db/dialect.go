@@ -121,7 +121,12 @@ type Dialect interface {
 }
 
 // DialectOf returns the dialect of an engine.
-func DialectOf(e Engine) Dialect { return engineInfos[e].dialect }
+func DialectOf(e Engine) Dialect {
+	if r, ok := SQL(e); ok {
+		return r.dialect()
+	}
+	return nil
+}
 
 // QuoteIfNeeded quotes a name only where it must be, as people write
 // names: one of lower-case letters, digits and underscores stays bare.

@@ -96,7 +96,7 @@ func (cn *Conn) Rank() int {
 // SwitchesDatabase reports whether a tab of the connection can switch
 // to another of its databases.
 func (cn *Conn) SwitchesDatabase() bool {
-	return cn.Config.Engine == db.Postgres && len(cn.Databases) > 1
+	return cn.Config.Engine.DatabasesNeedOwnConnection() && len(cn.Databases) > 1
 }
 
 type SchemaKey struct{ Database, Schema string }

@@ -24,11 +24,12 @@ type erLink struct {
 
 // editable says why the diagram cannot change the schema, "" when it can.
 func (e *ERTab) editable() string {
+	r, isSQL := db.SQL(e.conn.Config.Engine)
 	switch {
 	case e.conn.Config.ReadOnly:
 		return e.conn.Config.Name + " is read-only."
-	case e.conn.Config.Engine == db.ClickHouse:
-		return "ClickHouse has no foreign keys."
+	case isSQL && !r.HasForeignKeys():
+		return e.conn.Config.Engine.Label() + " has no foreign keys."
 	}
 	return ""
 }

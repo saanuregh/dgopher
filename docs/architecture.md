@@ -131,7 +131,8 @@ What happens when you press ⌘↵ in an editor
    needed, then for each statement:
    - in manual commit, begins a transaction before the first write;
    - for a read, calls `Session.Query` and fetches the first page from the
-     `db.Cursor`; a plan goes through `db.ParsePlan` and `db.Advise`;
+     `db.Cursor`; a plan goes through the engine's `ParsePlan` and
+     `db.Advise`;
    - for a write, calls `Session.Exec`, wrapped in a transaction of its own
      when the [large-change check](safety.md#large-changes) applies.
 5. **Recording.** `App.RecordTyped` redacts the entry and appends it to the
@@ -286,17 +287,38 @@ database. All sessions on it share one transaction:
 
 ## Engines
 
-- `db.Engine` (`internal/db/config.go`) names an engine. The `engineInfos`
-  table holds each engine's label, default port and user, version query,
-  lexer dialect, `Dialect` and backup formats.
+- `db.Engine` (`internal/db/config.go`) names an engine, and is what
+  project files store.
+- Each engine's rules answer everything that
+  differs between engines: its label, port and user, how it opens, begins
+  and ends transactions, explains, writes literals and DDL, manages
+  accounts, backs up, and which pages and commands it offers. Every engine
+  implements `engineRules`; SQL engines also implement `SQLRules`, which
+  embeds `Dialect` and groups its hooks by area (`driverRules`,
+  `transactionRules`, `queryRules`, `designRules`, `accountRules`,
+  `backupRules`). The interfaces are declared in `internal/db/engine.go`;
+  each engine's type and all its methods are in the engine's own file
+  (`postgres.go`, `mysql.go`, …), and code several engines share stays in
+  its area's file (`txstate.go`, `designsql.go`, …). The compiler makes a
+  new engine answer every hook, and `TestNoEngineSwitches` keeps
+  comparisons with an engine from coming back.
+  An engine reusing another's behavior embeds its type and overrides
+  methods; a method must not call another hook through its receiver,
+  because embedding does not make that call reach the override. Such an
+  engine also needs a dialect type of its own, whose `Engine()` is its
+  own, returned by its `dialect()`: code holding only a `Dialect` finds
+  the rules by that `Engine()`, which `TestEngineRulesCover` checks.
 - `db.Dialect` (`internal/db/dialect.go`) is each SQL engine's behavior:
   quoting, placeholders, catalog queries, generated SQL. Each engine has its
   own file (`postgres.go`, `mysql.go`, …). Redis has no `Dialect`.
-- **Engine behavior is not only in `Dialect`.** Switches on `db.Engine` are
-  spread across `internal/app`, `internal/ui/*`, `internal/datamodel`,
-  `internal/export` and `internal/safety`. Search for `case db.<Engine>`
-  when changing an engine. [Engine support](engines.md) lists the
-  differences users see.
+- Packages outside `internal/db` ask an engine's rules through `Engine`
+  methods, which every engine answers, and `db.SQL(e)`, which gives the
+  SQL rules and `false` for Redis or an engine no build knows; the caller
+  decides what that case means. A few `db` functions combine rules or keep
+  a fallback of their own (`db.Explain`, `db.Literal`,
+  `db.SchemaChangesCommit`, the type mappings). `internal/sqltext` cannot
+  import `db` and keeps its rules by its own `sqltext.Dialect`.
+  [Engine support](engines.md) lists the differences users see.
 
 ## Persistence
 

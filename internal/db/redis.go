@@ -689,3 +689,32 @@ func formatReply(b *strings.Builder, v any, indent string) {
 		fmt.Fprintf(b, "%v\n", x)
 	}
 }
+
+type redisEngine struct{}
+
+var _ engineRules = redisEngine{}
+
+func (redisEngine) Label() string                   { return "Redis" }
+func (redisEngine) ColorHex() string                { return "#dc382d" }
+func (redisEngine) DefaultPort() int                { return 6379 }
+func (redisEngine) DefaultUser() string             { return "" }
+func (redisEngine) IsSQL() bool                     { return false }
+func (redisEngine) Transactions() bool              { return false }
+func (redisEngine) Savepoints() bool                { return false }
+func (redisEngine) TransactionalDDL() bool          { return false }
+func (redisEngine) DatabaseField() (string, string) { return "Database index", "0" }
+func (redisEngine) URLSchemes() []string            { return []string{"redis", "rediss"} }
+
+func (redisEngine) URLTLSParameters() map[string]map[string]TLSMode {
+	return nil
+}
+
+func (redisEngine) CloudIdentity() bool              { return false }
+func (redisEngine) ClearTextPassword() bool          { return false }
+func (redisEngine) DatabasesNeedOwnConnection() bool { return false }
+func (redisEngine) DefaultSchemaName() string        { return "" }
+func (redisEngine) FileExtensions() []string         { return nil }
+
+func (redisEngine) ActivityPages() []ActivityPage {
+	return []ActivityPage{{Name: "Clients", Live: true}}
+}

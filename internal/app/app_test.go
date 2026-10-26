@@ -578,13 +578,13 @@ func TestServerActivity(t *testing.T) {
 			if i > 0 {
 				at.showPage(i)
 			}
-			testutil.WaitFor(t, tt, cfg.Name+" "+page.name, func() bool {
+			testutil.WaitFor(t, tt, cfg.Name+" "+page.Name, func() bool {
 				return !at.loading && (at.src.Cols != nil || at.metrics != nil || at.err != "")
 			})
-			if at.err != "" && (page.hint == "" || !strings.Contains(at.err, page.hint)) {
-				t.Fatalf("%s %s: %s", cfg.Name, page.name, at.err)
+			if at.err != "" && (page.Hint == "" || !strings.Contains(at.err, page.Hint)) {
+				t.Fatalf("%s %s: %s", cfg.Name, page.Name, at.err)
 			}
-			testutil.Snapshot(t, tt, "activity-"+string(cfg.Engine)+"-"+strings.ToLower(page.name))
+			testutil.Snapshot(t, tt, "activity-"+string(cfg.Engine)+"-"+strings.ToLower(page.Name))
 		}
 	}
 }
@@ -598,7 +598,7 @@ func TestClickHouseMetrics(t *testing.T) {
 	a.openActivity(cn)
 	testutil.WaitFor(t, tt, "the activity", func() bool { _, ok := a.ActiveTab().(*activityTab); return ok })
 	at := a.ActiveTab().(*activityTab)
-	at.showPage(slices.IndexFunc(at.pages, func(p activityPage) bool { return p.metrics }))
+	at.showPage(slices.IndexFunc(at.pages, func(p db.ActivityPage) bool { return p.Metrics }))
 	testutil.WaitFor(t, tt, "two reads", func() bool { return at.before != nil })
 	if at.err != "" || at.metrics["uptime"] <= 0 || !tt.HasText("Queries per second") || !at.metricsAt.After(at.beforeAt) {
 		t.Fatalf("metrics %v: %q", at.metrics, at.err)
@@ -1524,7 +1524,7 @@ func TestLocksShowWhoWaits(t *testing.T) {
 			a.openActivity(cn)
 			testutil.WaitFor(t, tt, "the activity", func() bool { _, ok := a.ActiveTab().(*activityTab); return ok })
 			at := a.ActiveTab().(*activityTab)
-			at.showPage(slices.IndexFunc(at.pages, func(p activityPage) bool { return p.name == "Locks" }))
+			at.showPage(slices.IndexFunc(at.pages, func(p db.ActivityPage) bool { return p.Name == "Locks" }))
 			waitsFor := -1
 			testutil.WaitFor(t, tt, "a lock waited for", func() bool {
 				if at.loading || at.src.Cols == nil {
@@ -1558,9 +1558,10 @@ func TestMaintenanceOnProduction(t *testing.T) {
 	cn := addConn(a, cfg)
 	tt := ui.NewTester(a.view, 1200, 800)
 	connectNow(t, a, tt, cn)
-	cmds := maintenanceCommands(db.Postgres, db.QualifiedName(cn.DB.Dialect, "shop", "orders"))
-	vacuum := cmds[slices.IndexFunc(cmds, func(m maintenance) bool { return m.label == "Vacuum and Analyze" })]
-	a.runInEditor(cn, "", vacuum.sql)
+	r, _ := db.SQL(db.Postgres)
+	cmds := r.MaintenanceCommands(db.QualifiedName(cn.DB.Dialect, "shop", "orders"))
+	vacuum := cmds[slices.IndexFunc(cmds, func(m db.MaintenanceCommand) bool { return m.Label == "Vacuum and Analyze" })]
+	a.runInEditor(cn, "", vacuum.SQL)
 	testutil.WaitFor(t, tt, "the confirmation", func() bool { return a.confirm != nil })
 	a.confirm.OnConfirm()
 	a.confirm = nil

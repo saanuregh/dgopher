@@ -59,7 +59,7 @@ func (q *Tab) switchCommands() []widgets.Command {
 			}
 		}
 	}
-	if schemaStatement(cn.Config.Engine, cn.DB.Dialect, "") != "" {
+	if switchesSchema(cn.Config.Engine) {
 		current := q.currentSchema()
 		for _, name := range cn.Schemas[q.Database] {
 			if name != current {

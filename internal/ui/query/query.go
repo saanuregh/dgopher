@@ -550,7 +550,8 @@ func (q *Tab) statements(mode RunMode) ([]string, []int) {
 		}
 	}
 	if explaining(mode) && len(out) == 1 {
-		out[0] = db.ExplainPrefix(q.Conn.Config.Engine, mode == RunExplainAnalyze) + out[0]
+		run, _ := db.Explain(q.Conn.Config.Engine, out[0], mode == RunExplainAnalyze)
+		out[0] = run.Statement
 	}
 	return out, starts
 }
@@ -572,7 +573,7 @@ func (q *Tab) StatementToRun() (string, error) {
 // the statement changes the database.
 func (q *Tab) analyzeRefusal() string {
 	e := q.Conn.Config.Engine
-	if db.ExplainPrefix(e, true) == "" {
+	if _, ok := db.Explain(e, "", true); !ok {
 		return e.Label() + " explains a statement without running it: Explain shows its plan."
 	}
 	stmts, _ := q.statements(RunStatement)
@@ -829,7 +830,8 @@ func (q *Tab) run(mode RunMode) {
 	}
 	skip := 0
 	if explaining(mode) {
-		skip = len(db.ExplainPrefix(q.Conn.Config.Engine, mode == RunExplainAnalyze))
+		run, _ := db.Explain(q.Conn.Config.Engine, "", mode == RunExplainAnalyze)
+		skip = run.Offset
 	}
 	newTab := q.newTab
 	q.withParams(stmts, func(values map[string]params.Input) {
@@ -1102,7 +1104,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 			if i <= lastWrite && sess.Tx() == db.TxNone &&
 				!safety.CommitsImplicitly(cfg.Engine, s) && !safety.OutsideTransaction(cfg.Engine, s.SQL) {
 				err := sess.Begin(ctx)
-				q.a.Record(&cfg, audit.Event{Kind: audit.KindStatement, Database: database, Statement: db.BeginStatement(cfg.Engine),
+				q.a.Record(&cfg, audit.Event{Kind: audit.KindStatement, Database: database, Statement: beginStatement(cfg.Engine),
 					Purpose: purposeManualCommit, Rows: -1, Err: err})
 				if err != nil {
 					if errors.Is(err, db.ErrSessionReset) {
@@ -1168,8 +1170,10 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 					}
 					if strings.EqualFold(res.verb, "EXPLAIN") {
 						names := lists.Map(cursor.Columns, func(col db.ColumnInfo) string { return col.Name })
-						if plan, ok := db.ParsePlan(cfg.Engine, names, first); ok {
-							res.plan, res.advice = plan, db.Advise(cfg.Engine, plan)
+						if r, ok := db.SQL(cfg.Engine); ok {
+							if plan, ok := r.ParsePlan(names, first); ok {
+								res.plan, res.advice = plan, db.Advise(cfg.Engine, plan)
+							}
 						}
 					}
 				}
@@ -2039,10 +2043,14 @@ func findObject(objs []db.Object, name string, quoted bool, engine db.Engine) (d
 // none: PostgreSQL folds an unquoted name to lower case, ClickHouse folds
 // none, and the others find names whatever the case, the exact one first.
 func matchName(names []string, name string, quoted bool, engine db.Engine) int {
+	folding := db.NamesIgnoreCase
+	if r, ok := db.SQL(engine); ok {
+		folding = r.NameFolding()
+	}
 	switch {
-	case engine == db.Postgres && !quoted:
+	case folding == db.NamesFoldToLower && !quoted:
 		return slices.Index(names, strings.ToLower(name))
-	case engine == db.Postgres || engine == db.ClickHouse:
+	case folding == db.NamesFoldToLower || folding == db.NamesKeepCase:
 		return slices.Index(names, name)
 	}
 	if i := slices.Index(names, name); i >= 0 {
@@ -2489,7 +2497,7 @@ func changesRows(s safety.Statement, dialect sqltext.Dialect) bool {
 // what the run has learned of MySQL tables (mysqlTransactional).
 func (q *Tab) beginGuard(ctx context.Context, sess *db.Session, s safety.Statement, table sqltext.TableRef, limit int, database string, known map[[2]string]bool) (*changeGuard, error) {
 	cfg := q.Conn.Config
-	if cfg.Engine == db.MySQL && table.Name != "" {
+	if r, ok := db.SQL(cfg.Engine); ok && r.RollbackMayKeepChanges() && table.Name != "" {
 		switch keeps, err := mysqlTransactional(ctx, sess, table, known); {
 		case err != nil:
 			return nil, err
@@ -2498,7 +2506,7 @@ func (q *Tab) beginGuard(ctx context.Context, sess *db.Session, s safety.Stateme
 		}
 	}
 	err := sess.Begin(ctx)
-	q.a.Record(&cfg, audit.Event{Kind: audit.KindStatement, Database: database, Statement: db.BeginStatement(cfg.Engine),
+	q.a.Record(&cfg, audit.Event{Kind: audit.KindStatement, Database: database, Statement: beginStatement(cfg.Engine),
 		Purpose: "to count the rows the change makes before it commits", Rows: -1, Err: err})
 	if err != nil {
 		return nil, err
@@ -2574,7 +2582,7 @@ func (g *changeGuard) end(ctx context.Context, commit bool, n int64) error {
 	if err != nil {
 		return fmt.Errorf("could not roll back: %w", err)
 	}
-	if cfg.Engine == db.MySQL && mysqlKeptChanges(ectx, g.sess) {
+	if r, ok := db.SQL(cfg.Engine); ok && r.RollbackMayKeepChanges() && mysqlKeptChanges(ectx, g.sess) {
 		return fmt.Errorf("could not roll back all of it: a table it changed keeps no transactions, as MyISAM, and keeps its changes of the %d rows", n)
 	}
 	return nil
@@ -2595,10 +2603,18 @@ func mysqlKeptChanges(ctx context.Context, sess *db.Session) bool {
 // changedWord is how an engine counts the rows a change makes: MySQL's
 // the rows it matched, changed or not.
 func changedWord(e db.Engine) string {
-	if e == db.MySQL {
-		return "matched"
+	if r, ok := db.SQL(e); ok {
+		return r.RowCountWord()
 	}
 	return "changed"
+}
+
+// beginStatement is what a session's Begin sends.
+func beginStatement(e db.Engine) string {
+	if r, ok := db.SQL(e); ok {
+		return r.BeginStatement()
+	}
+	return "BEGIN"
 }
 
 // askCommit asks whether a change of more rows than the limit commits.

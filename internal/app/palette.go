@@ -94,7 +94,7 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 			if !active.Config.Engine.IsFile() {
 				cmds = append(cmds, paletteItem{title: "Server Activity", detail: active.Config.Name, group: "Command", icon: widgets.IconClock, run: func() { a.openActivity(active) }})
 			}
-			if db.UsersSupported(active.Config.Engine) {
+			if usersSupported(active.Config.Engine) {
 				cmds = append(cmds, paletteItem{title: "Users and Privileges", detail: active.Config.Name, group: "Command", icon: widgets.IconUsers, run: func() { a.openUsers(active) }})
 			}
 			if active.Config.Engine.IsSQL() {

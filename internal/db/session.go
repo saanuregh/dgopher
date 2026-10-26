@@ -94,7 +94,7 @@ func (s *Session) connect(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if s.db.Config.Engine == MySQL {
+	if r, ok := SQL(s.db.Config.Engine); ok && r.cancelQuerySQL(0) != "" {
 		// Remembered to cancel queries with KILL QUERY from another
 		// connection (watchCancel): the driver only drops its own. 0, which
 		// sends no KILL, when unread: the id of a lost connection could be
@@ -210,7 +210,7 @@ func (s *Session) OwnsTx() bool {
 // next statement that reads or writes a table begins a transaction. It
 // is false on other engines, and when unknown.
 func (s *Session) AutocommitOff() bool {
-	if s.db.Config.Engine != MySQL {
+	if r, ok := SQL(s.db.Config.Engine); !ok || !r.autocommitMayBeOff() {
 		return false
 	}
 	s.mu.Lock()
@@ -257,7 +257,7 @@ func (s *Session) txState() TxState {
 // transaction another session began is open, it is refused (ErrNotOwner)
 // and nothing is sent, as ExecTransactionControl refuses one.
 func (s *Session) Begin(ctx context.Context) error {
-	_, err := s.exec(ctx, BeginStatement(s.db.Config.Engine), s.mayControlSharedTx)
+	_, err := s.exec(ctx, beginStatement(s.db.Config.Engine), s.mayControlSharedTx)
 	return err
 }
 
@@ -339,6 +339,16 @@ func (s *Session) mayEndSharedTx() error {
 	return s.mayControlSharedTx()
 }
 
+// followsTransactionByVerbs reports whether a session of an engine knows
+// its transaction by its statements' verbs: so does an engine without
+// rules, but not Redis, which keeps none.
+func followsTransactionByVerbs(e Engine) bool {
+	if r, ok := SQL(e); ok {
+		return r.followsTransactionByVerbs()
+	}
+	return e.IsSQL()
+}
+
 // noteStatement follows the transaction after a statement, err being its
 // error. On a pool of one connection it reads it on shared, the connection
 // the statement ran on, before another session's statement can come
@@ -346,8 +356,7 @@ func (s *Session) mayEndSharedTx() error {
 // verbs are followed only when the driver cannot tell.
 func (s *Session) noteStatement(query string, err error, shared *sql.Conn) {
 	e := s.db.Config.Engine
-	switch e {
-	case Postgres, ClickHouse, Redis:
+	if !followsTransactionByVerbs(e) {
 		return // PostgreSQL's is read whenever asked; the others keep none
 	}
 	if shared != nil {
@@ -496,7 +505,7 @@ func (s *Session) exec(ctx context.Context, query string, check func() error, ar
 	run := func() (int64, *cancelWatch, error) {
 		ctx, watch := s.watchCancel(ctx)
 		defer watch.stop()
-		if s.db.Config.Engine == Postgres && len(args) == 0 && s.conn != nil {
+		if r, ok := SQL(s.db.Config.Engine); ok && r.execUnprepared() && len(args) == 0 && s.conn != nil {
 			n, err := execExtended(ctx, s.conn, query)
 			return n, watch, err
 		}
@@ -584,7 +593,8 @@ func (s *Session) Query(ctx context.Context, query string, args ...any) (*Cursor
 		s.noteStatement(query, err, shared)
 		return nil, err
 	}
-	c, err := newCursor(rows, watch, s.db.Config.Engine == SQLite)
+	r, ok := SQL(s.db.Config.Engine)
+	c, err := newCursor(rows, watch, ok && r.bytesAreBinary())
 	if err == nil {
 		c.pool = s.db
 		if err = watch.ranPastCancel(); err != nil {
@@ -722,7 +732,7 @@ func (s *Session) afterError(err error, wasTx TxState) error {
 	}
 	lost := errors.Is(err, driver.ErrBadConn) || errors.Is(err, sql.ErrConnDone) || errors.Is(err, mysql.ErrInvalidConn) ||
 		isNetError(err) || endsConnection(err)
-	if !lost && s.db.Config.Engine == MySQL {
+	if r, ok := SQL(s.db.Config.Engine); !lost && ok && r.pingAfterError() {
 		// The driver keeps the transaction's flags from OK packets, not
 		// errors: a ping refreshes them, as after a deadlock, which rolled
 		// the transaction back, or a failed CREATE TABLE, which committed
@@ -774,7 +784,7 @@ type cancelWatch struct {
 func (s *Session) watchCancel(ctx context.Context) (context.Context, *cancelWatch) {
 	w := &cancelWatch{caller: ctx}
 	// An ended context is left to the driver, which then sends nothing.
-	if s.db.Config.Engine != MySQL || s.db.mysqlConnector == nil || s.conn == nil || s.mysqlID == 0 ||
+	if r, ok := SQL(s.db.Config.Engine); !ok || r.cancelQuerySQL(s.mysqlID) == "" || s.db.mysqlConnector == nil || s.conn == nil || s.mysqlID == 0 ||
 		ctx.Done() == nil || ctx.Err() != nil {
 		return ctx, w
 	}
@@ -881,6 +891,10 @@ func (e *cancelledError) Unwrap() []error {
 // once connected, the KILL waits for its answer, until deadline: left on
 // its way, it could stop the session's next statement.
 func (d *DB) killQuery(stopped context.Context, deadline time.Time, id int64) error {
+	r, ok := SQL(d.Config.Engine)
+	if !ok || r.cancelQuerySQL(id) == "" {
+		return fmt.Errorf("%s cancels no query from another connection", d.Config.Engine.Label())
+	}
 	ctx, cancel := context.WithDeadline(stopped, deadline)
 	defer cancel()
 	conn, err := d.mysqlConnector.Connect(ctx)
@@ -896,7 +910,7 @@ func (d *DB) killQuery(stopped context.Context, deadline time.Time, id int64) er
 	defer kcancel()
 	// id is CONNECTION_ID() of the session's own connection: behind a proxy
 	// that shares server connections, it may not name the server's.
-	_, err = exec.ExecContext(kctx, fmt.Sprintf("KILL QUERY %d", id), nil)
+	_, err = exec.ExecContext(kctx, r.cancelQuerySQL(id), nil)
 	return err
 }
 

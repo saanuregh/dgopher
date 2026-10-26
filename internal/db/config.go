@@ -4,7 +4,6 @@
 package db
 
 import (
-	"cmp"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -17,7 +16,6 @@ import (
 	"strings"
 
 	"dgopher/internal/netproxy"
-	"dgopher/internal/sqltext"
 	"dgopher/internal/sshtunnel"
 )
 
@@ -35,58 +33,6 @@ const (
 
 // Engines lists the supported engines in the order the UI offers them.
 func Engines() []Engine { return []Engine{Postgres, MySQL, ClickHouse, Redis, SQLite, DuckDB} }
-
-// engineInfo holds an engine's fixed facts; an unknown engine reads the zero value.
-type engineInfo struct {
-	label, defaultUser, versionQuery string
-	defaultPort                      int
-	lex                              sqltext.Dialect
-	dialect                          Dialect
-	backups                          []BackupFormat
-}
-
-var engineInfos = map[Engine]engineInfo{
-	Postgres: {label: "PostgreSQL", defaultPort: 5432, defaultUser: "postgres", versionQuery: "SHOW server_version",
-		lex: sqltext.Postgres, dialect: postgresDialect{}, backups: []BackupFormat{BackupArchive, BackupSQL}},
-	MySQL: {label: "MySQL", defaultPort: 3306, defaultUser: "root", versionQuery: "SELECT VERSION()",
-		lex: sqltext.MySQL, dialect: mysqlDialect{}, backups: []BackupFormat{BackupSQL}},
-	ClickHouse: {label: "ClickHouse", defaultPort: 9000, defaultUser: "default", versionQuery: "SELECT version()",
-		lex: sqltext.ClickHouse, dialect: clickhouseDialect{}},
-	Redis: {label: "Redis", defaultPort: 6379},
-	SQLite: {label: "SQLite", versionQuery: "SELECT sqlite_version()", lex: sqltext.SQLite, dialect: sqliteDialect{},
-		backups: []BackupFormat{BackupCopy}},
-	DuckDB: {label: "DuckDB", versionQuery: "SELECT version()", lex: sqltext.Postgres, dialect: duckdbDialect{},
-		backups: []BackupFormat{BackupParquet}},
-}
-
-// Label is the engine's display name.
-func (e Engine) Label() string { return cmp.Or(engineInfos[e].label, string(e)) }
-
-// DefaultPort is the port the engine listens on unless configured otherwise.
-func (e Engine) DefaultPort() int { return engineInfos[e].defaultPort }
-
-// DefaultUser is the user most installations of the engine start with.
-func (e Engine) DefaultUser() string { return engineInfos[e].defaultUser }
-
-// IsSQL reports whether the engine speaks SQL.
-func (e Engine) IsSQL() bool { return e != Redis }
-
-// IsFile reports whether the engine's databases are files on this
-// computer, opened by path rather than reached over the network.
-func (e Engine) IsFile() bool { return e == SQLite || e == DuckDB }
-
-// TransactionalDDL reports whether the engine's schema changes can run in
-// a transaction, all or none, as PostgreSQL's, SQLite's and DuckDB's can.
-func (e Engine) TransactionalDDL() bool { return e == Postgres || e == SQLite || e == DuckDB }
-
-// Transactions reports whether a client can hold a transaction of the
-// engine's open: ClickHouse and Redis have none.
-func (e Engine) Transactions() bool { return e != ClickHouse && e != Redis }
-
-// Savepoints reports whether the engine nests a savepoint in an open
-// transaction, which a failed statement can roll back to alone: DuckDB's
-// grammar has none, and ClickHouse holds no transactions.
-func (e Engine) Savepoints() bool { return e == Postgres || e == MySQL || e == SQLite }
 
 // Environment says how careful the app must be with a connection.
 type Environment string
@@ -428,9 +374,7 @@ func (c *Config) Validate() error {
 	if strings.TrimSpace(c.Name) == "" {
 		errs = append(errs, "a name is required")
 	}
-	switch c.Engine {
-	case Postgres, MySQL, ClickHouse, Redis, SQLite, DuckDB:
-	default:
+	if _, unknown := rulesOf(c.Engine).(unknownEngine); unknown {
 		errs = append(errs, fmt.Sprintf("unknown engine %q", c.Engine))
 	}
 	for schema, d := range c.Catalog {
@@ -529,7 +473,7 @@ func (c *Config) Validate() error {
 	case c.Identity == "":
 	case !slices.Contains(Identities(), c.Identity):
 		errs = append(errs, fmt.Sprintf("unknown identity %q", c.Identity))
-	case c.Engine != Postgres && c.Engine != MySQL:
+	case !rulesOf(c.Engine).CloudIdentity():
 		errs = append(errs, "a cloud identity logs in to PostgreSQL or MySQL")
 	case !verified:
 		errs = append(errs, "a cloud identity's token goes only over verified TLS: choose TLS verify-full "+
@@ -540,7 +484,7 @@ func (c *Config) Validate() error {
 	}
 	switch {
 	case !c.ClearTextPassword:
-	case c.Engine != MySQL:
+	case !rulesOf(c.Engine).ClearTextPassword():
 		errs = append(errs, "a password sent as clear text goes only to MySQL")
 	case !verified:
 		errs = append(errs, "a password sent as clear text goes only over verified TLS: choose TLS verify-full "+

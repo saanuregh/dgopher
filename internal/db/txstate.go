@@ -224,37 +224,25 @@ type txByVerbs struct {
 // failed one, begins a transaction but one that ends a transaction or
 // sets autocommit.
 func (v txByVerbs) after(e Engine, query string, err error, rollsBackOnTimeout func() bool) txByVerbs {
-	beginsAny := e == MySQL && v.autocommitOff
+	rules, isSQL := SQL(e)
+	beginsAny := isSQL && rules.autocommitMayBeOff() && v.autocommitOff
 	if err != nil {
-		switch {
-		case e == MySQL:
-			// The server rolls back the whole transaction of a deadlock's
-			// victim, and of a lock wait timeout when told to.
-			if n := mysqlErrorNumber(err); n == 1213 || n == 1205 && rollsBackOnTimeout != nil && rollsBackOnTimeout() {
-				v.tx = TxNone
-			} else if beginsAny {
-				v.tx = TxOpen
-			}
-		case e == DuckDB && v.tx == TxOpen:
-			// Any error but a parse error aborts DuckDB's transaction.
-			var de *duckdb.Error
-			if !errors.As(err, &de) || de.Type != duckdb.ErrorTypeParser {
-				v.tx = TxFailed
-			}
+		if isSQL {
+			v = rules.afterFailedStatement(v, err, beginsAny, rollsBackOnTimeout)
 		}
 		// Otherwise what a failed statement did is unsure: a failed CREATE
 		// TABLE may have committed, and the transaction stays shown.
 		return v
 	}
 	words := leadingWords(e, query)
+	all := func() []string { return allWords(e, query, words) }
 	beginsNone := false
-	if e == MySQL && wordAt(words, 0) != "SET" && commitsImplicitly(e, query, words) {
+	if isSQL && wordAt(words, 0) != "SET" && rules.commitsImplicitlyWords(words, all) {
 		v.tx, beginsNone = TxNone, true
 	}
 	switch wordAt(words, 0) {
 	case "BEGIN":
-		// MariaDB's BEGIN NOT ATOMIC … END is a compound statement.
-		if e != MySQL || wordAt(words, 1) != "NOT" {
+		if !isSQL || !rules.beginIsCompound(words) {
 			v.tx = TxOpen
 		}
 	case "START":
@@ -271,7 +259,7 @@ func (v txByVerbs) after(e Engine, query string, err error, rollsBackOnTimeout f
 		}
 	case "SAVEPOINT":
 		// SQLite's begins a transaction outside one; MySQL's does not.
-		if e == SQLite && v.tx == TxNone {
+		if isSQL && rules.SavepointBeginsTransaction() && v.tx == TxNone {
 			v.tx = TxOpen
 		}
 	case "XA":
@@ -283,7 +271,10 @@ func (v txByVerbs) after(e Engine, query string, err error, rollsBackOnTimeout f
 			v.tx, beginsNone = TxNone, true
 		}
 	case "SET":
-		if on, ok := setsAutocommit(allWords(e, query, words)); e == MySQL && ok {
+		if !isSQL {
+			break
+		}
+		if on, ok := rules.setsAutocommitWords(words, all); ok {
 			if on && v.autocommitOff {
 				v.tx = TxNone // committed: autocommit was not already 1
 			}
@@ -303,34 +294,38 @@ func (v txByVerbs) after(e Engine, query string, err error, rollsBackOnTimeout f
 // CREATE and DROP of a TEMPORARY table. SET autocommit = 1 counts, though
 // it commits only when autocommit was 0. It is false for other engines.
 func CommitsImplicitly(e Engine, sql string) bool {
-	if e != MySQL {
+	r, ok := SQL(e)
+	if !ok {
 		return false
 	}
-	return commitsImplicitly(e, sql, leadingWords(e, sql))
+	words := leadingWords(e, sql)
+	return r.commitsImplicitlyWords(words, func() []string { return allWords(e, sql, words) })
 }
 
 // SetsAutocommit reads a MySQL SET of the session's autocommit: on, and
 // whether the statement assigns it at all; false on other engines.
 func SetsAutocommit(e Engine, sql string) (on, ok bool) {
-	if e != MySQL {
+	r, isSQL := SQL(e)
+	if !isSQL {
 		return false, false
 	}
 	words := leadingWords(e, sql)
 	if wordAt(words, 0) != "SET" {
 		return false, false
 	}
-	return setsAutocommit(allWords(e, sql, words))
+	return r.setsAutocommitWords(words, func() []string { return allWords(e, sql, words) })
 }
 
-// commitsImplicitly is CommitsImplicitly given the statement's leading
-// words, read on to its end only by the rules that scan that far.
-func commitsImplicitly(e Engine, sql string, words []string) bool {
+// commitsImplicitly is MySQL's CommitsImplicitly given the statement's
+// leading words, and all of them, read only by the rules that scan to its
+// end.
+func commitsImplicitly(words []string, all func() []string) bool {
 	switch wordAt(words, 0) {
 	case "CREATE", "ALTER", "DROP":
 		object, temporary := ddlObject(words)
 		if object == "" {
 			// The modifiers may run past the words read.
-			object, temporary = ddlObject(allWords(e, sql, words))
+			object, temporary = ddlObject(all())
 		}
 		return implicitObjects[object] && !(temporary && object == "TABLE")
 	case "RENAME", "TRUNCATE", "GRANT", "REVOKE", "FLUSH", "ANALYZE", "CHECK", "OPTIMIZE", "REPAIR":
@@ -352,7 +347,7 @@ func commitsImplicitly(e Engine, sql string, words []string) bool {
 	case "CHANGE":
 		return wordAt(words, 1) == "MASTER" || wordAt(words, 1) == "REPLICATION" && wordAt(words, 2) == "SOURCE"
 	case "SET":
-		on, ok := setsAutocommit(allWords(e, sql, words))
+		on, ok := setsAutocommit(all())
 		return wordAt(words, 1) == "PASSWORD" || ok && on
 	}
 	return false
@@ -491,7 +486,7 @@ func allWords(e Engine, query string, words []string) []string {
 // limit is above 0. MySQL runs what an executable comment holds (/*! … */,
 // MariaDB's /*M! … */), as mysqldump writes CREATE VIEW: its words count.
 func statementWords(e Engine, query string, limit int) []string {
-	if e == MySQL {
+	if r, ok := SQL(e); ok && r.ExecutableComments() {
 		query = sqltext.UnwrapExecutable(query)
 	}
 	var words []string
@@ -507,8 +502,24 @@ func statementWords(e Engine, query string, limit int) []string {
 	return words
 }
 
+// nameWords are the keywords and names of a statement, in upper case.
+func nameWords(sql string, d sqltext.Dialect) []string {
+	var words []string
+	for _, t := range sqltext.Tokenize(sql, d) {
+		if t.Kind == sqltext.Keyword || t.Kind == sqltext.Identifier {
+			words = append(words, strings.ToUpper(t.Text))
+		}
+	}
+	return words
+}
+
 // LexDialect is the lexer's dialect of an engine.
-func LexDialect(e Engine) sqltext.Dialect { return engineInfos[e].lex }
+func LexDialect(e Engine) sqltext.Dialect {
+	if r, ok := SQL(e); ok {
+		return r.LexDialect()
+	}
+	return sqltext.Generic
+}
 
 // mysqlErrorNumber is the number of a MySQL server error, 0 for any other
 // error.

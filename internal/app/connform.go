@@ -249,7 +249,7 @@ func (f *connForm) config() db.Config {
 	if source != sourceIdentity {
 		cfg.Identity, cfg.IdentityRegion, cfg.IdentityProfile = "", "", ""
 	}
-	if cfg.Engine != db.MySQL {
+	if !cfg.Engine.ClearTextPassword() {
 		cfg.ClearTextPassword = false
 	}
 	switch source {
@@ -532,14 +532,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 			ui.Select(c, &f.source, passwordSourcesOf(engine)).Label("Password from")
 		})
 		a.passwordField(c, f)
-		label := "Database"
-		placeholder := ""
-		switch engine {
-		case db.Redis:
-			label, placeholder = "Database index", "0"
-		case db.Postgres:
-			placeholder = "postgres"
-		}
+		label, placeholder := engine.DatabaseField()
 		if mode != db.RedisCluster { // a cluster has database 0 only
 			textField(c, label, &f.cfg.Database, placeholder)
 		}
@@ -813,10 +806,7 @@ func clickHouseDefaultPort(p db.ClickHouseProtocol, tls db.TLSMode) int {
 }
 
 func (a *App) chooseFile(e db.Engine) {
-	exts := []string{"sqlite", "sqlite3", "db", "db3"}
-	if e == db.DuckDB {
-		exts = []string{"duckdb", "ddb", "db"}
-	}
+	exts := e.FileExtensions()
 	widgets.ChoosePath(a.Post, mygo.OpenDialogOptions{
 		Title:   "Open " + e.Label() + " Database",
 		Filters: []mygo.FileFilter{{Name: e.Label() + " databases", Extensions: exts}, {Name: "All files", Extensions: []string{"*"}}},
@@ -1186,7 +1176,7 @@ var passwordSources = []string{"System keychain", "Environment variable", "Comma
 // passwordSourcesOf are the sources an engine's connections may take
 // their password from.
 func passwordSourcesOf(e db.Engine) []string {
-	if e == db.Postgres || e == db.MySQL {
+	if e.CloudIdentity() {
 		return passwordSources
 	}
 	return passwordSources[:sourceIdentity]
@@ -1330,7 +1320,7 @@ func (a *App) passwordField(c *ui.Context, f *connForm) {
 			})
 		}
 	}
-	if cfg.Engine == db.MySQL && f.passwordSource() != sourceIdentity {
+	if cfg.Engine.ClearTextPassword() && f.passwordSource() != sourceIdentity {
 		ui.Field(c, "", func() {
 			ui.Checkbox(c, &f.cfg.ClearTextPassword, "Send the password as clear text")
 		}).Description("As logging in through LDAP or PAM needs: only over verified TLS, Verify certificate and host.")

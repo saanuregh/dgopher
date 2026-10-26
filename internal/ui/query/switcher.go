@@ -17,18 +17,6 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// schemaStatement makes a session find unqualified names in a schema, ""
-// for an engine whose sessions have no schema to change (SQLite).
-func schemaStatement(e db.Engine, d db.Dialect, schema string) string {
-	switch e {
-	case db.Postgres:
-		return "SET search_path TO " + d.Quote(schema)
-	case db.MySQL, db.ClickHouse, db.DuckDB:
-		return "USE " + d.Quote(schema)
-	}
-	return ""
-}
-
 // currentDatabase is the database the editor works in: its own, else the
 // connection's.
 func (q *Tab) currentDatabase() string { return cmp.Or(q.Database, q.Conn.Config.Database) }
@@ -58,7 +46,7 @@ func (q *Tab) switcherView(c *ui.Context) {
 			q.switchDatabase(database)
 		}
 	}
-	if schemaStatement(cn.Config.Engine, cn.DB.Dialect, "") == "" {
+	if !switchesSchema(cn.Config.Engine) {
 		return
 	}
 	schemas, ok := cn.Schemas[q.Database]
@@ -70,6 +58,13 @@ func (q *Tab) switcherView(c *ui.Context) {
 		FontSize(widgets.ToolFontSize).Changed() {
 		q.switchSchema(current)
 	}
+}
+
+// switchesSchema reports whether the engine's sessions have a schema to
+// switch.
+func switchesSchema(e db.Engine) bool {
+	r, ok := db.SQL(e)
+	return ok && r.UseSchemaSQL("") != ""
 }
 
 // switchSchema makes the editor's session find names in a schema, as its
@@ -86,7 +81,10 @@ func (q *Tab) switchSchema(schema string) {
 		return
 	}
 	cfg := cn.Config
-	stmt := schemaStatement(cfg.Engine, cn.DB.Dialect, schema)
+	stmt := ""
+	if r, ok := db.SQL(cfg.Engine); ok {
+		stmt = r.UseSchemaSQL(schema)
+	}
 	v := safety.ReviewSQL(&cfg, safety.Analyze(&cfg, []string{stmt}))
 	if v.Blocked != "" {
 		q.a.RecordBlocked(cn, v.Blocked, stmt)

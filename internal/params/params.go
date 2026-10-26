@@ -94,7 +94,7 @@ func Value(in Input, e db.Engine) (any, error) {
 	if strings.EqualFold(strings.TrimSpace(in.Value), "null") {
 		return nil, nil
 	}
-	if e == db.Postgres {
+	if r, ok := db.SQL(e); ok && r.ParameterAsText() {
 		return in.Value, nil
 	}
 	if n, ok := NumberOf(in.Value); ok {

@@ -291,9 +291,8 @@ each declare a small `Host` interface for what they need from the window.
 | `internal/sqlfile` | reads the statements of a SQL file as it streams, such as a dump, `COPY` rows included |
 | `internal/redact` | hides secrets in text that is shown or logged |
 
-Engine behavior is not only in `db.Dialect`. Switches on `db.Engine` are
-spread across packages; search for `case db.<Engine>` when changing an
-engine.
+Engine behavior lives in each engine's rules in `internal/db/engine.go`;
+see [Architecture](architecture.md#engines).
 
 ### Data in and out
 

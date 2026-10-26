@@ -20,136 +20,14 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// activityPage is a page of a server's activity: what a statement lists,
-// and how to stop what a row runs.
-type activityPage struct {
-	name  string
-	query string
-	// live pages read again every 2 seconds; the others when asked, as
-	// their statements weigh on the server.
-	live bool
-	// stop and kill return the statement that cancels the query of a row,
-	// and the one that ends its session, nil when the page has none. A
-	// row's first column names its session.
-	stop func(row []any) string
-	kill func(row []any) string
-	// hint says what the page needs of the server, when it fails.
-	hint string
-	// metrics shows the page's one row as tiles, with rates between reads.
-	metrics bool
-}
-
-const (
-	pgStop    = "SELECT pg_cancel_backend(%s)"
-	pgKill    = "SELECT pg_terminate_backend(%s)"
-	mysqlStop = "KILL QUERY %s"
-	mysqlKill = "KILL %s"
-	// activityMax is how many rows a page shows.
-	activityMax = 5000
-)
-
-// sessionStatement returns the statement acting on the session a row's
-// first column names.
-func sessionStatement(format string) func(row []any) string {
-	return func(r []any) string { return fmt.Sprintf(format, db.Display(r[0])) }
-}
-
-// activityPages are the pages of an engine's server activity, none for
-// one that runs inside the app.
-func activityPages(e db.Engine) []activityPage {
-	switch e {
-	case db.Postgres:
-		return []activityPage{{
-			name: "Sessions", live: true, stop: sessionStatement(pgStop), kill: sessionStatement(pgKill),
-			query: `SELECT pid, usename AS "user", datname AS database, application_name AS application, client_addr::text AS client,
-  state, date_trunc('second', now() - query_start)::text AS running_for, wait_event_type AS waiting_on, left(query, 400) AS query
-FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND backend_type = 'client backend'
-ORDER BY state = 'active' DESC, query_start NULLS LAST`,
-		}, {
-			name: "Locks", live: true, stop: sessionStatement(pgStop), kill: sessionStatement(pgKill),
-			query: `SELECT l.pid, a.usename AS "user", l.locktype AS lock_type,
-  coalesce(l.relation::regclass::text, l.transactionid::text, l.virtualxid) AS object, l.mode, l.granted,
-  array_to_string(pg_blocking_pids(l.pid), ', ') AS waits_for, date_trunc('second', now() - a.xact_start)::text AS transaction_for,
-  left(a.query, 300) AS query
-FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
-WHERE l.pid <> pg_backend_pid() AND a.backend_type = 'client backend' AND l.locktype <> 'virtualxid'
-ORDER BY l.granted, a.xact_start`,
-		}, {
-			name: "Statistics",
-			query: `SELECT left(query, 400) AS query, calls, round(total_exec_time::numeric, 1) AS total_ms, round(mean_exec_time::numeric, 2) AS mean_ms,
-  round(max_exec_time::numeric, 1) AS max_ms, rows, shared_blks_hit + shared_blks_read AS blocks
-FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 500`,
-			hint: "These come from the pg_stat_statements extension: add it to shared_preload_libraries, restart the server, and run CREATE EXTENSION pg_stat_statements.",
-		}}
-	case db.MySQL:
-		return []activityPage{{
-			name: "Sessions", live: true, stop: sessionStatement(mysqlStop), kill: sessionStatement(mysqlKill),
-			query: `SELECT ID AS id, USER AS user, HOST AS host, DB AS db, COMMAND AS command, TIME AS seconds, STATE AS state, LEFT(INFO, 400) AS query
-FROM information_schema.PROCESSLIST WHERE ID <> CONNECTION_ID() ORDER BY COMMAND = 'Sleep', TIME DESC`,
-		}, {
-			name: "Locks", live: true, stop: sessionStatement(mysqlStop), kill: sessionStatement(mysqlKill),
-			query: `SELECT t.PROCESSLIST_ID AS id, t.PROCESSLIST_USER AS user, CONCAT_WS('.', l.OBJECT_SCHEMA, l.OBJECT_NAME) AS object,
-  l.INDEX_NAME AS index_name, l.LOCK_TYPE AS lock_type, l.LOCK_MODE AS mode, l.LOCK_STATUS AS status,
-  (SELECT GROUP_CONCAT(bt.PROCESSLIST_ID) FROM performance_schema.data_lock_waits w
-   JOIN performance_schema.threads bt ON bt.THREAD_ID = w.BLOCKING_THREAD_ID
-   WHERE w.REQUESTING_ENGINE_LOCK_ID = l.ENGINE_LOCK_ID) AS waits_for,
-  LEFT(t.PROCESSLIST_INFO, 300) AS query
-FROM performance_schema.data_locks l JOIN performance_schema.threads t ON t.THREAD_ID = l.THREAD_ID
-WHERE t.PROCESSLIST_ID <> CONNECTION_ID()
-UNION ALL
-SELECT t.PROCESSLIST_ID, t.PROCESSLIST_USER, CONCAT_WS('.', m.OBJECT_SCHEMA, m.OBJECT_NAME), NULL, CONCAT('METADATA ', m.OBJECT_TYPE),
-  m.LOCK_TYPE, m.LOCK_STATUS, NULL, LEFT(t.PROCESSLIST_INFO, 300)
-FROM performance_schema.metadata_locks m JOIN performance_schema.threads t ON t.THREAD_ID = m.OWNER_THREAD_ID
-WHERE t.PROCESSLIST_ID IS NOT NULL AND t.PROCESSLIST_ID <> CONNECTION_ID() AND m.OBJECT_TYPE IN ('TABLE', 'SCHEMA')
-ORDER BY status = 'GRANTED', id`,
-			hint: "Locks come from performance_schema, which the server must have on, and the user may read.",
-		}, {
-			name: "Statistics",
-			query: `SELECT LEFT(DIGEST_TEXT, 400) AS query, SCHEMA_NAME AS db, COUNT_STAR AS calls, ROUND(SUM_TIMER_WAIT / 1e9, 1) AS total_ms,
-  ROUND(AVG_TIMER_WAIT / 1e9, 2) AS mean_ms, ROUND(MAX_TIMER_WAIT / 1e9, 1) AS max_ms, SUM_ROWS_SENT AS rows_sent, SUM_ROWS_EXAMINED AS rows_examined
-FROM performance_schema.events_statements_summary_by_digest WHERE DIGEST_TEXT IS NOT NULL
-ORDER BY SUM_TIMER_WAIT DESC LIMIT 500`,
-			hint: "Statistics come from performance_schema, which the server must have on, and the user may read.",
-		}}
-	case db.ClickHouse:
-		return []activityPage{{
-			name: "Sessions", live: true,
-			stop: func(r []any) string {
-				return "KILL QUERY WHERE query_id = " + db.Literal(db.ClickHouse, r[0]) + " ASYNC"
-			},
-			query: `SELECT query_id, user, round(elapsed, 1) AS seconds, read_rows, formatReadableSize(memory_usage) AS memory, left(query, 400) AS query
-FROM system.processes WHERE query_id != queryID() ORDER BY elapsed DESC`,
-		}, {
-			name: "Statistics",
-			query: `SELECT any(left(query, 400)) AS query, count() AS calls, round(sum(query_duration_ms)) AS total_ms, round(avg(query_duration_ms), 1) AS mean_ms,
-  max(query_duration_ms) AS max_ms, sum(read_rows) AS read_rows, formatReadableSize(sum(read_bytes)) AS read, formatReadableSize(max(memory_usage)) AS peak_memory
-FROM system.query_log WHERE type = 'QueryFinish' AND event_time > now() - INTERVAL 1 DAY
-GROUP BY normalized_query_hash ORDER BY total_ms DESC LIMIT 500`,
-			hint: "Statistics come from system.query_log, which the server keeps when log_queries is on.",
-		}, {
-			name: "Metrics", live: true, metrics: true,
-			query: `SELECT uptime() AS uptime,
-  (SELECT value FROM system.metrics WHERE metric = 'Query') AS queries,
-  (SELECT sum(value) FROM system.metrics WHERE metric IN ('TCPConnection', 'HTTPConnection', 'MySQLConnection', 'PostgreSQLConnection')) AS connections,
-  (SELECT value FROM system.metrics WHERE metric = 'MemoryTracking') AS memory,
-  (SELECT value FROM system.metrics WHERE metric = 'Merge') AS merges,
-  (SELECT count() FROM system.parts WHERE active) AS parts,
-  (SELECT value FROM system.asynchronous_metrics WHERE metric = 'LoadAverage1') AS load,
-  (SELECT value FROM system.events WHERE event = 'Query') AS queries_run,
-  (SELECT value FROM system.events WHERE event = 'SelectedRows') AS rows_read,
-  (SELECT value FROM system.events WHERE event = 'InsertedRows') AS rows_inserted`,
-		}}
-	case db.Redis:
-		return []activityPage{{name: "Clients", live: true}}
-	}
-	return nil
-}
+// activityMax is how many rows a page shows.
+const activityMax = 5000
 
 // activityTab shows the sessions, locks and statistics of a server.
 type activityTab struct {
 	a     *App
 	conn  *connection.Conn
-	pages []activityPage
+	pages []db.ActivityPage
 	page  int
 
 	src      dataview.Source
@@ -173,7 +51,7 @@ type activityTab struct {
 }
 
 func newActivityTab(a *App, cn *connection.Conn) *activityTab {
-	t := &activityTab{a: a, conn: cn, grid: dataview.NewGrid(), auto: true, pages: activityPages(cn.Config.Engine)}
+	t := &activityTab{a: a, conn: cn, grid: dataview.NewGrid(), auto: true, pages: cn.Config.Engine.ActivityPages()}
 	t.refresh()
 	return t
 }
@@ -209,7 +87,7 @@ func (t *activityTab) refresh() {
 			if s, err = pool.Session(ctx); err == nil {
 				defer s.Close()
 				var c *db.Cursor
-				if c, err = s.Query(ctx, page.query); err == nil {
+				if c, err = s.Query(ctx, page.Query); err == nil {
 					src.Cols = c.Columns
 					src.Rows, err = c.Fetch(activityMax)
 					c.Close()
@@ -225,13 +103,13 @@ func (t *activityTab) refresh() {
 			t.loading, t.loadedAt = false, time.Now()
 			if err != nil {
 				t.err = err.Error()
-				if page.hint != "" {
-					t.err += "\n\n" + page.hint
+				if page.Hint != "" {
+					t.err += "\n\n" + page.Hint
 				}
 				return
 			}
 			t.err = ""
-			if page.metrics {
+			if page.Metrics {
 				t.adoptMetrics(src)
 				return
 			}
@@ -293,9 +171,9 @@ func (t *activityTab) act(row []any, terminate bool) {
 	case redis:
 		stmt, title = "CLIENT KILL ID "+db.Display(row[0]), "Disconnect client "+db.Display(row[0])+"?"
 	case terminate:
-		stmt, title = page.kill(row), "End this session?"
+		stmt, title = page.Kill(row), "End this session?"
 	default:
-		stmt, title = page.stop(row), "Cancel this query?"
+		stmt, title = page.Stop(row), "Cancel this query?"
 	}
 	// Stopping another session's work is exempt from read-only, which the
 	// server enforces through its own privileges; the rest of the policy holds.
@@ -351,27 +229,27 @@ func (t *activityTab) View(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	page := t.pages[t.page]
-	if page.live && t.auto && !t.loading && c.Now().Sub(t.loadedAt) >= 2*time.Second {
+	if page.Live && t.auto && !t.loading && c.Now().Sub(t.loadedAt) >= 2*time.Second {
 		t.refresh()
 	}
-	if page.live && t.auto {
+	if page.Live && t.auto {
 		c.After(time.Second)
 	}
 	ui.Column(c).Grow(1).Children(func() {
 		widgets.Bar(c, "Server activity", func() {
 			if len(t.pages) > 1 {
-				names := lists.Map(t.pages, func(p activityPage) string { return p.name })
+				names := lists.Map(t.pages, func(p db.ActivityPage) string { return p.Name })
 				if ui.Segmented(c, &t.page, names...).Label("Page").FontSize(widgets.ToolFontSize).Changed() {
 					t.showPage(t.page)
 				}
 			} else {
 				ui.Text(c, "Server activity").Bold()
 			}
-			if !page.metrics {
+			if !page.Metrics {
 				ui.Text(c, widgets.Count(len(t.src.Rows), "row")).FontSize(12).TextColor(pal.Muted)
 			}
 			ui.Spacer(c)
-			if page.live {
+			if page.Live {
 				ui.Checkbox(c, &t.auto, "Refresh every 2 seconds")
 			}
 			if widgets.ToolButton(c, widgets.IconRefresh, "Refresh", "Read the page now").Clicked() {
@@ -383,10 +261,10 @@ func (t *activityTab) View(c *ui.Context) {
 						t.act(row, true)
 					}
 				} else {
-					if page.stop != nil && widgets.Appear(ui.Button(c.Key("cancel-query"), "Cancel Query")).Clicked() {
+					if page.Stop != nil && widgets.Appear(ui.Button(c.Key("cancel-query"), "Cancel Query")).Clicked() {
 						t.act(row, false)
 					}
-					if page.kill != nil && widgets.Appear(ui.Button(c.Key("end-session"), "End Session")).Clicked() {
+					if page.Kill != nil && widgets.Appear(ui.Button(c.Key("end-session"), "End Session")).Clicked() {
 						t.act(row, true)
 					}
 				}
@@ -396,7 +274,7 @@ func (t *activityTab) View(c *ui.Context) {
 			ui.Text(c, t.err).TextColor(th.Danger).Padding(12).Selectable()
 		}
 		switch {
-		case page.metrics:
+		case page.Metrics:
 			t.metricsView(c)
 		case t.info != nil:
 			t.redisMetrics(c)
@@ -539,7 +417,7 @@ func hitRate(hits, misses string) string {
 
 // openActivity opens a connection's server activity.
 func (a *App) openActivity(cn *connection.Conn) {
-	if len(activityPages(cn.Config.Engine)) == 0 {
+	if len(cn.Config.Engine.ActivityPages()) == 0 {
 		a.ShowError("No server activity", cn.Config.Engine.Label()+" runs inside this app: there is no server to watch.")
 		return
 	}
