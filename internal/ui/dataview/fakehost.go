@@ -55,6 +55,9 @@ type FakeHost struct {
 	ClipboardReads int
 	Queries        []string // texts of the query tabs asked for
 	Events         []audit.Event
+	// AfterRecord, when set, runs after each event Record keeps, on the
+	// goroutine that recorded it.
+	AfterRecord func(e audit.Event)
 
 	mu    sync.Mutex
 	queue []func()
@@ -358,6 +361,9 @@ func (h *FakeHost) Record(cfg *db.Config, e audit.Event) {
 		e.Error = secretcmd.AuditText(e.Err)
 	}
 	h.Events = append(h.Events, e.WithOrigin())
+	if h.AfterRecord != nil {
+		h.AfterRecord(e)
+	}
 }
 
 func (h *FakeHost) RecordRun(cfg db.Config, kind, database, stmt string, rows int64, d time.Duration, err error) {

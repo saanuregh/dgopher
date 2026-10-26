@@ -85,6 +85,14 @@ func TestExportFromQueryOnTheEditorsSession(t *testing.T) {
 	q.exportFromQuery()
 	tt.Frame()
 	tt.Advance(time.Second) // the dialog come in
+	// The export waits, holding the session, until the checks below are done:
+	// a click runs frames until the view settles, long enough for it to end.
+	resume := make(chan struct{})
+	a.AfterRecord = func(e audit.Event) {
+		if e.Kind == audit.KindExport {
+			<-resume
+		}
+	}
 	if err := tt.Click("Export"); err != nil {
 		t.Fatal(err)
 	}
@@ -95,6 +103,7 @@ func TestExportFromQueryOnTheEditorsSession(t *testing.T) {
 	if !strings.Contains(a.Errors[len(a.Errors)-1], "An export is reading") {
 		t.Fatalf("ran during the export: %q", a.Errors)
 	}
+	close(resume)
 	var files []string
 	testutil.WaitFor(t, tt, "the export", func() bool {
 		files, _ = filepath.Glob(filepath.Join(folder, "*.csv"))
