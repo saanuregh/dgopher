@@ -28,6 +28,21 @@ services:
       interval: 2s
       retries: 60
 
+  # MariaDB, in the compat profile: docker compose --profile compat up -d
+  # --wait mariadb. Its tests skip when it is not running.
+  mariadb:
+    image: mariadb:11.4
+    container_name: dgopher-mariadb
+    profiles: ["compat"]
+    ports: ["127.0.0.1:13307:3306"]
+    environment:
+      MARIADB_ROOT_PASSWORD: dgopher
+      MARIADB_DATABASE: shop
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      retries: 60
+
   clickhouse:
     image: clickhouse/clickhouse-server:26.3
     container_name: dgopher-ch

@@ -2,8 +2,9 @@
 
 What each engine supports in DGopher. CockroachDB, YugabyteDB and
 TimescaleDB are engines of PostgreSQL's family, and MariaDB and TiDB of
-MySQL's: until their own columns are added here, each supports what its
-family's engine does. [Features](features.md) describes each feature, and
+MySQL's: each supports what its family's engine does in the tables
+below, except where its own section under
+[Engines of a family](#engines-of-a-family) says otherwise. [Features](features.md) describes each feature, and
 [Known limitations](limitations.md) explains the gaps.
 
 - ✓ supported
@@ -90,3 +91,34 @@ Redis has its own key [export and import](features.md#keys).
 The slowest-statements page needs the server to collect them: the
 `pg_stat_statements` extension on PostgreSQL, `performance_schema` on
 MySQL, and query logging on ClickHouse. The page says how to turn each on.
+
+## Engines of a family
+
+### MariaDB
+
+Tested against MariaDB 11.4; supported from 10.11, the oldest MariaDB
+release still maintained.
+
+- **Explain** uses `EXPLAIN FORMAT=JSON`, and **Explain Analyze**
+  `ANALYZE FORMAT=JSON`, which runs the statement; both show the same
+  tree of steps with rows and times, and the advice also flags block
+  nested-loop joins. `ANALYZE` of a statement is checked as that
+  statement: of a `SELECT` it is a read, of an `UPDATE` a write.
+- **Read-only** connections set `tx_read_only`, which MariaDB 10.11 has
+  (`transaction_read_only` came in 11.1).
+- `NEXTVAL`, `SETVAL` and `LASTVAL`, and `NEXT VALUE FOR`, count as
+  writes.
+- **Locks** lists InnoDB row locks waited on, and the transactions waiting
+  behind them (`information_schema.INNODB_LOCK_WAITS`); it needs the
+  `PROCESS` privilege and shows no metadata locks.
+- **Slowest statements** needs the server started with
+  `performance_schema=ON`, which MariaDB leaves off.
+- **Users and privileges**: roles have no host, and grants are shown
+  without password hashes.
+- **Other objects** adds sequences. A system-versioned table is a table
+  whose engine reads "InnoDB, system-versioned", and a JSON column (a
+  `LONGTEXT` checked by `JSON_VALID`) shows the type `json`.
+- **Backup** runs `mariadb-dump`, or `mysqldump` when it is not
+  installed; through an SSH tunnel or proxy, verify-full TLS checks the
+  server's name, which `mariadb-dump` cannot be told to skip.
+

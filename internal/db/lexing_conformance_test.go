@@ -9,6 +9,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/sqltext"
 	"dgopher/internal/testutil"
+	"dgopher/internal/testutil/optionalserver"
 )
 
 // serverAnswer is what a server did with one query: its column names and
@@ -211,36 +212,44 @@ func TestIntegrationLexingConformance(t *testing.T) {
 		runLexCases(t, openFor(t, testutil.PGConfig()), sqltext.Postgres, pgCases)
 	})
 
+	// MariaDB reads these as MySQL does, with the same lexer.
+	mysqlCases := []lexCase{
+		{"SELECT 1--1", func(t *testing.T, a serverAnswer, toks []sqltext.Token) {
+			if a.err != nil || len(a.row) != 1 || a.row[0] != "2" {
+				t.Fatalf("server row %q err %v, want [2]", a.row, a.err)
+			}
+			if c := commentTexts(toks); len(c) != 0 {
+				t.Errorf("want no Comment, got %s", describe(toks))
+			}
+		}},
+		{"SELECT 1 -- c\r, 2", func(t *testing.T, a serverAnswer, toks []sqltext.Token) {
+			columnsAgree(1)(t, a, toks)
+			if c := commentTexts(toks); len(c) != 1 || c[0] != "-- c\r, 2" {
+				t.Errorf("want Comment to end of text, got %s", describe(toks))
+			}
+		}},
+		{"SELECT 1 /* a /* b */ , 2", func(t *testing.T, a serverAnswer, toks []sqltext.Token) {
+			columnsAgree(2)(t, a, toks)
+			if c := commentTexts(toks); len(c) != 1 || c[0] != "/* a /* b */" {
+				t.Errorf("want Comment ending at first */, got %s", describe(toks))
+			}
+		}},
+		{"SELECT 1 /*@/*/ , 2", func(t *testing.T, a serverAnswer, toks []sqltext.Token) {
+			columnsAgree(2)(t, a, toks)
+			if c := commentTexts(toks); len(c) != 1 || c[0] != "/*@/*/" {
+				t.Errorf("want Comment ending at the */ an opener's star begins, got %s", describe(toks))
+			}
+		}},
+	}
 	t.Run("MySQL", func(t *testing.T) {
 		d := openFor(t, db.Config{Name: "mysql", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"})
-		runLexCases(t, d, sqltext.MySQL, []lexCase{
-			{"SELECT 1--1", func(t *testing.T, a serverAnswer, toks []sqltext.Token) {
-				if a.err != nil || len(a.row) != 1 || a.row[0] != "2" {
-					t.Fatalf("server row %q err %v, want [2]", a.row, a.err)
-				}
-				if c := commentTexts(toks); len(c) != 0 {
-					t.Errorf("want no Comment, got %s", describe(toks))
-				}
-			}},
-			{"SELECT 1 -- c\r, 2", func(t *testing.T, a serverAnswer, toks []sqltext.Token) {
-				columnsAgree(1)(t, a, toks)
-				if c := commentTexts(toks); len(c) != 1 || c[0] != "-- c\r, 2" {
-					t.Errorf("want Comment to end of text, got %s", describe(toks))
-				}
-			}},
-			{"SELECT 1 /* a /* b */ , 2", func(t *testing.T, a serverAnswer, toks []sqltext.Token) {
-				columnsAgree(2)(t, a, toks)
-				if c := commentTexts(toks); len(c) != 1 || c[0] != "/* a /* b */" {
-					t.Errorf("want Comment ending at first */, got %s", describe(toks))
-				}
-			}},
-			{"SELECT 1 /*@/*/ , 2", func(t *testing.T, a serverAnswer, toks []sqltext.Token) {
-				columnsAgree(2)(t, a, toks)
-				if c := commentTexts(toks); len(c) != 1 || c[0] != "/*@/*/" {
-					t.Errorf("want Comment ending at the */ an opener's star begins, got %s", describe(toks))
-				}
-			}},
-		})
+		runLexCases(t, d, sqltext.MySQL, mysqlCases)
+	})
+
+	t.Run("MariaDB", func(t *testing.T) {
+		optionalserver.SkipUnless(t, "mariadb")
+		d := openFor(t, db.Config{Name: "mariadb", Engine: db.MariaDB, Host: "127.0.0.1", Port: 13307, User: "root", Password: "dgopher", Database: "shop"})
+		runLexCases(t, d, db.LexDialect(db.MariaDB), mysqlCases)
 	})
 
 	t.Run("ClickHouse", func(t *testing.T) {

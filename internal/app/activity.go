@@ -272,6 +272,8 @@ func (t *activityTab) View(c *ui.Context) {
 		})
 		if t.err != "" {
 			ui.Text(c, t.err).TextColor(th.Danger).Padding(12).Selectable()
+		} else if page.EmptyHint != "" && t.src.Cols != nil && len(t.src.Rows) == 0 {
+			ui.Text(c, page.EmptyHint).TextColor(pal.Muted).Padding(12).Selectable()
 		}
 		switch {
 		case page.Metrics:

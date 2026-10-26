@@ -171,15 +171,24 @@ WHERE s NOT LIKE 'pg\_%' AND s <> 'information_schema'
 
 // MySQL 8.4, pushing the filter into the UNION of information_schema
 // views, loses the views whose definition matches: the hint keeps it out.
-const mysqlSearch = `SELECT /*+ NO_DERIVED_CONDITION_PUSHDOWN(found) */ * FROM (
-SELECT t.TABLE_SCHEMA AS s, IF(t.TABLE_TYPE LIKE '%VIEW', 'view', 'table') AS kind, t.TABLE_NAME AS name, '' AS tbl, '' AS tkind,
+var mysqlSearch = mysqlSearchQuery("IF(t.TABLE_TYPE LIKE '%VIEW', 'view', 'table')", "")
+
+// mariadbSearch finds a sequence, which MariaDB keeps as a table, as a
+// sequence, and not its columns.
+var mariadbSearch = mysqlSearchQuery("IF(t.TABLE_TYPE LIKE '%VIEW', 'view', IF(t.TABLE_TYPE = 'SEQUENCE', 'sequence', 'table'))", " AND t.TABLE_TYPE <> 'SEQUENCE'")
+
+// mysqlSearchQuery is the search of MySQL's catalog with the kind of an
+// information_schema.TABLES row t and a condition on a column's table t.
+func mysqlSearchQuery(tableKind, columnTables string) string {
+	return `SELECT /*+ NO_DERIVED_CONDITION_PUSHDOWN(found) */ * FROM (
+SELECT t.TABLE_SCHEMA AS s, ` + tableKind + ` AS kind, t.TABLE_NAME AS name, '' AS tbl, '' AS tkind,
   '' AS detail, '' AS id, COALESCE(v.VIEW_DEFINITION, '') AS def
 FROM information_schema.TABLES t
 LEFT JOIN information_schema.VIEWS v ON v.TABLE_SCHEMA = t.TABLE_SCHEMA AND v.TABLE_NAME = t.TABLE_NAME
 UNION ALL
 SELECT c.TABLE_SCHEMA, 'column', c.COLUMN_NAME, c.TABLE_NAME, IF(t.TABLE_TYPE LIKE '%VIEW', 'view', 'table'), c.COLUMN_TYPE, '', ''
 FROM information_schema.COLUMNS c
-JOIN information_schema.TABLES t ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME
+JOIN information_schema.TABLES t ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME` + columnTables + `
 UNION ALL
 SELECT ROUTINE_SCHEMA, LOWER(ROUTINE_TYPE), ROUTINE_NAME, '', '', '', '', COALESCE(ROUTINE_DEFINITION, '')
 FROM information_schema.ROUTINES
@@ -192,6 +201,7 @@ FROM information_schema.EVENTS
 ) found
 WHERE s NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
   AND (LOCATE(?, LOWER(name)) > 0 OR (? AND LOCATE(?, LOWER(def)) > 0))`
+}
 
 const clickhouseSearch = `SELECT * FROM (
 SELECT database AS s, multiIf(engine IN ('View', 'LiveView', 'WindowView'), 'view', engine = 'MaterializedView', 'materialized view',

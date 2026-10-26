@@ -73,13 +73,15 @@ func TestIntegrationIdentify(t *testing.T) {
 	integration(t)
 	ctx := context.Background()
 	for _, f := range fixtures(t) {
-		e, v, err := open(t, f).Identify(ctx)
-		if err != nil || e != f.cfg.Engine {
-			t.Errorf("%s: identified %q %q, %v", f.cfg.Name, e, v, err)
-		}
-		if (f.cfg.Engine == Postgres || f.cfg.Engine == MySQL) && v == "" {
-			t.Errorf("%s: no version", f.cfg.Name)
-		}
+		t.Run(f.cfg.Name, func(t *testing.T) {
+			e, v, err := open(t, f).Identify(ctx)
+			if err != nil || e != f.cfg.Engine {
+				t.Errorf("%s: identified %q %q, %v", f.cfg.Name, e, v, err)
+			}
+			if (f.cfg.Engine == Postgres || f.cfg.Engine.Base() == MySQL) && v == "" {
+				t.Errorf("%s: no version", f.cfg.Name)
+			}
+		})
 	}
 	cfg := fixtures(t)[0].cfg
 	cfg.Engine = CockroachDB

@@ -428,9 +428,10 @@ func MysqldumpChecksCAOnly(d *DB) bool {
 	return ok && r.BackupToolChecksCAOnly(d)
 }
 
-// mysqlTool is a MySQL tool's command reaching the connection's server as
-// the app does; its password goes in an option file for it alone.
-func mysqlTool(ctx context.Context, d *DB, tool string) (ToolRun, error) {
+// mysqlTool is a MySQL or MariaDB tool's command reaching the
+// connection's server as the app does, flags writing how; its password
+// goes in an option file for it alone.
+func mysqlTool(ctx context.Context, d *DB, tool string, flags func(*DB) []string) (ToolRun, error) {
 	cfg := d.Config
 	if cfg.TLS == TLSVerifyFull && cfg.CAFile == "" {
 		// VERIFY_CA and VERIFY_IDENTITY need --ssl-ca: the MySQL tools
@@ -443,35 +444,52 @@ func mysqlTool(ctx context.Context, d *DB, tool string) (ToolRun, error) {
 	}
 	host, port := d.Address()
 	run := ToolRun{Argv: []string{tool, "--host=" + host, "--port=" + strconv.Itoa(port), "--protocol=TCP", "--user=" + cfg.User}}
-	switch cfg.TLS {
-	case "", TLSDisable:
-		run.Argv = append(run.Argv, "--ssl-mode=DISABLED")
-	case TLSPrefer:
-		run.Argv = append(run.Argv, "--ssl-mode=PREFERRED")
-	case TLSRequire:
-		run.Argv = append(run.Argv, "--ssl-mode=REQUIRED")
-	case TLSVerifyFull:
-		if MysqldumpChecksCAOnly(d) {
-			run.Argv = append(run.Argv, "--ssl-mode=VERIFY_CA")
-		} else {
-			run.Argv = append(run.Argv, "--ssl-mode=VERIFY_IDENTITY")
-		}
-	}
-	if cfg.CAFile != "" {
-		run.Argv = append(run.Argv, "--ssl-ca="+ExpandPath(cfg.CAFile))
-	}
-	if cfg.CertFile != "" {
-		run.Argv = append(run.Argv, "--ssl-cert="+ExpandPath(cfg.CertFile), "--ssl-key="+ExpandPath(cfg.KeyFile))
-	}
-	if cfg.ClearTextPassword || cfg.Identity != "" {
-		run.Argv = append(run.Argv, "--enable-cleartext-plugin")
-	}
+	run.Argv = append(run.Argv, flags(d)...)
 	if pw != "" {
 		// An option file's value is quoted, its quotes and backslashes
 		// escaped.
 		run.MySQLDefaults = "[client]\npassword=\"" + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(pw) + "\"\n"
 	}
 	return run, nil
+}
+
+// mysqlClientFlags are how MySQL's tools connect as the connection does:
+// its TLS, certificates and clear-text password.
+func mysqlClientFlags(d *DB) []string {
+	cfg := d.Config
+	var argv []string
+	switch cfg.TLS {
+	case "", TLSDisable:
+		argv = append(argv, "--ssl-mode=DISABLED")
+	case TLSPrefer:
+		argv = append(argv, "--ssl-mode=PREFERRED")
+	case TLSRequire:
+		argv = append(argv, "--ssl-mode=REQUIRED")
+	case TLSVerifyFull:
+		if MysqldumpChecksCAOnly(d) {
+			argv = append(argv, "--ssl-mode=VERIFY_CA")
+		} else {
+			argv = append(argv, "--ssl-mode=VERIFY_IDENTITY")
+		}
+	}
+	argv = append(argv, clientCertificateFlags(cfg)...)
+	if cfg.ClearTextPassword || cfg.Identity != "" {
+		argv = append(argv, "--enable-cleartext-plugin")
+	}
+	return argv
+}
+
+// clientCertificateFlags name the connection's CA, certificate and key
+// files to a MySQL or MariaDB tool.
+func clientCertificateFlags(cfg Config) []string {
+	var argv []string
+	if cfg.CAFile != "" {
+		argv = append(argv, "--ssl-ca="+ExpandPath(cfg.CAFile))
+	}
+	if cfg.CertFile != "" {
+		argv = append(argv, "--ssl-cert="+ExpandPath(cfg.CertFile), "--ssl-key="+ExpandPath(cfg.KeyFile))
+	}
+	return argv
 }
 
 // toolEnv is the environment a tool runs in: the app's, without the
@@ -513,7 +531,7 @@ func RunTool(ctx context.Context, run ToolRun, line func(string)) error {
 		// MySQL reads it only as the first option; it alone, not the
 		// user's ~/.my.cnf, whose password is for some other server.
 		args = append([]string{"--defaults-file=" + f.Name()}, args...)
-	} else if strings.HasPrefix(filepath.Base(run.Argv[0]), "mysql") {
+	} else if base := filepath.Base(run.Argv[0]); strings.HasPrefix(base, "mysql") || strings.HasPrefix(base, "mariadb") {
 		args = append([]string{"--no-defaults"}, args...)
 	}
 	cmd := exec.CommandContext(ctx, path, args...)

@@ -33,22 +33,36 @@ ORDER BY SCHEMA_NAME IN ('information_schema','mysql','performance_schema','sys'
 }
 
 func (mysqlDialect) Objects(ctx context.Context, q Querier, schema string) ([]Object, error) {
-	return mysqlObjects(ctx, q, schema, true)
+	return mysqlObjects(ctx, q, schema, true, mysqlCatalog)
 }
 
 func (mysqlDialect) ObjectNames(ctx context.Context, q Querier, schema string) ([]Object, error) {
-	return mysqlObjects(ctx, q, schema, false)
+	return mysqlObjects(ctx, q, schema, false, mysqlCatalog)
 }
+
+// catalogColumns are the expressions by which MySQL and MariaDB read
+// their catalogs differently.
+type catalogColumns struct {
+	tables        string // more conditions on information_schema.TABLES
+	engine        string // a table's engine, of TABLES
+	columnType    string // a column's type, of COLUMNS
+	columnDefault string // a column's default, NULL for none, of COLUMNS
+	indexPart     string // a part of an index, of STATISTICS
+	checkJoin     string // more conditions joining CHECK_CONSTRAINTS cc to TABLE_CONSTRAINTS tc
+}
+
+var mysqlCatalog = catalogColumns{engine: "ENGINE", columnType: "COLUMN_TYPE", columnDefault: "COLUMN_DEFAULT",
+	indexPart: "COALESCE(COLUMN_NAME, EXPRESSION)"}
 
 // mysqlObjects reads a schema's tables and views; their statistics only
 // when asked, which MySQL may read anew from every table.
-func mysqlObjects(ctx context.Context, q Querier, schema string, sized bool) ([]Object, error) {
+func mysqlObjects(ctx context.Context, q Querier, schema string, sized bool, c catalogColumns) ([]Object, error) {
 	stats := "-1, -1, '', ''"
 	if sized {
-		stats = "COALESCE(TABLE_ROWS, -1), COALESCE(DATA_LENGTH + INDEX_LENGTH, -1), COALESCE(ENGINE, ''), COALESCE(TABLE_COMMENT, '')"
+		stats = "COALESCE(TABLE_ROWS, -1), COALESCE(DATA_LENGTH + INDEX_LENGTH, -1), COALESCE(" + c.engine + ", ''), COALESCE(TABLE_COMMENT, '')"
 	}
 	return scanAll(ctx, q, `SELECT TABLE_NAME, TABLE_TYPE, `+stats+`
-FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME`, []any{schema}, func(scan func(...any) error) (Object, error) {
+FROM information_schema.TABLES WHERE TABLE_SCHEMA = ?`+c.tables+` ORDER BY TABLE_NAME`, []any{schema}, func(scan func(...any) error) (Object, error) {
 		o := Object{Schema: schema}
 		var typ string
 		if err := scan(&o.Name, &typ, &o.Rows, &o.Bytes, &o.Engine, &o.Comment); err != nil {
@@ -63,30 +77,35 @@ FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME`, []an
 }
 
 func (mysqlDialect) Columns(ctx context.Context, q Querier, schema, table string) ([]Column, error) {
-	cols, err := mysqlColumns(ctx, q, schema, table)
+	cols, err := mysqlColumns(ctx, q, schema, table, mysqlCatalog)
 	return cols[table], err
 }
 
 func (mysqlDialect) SchemaColumns(ctx context.Context, q Querier, schema string) (map[string][]Column, error) {
-	return mysqlColumns(ctx, q, schema, "")
+	return mysqlColumns(ctx, q, schema, "", mysqlCatalog)
 }
 
 // mysqlColumns reads the columns of a table of a schema, or of every
 // table of it for "", by their table.
-func mysqlColumns(ctx context.Context, q Querier, schema, table string) (map[string][]Column, error) {
+func mysqlColumns(ctx context.Context, q Querier, schema, table string, c catalogColumns) (map[string][]Column, error) {
 	which, args := "", []any{schema}
 	if table != "" {
 		which, args = " AND TABLE_NAME = ?", append(args, table)
 	}
-	return scanColumns(ctx, q, `SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE = 'YES', COALESCE(COLUMN_DEFAULT, ''),
-  COLUMN_DEFAULT IS NOT NULL, COLUMN_KEY = 'PRI', EXTRA LIKE '%auto_increment%', COALESCE(COLUMN_COMMENT, '')
+	return scanColumns(ctx, q, `SELECT TABLE_NAME, COLUMN_NAME, `+c.columnType+`, IS_NULLABLE = 'YES', COALESCE(`+c.columnDefault+`, ''),
+  `+c.columnDefault+` IS NOT NULL, COLUMN_KEY = 'PRI', EXTRA LIKE '%auto_increment%', COALESCE(COLUMN_COMMENT, '')
 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ?`+which+`
 ORDER BY TABLE_NAME, ORDINAL_POSITION`, args)
 }
 
 func (d mysqlDialect) Indexes(ctx context.Context, q Querier, schema, table string) ([]Index, error) {
+	return mysqlIndexes(ctx, q, d, schema, table, mysqlCatalog)
+}
+
+// mysqlIndexes reads the indexes of a table, written in d's quotes.
+func mysqlIndexes(ctx context.Context, q Querier, d Dialect, schema, table string, c catalogColumns) ([]Index, error) {
 	return scanAll(ctx, q, `SELECT INDEX_NAME, MIN(NON_UNIQUE) = 0,
-  GROUP_CONCAT(COALESCE(COLUMN_NAME, EXPRESSION) ORDER BY SEQ_IN_INDEX SEPARATOR 0x1f), MIN(INDEX_TYPE)
+  GROUP_CONCAT(`+c.indexPart+` ORDER BY SEQ_IN_INDEX SEPARATOR 0x1f), MIN(INDEX_TYPE)
 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
 GROUP BY INDEX_NAME ORDER BY INDEX_NAME = 'PRIMARY' DESC, INDEX_NAME`, []any{schema, table}, func(scan func(...any) error) (Index, error) {
 		var ix Index
@@ -110,6 +129,12 @@ GROUP BY INDEX_NAME ORDER BY INDEX_NAME = 'PRIMARY' DESC, INDEX_NAME`, []any{sch
 }
 
 func (mysqlDialect) ForeignKeys(ctx context.Context, q Querier, schema, table string) ([]ForeignKey, error) {
+	return mysqlForeignKeys(ctx, q, schema, table, action)
+}
+
+// mysqlForeignKeys reads a table's foreign keys, actionOf writing each
+// action as a design keeps it: "" for the server's default.
+func mysqlForeignKeys(ctx context.Context, q Querier, schema, table string, actionOf func(string) string) ([]ForeignKey, error) {
 	return scanAll(ctx, q, `SELECT k.CONSTRAINT_NAME, k.REFERENCED_TABLE_SCHEMA, k.REFERENCED_TABLE_NAME, rc.DELETE_RULE, rc.UPDATE_RULE,
   GROUP_CONCAT(k.COLUMN_NAME ORDER BY k.ORDINAL_POSITION SEPARATOR 0x1f),
   GROUP_CONCAT(k.REFERENCED_COLUMN_NAME ORDER BY k.ORDINAL_POSITION SEPARATOR 0x1f)
@@ -125,7 +150,7 @@ ORDER BY k.CONSTRAINT_NAME`, []any{schema, table}, func(scan func(...any) error)
 			return fk, err
 		}
 		fk.Columns, fk.RefColumns = splitList(cols), splitList(refCols)
-		fk.OnDelete, fk.OnUpdate = action(onDelete), action(onUpdate)
+		fk.OnDelete, fk.OnUpdate = actionOf(onDelete), actionOf(onUpdate)
 		fk.Definition = fmt.Sprintf("FOREIGN KEY (%s) REFERENCES %s.%s (%s)",
 			strings.Join(fk.Columns, ", "), fk.RefSchema, fk.RefTable, strings.Join(fk.RefColumns, ", ")) + actionsSQL(fk.OnDelete, fk.OnUpdate)
 		return fk, nil
@@ -174,14 +199,26 @@ func showCreate(ctx context.Context, q Querier, stmt, column string) (string, er
 
 // Items lists routines, triggers and events.
 func (mysqlDialect) Items(ctx context.Context, q Querier, schema string) ([]Item, error) {
-	return scanItems(ctx, q, schema, `SELECT LOWER(ROUTINE_TYPE) AS kind, ROUTINE_NAME AS name, '' AS tbl, '' AS detail, '' AS id
+	return mysqlItems(ctx, q, schema)
+}
+
+// mysqlItems lists routines, triggers and events, and the items more
+// selects: each a SELECT of kind, name, table, detail and ID, taking the
+// schema once.
+func mysqlItems(ctx context.Context, q Querier, schema string, more ...string) ([]Item, error) {
+	query := `SELECT LOWER(ROUTINE_TYPE) AS kind, ROUTINE_NAME AS name, '' AS tbl, '' AS detail, '' AS id
 FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = ?
 UNION ALL
 SELECT 'trigger', TRIGGER_NAME, EVENT_OBJECT_TABLE, CONCAT(ACTION_TIMING, ' ', EVENT_MANIPULATION), ''
 FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = ?
 UNION ALL
-SELECT 'event', EVENT_NAME, '', STATUS, '' FROM information_schema.EVENTS WHERE EVENT_SCHEMA = ?
-ORDER BY kind, name`, schema, schema, schema)
+SELECT 'event', EVENT_NAME, '', STATUS, '' FROM information_schema.EVENTS WHERE EVENT_SCHEMA = ?`
+	args := []any{schema, schema, schema}
+	for _, m := range more {
+		query += "\nUNION ALL\n" + m
+		args = append(args, schema)
+	}
+	return scanItems(ctx, q, schema, query+"\nORDER BY kind, name", args...)
 }
 
 // ItemDDL writes an item's definition as SHOW CREATE gives it.
@@ -254,11 +291,7 @@ func (mysqlEngine) DefaultSchemaName() string        { return "" }
 func (mysqlEngine) FileExtensions() []string         { return nil }
 
 func (mysqlEngine) ActivityPages() []ActivityPage {
-	return []ActivityPage{{
-		Name: "Sessions", Live: true, Stop: sessionStatement(mysqlStopQuery), Kill: sessionStatement(mysqlEndSession),
-		Query: `SELECT ID AS id, USER AS user, HOST AS host, DB AS db, COMMAND AS command, TIME AS seconds, STATE AS state, LEFT(INFO, 400) AS query
-FROM information_schema.PROCESSLIST WHERE ID <> CONNECTION_ID() ORDER BY COMMAND = 'Sleep', TIME DESC`,
-	}, {
+	return []ActivityPage{mysqlSessionsPage(), {
 		Name: "Locks", Live: true, Stop: sessionStatement(mysqlStopQuery), Kill: sessionStatement(mysqlEndSession),
 		Query: `SELECT t.PROCESSLIST_ID AS id, t.PROCESSLIST_USER AS user, CONCAT_WS('.', l.OBJECT_SCHEMA, l.OBJECT_NAME) AS object,
   l.INDEX_NAME AS index_name, l.LOCK_TYPE AS lock_type, l.LOCK_MODE AS mode, l.LOCK_STATUS AS status,
@@ -275,20 +308,36 @@ FROM performance_schema.metadata_locks m JOIN performance_schema.threads t ON t.
 WHERE t.PROCESSLIST_ID IS NOT NULL AND t.PROCESSLIST_ID <> CONNECTION_ID() AND m.OBJECT_TYPE IN ('TABLE', 'SCHEMA')
 ORDER BY status = 'GRANTED', id`,
 		Hint: "Locks come from performance_schema, which the server must have on, and the user may read.",
-	}, {
+	}, mysqlStatisticsPage("Statistics come from performance_schema, which the server must have on, and the user may read.")}
+}
+
+// mysqlSessionsPage lists the server's sessions, as MySQL and MariaDB
+// show them.
+func mysqlSessionsPage() ActivityPage {
+	return ActivityPage{
+		Name: "Sessions", Live: true, Stop: sessionStatement(mysqlStopQuery), Kill: sessionStatement(mysqlEndSession),
+		Query: `SELECT ID AS id, USER AS user, HOST AS host, DB AS db, COMMAND AS command, TIME AS seconds, STATE AS state, LEFT(INFO, 400) AS query
+FROM information_schema.PROCESSLIST WHERE ID <> CONNECTION_ID() ORDER BY COMMAND = 'Sleep', TIME DESC`,
+	}
+}
+
+// mysqlStatisticsPage lists statements by the time they took, from
+// performance_schema, with what the page needs of the server.
+func mysqlStatisticsPage(hint string) ActivityPage {
+	return ActivityPage{
 		Name: "Statistics",
 		Query: `SELECT LEFT(DIGEST_TEXT, 400) AS query, SCHEMA_NAME AS db, COUNT_STAR AS calls, ROUND(SUM_TIMER_WAIT / 1e9, 1) AS total_ms,
   ROUND(AVG_TIMER_WAIT / 1e9, 2) AS mean_ms, ROUND(MAX_TIMER_WAIT / 1e9, 1) AS max_ms, SUM_ROWS_SENT AS rows_sent, SUM_ROWS_EXAMINED AS rows_examined
 FROM performance_schema.events_statements_summary_by_digest WHERE DIGEST_TEXT IS NOT NULL
 ORDER BY SUM_TIMER_WAIT DESC LIMIT 500`,
-		Hint: "Statistics come from performance_schema, which the server must have on, and the user may read.",
-	}}
+		Hint: hint,
+	}
 }
 
 func (mysqlEngine) dialect() Dialect { return mysqlDialect{} }
 
 func (mysqlEngine) open(_ context.Context, cfg Config, ep endpoint, tc *tls.Config, w wire) (openedPool, error) {
-	sqldb, connector, err := openMySQL(cfg, ep, tc, w)
+	sqldb, connector, err := openMySQL(cfg, ep, tc, w, "transaction_read_only")
 	return openedPool{sql: sqldb, connector: connector, tls: tc}, err
 }
 
@@ -392,11 +441,17 @@ func (mysqlEngine) ParsePlan(_ []string, rows [][]any) (*Plan, bool) {
 }
 
 func (mysqlEngine) AdvisePlanStep(n *PlanNode, add func(n *PlanNode, format string, args ...any)) {
+	adviseMySQLFamilyStep("MySQL", n, add)
+}
+
+// adviseMySQLFamilyStep advises on a step of MySQL's plan, or one named
+// as MySQL names it, server naming the server.
+func adviseMySQLFamilyStep(server string, n *PlanNode, add func(n *PlanNode, format string, args ...any)) {
 	switch {
 	case strings.HasPrefix(n.Op, "Table scan") && rowsOf(n) >= adviseRows:
 		add(n, "A table scan reads every row of %s: an index on the columns of the WHERE may let it read only those it keeps.", n.Target)
 	case strings.HasPrefix(n.Op, "Temporary table") && rowsOf(n) >= adviseRows:
-		add(n, "A temporary table holds the rows to group: an index on the GROUP BY columns may let MySQL read them in order instead.")
+		add(n, "A temporary table holds the rows to group: an index on the GROUP BY columns may let %s read them in order instead.", server)
 	case strings.HasPrefix(n.Op, "Sort") && rowsOf(n) >= adviseRows:
 		add(n, "The rows are sorted after they are read: an index in the ORDER BY's order may give them sorted.")
 	}
@@ -553,7 +608,7 @@ func (mysqlEngine) KeysOfMadeTable() string             { return "" }
 func (mysqlEngine) FixedKeysNote() string               { return "" }
 
 func (mysqlEngine) ReadDesignExtras(ctx context.Context, d *DB, t *TableDesign) error {
-	return readMySQLDesign(ctx, d, t)
+	return readMySQLDesign(ctx, d, t, mysqlDefault, mysqlCatalog)
 }
 
 func (mysqlEngine) NormalizeModelTable(t *TableDesign) {
@@ -612,15 +667,26 @@ func (mysqlEngine) AccountPrivileges(ctx context.Context, q Querier, a Account) 
 func (mysqlEngine) AccountName(a Account) string { return mysqlAccountName(a) }
 
 func (mysqlEngine) CreateAccountSQL(n NewAccount) (string, error) {
-	name := mysqlAccountName(n.Account)
+	return mysqlCreateAccountSQL(MySQL, mysqlAccountName, n), nil
+}
+
+// mysqlCreateAccountSQL creates a user or a role of MySQL, or an engine
+// built on it, which name and engine e's literals write.
+func mysqlCreateAccountSQL(e Engine, name func(Account) string, n NewAccount) string {
 	if n.Role {
-		return createRoleSQL(name), nil
+		return createRoleSQL(name(n.Account))
 	}
-	return "CREATE USER " + name + " IDENTIFIED BY " + Literal(MySQL, n.Password), nil
+	return "CREATE USER " + name(n.Account) + " IDENTIFIED BY " + Literal(e, n.Password)
 }
 
 func (mysqlEngine) PasswordSQL(a Account, password string) (string, error) {
-	return "ALTER USER " + mysqlAccountName(a) + " IDENTIFIED BY " + Literal(MySQL, password), nil
+	return mysqlPasswordSQL(MySQL, mysqlAccountName, a, password), nil
+}
+
+// mysqlPasswordSQL changes an account's password as mysqlCreateAccountSQL
+// writes it.
+func mysqlPasswordSQL(e Engine, name func(Account) string, a Account, password string) string {
+	return "ALTER USER " + name(a) + " IDENTIFIED BY " + Literal(e, password)
 }
 
 func (mysqlEngine) DropAccountSQL(a Account) []string { return dropUserSQL(mysqlAccountName(a), a) }
@@ -638,10 +704,16 @@ func (mysqlEngine) AccountForm() AccountFormFields {
 func (mysqlEngine) BackupFormats() []BackupFormat { return []BackupFormat{BackupSQL} }
 
 func (mysqlEngine) PlanBackup(ctx context.Context, d *DB, o BackupOptions) (ToolRun, error) {
+	return planMySQLDump(ctx, d, o, "mysqldump", mysqlClientFlags)
+}
+
+// planMySQLDump plans the backup of a schema by mysqldump, or a tool that
+// takes its options, flags writing how the tool connects.
+func planMySQLDump(ctx context.Context, d *DB, o BackupOptions, tool string, flags func(*DB) []string) (ToolRun, error) {
 	if err := backupOptionsError(d.Config.Engine, o); err != nil {
 		return ToolRun{}, err
 	}
-	run, err := mysqlTool(ctx, d, "mysqldump")
+	run, err := mysqlTool(ctx, d, tool, flags)
 	if err != nil {
 		return run, err
 	}

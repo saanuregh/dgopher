@@ -378,6 +378,8 @@ type ActivityPage struct {
 	Kill func(row []any) string
 	// Hint says what the page needs of the server, when it fails.
 	Hint string
+	// EmptyHint says why the page may read no rows, "" when it says nothing.
+	EmptyHint string
 	// Metrics shows the page's one row as tiles, with rates between reads.
 	Metrics bool
 }
@@ -461,6 +463,8 @@ const (
 type AccountFormFields struct {
 	// Host asks where an account may connect from.
 	Host bool
+	// RoleWithoutHost asks no host for a role, which has none.
+	RoleWithoutHost bool
 	// CreateOptions asks whether a new user may create databases and
 	// roles.
 	CreateOptions bool

@@ -836,7 +836,7 @@ func (q *Tab) run(mode RunMode) {
 	newTab := q.newTab
 	q.withParams(stmts, func(values map[string]params.Input) {
 		q.newTab = newTab
-		q.runBound(stmts, starts, values, skip)
+		q.runBound(stmts, starts, values, skip, explaining(mode))
 	})
 }
 
@@ -887,8 +887,9 @@ func (q *Tab) keepParam(connID, key string, in params.Input) {
 
 // runBound reviews statements whose parameters have their values, then
 // runs them. The policy reads them as they will run: a ${var} that holds
-// a DELETE is a DELETE.
-func (q *Tab) runBound(stmts []string, starts []int, values map[string]params.Input, skip int) {
+// a DELETE is a DELETE. explain marks Explain's run, whose rows are a
+// plan.
+func (q *Tab) runBound(stmts []string, starts []int, values map[string]params.Input, skip int, explain bool) {
 	cfg := &q.Conn.Config
 	sqls := make([]string, len(stmts))
 	args := make([][]any, len(stmts))
@@ -940,7 +941,7 @@ func (q *Tab) runBound(stmts []string, starts []int, values map[string]params.In
 	if v.Confirm && cfg.Env == db.Production && len(an) > 1 {
 		// A script on production asks before each write, as it comes.
 		q.stepConfirm = true
-		q.execute(an, v.Writes)
+		q.execute(an, v.Writes, explain)
 		return
 	}
 	if v.Confirm {
@@ -951,10 +952,10 @@ func (q *Tab) runBound(stmts []string, starts []int, values map[string]params.In
 				preview += "\n-- " + sh
 			}
 		}
-		q.a.AskConfirm(q.Conn, v, title, "Run", preview, func() { q.execute(an, v.Writes) })
+		q.a.AskConfirm(q.Conn, v, title, "Run", preview, func() { q.execute(an, v.Writes, explain) })
 		return
 	}
-	q.execute(an, v.Writes)
+	q.execute(an, v.Writes, explain)
 }
 
 // wantsRows reports whether a statement, in dialect d, is read with a
@@ -979,10 +980,10 @@ func wantsRows(s safety.Statement, d sqltext.Dialect) bool {
 	return strings.Contains(strings.ToUpper(s.SQL), "RETURNING")
 }
 
-func (q *Tab) execute(stmts []safety.Statement, writes bool) {
+func (q *Tab) execute(stmts []safety.Statement, writes, explain bool) {
 	if q.Conn.Status != connection.StatusConnected {
 		// It closed while a confirmation or the parameters waited.
-		q.a.Connect(q.Conn, func() { q.execute(stmts, writes) })
+		q.a.Connect(q.Conn, func() { q.execute(stmts, writes, explain) })
 		return
 	}
 	if q.sessionLost {
@@ -1168,7 +1169,8 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 						res.rowsMode = false
 						res.affected = -1
 					}
-					if strings.EqualFold(res.verb, "EXPLAIN") {
+					// MariaDB's Explain Analyze reads as the SELECT it runs.
+					if explain || strings.EqualFold(res.verb, "EXPLAIN") {
 						names := lists.Map(cursor.Columns, func(col db.ColumnInfo) string { return col.Name })
 						if r, ok := db.SQL(cfg.Engine); ok {
 							if plan, ok := r.ParsePlan(names, first); ok {
@@ -2095,7 +2097,7 @@ func (q *Tab) rerun(s safety.Statement) {
 			preview += "\n-- " + s.Shown
 		}
 		title := fmt.Sprintf("Run the statement again on %s?", cfg.Name)
-		q.a.AskConfirm(q.Conn, v, title, "Run", preview, func() { q.execute([]safety.Statement{s}, v.Writes) })
+		q.a.AskConfirm(q.Conn, v, title, "Run", preview, func() { q.execute([]safety.Statement{s}, v.Writes, false) })
 	})
 }
 
@@ -2461,8 +2463,9 @@ type changeGuard struct {
 // auto-commit on staging or production, with a limit set, of an engine
 // whose changes a transaction holds on a connection of its own, as
 // DuckDB's and an in-memory SQLite's,
-// which every session shares, are not. EXPLAIN ANALYZE reports no rows,
-// and RETURNING and a WITH that changes rows read theirs: neither is.
+// which every session shares, are not. EXPLAIN ANALYZE, and MariaDB's
+// ANALYZE of a statement, report no rows, and RETURNING and a WITH that
+// changes rows read theirs: none is.
 // Nor is a change under MySQL's autocommit off, which begins a
 // transaction that holds it until the user commits or rolls back: the
 // guard's COMMIT would commit it unasked.
@@ -2474,7 +2477,7 @@ func guarded(cfg db.Config, limit int, s safety.Statement, sess *db.Session, dia
 	}
 	for _, t := range sqltext.Tokenize(s.SQL, dialect) {
 		if t.Kind != sqltext.Whitespace && t.Kind != sqltext.Comment {
-			return !strings.EqualFold(t.Text, "EXPLAIN")
+			return !strings.EqualFold(t.Text, "EXPLAIN") && !strings.EqualFold(t.Text, "ANALYZE")
 		}
 	}
 	return true

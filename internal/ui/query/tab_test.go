@@ -13,6 +13,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
 	"dgopher/internal/safety"
+	"dgopher/internal/sqltext"
 	"dgopher/internal/testutil"
 	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
@@ -120,7 +121,7 @@ func TestTransactionSurvivesNewRun(t *testing.T) {
 			d.Close()
 			_, tt, cn, q := openEditor(t, cfg, 1200, 760, "")
 			run := func(sql string) {
-				q.execute(safety.Analyze(&cn.Config, []string{sql}), !strings.HasPrefix(sql, "SELECT"))
+				q.execute(safety.Analyze(&cn.Config, []string{sql}), !strings.HasPrefix(sql, "SELECT"), false)
 				testutil.WaitFor(t, tt, sql, func() bool { return !q.Running })
 			}
 			run("UPDATE " + table + " SET v = 1 WHERE id = 7")
@@ -634,6 +635,38 @@ func TestLargeChangeAsks(t *testing.T) {
 	}
 }
 
+// An explained change reports its plan, not a count: EXPLAIN ANALYZE and
+// MariaDB's ANALYZE of a statement are not guarded.
+func TestExplainedChangeNotGuarded(t *testing.T) {
+	ctx := context.Background()
+	file := filepath.Join(t.TempDir(), "g.sqlite")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d, err := db.Open(ctx, db.Config{Name: "g", Engine: db.SQLite, Database: file}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	sess, err := d.Session(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	cfg := db.Config{Name: "maria", Engine: db.MariaDB, Env: db.Staging}
+	for sql, want := range map[string]bool{
+		"UPDATE t SET a = 1 WHERE id > 0":                          true,
+		"ANALYZE UPDATE t SET a = 1 WHERE id > 0":                  false,
+		"/* why */ analyze FORMAT=JSON DELETE FROM t WHERE id > 0": false,
+		"EXPLAIN ANALYZE UPDATE t SET a = 1 WHERE id > 0":          false,
+	} {
+		s := safety.Analyze(&cfg, []string{sql})[0]
+		if got := guarded(cfg, 2, s, sess, sqltext.MySQL); got != want {
+			t.Errorf("%s: guarded %v, want %v", sql, got, want)
+		}
+	}
+}
+
 // On MySQL, a change to a table that keeps no transactions, as MyISAM's,
 // is not held: it could not roll back; an InnoDB table's is.
 func TestIntegrationLargeChangeMySQL(t *testing.T) {
@@ -730,7 +763,7 @@ func TestTransactionKeys(t *testing.T) {
 	tt := ui.NewTester(a.view, 1000, 700)
 	q := newEditor(t, a, tt, cn, "")
 	run := func(sql string) {
-		q.execute(safety.Analyze(&cn.Config, []string{sql}), true)
+		q.execute(safety.Analyze(&cn.Config, []string{sql}), true, false)
 		testutil.WaitFor(t, tt, sql, func() bool { return !q.Running })
 	}
 	run("CREATE TABLE t (id INTEGER PRIMARY KEY)")

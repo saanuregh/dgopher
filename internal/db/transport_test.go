@@ -116,7 +116,7 @@ func TestMySQLEachConnectionNegotiatesTLS(t *testing.T) {
 	cfg := Config{Name: "m", Engine: MySQL, Host: "127.0.0.1", Port: port, User: "root", Password: "pw", TLS: TLSPrefer}
 	ep := endpoint{host: "127.0.0.1", port: port, serverName: "127.0.0.1"}
 	tc, _ := tlsConfig(&cfg, ep.serverName)
-	sqldb, _, err := openMySQL(cfg, ep, tc, wire{who: newSendsAs(cfg), engine: cfg.Engine})
+	sqldb, _, err := openMySQL(cfg, ep, tc, wire{who: newSendsAs(cfg), engine: cfg.Engine}, "transaction_read_only")
 	if err != nil {
 		t.Fatal(err)
 	}

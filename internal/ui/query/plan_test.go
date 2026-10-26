@@ -6,6 +6,7 @@ import (
 
 	"dgopher/internal/db"
 	"dgopher/internal/testutil"
+	"dgopher/internal/testutil/optionalserver"
 )
 
 // Explain shows the plan's steps with the advice about them, as a flame
@@ -36,5 +37,21 @@ func TestPlanView(t *testing.T) {
 	tt.Frame()
 	if !testutil.HasTextContaining(tt, "explains a statement without running it") && !strings.Contains(q.messages[len(q.messages)-1].text, "without running") {
 		t.Fatalf("messages %+v", q.messages)
+	}
+}
+
+// MariaDB's Explain Analyze, ANALYZE FORMAT=JSON, reads as the statement
+// it runs, a SELECT: its rows show as a plan all the same.
+func TestIntegrationMariaDBExplainAnalyzePlan(t *testing.T) {
+	testutil.Integration(t)
+	optionalserver.SkipUnless(t, "mariadb")
+	cfg := db.Config{ID: "maria", Name: "maria", Engine: db.MariaDB, Host: "127.0.0.1", Port: 13307, User: "root", Password: "dgopher", Database: "shop"}
+	_, tt, _, q := openEditor(t, cfg, 1000, 700, "SELECT COUNT(*) FROM information_schema.TABLES")
+	for _, mode := range []RunMode{RunExplain, RunExplainAnalyze} {
+		q.Run(mode)
+		testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running && q.current() != nil })
+		if r := q.current(); r.err != "" || r.plan == nil || mode == RunExplainAnalyze && !r.plan.Analyzed {
+			t.Fatalf("mode %d, %s: error %q, plan %+v", mode, r.sql, r.err, r.plan)
+		}
 	}
 }

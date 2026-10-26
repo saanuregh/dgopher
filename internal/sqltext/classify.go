@@ -56,7 +56,7 @@ var sideEffectFunctions = map[Dialect]map[string]bool{
 		"pg_stat_reset_replication_slot pg_stat_reset_subscription_stats pg_stat_statements_reset " +
 		"lo_truncate lo_truncate64 pg_wal_replay_pause pg_wal_replay_resume pg_backup_start pg_backup_stop pg_start_backup pg_stop_backup " +
 		"pg_import_system_collations"),
-	MySQL:  setOf("get_lock release_lock release_all_locks sleep benchmark"),
+	MySQL:  setOf("get_lock release_lock release_all_locks sleep benchmark nextval setval lastval"),
 	SQLite: setOf("load_extension"),
 }
 
@@ -118,50 +118,62 @@ func Classify(stmt string, d Dialect) Analysis {
 }
 
 // ClassifyExecutable is Classify of what MySQL runs: its executable
-// comments unwrapped as each quoting rule reads where strings end. Other
-// dialects have none.
+// comments unwrapped as each quoting rule reads where strings end, and
+// those a server may skip, by its version or as MySQL skips MariaDB's,
+// read skipped too. Other dialects have none.
 func ClassifyExecutable(stmt string, d Dialect) Analysis {
 	return classifyEachQuoting(stmt, d, d == MySQL)
 }
 
-// TokenizeExecutable is Tokenize under each quoting rule
-// ClassifyExecutable reads stmt with, the default first, MySQL's executable
-// comments unwrapped as that rule reads them.
+// TokenizeExecutable is Tokenize of each reading ClassifyExecutable
+// takes of stmt, the default first: under each quoting rule, MySQL's
+// executable comments unwrapped, or skipped, as a server reads them.
 func TokenizeExecutable(stmt string, d Dialect) [][]Token {
 	var out [][]Token
 	for _, q := range quotingVariants(d, stmt) {
-		text := stmt
+		texts := []string{stmt}
 		if d == MySQL {
-			text = unwrapExecutable(stmt, q)
+			texts, _ = executableReadings(stmt, q)
 		}
-		out = append(out, tokenizeQuoted(text, d, q))
+		for _, text := range texts {
+			out = append(out, tokenizeQuoted(text, d, q))
+		}
 	}
 	return out
 }
 
-// classifyEachQuoting classifies stmt under each of quotingVariants, its
-// executable comments unwrapped first when unwrap is set, and returns the
+// classifyEachQuoting classifies stmt under each of quotingVariants, each
+// of its executableReadings when unwrap is set, and returns the
 // strictest of each part: the highest class any reading gives, with its
 // verb, and the danger any reading finds, with its reason, as the policy
 // reads the class and the danger apart. The default reading wins a tie.
 func classifyEachQuoting(stmt string, d Dialect, unwrap bool) Analysis {
 	var strictest Analysis
-	for k, q := range quotingVariants(d, stmt) {
-		text := stmt
+	first, tooMany := true, false
+	for _, q := range quotingVariants(d, stmt) {
+		texts := []string{stmt}
 		if unwrap {
-			text = unwrapExecutable(stmt, q)
+			var many bool
+			texts, many = executableReadings(stmt, q)
+			tooMany = tooMany || many
 		}
-		a := classifyQuoted(text, d, q)
-		if k == 0 {
-			strictest = a
-			continue
+		for _, text := range texts {
+			a := classifyQuoted(text, d, q)
+			if first {
+				strictest, first = a, false
+				continue
+			}
+			if classRank(a.Class) > classRank(strictest.Class) {
+				strictest.Class, strictest.Verb = a.Class, a.Verb
+			}
+			if a.Dangerous && !strictest.Dangerous {
+				strictest.Dangerous, strictest.Reason = true, a.Reason
+			}
 		}
-		if classRank(a.Class) > classRank(strictest.Class) {
-			strictest.Class, strictest.Verb = a.Class, a.Verb
-		}
-		if a.Dangerous && !strictest.Dangerous {
-			strictest.Dangerous, strictest.Reason = true, a.Reason
-		}
+	}
+	if tooMany && !strictest.Dangerous {
+		strictest.Dangerous = true
+		strictest.Reason = fmt.Sprintf("its executable comments name more than %d server versions, which are not all read", maxExecutableVersions)
 	}
 	return strictest
 }
@@ -595,10 +607,13 @@ func classifyTokens(toks []Token, d Dialect, r reading) Analysis {
 	return a
 }
 
+// analyzedVerbs are the statements MariaDB's ANALYZE runs and reports on.
+var analyzedVerbs = setOf("SELECT WITH INSERT REPLACE UPDATE DELETE")
+
 // sideEffectCall returns the first function in toks, called anywhere, that
-// changes state on dialect d, or "". Quoted names are decoded first; with a
-// UESCAPE anywhere, whose escapes are not decoded, any call to a U& name
-// counts.
+// changes state on dialect d, or MySQL's NEXT VALUE FOR, or "". Quoted
+// names are decoded first; with a UESCAPE anywhere, whose escapes are not
+// decoded, any call to a U& name counts.
 func sideEffectCall(toks []Token, d Dialect) string {
 	fns := sideEffectFunctions[d]
 	uescape := false
@@ -609,6 +624,9 @@ func sideEffectCall(toks []Token, d Dialect) string {
 	}
 	for i := 0; i+1 < len(toks); i++ {
 		t := toks[i]
+		if d == MySQL && i+2 < len(toks) && word(t) == "NEXT" && word(toks[i+1]) == "VALUE" && word(toks[i+2]) == "FOR" {
+			return "NEXT VALUE FOR"
+		}
 		open := i + 1
 		if word(toks[open]) == "UESCAPE" {
 			open += 2
@@ -656,6 +674,17 @@ func classifyVerb(toks []Token, d Dialect, r reading) Analysis {
 		return classifyWith(toks, d, r)
 	case "EXPLAIN", "DESC", "DESCRIBE":
 		return classifyExplain(toks, d, r)
+	case "ANALYZE":
+		// MariaDB's ANALYZE [FORMAT=JSON] <statement> runs the statement.
+		if d == MySQL {
+			i := 1
+			if i+2 < len(toks) && word(toks[i]) == "FORMAT" && toks[i+1].Text == "=" {
+				i += 3
+			}
+			if i < len(toks) && (analyzedVerbs[word(toks[i])] || isPunct(toks[i], "(")) {
+				return classifyTokens(toks[i:], d, r)
+			}
+		}
 	case "EXISTS", "CHECK", "CHECKSUM":
 		if d == ClickHouse || next == "TABLE" {
 			return Analysis{Class: Read, Verb: verb}
