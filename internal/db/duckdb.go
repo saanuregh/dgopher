@@ -2,9 +2,16 @@ package db
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
+	"database/sql/driver"
+	"errors"
 	"fmt"
 	"strings"
+
+	"dgopher/internal/sqltext"
+
+	"github.com/duckdb/duckdb-go/v2"
 )
 
 type duckdbDialect struct{}
@@ -248,4 +255,331 @@ FROM duckdb_types() WHERE database_name = current_database() AND schema_name = ?
 // ObjectNames is Objects: reading those is not slow.
 func (d duckdbDialect) ObjectNames(ctx context.Context, q Querier, schema string) ([]Object, error) {
 	return d.Objects(ctx, q, schema)
+}
+
+// The backup dialog's notes.
+const (
+	duckdbBackupNote  = "EXPORT DATABASE writes the schema and each table's rows, in Parquet, in a new folder."
+	duckdbRestoreNote = "IMPORT DATABASE reads the folder in a DuckDB of its own, which reaches no file outside it; what it makes is then copied into the database, which must not have its tables."
+)
+
+// duckdbFileReaders are DuckDB's functions that read the server's
+// files or fetch URLs; callers only read them.
+var duckdbFileReaders = strings.Fields("read_text read_blob read_csv read_csv_auto read_json read_json_auto read_json_objects read_json_objects_auto " +
+	"read_ndjson read_ndjson_auto read_ndjson_objects read_parquet parquet_scan parquet_metadata parquet_schema " +
+	"parquet_file_metadata parquet_kv_metadata glob sniff_csv read_xlsx st_read iceberg_scan delta_scan read_avro http_get " +
+	"sqlite_scan sqlite_attach postgres_scan postgres_scan_pushdown postgres_query postgres_attach mysql_scan mysql_query")
+
+type duckdbEngine struct{ duckdbDialect }
+
+var _ sqlRules = duckdbEngine{}
+
+func (duckdbEngine) Label() string                   { return "DuckDB" }
+func (duckdbEngine) ColorHex() string                { return "#c49a00" }
+func (duckdbEngine) DefaultPort() int                { return 0 }
+func (duckdbEngine) DefaultUser() string             { return "" }
+func (duckdbEngine) IsSQL() bool                     { return true }
+func (duckdbEngine) Transactions() bool              { return true }
+func (duckdbEngine) Savepoints() bool                { return false }
+func (duckdbEngine) TransactionalDDL() bool          { return true }
+func (duckdbEngine) DatabaseField() (string, string) { return "Database", "" }
+func (duckdbEngine) URLSchemes() []string            { return []string{"duckdb"} }
+
+func (duckdbEngine) URLTLSParameters() map[string]map[string]TLSMode {
+	return nil
+}
+
+func (duckdbEngine) CloudIdentity() bool              { return false }
+func (duckdbEngine) ClearTextPassword() bool          { return false }
+func (duckdbEngine) DatabasesNeedOwnConnection() bool { return false }
+func (duckdbEngine) DefaultSchemaName() string        { return "main" }
+func (duckdbEngine) FileExtensions() []string         { return []string{"duckdb", "ddb", "db"} }
+func (duckdbEngine) ActivityPages() []ActivityPage    { return nil }
+func (duckdbEngine) dialect() Dialect                 { return duckdbDialect{} }
+
+func (duckdbEngine) open(_ context.Context, cfg Config, _ endpoint, tc *tls.Config, w wire) (openedPool, error) {
+	sqldb, err := openDuckDB(cfg, w)
+	return openedPool{sql: sqldb, single: true, tls: tc}, err
+}
+
+func (duckdbEngine) tlsState(context.Context, *sql.DB, Config, *tls.Config) string { return "" }
+func (duckdbEngine) pingStatement() string                                         { return "-- ping" }
+func (duckdbEngine) beginStatements(driver.TxOptions) []string                     { return []string{"BEGIN TRANSACTION"} }
+
+func (duckdbEngine) endStatement(commit bool) string {
+	if commit {
+		return "COMMIT TRANSACTION"
+	}
+	return "ROLLBACK"
+}
+
+func (duckdbEngine) pingsOnReset() bool          { return false }
+func (duckdbEngine) execUnprepared() bool        { return false }
+func (duckdbEngine) bytesAreBinary() bool        { return false }
+func (duckdbEngine) cancelQuerySQL(int64) string { return "" }
+func (duckdbEngine) pingAfterError() bool        { return false }
+func (duckdbEngine) takesServerParameters() bool { return false }
+func (duckdbEngine) CopyFromStdin() bool         { return false }
+
+func (duckdbEngine) CreateFile(ctx context.Context, path string) error {
+	// An empty file is not a DuckDB database: DuckDB writes its header as
+	// it opens a path that does not exist.
+	if strings.Contains(path, "?") {
+		return fmt.Errorf("%s: DuckDB cannot open a path that contains '?'", path)
+	}
+	sqldb, err := sql.Open("duckdb", path)
+	if err != nil {
+		return err
+	}
+	return errors.Join(sqldb.PingContext(ctx), sqldb.Close())
+}
+
+func (duckdbEngine) VersionQuery() string            { return "SELECT version()" }
+func (duckdbEngine) LexDialect() sqltext.Dialect     { return sqltext.Postgres }
+func (duckdbEngine) BeginStatement() string          { return "BEGIN" }
+func (duckdbEngine) ReadOnlyBeginSQL() string        { return "" }
+func (duckdbEngine) followsTransactionByVerbs() bool { return true }
+
+// Any error but a parse error aborts DuckDB's transaction.
+func (duckdbEngine) afterFailedStatement(v txByVerbs, err error, _ bool, _ func() bool) txByVerbs {
+	if v.tx == TxOpen {
+		var de *duckdb.Error
+		if !errors.As(err, &de) || de.Type != duckdb.ErrorTypeParser {
+			v.tx = TxFailed
+		}
+	}
+	return v
+}
+
+func (duckdbEngine) autocommitMayBeOff() bool                                    { return false }
+func (duckdbEngine) ExecutableComments() bool                                    { return false }
+func (duckdbEngine) commitsImplicitlyWords([]string, func() []string) bool       { return false }
+func (duckdbEngine) setsAutocommitWords([]string, func() []string) (on, ok bool) { return false, false }
+func (duckdbEngine) beginIsCompound([]string) bool                               { return false }
+func (duckdbEngine) SavepointBeginsTransaction() bool                            { return false }
+
+func (duckdbEngine) OutsideTransaction(sql string) bool {
+	words := nameWords(sql, sqltext.Postgres)
+	return len(words) > 0 && words[0] == "VACUUM"
+}
+
+func (duckdbEngine) TablesMayIgnoreRollback() bool { return false }
+func (duckdbEngine) ChangedRowsWord() string       { return "changed" }
+
+func (duckdbEngine) Explain(statement string, analyze bool) (ExplainRun, bool) {
+	if analyze {
+		return explainWithPrefix("EXPLAIN (ANALYZE, FORMAT JSON) ", statement), true
+	}
+	return explainWithPrefix("EXPLAIN (FORMAT JSON) ", statement), true
+}
+
+func (duckdbEngine) ParsePlan(_ []string, rows [][]any) (*Plan, bool) {
+	return parseDuckDBPlan(planText(rows))
+}
+
+func (duckdbEngine) AdvisePlanStep(*PlanNode, func(n *PlanNode, format string, args ...any)) {}
+
+func (duckdbEngine) UseSchemaSQL(schema string) string {
+	return "USE " + duckdbDialect{}.Quote(schema)
+}
+
+func (duckdbEngine) EditorSchemaPreamble(string) string { return "" }
+func (duckdbEngine) NameFolding() NameFolding           { return NamesIgnoreCase }
+
+func (duckdbEngine) Search(ctx context.Context, d *DB, text string, definitions bool) ([]SearchHit, bool, error) {
+	text = strings.ToLower(text)
+	return searchWith(ctx, d, text, duckdbSearch, []any{text, definitions})
+}
+
+func (duckdbEngine) EnumValues(_ context.Context, _ *DB, typ string) ([]string, error) {
+	return enumListValues(typ, false), nil
+}
+
+func (duckdbEngine) ParameterAsText() bool { return false }
+
+func (duckdbEngine) TextLiteral(s string) string {
+	return textLiteral(s, "chr(0)", escapeStringLiteral)
+}
+
+func (duckdbEngine) BytesLiteral(b []byte) string {
+	const digits = "0123456789ABCDEF"
+	var s strings.Builder
+	s.Grow(len("'") + 4*len(b) + len("'::BLOB"))
+	s.WriteByte('\'')
+	for _, c := range b {
+		s.WriteString(`\x`)
+		s.WriteByte(digits[c>>4])
+		s.WriteByte(digits[c&0xf])
+	}
+	s.WriteString("'::BLOB")
+	return s.String()
+}
+
+func (duckdbEngine) BooleansAreNumbers() bool { return false }
+func (duckdbEngine) OffsetTimesAsUTC() bool   { return false }
+
+func (duckdbEngine) CastParameter(placeholder, columnType string) string {
+	return "CAST(" + placeholder + " AS " + columnType + ")"
+}
+
+func (duckdbEngine) InsertDefaultRowSQL(table string) string {
+	return "INSERT INTO " + table + " DEFAULT VALUES"
+}
+
+func (duckdbEngine) MaxParameters() int               { return 65535 }
+func (duckdbEngine) ProfileBySummarize() bool         { return true }
+func (duckdbEngine) Comparable(string) bool           { return true }
+func (duckdbEngine) StableOrderByKey() bool           { return true }
+func (duckdbEngine) UpdateSetsDefault() bool          { return true }
+func (duckdbEngine) InterruptAbortsTransaction() bool { return true }
+func (duckdbEngine) FileReadingFunctions() []string   { return duckdbFileReaders }
+func (duckdbEngine) FileNamesInStrings() bool         { return true }
+
+func (duckdbEngine) LikeFilterSQL(column, pattern string, not bool) string {
+	return "CAST(" + column + " AS VARCHAR)" + likeOperator(true, not) + pattern + ` ESCAPE '\'`
+}
+
+func (duckdbEngine) JSONPathSQL(column string, path []any, leaf bool) string {
+	return jsonPathSQL(column, path, leaf, false)
+}
+
+func (duckdbEngine) UpsertSQL(insert string, keys, updatedColumns []string) string {
+	return upsertOnConflictSQL(insert, keys, updatedColumns)
+}
+
+func (duckdbEngine) CommonTypes() []string {
+	return []string{"INTEGER", "BIGINT", "SMALLINT", "DECIMAL(12,2)", "DOUBLE", "BOOLEAN", "VARCHAR", "DATE", "TIMESTAMP",
+		"TIMESTAMPTZ", "TIME", "INTERVAL", "UUID", "JSON", "BLOB"}
+}
+
+func (duckdbEngine) FirstColumn() ColumnDesign {
+	return ColumnDesign{Name: "id", PrimaryKey: true, Type: "BIGINT"}
+}
+
+func (duckdbEngine) ColumnTypeFor(duckType string) string { return columnTypesFor(duckType).duckdb }
+func (duckdbEngine) CanonicalType(typ string) string      { return commonCanonical(strings.TrimSpace(typ)) }
+
+func (duckdbEngine) ModifyColumnSQL(d Dialect, t TableDesign, was, now ColumnDesign) ([]string, error) {
+	return alterColumnSQL(d, t, was, now, true)
+}
+
+func (duckdbEngine) RenameObjectSQL(obj Object, name string) (string, error) {
+	return alterRenameSQL(duckdbDialect{}, obj, name), nil
+}
+
+func (duckdbEngine) ScriptPreamble(bool) string { return "" }
+
+func (duckdbEngine) TypeKindOf(typ string) (TypeKind, string, string) {
+	return commonTypeKind(typ, false, false)
+}
+
+func (duckdbEngine) TypeOfKind(kind TypeKind, size, scale string) string {
+	return typesOfKind(kind, size, scale).duckdb
+}
+
+func (duckdbEngine) NullableWrapper() bool                                   { return false }
+func (duckdbEngine) CreateTableSuffix(Dialect, TableDesign, []string) string { return "" }
+func (duckdbEngine) InlineIntegerKey() bool                                  { return false }
+func (duckdbEngine) PrimaryKeyClause() bool                                  { return true }
+func (duckdbEngine) RebuildsToAlter() bool                                   { return false }
+
+func (duckdbEngine) DropConstraintSQL(d Dialect, kind ConstraintKind, schema, table, name string) string {
+	return dropConstraintSQL(d, kind, schema, table, name)
+}
+
+func (duckdbEngine) UniqueAsConstraint() bool { return false }
+
+func (duckdbEngine) TableCommentSQL(d Dialect, schema, table, comment string) string {
+	return commentOnTableSQL(d, schema, table, comment)
+}
+
+func (duckdbEngine) ColumnCommentInline() bool           { return false }
+func (duckdbEngine) Comments() bool                      { return true }
+func (duckdbEngine) KeepsColumnExtra() bool              { return false }
+func (duckdbEngine) AutoIncrementSQL() string            { return "" }
+func (duckdbEngine) NumbersRows() bool                   { return false }
+func (duckdbEngine) HasForeignKeys() bool                { return true }
+func (duckdbEngine) ForeignKeyActions() bool             { return false }
+func (duckdbEngine) ForeignKeyNamesUniqueInSchema() bool { return false }
+func (duckdbEngine) SecondaryIndexes() bool              { return true }
+func (duckdbEngine) KeepsKeyNames() bool                 { return false }
+func (duckdbEngine) NamesConstraintsItself() bool        { return false }
+func (duckdbEngine) NamesTablesWithinSchema() bool       { return false }
+func (duckdbEngine) IgnoresVarcharLength() bool          { return true }
+
+func (duckdbEngine) KeysOfMadeTable() string {
+	return "DuckDB cannot change the keys or checks of a table it made: make the table again"
+}
+
+func (duckdbEngine) FixedKeysNote() string {
+	return "DuckDB cannot change the keys or checks of a table it made."
+}
+
+func (duckdbEngine) ReadDesignExtras(ctx context.Context, d *DB, t *TableDesign) error {
+	return readDuckDBChecks(ctx, d, t)
+}
+
+func (duckdbEngine) NormalizeModelTable(*TableDesign) {}
+func (duckdbEngine) TruncateToEmpty() bool            { return false }
+func (duckdbEngine) ManagesAccounts() bool            { return false }
+
+func (duckdbEngine) ListAccounts(context.Context, Querier) ([]Account, error) {
+	return nil, noAccountsError(DuckDB)
+}
+
+func (duckdbEngine) AccountPrivileges(context.Context, Querier, Account) ([]Privilege, error) {
+	return nil, noAccountsError(DuckDB)
+}
+
+func (duckdbEngine) AccountName(a Account) string { return duckdbDialect{}.Quote(a.Name) }
+
+func (duckdbEngine) CreateAccountSQL(n NewAccount) (string, error) {
+	if n.Role {
+		return createRoleSQL(duckdbDialect{}.Quote(n.Name)), nil
+	}
+	return "", noAccountsError(DuckDB)
+}
+
+func (duckdbEngine) PasswordSQL(Account, string) (string, error) { return "", noAccountsError(DuckDB) }
+
+func (duckdbEngine) DropAccountSQL(a Account) []string {
+	return dropUserSQL(duckdbDialect{}.Quote(a.Name), a)
+}
+
+func (duckdbEngine) GrantSQL(privileges []string, schema, _ string, _ Account) ([]string, error) {
+	if err := grantError(privileges, schema); err != nil {
+		return nil, err
+	}
+	return nil, noAccountsError(DuckDB)
+}
+
+func (duckdbEngine) Privileges() []string { return standardPrivileges() }
+
+func (duckdbEngine) AccountForm() AccountFormFields {
+	return AccountFormFields{GrantTargetLabel: "Database"}
+}
+
+func (duckdbEngine) BackupFormats() []BackupFormat { return []BackupFormat{BackupParquet} }
+
+func (duckdbEngine) PlanBackup(_ context.Context, d *DB, o BackupOptions) (ToolRun, error) {
+	if err := backupOptionsError(d.Config.Engine, o); err != nil {
+		return ToolRun{}, err
+	}
+	return ToolRun{Statement: "EXPORT DATABASE " + Literal(DuckDB, o.Path) + " (FORMAT parquet)"}, nil
+}
+
+func (duckdbEngine) PlanRestore(ctx context.Context, d *DB, _, path string, _ bool) (ToolRun, error) {
+	return planDuckDBRestore(ctx, d, path)
+}
+
+func (duckdbEngine) BackupNote(restore bool) string {
+	return backupNoteFor(restore, duckdbRestoreNote, duckdbBackupNote)
+}
+
+func (duckdbEngine) BackupChoices() BackupChoices    { return BackupChoices{Folder: true} }
+func (duckdbEngine) BackupScope() BackupScope        { return BackupScopeNone }
+func (duckdbEngine) BackupToolChecksCAOnly(*DB) bool { return false }
+
+func (duckdbEngine) MaintenanceCommands(quotedTable string) []MaintenanceCommand {
+	return nil
 }

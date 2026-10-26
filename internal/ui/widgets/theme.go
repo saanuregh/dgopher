@@ -220,23 +220,7 @@ func luminance(col ui.Color) float64 {
 }
 
 // EngineColor tints an engine's icon.
-func EngineColor(e db.Engine) ui.Color {
-	switch e {
-	case db.Postgres:
-		return ui.Hex("#336791")
-	case db.MySQL:
-		return ui.Hex("#00758f")
-	case db.ClickHouse:
-		return ui.Hex("#d4a10a")
-	case db.Redis:
-		return ui.Hex("#dc382d")
-	case db.SQLite:
-		return ui.Hex("#0f80cc")
-	case db.DuckDB:
-		return ui.Hex("#c49a00")
-	}
-	return ui.Hex("#737373")
-}
+func EngineColor(e db.Engine) ui.Color { return ui.Hex(e.ColorHex()) }
 
 // MonoFont is the family of the editor's and the grids' text: the user's,
 // or the system's monospaced one.

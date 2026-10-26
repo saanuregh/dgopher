@@ -91,17 +91,6 @@ func verbOf(a sqltext.Analysis) string {
 	return a.Verb
 }
 
-// readOnlyBegin starts a transaction in which the server itself refuses
-// writes, where the engine has one: a read the app classified may still
-// call a function that writes.
-func readOnlyBegin(e db.Engine) string {
-	switch e {
-	case db.Postgres, db.MySQL:
-		return "START TRANSACTION READ ONLY"
-	}
-	return ""
-}
-
 // run runs a panel's statement on a session of its own, in a read-only
 // transaction where the engine has one, and reads up to maxRows of its
 // result.
@@ -113,7 +102,9 @@ func run(ctx context.Context, pool *db.DB, cfg db.Config, database string, p pre
 		return nil, err
 	}
 	defer sess.Close()
-	if begin := readOnlyBegin(cfg.Engine); begin != "" {
+	// The server itself refuses writes: a read the app classified may
+	// still call a function that writes.
+	if begin := db.ReadOnlyBeginSQL(cfg.Engine); begin != "" {
 		if _, err := sess.Exec(ctx, begin); err != nil {
 			return nil, err
 		}

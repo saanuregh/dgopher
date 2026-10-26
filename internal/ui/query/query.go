@@ -550,7 +550,8 @@ func (q *Tab) statements(mode RunMode) ([]string, []int) {
 		}
 	}
 	if explaining(mode) && len(out) == 1 {
-		out[0] = db.ExplainPrefix(q.Conn.Config.Engine, mode == RunExplainAnalyze) + out[0]
+		run, _ := db.Explain(q.Conn.Config.Engine, out[0], mode == RunExplainAnalyze)
+		out[0] = run.Statement
 	}
 	return out, starts
 }
@@ -572,7 +573,7 @@ func (q *Tab) StatementToRun() (string, error) {
 // the statement changes the database.
 func (q *Tab) analyzeRefusal() string {
 	e := q.Conn.Config.Engine
-	if db.ExplainPrefix(e, true) == "" {
+	if _, ok := db.Explain(e, "", true); !ok {
 		return e.Label() + " explains a statement without running it: Explain shows its plan."
 	}
 	stmts, _ := q.statements(RunStatement)
@@ -829,7 +830,8 @@ func (q *Tab) run(mode RunMode) {
 	}
 	skip := 0
 	if explaining(mode) {
-		skip = len(db.ExplainPrefix(q.Conn.Config.Engine, mode == RunExplainAnalyze))
+		run, _ := db.Explain(q.Conn.Config.Engine, "", mode == RunExplainAnalyze)
+		skip = run.Offset
 	}
 	newTab := q.newTab
 	q.withParams(stmts, func(values map[string]params.Input) {
@@ -2039,10 +2041,11 @@ func findObject(objs []db.Object, name string, quoted bool, engine db.Engine) (d
 // none: PostgreSQL folds an unquoted name to lower case, ClickHouse folds
 // none, and the others find names whatever the case, the exact one first.
 func matchName(names []string, name string, quoted bool, engine db.Engine) int {
+	folding := db.NameFoldingOf(engine)
 	switch {
-	case engine == db.Postgres && !quoted:
+	case folding == db.NamesFoldToLower && !quoted:
 		return slices.Index(names, strings.ToLower(name))
-	case engine == db.Postgres || engine == db.ClickHouse:
+	case folding == db.NamesFoldToLower || folding == db.NamesKeepCase:
 		return slices.Index(names, name)
 	}
 	if i := slices.Index(names, name); i >= 0 {
@@ -2489,7 +2492,7 @@ func changesRows(s safety.Statement, dialect sqltext.Dialect) bool {
 // what the run has learned of MySQL tables (mysqlTransactional).
 func (q *Tab) beginGuard(ctx context.Context, sess *db.Session, s safety.Statement, table sqltext.TableRef, limit int, database string, known map[[2]string]bool) (*changeGuard, error) {
 	cfg := q.Conn.Config
-	if cfg.Engine == db.MySQL && table.Name != "" {
+	if db.TablesMayIgnoreRollback(cfg.Engine) && table.Name != "" {
 		switch keeps, err := mysqlTransactional(ctx, sess, table, known); {
 		case err != nil:
 			return nil, err
@@ -2574,7 +2577,7 @@ func (g *changeGuard) end(ctx context.Context, commit bool, n int64) error {
 	if err != nil {
 		return fmt.Errorf("could not roll back: %w", err)
 	}
-	if cfg.Engine == db.MySQL && mysqlKeptChanges(ectx, g.sess) {
+	if db.TablesMayIgnoreRollback(cfg.Engine) && mysqlKeptChanges(ectx, g.sess) {
 		return fmt.Errorf("could not roll back all of it: a table it changed keeps no transactions, as MyISAM, and keeps its changes of the %d rows", n)
 	}
 	return nil
@@ -2594,12 +2597,7 @@ func mysqlKeptChanges(ctx context.Context, sess *db.Session) bool {
 
 // changedWord is how an engine counts the rows a change makes: MySQL's
 // the rows it matched, changed or not.
-func changedWord(e db.Engine) string {
-	if e == db.MySQL {
-		return "matched"
-	}
-	return "changed"
-}
+func changedWord(e db.Engine) string { return db.ChangedRowsWord(e) }
 
 // askCommit asks whether a change of more rows than the limit commits.
 // A run stopped while asking closes the question, which then answers no.

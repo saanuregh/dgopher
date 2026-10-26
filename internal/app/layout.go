@@ -1184,7 +1184,7 @@ func (a *App) connectionStatus(c *ui.Context, tab widgets.Tab, groups []connPlac
 			widgets.Appear(ui.Text(c.Key("transaction-state"), "● transaction failed").FontSize(12).TextColor(t.Danger).ContentTransition(ui.ContentTransition{}))
 		}
 	}
-	if cn.Config.Engine.IsSQL() && cn.Config.Engine != db.ClickHouse {
+	if cn.Config.Engine.Transactions() {
 		if cn.Config.ManualCommit() {
 			ui.Text(c, "manual commit").FontSize(12).TextColor(pal.Muted).Tooltip("Writes open a transaction that you commit or roll back")
 		} else {

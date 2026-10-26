@@ -1514,7 +1514,7 @@ func secretDetails(cfg *db.Config) []widgets.ConfirmDetail {
 	if cfg.Identity != "" {
 		add("Identity", cfg.Identity.Label()+": runs "+commandText(db.IdentityCommand(cfg))+" on this computer, and sends the cloud token it prints")
 	}
-	if cfg.Engine == db.MySQL || cfg.ClearTextPassword {
+	if cfg.Engine.ClearTextPassword() || cfg.ClearTextPassword {
 		clear := "no"
 		if cfg.ClearTextPassword {
 			clear = "yes: the password goes as it is, as LDAP and PAM logins need"

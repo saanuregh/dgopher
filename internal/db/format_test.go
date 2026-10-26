@@ -275,13 +275,13 @@ func BenchmarkBytesLiteralDuckDB64K(b *testing.B) {
 	}
 	b.ReportAllocs()
 	for b.Loop() {
-		bytesLiteral(DuckDB, blob)
+		duckdbEngine{}.BytesLiteral(blob)
 	}
 }
 
 func BenchmarkTextLiteralPostgresBackslash(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
-		textLiteral(Postgres, `C:\path\it's`)
+		postgresEngine{}.TextLiteral(`C:\path\it's`)
 	}
 }

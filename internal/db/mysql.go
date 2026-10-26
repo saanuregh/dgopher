@@ -2,9 +2,16 @@ package db
 
 import (
 	"context"
+	"crypto/tls"
+	"database/sql"
+	"database/sql/driver"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
+
+	"dgopher/internal/lists"
+	"dgopher/internal/sqltext"
 )
 
 type mysqlDialect struct{}
@@ -209,4 +216,465 @@ ORDER BY TABLE_SCHEMA, TABLE_NAME, CONSTRAINT_NAME`, []any{schema, table}, func(
 		r.Columns, r.RefColumns = splitList(cols), splitList(refCols)
 		return r, nil
 	})
+}
+
+const (
+	mysqlStopQuery  = "KILL QUERY %s"
+	mysqlEndSession = "KILL %s"
+)
+
+// mysqlFileReaders are MySQL's functions that read the server's
+// files or fetch URLs; callers only read them.
+var mysqlFileReaders = strings.Fields("load_file")
+
+type mysqlEngine struct{ mysqlDialect }
+
+var _ sqlRules = mysqlEngine{}
+
+func (mysqlEngine) Label() string                   { return "MySQL" }
+func (mysqlEngine) ColorHex() string                { return "#00758f" }
+func (mysqlEngine) DefaultPort() int                { return 3306 }
+func (mysqlEngine) DefaultUser() string             { return "root" }
+func (mysqlEngine) IsSQL() bool                     { return true }
+func (mysqlEngine) Transactions() bool              { return true }
+func (mysqlEngine) Savepoints() bool                { return true }
+func (mysqlEngine) TransactionalDDL() bool          { return false }
+func (mysqlEngine) DatabaseField() (string, string) { return "Database", "" }
+func (mysqlEngine) URLSchemes() []string            { return []string{"mysql", "mariadb"} }
+
+func (mysqlEngine) URLTLSParameters() map[string]map[string]TLSMode {
+	return mysqlURLTLS
+}
+
+func (mysqlEngine) CloudIdentity() bool              { return true }
+func (mysqlEngine) ClearTextPassword() bool          { return true }
+func (mysqlEngine) DatabasesNeedOwnConnection() bool { return false }
+func (mysqlEngine) DefaultSchemaName() string        { return "" }
+func (mysqlEngine) FileExtensions() []string         { return nil }
+
+func (mysqlEngine) ActivityPages() []ActivityPage {
+	return []ActivityPage{{
+		Name: "Sessions", Live: true, Stop: sessionStatement(mysqlStopQuery), Kill: sessionStatement(mysqlEndSession),
+		Query: `SELECT ID AS id, USER AS user, HOST AS host, DB AS db, COMMAND AS command, TIME AS seconds, STATE AS state, LEFT(INFO, 400) AS query
+FROM information_schema.PROCESSLIST WHERE ID <> CONNECTION_ID() ORDER BY COMMAND = 'Sleep', TIME DESC`,
+	}, {
+		Name: "Locks", Live: true, Stop: sessionStatement(mysqlStopQuery), Kill: sessionStatement(mysqlEndSession),
+		Query: `SELECT t.PROCESSLIST_ID AS id, t.PROCESSLIST_USER AS user, CONCAT_WS('.', l.OBJECT_SCHEMA, l.OBJECT_NAME) AS object,
+  l.INDEX_NAME AS index_name, l.LOCK_TYPE AS lock_type, l.LOCK_MODE AS mode, l.LOCK_STATUS AS status,
+  (SELECT GROUP_CONCAT(bt.PROCESSLIST_ID) FROM performance_schema.data_lock_waits w
+   JOIN performance_schema.threads bt ON bt.THREAD_ID = w.BLOCKING_THREAD_ID
+   WHERE w.REQUESTING_ENGINE_LOCK_ID = l.ENGINE_LOCK_ID) AS waits_for,
+  LEFT(t.PROCESSLIST_INFO, 300) AS query
+FROM performance_schema.data_locks l JOIN performance_schema.threads t ON t.THREAD_ID = l.THREAD_ID
+WHERE t.PROCESSLIST_ID <> CONNECTION_ID()
+UNION ALL
+SELECT t.PROCESSLIST_ID, t.PROCESSLIST_USER, CONCAT_WS('.', m.OBJECT_SCHEMA, m.OBJECT_NAME), NULL, CONCAT('METADATA ', m.OBJECT_TYPE),
+  m.LOCK_TYPE, m.LOCK_STATUS, NULL, LEFT(t.PROCESSLIST_INFO, 300)
+FROM performance_schema.metadata_locks m JOIN performance_schema.threads t ON t.THREAD_ID = m.OWNER_THREAD_ID
+WHERE t.PROCESSLIST_ID IS NOT NULL AND t.PROCESSLIST_ID <> CONNECTION_ID() AND m.OBJECT_TYPE IN ('TABLE', 'SCHEMA')
+ORDER BY status = 'GRANTED', id`,
+		Hint: "Locks come from performance_schema, which the server must have on, and the user may read.",
+	}, {
+		Name: "Statistics",
+		Query: `SELECT LEFT(DIGEST_TEXT, 400) AS query, SCHEMA_NAME AS db, COUNT_STAR AS calls, ROUND(SUM_TIMER_WAIT / 1e9, 1) AS total_ms,
+  ROUND(AVG_TIMER_WAIT / 1e9, 2) AS mean_ms, ROUND(MAX_TIMER_WAIT / 1e9, 1) AS max_ms, SUM_ROWS_SENT AS rows_sent, SUM_ROWS_EXAMINED AS rows_examined
+FROM performance_schema.events_statements_summary_by_digest WHERE DIGEST_TEXT IS NOT NULL
+ORDER BY SUM_TIMER_WAIT DESC LIMIT 500`,
+		Hint: "Statistics come from performance_schema, which the server must have on, and the user may read.",
+	}}
+}
+
+func (mysqlEngine) dialect() Dialect { return mysqlDialect{} }
+
+func (mysqlEngine) open(_ context.Context, cfg Config, ep endpoint, tc *tls.Config, w wire) (openedPool, error) {
+	sqldb, connector, err := openMySQL(cfg, ep, tc, w)
+	return openedPool{sql: sqldb, connector: connector, tls: tc}, err
+}
+
+func (mysqlEngine) tlsState(ctx context.Context, sqldb *sql.DB, cfg Config, tc *tls.Config) string {
+	if cfg.TLS == TLSPrefer {
+		return negotiatedMySQLTLS(ctx, sqldb)
+	}
+	// Without prefer's fallback to plain text, the connection uses TLS
+	// exactly when it was asked for.
+	return tlsWord(tc != nil)
+}
+
+func (mysqlEngine) pingStatement() string { return "-- ping" }
+
+func (mysqlEngine) beginStatements(opts driver.TxOptions) []string {
+	var out []string
+	if level := sql.IsolationLevel(opts.Isolation); level != sql.LevelDefault {
+		out = append(out, "SET TRANSACTION ISOLATION LEVEL "+map[sql.IsolationLevel]string{
+			sql.LevelRepeatableRead:  "REPEATABLE READ",
+			sql.LevelReadCommitted:   "READ COMMITTED",
+			sql.LevelReadUncommitted: "READ UNCOMMITTED",
+			sql.LevelSerializable:    "SERIALIZABLE",
+		}[level])
+	}
+	if opts.ReadOnly {
+		return append(out, "START TRANSACTION READ ONLY")
+	}
+	return append(out, "START TRANSACTION")
+}
+
+func (mysqlEngine) endStatement(commit bool) string {
+	if commit {
+		return "COMMIT"
+	}
+	return "ROLLBACK"
+}
+
+func (mysqlEngine) pingsOnReset() bool   { return false }
+func (mysqlEngine) execUnprepared() bool { return false }
+func (mysqlEngine) bytesAreBinary() bool { return false }
+
+func (mysqlEngine) cancelQuerySQL(connectionID int64) string {
+	return fmt.Sprintf("KILL QUERY %d", connectionID)
+}
+
+func (mysqlEngine) pingAfterError() bool                     { return true }
+func (mysqlEngine) takesServerParameters() bool              { return false }
+func (mysqlEngine) CopyFromStdin() bool                      { return false }
+func (mysqlEngine) CreateFile(context.Context, string) error { return noFileError(MySQL) }
+func (mysqlEngine) VersionQuery() string                     { return "SELECT VERSION()" }
+func (mysqlEngine) LexDialect() sqltext.Dialect              { return sqltext.MySQL }
+func (mysqlEngine) BeginStatement() string                   { return "START TRANSACTION" }
+func (mysqlEngine) ReadOnlyBeginSQL() string                 { return "START TRANSACTION READ ONLY" }
+func (mysqlEngine) followsTransactionByVerbs() bool          { return true }
+
+// The server rolls back the whole transaction of a deadlock's victim, and
+// of a lock wait timeout when told to. Under autocommit off a failed
+// statement begins a transaction too.
+func (mysqlEngine) afterFailedStatement(v txByVerbs, err error, beginsAny bool, rollsBackOnTimeout func() bool) txByVerbs {
+	if n := mysqlErrorNumber(err); n == 1213 || n == 1205 && rollsBackOnTimeout != nil && rollsBackOnTimeout() {
+		v.tx = TxNone
+	} else if beginsAny {
+		v.tx = TxOpen
+	}
+	return v
+}
+
+func (mysqlEngine) autocommitMayBeOff() bool { return true }
+func (mysqlEngine) ExecutableComments() bool { return true }
+
+func (mysqlEngine) commitsImplicitlyWords(words []string, all func() []string) bool {
+	return commitsImplicitly(words, all)
+}
+
+func (mysqlEngine) setsAutocommitWords(_ []string, all func() []string) (on, ok bool) {
+	return setsAutocommit(all())
+}
+
+// beginIsCompound: MariaDB's BEGIN NOT ATOMIC … END is a compound
+// statement, not a transaction.
+func (mysqlEngine) beginIsCompound(words []string) bool { return wordAt(words, 1) == "NOT" }
+
+func (mysqlEngine) SavepointBeginsTransaction() bool { return false }
+func (mysqlEngine) OutsideTransaction(string) bool   { return false }
+func (mysqlEngine) TablesMayIgnoreRollback() bool    { return true }
+func (mysqlEngine) ChangedRowsWord() string          { return "matched" }
+
+func (mysqlEngine) Explain(statement string, analyze bool) (ExplainRun, bool) {
+	if analyze {
+		return explainWithPrefix("EXPLAIN ANALYZE ", statement), true
+	}
+	return explainWithPrefix("EXPLAIN FORMAT=TREE ", statement), true
+}
+
+func (mysqlEngine) ParsePlan(_ []string, rows [][]any) (*Plan, bool) {
+	return parseMySQLTree(planText(rows))
+}
+
+func (mysqlEngine) AdvisePlanStep(n *PlanNode, add func(n *PlanNode, format string, args ...any)) {
+	switch {
+	case strings.HasPrefix(n.Op, "Table scan") && rowsOf(n) >= adviseRows:
+		add(n, "A table scan reads every row of %s: an index on the columns of the WHERE may let it read only those it keeps.", n.Target)
+	case strings.HasPrefix(n.Op, "Temporary table") && rowsOf(n) >= adviseRows:
+		add(n, "A temporary table holds the rows to group: an index on the GROUP BY columns may let MySQL read them in order instead.")
+	case strings.HasPrefix(n.Op, "Sort") && rowsOf(n) >= adviseRows:
+		add(n, "The rows are sorted after they are read: an index in the ORDER BY's order may give them sorted.")
+	}
+}
+
+func (mysqlEngine) UseSchemaSQL(schema string) string {
+	return "USE " + mysqlDialect{}.Quote(schema)
+}
+
+func (mysqlEngine) EditorSchemaPreamble(string) string { return "" }
+func (mysqlEngine) NameFolding() NameFolding           { return NamesIgnoreCase }
+
+func (mysqlEngine) Search(ctx context.Context, d *DB, text string, definitions bool) ([]SearchHit, bool, error) {
+	text = strings.ToLower(text)
+	return searchWith(ctx, d, text, mysqlSearch, []any{text, definitions, text})
+}
+
+func (mysqlEngine) EnumValues(_ context.Context, _ *DB, typ string) ([]string, error) {
+	return enumListValues(typ, true), nil
+}
+
+func (mysqlEngine) ParameterAsText() bool                      { return false }
+func (mysqlEngine) TextLiteral(s string) string                { return "'" + mysqlEscaper.Replace(s) + "'" }
+func (mysqlEngine) BytesLiteral(b []byte) string               { return hexLiteral(b) }
+func (mysqlEngine) BooleansAreNumbers() bool                   { return true }
+func (mysqlEngine) OffsetTimesAsUTC() bool                     { return false }
+func (mysqlEngine) CastParameter(placeholder, _ string) string { return placeholder }
+
+func (mysqlEngine) InsertDefaultRowSQL(table string) string {
+	return "INSERT INTO " + table + " () VALUES ()"
+}
+
+func (mysqlEngine) MaxParameters() int               { return 65535 }
+func (mysqlEngine) ProfileBySummarize() bool         { return false }
+func (mysqlEngine) Comparable(string) bool           { return true }
+func (mysqlEngine) StableOrderByKey() bool           { return true }
+func (mysqlEngine) UpdateSetsDefault() bool          { return true }
+func (mysqlEngine) InterruptAbortsTransaction() bool { return false }
+func (mysqlEngine) FileReadingFunctions() []string   { return mysqlFileReaders }
+func (mysqlEngine) FileNamesInStrings() bool         { return false }
+
+func (mysqlEngine) LikeFilterSQL(column, pattern string, not bool) string {
+	return "CAST(" + column + " AS CHAR)" + likeOperator(false, not) + pattern
+}
+
+// MySQL reads a backslash in a string as an escape.
+func (mysqlEngine) JSONPathSQL(column string, path []any, leaf bool) string {
+	return jsonPathSQL(column, path, leaf, true)
+}
+
+func (mysqlEngine) UpsertSQL(insert string, _, updatedColumns []string) string {
+	if len(updatedColumns) == 0 {
+		return "INSERT IGNORE" + strings.TrimPrefix(insert, "INSERT")
+	}
+	sets := lists.Map(updatedColumns, func(c string) string { return c + " = VALUES(" + c + ")" })
+	return insert + "\nON DUPLICATE KEY UPDATE " + strings.Join(sets, ", ")
+}
+
+func (mysqlEngine) CommonTypes() []string {
+	return []string{"int", "bigint", "smallint", "tinyint(1)", "decimal(12,2)", "float", "double", "varchar(255)", "text",
+		"date", "datetime", "timestamp", "time", "json", "blob"}
+}
+
+func (mysqlEngine) FirstColumn() ColumnDesign {
+	return ColumnDesign{Name: "id", PrimaryKey: true, Type: "bigint", AutoIncrement: true}
+}
+
+func (mysqlEngine) ColumnTypeFor(duckType string) string { return columnTypesFor(duckType).mysql }
+
+func (mysqlEngine) CanonicalType(typ string) string {
+	t := strings.TrimSpace(typ)
+	if strings.ToLower(t) == "tinyint(1)" {
+		return "BOOLEAN"
+	}
+	return commonCanonical(t)
+}
+
+func (mysqlEngine) ModifyColumnSQL(d Dialect, _ TableDesign, was, now ColumnDesign) ([]string, error) {
+	if err := columnChangeError(was, now); err != nil {
+		return nil, err
+	}
+	name := d.Quote(now.Name)
+	if now.Type == was.Type && now.Nullable == was.Nullable && now.Comment == was.Comment {
+		if now.Default == "" {
+			return []string{"ALTER COLUMN " + name + " DROP DEFAULT"}, nil
+		}
+		return []string{"ALTER COLUMN " + name + " SET DEFAULT " + now.Default}, nil
+	}
+	// MODIFY writes the whole column again, what MySQL keeps besides
+	// included.
+	return []string{"MODIFY COLUMN " + columnSQL(d, now, false)}, nil
+}
+
+func (mysqlEngine) RenameObjectSQL(obj Object, name string) (string, error) {
+	return renameTableSQL(mysqlDialect{}, obj, name), nil
+}
+
+func (mysqlEngine) ScriptPreamble(bool) string { return "" }
+
+func (mysqlEngine) TypeKindOf(typ string) (TypeKind, string, string) {
+	return commonTypeKind(typ, true, false)
+}
+
+func (mysqlEngine) TypeOfKind(kind TypeKind, size, scale string) string {
+	return typesOfKind(kind, size, scale).mysql
+}
+
+func (mysqlEngine) NullableWrapper() bool { return false }
+
+func (mysqlEngine) CreateTableSuffix(d Dialect, t TableDesign, _ []string) string {
+	if t.Comment != "" {
+		return " COMMENT = " + Literal(d.Engine(), t.Comment)
+	}
+	return ""
+}
+
+func (mysqlEngine) InlineIntegerKey() bool { return false }
+func (mysqlEngine) PrimaryKeyClause() bool { return true }
+func (mysqlEngine) RebuildsToAlter() bool  { return false }
+
+func (mysqlEngine) DropConstraintSQL(d Dialect, kind ConstraintKind, schema, table, name string) string {
+	alter := "ALTER TABLE " + QualifiedName(d, schema, table)
+	switch kind {
+	case ConstraintForeignKey:
+		return alter + " DROP FOREIGN KEY " + d.Quote(name)
+	case ConstraintCheck:
+		return alter + " DROP CHECK " + d.Quote(name)
+	case ConstraintIndex:
+		return "DROP INDEX " + d.Quote(name) + " ON " + QualifiedName(d, schema, table)
+	}
+	return alter + " DROP PRIMARY KEY"
+}
+
+func (mysqlEngine) UniqueAsConstraint() bool { return true }
+
+func (mysqlEngine) TableCommentSQL(d Dialect, schema, table, comment string) string {
+	return "ALTER TABLE " + QualifiedName(d, schema, table) + " COMMENT = " + Literal(d.Engine(), comment)
+}
+
+func (mysqlEngine) ColumnCommentInline() bool           { return true }
+func (mysqlEngine) Comments() bool                      { return true }
+func (mysqlEngine) KeepsColumnExtra() bool              { return true }
+func (mysqlEngine) AutoIncrementSQL() string            { return "AUTO_INCREMENT" }
+func (mysqlEngine) NumbersRows() bool                   { return true }
+func (mysqlEngine) HasForeignKeys() bool                { return true }
+func (mysqlEngine) ForeignKeyActions() bool             { return true }
+func (mysqlEngine) ForeignKeyNamesUniqueInSchema() bool { return true }
+func (mysqlEngine) SecondaryIndexes() bool              { return true }
+func (mysqlEngine) KeepsKeyNames() bool                 { return true }
+func (mysqlEngine) NamesConstraintsItself() bool        { return false }
+func (mysqlEngine) NamesTablesWithinSchema() bool       { return false }
+func (mysqlEngine) IgnoresVarcharLength() bool          { return false }
+func (mysqlEngine) KeysOfMadeTable() string             { return "" }
+func (mysqlEngine) FixedKeysNote() string               { return "" }
+
+func (mysqlEngine) ReadDesignExtras(ctx context.Context, d *DB, t *TableDesign) error {
+	return readMySQLDesign(ctx, d, t)
+}
+
+func (mysqlEngine) NormalizeModelTable(t *TableDesign) {
+	// MySQL makes an index for a key, which it names as the key: the key
+	// makes it again.
+	t.Indexes = slices.DeleteFunc(t.Indexes, func(ix IndexDesign) bool {
+		return slices.ContainsFunc(t.ForeignKeys, func(fk ForeignKeyDesign) bool {
+			return fk.Name == ix.Name && slices.Equal(fk.Columns, ix.Columns[:min(len(fk.Columns), len(ix.Columns))])
+		})
+	})
+}
+
+func (mysqlEngine) TruncateToEmpty() bool { return false }
+func (mysqlEngine) ManagesAccounts() bool { return true }
+
+func (mysqlEngine) ListAccounts(ctx context.Context, q Querier) ([]Account, error) {
+	members := map[string][]string{}
+	err := scanRows(ctx, q, `SELECT TO_USER, TO_HOST, FROM_USER, FROM_HOST FROM mysql.role_edges`, nil, func(scan func(...any) error) error {
+		var toUser, toHost, fromUser, fromHost string
+		if err := scan(&toUser, &toHost, &fromUser, &fromHost); err != nil {
+			return err
+		}
+		key := toUser + "@" + toHost
+		members[key] = append(members[key], fromUser+"@"+fromHost)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return scanAll(ctx, q, `SELECT User, Host, account_locked, password_expired, plugin, authentication_string = '' FROM mysql.user ORDER BY User, Host`, nil,
+		func(scan func(...any) error) (Account, error) {
+			var a Account
+			var locked, expired, plugin string
+			var noPassword bool
+			if err := scan(&a.Name, &a.Host, &locked, &expired, &plugin, &noPassword); err != nil {
+				return a, err
+			}
+			// A role of MySQL is an account locked and without a password.
+			a.Role = locked == "Y" && noPassword
+			if locked == "Y" {
+				a.Attributes = append(a.Attributes, "locked")
+			}
+			if expired == "Y" {
+				a.Attributes = append(a.Attributes, "password expired")
+			}
+			a.Attributes = append(a.Attributes, "logs in with "+plugin)
+			a.MemberOf = members[a.Name+"@"+a.Host]
+			return a, nil
+		})
+}
+
+func (mysqlEngine) AccountPrivileges(ctx context.Context, q Querier, a Account) ([]Privilege, error) {
+	return showGrants(ctx, q, mysqlAccountName(a))
+}
+
+func (mysqlEngine) AccountName(a Account) string { return mysqlAccountName(a) }
+
+func (mysqlEngine) CreateAccountSQL(n NewAccount) (string, error) {
+	name := mysqlAccountName(n.Account)
+	if n.Role {
+		return createRoleSQL(name), nil
+	}
+	return "CREATE USER " + name + " IDENTIFIED BY " + Literal(MySQL, n.Password), nil
+}
+
+func (mysqlEngine) PasswordSQL(a Account, password string) (string, error) {
+	return "ALTER USER " + mysqlAccountName(a) + " IDENTIFIED BY " + Literal(MySQL, password), nil
+}
+
+func (mysqlEngine) DropAccountSQL(a Account) []string { return dropUserSQL(mysqlAccountName(a), a) }
+
+func (mysqlEngine) GrantSQL(privileges []string, schema, table string, a Account) ([]string, error) {
+	return grantOnDatabaseSQL(mysqlDialect{}, privileges, schema, table, mysqlAccountName(a))
+}
+
+func (mysqlEngine) Privileges() []string { return standardPrivileges() }
+
+func (mysqlEngine) AccountForm() AccountFormFields {
+	return AccountFormFields{Host: true, GrantTargetLabel: "Database"}
+}
+
+func (mysqlEngine) BackupFormats() []BackupFormat { return []BackupFormat{BackupSQL} }
+
+func (mysqlEngine) PlanBackup(ctx context.Context, d *DB, o BackupOptions) (ToolRun, error) {
+	if err := backupOptionsError(d.Config.Engine, o); err != nil {
+		return ToolRun{}, err
+	}
+	run, err := mysqlTool(ctx, d, "mysqldump")
+	if err != nil {
+		return run, err
+	}
+	database := o.Database
+	if database == "" {
+		database = d.Config.Database
+	}
+	if database == "" {
+		return ToolRun{}, errors.New("choose the database to back up")
+	}
+	run.Argv = append(run.Argv, "--single-transaction", "--routines", "--triggers", "--events", "--verbose", "--result-file="+o.Path)
+	run.Argv = append(run.Argv, contentFlag(o.Content, "--no-data", "--no-create-info")...)
+	// After --, a schema named as an option, as -Ar/tmp/x.sql, is a
+	// name.
+	run.Argv = append(run.Argv, "--databases", "--", database)
+	return run, nil
+}
+
+func (mysqlEngine) PlanRestore(_ context.Context, d *DB, _, _ string, _ bool) (ToolRun, error) {
+	return ToolRun{}, restoreWithRunSQLFileError(d.Config.Engine)
+}
+
+func (mysqlEngine) BackupNote(restore bool) string {
+	return backupNoteFor(restore, sqlFileRestoreNote, mysqldumpBackupNote)
+}
+
+func (mysqlEngine) BackupChoices() BackupChoices { return BackupChoices{Content: true} }
+func (mysqlEngine) BackupScope() BackupScope     { return BackupScopeSchema }
+
+func (mysqlEngine) BackupToolChecksCAOnly(d *DB) bool {
+	host, _ := d.Address()
+	return d.Config.TLS == TLSVerifyFull && host != d.Config.Host
+}
+
+func (mysqlEngine) MaintenanceCommands(quotedTable string) []MaintenanceCommand {
+	return []MaintenanceCommand{
+		{"Analyze", "ANALYZE TABLE " + quotedTable},
+		{"Optimize (rebuilds the table)", "OPTIMIZE TABLE " + quotedTable},
+		{"Check", "CHECK TABLE " + quotedTable},
+	}
 }

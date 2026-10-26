@@ -68,58 +68,29 @@ func (n *PlanNode) Prop(name string) string {
 	return ""
 }
 
-// ExplainPrefix is what the editor puts before a statement to see its
-// plan in a form ParsePlan reads; with analyze, running it, "" for an
-// engine that cannot.
-func ExplainPrefix(e Engine, analyze bool) string {
-	switch {
-	case e == Postgres && analyze:
-		return "EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON) "
-	case e == Postgres:
-		return "EXPLAIN (VERBOSE, FORMAT JSON) "
-	case e == MySQL && analyze:
-		return "EXPLAIN ANALYZE "
-	case e == MySQL:
-		return "EXPLAIN FORMAT=TREE "
-	case e == DuckDB && analyze:
-		return "EXPLAIN (ANALYZE, FORMAT JSON) "
-	case e == DuckDB:
-		return "EXPLAIN (FORMAT JSON) "
-	case analyze:
-		return "" // SQLite and ClickHouse explain without running
-	case e == SQLite:
-		return "EXPLAIN QUERY PLAN "
-	case e == ClickHouse:
-		return "EXPLAIN json = 1, description = 1, indexes = 1 "
-	}
-	return "EXPLAIN "
+// explainWithPrefix is the ExplainRun of a statement after an EXPLAIN prefix.
+func explainWithPrefix(prefix, statement string) ExplainRun {
+	return ExplainRun{Statement: prefix + statement, Offset: len(prefix)}
 }
 
-// ParsePlan reads the rows of an EXPLAIN in the forms ExplainPrefix asks
+// ParsePlan reads the rows of an EXPLAIN in the forms Explain asks
 // for, and reports whether they were one.
 func ParsePlan(e Engine, cols []string, rows [][]any) (*Plan, bool) {
-	text := func() string {
-		var lines []string
-		for _, r := range rows {
-			if len(r) > 0 {
-				lines = append(lines, Display(r[len(r)-1]))
-			}
-		}
-		return strings.Join(lines, "\n")
-	}
-	switch e {
-	case Postgres:
-		return parsePostgresPlan(text())
-	case MySQL:
-		return parseMySQLTree(text())
-	case SQLite:
-		return parseSQLitePlan(cols, rows)
-	case DuckDB:
-		return parseDuckDBPlan(text())
-	case ClickHouse:
-		return parseClickHousePlan(text())
+	if r, ok := sqlRulesOf(e); ok {
+		return r.ParsePlan(cols, rows)
 	}
 	return nil, false
+}
+
+// planText is the last column of an EXPLAIN's rows, a line each.
+func planText(rows [][]any) string {
+	var lines []string
+	for _, r := range rows {
+		if len(r) > 0 {
+			lines = append(lines, Display(r[len(r)-1]))
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // jsonNumber is a JSON value as a number, -1 when it is none.

@@ -49,3 +49,64 @@ func TestEngineFactsPinned(t *testing.T) {
 		}
 	}
 }
+
+// Every engine has rules of its own, the SQL ones and only they answer
+// SQL's hooks, and each lexes as a dialect sqltext knows.
+func TestEngineRulesCover(t *testing.T) {
+	sqlEngines := []Engine{Postgres, MySQL, ClickHouse, SQLite, DuckDB}
+	lexers := []sqltext.Dialect{sqltext.Generic, sqltext.Postgres, sqltext.MySQL, sqltext.ClickHouse, sqltext.SQLite}
+	if len(registeredRules) != len(Engines()) {
+		t.Errorf("%d engines have rules, want one each of %v", len(registeredRules), Engines())
+	}
+	for _, e := range Engines() {
+		r, ok := registeredRules[e]
+		if !ok {
+			t.Errorf("%q has no rules", e)
+			continue
+		}
+		if rulesOf(e) != r {
+			t.Errorf("rulesOf(%q) = %T, want its registered %T", e, rulesOf(e), r)
+		}
+		s, isSQL := sqlRulesOf(e)
+		if isSQL != slices.Contains(sqlEngines, e) {
+			t.Errorf("%q: sqlRulesOf ok = %v, want %v", e, isSQL, !isSQL)
+		}
+		if r.IsSQL() != isSQL {
+			t.Errorf("%q: IsSQL() = %v, but sqlRulesOf ok = %v", e, r.IsSQL(), isSQL)
+		}
+		if isSQL {
+			if s.Engine() != e {
+				t.Errorf("%q: its rules' Engine() is %q", e, s.Engine())
+			}
+			// Hooks reached through a Dialect find the rules by its
+			// Engine(): an engine reusing another's dialect would get the
+			// other's rules.
+			if d := DialectOf(e); d == nil || d.Engine() != e {
+				t.Errorf("%q: DialectOf gives %T, whose Engine() is not %q", e, d, e)
+			}
+			if !slices.Contains(lexers, s.LexDialect()) {
+				t.Errorf("%q: LexDialect() %v is no dialect of sqltext", e, s.LexDialect())
+			}
+		}
+	}
+	if _, ok := rulesOf("unknown").(unknownEngine); !ok {
+		t.Errorf("rulesOf(unknown) = %T, want unknownEngine", rulesOf("unknown"))
+	}
+	if _, ok := sqlRulesOf("unknown"); ok {
+		t.Error("sqlRulesOf(unknown) is ok: an unknown engine has no SQL rules")
+	}
+}
+
+// A URL's scheme names one engine: one claimed twice would open as
+// whichever Engines() lists first.
+func TestURLSchemesAreUnique(t *testing.T) {
+	owner := map[string]Engine{}
+	for _, e := range Engines() {
+		for _, scheme := range rulesOf(e).URLSchemes() {
+			if was, ok := owner[scheme]; ok {
+				t.Errorf("%s:// belongs to both %q and %q", scheme, was, e)
+			}
+			owner[scheme] = e
+		}
+	}
+}

@@ -20,8 +20,15 @@ tests.
   logged text through `internal/redact`.
 - **An open transaction is never closed silently.** Closing a tab,
   disconnecting or quitting asks first.
-- **Engine behavior is not only in `Dialect`.** Switches on `db.Engine` are
-  spread across packages; search `case db.<Engine>` when changing an engine.
+- **Engine behavior lives in each engine's rules**: a type per engine
+  implements `engineRules`, and SQL engines `sqlRules` (both declared in
+  `internal/db/engine.go`; each engine's methods are in its own file, such
+  as `internal/db/postgres.go`), so an engine missing a hook does not
+  compile. Do not compare with an engine outside the reviewed list in
+  `TestNoEngineSwitches`, which fails on a new comparison. An engine built
+  on another's type also needs a dialect type of its own whose `Engine()`
+  is its own, returned by its `dialect()`: rules are found through a
+  `Dialect` too.
 - **DuckDB and in-memory SQLite share one connection** (`DB.single`), so all
   their sessions share one transaction.
 

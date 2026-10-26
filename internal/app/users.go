@@ -261,8 +261,8 @@ func (t *usersTab) accountView(c *ui.Context, acc db.Account) {
 				ui.Text(c, "Member of "+strings.Join(acc.MemberOf, ", "))
 			}
 			ui.Text(c, "Privileges").Bold()
-			if t.conn.Config.Engine == db.Postgres {
-				ui.Text(c, "Those on the database's own tables and schemas, and on its databases.").FontSize(12).TextColor(pal.Muted)
+			if note := db.AccountForm(t.conn.Config.Engine).PrivilegesNote; note != "" {
+				ui.Text(c, note).FontSize(12).TextColor(pal.Muted)
 			}
 			if len(t.privs) == 0 {
 				ui.Text(c, "None.").TextColor(pal.Muted)
@@ -293,6 +293,7 @@ func (t *usersTab) formView(c *ui.Context) {
 	f := t.form
 	th := c.Theme()
 	e := t.conn.Config.Engine
+	fields := db.AccountForm(e)
 	titles := map[accountFormKind]string{formNewUser: "New User", formNewRole: "New Role",
 		formPassword: "Change the Password of " + f.account.Label(), formGrant: "Grant to " + f.account.Label(),
 		formJoinRole: "Add " + f.account.Label() + " to a Role"}
@@ -303,12 +304,12 @@ func (t *usersTab) formView(c *ui.Context) {
 				switch f.kind {
 				case formNewUser, formNewRole:
 					ui.Field(c, "Name", func() { ui.TextInput(c, &f.name).AutoFocus() })
-					if e == db.MySQL {
+					if fields.Host {
 						ui.Field(c, "Host", func() { ui.TextInput(c, &f.host) }).Description("Where it may connect from: % for anywhere.")
 					}
 					if f.kind == formNewUser {
 						t.passwordFields(c, f)
-						if e == db.Postgres {
+						if fields.CreateOptions {
 							ui.Field(c, "", func() { ui.Checkbox(c, &f.createDB, "May create databases") })
 							ui.Field(c, "", func() { ui.Checkbox(c, &f.create, "May create roles") })
 						}
@@ -326,11 +327,7 @@ func (t *usersTab) formView(c *ui.Context) {
 							}
 						})
 					})
-					label := "Schema"
-					if e != db.Postgres {
-						label = "Database"
-					}
-					ui.Field(c, label, func() { ui.TextInput(c, &f.schema).Font(widgets.MonoFont) })
+					ui.Field(c, fields.GrantTargetLabel, func() { ui.TextInput(c, &f.schema).Font(widgets.MonoFont) })
 					ui.Field(c, "Table", func() { ui.TextInput(c, &f.table).Font(widgets.MonoFont).Placeholder("every table") })
 				case formJoinRole:
 					var roles []string
@@ -387,7 +384,7 @@ func (t *usersTab) submit(f *accountForm) {
 			return
 		}
 		acc := db.Account{Name: name, Role: f.kind == formNewRole}
-		if d.Engine() == db.MySQL {
+		if db.AccountForm(d.Engine()).Host {
 			acc.Host = strings.TrimSpace(f.host)
 		}
 		var stmt string

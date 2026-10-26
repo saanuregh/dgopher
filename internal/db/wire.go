@@ -2,7 +2,6 @@ package db
 
 import (
 	"context"
-	"database/sql"
 	"database/sql/driver"
 	"errors"
 	"io"
@@ -270,14 +269,14 @@ type pingedKey struct{}
 
 func (c *wireConn) resetSession(ctx context.Context) error {
 	r := c.inner.(driver.SessionResetter)
-	if c.engine != Postgres {
+	if rules, ok := sqlRulesOf(c.engine); !ok || !rules.pingsOnReset() {
 		return r.ResetSession(ctx)
 	}
 	pinged := false
 	start := time.Now()
 	err := r.ResetSession(context.WithValue(ctx, pingedKey{}, &pinged))
 	if pinged {
-		c.record(pingStatement(Postgres), 0, start, err)
+		c.record(pingStatement(c.engine), 0, start, err)
 	}
 	return err
 }
@@ -433,8 +432,8 @@ func namedValues(args []driver.NamedValue) ([]driver.Value, error) {
 // PostgreSQL's sends an empty one, "-- ping"; MySQL's and ClickHouse's are
 // protocol messages, shown as PostgreSQL's.
 func pingStatement(e Engine) string {
-	if e == SQLite {
-		return "select 1"
+	if r, ok := sqlRulesOf(e); ok {
+		return r.pingStatement()
 	}
 	return "-- ping"
 }
@@ -444,42 +443,8 @@ func pingStatement(e Engine) string {
 // modernc.org/sqlite's newTx and DuckDB's BeginTx. ClickHouse's sends
 // nothing.
 func beginStatements(e Engine, opts driver.TxOptions) []string {
-	level := sql.IsolationLevel(opts.Isolation)
-	switch e {
-	case Postgres:
-		text := "begin"
-		switch level {
-		case sql.LevelReadUncommitted:
-			text += " isolation level read uncommitted"
-		case sql.LevelReadCommitted:
-			text += " isolation level read committed"
-		case sql.LevelRepeatableRead, sql.LevelSnapshot:
-			text += " isolation level repeatable read"
-		case sql.LevelSerializable:
-			text += " isolation level serializable"
-		}
-		if opts.ReadOnly {
-			text += " read only"
-		}
-		return []string{text}
-	case MySQL:
-		var out []string
-		if level != sql.LevelDefault {
-			out = append(out, "SET TRANSACTION ISOLATION LEVEL "+map[sql.IsolationLevel]string{
-				sql.LevelRepeatableRead:  "REPEATABLE READ",
-				sql.LevelReadCommitted:   "READ COMMITTED",
-				sql.LevelReadUncommitted: "READ UNCOMMITTED",
-				sql.LevelSerializable:    "SERIALIZABLE",
-			}[level])
-		}
-		if opts.ReadOnly {
-			return append(out, "START TRANSACTION READ ONLY")
-		}
-		return append(out, "START TRANSACTION")
-	case SQLite:
-		return []string{"begin"}
-	case DuckDB:
-		return []string{"BEGIN TRANSACTION"}
+	if r, ok := sqlRulesOf(e); ok {
+		return r.beginStatements(opts)
 	}
 	return nil
 }
@@ -488,22 +453,16 @@ func beginStatements(e Engine, opts driver.TxOptions) []string {
 // transaction of database/sql's; "" for nothing. ClickHouse's sends a
 // prepared batch, or nothing.
 func endStatement(e Engine, commit bool) string {
-	switch e {
-	case Postgres, SQLite:
-		if commit {
-			return "commit"
-		}
-		return "rollback"
-	case MySQL:
-		if commit {
-			return "COMMIT"
-		}
-		return "ROLLBACK"
-	case DuckDB:
-		if commit {
-			return "COMMIT TRANSACTION"
-		}
-		return "ROLLBACK"
+	if r, ok := sqlRulesOf(e); ok {
+		return r.endStatement(commit)
 	}
 	return ""
+}
+
+// lowerEndStatement is how pgx and modernc.org/sqlite end a transaction.
+func lowerEndStatement(commit bool) string {
+	if commit {
+		return "commit"
+	}
+	return "rollback"
 }

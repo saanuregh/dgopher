@@ -15,14 +15,14 @@ func NewTableChange(d Dialect, t TableDesign) (SchemaChange, error) {
 	if err := validateDesign(d, t); err != nil {
 		return SchemaChange{}, err
 	}
-	e := d.Engine()
+	e, r := d.Engine(), rulesOfDialect(d)
 	// A unique constraint, as a data model keeps one read, is written in
 	// the table; SQLite's are named by SQLite.
 	var unique []string
 	for _, ix := range t.Indexes {
 		if ix.Constraint {
 			s := "UNIQUE (" + QuoteNames(d, ix.Columns) + ")"
-			if e != SQLite && ix.Name != "" {
+			if !r.NamesConstraintsItself() && ix.Name != "" {
 				s = "CONSTRAINT " + d.Quote(ix.Name) + " " + s
 			}
 			unique = append(unique, s)
@@ -34,7 +34,7 @@ func NewTableChange(d Dialect, t TableDesign) (SchemaChange, error) {
 			ch.Steps = append(ch.Steps, Step{SQL: createIndexSQL(d, t, ix)})
 		}
 	}
-	if commentsApart(e) {
+	if commentsApart(r) {
 		if t.Comment != "" {
 			ch.Steps = append(ch.Steps, Step{SQL: "COMMENT ON TABLE " + QualifiedName(d, t.Schema, t.Name) + " IS " + Literal(e, t.Comment)})
 		}
@@ -50,16 +50,16 @@ func NewTableChange(d Dialect, t TableDesign) (SchemaChange, error) {
 // createTableSQL writes the CREATE TABLE of a design, with more lines,
 // as constraints, after its own.
 func createTableSQL(d Dialect, t TableDesign, more []string) string {
-	e := d.Engine()
+	r := rulesOfDialect(d)
 	pk := primaryKey(t)
 	// SQLite numbers an INTEGER PRIMARY KEY AUTOINCREMENT only when the
 	// key is written in its column.
-	inlinePK := e == SQLite && len(pk) == 1 && slices.ContainsFunc(t.Columns, func(c ColumnDesign) bool { return c.PrimaryKey && c.AutoIncrement })
+	inlinePK := r.InlineIntegerKey() && len(pk) == 1 && slices.ContainsFunc(t.Columns, func(c ColumnDesign) bool { return c.PrimaryKey && c.AutoIncrement })
 	var lines []string
 	for _, c := range t.Columns {
 		lines = append(lines, "  "+columnSQL(d, c, inlinePK && c.PrimaryKey))
 	}
-	if len(pk) > 0 && !inlinePK && e != ClickHouse {
+	if len(pk) > 0 && !inlinePK && r.PrimaryKeyClause() {
 		lines = append(lines, "  PRIMARY KEY ("+QuoteNames(d, pk)+")")
 	}
 	for _, fk := range t.ForeignKeys {
@@ -71,23 +71,7 @@ func createTableSQL(d Dialect, t TableDesign, more []string) string {
 	for _, l := range more {
 		lines = append(lines, "  "+l)
 	}
-	create := "CREATE TABLE " + QualifiedName(d, t.Schema, t.Name) + " (\n" + strings.Join(lines, ",\n") + "\n)"
-	switch e {
-	case MySQL:
-		if t.Comment != "" {
-			create += " COMMENT = " + Literal(e, t.Comment)
-		}
-	case ClickHouse:
-		order := "tuple()"
-		if len(pk) > 0 {
-			order = "(" + QuoteNames(d, pk) + ")"
-		}
-		create += " ENGINE = MergeTree ORDER BY " + order
-		if t.Comment != "" {
-			create += " COMMENT " + Literal(e, t.Comment)
-		}
-	}
-	return create
+	return "CREATE TABLE " + QualifiedName(d, t.Schema, t.Name) + " (\n" + strings.Join(lines, ",\n") + "\n)" + r.CreateTableSuffix(d, t, pk)
 }
 
 // AlterTableChange writes the statements changing a table from what was
@@ -97,47 +81,35 @@ func AlterTableChange(d Dialect, was, now TableDesign) (SchemaChange, error) {
 	if err := validateDesign(d, now); err != nil {
 		return SchemaChange{}, err
 	}
-	e := d.Engine()
-	if e == SQLite {
+	e, r := d.Engine(), rulesOfDialect(d)
+	if r.RebuildsToAlter() {
 		return sqliteAlterChange(d, was, now)
 	}
 	table := QualifiedName(d, was.Schema, was.Name)
 	alter := func(what string) Step { return Step{SQL: "ALTER TABLE " + table + " " + what} }
+	drop := func(kind ConstraintKind, name string) Step {
+		return Step{SQL: r.DropConstraintSQL(d, kind, was.Schema, was.Name, name)}
+	}
 	diff := diffDesigns(was, now)
-	if err := diff.supported(e); err != nil {
+	if err := diff.supported(r); err != nil {
 		return SchemaChange{}, err
 	}
 	var steps []Step
 	for _, fk := range diff.droppedKeys {
-		if e == MySQL {
-			steps = append(steps, alter("DROP FOREIGN KEY "+d.Quote(fk.Name)))
-		} else {
-			steps = append(steps, alter("DROP CONSTRAINT "+d.Quote(fk.Name)))
-		}
+		steps = append(steps, drop(ConstraintForeignKey, fk.Name))
 	}
 	for _, ch := range diff.droppedChecks {
-		if e == MySQL {
-			steps = append(steps, alter("DROP CHECK "+d.Quote(ch.Name)))
-		} else {
-			steps = append(steps, alter("DROP CONSTRAINT "+d.Quote(ch.Name)))
-		}
+		steps = append(steps, drop(ConstraintCheck, ch.Name))
 	}
 	for _, ix := range diff.droppedIndexes {
-		switch {
-		case ix.Constraint:
+		if ix.Constraint {
 			steps = append(steps, alter("DROP CONSTRAINT "+d.Quote(ix.Name)))
-		case e == MySQL:
-			steps = append(steps, Step{SQL: "DROP INDEX " + d.Quote(ix.Name) + " ON " + table})
-		default:
-			steps = append(steps, Step{SQL: "DROP INDEX " + QualifiedName(d, was.Schema, ix.Name)})
+		} else {
+			steps = append(steps, drop(ConstraintIndex, ix.Name))
 		}
 	}
 	if diff.primaryKeyChanged && len(primaryKey(was)) > 0 {
-		if e == MySQL {
-			steps = append(steps, alter("DROP PRIMARY KEY"))
-		} else {
-			steps = append(steps, alter("DROP CONSTRAINT "+d.Quote(was.PrimaryKeyName)))
-		}
+		steps = append(steps, drop(ConstraintPrimaryKey, was.PrimaryKeyName))
 	}
 	for _, c := range now.Columns {
 		if c.Was != "" && c.Was != c.Name {
@@ -148,7 +120,7 @@ func AlterTableChange(d Dialect, was, now TableDesign) (SchemaChange, error) {
 		steps = append(steps, alter("DROP COLUMN "+d.Quote(c.Name)))
 	}
 	for _, m := range diff.changedColumns {
-		changes, err := modifyColumnSQL(d, now, m.was, m.now)
+		changes, err := r.ModifyColumnSQL(d, now, m.was, m.now)
 		if err != nil {
 			return SchemaChange{}, err
 		}
@@ -162,7 +134,7 @@ func AlterTableChange(d Dialect, was, now TableDesign) (SchemaChange, error) {
 	}
 	for _, c := range diff.addedColumns {
 		steps = append(steps, alter("ADD COLUMN "+columnSQL(d, c, false)))
-		if commentsApart(e) && c.Comment != "" {
+		if commentsApart(r) && c.Comment != "" {
 			steps = append(steps, Step{SQL: columnCommentSQL(d, now, c)})
 		}
 	}
@@ -170,7 +142,7 @@ func AlterTableChange(d Dialect, was, now TableDesign) (SchemaChange, error) {
 		steps = append(steps, alter("ADD PRIMARY KEY ("+QuoteNames(d, pk)+")"))
 	}
 	for _, ix := range diff.addedIndexes {
-		if ix.Constraint && (e == Postgres || e == MySQL) {
+		if ix.Constraint && r.UniqueAsConstraint() {
 			steps = append(steps, alter("ADD CONSTRAINT "+d.Quote(ix.Name)+" UNIQUE ("+QuoteNames(d, ix.Columns)+")"))
 		} else {
 			steps = append(steps, Step{SQL: createIndexSQL(d, was, ix)})
@@ -183,23 +155,29 @@ func AlterTableChange(d Dialect, was, now TableDesign) (SchemaChange, error) {
 		steps = append(steps, alter("ADD "+checkSQL(d, ch)))
 	}
 	if now.Comment != was.Comment {
-		switch e {
-		case MySQL:
-			steps = append(steps, alter("COMMENT = "+Literal(e, now.Comment)))
-		case ClickHouse:
-			steps = append(steps, alter("MODIFY COMMENT "+Literal(e, now.Comment)))
-		default:
-			steps = append(steps, Step{SQL: "COMMENT ON TABLE " + table + " IS " + commentLiteral(e, now.Comment)})
-		}
+		steps = append(steps, Step{SQL: r.TableCommentSQL(d, was.Schema, was.Name, now.Comment)})
 	}
 	if now.Name != was.Name {
-		rename, err := RenameObjectSQL(d, Object{Schema: was.Schema, Name: was.Name, Kind: KindTable}, now.Name)
+		rename, err := r.RenameObjectSQL(Object{Schema: was.Schema, Name: was.Name, Kind: KindTable}, now.Name)
 		if err != nil {
 			return SchemaChange{}, err
 		}
 		steps = append(steps, Step{SQL: rename})
 	}
 	return SchemaChange{Steps: steps, Atomic: e.TransactionalDDL()}, nil
+}
+
+// dropConstraintSQL drops a constraint by its name, as standard SQL does,
+// and an index of the table's schema.
+func dropConstraintSQL(d Dialect, kind ConstraintKind, schema, table, name string) string {
+	if kind == ConstraintIndex {
+		return "DROP INDEX " + QualifiedName(d, schema, name)
+	}
+	return "ALTER TABLE " + QualifiedName(d, schema, table) + " DROP CONSTRAINT " + d.Quote(name)
+}
+
+func commentOnTableSQL(d Dialect, schema, table, comment string) string {
+	return "COMMENT ON TABLE " + QualifiedName(d, schema, table) + " IS " + commentLiteral(d.Engine(), comment)
 }
 
 // designDiff is what changed between two designs of a table.
@@ -282,13 +260,12 @@ func diffDesigns(was, now TableDesign) designDiff {
 }
 
 // supported says what an engine cannot change of a table it made.
-func (diff designDiff) supported(e Engine) error {
+func (diff designDiff) supported(r sqlRules) error {
 	keys := diff.primaryKeyChanged || len(diff.droppedKeys)+len(diff.addedKeys)+len(diff.droppedChecks)+len(diff.addedChecks) > 0
-	switch {
-	case e == ClickHouse && (keys || len(diff.droppedIndexes)+len(diff.addedIndexes) > 0):
-		return errors.New("ClickHouse cannot change a table's key, indexes or constraints here: its sorting key is fixed when the table is made")
-	case e == DuckDB && keys:
-		return errors.New("DuckDB cannot change the keys or checks of a table it made: make the table again")
+	indexes := len(diff.droppedIndexes)+len(diff.addedIndexes) > 0
+	// Where a table holds no indexes of its own, none of them changes.
+	if why := r.KeysOfMadeTable(); why != "" && (keys || indexes && !r.SecondaryIndexes()) {
+		return errors.New(why)
 	}
 	for _, ch := range diff.droppedChecks {
 		if ch.Name == "" {
@@ -323,60 +300,28 @@ func castNeeded(was, now string) bool {
 	return true
 }
 
-// modifyColumnSQL writes the ALTER TABLE clauses, and on PostgreSQL and
-// DuckDB the COMMENT statement, changing a column: the column has its new
-// name already.
-func modifyColumnSQL(d Dialect, t TableDesign, was, now ColumnDesign) ([]string, error) {
-	e := d.Engine()
-	name := d.Quote(now.Name)
+// columnChangeError says what change of a column only SQL makes.
+func columnChangeError(was, now ColumnDesign) error {
 	if now.AutoIncrement != was.AutoIncrement {
-		return nil, fmt.Errorf("%s: whether a column numbers its rows changes in SQL", now.Name)
+		return fmt.Errorf("%s: whether a column numbers its rows changes in SQL", now.Name)
 	}
 	if now.Generated && (now.Type != was.Type || now.Nullable != was.Nullable) {
-		return nil, fmt.Errorf("%s is computed: change its type in SQL", now.Name)
+		return fmt.Errorf("%s is computed: change its type in SQL", now.Name)
 	}
+	return nil
+}
+
+// alterColumnSQL changes a column with ALTER COLUMN, as standard SQL
+// does; a new type with USING a cast when cast is set.
+func alterColumnSQL(d Dialect, t TableDesign, was, now ColumnDesign, cast bool) ([]string, error) {
+	if err := columnChangeError(was, now); err != nil {
+		return nil, err
+	}
+	name := d.Quote(now.Name)
 	var out []string
-	switch e {
-	case MySQL:
-		if now.Type == was.Type && now.Nullable == was.Nullable && now.Comment == was.Comment {
-			if now.Default == "" {
-				return []string{"ALTER COLUMN " + name + " DROP DEFAULT"}, nil
-			}
-			return []string{"ALTER COLUMN " + name + " SET DEFAULT " + now.Default}, nil
-		}
-		// MODIFY writes the whole column again, what MySQL keeps besides
-		// included.
-		return []string{"MODIFY COLUMN " + columnSQL(d, now, false)}, nil
-	case ClickHouse:
-		defaulted := now.Default == was.Default
-		if now.Type != was.Type || now.Nullable != was.Nullable {
-			typ := now.Type
-			if now.Nullable {
-				typ = "Nullable(" + typ + ")"
-			}
-			modify := "MODIFY COLUMN " + name + " " + typ
-			if !defaulted && now.Default != "" {
-				// The rows' NULLs take the default, when the column stops
-				// holding them.
-				modify, defaulted = modify+" DEFAULT "+now.Default, true
-			}
-			out = append(out, modify)
-		}
-		if !defaulted {
-			if now.Default == "" {
-				out = append(out, "MODIFY COLUMN "+name+" REMOVE DEFAULT")
-			} else {
-				out = append(out, "MODIFY COLUMN "+name+" DEFAULT "+now.Default)
-			}
-		}
-		if now.Comment != was.Comment {
-			out = append(out, "COMMENT COLUMN "+name+" "+Literal(e, now.Comment))
-		}
-		return out, nil
-	}
 	if now.Type != was.Type {
 		step := "ALTER COLUMN " + name + " TYPE " + now.Type
-		if e != Postgres || castNeeded(was.Type, now.Type) {
+		if cast {
 			step += " USING " + name + "::" + now.Type
 		}
 		out = append(out, step)
@@ -404,16 +349,16 @@ func modifyColumnSQL(d Dialect, t TableDesign, was, now ColumnDesign) ([]string,
 // columnSQL writes a column's definition, as CREATE TABLE and ADD COLUMN
 // take it; inlinePK makes it SQLite's INTEGER PRIMARY KEY.
 func columnSQL(d Dialect, c ColumnDesign, inlinePK bool) string {
-	e := d.Engine()
+	e, r := d.Engine(), rulesOfDialect(d)
 	typ := c.Type
-	if e == ClickHouse && c.Nullable {
+	if r.NullableWrapper() && c.Nullable {
 		typ = "Nullable(" + typ + ")"
 	}
 	parts := []string{d.Quote(c.Name), typ}
-	if e == MySQL && c.Extra != "" {
+	if r.KeepsColumnExtra() && c.Extra != "" {
 		parts = append(parts, c.Extra)
 	}
-	if !c.Nullable && e != ClickHouse {
+	if !c.Nullable && !r.NullableWrapper() {
 		parts = append(parts, "NOT NULL")
 	}
 	if c.Default != "" {
@@ -425,12 +370,10 @@ func columnSQL(d Dialect, c ColumnDesign, inlinePK bool) string {
 		if c.AutoIncrement {
 			parts = append(parts, "AUTOINCREMENT")
 		}
-	case c.AutoIncrement && e == Postgres:
-		parts = append(parts, "GENERATED BY DEFAULT AS IDENTITY")
-	case c.AutoIncrement && e == MySQL:
-		parts = append(parts, "AUTO_INCREMENT")
+	case c.AutoIncrement && r.AutoIncrementSQL() != "":
+		parts = append(parts, r.AutoIncrementSQL())
 	}
-	if c.Comment != "" && (e == MySQL || e == ClickHouse) {
+	if c.Comment != "" && r.ColumnCommentInline() {
 		parts = append(parts, "COMMENT "+Literal(e, c.Comment))
 	}
 	return strings.Join(parts, " ")
@@ -442,7 +385,7 @@ func foreignKeySQL(d Dialect, fk ForeignKeyDesign) string {
 		s = "CONSTRAINT " + d.Quote(fk.Name) + " "
 	}
 	ref := QualifiedName(d, fk.RefSchema, fk.RefTable)
-	if d.Engine() == SQLite {
+	if rulesOfDialect(d).NamesTablesWithinSchema() {
 		ref = d.Quote(fk.RefTable) // SQLite's keys point within their schema
 	}
 	return s + "FOREIGN KEY (" + QuoteNames(d, fk.Columns) + ") REFERENCES " + ref + " (" + QuoteNames(d, fk.RefColumns) + ")" +
@@ -475,7 +418,7 @@ func createIndexSQL(d Dialect, t TableDesign, ix IndexDesign) string {
 		s = "CREATE UNIQUE INDEX "
 	}
 	name, table := d.Quote(ix.Name), QualifiedName(d, t.Schema, t.Name)
-	if d.Engine() == SQLite {
+	if rulesOfDialect(d).NamesTablesWithinSchema() {
 		name = QualifiedName(d, t.Schema, ix.Name) // SQLite names the schema on the index
 		table = d.Quote(t.Name)
 	}
@@ -484,7 +427,7 @@ func createIndexSQL(d Dialect, t TableDesign, ix IndexDesign) string {
 
 // commentsApart reports whether an engine comments on tables and columns
 // with statements of their own.
-func commentsApart(e Engine) bool { return e == Postgres || e == DuckDB }
+func commentsApart(r sqlRules) bool { return r.Comments() && !r.ColumnCommentInline() }
 
 func columnCommentSQL(d Dialect, t TableDesign, c ColumnDesign) string {
 	return "COMMENT ON COLUMN " + QualifiedName(d, t.Schema, t.Name) + "." + d.Quote(c.Name) + " IS " + commentLiteral(d.Engine(), c.Comment)
@@ -516,7 +459,7 @@ func QuoteNames(d Dialect, names []string) string {
 // validateDesign says what in a design no engine would take, or the
 // engine cannot keep.
 func validateDesign(d Dialect, t TableDesign) error {
-	e := d.Engine()
+	e, r := d.Engine(), rulesOfDialect(d)
 	if strings.TrimSpace(t.Name) == "" {
 		return errors.New("the table needs a name")
 	}
@@ -535,15 +478,15 @@ func validateDesign(d Dialect, t TableDesign) error {
 			return fmt.Errorf("%s needs a type", c.Name)
 		case c.PrimaryKey && c.Nullable:
 			return fmt.Errorf("%s is in the primary key, which holds no NULL", c.Name)
-		case c.Comment != "" && e == SQLite:
-			return errors.New("SQLite keeps no comments")
-		case c.AutoIncrement && c.Was == "" && (e == DuckDB || e == ClickHouse):
+		case c.Comment != "" && !r.Comments():
+			return fmt.Errorf("%s keeps no comments", e.Label())
+		case c.AutoIncrement && c.Was == "" && !r.NumbersRows():
 			return fmt.Errorf("%s numbers no rows of its own: use a sequence", e.Label())
 		}
 		names[key] = true
 	}
-	if t.Comment != "" && e == SQLite {
-		return errors.New("SQLite keeps no comments")
+	if t.Comment != "" && !r.Comments() {
+		return fmt.Errorf("%s keeps no comments", e.Label())
 	}
 	has := func(col string) bool { return names[strings.ToLower(col)] }
 	for _, ix := range t.Indexes {

@@ -134,39 +134,18 @@ func topValues(counts map[string]int64, n int) []topValue {
 	return out[:min(n, len(out))]
 }
 
-// comparable reports whether the server can compare a column's values,
-// for their minimum, maximum and distinct count.
-func comparable(e db.Engine, typ string) bool {
-	t := strings.ToLower(typ)
-	switch e {
-	case db.Postgres:
-		for _, p := range []string{"json", "xml", "point", "line", "lseg", "box", "path", "polygon", "circle"} {
-			if t == p {
-				return false
-			}
-		}
-	case db.ClickHouse:
-		for _, p := range []string{"map(", "object(", "json", "variant(", "dynamic", "nested("} {
-			if strings.HasPrefix(t, p) {
-				return false
-			}
-		}
-	}
-	return true
-}
-
 // profileQuery is the statement profiling every column of the rows of
 // from on the server, with how to read its one row: DuckDB summarizes
 // them itself; the others count, and find the bounds of what they can
 // compare.
 func profileQuery(d db.Dialect, cols []db.ColumnInfo, from, where string) string {
-	if d.Engine() == db.DuckDB {
+	if db.ProfileBySummarize(d.Engine()) {
 		return "SUMMARIZE SELECT * FROM " + from + whereClause(where)
 	}
 	parts := []string{"count(*)"}
 	for _, c := range cols {
 		col := d.Quote(c.Name)
-		if comparable(d.Engine(), c.Type) {
+		if db.Comparable(d.Engine(), c.Type) {
 			parts = append(parts, "count("+col+")", "count(DISTINCT "+col+")", "min("+col+")", "max("+col+")")
 		} else {
 			parts = append(parts, "count("+col+")", "NULL", "NULL", "NULL")
@@ -200,7 +179,7 @@ func serverProfiles(e db.Engine, cols []db.ColumnInfo, names []string, rows [][]
 		n, _ := strconv.ParseInt(db.Display(v), 10, 64)
 		return n
 	}
-	if e == db.DuckDB {
+	if db.ProfileBySummarize(e) {
 		// One row a column: column_name, column_type, min, max,
 		// approx_unique, avg, std, q25, q50, q75, count, null_percentage.
 		at := map[string]int{}

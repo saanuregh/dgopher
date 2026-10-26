@@ -148,12 +148,18 @@ func Literal(e Engine, v any) string {
 		}
 		return "FALSE"
 	case []byte:
-		return bytesLiteral(e, x)
+		if r, ok := sqlRulesOf(e); ok {
+			return r.BytesLiteral(x)
+		}
+		return hexLiteral(x)
 	}
 	if IsNumeric(v) {
 		return Display(v)
 	}
-	return textLiteral(e, Display(v))
+	if r, ok := sqlRulesOf(e); ok {
+		return r.TextLiteral(Display(v))
+	}
+	return textLiteral(Display(v), "chr(0)", standardLiteral)
 }
 
 var (
@@ -164,64 +170,41 @@ var (
 	escapeStringEscaper = strings.NewReplacer(`\`, `\\`, `'`, `''`)
 )
 
-// textLiteral writes text as a literal. NUL ends a quoted string in DuckDB
-// and SQLite, so text holding it is joined from quoted parts and chr(0),
-// in parentheses so it reads as one value wherever a literal may stand.
-func textLiteral(e Engine, s string) string {
-	if strings.ContainsRune(s, 0) && e != MySQL && e != ClickHouse {
-		char := "chr(0)"
-		if e == SQLite {
-			char = "char(0)"
-		}
-		var parts []string
-		for i, part := range strings.Split(s, "\x00") {
-			if i > 0 {
-				parts = append(parts, char)
-			}
-			if part != "" {
-				parts = append(parts, textLiteral(e, part))
-			}
-		}
-		return "(" + strings.Join(parts, " || ") + ")"
+// textLiteral writes text as a literal, each part by quote. NUL ends a
+// quoted string in DuckDB and SQLite, so text holding it is joined from
+// quoted parts and nul, the engine's chr(0), in parentheses so it reads as
+// one value wherever a literal may stand.
+func textLiteral(s, nul string, quote func(string) string) string {
+	if !strings.ContainsRune(s, 0) {
+		return quote(s)
 	}
-	switch e {
-	case MySQL:
-		return "'" + mysqlEscaper.Replace(s) + "'"
-	case ClickHouse:
-		return "'" + clickHouseEscaper.Replace(s) + "'"
-	case Postgres, DuckDB:
-		// PostgreSQL reads a backslash as itself only while
-		// standard_conforming_strings is on, which any statement may turn
-		// off. An escape string, E'…', reads the same either way, and
-		// DuckDB reads it as PostgreSQL does.
-		if strings.Contains(s, `\`) {
-			return "E'" + escapeStringEscaper.Replace(s) + "'"
+	var parts []string
+	for i, part := range strings.Split(s, "\x00") {
+		if i > 0 {
+			parts = append(parts, nul)
+		}
+		if part != "" {
+			parts = append(parts, quote(part))
 		}
 	}
-	// Standard SQL: a quote is doubled, a backslash is itself.
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+	return "(" + strings.Join(parts, " || ") + ")"
 }
 
-// bytesLiteral writes binary data as each engine reads a binary literal:
-// as text it would be stored, or compared, as other bytes.
-func bytesLiteral(e Engine, b []byte) string {
-	switch e {
-	case Postgres:
-		return `E'\\x` + hex.EncodeToString(b) + `'::bytea`
-	case DuckDB:
-		const digits = "0123456789ABCDEF"
-		var s strings.Builder
-		s.Grow(len("'") + 4*len(b) + len("'::BLOB"))
-		s.WriteByte('\'')
-		for _, c := range b {
-			s.WriteString(`\x`)
-			s.WriteByte(digits[c>>4])
-			s.WriteByte(digits[c&0xf])
-		}
-		s.WriteString("'::BLOB")
-		return s.String()
-	case ClickHouse:
-		return "unhex('" + hex.EncodeToString(b) + "')"
+// standardLiteral is standard SQL's: a quote is doubled, a backslash is
+// itself.
+func standardLiteral(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+
+// escapeStringLiteral is PostgreSQL's. It reads a backslash as itself
+// only while standard_conforming_strings is on, which any statement may
+// turn off. An escape string, E'…', reads the same either way, and DuckDB
+// reads it as PostgreSQL does.
+func escapeStringLiteral(s string) string {
+	if strings.Contains(s, `\`) {
+		return "E'" + escapeStringEscaper.Replace(s) + "'"
 	}
-	return "X'" + hex.EncodeToString(b) + "'"
+	return standardLiteral(s)
 }
+
+// hexLiteral is the binary literal of SQL, which MySQL and SQLite read.
+// As text, the bytes would be stored, or compared, as other bytes.
+func hexLiteral(b []byte) string { return "X'" + hex.EncodeToString(b) + "'" }

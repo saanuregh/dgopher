@@ -57,11 +57,7 @@ func Script(s *Schema) string {
 	slices.SortStableFunc(stmts, func(a, b statement) int { return a.rank - b.rank })
 	stmts = orderByMentions(stmts, safety.Dialect(s.Engine))
 	var b strings.Builder
-	if functions && s.Engine == db.Postgres {
-		// As pg_dump does: a function's body may name a table created
-		// after it.
-		b.WriteString("SET check_function_bodies = false;\n\n")
-	}
+	b.WriteString(db.ScriptPreamble(s.Engine, functions))
 	for i, st := range stmts {
 		if i > 0 {
 			b.WriteString("\n\n")

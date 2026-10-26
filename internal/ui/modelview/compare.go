@@ -102,7 +102,7 @@ func (t *Tab) compareView(c *ui.Context) {
 					ui.Field(c, "Connection", func() {
 						ui.Select(c, &f.conn, names).Label("Connection")
 					})
-					if t.m.Engine == db.Postgres {
+					if t.m.Engine.DatabasesNeedOwnConnection() {
 						ui.Field(c, "Database", func() {
 							ui.TextInput(c, &f.database).Placeholder("the connection's").Font(widgets.MonoFont).Label("Database")
 						})
@@ -154,12 +154,8 @@ func defaultSchema(e db.Engine, cn *connection.Conn) string {
 	switch {
 	case cn != nil && cn.DefaultSchema != "":
 		return cn.DefaultSchema
-	case e == db.Postgres:
-		return "public"
-	case e == db.SQLite, e == db.DuckDB:
-		return "main"
-	case e == db.ClickHouse:
-		return "default"
+	case e.DefaultSchemaName() != "":
+		return e.DefaultSchemaName()
 	case cn != nil:
 		return cn.Config.Database
 	}

@@ -140,28 +140,13 @@ func condExprSQL(e db.Engine, col string, c rowCond) string {
 	return col + " " + c.op + " " + lit(c.vals[0])
 }
 
-// likeSQL matches a column's text, ignoring case, against a value with
-// wildcards before and after it: the value's own % and _ are text,
-// escaped with a backslash, the escape of PostgreSQL, MySQL and
-// ClickHouse, and named for SQLite and DuckDB, which have none.
+// likeSQL matches a column's text, ignoring case where the engine can,
+// against a value with wildcards before and after it: the value's own %
+// and _ are text, escaped with a backslash, the escape of PostgreSQL,
+// MySQL and ClickHouse, and named for SQLite and DuckDB, which have none.
 func likeSQL(e db.Engine, col, before string, value any, after string, not bool) string {
 	escaped := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(db.Display(value))
-	pattern := db.Literal(e, before+escaped+after)
-	like, ilike := " LIKE ", " ILIKE "
-	if not {
-		like, ilike = " NOT LIKE ", " NOT ILIKE "
-	}
-	switch e {
-	case db.Postgres:
-		return "CAST(" + col + " AS TEXT)" + ilike + pattern
-	case db.DuckDB:
-		return "CAST(" + col + " AS VARCHAR)" + ilike + pattern + " ESCAPE '\\'"
-	case db.ClickHouse:
-		return "toString(" + col + ")" + ilike + pattern
-	case db.MySQL:
-		return "CAST(" + col + " AS CHAR)" + like + pattern
-	}
-	return "CAST(" + col + " AS TEXT)" + like + pattern + " ESCAPE '\\'"
+	return db.LikeFilterSQL(e, col, db.Literal(e, before+escaped+after), not)
 }
 
 // filterMenu is the Filter submenu of a cell: its value, or the values

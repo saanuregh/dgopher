@@ -153,8 +153,8 @@ func (s *Session) Apply(ctx context.Context, ch SchemaChange, each func(stmt str
 
 // BeginStatement is what Begin sends.
 func BeginStatement(e Engine) string {
-	if e == MySQL {
-		return "START TRANSACTION"
+	if r, ok := sqlRulesOf(e); ok {
+		return r.BeginStatement()
 	}
 	return "BEGIN"
 }

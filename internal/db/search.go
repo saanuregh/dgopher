@@ -60,34 +60,15 @@ func (h SearchHit) Item() Item {
 // view's query, a routine's body, a trigger's. It gives at most
 // SearchLimit hits, and says whether there were more.
 func Search(ctx context.Context, d *DB, text string, definitions bool) ([]SearchHit, bool, error) {
-	text = strings.ToLower(text)
-	var query string
-	var args []any
-	switch d.Dialect.Engine() {
-	case Postgres:
-		query, args = postgresSearch, []any{text, definitions}
-	case MySQL:
-		query, args = mysqlSearch, []any{text, definitions, text}
-	case ClickHouse:
-		query, args = clickhouseSearch, []any{text, definitions, text}
-	case DuckDB:
-		query, args = duckdbSearch, []any{text, definitions}
-	case SQLite:
-		schemas, err := d.Dialect.Schemas(ctx, d.Catalog())
-		if err != nil {
-			return nil, false, err
-		}
-		parts := make([]string, len(schemas))
-		for i, s := range schemas {
-			parts[i] = strings.ReplaceAll(sqliteSearch, "SCHEMA", d.Dialect.Quote(s))
-			args = append(args, s, s, s)
-		}
-		query = `SELECT * FROM (` + strings.Join(parts, "\nUNION ALL\n") + `)
-WHERE instr(lower(name), ?) > 0 OR (? AND instr(lower(def), ?) > 0)`
-		args = append(args, text, definitions, text)
-	default:
-		return nil, false, nil
+	if r, ok := sqlRulesOf(d.Dialect.Engine()); ok {
+		return r.Search(ctx, d, text, definitions)
 	}
+	return nil, false, nil
+}
+
+// searchWith runs a search's query, whose rows are hits, for text in
+// lower case.
+func searchWith(ctx context.Context, d *DB, text, query string, args []any) ([]SearchHit, bool, error) {
 	query += " ORDER BY 1, 3, 4 LIMIT " + strconv.Itoa(SearchLimit+1)
 	hits, err := scanAll(ctx, d.Catalog(), query, args, func(scan func(...any) error) (SearchHit, error) {
 		var h SearchHit

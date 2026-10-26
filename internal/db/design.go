@@ -89,21 +89,8 @@ type CheckDesign struct {
 // CommonTypes are types of an engine's columns the table form offers;
 // any other may be typed.
 func CommonTypes(e Engine) []string {
-	switch e {
-	case Postgres:
-		return []string{"integer", "bigint", "smallint", "numeric(12,2)", "real", "double precision", "boolean", "text", "varchar(255)",
-			"date", "timestamp", "timestamptz", "time", "interval", "uuid", "jsonb", "bytea"}
-	case MySQL:
-		return []string{"int", "bigint", "smallint", "tinyint(1)", "decimal(12,2)", "float", "double", "varchar(255)", "text",
-			"date", "datetime", "timestamp", "time", "json", "blob"}
-	case SQLite:
-		return []string{"INTEGER", "REAL", "TEXT", "BLOB", "NUMERIC"}
-	case DuckDB:
-		return []string{"INTEGER", "BIGINT", "SMALLINT", "DECIMAL(12,2)", "DOUBLE", "BOOLEAN", "VARCHAR", "DATE", "TIMESTAMP",
-			"TIMESTAMPTZ", "TIME", "INTERVAL", "UUID", "JSON", "BLOB"}
-	case ClickHouse:
-		return []string{"Int32", "Int64", "UInt32", "UInt64", "Float64", "Decimal(12,2)", "Bool", "String", "LowCardinality(String)",
-			"Date", "Date32", "DateTime", "DateTime64(3)", "UUID"}
+	if r, ok := sqlRulesOf(e); ok {
+		return r.CommonTypes()
 	}
 	return nil
 }
@@ -137,6 +124,7 @@ func actionsSQL(onDelete, onUpdate string) string {
 func ReadTableDesign(ctx context.Context, d *DB, obj Object) (TableDesign, error) {
 	t := TableDesign{Schema: obj.Schema, Name: obj.Name, Comment: obj.Comment}
 	dl, q := d.Dialect, d.Catalog()
+	r := rulesOfDialect(dl)
 	cols, err := dl.Columns(ctx, q, obj.Schema, obj.Name)
 	if err != nil {
 		return t, err
@@ -149,7 +137,7 @@ func ReadTableDesign(ctx context.Context, d *DB, obj Object) (TableDesign, error
 		if c.HasDefault {
 			cd.Default = c.Default
 		}
-		if dl.Engine() == ClickHouse {
+		if r.NullableWrapper() {
 			if inner, ok := strings.CutPrefix(c.Type, "Nullable("); ok {
 				cd.Type, cd.Nullable = strings.TrimSuffix(inner, ")"), true
 			}
@@ -176,16 +164,7 @@ func ReadTableDesign(ctx context.Context, d *DB, obj Object) (TableDesign, error
 			RefSchema: fk.RefSchema, RefTable: fk.RefTable, RefColumns: fk.RefColumns, OnDelete: fk.OnDelete, OnUpdate: fk.OnUpdate,
 			Definition: fk.Definition})
 	}
-	switch dl.Engine() {
-	case Postgres:
-		err = readPostgresDesign(ctx, d, &t)
-	case MySQL:
-		err = readMySQLDesign(ctx, d, &t)
-	case DuckDB:
-		err = readDuckDBChecks(ctx, d, &t)
-	case SQLite:
-		err = readSQLiteDesign(ctx, d, &t)
-	}
+	err = r.ReadDesignExtras(ctx, d, &t)
 	return t, err
 }
 
@@ -301,4 +280,91 @@ func readChecks(ctx context.Context, d *DB, t *TableDesign, query string) error 
 func readDuckDBChecks(ctx context.Context, d *DB, t *TableDesign) error {
 	return readChecks(ctx, d, t, `SELECT COALESCE(constraint_name, ''), expression FROM duckdb_constraints()
 WHERE database_name = current_database() AND schema_name = ? AND table_name = ? AND constraint_type = 'CHECK'`)
+}
+
+// NormalizeModelTable leaves out of a table of an engine, read, what a
+// data model would write again.
+func NormalizeModelTable(e Engine, t *TableDesign) {
+	if r, ok := sqlRulesOf(e); ok {
+		r.NormalizeModelTable(t)
+	}
+}
+
+// The functions below give an engine's design rules to the packages
+// outside db, as an engine without SQL rules answers what the switches
+// they replaced did.
+
+// RebuildsToAlter reports whether the engine changes a table by making it
+// again, and takes no key added to a table made.
+func RebuildsToAlter(e Engine) bool {
+	r, ok := sqlRulesOf(e)
+	return ok && r.RebuildsToAlter()
+}
+
+// KeysOfMadeTable says why the keys of a table the engine made cannot
+// change, "" when they can.
+func KeysOfMadeTable(e Engine) string {
+	if r, ok := sqlRulesOf(e); ok {
+		return r.KeysOfMadeTable()
+	}
+	return ""
+}
+
+// NumbersRows reports whether a new column may number its rows itself.
+func NumbersRows(e Engine) bool {
+	r, ok := sqlRulesOf(e)
+	return !ok || r.NumbersRows()
+}
+
+// Comments reports whether the engine's tables and columns keep comments.
+func Comments(e Engine) bool {
+	r, ok := sqlRulesOf(e)
+	return !ok || r.Comments()
+}
+
+// HasForeignKeys reports whether the engine's tables have foreign keys.
+func HasForeignKeys(e Engine) bool {
+	r, ok := sqlRulesOf(e)
+	return !ok || r.HasForeignKeys()
+}
+
+// ForeignKeyActions reports whether a foreign key takes ON DELETE and ON
+// UPDATE.
+func ForeignKeyActions(e Engine) bool {
+	r, ok := sqlRulesOf(e)
+	return !ok || r.ForeignKeyActions()
+}
+
+// ForeignKeyNamesUniqueInSchema reports whether two tables' foreign keys
+// cannot share a name.
+func ForeignKeyNamesUniqueInSchema(e Engine) bool {
+	r, ok := sqlRulesOf(e)
+	return ok && r.ForeignKeyNamesUniqueInSchema()
+}
+
+// SecondaryIndexes reports whether the engine's tables have indexes
+// besides their keys.
+func SecondaryIndexes(e Engine) bool {
+	r, ok := sqlRulesOf(e)
+	return !ok || r.SecondaryIndexes()
+}
+
+// KeepsKeyNames reports whether a foreign key is known by its name, not
+// only by what it points at.
+func KeepsKeyNames(e Engine) bool {
+	r, ok := sqlRulesOf(e)
+	return !ok || r.KeepsKeyNames()
+}
+
+// NamesConstraintsItself reports whether the engine names a table's unique
+// constraints and foreign keys from their places and columns.
+func NamesConstraintsItself(e Engine) bool {
+	r, ok := sqlRulesOf(e)
+	return ok && r.NamesConstraintsItself()
+}
+
+// IgnoresVarcharLength reports whether a varchar's length is not kept.
+func IgnoresVarcharLength(e Engine) bool {
+	r, ok := sqlRulesOf(e)
+	return ok && r.IgnoresVarcharLength()
 }

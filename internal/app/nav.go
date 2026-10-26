@@ -1047,11 +1047,11 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			if obj.Partitioning != "" && m.Item("New Partition…").Disabled(cn.Config.ReadOnly).Chosen() {
 				a.NewQueryTab(cn, n.database, partitionTemplate(cn.DB.Dialect, obj))
 			}
-			if cmds := maintenanceCommands(cn.Config.Engine, quoted); len(cmds) > 0 {
+			if cmds := db.MaintenanceCommands(cn.Config.Engine, quoted); len(cmds) > 0 {
 				m.Submenu("Maintenance", func(m *ui.Menu) {
 					for _, mc := range cmds {
-						if m.Item(mc.label).Disabled(cn.Config.ReadOnly).Chosen() {
-							a.runInEditor(cn, n.database, mc.sql)
+						if m.Item(mc.Label).Disabled(cn.Config.ReadOnly).Chosen() {
+							a.runInEditor(cn, n.database, mc.SQL)
 						}
 					}
 				})
@@ -1150,8 +1150,8 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		}
 		if m.Item("New SQL Editor").Chosen() {
 			text := ""
-			if n.kind == nodeSchema && cn.Config.Engine == db.Postgres {
-				text = "SET search_path TO " + cn.DB.Dialect.Quote(n.schema) + ";\n\n"
+			if n.kind == nodeSchema {
+				text = db.EditorSchemaPreamble(cn.Config.Engine, n.schema)
 			}
 			a.NewQueryTab(cn, n.database, text)
 		}
@@ -1242,43 +1242,6 @@ func partitionTemplate(d db.Dialect, obj db.Object) string {
 	}
 	return sqltext.LineComment("A new partition of "+obj.Name+", partitioned by "+obj.Partitioning+": name it and set its bounds, then run it.") + "\n" +
 		"CREATE TABLE " + db.QualifiedName(d, obj.Schema, obj.Name+"_new") + "\n  PARTITION OF " + db.QualifiedName(d, obj.Schema, obj.Name) + "\n  " + bounds + ";\n"
-}
-
-// maintenance is a command that keeps a table in shape.
-type maintenance struct {
-	label, sql string
-}
-
-// maintenanceCommands are the commands of an engine that keep a table,
-// named as quoted, in shape; a label says what the command locks.
-func maintenanceCommands(e db.Engine, quoted string) []maintenance {
-	switch e {
-	case db.Postgres:
-		return []maintenance{
-			{"Vacuum", "VACUUM " + quoted},
-			{"Vacuum and Analyze", "VACUUM ANALYZE " + quoted},
-			{"Analyze", "ANALYZE " + quoted},
-			{"Reindex (locks writes)", "REINDEX TABLE " + quoted},
-			{"Vacuum Full (locks reads and writes)", "VACUUM FULL " + quoted},
-		}
-	case db.MySQL:
-		return []maintenance{
-			{"Analyze", "ANALYZE TABLE " + quoted},
-			{"Optimize (rebuilds the table)", "OPTIMIZE TABLE " + quoted},
-			{"Check", "CHECK TABLE " + quoted},
-		}
-	case db.SQLite:
-		return []maintenance{
-			{"Analyze", "ANALYZE " + quoted},
-			{"Reindex", "REINDEX " + quoted},
-		}
-	case db.ClickHouse:
-		return []maintenance{
-			{"Optimize", "OPTIMIZE TABLE " + quoted},
-			{"Optimize Final (merges every part)", "OPTIMIZE TABLE " + quoted + " FINAL"},
-		}
-	}
-	return nil
 }
 
 // runInEditor opens an editor on a statement and runs it there, through

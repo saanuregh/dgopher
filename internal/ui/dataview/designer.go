@@ -188,13 +188,7 @@ func (d *designer) fixed() string {
 	if d.was == nil {
 		return ""
 	}
-	switch d.engine {
-	case db.DuckDB:
-		return "DuckDB cannot change the keys or checks of a table it made."
-	case db.ClickHouse:
-		return "A ClickHouse table's sorting key is fixed when it is made."
-	}
-	return ""
+	return db.FixedKeysNote(d.engine)
 }
 
 func (d *designer) apply() {
@@ -237,12 +231,12 @@ func (d *designer) View(c *ui.Context) {
 			if d.was == nil {
 				name.AutoFocus()
 			}
-			if e != db.SQLite {
+			if db.Comments(e) {
 				ui.TextInput(c, &d.now.Comment).Placeholder("comment").Label("Table comment").Grow(1)
 			} else {
 				ui.Spacer(c)
 			}
-			if e != db.ClickHouse {
+			if db.SecondaryIndexes(e) {
 				ui.Segmented(c, &d.section, "Columns", "Indexes", "Foreign Keys", "Checks").Label("Section")
 			}
 		})
@@ -299,7 +293,9 @@ func (d *designer) columnsView(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	e := d.engine
 	keyFixed := d.fixed() != ""
-	autoAllowed := e == db.Postgres || e == db.MySQL || e == db.SQLite
+	// NumbersRows answers yes for an engine without SQL rules, on which
+	// no table form opens.
+	autoAllowed := db.DialectOf(e) != nil && db.NumbersRows(e)
 	header := func(text string, width float32) {
 		t := ui.Text(c, text).FontSize(11.5).Bold().TextColor(pal.Muted)
 		if width > 0 {
@@ -317,7 +313,7 @@ func (d *designer) columnsView(c *ui.Context) {
 		if autoAllowed {
 			header("Auto", 44)
 		}
-		if e != db.SQLite {
+		if db.Comments(e) {
 			header("Comment", 0)
 		} else {
 			ui.Spacer(c)
@@ -349,7 +345,7 @@ func (d *designer) columnsView(c *ui.Context) {
 					ui.Checkbox(c, &col.AutoIncrement, "").Label("Numbers its rows").Disabled(col.Was != "")
 				})
 			}
-			if e != db.SQLite {
+			if db.Comments(e) {
 				ui.TextInput(c, &col.Comment).Placeholder("comment").Grow(1).Label("Comment of " + col.Name)
 			} else {
 				ui.Spacer(c)
@@ -402,7 +398,7 @@ func (d *designer) columnNames() []string {
 
 func (d *designer) indexesView(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
-	if d.engine == db.ClickHouse {
+	if !db.SecondaryIndexes(d.engine) {
 		return
 	}
 	remove := -1
@@ -588,20 +584,7 @@ func OpenNewTable(a Host, cn *connection.Conn, database, schema string) {
 
 // FirstColumn is the key column a new table starts with: one numbering
 // its rows where the engine does.
-func FirstColumn(e db.Engine) db.ColumnDesign {
-	c := db.ColumnDesign{Name: "id", PrimaryKey: true}
-	switch e {
-	case db.Postgres, db.MySQL:
-		c.Type, c.AutoIncrement = "bigint", true
-	case db.SQLite:
-		c.Type = "INTEGER" // the rowid, numbered on its own
-	case db.DuckDB:
-		c.Type = "BIGINT"
-	case db.ClickHouse:
-		c.Type = "UInt64"
-	}
-	return c
-}
+func FirstColumn(e db.Engine) db.ColumnDesign { return db.FirstColumn(e) }
 
 func (t *TableDesignTab) Title() string {
 	if t.design.now.Name != "" {

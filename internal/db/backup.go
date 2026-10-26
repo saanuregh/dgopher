@@ -56,7 +56,12 @@ func (f BackupFormat) Label() string {
 // BackupFormats are the forms an engine's databases are backed up in, the
 // one the app offers first first; none for ClickHouse, whose BACKUP runs
 // on the server.
-func BackupFormats(e Engine) []BackupFormat { return slices.Clone(engineInfos[e].backups) }
+func BackupFormats(e Engine) []BackupFormat {
+	if r, ok := sqlRulesOf(e); ok {
+		return slices.Clone(r.BackupFormats())
+	}
+	return nil
+}
 
 // BackupContent is what of a database a backup keeps.
 type BackupContent int
@@ -125,50 +130,22 @@ func password(ctx context.Context, cfg Config) (string, error) {
 
 // PlanBackup is how the backup of a database of a connection runs.
 func PlanBackup(ctx context.Context, d *DB, o BackupOptions) (ToolRun, error) {
-	cfg := d.Config
-	if !slices.Contains(BackupFormats(cfg.Engine), o.Format) {
-		return ToolRun{}, fmt.Errorf("%s backs up as %v", cfg.Engine.Label(), BackupFormats(cfg.Engine))
+	if r, ok := sqlRulesOf(d.Config.Engine); ok {
+		return r.PlanBackup(ctx, d, o)
+	}
+	return ToolRun{}, backupOptionsError(d.Config.Engine, o)
+}
+
+// backupOptionsError says what of a backup's options the engine cannot
+// take.
+func backupOptionsError(e Engine, o BackupOptions) error {
+	if !slices.Contains(BackupFormats(e), o.Format) {
+		return fmt.Errorf("%s backs up as %v", e.Label(), BackupFormats(e))
 	}
 	if strings.TrimSpace(o.Path) == "" {
-		return ToolRun{}, errors.New("choose where the backup goes")
+		return errors.New("choose where the backup goes")
 	}
-	switch cfg.Engine {
-	case SQLite:
-		return ToolRun{Statement: "VACUUM INTO " + Literal(SQLite, o.Path)}, nil
-	case DuckDB:
-		return ToolRun{Statement: "EXPORT DATABASE " + Literal(DuckDB, o.Path) + " (FORMAT parquet)"}, nil
-	case Postgres:
-		run, err := postgresTool(ctx, d, "pg_dump", o.Database)
-		if err != nil {
-			return run, err
-		}
-		format := "custom"
-		if o.Format == BackupSQL {
-			format = "plain"
-		}
-		run.Argv = append(run.Argv, "--format", format, "--file", o.Path, "--verbose")
-		run.Argv = append(run.Argv, contentFlag(o.Content, "--schema-only", "--data-only")...)
-		return run, nil
-	case MySQL:
-		run, err := mysqlTool(ctx, d, "mysqldump")
-		if err != nil {
-			return run, err
-		}
-		database := o.Database
-		if database == "" {
-			database = cfg.Database
-		}
-		if database == "" {
-			return ToolRun{}, errors.New("choose the database to back up")
-		}
-		run.Argv = append(run.Argv, "--single-transaction", "--routines", "--triggers", "--events", "--verbose", "--result-file="+o.Path)
-		run.Argv = append(run.Argv, contentFlag(o.Content, "--no-data", "--no-create-info")...)
-		// After --, a schema named as an option, as -Ar/tmp/x.sql, is a
-		// name.
-		run.Argv = append(run.Argv, "--databases", "--", database)
-		return run, nil
-	}
-	return ToolRun{}, fmt.Errorf("%s backs up on its server: use BACKUP there", cfg.Engine.Label())
+	return nil
 }
 
 func contentFlag(c BackupContent, schemaOnly, dataOnly string) []string {
@@ -186,23 +163,16 @@ func contentFlag(c BackupContent, schemaOnly, dataOnly string) []string {
 // clean drops what the archive makes before making it. A SQL file
 // restores with Run SQL File instead.
 func PlanRestore(ctx context.Context, d *DB, database, path string, clean bool) (ToolRun, error) {
-	switch d.Config.Engine {
-	case DuckDB:
-		return planDuckDBRestore(ctx, d, path)
-	case Postgres:
-		run, err := postgresTool(ctx, d, "pg_restore", database)
-		if err != nil {
-			return run, err
-		}
-		run.Argv = append(run.Argv, "--verbose", "--single-transaction", "--exit-on-error")
-		if clean {
-			run.Argv = append(run.Argv, "--clean", "--if-exists")
-		}
-		// After --, an archive named as an option is the archive.
-		run.Argv = append(run.Argv, "--", path)
-		return run, nil
+	if r, ok := sqlRulesOf(d.Config.Engine); ok {
+		return r.PlanRestore(ctx, d, database, path, clean)
 	}
-	return ToolRun{}, fmt.Errorf("%s restores a SQL file with Run SQL File", d.Config.Engine.Label())
+	return ToolRun{}, restoreWithRunSQLFileError(d.Config.Engine)
+}
+
+// restoreWithRunSQLFileError is PlanRestore's error for an engine whose
+// backups are SQL files.
+func restoreWithRunSQLFileError(e Engine) error {
+	return fmt.Errorf("%s restores a SQL file with Run SQL File", e.Label())
 }
 
 // ErrRestoreInTransaction refuses a DuckDB restore while a transaction is
@@ -460,8 +430,8 @@ func pgToolVersion(ctx context.Context, tool string) (major int, ok bool) {
 // SSH tunnel or a proxy the address it dials is not the server's name,
 // and it has no option to name the server.
 func MysqldumpChecksCAOnly(d *DB) bool {
-	host, _ := d.Address()
-	return d.Config.Engine == MySQL && d.Config.TLS == TLSVerifyFull && host != d.Config.Host
+	r, ok := sqlRulesOf(d.Config.Engine)
+	return ok && r.BackupToolChecksCAOnly(d)
 }
 
 // mysqlTool is a MySQL tool's command reaching the connection's server as

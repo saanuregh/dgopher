@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -40,23 +41,17 @@ func ParseURL(s string) (Config, error) {
 	if err != nil {
 		return cfg, err
 	}
-	switch strings.ToLower(u.Scheme) {
-	case "postgres", "postgresql":
-		cfg.Engine = Postgres
-	case "mysql", "mariadb":
-		cfg.Engine = MySQL
-	case "clickhouse", "ch":
-		cfg.Engine = ClickHouse
-	case "redis":
-		cfg.Engine = Redis
-	case "rediss":
-		cfg.Engine, cfg.TLS = Redis, TLSVerifyFull
-	case "sqlite", "sqlite3", "file":
-		return Config{Engine: SQLite, Database: u.Host + u.Path, Name: filepath.Base(u.Path)}, nil
-	case "duckdb":
-		return Config{Engine: DuckDB, Database: u.Host + u.Path, Name: filepath.Base(u.Path)}, nil
-	default:
+	scheme := strings.ToLower(u.Scheme)
+	i := slices.IndexFunc(Engines(), func(e Engine) bool { return slices.Contains(rulesOf(e).URLSchemes(), scheme) })
+	if i < 0 {
 		return cfg, fmt.Errorf("unknown kind of URL %q: use postgres://, mysql://, clickhouse://, redis:// or a file path", u.Scheme)
+	}
+	cfg.Engine = Engines()[i]
+	if cfg.Engine.IsFile() {
+		return Config{Engine: cfg.Engine, Database: u.Host + u.Path, Name: filepath.Base(u.Path)}, nil
+	}
+	if scheme == "rediss" {
+		cfg.TLS = TLSVerifyFull
 	}
 	cfg.Host = u.Hostname()
 	if p := u.Port(); p != "" {
@@ -111,34 +106,34 @@ func ParseURL(s string) (Config, error) {
 // protocol it names, if any: jdbc:clickhouse://, ch:https://.
 var clickhouseJDBC = regexp.MustCompile(`(?i)^(?:jdbc:(?:clickhouse|ch)(?::(https?))?|(?:clickhouse|ch):(https?))://`)
 
-// urlTLSParams are the TLS parameters each scheme's tools take, and the
-// modes their values mean to that scheme's driver: MySQL's tls=true and
-// ClickHouse's secure=true verify the server, as rediss:// does, unless
-// skip_verify says otherwise.
-var urlTLSParams = map[Engine]map[string]map[string]TLSMode{
-	Postgres: {
+// The TLS parameters each scheme's tools take, and the modes their values
+// mean to that scheme's driver: MySQL's tls=true and ClickHouse's
+// secure=true verify the server, as rediss:// does, unless skip_verify
+// says otherwise.
+var (
+	postgresURLTLS = map[string]map[string]TLSMode{
 		"sslmode": {"disable": TLSDisable, "allow": TLSPrefer, "prefer": TLSPrefer, "require": TLSRequire,
 			"verify-ca": TLSVerifyFull, "verify-full": TLSVerifyFull},
 		"ssl": {"true": TLSRequire, "false": TLSDisable},
-	},
-	MySQL: {
+	}
+	mysqlURLTLS = map[string]map[string]TLSMode{
 		"ssl-mode": {"disabled": TLSDisable, "preferred": TLSPrefer, "required": TLSRequire,
 			"verify_ca": TLSVerifyFull, "verify_identity": TLSVerifyFull},
 		"tls": {"true": TLSVerifyFull, "skip-verify": TLSRequire, "preferred": TLSPrefer, "false": TLSDisable},
 		"ssl": {"true": TLSRequire, "false": TLSDisable},
-	},
-	ClickHouse: {
+	}
+	clickhouseURLTLS = map[string]map[string]TLSMode{
 		"secure": {"true": TLSVerifyFull, "false": TLSDisable},
 		"ssl":    {"true": TLSVerifyFull, "false": TLSDisable}, // JDBC's
-	},
-}
+	}
+)
 
 // urlTLS is the TLS mode a URL's parameters ask for, "" when they name
 // none. A TLS parameter of another scheme, a value the scheme does not
 // know, or parameters that disagree are an error: ignored, they would
 // leave the connection less safe than the URL said.
 func urlTLS(e Engine, q url.Values) (TLSMode, error) {
-	params := urlTLSParams[e]
+	params := rulesOf(e).URLTLSParameters()
 	var mode TLSMode
 	var from string
 	for _, key := range []string{"sslmode", "ssl-mode", "tls", "ssl", "secure"} {

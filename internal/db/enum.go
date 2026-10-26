@@ -16,21 +16,19 @@ var (
 // type is an enum, in their order; nil for any other type. PostgreSQL's
 // enums are read from its catalog; the other engines' types spell them.
 func EnumValues(ctx context.Context, d *DB, typ string) ([]string, error) {
-	typ = strings.TrimSpace(typ)
-	switch d.Dialect.Engine() {
-	case Postgres:
-		return queryStrings(ctx, d.Catalog(), `SELECT enumlabel FROM pg_enum WHERE enumtypid = to_regtype($1) ORDER BY enumsortorder`, typ)
-	case ClickHouse:
-		typ = clickhouseInnerType(typ)
-		if m := clickhouseEnum.FindStringSubmatch(typ); m != nil {
-			return quotedValues(m[2], true), nil
-		}
-	case MySQL, DuckDB:
-		if m := enumList.FindStringSubmatch(typ); m != nil {
-			return quotedValues(m[1], d.Dialect.Engine() == MySQL), nil
-		}
+	if r, ok := sqlRulesOf(d.Dialect.Engine()); ok {
+		return r.EnumValues(ctx, d, typ)
 	}
 	return nil, nil
+}
+
+// enumListValues are the values of a type written ENUM('a', 'b'), nil for
+// any other type; with backslashes, a backslash escapes in them.
+func enumListValues(typ string, backslashes bool) []string {
+	if m := enumList.FindStringSubmatch(strings.TrimSpace(typ)); m != nil {
+		return quotedValues(m[1], backslashes)
+	}
+	return nil
 }
 
 // clickhouseInnerType unwraps ClickHouse's Nullable(…) and

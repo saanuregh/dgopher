@@ -59,7 +59,8 @@ func ValueText(v any, colType string) any {
 // A boolean, read as true or as 1 alike, is true or false; MySQL and
 // SQLite keep it as 1 or 0, where true would be text.
 func InsertValue(e Engine, v any, fileType string) any {
-	if at, ok := v.(time.Time); ok && e == ClickHouse && (fileType == "TIMESTAMPTZ" || strings.HasSuffix(fileType, "WITH TIME ZONE")) {
+	r, isSQL := sqlRulesOf(e)
+	if at, ok := v.(time.Time); ok && isSQL && r.OffsetTimesAsUTC() && (fileType == "TIMESTAMPTZ" || strings.HasSuffix(fileType, "WITH TIME ZONE")) {
 		// ClickHouse reads a time with an offset as NULL, without a word:
 		// its column keeps UTC, which the time is written in.
 		v, fileType = at.UTC(), "TIMESTAMP"
@@ -73,7 +74,7 @@ func InsertValue(e Engine, v any, fileType string) any {
 	case string:
 		if b, ok := booleanText(x); ok && fileType == "BOOLEAN" {
 			switch {
-			case e != MySQL && e != SQLite:
+			case !isSQL || !r.BooleansAreNumbers():
 				return Typed(b)
 			case b == "true":
 				return Typed("1")

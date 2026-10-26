@@ -43,7 +43,7 @@ func TestModifyColumnUsing(t *testing.T) {
 		{DuckDB, "INTEGER", "VARCHAR", true},
 	} {
 		was, now := ColumnDesign{Name: "c", Type: c.was}, ColumnDesign{Name: "c", Type: c.now}
-		steps, err := modifyColumnSQL(DialectOf(c.e), TableDesign{Name: "t"}, was, now)
+		steps, err := rulesOfDialect(DialectOf(c.e)).ModifyColumnSQL(DialectOf(c.e), TableDesign{Name: "t"}, was, now)
 		if err != nil || len(steps) != 1 {
 			t.Fatalf("%s %s → %s: %q %v", c.e, c.was, c.now, steps, err)
 		}

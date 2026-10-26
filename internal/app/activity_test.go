@@ -15,7 +15,7 @@ func TestActivityGoesThroughPolicy(t *testing.T) {
 		t.Helper()
 		a := newTestApp(t)
 		cn := addConn(a, cfg)
-		at := &activityTab{a: a, conn: cn, grid: dataview.NewGrid(), pages: activityPages(cfg.Engine)}
+		at := &activityTab{a: a, conn: cn, grid: dataview.NewGrid(), pages: cfg.Engine.ActivityPages()}
 		row := []any{int64(42), "ada"}
 		at.src = dataview.Source{Cols: []db.ColumnInfo{{Name: "pid"}, {Name: "user"}}, Rows: [][]any{row}}
 		at.act(row, terminate)

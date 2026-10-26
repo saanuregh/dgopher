@@ -99,13 +99,7 @@ func (t *EditTarget) value(col Column, v any, args *[]any) string {
 	if isTextType(col.Type) {
 		return ph
 	}
-	switch t.Dialect.Engine() {
-	case Postgres:
-		return ph + "::text::" + col.Type
-	case DuckDB:
-		return "CAST(" + ph + " AS " + col.Type + ")"
-	}
-	return ph
+	return rulesOfDialect(t.Dialect).CastParameter(ph, col.Type)
 }
 
 func (t *EditTarget) where(key []any, args *[]any) (string, error) {
@@ -158,11 +152,7 @@ func (t *EditTarget) Statements(changes []Change) ([]Statement, error) {
 			out = append(out, Statement{SQL: "UPDATE " + table + " SET " + strings.Join(sets, ", ") + " WHERE " + where, Args: args, Want: 1})
 		case ChangeInsert:
 			if len(cols) == 0 {
-				sql := "INSERT INTO " + table + " DEFAULT VALUES"
-				if t.Dialect.Engine() == MySQL {
-					sql = "INSERT INTO " + table + " () VALUES ()"
-				}
-				out = append(out, Statement{SQL: sql, Want: 1})
+				out = append(out, Statement{SQL: rulesOfDialect(t.Dialect).InsertDefaultRowSQL(table), Want: 1})
 				continue
 			}
 			var names, vals []string

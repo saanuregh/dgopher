@@ -110,7 +110,7 @@ var savedKinds = map[string]savedKind{
 		what:  func(savedTab) string { return "The keys" },
 	},
 	savedActivity: {
-		on:    func(e db.Engine) bool { return len(activityPages(e)) > 0 },
+		on:    func(e db.Engine) bool { return len(e.ActivityPages()) > 0 },
 		open:  func(a *App, cn *connection.Conn, _ savedTab) { a.openActivity(cn) },
 		icon:  widgets.IconClock,
 		title: func(conn string, _ savedTab) string { return conn + " · activity" },

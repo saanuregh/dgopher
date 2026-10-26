@@ -29,7 +29,7 @@ func Script(m *Model, to db.Engine, schema string) (db.SchemaChange, []string) {
 	}
 	ch := db.SchemaChange{Atomic: to.TransactionalDDL()}
 	// SQLite takes a key to a table not made yet, and adds none later.
-	ordered, closing := createOrder(tables, to != db.SQLite)
+	ordered, closing := createOrder(tables, !db.RebuildsToAlter(to))
 	for _, t := range ordered {
 		made, err := db.NewTableChange(d, t)
 		if err != nil {
@@ -39,13 +39,19 @@ func Script(m *Model, to db.Engine, schema string) (db.SchemaChange, []string) {
 		ch.Steps = append(ch.Steps, made.Steps...)
 	}
 	for _, k := range closing {
-		if to == db.DuckDB {
-			n.add(fmt.Sprintf("DuckDB adds no key to a table made, and %s's to %s closes a cycle of keys: it is left out.", k.table.Name, k.key.RefTable))
+		if addsNoKeyToMadeTable(to) {
+			n.add(fmt.Sprintf("%s adds no key to a table made, and %s's to %s closes a cycle of keys: it is left out.", to.Label(), k.table.Name, k.key.RefTable))
 			continue
 		}
 		ch.Steps = append(ch.Steps, db.Step{SQL: db.AddForeignKeySQL(d, k.table, k.key)})
 	}
 	return ch, n.list
+}
+
+// addsNoKeyToMadeTable reports whether an engine with foreign keys adds
+// none to a table made.
+func addsNoKeyToMadeTable(e db.Engine) bool {
+	return db.HasForeignKeys(e) && db.KeysOfMadeTable(e) != ""
 }
 
 // ScriptText is a script with a header naming its model, its engine, and
@@ -123,7 +129,7 @@ func fresh(to db.Engine, t db.TableDesign, n *notes) db.TableDesign {
 			c.Default, c.AutoIncrement = "", true
 			n.add("Serial columns are written as identity columns: the model keeps no sequences.")
 		}
-		if c.AutoIncrement && (to == db.DuckDB || to == db.ClickHouse) {
+		if c.AutoIncrement && !db.NumbersRows(to) {
 			c.AutoIncrement = false
 			n.add(fmt.Sprintf("%s numbers no rows itself: %s.%s is written as a plain column.", to.Label(), t.Name, c.Name))
 		}
@@ -156,7 +162,7 @@ func apart(to db.Engine, tables []db.TableDesign, n *notes) {
 			t.Indexes[i].Name = name(t, t.Indexes[i].Name)
 		}
 		for i := range t.ForeignKeys {
-			if to == db.MySQL && t.ForeignKeys[i].Name != "" {
+			if db.ForeignKeyNamesUniqueInSchema(to) && t.ForeignKeys[i].Name != "" {
 				t.ForeignKeys[i].Name = name(t, t.ForeignKeys[i].Name)
 			}
 		}
@@ -173,16 +179,16 @@ func convert(from, to db.Engine, t db.TableDesign, inPlace bool, n *notes) db.Ta
 	for i := range t.Columns {
 		c := &t.Columns[i]
 		if !same {
-			kind, _, _ := typeKind(from, c.Type)
+			kind, _, _ := db.TypeKindOf(from, c.Type)
 			was := c.Type
 			c.Type = convertType(from, to, c.Type)
 			switch {
 			case kind == "":
 				n.add(fmt.Sprintf("%s.%s is of %s's %s, which %s has no like of: it is %s.", t.Name, c.Name, from.Label(), was, to.Label(), c.Type))
-			case kind == kindTimestampTZ && (to == db.MySQL || to == db.SQLite):
+			case kind == db.TypeKindTimestampTZ && !keepsKind(to, db.TypeKindTimestampTZ):
 				n.add(fmt.Sprintf("%s keeps no time zone with a time: %s.%s is %s.", to.Label(), t.Name, c.Name, c.Type))
 			}
-			if to == db.MySQL && c.Type == "LONGTEXT" && keyed[c.Name] {
+			if c.Type == "LONGTEXT" && db.TypeOfKind(to, db.TypeKindText, "", "") == "LONGTEXT" && keyed[c.Name] {
 				c.Type = "VARCHAR(255)"
 				n.add(fmt.Sprintf("MySQL's text cannot be a key: %s.%s is VARCHAR(255).", t.Name, c.Name))
 			}
@@ -197,18 +203,18 @@ func convert(from, to db.Engine, t db.TableDesign, inPlace bool, n *notes) db.Ta
 				n.add("MySQL's character sets and ON UPDATE of columns are left out.")
 			}
 		}
-		if c.Comment != "" && to == db.SQLite {
+		if c.Comment != "" && !db.Comments(to) {
 			c.Comment = ""
 			n.add("SQLite keeps no comments: they are left out.")
 		}
 	}
-	if t.Comment != "" && to == db.SQLite {
+	if t.Comment != "" && !db.Comments(to) {
 		t.Comment = ""
 		n.add("SQLite keeps no comments: they are left out.")
 	}
 	if !same {
 		t.PrimaryKeyName = ""
-		if from == db.SQLite {
+		if db.NamesConstraintsItself(from) {
 			// Named by SQLite from their columns, which another engine's
 			// names would clash by.
 			for i := range t.ForeignKeys {
@@ -221,7 +227,7 @@ func convert(from, to db.Engine, t db.TableDesign, inPlace bool, n *notes) db.Ta
 			t.Checks = nil
 		}
 	}
-	if to == db.ClickHouse && len(t.Indexes) > 0 {
+	if !db.SecondaryIndexes(to) && len(t.Indexes) > 0 {
 		n.add(fmt.Sprintf("ClickHouse's indexes need a type: %s's are left out.", t.Name))
 		t.Indexes = nil
 	}
@@ -241,13 +247,13 @@ func convert(from, to db.Engine, t db.TableDesign, inPlace bool, n *notes) db.Ta
 			t.Indexes[i].Definition = ""
 		}
 	}
-	if to == db.ClickHouse && len(t.ForeignKeys) > 0 {
+	if !db.HasForeignKeys(to) && len(t.ForeignKeys) > 0 {
 		n.add("ClickHouse has no foreign keys: they are left out.")
 		t.ForeignKeys = nil
 	}
 	for i := range t.ForeignKeys {
 		fk := &t.ForeignKeys[i]
-		if to == db.DuckDB && (fk.OnDelete != "" || fk.OnUpdate != "") {
+		if !db.ForeignKeyActions(to) && (fk.OnDelete != "" || fk.OnUpdate != "") {
 			fk.OnDelete, fk.OnUpdate = "", ""
 			n.add("DuckDB's foreign keys take no actions: ON DELETE and ON UPDATE are left out.")
 		}
@@ -295,7 +301,7 @@ func portable(def, typ string, to db.Engine) string {
 		return ""
 	}
 	value := m[1]
-	if kind, _, _ := typeKind(to, typ); kind == kindBoolean && to != db.SQLite {
+	if kind, _, _ := db.TypeKindOf(to, typ); kind == db.TypeKindBoolean && keepsKind(to, db.TypeKindBoolean) {
 		switch strings.Trim(value, "'") {
 		case "0", "f", "false":
 			return "FALSE"

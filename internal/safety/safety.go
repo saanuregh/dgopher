@@ -5,7 +5,6 @@ package safety
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	"dgopher/internal/db"
@@ -59,7 +58,7 @@ func Analyze(cfg *db.Config, stmts []string) []Statement {
 // PolicyText is the text the safety policy reads: what the server will
 // run, MySQL's executable comments included.
 func PolicyText(e db.Engine, sql string) string {
-	if e == db.MySQL {
+	if db.ExecutableComments(e) {
 		return sqltext.UnwrapExecutable(sql)
 	}
 	return sql
@@ -154,7 +153,9 @@ func (v *Verdict) EndsTransaction(cfg *db.Config, stmts []Statement, open bool) 
 func (v *Verdict) EndsRunTransaction(cfg *db.Config, stmts []Statement, manual, autocommitOff bool) {
 	held := false // a write waits in the transaction
 	begun := ""   // the typed statement that began the open transaction
-	off := autocommitOff && cfg.Engine == db.MySQL
+	// False where the engine has no autocommit to turn off
+	// (Session.AutocommitOff).
+	off := autocommitOff
 	for _, s := range stmts {
 		switch {
 		case CommitsImplicitly(cfg.Engine, s):
@@ -259,42 +260,7 @@ func (v Verdict) Covers(w Verdict) bool {
 // PostgreSQL's VACUUM, CREATE and DROP of a DATABASE or a TABLESPACE,
 // ALTER SYSTEM and the CONCURRENTLY forms of index commands, and the
 // VACUUM of SQLite and DuckDB.
-func OutsideTransaction(e db.Engine, sql string) bool {
-	if e != db.Postgres && e != db.SQLite && e != db.DuckDB {
-		return false
-	}
-	var words []string
-	for _, t := range sqltext.Tokenize(sql, Dialect(e)) {
-		if t.Kind == sqltext.Keyword || t.Kind == sqltext.Identifier {
-			words = append(words, strings.ToUpper(t.Text))
-		}
-	}
-	if len(words) == 0 {
-		return false
-	}
-	switch e {
-	case db.SQLite, db.DuckDB:
-		return words[0] == "VACUUM"
-	case db.Postgres:
-		switch words[0] {
-		case "VACUUM":
-			return true
-		case "ALTER":
-			return len(words) > 1 && words[1] == "SYSTEM"
-		case "REINDEX":
-			return slices.Contains(words, "CONCURRENTLY")
-		case "CREATE", "DROP":
-			if len(words) > 1 && (words[1] == "DATABASE" || words[1] == "TABLESPACE") {
-				return true
-			}
-			// CREATE [UNIQUE] INDEX CONCURRENTLY, DROP INDEX CONCURRENTLY:
-			// the word only there, never a table of that name.
-			i := slices.Index(words[:min(3, len(words))], "INDEX")
-			return i > 0 && i+1 < len(words) && words[i+1] == "CONCURRENTLY"
-		}
-	}
-	return false
-}
+func OutsideTransaction(e db.Engine, sql string) bool { return db.OutsideTransaction(e, sql) }
 
 func verbOf(a sqltext.Analysis) string {
 	if a.Verb == "" {

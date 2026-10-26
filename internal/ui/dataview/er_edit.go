@@ -27,8 +27,8 @@ func (e *ERTab) editable() string {
 	switch {
 	case e.conn.Config.ReadOnly:
 		return e.conn.Config.Name + " is read-only."
-	case e.conn.Config.Engine == db.ClickHouse:
-		return "ClickHouse has no foreign keys."
+	case !db.HasForeignKeys(e.conn.Config.Engine):
+		return e.conn.Config.Engine.Label() + " has no foreign keys."
 	}
 	return ""
 }
