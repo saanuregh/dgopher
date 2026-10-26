@@ -31,21 +31,22 @@ func TestRewrittenEngineConditions(t *testing.T) {
 		"unknown":     {false, true, true, true, false, false, false, false, false, false, false, false, false, false, true},
 	}
 	for _, e := range pinEngines {
+		r, isSQL := db.SQL(e)
 		got := row{
-			ignoresVarcharLength:   db.IgnoresVarcharLength(e),
-			keepsKeyNames:          db.KeepsKeyNames(e),
+			ignoresVarcharLength:   isSQL && r.IgnoresVarcharLength(),
+			keepsKeyNames:          !isSQL || r.KeepsKeyNames(),
 			changesTablesWhole:     changesTablesWhole(e),
-			splitsCycles:           !db.RebuildsToAlter(e),
+			splitsCycles:           !isSQL || !r.RebuildsToAlter(),
 			addsNoKeyToMadeTable:   addsNoKeyToMadeTable(e),
-			numbersNoRows:          !db.NumbersRows(e),
-			keyNamesInSchema:       db.ForeignKeyNamesUniqueInSchema(e),
+			numbersNoRows:          isSQL && !r.HasAutoNumbering(),
+			keyNamesInSchema:       isSQL && r.ForeignKeyNamesUniqueInSchema(),
 			keepsNoTimeZone:        !keepsKind(e, db.TypeKindTimestampTZ),
 			textIsLongtext:         db.TypeOfKind(e, db.TypeKindText, "", "") == "LONGTEXT",
-			keepsNoComments:        !db.Comments(e),
-			namesConstraintsItself: db.NamesConstraintsItself(e),
-			noSecondaryIndexes:     !db.SecondaryIndexes(e),
-			noForeignKeys:          !db.HasForeignKeys(e),
-			noKeyActions:           !db.ForeignKeyActions(e),
+			keepsNoComments:        isSQL && !r.HasComments(),
+			namesConstraintsItself: isSQL && r.NamesConstraintsItself(),
+			noSecondaryIndexes:     isSQL && !r.HasSecondaryIndexes(),
+			noForeignKeys:          isSQL && !r.HasForeignKeys(),
+			noKeyActions:           isSQL && !r.HasForeignKeyActions(),
 			hasBoolean:             keepsKind(e, db.TypeKindBoolean),
 		}
 		if want := old[e]; got != want {

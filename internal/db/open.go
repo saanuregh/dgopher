@@ -241,7 +241,7 @@ func openWire(ctx context.Context, cfg Config, ep endpoint, r route, w wire) (*D
 	if err != nil {
 		return nil, err
 	}
-	rules, ok := sqlRulesOf(cfg.Engine)
+	rules, ok := SQL(cfg.Engine)
 	if !ok {
 		return nil, fmt.Errorf("%s is not a SQL database", cfg.Engine.Label())
 	}
@@ -643,7 +643,7 @@ func (d *DB) ServerVersion(ctx context.Context) string {
 
 // serverVersionQuery is the statement that reads an engine's server version.
 func serverVersionQuery(e Engine) string {
-	if r, ok := sqlRulesOf(e); ok {
+	if r, ok := SQL(e); ok {
 		return r.VersionQuery()
 	}
 	return ""
@@ -701,7 +701,7 @@ func CreateFile(ctx context.Context, e Engine, path string) error {
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	if r, ok := sqlRulesOf(e); ok {
+	if r, ok := SQL(e); ok {
 		return r.CreateFile(ctx, path)
 	}
 	return noFileError(e)

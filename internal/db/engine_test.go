@@ -37,7 +37,11 @@ func TestEngineFactsPinned(t *testing.T) {
 		if !ok {
 			t.Fatalf("no expected facts for %q", e)
 		}
-		got := facts{e.Label(), e.DefaultPort(), e.DefaultUser(), LexDialect(e), serverVersionQuery(e), DialectOf(e), BackupFormats(e)}
+		var backups []BackupFormat
+		if r, ok := SQL(e); ok {
+			backups = r.BackupFormats()
+		}
+		got := facts{e.Label(), e.DefaultPort(), e.DefaultUser(), LexDialect(e), serverVersionQuery(e), DialectOf(e), backups}
 		if got.label != w.label || got.port != w.port || got.user != w.user || got.lex != w.lex || got.versionQuery != w.versionQuery {
 			t.Errorf("%q: got %+v, want %+v", e, got, w)
 		}
@@ -67,12 +71,12 @@ func TestEngineRulesCover(t *testing.T) {
 		if rulesOf(e) != r {
 			t.Errorf("rulesOf(%q) = %T, want its registered %T", e, rulesOf(e), r)
 		}
-		s, isSQL := sqlRulesOf(e)
+		s, isSQL := SQL(e)
 		if isSQL != slices.Contains(sqlEngines, e) {
-			t.Errorf("%q: sqlRulesOf ok = %v, want %v", e, isSQL, !isSQL)
+			t.Errorf("%q: SQL ok = %v, want %v", e, isSQL, !isSQL)
 		}
 		if r.IsSQL() != isSQL {
-			t.Errorf("%q: IsSQL() = %v, but sqlRulesOf ok = %v", e, r.IsSQL(), isSQL)
+			t.Errorf("%q: IsSQL() = %v, but SQL ok = %v", e, r.IsSQL(), isSQL)
 		}
 		if isSQL {
 			if s.Engine() != e {
@@ -92,8 +96,8 @@ func TestEngineRulesCover(t *testing.T) {
 	if _, ok := rulesOf("unknown").(unknownEngine); !ok {
 		t.Errorf("rulesOf(unknown) = %T, want unknownEngine", rulesOf("unknown"))
 	}
-	if _, ok := sqlRulesOf("unknown"); ok {
-		t.Error("sqlRulesOf(unknown) is ok: an unknown engine has no SQL rules")
+	if _, ok := SQL("unknown"); ok {
+		t.Error("SQL(unknown) is ok: an unknown engine has no SQL rules")
 	}
 }
 

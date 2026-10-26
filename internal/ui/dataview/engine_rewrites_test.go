@@ -10,7 +10,8 @@ import (
 // them, as it did on every engine but ClickHouse.
 func TestRewrittenForeignKeysSection(t *testing.T) {
 	for _, e := range pinEngines {
-		if got, old := db.HasForeignKeys(e), e != db.ClickHouse; got != old {
+		r, ok := db.SQL(e)
+		if got, old := !ok || r.HasForeignKeys(), e != db.ClickHouse; got != old {
 			t.Errorf("%s: foreign keys section %v, was %v", e, got, old)
 		}
 	}

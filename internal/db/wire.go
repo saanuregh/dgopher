@@ -269,7 +269,7 @@ type pingedKey struct{}
 
 func (c *wireConn) resetSession(ctx context.Context) error {
 	r := c.inner.(driver.SessionResetter)
-	if rules, ok := sqlRulesOf(c.engine); !ok || !rules.pingsOnReset() {
+	if rules, ok := SQL(c.engine); !ok || !rules.pingsOnReset() {
 		return r.ResetSession(ctx)
 	}
 	pinged := false
@@ -432,7 +432,7 @@ func namedValues(args []driver.NamedValue) ([]driver.Value, error) {
 // PostgreSQL's sends an empty one, "-- ping"; MySQL's and ClickHouse's are
 // protocol messages, shown as PostgreSQL's.
 func pingStatement(e Engine) string {
-	if r, ok := sqlRulesOf(e); ok {
+	if r, ok := SQL(e); ok {
 		return r.pingStatement()
 	}
 	return "-- ping"
@@ -443,7 +443,7 @@ func pingStatement(e Engine) string {
 // modernc.org/sqlite's newTx and DuckDB's BeginTx. ClickHouse's sends
 // nothing.
 func beginStatements(e Engine, opts driver.TxOptions) []string {
-	if r, ok := sqlRulesOf(e); ok {
+	if r, ok := SQL(e); ok {
 		return r.beginStatements(opts)
 	}
 	return nil
@@ -453,7 +453,7 @@ func beginStatements(e Engine, opts driver.TxOptions) []string {
 // transaction of database/sql's; "" for nothing. ClickHouse's sends a
 // prepared batch, or nothing.
 func endStatement(e Engine, commit bool) string {
-	if r, ok := sqlRulesOf(e); ok {
+	if r, ok := SQL(e); ok {
 		return r.endStatement(commit)
 	}
 	return ""

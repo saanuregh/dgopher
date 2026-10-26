@@ -117,7 +117,7 @@ var savedKinds = map[string]savedKind{
 		what:  func(savedTab) string { return "The server's activity" },
 	},
 	savedUsers: {
-		on:    db.UsersSupported,
+		on:    usersSupported,
 		open:  func(a *App, cn *connection.Conn, _ savedTab) { a.openUsers(cn) },
 		icon:  widgets.IconUsers,
 		title: func(conn string, _ savedTab) string { return conn + " · users" },

@@ -138,37 +138,39 @@ func TestPinExplainPrefix(t *testing.T) {
 
 // TestPinUsersSupported pins which engines manage accounts.
 func TestPinUsersSupported(t *testing.T) {
-	managesAccounts := func(e Engine) bool { return UsersSupported(e) }
-	privileges := func(e Engine) []string { return Privileges(e) }
+	managesAccounts := func(r SQLRules) bool { return r.ManagesAccounts() }
+	privileges := func(r SQLRules) []string { return r.Privileges() }
 	pinValues(t, "users supported", map[string]string{
 		"postgres":   "manages=true privileges=[\"SELECT\" \"INSERT\" \"UPDATE\" \"DELETE\" \"ALL PRIVILEGES\"]",
 		"mysql":      "manages=true privileges=[\"SELECT\" \"INSERT\" \"UPDATE\" \"DELETE\" \"ALL PRIVILEGES\"]",
 		"clickhouse": "manages=true privileges=[\"SELECT\" \"INSERT\" \"ALTER\" \"ALL\"]",
 		"sqlite":     "manages=false privileges=[\"SELECT\" \"INSERT\" \"UPDATE\" \"DELETE\" \"ALL PRIVILEGES\"]",
 		"duckdb":     "manages=false privileges=[\"SELECT\" \"INSERT\" \"UPDATE\" \"DELETE\" \"ALL PRIVILEGES\"]",
-		"redis":      "manages=false privileges=[\"SELECT\" \"INSERT\" \"UPDATE\" \"DELETE\" \"ALL PRIVILEGES\"]",
-		"unknown":    "manages=false privileges=[\"SELECT\" \"INSERT\" \"UPDATE\" \"DELETE\" \"ALL PRIVILEGES\"]",
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
-			add(string(e), fmt.Sprintf("manages=%v privileges=%q", managesAccounts(e), privileges(e)))
+			// Redis and an unknown engine: the app's usersSupported.
+			if r, ok := SQL(e); ok {
+				add(string(e), fmt.Sprintf("manages=%v privileges=%q", managesAccounts(r), privileges(r)))
+			}
 		}
 	})
 }
 
 // TestPinCommonTypes pins each engine's common types.
 func TestPinCommonTypes(t *testing.T) {
-	commonTypes := func(e Engine) []string { return CommonTypes(e) }
+	commonTypes := func(r SQLRules) []string { return r.CommonTypes() }
 	pinValues(t, "common types", map[string]string{
 		"postgres":   "[\"integer\" \"bigint\" \"smallint\" \"numeric(12,2)\" \"real\" \"double precision\" \"boolean\" \"text\" \"varchar(255)\" \"date\" \"timestamp\" \"timestamptz\" \"time\" \"interval\" \"uuid\" \"jsonb\" \"bytea\"]",
 		"mysql":      "[\"int\" \"bigint\" \"smallint\" \"tinyint(1)\" \"decimal(12,2)\" \"float\" \"double\" \"varchar(255)\" \"text\" \"date\" \"datetime\" \"timestamp\" \"time\" \"json\" \"blob\"]",
 		"clickhouse": "[\"Int32\" \"Int64\" \"UInt32\" \"UInt64\" \"Float64\" \"Decimal(12,2)\" \"Bool\" \"String\" \"LowCardinality(String)\" \"Date\" \"Date32\" \"DateTime\" \"DateTime64(3)\" \"UUID\"]",
 		"sqlite":     "[\"INTEGER\" \"REAL\" \"TEXT\" \"BLOB\" \"NUMERIC\"]",
 		"duckdb":     "[\"INTEGER\" \"BIGINT\" \"SMALLINT\" \"DECIMAL(12,2)\" \"DOUBLE\" \"BOOLEAN\" \"VARCHAR\" \"DATE\" \"TIMESTAMP\" \"TIMESTAMPTZ\" \"TIME\" \"INTERVAL\" \"UUID\" \"JSON\" \"BLOB\"]",
-		"redis":      "[]",
-		"unknown":    "[]",
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
-			add(string(e), fmt.Sprintf("%q", commonTypes(e)))
+			// Redis and an unknown engine open no table form.
+			if r, ok := SQL(e); ok {
+				add(string(e), fmt.Sprintf("%q", commonTypes(r)))
+			}
 		}
 	})
 }
@@ -287,7 +289,7 @@ func TestPinBeginStatement(t *testing.T) {
 		"unknown":    "BEGIN",
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
-			add(string(e), BeginStatement(e))
+			add(string(e), beginStatement(e))
 		}
 	})
 }
@@ -326,26 +328,26 @@ func TestPinImplicitCommitAndAutocommit(t *testing.T) {
 		"mysql SET autocommit = 0":               "commits=false setsAutocommit=false,true",
 		"mysql SET autocommit = 1":               "commits=true setsAutocommit=true,true",
 		"mysql SET GLOBAL autocommit = 0":        "commits=false setsAutocommit=false,false",
-		"mysql /*!50001 CREATE ALGORITHM=UNDEFINED */ /*!50001 VIEW v AS SELECT 1 */":      "commits=true setsAutocommit=false,false",
-		"clickhouse CREATE TABLE t (a INT)":                                                "commits=false setsAutocommit=false,false",
-		"clickhouse CREATE TEMPORARY TABLE t (a INT)":                                      "commits=false setsAutocommit=false,false",
-		"clickhouse TRUNCATE t":                                                            "commits=false setsAutocommit=false,false",
-		"clickhouse BEGIN":                                                                 "commits=false setsAutocommit=false,false",
-		"clickhouse BEGIN NOT ATOMIC SELECT 1; END":                                        "commits=false setsAutocommit=false,false",
-		"clickhouse SELECT 1":                                                              "commits=false setsAutocommit=false,false",
-		"clickhouse SET autocommit = 0":                                                    "commits=false setsAutocommit=false,false",
-		"clickhouse SET autocommit = 1":                                                    "commits=false setsAutocommit=false,false",
-		"clickhouse SET GLOBAL autocommit = 0":                                             "commits=false setsAutocommit=false,false",
+		"mysql /*!50001 CREATE ALGORITHM=UNDEFINED */ /*!50001 VIEW v AS SELECT 1 */": "commits=true setsAutocommit=false,false",
+		"clickhouse CREATE TABLE t (a INT)":                                           "commits=false setsAutocommit=false,false",
+		"clickhouse CREATE TEMPORARY TABLE t (a INT)":                                 "commits=false setsAutocommit=false,false",
+		"clickhouse TRUNCATE t":                                                       "commits=false setsAutocommit=false,false",
+		"clickhouse BEGIN":                                                            "commits=false setsAutocommit=false,false",
+		"clickhouse BEGIN NOT ATOMIC SELECT 1; END":                                   "commits=false setsAutocommit=false,false",
+		"clickhouse SELECT 1":                                                         "commits=false setsAutocommit=false,false",
+		"clickhouse SET autocommit = 0":                                               "commits=false setsAutocommit=false,false",
+		"clickhouse SET autocommit = 1":                                               "commits=false setsAutocommit=false,false",
+		"clickhouse SET GLOBAL autocommit = 0":                                        "commits=false setsAutocommit=false,false",
 		"clickhouse /*!50001 CREATE ALGORITHM=UNDEFINED */ /*!50001 VIEW v AS SELECT 1 */": "commits=false setsAutocommit=false,false",
-		"sqlite CREATE TABLE t (a INT)":                                                    "commits=false setsAutocommit=false,false",
-		"sqlite CREATE TEMPORARY TABLE t (a INT)":                                          "commits=false setsAutocommit=false,false",
-		"sqlite TRUNCATE t":                                                                "commits=false setsAutocommit=false,false",
-		"sqlite BEGIN":                                                                     "commits=false setsAutocommit=false,false",
-		"sqlite BEGIN NOT ATOMIC SELECT 1; END":                                            "commits=false setsAutocommit=false,false",
-		"sqlite SELECT 1":                                                                  "commits=false setsAutocommit=false,false",
-		"sqlite SET autocommit = 0":                                                        "commits=false setsAutocommit=false,false",
-		"sqlite SET autocommit = 1":                                                        "commits=false setsAutocommit=false,false",
-		"sqlite SET GLOBAL autocommit = 0":                                                 "commits=false setsAutocommit=false,false",
+		"sqlite CREATE TABLE t (a INT)":           "commits=false setsAutocommit=false,false",
+		"sqlite CREATE TEMPORARY TABLE t (a INT)": "commits=false setsAutocommit=false,false",
+		"sqlite TRUNCATE t":                       "commits=false setsAutocommit=false,false",
+		"sqlite BEGIN":                            "commits=false setsAutocommit=false,false",
+		"sqlite BEGIN NOT ATOMIC SELECT 1; END":   "commits=false setsAutocommit=false,false",
+		"sqlite SELECT 1":                         "commits=false setsAutocommit=false,false",
+		"sqlite SET autocommit = 0":               "commits=false setsAutocommit=false,false",
+		"sqlite SET autocommit = 1":               "commits=false setsAutocommit=false,false",
+		"sqlite SET GLOBAL autocommit = 0":        "commits=false setsAutocommit=false,false",
 		"sqlite /*!50001 CREATE ALGORITHM=UNDEFINED */ /*!50001 VIEW v AS SELECT 1 */": "commits=false setsAutocommit=false,false",
 		"duckdb CREATE TABLE t (a INT)":           "commits=false setsAutocommit=false,false",
 		"duckdb CREATE TEMPORARY TABLE t (a INT)": "commits=false setsAutocommit=false,false",
@@ -1477,7 +1479,10 @@ func TestPinPlanBackup(t *testing.T) {
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
 			d := &DB{Config: Config{Name: "n", Engine: e, Host: "db.example.com", Port: 7000, User: "app", Database: "shop"}}
-			formats := BackupFormats(e)
+			var formats []BackupFormat
+			if r, ok := SQL(e); ok {
+				formats = r.BackupFormats()
+			}
 			if len(formats) == 0 {
 				formats = []BackupFormat{BackupSQL}
 			}
@@ -1599,20 +1604,15 @@ func TestPinParsePlan(t *testing.T) {
 		"duckdb sqlite query plan":     "none",
 		"duckdb duckdb json":           "SEQ_SCAN / ",
 		"duckdb clickhouse json":       " / ",
-		"redis postgres json":          "none",
-		"redis mysql tree":             "none",
-		"redis sqlite query plan":      "none",
-		"redis duckdb json":            "none",
-		"redis clickhouse json":        "none",
-		"unknown postgres json":        "none",
-		"unknown mysql tree":           "none",
-		"unknown sqlite query plan":    "none",
-		"unknown duckdb json":          "none",
-		"unknown clickhouse json":      "none",
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
+			// Redis and an unknown engine run no statement to explain.
+			r, isSQL := SQL(e)
+			if !isSQL {
+				continue
+			}
 			for _, s := range samples {
-				p, ok := ParsePlan(e, s.cols, s.rows)
+				p, ok := r.ParsePlan(s.cols, s.rows)
 				got := "none"
 				if ok {
 					got = p.Root.Op + " / " + p.Root.Target

@@ -48,8 +48,9 @@ type engineRules interface {
 	ActivityPages() []ActivityPage
 }
 
-// sqlRules is what an engine that speaks SQL answers besides.
-type sqlRules interface {
+// SQLRules is what an engine that speaks SQL answers besides; packages
+// outside db reach it through SQL.
+type SQLRules interface {
 	engineRules
 	Dialect
 	driverRules
@@ -90,6 +91,7 @@ type driverRules interface {
 
 // transactionRules is how an engine begins, follows and ends transactions.
 type transactionRules interface {
+	// BeginStatement is what a session's Begin sends.
 	BeginStatement() string
 	// ReadOnlyBeginSQL begins a transaction the server keeps from
 	// writing, "" where it has none.
@@ -105,6 +107,8 @@ type transactionRules interface {
 	// autocommitMayBeOff: a session's autocommit can be turned off, after
 	// which any statement may begin a transaction.
 	autocommitMayBeOff() bool
+	// ExecutableComments: the engine runs what an executable comment holds
+	// (/*! … */), as MySQL does.
 	ExecutableComments() bool
 	// commitsImplicitlyWords is CommitsImplicitly given the statement's
 	// leading words, and all of them for the rules that read on.
@@ -117,8 +121,11 @@ type transactionRules interface {
 	// OutsideTransaction reports a statement that cannot run in a
 	// transaction, which manual commit must then not open for it.
 	OutsideTransaction(sql string) bool
-	TablesMayIgnoreRollback() bool
-	ChangedRowsWord() string
+	// RollbackMayKeepChanges: a table may keep no transactions, as MySQL's
+	// MyISAM tables, whose changes a rollback keeps.
+	RollbackMayKeepChanges() bool
+	// RowCountWord is how the engine counts the rows a change makes.
+	RowCountWord() string
 }
 
 // queryRules is how an engine explains, searches and writes the SQL of queries and grid edits.
@@ -126,27 +133,50 @@ type queryRules interface {
 	// Explain is how to get a statement's plan, false when the engine
 	// cannot, as with analyze where it explains without running.
 	Explain(statement string, analyze bool) (ExplainRun, bool)
+	// ParsePlan reads the rows of an EXPLAIN in the forms Explain asks for,
+	// and reports whether they were one.
 	ParsePlan(cols []string, rows [][]any) (*Plan, bool)
 	AdvisePlanStep(n *PlanNode, add func(n *PlanNode, format string, args ...any))
+	// UseSchemaSQL makes a session find unqualified names in a schema, ""
+	// for an engine whose sessions have no schema to change.
 	UseSchemaSQL(schema string) string
+	// EditorSchemaPreamble is what a new editor on a schema starts with, ""
+	// for none.
 	EditorSchemaPreamble(schema string) string
+	// NameFolding is how the engine finds an unqualified name.
 	NameFolding() NameFolding
 	Search(ctx context.Context, d *DB, text string, definitions bool) ([]SearchHit, bool, error)
 	EnumValues(ctx context.Context, d *DB, typ string) ([]string, error)
+	// ParameterAsText: a parameter typed in goes to the server as text, for
+	// the server to read as the type it needs.
 	ParameterAsText() bool
 	TextLiteral(s string) string
 	BytesLiteral(b []byte) string
+	// BooleansAreNumbers: the engine's booleans are 1 and 0.
 	BooleansAreNumbers() bool
 	OffsetTimesAsUTC() bool
 	CastParameter(placeholder, columnType string) string
 	InsertDefaultRowSQL(table string) string
 	MaxParameters() int
-	ProfileBySummarize() bool
+	// ProfilesInOneQuery: the engine profiles all of a table's columns in
+	// one statement of its own, as DuckDB's SUMMARIZE.
+	ProfilesInOneQuery() bool
+	// Comparable reports whether the server can compare a column type's
+	// values, for their minimum, maximum and distinct count.
 	Comparable(columnType string) bool
+	// StableOrderByKey: a table's rows are read ordered by its key, for pages
+	// and edits to find the same rows.
 	StableOrderByKey() bool
+	// UpdateSetsDefault: an UPDATE may set a column to DEFAULT.
 	UpdateSetsDefault() bool
+	// InterruptAbortsTransaction: stopping a statement aborts the
+	// transaction open on its connection.
 	InterruptAbortsTransaction() bool
+	// FileReadingFunctions are the engine's functions that read the server's
+	// files or fetch URLs.
 	FileReadingFunctions() []string
+	// FileNamesInStrings: the engine reads a file named by a string or a
+	// quoted name wherever a table goes, as DuckDB.
 	FileNamesInStrings() bool
 	// LikeFilterSQL matches a column's text, ignoring case where the
 	// engine can, against pattern, a literal whose % and _ of its own are
@@ -162,7 +192,11 @@ type queryRules interface {
 
 // designRules is how an engine maps types and writes the DDL of the table designer.
 type designRules interface {
+	// CommonTypes are types of the engine's columns the table form offers;
+	// any other may be typed.
 	CommonTypes() []string
+	// FirstColumn is the key column a new table starts with: one numbering
+	// its rows where the engine does.
 	FirstColumn() ColumnDesign
 	ColumnTypeFor(duckType string) string
 	CanonicalType(columnType string) string
@@ -171,6 +205,8 @@ type designRules interface {
 	// its new name already.
 	ModifyColumnSQL(d Dialect, t TableDesign, was, now ColumnDesign) ([]string, error)
 	RenameObjectSQL(obj Object, name string) (string, error)
+	// ScriptPreamble is what a schema's script starts with; functions says it
+	// makes functions.
 	ScriptPreamble(functions bool) string
 	// TypeKindOf is the kind of a column type, with its length or
 	// precision and its scale: "" for a type of no kind.
@@ -204,22 +240,25 @@ type designRules interface {
 	// ColumnCommentInline: comments are written in the column's
 	// definition, and the table's in its CREATE TABLE.
 	ColumnCommentInline() bool
-	// Comments: tables and columns keep comments.
-	Comments() bool
+	// HasComments: tables and columns keep comments.
+	HasComments() bool
 	// KeepsColumnExtra: a column's Extra is written in its definition.
 	KeepsColumnExtra() bool
 	// AutoIncrementSQL is what a column that numbers its rows says so
 	// with, "" where it says nothing.
 	AutoIncrementSQL() string
-	// NumbersRows: a new column may number its rows itself.
-	NumbersRows() bool
+	// HasAutoNumbering: a new column may number its rows itself.
+	HasAutoNumbering() bool
+	// HasForeignKeys: the engine's tables have foreign keys.
 	HasForeignKeys() bool
-	// ForeignKeyActions: a foreign key takes ON DELETE and ON UPDATE.
-	ForeignKeyActions() bool
+	// HasForeignKeyActions: a foreign key takes ON DELETE and ON UPDATE.
+	HasForeignKeyActions() bool
 	// ForeignKeyNamesUniqueInSchema: two tables' foreign keys cannot
 	// share a name.
 	ForeignKeyNamesUniqueInSchema() bool
-	SecondaryIndexes() bool
+	// HasSecondaryIndexes: the engine's tables have indexes besides their
+	// keys.
+	HasSecondaryIndexes() bool
 	// KeepsKeyNames: a foreign key is known by its name, not only by what
 	// it points at.
 	KeepsKeyNames() bool
@@ -250,6 +289,7 @@ type designRules interface {
 
 // accountRules is how an engine lists and manages accounts and privileges.
 type accountRules interface {
+	// ManagesAccounts: the app manages the engine's users.
 	ManagesAccounts() bool
 	ListAccounts(ctx context.Context, q Querier) ([]Account, error)
 	AccountPrivileges(ctx context.Context, q Querier, a Account) ([]Privilege, error)
@@ -258,19 +298,29 @@ type accountRules interface {
 	PasswordSQL(a Account, password string) (string, error)
 	DropAccountSQL(a Account) []string
 	GrantSQL(privileges []string, schema, table string, a Account) ([]string, error)
+	// Privileges are those a grant offers.
 	Privileges() []string
+	// AccountForm is what the account form asks, and says, for the engine.
 	AccountForm() AccountFormFields
 }
 
 // backupRules is how an engine backs up, restores and maintains tables.
 type backupRules interface {
+	// BackupFormats are the forms the engine's databases are backed up in,
+	// the one the app offers first first; none for ClickHouse, whose BACKUP
+	// runs on the server.
 	BackupFormats() []BackupFormat
 	PlanBackup(ctx context.Context, d *DB, o BackupOptions) (ToolRun, error)
 	PlanRestore(ctx context.Context, d *DB, database, path string, clean bool) (ToolRun, error)
+	// BackupNote says how the engine's databases are backed up, or restored.
 	BackupNote(restore bool) string
+	// BackupChoices are what the backup dialog asks of the engine's backup.
 	BackupChoices() BackupChoices
+	// BackupScope is the navigator node the engine backs up.
 	BackupScope() BackupScope
 	BackupToolChecksCAOnly(d *DB) bool
+	// MaintenanceCommands are the commands that keep a table, named as
+	// quotedTable, in shape; a label says what the command locks.
 	MaintenanceCommands(quotedTable string) []MaintenanceCommand
 }
 
@@ -411,17 +461,17 @@ func rulesOf(e Engine) engineRules {
 	return unknownEngine{id: e}
 }
 
-// sqlRulesOf returns an engine's SQL rules, false for Redis and an
-// unknown engine.
-func sqlRulesOf(e Engine) (sqlRules, bool) {
-	r, ok := rulesOf(e).(sqlRules)
+// SQL returns the engine's SQL rules; false for an engine that does not
+// speak SQL or that no build knows.
+func SQL(e Engine) (SQLRules, bool) {
+	r, ok := rulesOf(e).(SQLRules)
 	return r, ok
 }
 
 // rulesOfDialect returns the SQL rules of a Dialect's engine: every
 // Dialect is a SQL engine's.
-func rulesOfDialect(d Dialect) sqlRules {
-	r, _ := sqlRulesOf(d.Engine())
+func rulesOfDialect(d Dialect) SQLRules {
+	r, _ := SQL(d.Engine())
 	return r
 }
 
@@ -545,9 +595,10 @@ func upsertOnConflictSQL(insert string, keys, updatedColumns []string) string {
 	return conflict + " DO UPDATE SET " + strings.Join(sets, ", ")
 }
 
-// The methods and functions below give an engine's rules to the packages
-// outside db; an engine without SQL rules answers what the switches they
-// replaced did.
+// The methods below give the rules every engine answers to the packages
+// outside db, which reach the SQL rules through SQL. The functions after
+// them combine rules, or keep the answer the switches they replaced gave
+// an engine without SQL rules.
 
 // Label is the engine's display name.
 func (e Engine) Label() string { return rulesOf(e).Label() }
@@ -611,7 +662,7 @@ func (e Engine) ActivityPages() []ActivityPage { return rulesOf(e).ActivityPages
 // an engine without SQL rules is sent EXPLAIN, and explains without
 // running.
 func Explain(e Engine, statement string, analyze bool) (ExplainRun, bool) {
-	if r, ok := sqlRulesOf(e); ok {
+	if r, ok := SQL(e); ok {
 		return r.Explain(statement, analyze)
 	}
 	if analyze {
@@ -620,224 +671,18 @@ func Explain(e Engine, statement string, analyze bool) (ExplainRun, bool) {
 	return explainWithPrefix("EXPLAIN ", statement), true
 }
 
-// NameFoldingOf is how the engine finds an unqualified name.
-func NameFoldingOf(e Engine) NameFolding {
-	if r, ok := sqlRulesOf(e); ok {
-		return r.NameFolding()
-	}
-	return NamesIgnoreCase
-}
-
-// TablesMayIgnoreRollback reports whether a table may keep no
-// transactions, as MySQL's MyISAM tables.
-func TablesMayIgnoreRollback(e Engine) bool {
-	r, ok := sqlRulesOf(e)
-	return ok && r.TablesMayIgnoreRollback()
-}
-
-// ChangedRowsWord is how the engine counts the rows a change makes.
-func ChangedRowsWord(e Engine) string {
-	if r, ok := sqlRulesOf(e); ok {
-		return r.ChangedRowsWord()
-	}
-	return "changed"
-}
-
-// UseSchemaSQL makes a session find unqualified names in a schema, ""
-// for an engine whose sessions have no schema to change.
-func UseSchemaSQL(e Engine, schema string) string {
-	if r, ok := sqlRulesOf(e); ok {
-		return r.UseSchemaSQL(schema)
-	}
-	return ""
-}
-
-// EditorSchemaPreamble is what a new editor on a schema starts with, ""
-// for none.
-func EditorSchemaPreamble(e Engine, schema string) string {
-	if r, ok := sqlRulesOf(e); ok {
-		return r.EditorSchemaPreamble(schema)
-	}
-	return ""
-}
-
-// ReadOnlyBeginSQL starts a transaction in which the server refuses
-// writes, "" where the engine has none.
-func ReadOnlyBeginSQL(e Engine) string {
-	if r, ok := sqlRulesOf(e); ok {
-		return r.ReadOnlyBeginSQL()
-	}
-	return ""
-}
-
-// ParameterAsText reports whether a parameter typed in goes to the server
-// as text, for the server to read as the type it needs.
-func ParameterAsText(e Engine) bool {
-	r, ok := sqlRulesOf(e)
-	return ok && r.ParameterAsText()
-}
-
-// ScriptPreamble is what a schema's script starts with; functions says it
-// makes functions.
-func ScriptPreamble(e Engine, functions bool) string {
-	if r, ok := sqlRulesOf(e); ok {
-		return r.ScriptPreamble(functions)
-	}
-	return ""
-}
-
-// FileReadingFunctions are the engine's functions that read the server's
-// files or fetch URLs.
-func FileReadingFunctions(e Engine) []string {
-	if r, ok := sqlRulesOf(e); ok {
-		return r.FileReadingFunctions()
-	}
-	return nil
-}
-
-// FileNamesInStrings reports whether the engine reads a file named by a
-// string or a quoted name wherever a table goes, as DuckDB.
-func FileNamesInStrings(e Engine) bool {
-	r, ok := sqlRulesOf(e)
-	return ok && r.FileNamesInStrings()
-}
-
-// LikeFilterSQL matches a column's text against pattern, a literal whose
-// own % and _ are escaped with a backslash.
-func LikeFilterSQL(e Engine, column, pattern string, not bool) string {
-	if r, ok := sqlRulesOf(e); ok {
-		return r.LikeFilterSQL(column, pattern, not)
-	}
-	return likeTextFilterSQL(column, pattern, not)
-}
-
 // JSONPathSQL reads a JSON column, quoted, at path, keys and array places;
 // leaf reads a scalar as text rather than a part of the document.
 func JSONPathSQL(e Engine, column string, path []any, leaf bool) string {
-	if r, ok := sqlRulesOf(e); ok {
+	if r, ok := SQL(e); ok {
 		return r.JSONPathSQL(column, path, leaf)
 	}
 	return jsonPathSQL(column, path, leaf, false)
 }
 
-// UpsertSQL makes an insert of a row update the row of its key, or keep
-// it when updatedColumns is empty; names come quoted.
-func UpsertSQL(e Engine, insert string, keys, updatedColumns []string) string {
-	if r, ok := sqlRulesOf(e); ok {
-		return r.UpsertSQL(insert, keys, updatedColumns)
-	}
-	return upsertOnConflictSQL(insert, keys, updatedColumns)
-}
-
-// ProfileBySummarize reports whether the engine profiles a table's
-// columns itself, as DuckDB's SUMMARIZE.
-func ProfileBySummarize(e Engine) bool {
-	r, ok := sqlRulesOf(e)
-	return ok && r.ProfileBySummarize()
-}
-
-// Comparable reports whether the server can compare a column type's
-// values, for their minimum, maximum and distinct count.
-func Comparable(e Engine, columnType string) bool {
-	r, ok := sqlRulesOf(e)
-	return !ok || r.Comparable(columnType)
-}
-
-// FirstColumn is the key column a new table starts with: one numbering
-// its rows where the engine does.
-func FirstColumn(e Engine) ColumnDesign {
-	if r, ok := sqlRulesOf(e); ok {
-		return r.FirstColumn()
-	}
-	return ColumnDesign{Name: "id", PrimaryKey: true}
-}
-
-// FixedKeysNote is what the table designer says of the keys and checks of
-// a table made, "" when it can change them.
-func FixedKeysNote(e Engine) string {
-	if r, ok := sqlRulesOf(e); ok {
-		return r.FixedKeysNote()
-	}
-	return ""
-}
-
-// UpdateSetsDefault reports whether an UPDATE may set a column to DEFAULT.
-func UpdateSetsDefault(e Engine) bool {
-	r, ok := sqlRulesOf(e)
-	return !ok || r.UpdateSetsDefault()
-}
-
-// InterruptAbortsTransaction reports whether stopping a statement aborts
-// the transaction open on its connection.
-func InterruptAbortsTransaction(e Engine) bool {
-	r, ok := sqlRulesOf(e)
-	return ok && r.InterruptAbortsTransaction()
-}
-
-// StableOrderByKey reports whether a table's rows are read ordered by its
-// key, for pages and edits to find the same rows.
-func StableOrderByKey(e Engine) bool {
-	r, ok := sqlRulesOf(e)
-	return !ok || r.StableOrderByKey()
-}
-
-// BooleansAreNumbers reports whether the engine's booleans are 1 and 0.
-func BooleansAreNumbers(e Engine) bool {
-	r, ok := sqlRulesOf(e)
-	return ok && r.BooleansAreNumbers()
-}
-
-// AccountForm is what the account form asks, and says, for the engine.
-func AccountForm(e Engine) AccountFormFields {
-	if r, ok := sqlRulesOf(e); ok {
-		return r.AccountForm()
-	}
-	return AccountFormFields{GrantTargetLabel: "Database"}
-}
-
-// BackupNote says how the engine's databases are backed up, or restored.
-func BackupNote(e Engine, restore bool) string {
-	if r, ok := sqlRulesOf(e); ok {
-		return r.BackupNote(restore)
-	}
-	return backupNoteFor(restore, sqlFileRestoreNote, mysqldumpBackupNote)
-}
-
-// BackupChoicesOf are what the backup dialog asks of the engine's backup.
-func BackupChoicesOf(e Engine) BackupChoices {
-	if r, ok := sqlRulesOf(e); ok {
-		return r.BackupChoices()
-	}
-	return BackupChoices{}
-}
-
-// BackupScopeOf is the navigator node the engine backs up.
-func BackupScopeOf(e Engine) BackupScope {
-	if r, ok := sqlRulesOf(e); ok {
-		return r.BackupScope()
-	}
-	return BackupScopeNone
-}
-
-// MaintenanceCommands are the commands that keep a table, named as
-// quotedTable, in shape; a label says what the command locks.
-func MaintenanceCommands(e Engine, quotedTable string) []MaintenanceCommand {
-	if r, ok := sqlRulesOf(e); ok {
-		return r.MaintenanceCommands(quotedTable)
-	}
-	return nil
-}
-
-// TruncateToEmpty reports whether a table's rows are all deleted by
-// TRUNCATE, not DELETE.
-func TruncateToEmpty(e Engine) bool {
-	r, ok := sqlRulesOf(e)
-	return ok && r.TruncateToEmpty()
-}
-
 // SchemaChangesCommit reports whether a schema change cannot be part of a
 // transaction, so that a table is made before one opens.
 func SchemaChangesCommit(e Engine) bool {
-	_, ok := sqlRulesOf(e)
+	_, ok := SQL(e)
 	return ok && !e.TransactionalDDL()
 }

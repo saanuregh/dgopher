@@ -40,7 +40,7 @@ func withServerParams(ctx context.Context, e Engine, args []any) (context.Contex
 	if len(params) == 0 {
 		return ctx, args, nil
 	}
-	if r, ok := sqlRulesOf(e); !ok || !r.takesServerParameters() {
+	if r, ok := SQL(e); !ok || !r.takesServerParameters() {
 		return ctx, nil, fmt.Errorf("%s does not take server parameters", e)
 	}
 	return clickhouse.Context(ctx, clickhouse.WithParameters(params)), rest, nil
@@ -216,7 +216,7 @@ var clickhouseFileReaders = strings.Fields("file url urlcluster s3 s3cluster hdf
 
 type clickhouseEngine struct{ clickhouseDialect }
 
-var _ sqlRules = clickhouseEngine{}
+var _ SQLRules = clickhouseEngine{}
 
 func (clickhouseEngine) Label() string                   { return "ClickHouse" }
 func (clickhouseEngine) ColorHex() string                { return "#d4a10a" }
@@ -314,8 +314,8 @@ func (clickhouseEngine) setsAutocommitWords([]string, func() []string) (on, ok b
 func (clickhouseEngine) beginIsCompound([]string) bool    { return false }
 func (clickhouseEngine) SavepointBeginsTransaction() bool { return false }
 func (clickhouseEngine) OutsideTransaction(string) bool   { return false }
-func (clickhouseEngine) TablesMayIgnoreRollback() bool    { return false }
-func (clickhouseEngine) ChangedRowsWord() string          { return "changed" }
+func (clickhouseEngine) RollbackMayKeepChanges() bool     { return false }
+func (clickhouseEngine) RowCountWord() string             { return "changed" }
 
 func (clickhouseEngine) Explain(statement string, analyze bool) (ExplainRun, bool) {
 	if analyze {
@@ -385,7 +385,7 @@ func (clickhouseEngine) InsertDefaultRowSQL(table string) string {
 }
 
 func (clickhouseEngine) MaxParameters() int       { return 65535 }
-func (clickhouseEngine) ProfileBySummarize() bool { return false }
+func (clickhouseEngine) ProfilesInOneQuery() bool { return false }
 
 func (clickhouseEngine) Comparable(columnType string) bool {
 	t := strings.ToLower(columnType)
@@ -516,14 +516,14 @@ func (clickhouseEngine) TableCommentSQL(d Dialect, schema, table, comment string
 }
 
 func (clickhouseEngine) ColumnCommentInline() bool           { return true }
-func (clickhouseEngine) Comments() bool                      { return true }
+func (clickhouseEngine) HasComments() bool                   { return true }
 func (clickhouseEngine) KeepsColumnExtra() bool              { return false }
 func (clickhouseEngine) AutoIncrementSQL() string            { return "" }
-func (clickhouseEngine) NumbersRows() bool                   { return false }
+func (clickhouseEngine) HasAutoNumbering() bool              { return false }
 func (clickhouseEngine) HasForeignKeys() bool                { return false }
-func (clickhouseEngine) ForeignKeyActions() bool             { return true }
+func (clickhouseEngine) HasForeignKeyActions() bool          { return true }
 func (clickhouseEngine) ForeignKeyNamesUniqueInSchema() bool { return false }
-func (clickhouseEngine) SecondaryIndexes() bool              { return false }
+func (clickhouseEngine) HasSecondaryIndexes() bool           { return false }
 func (clickhouseEngine) KeepsKeyNames() bool                 { return true }
 func (clickhouseEngine) NamesConstraintsItself() bool        { return false }
 func (clickhouseEngine) NamesTablesWithinSchema() bool       { return false }

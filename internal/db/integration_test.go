@@ -1579,7 +1579,8 @@ func TestIntegrationPlans(t *testing.T) {
 					all = append(all, vals)
 				}
 				rows.Close()
-				p, ok := ParsePlan(c.cfg.Engine, cols, all)
+				r, _ := SQL(c.cfg.Engine)
+				p, ok := r.ParsePlan(cols, all)
 				if !ok || p.Root == nil || p.Analyzed != analyze {
 					t.Fatalf("%s: plan %+v %v from %v", prefix, p, ok, all)
 				}

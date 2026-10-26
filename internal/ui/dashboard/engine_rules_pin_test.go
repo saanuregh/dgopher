@@ -43,18 +43,19 @@ func pinValues(t *testing.T, name string, want map[string]string, produce func(a
 // The read-only transaction a panel's statement runs in, where the engine
 // has one.
 func TestPinReadOnlyBegin(t *testing.T) {
-	begin := func(e db.Engine) string { return db.ReadOnlyBeginSQL(e) }
+	begin := func(r db.SQLRules) string { return r.ReadOnlyBeginSQL() }
 	pinValues(t, "read only begin", map[string]string{
 		"postgres":   "START TRANSACTION READ ONLY",
 		"mysql":      "START TRANSACTION READ ONLY",
 		"clickhouse": "",
 		"sqlite":     "",
 		"duckdb":     "",
-		"redis":      "",
-		"unknown":    "",
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
-			add(string(e), begin(e))
+			// Redis and an unknown engine open no session, which run needs.
+			if r, ok := db.SQL(e); ok {
+				add(string(e), begin(r))
+			}
 		}
 	})
 }

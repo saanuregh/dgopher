@@ -48,7 +48,7 @@ func Advise(e Engine, p *Plan) []Advice {
 	add := func(n *PlanNode, format string, args ...any) {
 		out = append(out, Advice{Node: n, Text: fmt.Sprintf(format, args...)})
 	}
-	r, ok := sqlRulesOf(e)
+	r, ok := SQL(e)
 	p.Root.Walk(func(n *PlanNode, _ int) {
 		if ok {
 			r.AdvisePlanStep(n, add)

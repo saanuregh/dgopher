@@ -46,7 +46,7 @@ func (q *Tab) switcherView(c *ui.Context) {
 			q.switchDatabase(database)
 		}
 	}
-	if db.UseSchemaSQL(cn.Config.Engine, "") == "" {
+	if !switchesSchema(cn.Config.Engine) {
 		return
 	}
 	schemas, ok := cn.Schemas[q.Database]
@@ -58,6 +58,13 @@ func (q *Tab) switcherView(c *ui.Context) {
 		FontSize(widgets.ToolFontSize).Changed() {
 		q.switchSchema(current)
 	}
+}
+
+// switchesSchema reports whether the engine's sessions have a schema to
+// switch.
+func switchesSchema(e db.Engine) bool {
+	r, ok := db.SQL(e)
+	return ok && r.UseSchemaSQL("") != ""
 }
 
 // switchSchema makes the editor's session find names in a schema, as its
@@ -74,7 +81,10 @@ func (q *Tab) switchSchema(schema string) {
 		return
 	}
 	cfg := cn.Config
-	stmt := db.UseSchemaSQL(cfg.Engine, schema)
+	stmt := ""
+	if r, ok := db.SQL(cfg.Engine); ok {
+		stmt = r.UseSchemaSQL(schema)
+	}
 	v := safety.ReviewSQL(&cfg, safety.Analyze(&cfg, []string{stmt}))
 	if v.Blocked != "" {
 		q.a.RecordBlocked(cn, v.Blocked, stmt)

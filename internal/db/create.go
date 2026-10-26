@@ -36,7 +36,7 @@ var duckDecimal = regexp.MustCompile(`^DECIMAL\((\d+),\s*(\d+)\)$`)
 // text what its numbers and dates would round or lose. An engine without
 // SQL rules gets DuckDB's.
 func ColumnType(e Engine, duckType string) string {
-	if r, ok := sqlRulesOf(e); ok {
+	if r, ok := SQL(e); ok {
 		return r.ColumnTypeFor(duckType)
 	}
 	return columnTypesFor(duckType).duckdb
@@ -92,7 +92,7 @@ func columnTypesFor(duckType string) engineTypes {
 // have.
 func InsertBatch(e Engine, cols int) int {
 	params := 65535
-	if r, ok := sqlRulesOf(e); ok {
+	if r, ok := SQL(e); ok {
 		params = r.MaxParameters()
 	}
 	return max(1, min(1000, params/max(1, cols)))

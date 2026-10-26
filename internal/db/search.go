@@ -60,7 +60,7 @@ func (h SearchHit) Item() Item {
 // view's query, a routine's body, a trigger's. It gives at most
 // SearchLimit hits, and says whether there were more.
 func Search(ctx context.Context, d *DB, text string, definitions bool) ([]SearchHit, bool, error) {
-	if r, ok := sqlRulesOf(d.Dialect.Engine()); ok {
+	if r, ok := SQL(d.Dialect.Engine()); ok {
 		return r.Search(ctx, d, text, definitions)
 	}
 	return nil, false, nil

@@ -1558,7 +1558,8 @@ func TestMaintenanceOnProduction(t *testing.T) {
 	cn := addConn(a, cfg)
 	tt := ui.NewTester(a.view, 1200, 800)
 	connectNow(t, a, tt, cn)
-	cmds := db.MaintenanceCommands(db.Postgres, db.QualifiedName(cn.DB.Dialect, "shop", "orders"))
+	r, _ := db.SQL(db.Postgres)
+	cmds := r.MaintenanceCommands(db.QualifiedName(cn.DB.Dialect, "shop", "orders"))
 	vacuum := cmds[slices.IndexFunc(cmds, func(m db.MaintenanceCommand) bool { return m.Label == "Vacuum and Analyze" })]
 	a.runInEditor(cn, "", vacuum.SQL)
 	testutil.WaitFor(t, tt, "the confirmation", func() bool { return a.confirm != nil })

@@ -229,7 +229,7 @@ var mysqlFileReaders = strings.Fields("load_file")
 
 type mysqlEngine struct{ mysqlDialect }
 
-var _ sqlRules = mysqlEngine{}
+var _ SQLRules = mysqlEngine{}
 
 func (mysqlEngine) Label() string                   { return "MySQL" }
 func (mysqlEngine) ColorHex() string                { return "#00758f" }
@@ -372,8 +372,8 @@ func (mysqlEngine) beginIsCompound(words []string) bool { return wordAt(words, 1
 
 func (mysqlEngine) SavepointBeginsTransaction() bool { return false }
 func (mysqlEngine) OutsideTransaction(string) bool   { return false }
-func (mysqlEngine) TablesMayIgnoreRollback() bool    { return true }
-func (mysqlEngine) ChangedRowsWord() string          { return "matched" }
+func (mysqlEngine) RollbackMayKeepChanges() bool     { return true }
+func (mysqlEngine) RowCountWord() string             { return "matched" }
 
 func (mysqlEngine) Explain(statement string, analyze bool) (ExplainRun, bool) {
 	if analyze {
@@ -425,7 +425,7 @@ func (mysqlEngine) InsertDefaultRowSQL(table string) string {
 }
 
 func (mysqlEngine) MaxParameters() int               { return 65535 }
-func (mysqlEngine) ProfileBySummarize() bool         { return false }
+func (mysqlEngine) ProfilesInOneQuery() bool         { return false }
 func (mysqlEngine) Comparable(string) bool           { return true }
 func (mysqlEngine) StableOrderByKey() bool           { return true }
 func (mysqlEngine) UpdateSetsDefault() bool          { return true }
@@ -532,14 +532,14 @@ func (mysqlEngine) TableCommentSQL(d Dialect, schema, table, comment string) str
 }
 
 func (mysqlEngine) ColumnCommentInline() bool           { return true }
-func (mysqlEngine) Comments() bool                      { return true }
+func (mysqlEngine) HasComments() bool                   { return true }
 func (mysqlEngine) KeepsColumnExtra() bool              { return true }
 func (mysqlEngine) AutoIncrementSQL() string            { return "AUTO_INCREMENT" }
-func (mysqlEngine) NumbersRows() bool                   { return true }
+func (mysqlEngine) HasAutoNumbering() bool              { return true }
 func (mysqlEngine) HasForeignKeys() bool                { return true }
-func (mysqlEngine) ForeignKeyActions() bool             { return true }
+func (mysqlEngine) HasForeignKeyActions() bool          { return true }
 func (mysqlEngine) ForeignKeyNamesUniqueInSchema() bool { return true }
-func (mysqlEngine) SecondaryIndexes() bool              { return true }
+func (mysqlEngine) HasSecondaryIndexes() bool           { return true }
 func (mysqlEngine) KeepsKeyNames() bool                 { return true }
 func (mysqlEngine) NamesConstraintsItself() bool        { return false }
 func (mysqlEngine) NamesTablesWithinSchema() bool       { return false }

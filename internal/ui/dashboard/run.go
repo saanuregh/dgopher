@@ -104,7 +104,11 @@ func run(ctx context.Context, pool *db.DB, cfg db.Config, database string, p pre
 	defer sess.Close()
 	// The server itself refuses writes: a read the app classified may
 	// still call a function that writes.
-	if begin := db.ReadOnlyBeginSQL(cfg.Engine); begin != "" {
+	begin := ""
+	if r, ok := db.SQL(cfg.Engine); ok {
+		begin = r.ReadOnlyBeginSQL()
+	}
+	if begin != "" {
 		if _, err := sess.Exec(ctx, begin); err != nil {
 			return nil, err
 		}

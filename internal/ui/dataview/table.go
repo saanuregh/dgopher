@@ -447,7 +447,7 @@ func (t *TableTab) structureView(c *ui.Context, a Host) {
 			}
 			if t.fkErr != "" {
 				failed("Foreign keys", "Couldn't read foreign keys", t.fkErr)
-			} else if len(t.fks) > 0 || db.HasForeignKeys(t.Conn.Config.Engine) {
+			} else if r, ok := db.SQL(t.Conn.Config.Engine); len(t.fks) > 0 || !ok || r.HasForeignKeys() {
 				section("Foreign keys", len(t.fks))
 			}
 			for _, fk := range t.fks {

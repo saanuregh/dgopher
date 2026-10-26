@@ -260,11 +260,11 @@ func diffDesigns(was, now TableDesign) designDiff {
 }
 
 // supported says what an engine cannot change of a table it made.
-func (diff designDiff) supported(r sqlRules) error {
+func (diff designDiff) supported(r SQLRules) error {
 	keys := diff.primaryKeyChanged || len(diff.droppedKeys)+len(diff.addedKeys)+len(diff.droppedChecks)+len(diff.addedChecks) > 0
 	indexes := len(diff.droppedIndexes)+len(diff.addedIndexes) > 0
 	// Where a table holds no indexes of its own, none of them changes.
-	if why := r.KeysOfMadeTable(); why != "" && (keys || indexes && !r.SecondaryIndexes()) {
+	if why := r.KeysOfMadeTable(); why != "" && (keys || indexes && !r.HasSecondaryIndexes()) {
 		return errors.New(why)
 	}
 	for _, ch := range diff.droppedChecks {
@@ -427,7 +427,7 @@ func createIndexSQL(d Dialect, t TableDesign, ix IndexDesign) string {
 
 // commentsApart reports whether an engine comments on tables and columns
 // with statements of their own.
-func commentsApart(r sqlRules) bool { return r.Comments() && !r.ColumnCommentInline() }
+func commentsApart(r SQLRules) bool { return r.HasComments() && !r.ColumnCommentInline() }
 
 func columnCommentSQL(d Dialect, t TableDesign, c ColumnDesign) string {
 	return "COMMENT ON COLUMN " + QualifiedName(d, t.Schema, t.Name) + "." + d.Quote(c.Name) + " IS " + commentLiteral(d.Engine(), c.Comment)
@@ -478,14 +478,14 @@ func validateDesign(d Dialect, t TableDesign) error {
 			return fmt.Errorf("%s needs a type", c.Name)
 		case c.PrimaryKey && c.Nullable:
 			return fmt.Errorf("%s is in the primary key, which holds no NULL", c.Name)
-		case c.Comment != "" && !r.Comments():
+		case c.Comment != "" && !r.HasComments():
 			return fmt.Errorf("%s keeps no comments", e.Label())
-		case c.AutoIncrement && c.Was == "" && !r.NumbersRows():
+		case c.AutoIncrement && c.Was == "" && !r.HasAutoNumbering():
 			return fmt.Errorf("%s numbers no rows of its own: use a sequence", e.Label())
 		}
 		names[key] = true
 	}
-	if t.Comment != "" && !r.Comments() {
+	if t.Comment != "" && !r.HasComments() {
 		return fmt.Errorf("%s keeps no comments", e.Label())
 	}
 	has := func(col string) bool { return names[strings.ToLower(col)] }

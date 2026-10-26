@@ -10,6 +10,7 @@ package dataview
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -103,23 +104,22 @@ func TestPinFilterSQL(t *testing.T) {
 		"duckdb equals":           "col = E'a\\\\b'",
 		"duckdb in":               "(col IN ('x', '\\x01'::BLOB) OR col IS NULL)",
 		"duckdb between":          "col BETWEEN 1 AND 9",
-		"redis contains":          "CAST(col AS TEXT) LIKE '%50\\%\\_off\\\\%' ESCAPE '\\'",
-		"redis not contains":      "CAST(col AS TEXT) NOT LIKE '%it''s%' ESCAPE '\\'",
-		"redis prefix":            "CAST(col AS TEXT) LIKE 'a%' ESCAPE '\\'",
-		"redis suffix":            "CAST(col AS TEXT) LIKE '%z' ESCAPE '\\'",
 		"redis equals":            "col = 'a\\b'",
 		"redis in":                "(col IN ('x', X'01') OR col IS NULL)",
 		"redis between":           "col BETWEEN 1 AND 9",
-		"unknown contains":        "CAST(col AS TEXT) LIKE '%50\\%\\_off\\\\%' ESCAPE '\\'",
-		"unknown not contains":    "CAST(col AS TEXT) NOT LIKE '%it''s%' ESCAPE '\\'",
-		"unknown prefix":          "CAST(col AS TEXT) LIKE 'a%' ESCAPE '\\'",
-		"unknown suffix":          "CAST(col AS TEXT) LIKE '%z' ESCAPE '\\'",
 		"unknown equals":          "col = 'a\\b'",
 		"unknown in":              "(col IN ('x', X'01') OR col IS NULL)",
 		"unknown between":         "col BETWEEN 1 AND 9",
 	}, func(add func(key, got string)) {
+		likeOps := []string{"contains", "notcontains", "prefix", "suffix"}
 		for _, e := range pinEngines {
+			_, isSQL := db.SQL(e)
 			for _, c := range conds {
+				// A LIKE filter is written only with the engine's Dialect,
+				// which Redis and an unknown engine do not have.
+				if !isSQL && slices.Contains(likeOps, c.cond.op) {
+					continue
+				}
 				add(string(e)+" "+c.name, filter(e, "col", c.cond))
 			}
 		}
@@ -243,7 +243,7 @@ func TestPinJSONPath(t *testing.T) {
 
 // Which columns the server compares for a profile, and how it profiles.
 func TestPinProfile(t *testing.T) {
-	isComparable := func(e db.Engine, typ string) bool { return db.Comparable(e, typ) }
+	isComparable := func(r db.SQLRules, typ string) bool { return r.Comparable(typ) }
 	types := []string{"json", "jsonb", "point", "Map(String, UInt8)", "JSON", "Nested(a Int8)", "Variant(String)", "text", "integer"}
 	cols := []db.ColumnInfo{{Name: "n", Type: "integer"}, {Name: "doc", Type: "json"}}
 	pinValues(t, "profile", map[string]string{
@@ -257,9 +257,7 @@ func TestPinProfile(t *testing.T) {
 		"sqlite server profiles":     "[{name:n typ:integer col:0 count:10 nulls:1 distinct:3 min:1 max:5 avg:2.5 median: bins:[] top:[]} {name:doc typ:json col:0 count:10 nulls:2 distinct:-1 min: max: avg: median: bins:[] top:[]}] <nil>",
 		"duckdb comparable":          "json=true jsonb=true point=true Map(String, UInt8)=true JSON=true Nested(a Int8)=true Variant(String)=true text=true integer=true",
 		"duckdb server profiles":     "[{name:n typ:INTEGER col:0 count:10 nulls:1 distinct:3 min:1 max:5 avg:2.5 median:2 bins:[] top:[]}] <nil>",
-		"redis comparable":           "json=true jsonb=true point=true Map(String, UInt8)=true JSON=true Nested(a Int8)=true Variant(String)=true text=true integer=true",
 		"redis server profiles":      "[{name:n typ:integer col:0 count:10 nulls:1 distinct:3 min:1 max:5 avg:2.5 median: bins:[] top:[]} {name:doc typ:json col:0 count:10 nulls:2 distinct:-1 min: max: avg: median: bins:[] top:[]}] <nil>",
-		"unknown comparable":         "json=true jsonb=true point=true Map(String, UInt8)=true JSON=true Nested(a Int8)=true Variant(String)=true text=true integer=true",
 		"unknown server profiles":    "[{name:n typ:integer col:0 count:10 nulls:1 distinct:3 min:1 max:5 avg:2.5 median: bins:[] top:[]} {name:doc typ:json col:0 count:10 nulls:2 distinct:-1 min: max: avg: median: bins:[] top:[]}] <nil>",
 		"postgres query":             "SELECT count(*), count(\"n\"), count(DISTINCT \"n\"), min(\"n\"), max(\"n\"), avg(\"n\"), count(\"doc\"), NULL, NULL, NULL, NULL FROM \"t\" WHERE n > 1",
 		"mysql query":                "SELECT count(*), count(`n`), count(DISTINCT `n`), min(`n`), max(`n`), avg(`n`), count(`doc`), count(DISTINCT `doc`), min(`doc`), max(`doc`), NULL FROM \"t\" WHERE n > 1",
@@ -268,11 +266,15 @@ func TestPinProfile(t *testing.T) {
 		"duckdb query":               "SUMMARIZE SELECT * FROM \"t\" WHERE n > 1",
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
-			var lines []string
-			for _, typ := range types {
-				lines = append(lines, fmt.Sprintf("%s=%v", typ, isComparable(e, typ)))
+			// Redis and an unknown engine have no Dialect, which
+			// profileQuery reads its engine from.
+			if r, ok := db.SQL(e); ok {
+				var lines []string
+				for _, typ := range types {
+					lines = append(lines, fmt.Sprintf("%s=%v", typ, isComparable(r, typ)))
+				}
+				add(string(e)+" comparable", strings.Join(lines, " "))
 			}
-			add(string(e)+" comparable", strings.Join(lines, " "))
 			rows := [][]any{{int64(10), int64(9), int64(3), int64(1), int64(5), "2.5", int64(8), nil, nil, nil, nil}}
 			names := []string{"count"}
 			if e == db.DuckDB {

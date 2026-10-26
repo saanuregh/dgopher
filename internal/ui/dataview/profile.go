@@ -139,13 +139,14 @@ func topValues(counts map[string]int64, n int) []topValue {
 // them itself; the others count, and find the bounds of what they can
 // compare.
 func profileQuery(d db.Dialect, cols []db.ColumnInfo, from, where string) string {
-	if db.ProfileBySummarize(d.Engine()) {
+	r, ok := db.SQL(d.Engine())
+	if ok && r.ProfilesInOneQuery() {
 		return "SUMMARIZE SELECT * FROM " + from + whereClause(where)
 	}
 	parts := []string{"count(*)"}
 	for _, c := range cols {
 		col := d.Quote(c.Name)
-		if db.Comparable(d.Engine(), c.Type) {
+		if !ok || r.Comparable(c.Type) {
 			parts = append(parts, "count("+col+")", "count(DISTINCT "+col+")", "min("+col+")", "max("+col+")")
 		} else {
 			parts = append(parts, "count("+col+")", "NULL", "NULL", "NULL")
@@ -179,7 +180,7 @@ func serverProfiles(e db.Engine, cols []db.ColumnInfo, names []string, rows [][]
 		n, _ := strconv.ParseInt(db.Display(v), 10, 64)
 		return n
 	}
-	if db.ProfileBySummarize(e) {
+	if r, ok := db.SQL(e); ok && r.ProfilesInOneQuery() {
 		// One row a column: column_name, column_type, min, max,
 		// approx_unique, avg, std, q25, q50, q75, count, null_percentage.
 		at := map[string]int{}

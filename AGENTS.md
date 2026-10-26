@@ -21,10 +21,11 @@ tests.
 - **An open transaction is never closed silently.** Closing a tab,
   disconnecting or quitting asks first.
 - **Engine behavior lives in each engine's rules**: a type per engine
-  implements `engineRules`, and SQL engines `sqlRules` (both declared in
+  implements `engineRules`, and SQL engines `SQLRules` (both declared in
   `internal/db/engine.go`; each engine's methods are in its own file, such
   as `internal/db/postgres.go`), so an engine missing a hook does not
-  compile. Do not compare with an engine outside the reviewed list in
+  compile. Outside `internal/db`, reach them through `Engine` methods and
+  `db.SQL(e)`, whose `false` (Redis, an unknown engine) the caller handles. Do not compare with an engine outside the reviewed list in
   `TestNoEngineSwitches`, which fails on a new comparison. An engine built
   on another's type also needs a dialect type of its own whose `Engine()`
   is its own, returned by its `dialect()`: rules are found through a

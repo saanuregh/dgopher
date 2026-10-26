@@ -85,9 +85,15 @@ func (t *usersTab) Icon() *ui.SVG                { return widgets.IconUsers }
 func (t *usersTab) CloseReason() string          { return "" }
 func (t *usersTab) Close()                       {}
 
+// usersSupported reports whether the app manages the engine's users.
+func usersSupported(e db.Engine) bool {
+	r, ok := db.SQL(e)
+	return ok && r.ManagesAccounts()
+}
+
 // openUsers opens the users of a server, or brings their tab forward.
 func (a *App) openUsers(cn *connection.Conn) {
-	if !db.UsersSupported(cn.Config.Engine) {
+	if !usersSupported(cn.Config.Engine) {
 		a.ShowError("No users to manage", cn.Config.Engine.Label()+" has no users DGopher manages.")
 		return
 	}
@@ -261,8 +267,8 @@ func (t *usersTab) accountView(c *ui.Context, acc db.Account) {
 				ui.Text(c, "Member of "+strings.Join(acc.MemberOf, ", "))
 			}
 			ui.Text(c, "Privileges").Bold()
-			if note := db.AccountForm(t.conn.Config.Engine).PrivilegesNote; note != "" {
-				ui.Text(c, note).FontSize(12).TextColor(pal.Muted)
+			if r, ok := db.SQL(t.conn.Config.Engine); ok && r.AccountForm().PrivilegesNote != "" {
+				ui.Text(c, r.AccountForm().PrivilegesNote).FontSize(12).TextColor(pal.Muted)
 			}
 			if len(t.privs) == 0 {
 				ui.Text(c, "None.").TextColor(pal.Muted)
@@ -293,7 +299,11 @@ func (t *usersTab) formView(c *ui.Context) {
 	f := t.form
 	th := c.Theme()
 	e := t.conn.Config.Engine
-	fields := db.AccountForm(e)
+	fields := db.AccountFormFields{GrantTargetLabel: "Database"}
+	var privileges []string
+	if r, ok := db.SQL(e); ok {
+		fields, privileges = r.AccountForm(), r.Privileges()
+	}
 	titles := map[accountFormKind]string{formNewUser: "New User", formNewRole: "New Role",
 		formPassword: "Change the Password of " + f.account.Label(), formGrant: "Grant to " + f.account.Label(),
 		formJoinRole: "Add " + f.account.Label() + " to a Role"}
@@ -319,7 +329,7 @@ func (t *usersTab) formView(c *ui.Context) {
 				case formGrant:
 					ui.Field(c, "Privileges", func() {
 						ui.Row(c).Gap(10).Wrap().Children(func() {
-							for _, p := range db.Privileges(e) {
+							for _, p := range privileges {
 								on := f.privileges[p]
 								if ui.Checkbox(c, &on, p).Changed() {
 									f.privileges[p] = on
@@ -368,6 +378,7 @@ func (t *usersTab) passwordFields(c *ui.Context, f *accountForm) {
 // submit turns the form into statements, which apply confirms and runs.
 func (t *usersTab) submit(f *accountForm) {
 	d := t.conn.DB.Dialect
+	r, isSQL := db.SQL(d.Engine())
 	f.err = ""
 	if (f.kind == formNewUser || f.kind == formPassword) && f.password != f.repeated {
 		f.err = "The passwords differ."
@@ -384,7 +395,7 @@ func (t *usersTab) submit(f *accountForm) {
 			return
 		}
 		acc := db.Account{Name: name, Role: f.kind == formNewRole}
-		if db.AccountForm(d.Engine()).Host {
+		if isSQL && r.AccountForm().Host {
 			acc.Host = strings.TrimSpace(f.host)
 		}
 		var stmt string
@@ -397,7 +408,11 @@ func (t *usersTab) submit(f *accountForm) {
 		title, stmts = "Change the password of "+f.account.Label(), []string{stmt}
 	case formGrant:
 		var privs []string
-		for _, p := range db.Privileges(d.Engine()) {
+		var offered []string
+		if isSQL {
+			offered = r.Privileges()
+		}
+		for _, p := range offered {
 			if f.privileges[p] {
 				privs = append(privs, p)
 			}

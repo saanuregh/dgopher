@@ -89,7 +89,10 @@ func (m *Model) Check() error {
 }
 
 // Engine reports whether a model may be of an engine: one of SQL tables.
-func Engine(e db.Engine) bool { return db.DialectOf(e) != nil }
+func Engine(e db.Engine) bool {
+	_, ok := db.SQL(e)
+	return ok
+}
 
 // Table finds a table of the model by its schema and name.
 func (m *Model) Table(schema, name string) (db.TableDesign, bool) {
@@ -164,6 +167,8 @@ func Modelled(e db.Engine, t db.TableDesign) db.TableDesign {
 	for i := range t.Checks {
 		t.Checks[i].Read = false
 	}
-	db.NormalizeModelTable(e, &t)
+	if r, ok := db.SQL(e); ok {
+		r.NormalizeModelTable(&t)
+	}
 	return t
 }

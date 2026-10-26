@@ -53,16 +53,6 @@ func (f BackupFormat) Label() string {
 	return string(f)
 }
 
-// BackupFormats are the forms an engine's databases are backed up in, the
-// one the app offers first first; none for ClickHouse, whose BACKUP runs
-// on the server.
-func BackupFormats(e Engine) []BackupFormat {
-	if r, ok := sqlRulesOf(e); ok {
-		return slices.Clone(r.BackupFormats())
-	}
-	return nil
-}
-
 // BackupContent is what of a database a backup keeps.
 type BackupContent int
 
@@ -130,7 +120,7 @@ func password(ctx context.Context, cfg Config) (string, error) {
 
 // PlanBackup is how the backup of a database of a connection runs.
 func PlanBackup(ctx context.Context, d *DB, o BackupOptions) (ToolRun, error) {
-	if r, ok := sqlRulesOf(d.Config.Engine); ok {
+	if r, ok := SQL(d.Config.Engine); ok {
 		return r.PlanBackup(ctx, d, o)
 	}
 	return ToolRun{}, backupOptionsError(d.Config.Engine, o)
@@ -139,8 +129,12 @@ func PlanBackup(ctx context.Context, d *DB, o BackupOptions) (ToolRun, error) {
 // backupOptionsError says what of a backup's options the engine cannot
 // take.
 func backupOptionsError(e Engine, o BackupOptions) error {
-	if !slices.Contains(BackupFormats(e), o.Format) {
-		return fmt.Errorf("%s backs up as %v", e.Label(), BackupFormats(e))
+	var formats []BackupFormat
+	if r, ok := SQL(e); ok {
+		formats = r.BackupFormats()
+	}
+	if !slices.Contains(formats, o.Format) {
+		return fmt.Errorf("%s backs up as %v", e.Label(), formats)
 	}
 	if strings.TrimSpace(o.Path) == "" {
 		return errors.New("choose where the backup goes")
@@ -163,7 +157,7 @@ func contentFlag(c BackupContent, schemaOnly, dataOnly string) []string {
 // clean drops what the archive makes before making it. A SQL file
 // restores with Run SQL File instead.
 func PlanRestore(ctx context.Context, d *DB, database, path string, clean bool) (ToolRun, error) {
-	if r, ok := sqlRulesOf(d.Config.Engine); ok {
+	if r, ok := SQL(d.Config.Engine); ok {
 		return r.PlanRestore(ctx, d, database, path, clean)
 	}
 	return ToolRun{}, restoreWithRunSQLFileError(d.Config.Engine)
@@ -430,7 +424,7 @@ func pgToolVersion(ctx context.Context, tool string) (major int, ok bool) {
 // SSH tunnel or a proxy the address it dials is not the server's name,
 // and it has no option to name the server.
 func MysqldumpChecksCAOnly(d *DB) bool {
-	r, ok := sqlRulesOf(d.Config.Engine)
+	r, ok := SQL(d.Config.Engine)
 	return ok && r.BackupToolChecksCAOnly(d)
 }
 

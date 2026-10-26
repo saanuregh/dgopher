@@ -122,7 +122,7 @@ type Dialect interface {
 
 // DialectOf returns the dialect of an engine.
 func DialectOf(e Engine) Dialect {
-	if r, ok := sqlRulesOf(e); ok {
+	if r, ok := SQL(e); ok {
 		return r.dialect()
 	}
 	return nil

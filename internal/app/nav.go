@@ -967,7 +967,7 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		if !cn.Config.Engine.IsFile() && m.Item("Server Activity").Chosen() {
 			a.openActivity(cn)
 		}
-		if db.UsersSupported(cn.Config.Engine) && m.Item("Users and Privileges").Chosen() {
+		if usersSupported(cn.Config.Engine) && m.Item("Users and Privileges").Chosen() {
 			a.openUsers(cn)
 		}
 		if cn.Config.Engine.IsSQL() && m.Item("Catalog Queries").Disabled(cn.DB == nil).Chosen() {
@@ -1047,7 +1047,11 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			if obj.Partitioning != "" && m.Item("New Partition…").Disabled(cn.Config.ReadOnly).Chosen() {
 				a.NewQueryTab(cn, n.database, partitionTemplate(cn.DB.Dialect, obj))
 			}
-			if cmds := db.MaintenanceCommands(cn.Config.Engine, quoted); len(cmds) > 0 {
+			var cmds []db.MaintenanceCommand
+			if r, ok := db.SQL(cn.Config.Engine); ok {
+				cmds = r.MaintenanceCommands(quoted)
+			}
+			if len(cmds) > 0 {
 				m.Submenu("Maintenance", func(m *ui.Menu) {
 					for _, mc := range cmds {
 						if m.Item(mc.Label).Disabled(cn.Config.ReadOnly).Chosen() {
@@ -1150,8 +1154,8 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		}
 		if m.Item("New SQL Editor").Chosen() {
 			text := ""
-			if n.kind == nodeSchema {
-				text = db.EditorSchemaPreamble(cn.Config.Engine, n.schema)
+			if r, ok := db.SQL(cn.Config.Engine); ok && n.kind == nodeSchema {
+				text = r.EditorSchemaPreamble(n.schema)
 			}
 			a.NewQueryTab(cn, n.database, text)
 		}

@@ -148,7 +148,7 @@ func Literal(e Engine, v any) string {
 		}
 		return "FALSE"
 	case []byte:
-		if r, ok := sqlRulesOf(e); ok {
+		if r, ok := SQL(e); ok {
 			return r.BytesLiteral(x)
 		}
 		return hexLiteral(x)
@@ -156,7 +156,7 @@ func Literal(e Engine, v any) string {
 	if IsNumeric(v) {
 		return Display(v)
 	}
-	if r, ok := sqlRulesOf(e); ok {
+	if r, ok := SQL(e); ok {
 		return r.TextLiteral(Display(v))
 	}
 	return textLiteral(Display(v), "chr(0)", standardLiteral)

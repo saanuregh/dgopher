@@ -3,7 +3,7 @@ package query
 // Characterization pins: what the SQL editor's engine-dependent rules give
 // today, for each engine and for an ID no build knows. Each test reaches
 // its rule through one local closure; when a switch moves into a
-// per-engine method (Explain, UseSchemaSQL, NameFolding, ChangedRowsWord),
+// per-engine method (Explain, UseSchemaSQL, NameFolding, RowCountWord),
 // re-point that closure and leave the pinned values alone. A value printed
 // as "unpinned" is one the table lacks.
 
@@ -78,7 +78,7 @@ func TestPinExplainRun(t *testing.T) {
 // The statement switching a session's schema, the case names are found
 // in, and the word for the rows a change made.
 func TestPinEditorRules(t *testing.T) {
-	useSchema := func(e db.Engine, schema string) string { return db.UseSchemaSQL(e, schema) }
+	useSchema := func(r db.SQLRules, schema string) string { return r.UseSchemaSQL(schema) }
 	match := func(names []string, name string, quoted bool, e db.Engine) int {
 		return matchName(names, name, quoted, e)
 	}
@@ -103,15 +103,17 @@ func TestPinEditorRules(t *testing.T) {
 		"duckdb use schema":       "USE \"Sales\"",
 		"duckdb match name":       "orders quoted=false: 1; ORDERS quoted=false: -1; Orders quoted=true: 0; ORDERS quoted=true: -1; lines quoted=false: 2; LINES quoted=true: 2; none quoted=false: -1",
 		"duckdb changed word":     "changed",
-		"redis use schema":        "",
 		"redis match name":        "orders quoted=false: 1; ORDERS quoted=false: -1; Orders quoted=true: 0; ORDERS quoted=true: -1; lines quoted=false: 2; LINES quoted=true: 2; none quoted=false: -1",
 		"redis changed word":      "changed",
-		"unknown use schema":      "",
 		"unknown match name":      "orders quoted=false: 1; ORDERS quoted=false: -1; Orders quoted=true: 0; ORDERS quoted=true: -1; lines quoted=false: 2; LINES quoted=true: 2; none quoted=false: -1",
 		"unknown changed word":    "changed",
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
-			add(string(e)+" use schema", useSchema(e, "Sales"))
+			// Redis and an unknown engine switch no schema
+			// (TestRewrittenSchemaSwitch).
+			if r, ok := db.SQL(e); ok {
+				add(string(e)+" use schema", useSchema(r, "Sales"))
+			}
 			var found []string
 			for _, f := range finds {
 				found = append(found, fmt.Sprintf("%s quoted=%v: %d", f.name, f.quoted, match(names, f.name, f.quoted, e)))

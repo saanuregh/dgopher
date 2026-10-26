@@ -40,12 +40,6 @@ type Privilege struct {
 	Revoke string
 }
 
-// UsersSupported reports whether the app manages an engine's users.
-func UsersSupported(e Engine) bool {
-	r, ok := sqlRulesOf(e)
-	return ok && r.ManagesAccounts()
-}
-
 // noAccountsError is the error of an account statement on an engine whose
 // users the app does not manage.
 func noAccountsError(e Engine) error { return fmt.Errorf("%s has no users the app manages", e.Label()) }
@@ -59,7 +53,7 @@ func mysqlAccountName(a Account) string { return Literal(MySQL, a.Name) + "@" + 
 // ListAccounts lists the users and roles of a server, the system's own
 // roles of PostgreSQL left out.
 func ListAccounts(ctx context.Context, d Dialect, q Querier) ([]Account, error) {
-	if r, ok := sqlRulesOf(d.Engine()); ok {
+	if r, ok := SQL(d.Engine()); ok {
 		return r.ListAccounts(ctx, q)
 	}
 	return nil, noAccountsError(d.Engine())
@@ -68,7 +62,7 @@ func ListAccounts(ctx context.Context, d Dialect, q Querier) ([]Account, error) 
 // AccountPrivileges lists what an account may do, each with the
 // statement that takes it back.
 func AccountPrivileges(ctx context.Context, d Dialect, q Querier, a Account) ([]Privilege, error) {
-	if r, ok := sqlRulesOf(d.Engine()); ok {
+	if r, ok := SQL(d.Engine()); ok {
 		return r.AccountPrivileges(ctx, q, a)
 	}
 	return nil, noAccountsError(d.Engine())
@@ -167,14 +161,6 @@ func grantOnDatabaseSQL(d Dialect, privileges []string, schema, table, name stri
 // GrantRoleSQL writes the statement making an account a member of a role.
 func GrantRoleSQL(d Dialect, role Account, a Account) string {
 	return "GRANT " + accountName(d, role) + " TO " + accountName(d, a)
-}
-
-// Privileges are those a grant offers, by engine.
-func Privileges(e Engine) []string {
-	if r, ok := sqlRulesOf(e); ok {
-		return r.Privileges()
-	}
-	return standardPrivileges()
 }
 
 func standardPrivileges() []string {

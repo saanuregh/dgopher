@@ -105,8 +105,8 @@ func TestPinActivityPages(t *testing.T) {
 
 // TestPinMaintenanceCommands pins each engine's MaintenanceCommands.
 func TestPinMaintenanceCommands(t *testing.T) {
-	commandsOf := func(e db.Engine, quoted string) []string {
-		return lists.Map(db.MaintenanceCommands(e, quoted), func(m db.MaintenanceCommand) string { return m.Label + ": " + m.SQL })
+	commandsOf := func(r db.SQLRules, quoted string) []string {
+		return lists.Map(r.MaintenanceCommands(quoted), func(m db.MaintenanceCommand) string { return m.Label + ": " + m.SQL })
 	}
 	pinValues(t, "maintenance", map[string]string{
 		"postgres":   "[\"Vacuum: VACUUM \\\"s\\\".\\\"t\\\"\" \"Vacuum and Analyze: VACUUM ANALYZE \\\"s\\\".\\\"t\\\"\" \"Analyze: ANALYZE \\\"s\\\".\\\"t\\\"\" \"Reindex (locks writes): REINDEX TABLE \\\"s\\\".\\\"t\\\"\" \"Vacuum Full (locks reads and writes): VACUUM FULL \\\"s\\\".\\\"t\\\"\"]",
@@ -114,11 +114,13 @@ func TestPinMaintenanceCommands(t *testing.T) {
 		"clickhouse": "[\"Optimize: OPTIMIZE TABLE \\\"s\\\".\\\"t\\\"\" \"Optimize Final (merges every part): OPTIMIZE TABLE \\\"s\\\".\\\"t\\\" FINAL\"]",
 		"sqlite":     "[\"Analyze: ANALYZE \\\"s\\\".\\\"t\\\"\" \"Reindex: REINDEX \\\"s\\\".\\\"t\\\"\"]",
 		"duckdb":     "[]",
-		"redis":      "[]",
-		"unknown":    "[]",
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
-			add(string(e), fmt.Sprintf("%q", commandsOf(e, `"s"."t"`)))
+			// Redis and an unknown engine list no tables, whose menu
+			// offers the commands.
+			if r, ok := db.SQL(e); ok {
+				add(string(e), fmt.Sprintf("%q", commandsOf(r, `"s"."t"`)))
+			}
 		}
 	})
 }
@@ -126,7 +128,7 @@ func TestPinMaintenanceCommands(t *testing.T) {
 // TestPinBackupNote pins each engine's BackupNote. An engine with no
 // note of its own reads mysqldump's.
 func TestPinBackupNote(t *testing.T) {
-	noteOf := func(e db.Engine, restore bool) string { return db.BackupNote(e, restore) }
+	noteOf := func(r db.SQLRules, restore bool) string { return r.BackupNote(restore) }
 	pinValues(t, "backup note", map[string]string{
 		"postgres restore=false":   "pg_dump writes it, reaching the server as the connection does; it must be installed, of the server's version or later.",
 		"postgres restore=true":    "A .dump of pg_dump, or a SQL file.",
@@ -138,14 +140,16 @@ func TestPinBackupNote(t *testing.T) {
 		"sqlite restore=true":      "A SQL file runs as Run SQL File runs it; a copy of the database opens as a connection of its own.",
 		"duckdb restore=false":     "EXPORT DATABASE writes the schema and each table's rows, in Parquet, in a new folder.",
 		"duckdb restore=true":      "IMPORT DATABASE reads the folder in a DuckDB of its own, which reaches no file outside it; what it makes is then copied into the database, which must not have its tables.",
-		"redis restore=false":      "mysqldump writes it, in one transaction, with routines, triggers and events; it must be installed.",
-		"redis restore=true":       "A SQL file, as mysqldump writes, runs as Run SQL File runs it.",
-		"unknown restore=false":    "mysqldump writes it, in one transaction, with routines, triggers and events; it must be installed.",
-		"unknown restore=true":     "A SQL file, as mysqldump writes, runs as Run SQL File runs it.",
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
+			// Redis and an unknown engine open no backup dialog
+			// (TestPinBackupScope).
+			r, ok := db.SQL(e)
+			if !ok {
+				continue
+			}
 			for _, restore := range []bool{false, true} {
-				add(fmt.Sprintf("%s restore=%v", e, restore), noteOf(e, restore))
+				add(fmt.Sprintf("%s restore=%v", e, restore), noteOf(r, restore))
 			}
 		}
 	})
@@ -185,14 +189,16 @@ func TestPinBackupDialog(t *testing.T) {
 		"sqlite restore=true":      "Format=false Keep=false File=true Folder=false Drop what the backup makes before making it=false note shown=true",
 		"duckdb restore=false":     "Format=false Keep=false File=false Folder=true Drop what the backup makes before making it=false note shown=true",
 		"duckdb restore=true":      "Format=false Keep=false File=false Folder=true Drop what the backup makes before making it=false note shown=true",
-		"redis restore=false":      "Format=false Keep=false File=true Folder=false Drop what the backup makes before making it=false note shown=true",
-		"redis restore=true":       "Format=false Keep=false File=true Folder=false Drop what the backup makes before making it=false note shown=true",
-		"unknown restore=false":    "Format=false Keep=false File=true Folder=false Drop what the backup makes before making it=false note shown=true",
-		"unknown restore=true":     "Format=false Keep=false File=true Folder=false Drop what the backup makes before making it=false note shown=true",
 	}, func(add func(key, got string)) {
 		a := newTestApp(t)
 		tt := ui.NewTester(a.view, 1200, 800)
 		for _, e := range pinEngines {
+			// Redis and an unknown engine open no backup dialog
+			// (TestPinBackupScope).
+			r, ok := db.SQL(e)
+			if !ok {
+				continue
+			}
 			cn := addConn(a, db.Config{ID: "b-" + string(e), Name: "b", Engine: e, Host: "h", Database: "shop"})
 			for _, restore := range []bool{false, true} {
 				a.openBackup(cn, "", restore)
@@ -202,7 +208,7 @@ func TestPinBackupDialog(t *testing.T) {
 					shown = append(shown, fmt.Sprintf("%s=%v", l, tt.HasText(l)))
 				}
 				add(fmt.Sprintf("%s restore=%v", e, restore), strings.Join(shown, " ")+
-					fmt.Sprintf(" note shown=%v", testutil.HasTextContaining(tt, db.BackupNote(e, restore)[:20])))
+					fmt.Sprintf(" note shown=%v", testutil.HasTextContaining(tt, r.BackupNote(restore)[:20])))
 				a.backup = nil
 				tt.Frame()
 			}
@@ -237,7 +243,7 @@ func TestPinAccountForm(t *testing.T) {
 		for _, e := range pinEngines {
 			a := newTestApp(t)
 			cn := addConn(a, db.Config{ID: "u", Name: "u", Engine: e, Host: "h"})
-			if !db.UsersSupported(e) {
+			if !usersSupported(e) {
 				a.openUsers(cn)
 				alert := ""
 				if r := a.frontAlert(); r != nil {

@@ -224,7 +224,7 @@ type txByVerbs struct {
 // failed one, begins a transaction but one that ends a transaction or
 // sets autocommit.
 func (v txByVerbs) after(e Engine, query string, err error, rollsBackOnTimeout func() bool) txByVerbs {
-	rules, isSQL := sqlRulesOf(e)
+	rules, isSQL := SQL(e)
 	beginsAny := isSQL && rules.autocommitMayBeOff() && v.autocommitOff
 	if err != nil {
 		if isSQL {
@@ -294,7 +294,7 @@ func (v txByVerbs) after(e Engine, query string, err error, rollsBackOnTimeout f
 // CREATE and DROP of a TEMPORARY table. SET autocommit = 1 counts, though
 // it commits only when autocommit was 0. It is false for other engines.
 func CommitsImplicitly(e Engine, sql string) bool {
-	r, ok := sqlRulesOf(e)
+	r, ok := SQL(e)
 	if !ok {
 		return false
 	}
@@ -305,7 +305,7 @@ func CommitsImplicitly(e Engine, sql string) bool {
 // SetsAutocommit reads a MySQL SET of the session's autocommit: on, and
 // whether the statement assigns it at all; false on other engines.
 func SetsAutocommit(e Engine, sql string) (on, ok bool) {
-	r, isSQL := sqlRulesOf(e)
+	r, isSQL := SQL(e)
 	if !isSQL {
 		return false, false
 	}
@@ -486,7 +486,7 @@ func allWords(e Engine, query string, words []string) []string {
 // limit is above 0. MySQL runs what an executable comment holds (/*! … */,
 // MariaDB's /*M! … */), as mysqldump writes CREATE VIEW: its words count.
 func statementWords(e Engine, query string, limit int) []string {
-	if ExecutableComments(e) {
+	if r, ok := SQL(e); ok && r.ExecutableComments() {
 		query = sqltext.UnwrapExecutable(query)
 	}
 	var words []string
@@ -502,21 +502,6 @@ func statementWords(e Engine, query string, limit int) []string {
 	return words
 }
 
-// ExecutableComments reports whether an engine runs what an executable
-// comment holds (/*! … */), as MySQL does.
-func ExecutableComments(e Engine) bool {
-	r, ok := sqlRulesOf(e)
-	return ok && r.ExecutableComments()
-}
-
-// OutsideTransaction reports whether a statement cannot run in a
-// transaction, which manual commit must then not open for it; false for
-// an engine without rules.
-func OutsideTransaction(e Engine, sql string) bool {
-	r, ok := sqlRulesOf(e)
-	return ok && r.OutsideTransaction(sql)
-}
-
 // nameWords are the keywords and names of a statement, in upper case.
 func nameWords(sql string, d sqltext.Dialect) []string {
 	var words []string
@@ -530,7 +515,7 @@ func nameWords(sql string, d sqltext.Dialect) []string {
 
 // LexDialect is the lexer's dialect of an engine.
 func LexDialect(e Engine) sqltext.Dialect {
-	if r, ok := sqlRulesOf(e); ok {
+	if r, ok := SQL(e); ok {
 		return r.LexDialect()
 	}
 	return sqltext.Generic

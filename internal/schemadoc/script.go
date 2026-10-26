@@ -57,7 +57,9 @@ func Script(s *Schema) string {
 	slices.SortStableFunc(stmts, func(a, b statement) int { return a.rank - b.rank })
 	stmts = orderByMentions(stmts, safety.Dialect(s.Engine))
 	var b strings.Builder
-	b.WriteString(db.ScriptPreamble(s.Engine, functions))
+	if r, ok := db.SQL(s.Engine); ok {
+		b.WriteString(r.ScriptPreamble(functions))
+	}
 	for i, st := range stmts {
 		if i > 0 {
 			b.WriteString("\n\n")

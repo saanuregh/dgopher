@@ -145,8 +145,14 @@ func condExprSQL(e db.Engine, col string, c rowCond) string {
 // and _ are text, escaped with a backslash, the escape of PostgreSQL,
 // MySQL and ClickHouse, and named for SQLite and DuckDB, which have none.
 func likeSQL(e db.Engine, col, before string, value any, after string, not bool) string {
+	r, ok := db.SQL(e)
+	if !ok {
+		// Unreached: every caller quotes col with the engine's Dialect,
+		// which only an engine with SQL rules has.
+		return ""
+	}
 	escaped := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(db.Display(value))
-	return db.LikeFilterSQL(e, col, db.Literal(e, before+escaped+after), not)
+	return r.LikeFilterSQL(col, db.Literal(e, before+escaped+after), not)
 }
 
 // filterMenu is the Filter submenu of a cell: its value, or the values

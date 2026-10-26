@@ -11,6 +11,7 @@ import (
 // comparisons they replaced, for each engine and an unknown one.
 func TestRewrittenEngineConditions(t *testing.T) {
 	for _, e := range pinEngines {
+		r, isSQL := db.SQL(e)
 		// importfile.go: a table made before the rows' transaction.
 		if got, old := db.SchemaChangesCommit(e), e == db.MySQL || e == db.ClickHouse; got != old {
 			t.Errorf("%s: schema changes commit %v, was %v", e, got, old)
@@ -20,7 +21,7 @@ func TestRewrittenEngineConditions(t *testing.T) {
 			t.Errorf("%s: transactions %v, was %v", e, got, old)
 		}
 		// transfer.go: how a copy that replaces rows empties the table.
-		if got, old := db.TruncateToEmpty(e), e == db.ClickHouse; got != old {
+		if got, old := isSQL && r.TruncateToEmpty(), e == db.ClickHouse; got != old {
 			t.Errorf("%s: truncate to empty %v, was %v", e, got, old)
 		}
 		// nav.go: a new editor on a schema node.
@@ -28,11 +29,16 @@ func TestRewrittenEngineConditions(t *testing.T) {
 		if e == db.Postgres {
 			old = "SET search_path TO " + db.DialectOf(e).Quote("Sales") + ";\n\n"
 		}
-		if got := db.EditorSchemaPreamble(e, "Sales"); got != old {
+		got := ""
+		if isSQL {
+			got = r.EditorSchemaPreamble("Sales")
+		}
+		if got != old {
 			t.Errorf("%s: editor schema preamble %q, was %q", e, got, old)
 		}
-		// nav.go and palette.go: the Users and Privileges command.
-		if got, old := db.UsersSupported(e), e == db.Postgres || e == db.MySQL || e == db.ClickHouse; got != old {
+		// users.go, nav.go, palette.go and savedtabs.go: the Users and
+		// Privileges command and tab.
+		if got, old := usersSupported(e), e == db.Postgres || e == db.MySQL || e == db.ClickHouse; got != old {
 			t.Errorf("%s: users supported %v, was %v", e, got, old)
 		}
 		// connform.go: the password sources offered.
@@ -45,7 +51,10 @@ func TestRewrittenEngineConditions(t *testing.T) {
 		if e == db.Postgres {
 			oldNote = "Those on the database's own tables and schemas, and on its databases."
 		}
-		form := db.AccountForm(e)
+		form := db.AccountFormFields{GrantTargetLabel: "Database"}
+		if isSQL {
+			form = r.AccountForm()
+		}
 		if form.PrivilegesNote != oldNote {
 			t.Errorf("%s: privileges note %q, was %q", e, form.PrivilegesNote, oldNote)
 		}

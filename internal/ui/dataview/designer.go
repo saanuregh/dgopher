@@ -188,7 +188,10 @@ func (d *designer) fixed() string {
 	if d.was == nil {
 		return ""
 	}
-	return db.FixedKeysNote(d.engine)
+	if r, ok := db.SQL(d.engine); ok {
+		return r.FixedKeysNote()
+	}
+	return ""
 }
 
 func (d *designer) apply() {
@@ -224,19 +227,20 @@ func (d *designer) apply() {
 func (d *designer) View(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	e := d.engine
+	r, ok := db.SQL(d.engine)
+	keepsComments, hasIndexes := !ok || r.HasComments(), !ok || r.HasSecondaryIndexes()
 	ui.Column(c).Grow(1).Children(func() {
 		widgets.Bar(c, "Table design", func() {
 			name := ui.TextInput(c, &d.now.Name).Placeholder("table name").Label("Table name").Font(widgets.MonoFont).Width(240)
 			if d.was == nil {
 				name.AutoFocus()
 			}
-			if db.Comments(e) {
+			if keepsComments {
 				ui.TextInput(c, &d.now.Comment).Placeholder("comment").Label("Table comment").Grow(1)
 			} else {
 				ui.Spacer(c)
 			}
-			if db.SecondaryIndexes(e) {
+			if hasIndexes {
 				ui.Segmented(c, &d.section, "Columns", "Indexes", "Foreign Keys", "Checks").Label("Section")
 			}
 		})
@@ -291,11 +295,9 @@ func (d *designer) View(c *ui.Context) {
 
 func (d *designer) columnsView(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
-	e := d.engine
 	keyFixed := d.fixed() != ""
-	// NumbersRows answers yes for an engine without SQL rules, on which
-	// no table form opens.
-	autoAllowed := db.DialectOf(e) != nil && db.NumbersRows(e)
+	r, ok := db.SQL(d.engine)
+	autoAllowed, keepsComments := ok && r.HasAutoNumbering(), !ok || r.HasComments()
 	header := func(text string, width float32) {
 		t := ui.Text(c, text).FontSize(11.5).Bold().TextColor(pal.Muted)
 		if width > 0 {
@@ -313,14 +315,17 @@ func (d *designer) columnsView(c *ui.Context) {
 		if autoAllowed {
 			header("Auto", 44)
 		}
-		if db.Comments(e) {
+		if keepsComments {
 			header("Comment", 0)
 		} else {
 			ui.Spacer(c)
 		}
 		ui.Box(c).Width(26)
 	})
-	types := db.CommonTypes(e)
+	var types []string
+	if ok {
+		types = r.CommonTypes()
+	}
 	remove := -1
 	for i := range d.now.Columns {
 		col := &d.now.Columns[i]
@@ -345,7 +350,7 @@ func (d *designer) columnsView(c *ui.Context) {
 					ui.Checkbox(c, &col.AutoIncrement, "").Label("Numbers its rows").Disabled(col.Was != "")
 				})
 			}
-			if db.Comments(e) {
+			if keepsComments {
 				ui.TextInput(c, &col.Comment).Placeholder("comment").Grow(1).Label("Comment of " + col.Name)
 			} else {
 				ui.Spacer(c)
@@ -398,7 +403,7 @@ func (d *designer) columnNames() []string {
 
 func (d *designer) indexesView(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
-	if !db.SecondaryIndexes(d.engine) {
+	if r, ok := db.SQL(d.engine); ok && !r.HasSecondaryIndexes() {
 		return
 	}
 	remove := -1
@@ -584,7 +589,12 @@ func OpenNewTable(a Host, cn *connection.Conn, database, schema string) {
 
 // FirstColumn is the key column a new table starts with: one numbering
 // its rows where the engine does.
-func FirstColumn(e db.Engine) db.ColumnDesign { return db.FirstColumn(e) }
+func FirstColumn(e db.Engine) db.ColumnDesign {
+	if r, ok := db.SQL(e); ok {
+		return r.FirstColumn()
+	}
+	return db.ColumnDesign{Name: "id", PrimaryKey: true}
+}
 
 func (t *TableDesignTab) Title() string {
 	if t.design.now.Name != "" {

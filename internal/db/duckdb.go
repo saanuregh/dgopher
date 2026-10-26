@@ -266,7 +266,7 @@ var duckdbFileReaders = strings.Fields("read_text read_blob read_csv read_csv_au
 
 type duckdbEngine struct{ duckdbDialect }
 
-var _ sqlRules = duckdbEngine{}
+var _ SQLRules = duckdbEngine{}
 
 func (duckdbEngine) Label() string                   { return "DuckDB" }
 func (duckdbEngine) ColorHex() string                { return "#c49a00" }
@@ -357,8 +357,8 @@ func (duckdbEngine) OutsideTransaction(sql string) bool {
 	return len(words) > 0 && words[0] == "VACUUM"
 }
 
-func (duckdbEngine) TablesMayIgnoreRollback() bool { return false }
-func (duckdbEngine) ChangedRowsWord() string       { return "changed" }
+func (duckdbEngine) RollbackMayKeepChanges() bool { return false }
+func (duckdbEngine) RowCountWord() string         { return "changed" }
 
 func (duckdbEngine) Explain(statement string, analyze bool) (ExplainRun, bool) {
 	if analyze {
@@ -421,7 +421,7 @@ func (duckdbEngine) InsertDefaultRowSQL(table string) string {
 }
 
 func (duckdbEngine) MaxParameters() int               { return 65535 }
-func (duckdbEngine) ProfileBySummarize() bool         { return true }
+func (duckdbEngine) ProfilesInOneQuery() bool         { return true }
 func (duckdbEngine) Comparable(string) bool           { return true }
 func (duckdbEngine) StableOrderByKey() bool           { return true }
 func (duckdbEngine) UpdateSetsDefault() bool          { return true }
@@ -488,14 +488,14 @@ func (duckdbEngine) TableCommentSQL(d Dialect, schema, table, comment string) st
 }
 
 func (duckdbEngine) ColumnCommentInline() bool           { return false }
-func (duckdbEngine) Comments() bool                      { return true }
+func (duckdbEngine) HasComments() bool                   { return true }
 func (duckdbEngine) KeepsColumnExtra() bool              { return false }
 func (duckdbEngine) AutoIncrementSQL() string            { return "" }
-func (duckdbEngine) NumbersRows() bool                   { return false }
+func (duckdbEngine) HasAutoNumbering() bool              { return false }
 func (duckdbEngine) HasForeignKeys() bool                { return true }
-func (duckdbEngine) ForeignKeyActions() bool             { return false }
+func (duckdbEngine) HasForeignKeyActions() bool          { return false }
 func (duckdbEngine) ForeignKeyNamesUniqueInSchema() bool { return false }
-func (duckdbEngine) SecondaryIndexes() bool              { return true }
+func (duckdbEngine) HasSecondaryIndexes() bool           { return true }
 func (duckdbEngine) KeepsKeyNames() bool                 { return false }
 func (duckdbEngine) NamesConstraintsItself() bool        { return false }
 func (duckdbEngine) NamesTablesWithinSchema() bool       { return false }

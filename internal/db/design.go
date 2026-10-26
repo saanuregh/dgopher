@@ -86,15 +86,6 @@ type CheckDesign struct {
 	Expression string `json:"expression"`
 }
 
-// CommonTypes are types of an engine's columns the table form offers;
-// any other may be typed.
-func CommonTypes(e Engine) []string {
-	if r, ok := sqlRulesOf(e); ok {
-		return r.CommonTypes()
-	}
-	return nil
-}
-
 // ReferentialActions are what a foreign key may do when the row it
 // points at is deleted or its key changes.
 var ReferentialActions = []string{"NO ACTION", "RESTRICT", "CASCADE", "SET NULL", "SET DEFAULT"}
@@ -280,91 +271,4 @@ func readChecks(ctx context.Context, d *DB, t *TableDesign, query string) error 
 func readDuckDBChecks(ctx context.Context, d *DB, t *TableDesign) error {
 	return readChecks(ctx, d, t, `SELECT COALESCE(constraint_name, ''), expression FROM duckdb_constraints()
 WHERE database_name = current_database() AND schema_name = ? AND table_name = ? AND constraint_type = 'CHECK'`)
-}
-
-// NormalizeModelTable leaves out of a table of an engine, read, what a
-// data model would write again.
-func NormalizeModelTable(e Engine, t *TableDesign) {
-	if r, ok := sqlRulesOf(e); ok {
-		r.NormalizeModelTable(t)
-	}
-}
-
-// The functions below give an engine's design rules to the packages
-// outside db, as an engine without SQL rules answers what the switches
-// they replaced did.
-
-// RebuildsToAlter reports whether the engine changes a table by making it
-// again, and takes no key added to a table made.
-func RebuildsToAlter(e Engine) bool {
-	r, ok := sqlRulesOf(e)
-	return ok && r.RebuildsToAlter()
-}
-
-// KeysOfMadeTable says why the keys of a table the engine made cannot
-// change, "" when they can.
-func KeysOfMadeTable(e Engine) string {
-	if r, ok := sqlRulesOf(e); ok {
-		return r.KeysOfMadeTable()
-	}
-	return ""
-}
-
-// NumbersRows reports whether a new column may number its rows itself.
-func NumbersRows(e Engine) bool {
-	r, ok := sqlRulesOf(e)
-	return !ok || r.NumbersRows()
-}
-
-// Comments reports whether the engine's tables and columns keep comments.
-func Comments(e Engine) bool {
-	r, ok := sqlRulesOf(e)
-	return !ok || r.Comments()
-}
-
-// HasForeignKeys reports whether the engine's tables have foreign keys.
-func HasForeignKeys(e Engine) bool {
-	r, ok := sqlRulesOf(e)
-	return !ok || r.HasForeignKeys()
-}
-
-// ForeignKeyActions reports whether a foreign key takes ON DELETE and ON
-// UPDATE.
-func ForeignKeyActions(e Engine) bool {
-	r, ok := sqlRulesOf(e)
-	return !ok || r.ForeignKeyActions()
-}
-
-// ForeignKeyNamesUniqueInSchema reports whether two tables' foreign keys
-// cannot share a name.
-func ForeignKeyNamesUniqueInSchema(e Engine) bool {
-	r, ok := sqlRulesOf(e)
-	return ok && r.ForeignKeyNamesUniqueInSchema()
-}
-
-// SecondaryIndexes reports whether the engine's tables have indexes
-// besides their keys.
-func SecondaryIndexes(e Engine) bool {
-	r, ok := sqlRulesOf(e)
-	return !ok || r.SecondaryIndexes()
-}
-
-// KeepsKeyNames reports whether a foreign key is known by its name, not
-// only by what it points at.
-func KeepsKeyNames(e Engine) bool {
-	r, ok := sqlRulesOf(e)
-	return !ok || r.KeepsKeyNames()
-}
-
-// NamesConstraintsItself reports whether the engine names a table's unique
-// constraints and foreign keys from their places and columns.
-func NamesConstraintsItself(e Engine) bool {
-	r, ok := sqlRulesOf(e)
-	return ok && r.NamesConstraintsItself()
-}
-
-// IgnoresVarcharLength reports whether a varchar's length is not kept.
-func IgnoresVarcharLength(e Engine) bool {
-	r, ok := sqlRulesOf(e)
-	return ok && r.IgnoresVarcharLength()
 }

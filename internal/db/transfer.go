@@ -15,7 +15,7 @@ var (
 // to another engine is typed through. What has no such type, as arrays
 // and ranges, is text, which keeps the values as they read.
 func CanonicalType(e Engine, typ string) string {
-	if r, ok := sqlRulesOf(e); ok {
+	if r, ok := SQL(e); ok {
 		return r.CanonicalType(typ)
 	}
 	return commonCanonical(strings.TrimSpace(typ))
@@ -122,7 +122,7 @@ func clickhouseCanonical(t string) string {
 // same engine, as they were.
 func CopyDesign(from Engine, cols []Column, to Engine, schema, table string) TableDesign {
 	t := TableDesign{Schema: schema, Name: table}
-	r, ok := sqlRulesOf(to)
+	r, ok := SQL(to)
 	wrapsNullable := ok && r.NullableWrapper()
 	for _, c := range cols {
 		typ := c.Type
@@ -149,7 +149,7 @@ var (
 // precision and its scale: "" for a type of no kind. An engine without
 // SQL rules reads the names most engines share.
 func TypeKindOf(e Engine, typ string) (kind TypeKind, size, scale string) {
-	if r, ok := sqlRulesOf(e); ok {
+	if r, ok := SQL(e); ok {
 		return r.TypeKindOf(typ)
 	}
 	return commonTypeKind(typ, false, false)
@@ -277,7 +277,7 @@ func clickhouseKind(t string) (kind TypeKind, size, scale string) {
 // precision and scale kept where the type takes them. An engine without
 // SQL rules gets DuckDB's.
 func TypeOfKind(e Engine, kind TypeKind, size, scale string) string {
-	if r, ok := sqlRulesOf(e); ok {
+	if r, ok := SQL(e); ok {
 		return r.TypeOfKind(kind, size, scale)
 	}
 	return typesOfKind(kind, size, scale).duckdb

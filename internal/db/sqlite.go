@@ -223,7 +223,7 @@ var sqliteFileReaders = strings.Fields("readfile fsdir load_extension")
 
 type sqliteEngine struct{ sqliteDialect }
 
-var _ sqlRules = sqliteEngine{}
+var _ SQLRules = sqliteEngine{}
 
 func (sqliteEngine) Label() string                   { return "SQLite" }
 func (sqliteEngine) ColorHex() string                { return "#0f80cc" }
@@ -296,8 +296,8 @@ func (sqliteEngine) OutsideTransaction(sql string) bool {
 	return len(words) > 0 && words[0] == "VACUUM"
 }
 
-func (sqliteEngine) TablesMayIgnoreRollback() bool { return false }
-func (sqliteEngine) ChangedRowsWord() string       { return "changed" }
+func (sqliteEngine) RollbackMayKeepChanges() bool { return false }
+func (sqliteEngine) RowCountWord() string         { return "changed" }
 
 // SQLite and ClickHouse explain without running: analyze cannot.
 func (sqliteEngine) Explain(statement string, analyze bool) (ExplainRun, bool) {
@@ -358,7 +358,7 @@ func (sqliteEngine) InsertDefaultRowSQL(table string) string {
 }
 
 func (sqliteEngine) MaxParameters() int               { return 32766 }
-func (sqliteEngine) ProfileBySummarize() bool         { return false }
+func (sqliteEngine) ProfilesInOneQuery() bool         { return false }
 func (sqliteEngine) Comparable(string) bool           { return true }
 func (sqliteEngine) StableOrderByKey() bool           { return true }
 func (sqliteEngine) UpdateSetsDefault() bool          { return false }
@@ -435,14 +435,14 @@ func (sqliteEngine) TableCommentSQL(d Dialect, schema, table, comment string) st
 }
 
 func (sqliteEngine) ColumnCommentInline() bool           { return false }
-func (sqliteEngine) Comments() bool                      { return false }
+func (sqliteEngine) HasComments() bool                   { return false }
 func (sqliteEngine) KeepsColumnExtra() bool              { return false }
 func (sqliteEngine) AutoIncrementSQL() string            { return "" }
-func (sqliteEngine) NumbersRows() bool                   { return true }
+func (sqliteEngine) HasAutoNumbering() bool              { return true }
 func (sqliteEngine) HasForeignKeys() bool                { return true }
-func (sqliteEngine) ForeignKeyActions() bool             { return true }
+func (sqliteEngine) HasForeignKeyActions() bool          { return true }
 func (sqliteEngine) ForeignKeyNamesUniqueInSchema() bool { return false }
-func (sqliteEngine) SecondaryIndexes() bool              { return true }
+func (sqliteEngine) HasSecondaryIndexes() bool           { return true }
 func (sqliteEngine) KeepsKeyNames() bool                 { return false }
 func (sqliteEngine) NamesConstraintsItself() bool        { return true }
 func (sqliteEngine) NamesTablesWithinSchema() bool       { return true }

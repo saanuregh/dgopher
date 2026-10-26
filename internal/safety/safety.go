@@ -58,7 +58,7 @@ func Analyze(cfg *db.Config, stmts []string) []Statement {
 // PolicyText is the text the safety policy reads: what the server will
 // run, MySQL's executable comments included.
 func PolicyText(e db.Engine, sql string) string {
-	if db.ExecutableComments(e) {
+	if r, ok := db.SQL(e); ok && r.ExecutableComments() {
 		return sqltext.UnwrapExecutable(sql)
 	}
 	return sql
@@ -260,7 +260,10 @@ func (v Verdict) Covers(w Verdict) bool {
 // PostgreSQL's VACUUM, CREATE and DROP of a DATABASE or a TABLESPACE,
 // ALTER SYSTEM and the CONCURRENTLY forms of index commands, and the
 // VACUUM of SQLite and DuckDB.
-func OutsideTransaction(e db.Engine, sql string) bool { return db.OutsideTransaction(e, sql) }
+func OutsideTransaction(e db.Engine, sql string) bool {
+	r, ok := db.SQL(e)
+	return ok && r.OutsideTransaction(sql)
+}
 
 func verbOf(a sqltext.Analysis) string {
 	if a.Verb == "" {

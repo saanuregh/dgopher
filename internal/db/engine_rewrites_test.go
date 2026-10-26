@@ -29,7 +29,7 @@ func TestRewrittenDesignConditions(t *testing.T) {
 		return err.Error()
 	}
 	for _, e := range pinEngines {
-		r, ok := sqlRulesOf(e)
+		r, ok := SQL(e)
 		if want, sql := old[e]; ok != sql {
 			t.Fatalf("%s: SQL rules %v, want %v", e, ok, sql)
 		} else if !ok {

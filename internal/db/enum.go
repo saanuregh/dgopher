@@ -16,7 +16,7 @@ var (
 // type is an enum, in their order; nil for any other type. PostgreSQL's
 // enums are read from its catalog; the other engines' types spell them.
 func EnumValues(ctx context.Context, d *DB, typ string) ([]string, error) {
-	if r, ok := sqlRulesOf(d.Dialect.Engine()); ok {
+	if r, ok := SQL(d.Dialect.Engine()); ok {
 		return r.EnumValues(ctx, d, typ)
 	}
 	return nil, nil

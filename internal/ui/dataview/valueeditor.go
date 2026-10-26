@@ -185,7 +185,8 @@ func (d dateLayout) text(when time.Time) string {
 
 // truthText is how an engine's column takes true or false.
 func truthText(e db.Engine, typ string, truth bool) string {
-	numeric := db.BooleansAreNumbers(e) || strings.EqualFold(typ, "tinyint(1)")
+	r, ok := db.SQL(e)
+	numeric := ok && r.BooleansAreNumbers() || strings.EqualFold(typ, "tinyint(1)")
 	switch {
 	case numeric && truth:
 		return "1"

@@ -269,7 +269,7 @@ func (a *App) copyTable(ctx context.Context, from *connection.Conn, fromPool fun
 		dstCols, srcCols = keep, keepSrc
 		if mode == copyReplace {
 			empty = "DELETE FROM " + db.QualifiedName(dst.Dialect, toSchema, table)
-			if db.TruncateToEmpty(to.Config.Engine) {
+			if r, ok := db.SQL(to.Config.Engine); ok && r.TruncateToEmpty() {
 				empty = "TRUNCATE TABLE " + db.QualifiedName(dst.Dialect, toSchema, table)
 			}
 		}

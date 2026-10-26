@@ -191,7 +191,12 @@ func (s sqlGen) template(kind string, cols []db.ColumnInfo, fks []db.ForeignKey)
 			return "-- No unique key: the database cannot tell an existing row from a new one.\n" + insert + ";"
 		}
 		keys := lists.Map(s.key, func(k string) string { return s.dialect.Quote(k) })
-		return db.UpsertSQL(s.engine, insert, keys, updated) + ";"
+		r, ok := db.SQL(s.engine)
+		if !ok {
+			// Unreached: s.dialect, which quoted the keys, is the engine's.
+			return insert + ";"
+		}
+		return r.UpsertSQL(insert, keys, updated) + ";"
 	case "join":
 		var b strings.Builder
 		b.WriteString("SELECT *\nFROM " + s.name() + " t")

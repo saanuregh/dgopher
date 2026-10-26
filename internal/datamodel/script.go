@@ -29,7 +29,8 @@ func Script(m *Model, to db.Engine, schema string) (db.SchemaChange, []string) {
 	}
 	ch := db.SchemaChange{Atomic: to.TransactionalDDL()}
 	// SQLite takes a key to a table not made yet, and adds none later.
-	ordered, closing := createOrder(tables, !db.RebuildsToAlter(to))
+	r, isSQL := db.SQL(to)
+	ordered, closing := createOrder(tables, !isSQL || !r.RebuildsToAlter())
 	for _, t := range ordered {
 		made, err := db.NewTableChange(d, t)
 		if err != nil {
@@ -51,7 +52,8 @@ func Script(m *Model, to db.Engine, schema string) (db.SchemaChange, []string) {
 // addsNoKeyToMadeTable reports whether an engine with foreign keys adds
 // none to a table made.
 func addsNoKeyToMadeTable(e db.Engine) bool {
-	return db.HasForeignKeys(e) && db.KeysOfMadeTable(e) != ""
+	r, ok := db.SQL(e)
+	return ok && r.HasForeignKeys() && r.KeysOfMadeTable() != ""
 }
 
 // ScriptText is a script with a header naming its model, its engine, and
@@ -119,6 +121,7 @@ var (
 // where the engine can. A computed column, whose expression the model
 // does not keep, is a plain one.
 func fresh(to db.Engine, t db.TableDesign, n *notes) db.TableDesign {
+	r, isSQL := db.SQL(to)
 	for i := range t.Columns {
 		c := &t.Columns[i]
 		if c.Generated {
@@ -129,7 +132,7 @@ func fresh(to db.Engine, t db.TableDesign, n *notes) db.TableDesign {
 			c.Default, c.AutoIncrement = "", true
 			n.add("Serial columns are written as identity columns: the model keeps no sequences.")
 		}
-		if c.AutoIncrement && !db.NumbersRows(to) {
+		if c.AutoIncrement && isSQL && !r.HasAutoNumbering() {
 			c.AutoIncrement = false
 			n.add(fmt.Sprintf("%s numbers no rows itself: %s.%s is written as a plain column.", to.Label(), t.Name, c.Name))
 		}
@@ -142,6 +145,7 @@ func fresh(to db.Engine, t db.TableDesign, n *notes) db.TableDesign {
 // not: MySQL's indexes are named within their table, SQLite's keys are
 // named by their columns. A name taken gets its table's before it.
 func apart(to db.Engine, tables []db.TableDesign, n *notes) {
+	r, isSQL := db.SQL(to)
 	taken := map[string]bool{}
 	name := func(t db.TableDesign, name string) string {
 		if !taken[name] {
@@ -162,7 +166,7 @@ func apart(to db.Engine, tables []db.TableDesign, n *notes) {
 			t.Indexes[i].Name = name(t, t.Indexes[i].Name)
 		}
 		for i := range t.ForeignKeys {
-			if db.ForeignKeyNamesUniqueInSchema(to) && t.ForeignKeys[i].Name != "" {
+			if isSQL && r.ForeignKeyNamesUniqueInSchema() && t.ForeignKeys[i].Name != "" {
 				t.ForeignKeys[i].Name = name(t, t.ForeignKeys[i].Name)
 			}
 		}
@@ -176,6 +180,8 @@ func apart(to db.Engine, tables []db.TableDesign, n *notes) {
 func convert(from, to db.Engine, t db.TableDesign, inPlace bool, n *notes) db.TableDesign {
 	same := from == to
 	keyed := keyedColumns(t)
+	toRules, toIsSQL := db.SQL(to)
+	fromRules, fromIsSQL := db.SQL(from)
 	for i := range t.Columns {
 		c := &t.Columns[i]
 		if !same {
@@ -203,18 +209,18 @@ func convert(from, to db.Engine, t db.TableDesign, inPlace bool, n *notes) db.Ta
 				n.add("MySQL's character sets and ON UPDATE of columns are left out.")
 			}
 		}
-		if c.Comment != "" && !db.Comments(to) {
+		if c.Comment != "" && toIsSQL && !toRules.HasComments() {
 			c.Comment = ""
 			n.add("SQLite keeps no comments: they are left out.")
 		}
 	}
-	if t.Comment != "" && !db.Comments(to) {
+	if t.Comment != "" && toIsSQL && !toRules.HasComments() {
 		t.Comment = ""
 		n.add("SQLite keeps no comments: they are left out.")
 	}
 	if !same {
 		t.PrimaryKeyName = ""
-		if db.NamesConstraintsItself(from) {
+		if fromIsSQL && fromRules.NamesConstraintsItself() {
 			// Named by SQLite from their columns, which another engine's
 			// names would clash by.
 			for i := range t.ForeignKeys {
@@ -227,7 +233,7 @@ func convert(from, to db.Engine, t db.TableDesign, inPlace bool, n *notes) db.Ta
 			t.Checks = nil
 		}
 	}
-	if !db.SecondaryIndexes(to) && len(t.Indexes) > 0 {
+	if toIsSQL && !toRules.HasSecondaryIndexes() && len(t.Indexes) > 0 {
 		n.add(fmt.Sprintf("ClickHouse's indexes need a type: %s's are left out.", t.Name))
 		t.Indexes = nil
 	}
@@ -247,13 +253,13 @@ func convert(from, to db.Engine, t db.TableDesign, inPlace bool, n *notes) db.Ta
 			t.Indexes[i].Definition = ""
 		}
 	}
-	if !db.HasForeignKeys(to) && len(t.ForeignKeys) > 0 {
+	if toIsSQL && !toRules.HasForeignKeys() && len(t.ForeignKeys) > 0 {
 		n.add("ClickHouse has no foreign keys: they are left out.")
 		t.ForeignKeys = nil
 	}
 	for i := range t.ForeignKeys {
 		fk := &t.ForeignKeys[i]
-		if !db.ForeignKeyActions(to) && (fk.OnDelete != "" || fk.OnUpdate != "") {
+		if toIsSQL && !toRules.HasForeignKeyActions() && (fk.OnDelete != "" || fk.OnUpdate != "") {
 			fk.OnDelete, fk.OnUpdate = "", ""
 			n.add("DuckDB's foreign keys take no actions: ON DELETE and ON UPDATE are left out.")
 		}

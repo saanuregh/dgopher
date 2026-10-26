@@ -17,8 +17,11 @@ import (
 // file named wherever a table goes, as DuckDB, a string or a quoted name
 // that looks like a file's or a URL's, wherever it is.
 func fileReader(engine db.Engine, sql string) string {
-	readers := db.FileReadingFunctions(engine)
-	namesFiles := db.FileNamesInStrings(engine)
+	var readers []string
+	namesFiles := false
+	if r, ok := db.SQL(engine); ok {
+		readers, namesFiles = r.FileReadingFunctions(), r.FileNamesInStrings()
+	}
 	var toks []sqltext.Token
 	for _, t := range sqltext.Tokenize(sql, safety.Dialect(engine)) {
 		if t.Kind != sqltext.Whitespace && t.Kind != sqltext.Comment {

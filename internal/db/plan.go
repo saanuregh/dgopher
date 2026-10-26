@@ -73,15 +73,6 @@ func explainWithPrefix(prefix, statement string) ExplainRun {
 	return ExplainRun{Statement: prefix + statement, Offset: len(prefix)}
 }
 
-// ParsePlan reads the rows of an EXPLAIN in the forms Explain asks
-// for, and reports whether they were one.
-func ParsePlan(e Engine, cols []string, rows [][]any) (*Plan, bool) {
-	if r, ok := sqlRulesOf(e); ok {
-		return r.ParsePlan(cols, rows)
-	}
-	return nil, false
-}
-
 // planText is the last column of an EXPLAIN's rows, a line each.
 func planText(rows [][]any) string {
 	var lines []string

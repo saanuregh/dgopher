@@ -199,10 +199,11 @@ func sameType(e db.Engine, a, b string) bool {
 	}
 	ka, _, _ := db.TypeKindOf(e, a)
 	kb, _, _ := db.TypeKindOf(e, b)
+	r, isSQL := db.SQL(e)
 	switch {
 	case ka == "" || ka != kb:
 		return false
-	case ka == db.TypeKindBoolean, db.IgnoresVarcharLength(e) && ka == db.TypeKindVarchar:
+	case ka == db.TypeKindBoolean, isSQL && r.IgnoresVarcharLength() && ka == db.TypeKindVarchar:
 		// MySQL's boolean is tinyint(1); DuckDB keeps no length.
 		return true
 	}
@@ -249,8 +250,9 @@ func sameCheck(a, b db.CheckDesign) bool { return normal(a.Expression) == normal
 // or by what they point at where the engine names keys itself, and for a
 // key that has no name.
 func keyID(e db.Engine) func(db.ForeignKeyDesign) string {
+	r, isSQL := db.SQL(e)
 	return func(fk db.ForeignKeyDesign) string {
-		if fk.Name != "" && db.KeepsKeyNames(e) {
+		if fk.Name != "" && (!isSQL || r.KeepsKeyNames()) {
 			return fk.Name
 		}
 		return "(" + strings.Join(fk.Columns, ", ") + ") → " + fk.RefTable + " (" + strings.Join(fk.RefColumns, ", ") + ")"
@@ -393,7 +395,8 @@ func Migration(a, b *Model, schema string, drop bool) (db.SchemaChange, []string
 		// depend on, then each table changes whole, the new ones made in
 		// order.
 		dropTables()
-		ordered, closing := createOrder(made, !db.RebuildsToAlter(e))
+		r, isSQL := db.SQL(e)
+		ordered, closing := createOrder(made, !isSQL || !r.RebuildsToAlter())
 		for _, t := range ordered {
 			create(t)
 		}
@@ -449,7 +452,8 @@ func Migration(a, b *Model, schema string, drop bool) (db.SchemaChange, []string
 // first and adding them last: where the engine makes a table again to
 // change it, or changes no keys of a table made.
 func changesTablesWhole(e db.Engine) bool {
-	return db.DialectOf(e) == nil || db.RebuildsToAlter(e) || db.KeysOfMadeTable(e) != ""
+	r, ok := db.SQL(e)
+	return !ok || r.RebuildsToAlter() || r.KeysOfMadeTable() != ""
 }
 
 // withKeys is a table read, as AlterTableChange takes the change of it:
@@ -476,8 +480,9 @@ func withKeys(t db.TableDesign, keep func(db.ForeignKeyDesign) bool) db.TableDes
 // SQLite's unique constraints by their columns, which SQLite names by
 // their place in the table.
 func indexID(e db.Engine) func(db.IndexDesign) string {
+	r, isSQL := db.SQL(e)
 	return func(ix db.IndexDesign) string {
-		if db.NamesConstraintsItself(e) && ix.Constraint {
+		if isSQL && r.NamesConstraintsItself() && ix.Constraint {
 			return "UNIQUE (" + strings.Join(ix.Columns, ", ") + ")"
 		}
 		return ix.Name
