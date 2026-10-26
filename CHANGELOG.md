@@ -2,6 +2,20 @@
 
 The changes of each version of DGopher.
 
+## 0.6.0
+
+### Added
+
+- Zoom the SQL editor's and the results grids' text with a touchpad's
+  pinch, with ⌘ (Ctrl elsewhere) and the mouse wheel, and with ⌘= and ⌘-;
+  ⌘K ⌘0 puts it back at its default size. The keys can be changed in the
+  keymap.
+
+### Changed
+
+- MyGo 0.6.4: steadier scroll bars, faster editing of long lines, diffs
+  folded before they are first drawn, and fixes on Windows and Linux.
+
 ## 0.5.0
 
 ### Added
