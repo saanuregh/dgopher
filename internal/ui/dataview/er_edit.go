@@ -155,11 +155,11 @@ func (e *ERTab) changeTable(t *erTable, title, why string, change func(*db.Table
 
 // dropTable offers to drop a table, with its rows.
 func (e *ERTab) dropTable(t *erTable) {
-	if e.conn.DB == nil {
+	if e.conn.DB() == nil {
 		e.a.ShowError("The table was not dropped", e.conn.Config.Name+" is not connected.")
 		return
 	}
-	ch := db.StatementsChange([]string{"DROP TABLE " + db.QualifiedName(e.conn.DB.Dialect, t.schema, t.obj.Name)})
+	ch := db.StatementsChange([]string{"DROP TABLE " + db.QualifiedName(e.conn.DB().Dialect, t.schema, t.obj.Name)})
 	e.apply("Drop "+t.obj.Name+"?", "The table and its rows go.", ch)
 }
 

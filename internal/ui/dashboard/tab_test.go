@@ -30,7 +30,7 @@ func TestDashboardPanels(t *testing.T) {
 	h.Connect(cn, nil)
 	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
 	for _, q := range []string{`CREATE TABLE sales (region TEXT, amount INTEGER)`, `INSERT INTO sales VALUES ('north', 5), ('south', 7), ('north', 3)`} {
-		if _, err := cn.DB.SQL.Exec(q); err != nil {
+		if _, err := cn.DB().SQL.Exec(q); err != nil {
 			t.Fatal(q, err)
 		}
 	}
@@ -68,7 +68,7 @@ func TestDashboardPanels(t *testing.T) {
 		}
 	}
 	var n int
-	if cn.DB.SQL.QueryRow(`SELECT count(*) FROM sales`).Scan(&n); n != 3 {
+	if cn.DB().SQL.QueryRow(`SELECT count(*) FROM sales`).Scan(&n); n != 3 {
 		t.Fatalf("%d sales left", n)
 	}
 	testutil.Snapshot(t, tt, "dashboard-panels")
@@ -274,8 +274,8 @@ func TestPanelDatabase(t *testing.T) {
 	h.Connect(cn, nil)
 	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
 	// Another database, gone after: other tests find one alone.
-	cn.DB.SQL.Exec("DROP DATABASE IF EXISTS it_panel WITH (FORCE)")
-	if _, err := cn.DB.SQL.Exec("CREATE DATABASE it_panel"); err != nil {
+	cn.DB().SQL.Exec("DROP DATABASE IF EXISTS it_panel WITH (FORCE)")
+	if _, err := cn.DB().SQL.Exec("CREATE DATABASE it_panel"); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {

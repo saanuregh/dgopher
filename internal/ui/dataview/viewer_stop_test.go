@@ -81,7 +81,7 @@ func TestCountStopRefusedInSharedTx(t *testing.T) {
 	a.Connect(cn, nil)
 	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
 	for _, s := range []string{"CREATE TABLE n (id INTEGER PRIMARY KEY, label TEXT)", "INSERT INTO n VALUES (1, 'one')"} {
-		if _, err := cn.DB.SQL.Exec(s); err != nil {
+		if _, err := cn.DB().SQL.Exec(s); err != nil {
 			t.Fatal(err)
 		}
 	}

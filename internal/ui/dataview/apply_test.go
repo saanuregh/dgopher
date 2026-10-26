@@ -24,7 +24,7 @@ func TestApplyChangeRefusedInSharedTx(t *testing.T) {
 	a.Connect(cn, nil)
 	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
 	ctx := context.Background()
-	owner, err := cn.DB.Session(ctx)
+	owner, err := cn.DB().Session(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestApplyChangeRefusedInSharedTx(t *testing.T) {
 	}
 	run("ROLLBACK")
 	var n int
-	if err := cn.DB.SQL.QueryRow("SELECT count(*) FROM information_schema.tables WHERE table_name = 'u'").Scan(&n); err != nil || n != 0 {
+	if err := cn.DB().SQL.QueryRow("SELECT count(*) FROM information_schema.tables WHERE table_name = 'u'").Scan(&n); err != nil || n != 0 {
 		t.Fatalf("table u: %d, %v", n, err)
 	}
 }

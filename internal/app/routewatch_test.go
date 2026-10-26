@@ -105,7 +105,7 @@ func TestIntegrationTunnelLoss(t *testing.T) {
 	cn := addConn(a, cfg)
 	tt := ui.NewTester(a.view, 1000, 700)
 	connectNow(t, a, tt, cn)
-	if cn.DB.RouteDone() == nil {
+	if cn.DB().RouteDone() == nil {
 		t.Fatal("connected without the tunnel")
 	}
 	s.Stop()

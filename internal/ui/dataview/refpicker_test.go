@@ -15,7 +15,7 @@ func TestRefPicker(t *testing.T) {
 	for _, q := range []string{`CREATE TABLE owners (id INTEGER PRIMARY KEY, name TEXT, secret_token TEXT)`,
 		`INSERT INTO owners (name, secret_token) VALUES ('Alice', 'x1'), ('Bob', 'x2'), ('Alina', 'x3')`,
 		`CREATE TABLE pets (id INTEGER PRIMARY KEY, owner INTEGER REFERENCES owners (id))`, `INSERT INTO pets (owner) VALUES (1)`} {
-		if _, err := cn.DB.SQL.Exec(q); err != nil {
+		if _, err := cn.DB().SQL.Exec(q); err != nil {
 			t.Fatal(err)
 		}
 	}

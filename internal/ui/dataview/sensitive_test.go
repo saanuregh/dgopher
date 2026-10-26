@@ -23,8 +23,8 @@ func TestLooksSensitive(t *testing.T) {
 // team is kept in the project's file; showing it takes it out.
 func TestHiddenValues(t *testing.T) {
 	a, tt, cn := designHost(t)
-	cn.DB.SQL.Exec(`ALTER TABLE items ADD COLUMN api_token TEXT`)
-	cn.DB.SQL.Exec(`UPDATE items SET api_token = 'tok-secret-1'`)
+	cn.DB().SQL.Exec(`ALTER TABLE items ADD COLUMN api_token TEXT`)
+	cn.DB().SQL.Exec(`UPDATE items SET api_token = 'tok-secret-1'`)
 	a.OpenTable(cn, "", db.Object{Schema: "main", Name: "items", Kind: db.KindTable, Rows: -1}, PageData)
 	v := a.Tabs[0].(*TableTab).view
 	testutil.WaitFor(t, tt, "the rows", func() bool { return len(v.src.Rows) == 2 })

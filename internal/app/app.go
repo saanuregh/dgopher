@@ -842,10 +842,9 @@ func (a *App) open(cn *connection.Conn, cfg db.Config, alert bool) {
 	}
 	// What the work opened, which the reset closes, tunnel and all, when
 	// the work stops on a panic before the main thread takes it.
-	var sqldb *db.DB
-	var kv *db.KV
+	var opened db.Store
 	dataview.BackgroundResetOnPanic(a, func() {
-		go closePools(sqldb, kv)
+		go closeStore(opened)
 		a.endAttempt(cn, at)
 		if gen == cn.Generation {
 			cn.Fail(errors.New("stopped on an internal error"))
@@ -856,25 +855,18 @@ func (a *App) open(cn *connection.Conn, cfg db.Config, alert bool) {
 		defer cancel()
 		var version string
 		err := resolveCommandSecrets(ctx, &cfg)
-		switch {
-		case err != nil:
-		case cfg.Engine == db.Redis:
-			kv, err = db.OpenRedis(ctx, cfg, known)
-			if err == nil {
-				version = kv.ServerVersion(ctx)
-			}
-		default:
-			sqldb, err = db.Open(ctx, cfg, known)
-			if err == nil {
-				version = sqldb.ServerVersion(ctx)
-			}
+		if err == nil {
+			opened, err = db.OpenStore(ctx, cfg, known)
+		}
+		if err == nil {
+			version = opened.ServerVersion(ctx)
 		}
 		return func() {
 			a.endAttempt(cn, at)
 			if gen != cn.Generation {
 				// Disconnected, or edited, meanwhile: this pool is not the
 				// connection's any more.
-				go closePools(sqldb, kv)
+				go closeStore(opened)
 				return
 			}
 			ev := audit.Event{Kind: audit.KindConnect, Detail: connectionSummary(&cfg)}
@@ -886,7 +878,7 @@ func (a *App) open(cn *connection.Conn, cfg db.Config, alert bool) {
 				if version != "" {
 					ev.Detail += ", server " + widgets.FirstLine(version)
 				}
-				if s := tlsStateOf(sqldb, kv); s != "" {
+				if s := tlsStateOf(opened); s != "" {
 					ev.Detail += ", " + s
 				}
 			}
@@ -903,19 +895,16 @@ func (a *App) open(cn *connection.Conn, cfg db.Config, alert bool) {
 				return
 			}
 			cn.Reset()
-			cn.Status, cn.DB, cn.KV, cn.Version = connection.StatusConnected, sqldb, kv, version
+			cn.Status, cn.Store, cn.Version = connection.StatusConnected, opened, version
 			cn.HeldAt = time.Now()
 			// A pool every session shares is a local file's: no tunnel
 			// to watch, and none to lose its transaction under.
-			if sqldb != nil && !sqldb.Single() {
-				a.watchRoute(cn, cn.Generation, sqldb.RouteDone(), sqldb.RouteErr)
-			}
-			if kv != nil {
-				a.watchRoute(cn, cn.Generation, kv.RouteDone(), kv.RouteErr)
+			if d := cn.DB(); d == nil || !d.Single() {
+				a.watchRoute(cn, cn.Generation, opened.RouteDone(), opened.RouteErr)
 			}
 			waiters := cn.Waiters
 			cn.Waiters = nil
-			if cn.DB != nil {
+			if cn.DB() != nil {
 				a.loadSchemas(cn, "")
 			}
 			for _, w := range waiters {
@@ -996,28 +985,25 @@ func (a *App) dropConnection(cn *connection.Conn, detail string) {
 	// A connect under way stops, and what waited for it never runs.
 	a.endAttempt(cn, nil)
 	cn.Waiters = nil
-	sqldb, kv := cn.DB, cn.KV
-	if sqldb != nil || kv != nil {
+	opened := cn.Store
+	if opened != nil {
 		a.Record(&cn.Config, audit.Event{Kind: audit.KindDisconnect, Detail: detail})
 	}
-	cn.DB, cn.KV, cn.Status, cn.Err, cn.ErrKind = nil, nil, connection.StatusIdle, "", db.ProblemUnknown
+	cn.Store, cn.Status, cn.Err, cn.ErrKind = nil, connection.StatusIdle, "", db.ProblemUnknown
 	cn.Reset()
 	go func() {
 		defer dataview.RecoverBackground(a.Post, a.ShowReport, nil)
 		// The work running on the pool ends first, rolling back what it
 		// left open there.
 		stopJobs(jobs)
-		closePools(sqldb, kv)
+		closeStore(opened)
 	}()
 }
 
-// closePools closes whichever of a connection's pools is open.
-func closePools(d *db.DB, kv *db.KV) {
-	if d != nil {
-		d.Close()
-	}
-	if kv != nil {
-		kv.Close()
+// closeStore closes a connection's store, if one opened.
+func closeStore(s db.Store) {
+	if s != nil {
+		s.Close()
 	}
 }
 
@@ -1038,7 +1024,7 @@ func (a *App) refresh(cn *connection.Conn) {
 		return
 	}
 	cn.Reset()
-	if cn.DB != nil {
+	if cn.DB() != nil {
 		a.loadSchemas(cn, "")
 	}
 }
@@ -1133,9 +1119,10 @@ func (a *App) endTab(t widgets.Tab, title string, then func(w *window, g *panes.
 	}
 }
 
-// NewQueryTab opens a SQL editor on a new query file of a connection.
+// NewQueryTab opens a SQL editor on a new query file of a connection, or
+// the key browser of a key-value engine's.
 func (a *App) NewQueryTab(cn *connection.Conn, database, text string) {
-	if cn.Config.Engine == db.Redis {
+	if cn.Config.Engine.IsKeyValue() {
 		a.openRedis(cn)
 		return
 	}

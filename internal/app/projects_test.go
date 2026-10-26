@@ -2028,10 +2028,10 @@ func TestTrafficFollowsRename(t *testing.T) {
 	cn := a.addConn(p, db.Config{Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1000, 700)
 	a.Connect(cn, nil)
-	testutil.WaitFor(t, tt, "the connection", func() bool { return cn.DB != nil })
+	testutil.WaitFor(t, tt, "the connection", func() bool { return cn.DB() != nil })
 	cn.Config.Name, cn.Config.Env = "ledger", db.Production
 	relabel(cn)
-	if _, err := cn.DB.SQL.Exec("SELECT 1"); err != nil {
+	if _, err := cn.DB().SQL.Exec("SELECT 1"); err != nil {
 		t.Fatal(err)
 	}
 	events, _ := p.Audit.Read(1, true)

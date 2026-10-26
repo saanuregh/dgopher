@@ -24,12 +24,15 @@ tests.
   implements `engineRules`, and SQL engines `SQLRules` (both declared in
   `internal/db/engine.go`; each engine's methods are in its own file, such
   as `internal/db/postgres.go`), so an engine missing a hook does not
-  compile. Outside `internal/db`, reach them through `Engine` methods and
-  `db.SQL(e)`, whose `false` (Redis, an unknown engine) the caller handles. Do not compare with an engine outside the reviewed list in
-  `TestNoEngineSwitches`, which fails on a new comparison. An engine built
-  on another's type also needs a dialect type of its own whose `Engine()`
-  is its own, returned by its `dialect()`: rules are found through a
-  `Dialect` too.
+  compile. Engines come in families (`Engine.Kind()`): outside
+  `internal/db`, reach the rules through `Engine` methods and the family's
+  entry point, `db.SQL(e)` or `db.KeyValue(e)`, whose `false` the caller
+  handles. A connection holds one `db.Store` (`Conn.Store`, read as
+  `Conn.DB()` or `Conn.KV()`). Do not compare with an engine outside the
+  reviewed list in `TestNoEngineSwitches`, which fails on a new
+  comparison. An engine built on another's type also needs a dialect type
+  of its own whose `Engine()` is its own, returned by its `dialect()`:
+  rules are found through a `Dialect` too.
 - **DuckDB and in-memory SQLite share one connection** (`DB.single`), so all
   their sessions share one transaction.
 

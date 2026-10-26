@@ -68,7 +68,7 @@ func (a *App) catalogQueriesView(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	// The log grows as the app reads: taken again every second.
-	if pool := v.conn.DB; pool != nil && time.Since(v.read) >= time.Second {
+	if pool := v.conn.DB(); pool != nil && time.Since(v.read) >= time.Second {
 		v.entries, v.read = pool.CatalogQueries(), time.Now()
 		kept := make(map[string]string, len(v.entries))
 		for _, e := range v.entries {

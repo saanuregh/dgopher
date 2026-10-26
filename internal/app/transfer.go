@@ -135,7 +135,7 @@ func (a *App) startCopy(x *copyDialog) {
 	case to == x.from && x.target.database == x.fromDB && x.target.schema == x.fromSchema:
 		x.err = "The tables would be copied onto themselves: choose another schema."
 		return
-	case to == x.from && to.DB != nil && to.DB.Single():
+	case to == x.from && singleConnection(to):
 		x.err = "This database keeps one connection, which cannot read and write at once: copy in an editor with CREATE TABLE … AS SELECT."
 		return
 	}
@@ -307,7 +307,7 @@ func (a *App) copyTable(ctx context.Context, from *connection.Conn, fromPool fun
 	rowsRead = 0
 	target := &db.EditTarget{Dialect: dst.Dialect, Schema: toSchema, Table: table, Columns: dstCols}
 	toEngine := to.Config.Engine
-	return writeRows(ctx, a, to.DB, to.Config, toDB, rowWrite{target: target, cols: dstCols, create: create, empty: empty, verb: "copied",
+	return writeRows(ctx, a, to.DB(), to.Config, toDB, rowWrite{target: target, cols: dstCols, create: create, empty: empty, verb: "copied",
 		read: func(ctx context.Context, batch int, emit func([][]any) error) error {
 			for {
 				rows, err := cursor.Fetch(batch)
@@ -383,4 +383,11 @@ func (a *App) copyView(c *ui.Context) {
 		}
 		a.copying = nil
 	}
+}
+
+// singleConnection reports whether a connection's pool is one shared
+// connection (DuckDB, in-memory SQLite).
+func singleConnection(cn *connection.Conn) bool {
+	d := cn.DB()
+	return d != nil && d.Single()
 }

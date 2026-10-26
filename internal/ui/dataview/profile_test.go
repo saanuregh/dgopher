@@ -55,7 +55,7 @@ func TestProfileOnServer(t *testing.T) {
 			ctx := context.Background()
 			for _, q := range []string{"CREATE TABLE p (id INTEGER PRIMARY KEY, price DOUBLE, note TEXT)",
 				"INSERT INTO p SELECT i, i * 1.5, CASE WHEN i % 2 = 0 THEN 'even' END FROM (WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 1000) SELECT i FROM r)"} {
-				if _, err := cn.DB.SQL.ExecContext(ctx, q); err != nil {
+				if _, err := cn.DB().SQL.ExecContext(ctx, q); err != nil {
 					t.Fatal(err)
 				}
 			}

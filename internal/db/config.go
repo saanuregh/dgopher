@@ -258,10 +258,13 @@ const DefaultKeySeparator = ":"
 
 // Separator is the string a Redis connection's key names split at.
 func (c *Config) Separator() string {
-	if c.KeySeparator == "" {
-		return DefaultKeySeparator
+	if c.KeySeparator != "" {
+		return c.KeySeparator
 	}
-	return c.KeySeparator
+	if kv, ok := KeyValue(c.Engine); ok {
+		return kv.DefaultKeySeparator()
+	}
+	return DefaultKeySeparator
 }
 
 // ProxyConfig is a proxy a connection goes through, none without a Kind.

@@ -85,11 +85,8 @@ func sealed(cfg *db.Config, e audit.Event) audit.Event {
 // relabel has an open connection's traffic recorded under its name, ID
 // and environment as they are now, changed without connecting again.
 func relabel(cn *connection.Conn) {
-	if cn.DB != nil {
-		cn.DB.RecordAs(cn.Config)
-	}
-	if cn.KV != nil {
-		cn.KV.RecordAs(cn.Config)
+	if cn.Store != nil {
+		cn.Store.RecordAs(cn.Config)
 	}
 }
 

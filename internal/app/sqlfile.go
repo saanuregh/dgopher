@@ -342,7 +342,7 @@ func (a *App) runSQLFile(x *sqlFileRun) {
 	approved, stopOnError, oneTx := x.verdict, x.stopOnError, x.oneTx
 	path, hash := x.path, x.hash
 	started := time.Now()
-	pool := cn.DB
+	pool := cn.DB()
 	job := fmt.Sprintf("Running %s on %s: stopping it keeps what ran so far, and rolls back a transaction the file left open.", filepath.Base(path), cfg.Name)
 	if oneTx {
 		job = fmt.Sprintf("Running %s on %s in one transaction: stopping it rolls it back, and nothing of the file stays.", filepath.Base(path), cfg.Name)

@@ -11,7 +11,7 @@ import (
 // The filter builder writes the conditions chosen as the rows' filter.
 func TestFilterBuilder(t *testing.T) {
 	a, tt, cn := designHost(t)
-	cn.DB.SQL.Exec(`INSERT INTO items (label, price) VALUES ('100%_pure', '9'), (NULL, '2')`)
+	cn.DB().SQL.Exec(`INSERT INTO items (label, price) VALUES ('100%_pure', '9'), (NULL, '2')`)
 	a.OpenTable(cn, "", db.Object{Schema: "main", Name: "items", Kind: db.KindTable, Rows: -1}, PageData)
 	tb := a.Tabs[0].(*TableTab)
 	v := tb.view

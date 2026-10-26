@@ -558,13 +558,13 @@ func TestLargeChangeAsks(t *testing.T) {
 	a.Connect(cn, nil)
 	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
 	for _, s := range []string{`CREATE TABLE t (id INTEGER PRIMARY KEY, a INTEGER)`, `INSERT INTO t VALUES (1, 0), (2, 0), (3, 0)`} {
-		if _, err := cn.DB.SQL.Exec(s); err != nil {
+		if _, err := cn.DB().SQL.Exec(s); err != nil {
 			t.Fatal(err)
 		}
 	}
 	sum := func() int {
 		var n int
-		cn.DB.SQL.QueryRow(`SELECT sum(a) FROM t`).Scan(&n)
+		cn.DB().SQL.QueryRow(`SELECT sum(a) FROM t`).Scan(&n)
 		return n
 	}
 	q := New(a, cn, "", "q", "UPDATE t SET a = 1 WHERE id > 0")
@@ -622,7 +622,7 @@ func TestLargeChangeAsks(t *testing.T) {
 	mem := a.AddConn(db.Config{ID: "mem", Name: "mem", Engine: db.SQLite, Database: ":memory:", Env: db.Staging})
 	a.Connect(mem, nil)
 	testutil.WaitFor(t, tt, "connect", func() bool { return mem.Status == connection.StatusConnected })
-	if _, err := mem.DB.SQL.Exec(`CREATE TABLE t (a INTEGER); INSERT INTO t VALUES (0), (0), (0)`); err != nil {
+	if _, err := mem.DB().SQL.Exec(`CREATE TABLE t (a INTEGER); INSERT INTO t VALUES (0), (0), (0)`); err != nil {
 		t.Fatal(err)
 	}
 	m := New(a, mem, "", "m", "UPDATE t SET a = 1 WHERE a = 0")
@@ -648,7 +648,7 @@ func TestIntegrationLargeChangeMySQL(t *testing.T) {
 	for _, engine := range []string{"MyISAM", "InnoDB"} {
 		for _, s := range []string{`DROP TABLE IF EXISTS it_guard`, `CREATE TABLE it_guard (id INT PRIMARY KEY, a INT) ENGINE=` + engine,
 			`INSERT INTO it_guard VALUES (1, 0), (2, 0), (3, 0)`} {
-			if _, err := cn.DB.SQL.Exec(s); err != nil {
+			if _, err := cn.DB().SQL.Exec(s); err != nil {
 				t.Fatal(s, err)
 			}
 		}
@@ -666,12 +666,12 @@ func TestIntegrationLargeChangeMySQL(t *testing.T) {
 			testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running })
 		}
 		var sum int
-		cn.DB.SQL.QueryRow(`SELECT sum(a) FROM it_guard`).Scan(&sum)
+		cn.DB().SQL.QueryRow(`SELECT sum(a) FROM it_guard`).Scan(&sum)
 		if want := map[string]int{"MyISAM": 3, "InnoDB": 0}[engine]; sum != want {
 			t.Fatalf("%s: sum %d", engine, sum)
 		}
 	}
-	cn.DB.SQL.Exec(`DROP TABLE IF EXISTS it_guard`)
+	cn.DB().SQL.Exec(`DROP TABLE IF EXISTS it_guard`)
 }
 
 // Under MySQL's autocommit off, a large change is not held in a
@@ -687,17 +687,17 @@ func TestIntegrationLargeChangeAutocommitOff(t *testing.T) {
 	q := newEditor(t, a, tt, cn, "SET autocommit = 0")
 	t.Cleanup(func() {
 		q.sess.Close()
-		cn.DB.SQL.Exec(`DROP TABLE IF EXISTS it_guard_off`)
+		cn.DB().SQL.Exec(`DROP TABLE IF EXISTS it_guard_off`)
 	})
 	for _, s := range []string{`DROP TABLE IF EXISTS it_guard_off`, `CREATE TABLE it_guard_off (id INT PRIMARY KEY, a INT) ENGINE=InnoDB`,
 		`INSERT INTO it_guard_off VALUES (1, 0), (2, 0), (3, 0)`} {
-		if _, err := cn.DB.SQL.Exec(s); err != nil {
+		if _, err := cn.DB().SQL.Exec(s); err != nil {
 			t.Fatal(s, err)
 		}
 	}
 	sum := func() int {
 		var n int
-		cn.DB.SQL.QueryRow(`SELECT sum(a) FROM it_guard_off`).Scan(&n)
+		cn.DB().SQL.QueryRow(`SELECT sum(a) FROM it_guard_off`).Scan(&n)
 		return n
 	}
 	runWith(t, tt, q, "SET", RunStatement)
@@ -779,7 +779,7 @@ func TestResultCommands(t *testing.T) {
 func TestSwitchSchemaCommand(t *testing.T) {
 	a, tt, cn, q := openEditor(t, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"}, 1000, 700, "")
 	testutil.WaitFor(t, tt, "the first schemas", func() bool { _, ok := cn.Schemas[""]; return ok })
-	if _, err := cn.DB.SQL.Exec(`CREATE SCHEMA s2`); err != nil {
+	if _, err := cn.DB().SQL.Exec(`CREATE SCHEMA s2`); err != nil {
 		t.Fatal(err)
 	}
 	connection.LoadSchemas(a, cn, "", nil)

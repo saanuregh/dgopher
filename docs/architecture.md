@@ -215,13 +215,18 @@ connection, and records the run in the audit log.
 ### Connecting
 
 `connection.Conn` (`internal/connection`) is a connection's live state:
-its config, status (idle, connecting, connected or failed), pool, server
-version, and the schema read so far.
+its config, status (idle, connecting, connected or failed), store, server
+version, and the schema read so far. The store (`Conn.Store`, a
+`db.Store`) is whatever the engine's family opens: a SQL pool (`*db.DB`,
+read with `Conn.DB()`) or a Redis client (`*db.KV`, `Conn.KV()`). Closing,
+tunnel loss, TLS state, the audit's name and the server version go through
+`db.Store`, the same for every family.
 
 `App.Connect` runs the trust check for connections from a project file and
-any password command, then opens the pool (`db.Open`, or `db.OpenRedis`) in
-the background. `Conn.Generation` counts disconnects, so a connect that
-finishes after you cancelled or disconnected is dropped.
+any password command, then opens the store (`db.OpenStore`, which picks by
+the engine's family) in the background. `Conn.Generation` counts
+disconnects, so a connect that finishes after you cancelled or
+disconnected is dropped.
 
 ### Pools and sessions
 
@@ -311,10 +316,21 @@ database. All sessions on it share one transaction:
 - `db.Dialect` (`internal/db/dialect.go`) is each SQL engine's behavior:
   quoting, placeholders, catalog queries, generated SQL. Each engine has its
   own file (`postgres.go`, `mysql.go`, …). Redis has no `Dialect`.
+- Engines come in families: `Engine.Kind()` is `KindSQL` or
+  `KindKeyValue` (Redis). Each family has its own rules interface beside
+  `engineRules`: `SQLRules` through `db.SQL(e)`, `KeyValueRules` through
+  `db.KeyValue(e)`, each `false` for an engine of another family (an
+  engine no build knows counts as SQL but has neither). A family also owns
+  its connection type, the safety review of its commands and its UI; all
+  families share connecting (SSH, proxies, TLS), secrets, environments
+  and the audit log; closing, tunnel loss, TLS state and the server
+  version go through `db.Store`. Idle disconnect reads the connection's
+  hold time, and for a SQL pool also `db.DB.LastUsed`. A family's client
+  interface (such as one over Redis and another key-value engine) is
+  defined when its second engine arrives, from what both really share.
 - Packages outside `internal/db` ask an engine's rules through `Engine`
-  methods, which every engine answers, and `db.SQL(e)`, which gives the
-  SQL rules and `false` for Redis or an engine no build knows; the caller
-  decides what that case means. A few `db` functions combine rules or keep
+  methods, which every engine answers, and the family's entry point; the
+  caller decides what `false` means. A few `db` functions combine rules or keep
   a fallback of their own (`db.Explain`, `db.Literal`,
   `db.SchemaChangesCommit`, the type mappings). `internal/sqltext` cannot
   import `db` and keeps its rules by its own `sqltext.Dialect`.

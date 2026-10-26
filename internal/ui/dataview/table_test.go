@@ -68,9 +68,9 @@ func TestTableEditing(t *testing.T) {
 		t.Fatalf("apply failed: %q", a.Errors)
 	}
 	var name string
-	cn.DB.SQL.QueryRow("SELECT name FROM shop.customers WHERE id = $1", tb.view.src.Rows[0][0]).Scan(&name)
+	cn.DB().SQL.QueryRow("SELECT name FROM shop.customers WHERE id = $1", tb.view.src.Rows[0][0]).Scan(&name)
 	var n int
-	cn.DB.SQL.QueryRow("SELECT count(*) FROM shop.customers WHERE name = 'Brand new'").Scan(&n)
+	cn.DB().SQL.QueryRow("SELECT count(*) FROM shop.customers WHERE name = 'Brand new'").Scan(&n)
 	if n != 1 {
 		t.Fatalf("inserted rows %d", n)
 	}
@@ -216,7 +216,7 @@ func TestDuckDBApplyInsideTxRefused(t *testing.T) {
 	a.Connect(cn, nil)
 	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
 	for _, s := range []string{"CREATE TABLE n (id INTEGER PRIMARY KEY, label TEXT)", "INSERT INTO n VALUES (1, 'one'), (2, 'two')"} {
-		if _, err := cn.DB.SQL.Exec(s); err != nil {
+		if _, err := cn.DB().SQL.Exec(s); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -271,7 +271,7 @@ func TestDuckDBApplyInsideTxRefused(t *testing.T) {
 		t.Fatalf("the owner's transaction: %v, owned %v", owner.sess.Tx(), owner.sess.OwnsTx())
 	}
 	var label string
-	if err := cn.DB.SQL.QueryRow("SELECT label FROM n WHERE id = 2").Scan(&label); err != nil || label != "two" {
+	if err := cn.DB().SQL.QueryRow("SELECT label FROM n WHERE id = 2").Scan(&label); err != nil || label != "two" {
 		t.Fatalf("row 2 holds %q, %v", label, err)
 	}
 	owner.endTx(false)
@@ -288,7 +288,7 @@ func TestStoppedEndTxReadsTxAgain(t *testing.T) {
 	a.Connect(cn, nil)
 	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
 	for _, s := range []string{"CREATE TABLE n (id INTEGER PRIMARY KEY, label TEXT)", "INSERT INTO n VALUES (1, 'one')"} {
-		if _, err := cn.DB.SQL.Exec(s); err != nil {
+		if _, err := cn.DB().SQL.Exec(s); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -328,7 +328,7 @@ func TestTableTabFollowsConnectionID(t *testing.T) {
 	a.Connect(cn, nil)
 	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
 	for _, s := range []string{"CREATE TABLE n (id INTEGER PRIMARY KEY, note TEXT)", "INSERT INTO n VALUES (1, 'kept')"} {
-		if _, err := cn.DB.SQL.Exec(s); err != nil {
+		if _, err := cn.DB().SQL.Exec(s); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -45,7 +45,7 @@ func TestRestoreRefusedWithOpenTransaction(t *testing.T) {
 	cn := addConn(a, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1200, 800)
 	connectNow(t, a, tt, cn)
-	editor, err := cn.DB.Session(ctx)
+	editor, err := cn.DB().Session(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestRestoreRefusedWithOpenTransaction(t *testing.T) {
 	tables := func() string {
 		t.Helper()
 		var names string
-		if err := cn.DB.SQL.QueryRow(`SELECT coalesce(string_agg(table_name, ',' ORDER BY table_name), '') FROM duckdb_tables()`).Scan(&names); err != nil {
+		if err := cn.DB().SQL.QueryRow(`SELECT coalesce(string_agg(table_name, ',' ORDER BY table_name), '') FROM duckdb_tables()`).Scan(&names); err != nil {
 			t.Fatal(err)
 		}
 		return names
@@ -121,7 +121,7 @@ func TestRestoreRefusedWithOpenTransaction(t *testing.T) {
 		t.Fatal(b.err)
 	}
 	var v int
-	if err := cn.DB.SQL.QueryRow(`SELECT a FROM t`).Scan(&v); err != nil || v != 7 {
+	if err := cn.DB().SQL.QueryRow(`SELECT a FROM t`).Scan(&v); err != nil || v != 7 {
 		t.Fatalf("restored %d: %v", v, err)
 	}
 	events, _ := cn.Project.Audit.Read(0, false)

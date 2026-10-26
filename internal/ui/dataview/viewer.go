@@ -455,10 +455,10 @@ func (v *Viewer) stopFetchAll() { v.fetchingAll, v.allAfterRead = false, false }
 // DuckDB's one connection, ending its statement aborts the transaction
 // open there.
 func (v *Viewer) countStopRefusal() string {
-	if r, ok := db.SQL(v.source.Conn.Config.Engine); !ok || !r.InterruptAbortsTransaction() || v.source.Conn.DB == nil {
+	if r, ok := db.SQL(v.source.Conn.Config.Engine); !ok || !r.InterruptAbortsTransaction() || v.source.Conn.DB() == nil {
 		return ""
 	}
-	if state, _ := v.source.Conn.DB.SharedTx(); state != db.TxNone {
+	if state, _ := v.source.Conn.DB().SharedTx(); state != db.TxNone {
 		return "Stopping the count would abort the transaction open on " + v.source.Conn.Config.Name + "."
 	}
 	return ""
@@ -592,7 +592,7 @@ func (v *Viewer) reload() {
 	closeOld := v.closer()
 	ctx, cancel := context.WithCancel(context.Background())
 	v.cancel = cancel
-	sess, pool, database, cfg := v.source.Session(), v.source.Conn.DB, v.source.Database, v.source.Conn.Config
+	sess, pool, database, cfg := v.source.Session(), v.source.Conn.DB(), v.source.Database, v.source.Conn.Config
 	go func() {
 		defer RecoverBackground(v.a.Post, v.a.ShowReport, func() { v.loading = false })
 		closeOld()
@@ -1008,7 +1008,7 @@ func (v *Viewer) apply(stmts, shown []db.Statement) {
 	}
 	v.applying = true
 	manual := v.source.Conn.Config.ManualCommit()
-	sess, pool, database, cfg := v.source.Session(), v.source.Conn.DB, v.source.Database, v.source.Conn.Config
+	sess, pool, database, cfg := v.source.Session(), v.source.Conn.DB(), v.source.Database, v.source.Conn.Config
 	engine := cfg.Engine.Label()
 	owner := ""
 	if v.source.TxOwner != nil {

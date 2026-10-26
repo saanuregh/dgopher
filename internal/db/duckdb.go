@@ -272,7 +272,7 @@ func (duckdbEngine) Label() string                   { return "DuckDB" }
 func (duckdbEngine) ColorHex() string                { return "#c49a00" }
 func (duckdbEngine) DefaultPort() int                { return 0 }
 func (duckdbEngine) DefaultUser() string             { return "" }
-func (duckdbEngine) IsSQL() bool                     { return true }
+func (duckdbEngine) Kind() EngineKind                { return KindSQL }
 func (duckdbEngine) Transactions() bool              { return true }
 func (duckdbEngine) Savepoints() bool                { return false }
 func (duckdbEngine) TransactionalDDL() bool          { return true }

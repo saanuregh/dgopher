@@ -36,7 +36,7 @@ func TestCopySourceReadAudited(t *testing.T) {
 	for _, cn := range []*connection.Conn{lite, duck} {
 		connectNow(t, a, tt, cn)
 	}
-	mustExec(t, lite.DB, `CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)`,
+	mustExec(t, lite.DB(), `CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)`,
 		`INSERT INTO items VALUES (1, 'pen'), (2, 'ink')`)
 	if x := copyTables(t, a, tt, lite, "main", []string{"items"}, duck, "main", copyCreate); x.err != "" {
 		t.Fatal(x.err)
@@ -59,8 +59,8 @@ func TestCompareRowsReadsAudited(t *testing.T) {
 	for _, cn := range []*connection.Conn{lite, duck} {
 		connectNow(t, a, tt, cn)
 	}
-	mustExec(t, lite.DB, `CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)`, `INSERT INTO items VALUES (1, 'pen'), (2, 'ink'), (3, 'pad')`)
-	mustExec(t, duck.DB, `CREATE TABLE items (id INTEGER PRIMARY KEY, name VARCHAR)`, `INSERT INTO items VALUES (1, 'pen'), (4, 'nib')`)
+	mustExec(t, lite.DB(), `CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT)`, `INSERT INTO items VALUES (1, 'pen'), (2, 'ink'), (3, 'pad')`)
+	mustExec(t, duck.DB(), `CREATE TABLE items (id INTEGER PRIMARY KEY, name VARCHAR)`, `INSERT INTO items VALUES (1, 'pen'), (4, 'nib')`)
 	a.openRowCompare(lite, "", db.Object{Schema: "main", Name: "items", Kind: db.KindTable})
 	x := a.rowCompare
 	x.target.label = targetLabel(duck)
@@ -90,7 +90,7 @@ func TestFillSamplesAudited(t *testing.T) {
 	lite := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: writeSQL(t, "x.sqlite", "")})
 	tt := ui.NewTester(a.view, 1200, 800)
 	connectNow(t, a, tt, lite)
-	mustExec(t, lite.DB,
+	mustExec(t, lite.DB(),
 		`CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT)`,
 		`INSERT INTO customers VALUES (1, 'a'), (2, 'b')`,
 		`CREATE TABLE orders (n BIGINT NOT NULL UNIQUE, customer_id INTEGER NOT NULL REFERENCES customers (id))`,

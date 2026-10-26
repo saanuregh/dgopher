@@ -45,7 +45,7 @@ func (r *Tab) loadDocs() {
 		return
 	}
 	r.docsAsked = time.Now()
-	kv := r.conn.KV
+	kv := r.conn.KV()
 	r.a.Background(func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -207,14 +207,14 @@ func (r *Tab) runConsole(line string) {
 		r.logConsole(consoleLine{text: "(error) " + err.Error(), err: true})
 		return
 	}
-	v := safety.ReviewRedis(&r.conn.Config, r.conn.KV, args)
+	v := safety.ReviewRedis(&r.conn.Config, r.conn.KV(), args)
 	if v.Blocked != "" {
 		r.a.RecordBlocked(r.conn, v.Blocked, redact.Redis(args))
 		r.logConsole(consoleLine{text: "(refused) " + v.Blocked, err: true})
 		return
 	}
 	run := func() {
-		kv := r.conn.KV
+		kv := r.conn.KV()
 		cfg := r.conn.Config
 		r.a.Background(func() func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -270,7 +270,7 @@ func (r *Tab) runCommandFile(path string) {
 	var v safety.Verdict
 	writes := 0
 	for _, cmd := range cmds {
-		cv := safety.ReviewRedis(&cfg, r.conn.KV, cmd.Args)
+		cv := safety.ReviewRedis(&cfg, r.conn.KV(), cmd.Args)
 		if cv.Blocked != "" {
 			r.a.RecordBlocked(r.conn, cv.Blocked, redact.Redis(cmd.Args))
 			fail(fmt.Sprintf("%s, line %d: %s", filepath.Base(path), cmd.Line, cv.Blocked))
@@ -301,7 +301,7 @@ func (r *Tab) startCommandFile(path string, cmds []db.CommandLine) {
 	// Asked again: the connection may have changed while the user read.
 	cfg := r.conn.Config
 	for _, cmd := range cmds {
-		if v := safety.ReviewRedis(&cfg, r.conn.KV, cmd.Args); v.Blocked != "" {
+		if v := safety.ReviewRedis(&cfg, r.conn.KV(), cmd.Args); v.Blocked != "" {
 			r.a.RecordBlocked(r.conn, v.Blocked, redact.Redis(cmd.Args))
 			r.logConsole(consoleLine{text: fmt.Sprintf("(refused) line %d: %s", cmd.Line, v.Blocked), err: true})
 			return
@@ -311,7 +311,7 @@ func (r *Tab) startCommandFile(path string, cmds []db.CommandLine) {
 	f := &fileRun{path: path, total: len(cmds), cancel: cancel}
 	r.file = f
 	r.logConsole(consoleLine{input: true, text: "> run " + filepath.Base(path)})
-	kv := r.conn.KV
+	kv := r.conn.KV()
 	go func() {
 		defer dataview.RecoverBackground(r.a.Post, r.a.ShowReport, func() { r.file = nil })
 		defer cancel()

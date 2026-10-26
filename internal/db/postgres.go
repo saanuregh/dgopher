@@ -398,7 +398,7 @@ func (postgresEngine) Label() string                   { return "PostgreSQL" }
 func (postgresEngine) ColorHex() string                { return "#336791" }
 func (postgresEngine) DefaultPort() int                { return 5432 }
 func (postgresEngine) DefaultUser() string             { return "postgres" }
-func (postgresEngine) IsSQL() bool                     { return true }
+func (postgresEngine) Kind() EngineKind                { return KindSQL }
 func (postgresEngine) Transactions() bool              { return true }
 func (postgresEngine) Savepoints() bool                { return true }
 func (postgresEngine) TransactionalDDL() bool          { return true }

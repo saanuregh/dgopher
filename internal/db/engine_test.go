@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"slices"
 	"testing"
 
@@ -75,8 +76,16 @@ func TestEngineRulesCover(t *testing.T) {
 		if isSQL != slices.Contains(sqlEngines, e) {
 			t.Errorf("%q: SQL ok = %v, want %v", e, isSQL, !isSQL)
 		}
-		if r.IsSQL() != isSQL {
-			t.Errorf("%q: IsSQL() = %v, but SQL ok = %v", e, r.IsSQL(), isSQL)
+		switch r.Kind() {
+		case KindSQL, KindKeyValue:
+		default:
+			t.Errorf("%q: Kind() = %v, no kind", e, r.Kind())
+		}
+		if (r.Kind() == KindSQL) != isSQL {
+			t.Errorf("%q: Kind() = %v, but SQL ok = %v", e, r.Kind(), isSQL)
+		}
+		if _, isKeyValue := KeyValue(e); (r.Kind() == KindKeyValue) != isKeyValue {
+			t.Errorf("%q: Kind() = %v, but KeyValue ok = %v", e, r.Kind(), isKeyValue)
 		}
 		if isSQL {
 			if s.Engine() != e {
@@ -99,6 +108,12 @@ func TestEngineRulesCover(t *testing.T) {
 	if _, ok := SQL("unknown"); ok {
 		t.Error("SQL(unknown) is ok: an unknown engine has no SQL rules")
 	}
+	if _, ok := KeyValue("unknown"); ok {
+		t.Error("KeyValue(unknown) is ok: an unknown engine has no key-value rules")
+	}
+	if k := Engine("unknown").Kind(); k != KindSQL {
+		t.Errorf("unknown engine's Kind() = %v, want KindSQL", k)
+	}
 }
 
 // A URL's scheme names one engine: one claimed twice would open as
@@ -111,6 +126,20 @@ func TestURLSchemesAreUnique(t *testing.T) {
 				t.Errorf("%s:// belongs to both %q and %q", scheme, was, e)
 			}
 			owner[scheme] = e
+		}
+	}
+}
+
+// A store that failed to open is a nil interface, not a nil pointer in
+// one, so callers' nil checks and closes see that nothing opened.
+func TestOpenStoreFailsWithNoStore(t *testing.T) {
+	for _, e := range []Engine{Postgres, Redis} {
+		s, err := OpenStore(context.Background(), Config{Name: "x", Engine: e}, nil)
+		if err == nil {
+			t.Fatalf("%s: opened without a host", e)
+		}
+		if s != nil {
+			t.Errorf("%s: OpenStore gave %T alongside its error, want nil", e, s)
 		}
 	}
 }

@@ -45,31 +45,18 @@ func engineComparison(t *testing.T) *regexp.Regexp {
 // ClickHouse's protocol), Redis not being SQL, or a file of an engine
 // meant by name. Each is a file under internal/ and its line, trimmed.
 var keptEngineComparisons = []struct{ file, line string }{
-	{"app/activity.go", `redis := t.conn.KV != nil || t.conn.Config.Engine == db.Redis`},
-	{"app/app.go", `case cfg.Engine == db.Redis:`},
-	{"app/app.go", `if cn.Config.Engine == db.Redis {`},
+	{"app/activity.go", `redis := t.conn.Config.Engine == db.Redis`},
 	{"app/connform.go", `if cfg.Engine == db.ClickHouse {`},
-	{"app/connform.go", `if cfg.Engine != db.Redis || cfg.KeySeparator == db.DefaultKeySeparator {`},
 	{"app/connform.go", `case cfg.Engine != db.Redis:`},
 	{"app/connform.go", `if engine == db.ClickHouse {`},
-	{"app/connform.go", `if engine == db.Redis {`},
 	{"app/connform.go", `if engine == db.ClickHouse {`},
 	{"app/connform.go", `if engine == db.Redis {`},
-	{"app/connform.go", `if engine != db.Redis {`},
 	{"app/connform.go", `if f.port == strconv.Itoa(old.DefaultPort()) || old == db.ClickHouse && isClickHouseDefaultPort(f.port, chProtocols...) {`},
 	{"app/connform.go", `if e == db.DuckDB {`},
-	{"app/connform.go", `case cfg.Engine == db.Redis:`},
 	{"app/connform.go", `if cfg.Engine == db.Redis && strings.TrimSpace(cfg.Redis.Nodes) != "" {`},
 	{"app/connform.go", `if cfg.Engine == db.Redis {`},
 	{"app/dropfiles.go", `if c.Config.Engine == db.DuckDB && c.Config.Database == ":memory:" {`},
-	{"app/layout.go", `if cn.Config.Engine == db.Redis {`},
-	{"app/nav.go", `if cn.Config.Engine == db.Redis {`},
-	{"app/nav.go", `if cn.Config.Engine == db.Redis {`},
-	{"app/nav.go", `if cn.Config.Engine == db.Redis {`},
-	{"app/nav.go", `if cn.Config.Engine == db.Redis {`},
-	{"app/palette.go", `if cn.Config.Engine == db.Redis {`},
 	{"app/sample.go", `if cn.Config.Engine == db.SQLite && cn.Config.Database == path {`},
-	{"app/savedtabs.go", `on:    func(e db.Engine) bool { return e == db.Redis },`},
 	{"db/config.go", `if c.Engine != ClickHouse {`},
 	{"db/config.go", `if c.Engine == Redis && c.Database != "" {`},
 	{"db/config.go", `case c.Engine != ClickHouse:`},
@@ -80,7 +67,6 @@ var keptEngineComparisons = []struct{ file, line string }{
 	{"db/url.go", `if _, ok := q["skip_verify"]; ok && (cfg.Engine == ClickHouse || cfg.Engine == Redis) {`},
 	{"db/url.go", `if cfg.Engine == ClickHouse && q.Get("database") != "" {`},
 	{"db/url.go", `if e == ClickHouse {`},
-	{"ui/dataview/fakehost.go", `if cfg.Engine == db.Redis {`},
 }
 
 // Engine behavior lives in each engine's rules (engine.go), so a new

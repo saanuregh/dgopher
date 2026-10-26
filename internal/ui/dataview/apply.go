@@ -32,8 +32,8 @@ func ApplyChange(a Host, cn *connection.Conn, database, title string, ch db.Sche
 		a.ShowError("Not allowed", v.Blocked)
 		return
 	}
-	if ch.Atomic && cn.DB != nil {
-		if state, _ := cn.DB.SharedTx(); state != db.TxNone {
+	if ch.Atomic && cn.DB() != nil {
+		if state, _ := cn.DB().SharedTx(); state != db.TxNone {
 			a.ShowError("Not applied", openTxRefusal(cfg.Name))
 			return
 		}
@@ -51,7 +51,7 @@ func ApplyChange(a Host, cn *connection.Conn, database, title string, ch db.Sche
 			// Nothing can cancel it: a change waiting on a lock gives up.
 			ctx, cancel = context.WithTimeout(context.Background(), time.Minute)
 		}
-		pool := cn.DB
+		pool := cn.DB()
 		job := strings.TrimSuffix(title, "?") + " on " + cfg.Name + ": stopping it keeps what ran so far."
 		if ch.Atomic {
 			job = strings.TrimSuffix(title, "?") + " on " + cfg.Name + ": stopping it rolls it back, and nothing of it stays."

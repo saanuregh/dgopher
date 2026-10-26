@@ -240,10 +240,10 @@ func (q *Tab) connectionSuggestions(a Host) []suggestion {
 // candidates lists what fits where the caret is.
 func (q *Tab) candidates(a Host, cc sqltext.CompletionContext) []suggestion {
 	cn := q.Conn
-	if cn.DB == nil {
+	if cn.DB() == nil {
 		return nil
 	}
-	dialect := cn.DB.Dialect
+	dialect := cn.DB().Dialect
 	schema := cn.DefaultSchema
 	quote := func(name string) string { return db.QuoteIfNeeded(dialect, name) }
 	var out []suggestion

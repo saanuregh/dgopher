@@ -229,7 +229,7 @@ func (sqliteEngine) Label() string                   { return "SQLite" }
 func (sqliteEngine) ColorHex() string                { return "#0f80cc" }
 func (sqliteEngine) DefaultPort() int                { return 0 }
 func (sqliteEngine) DefaultUser() string             { return "" }
-func (sqliteEngine) IsSQL() bool                     { return true }
+func (sqliteEngine) Kind() EngineKind                { return KindSQL }
 func (sqliteEngine) Transactions() bool              { return true }
 func (sqliteEngine) Savepoints() bool                { return true }
 func (sqliteEngine) TransactionalDDL() bool          { return true }

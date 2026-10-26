@@ -103,7 +103,7 @@ var savedKinds = map[string]savedKind{
 		what:  func(s savedTab) string { return "The ER diagram of " + s.Schema },
 	},
 	savedKeys: {
-		on:    func(e db.Engine) bool { return e == db.Redis },
+		on:    func(e db.Engine) bool { return e.IsKeyValue() },
 		open:  func(a *App, cn *connection.Conn, _ savedTab) { a.openRedis(cn) },
 		icon:  widgets.IconKey,
 		title: func(conn string, _ savedTab) string { return conn + " · keys" },

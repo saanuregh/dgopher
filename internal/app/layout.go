@@ -999,11 +999,7 @@ func (a *App) welcome(c *ui.Context) {
 								})
 							})
 							if row.Clicked() {
-								if cn.Config.Engine == db.Redis {
-									a.openRedis(cn)
-								} else {
-									a.NewQueryTab(cn, "", "")
-								}
+								a.NewQueryTab(cn, "", "") // the key browser for a key-value engine
 							}
 						}
 					})
@@ -1149,7 +1145,7 @@ func (a *App) connectionStatus(c *ui.Context, tab widgets.Tab, groups []connPlac
 		if cn.Version != "" {
 			status += " " + widgets.FirstLine(cn.Version)
 		}
-		if s := tlsStateOf(cn.DB, cn.KV); s != "" {
+		if s := tlsStateOf(cn.Store); s != "" {
 			status += ", " + s
 		}
 	case connection.StatusConnecting:
@@ -1299,12 +1295,9 @@ type pendingToast struct {
 
 // tlsStateOf is whether an open connection uses TLS, as the server
 // negotiated it: "TLS", "no TLS", or "" for a file.
-func tlsStateOf(sqldb *db.DB, kv *db.KV) string {
-	switch {
-	case sqldb != nil:
-		return sqldb.TLSState()
-	case kv != nil:
-		return kv.TLSState()
+func tlsStateOf(s db.Store) string {
+	if s == nil {
+		return ""
 	}
-	return ""
+	return s.TLSState()
 }

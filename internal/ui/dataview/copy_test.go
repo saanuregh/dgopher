@@ -62,7 +62,7 @@ func TestCopyAsInList(t *testing.T) {
 	tt, g, src := selectionGrid(t)
 	src.Rows[2][1] = "aa"
 	src.Rows[1][1] = nil
-	cn := &connection.Conn{Config: db.Config{Engine: db.Postgres}, DB: &db.DB{Dialect: db.DialectOf(db.Postgres)}}
+	cn := &connection.Conn{Config: db.Config{Engine: db.Postgres}, Store: &db.DB{Dialect: db.DialectOf(db.Postgres)}}
 	g.SQLOpts = SQLOptionsFor(cn, "", "t")
 	chooseBlock(tt, g, []int{0, 1, 2}, 1, 1)
 	if got, ok := g.copyInList(src); !ok || got != `("name" IN ('aa') OR "name" IS NULL)` {

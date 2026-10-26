@@ -802,7 +802,7 @@ func TestEnterEditsCell(t *testing.T) {
 func TestCopyAsSQLNotDoubleQuoted(t *testing.T) {
 	g, src := editableGrid()
 	g.selection.Add(0)
-	cn := &connection.Conn{Config: db.Config{Engine: db.MySQL}, DB: &db.DB{Dialect: db.DialectOf(db.MySQL)}}
+	cn := &connection.Conn{Config: db.Config{Engine: db.MySQL}, Store: &db.DB{Dialect: db.DialectOf(db.MySQL)}}
 	g.SQLOpts = SQLOptionsFor(cn, "s", "t")
 	got := g.copySelection(src, export.SQL, false)
 	if !strings.HasPrefix(got, "INSERT INTO `s`.`t` (`id`") {

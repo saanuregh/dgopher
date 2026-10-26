@@ -200,8 +200,8 @@ func expandPattern(pattern, table, connection string, now time.Time) string {
 func (x *exportState) options() export.Options {
 	opt := export.Options{Header: x.header, NullText: x.nullText, BOM: x.bom, FormulaGuard: x.guard, Schema: x.schema, Table: x.table, RowsPerInsert: int(x.perInsert),
 		Engine: x.src.Conn.Config.Engine}
-	if x.src.Conn.DB != nil {
-		opt.Quote = x.src.Conn.DB.Dialect.Quote
+	if x.src.Conn.DB() != nil {
+		opt.Quote = x.src.Conn.DB().Dialect.Quote
 	}
 	if export.Format(x.format) == export.CSV {
 		opt.Delimiter = delimiterRunes[x.delim]
@@ -465,7 +465,7 @@ func runExport(a Host, x *exportState) {
 	if all && x.limited {
 		limit = int(x.limit)
 	}
-	pool, opt := x.src.Conn.DB, x.options()
+	pool, opt := x.src.Conn.DB(), x.options()
 	var read [][]any
 	if !all {
 		read = x.src.RowsRead()

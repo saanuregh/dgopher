@@ -30,8 +30,8 @@ func (a *App) checkIdleConnections(c *ui.Context) {
 			cn.HeldAt = a.now
 		}
 		last := cn.HeldAt
-		if cn.DB != nil && cn.DB.LastUsed().After(last) {
-			last = cn.DB.LastUsed()
+		if d := cn.DB(); d != nil && d.LastUsed().After(last) {
+			last = d.LastUsed()
 		}
 		idle := a.now.Sub(last)
 		if idle >= limit {

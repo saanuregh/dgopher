@@ -100,7 +100,7 @@ func TestSQLFileOpenTransactionRolledBackAndReported(t *testing.T) {
 		t.Fatalf("the end of the file: %q, %q", x.err, x.failures)
 	}
 	var n int
-	if err := cn.DB.SQL.QueryRow(`SELECT count(*) FROM t`).Scan(&n); err != nil || n != 0 {
+	if err := cn.DB().SQL.QueryRow(`SELECT count(*) FROM t`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("%d rows stayed (%v)", n, err)
 	}
 	if e := rollbackAudited(t, a, "line 2"); e == nil || e.Error != "" {
@@ -122,7 +122,7 @@ func TestSQLFileOpenTransactionRolledBackAndReported(t *testing.T) {
 	if !strings.Contains(x.err, "stopped at the first error") || !strings.Contains(x.err, "BEGIN at line 2 was never committed; its changes were rolled back") {
 		t.Fatalf("a failing file: %q", x.err)
 	}
-	if err := cn.DB.SQL.QueryRow(`SELECT count(*) FROM u`).Scan(&n); err != nil || n != 0 {
+	if err := cn.DB().SQL.QueryRow(`SELECT count(*) FROM u`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("%d rows stayed (%v)", n, err)
 	}
 
@@ -133,7 +133,7 @@ func TestSQLFileOpenTransactionRolledBackAndReported(t *testing.T) {
 	if !strings.Contains(x.err, "BEGIN at line 2 was never committed; its changes were rolled back") {
 		t.Fatalf("DuckDB: %q", x.err)
 	}
-	if err := duck.DB.SQL.QueryRow(`SELECT count(*) FROM d`).Scan(&n); err != nil || n != 0 {
+	if err := duck.DB().SQL.QueryRow(`SELECT count(*) FROM d`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("DuckDB: %d rows stayed (%v)", n, err)
 	}
 }
@@ -153,15 +153,15 @@ func TestIntegrationSQLFileOpenTransaction(t *testing.T) {
 			cn := addConn(a, c.cfg)
 			tt := ui.NewTester(a.view, 1200, 800)
 			connectNow(t, a, tt, cn)
-			cn.DB.SQL.Exec(`DROP TABLE IF EXISTS it_open_tx`)
-			defer cn.DB.SQL.Exec(`DROP TABLE IF EXISTS it_open_tx`)
+			cn.DB().SQL.Exec(`DROP TABLE IF EXISTS it_open_tx`)
+			defer cn.DB().SQL.Exec(`DROP TABLE IF EXISTS it_open_tx`)
 			path := writeSQL(t, "open.sql", "CREATE TABLE it_open_tx (a int);\n"+c.begin+";\nINSERT INTO it_open_tx VALUES (1);\n")
 			x := runFile(t, a, tt, cn, path, nil)
 			if !strings.Contains(x.err, c.begin+" at line 2 was never committed; its changes were rolled back") {
 				t.Fatalf("the end of the file: %q, %q", x.err, x.failures)
 			}
 			var n int
-			if err := cn.DB.SQL.QueryRow(`SELECT count(*) FROM it_open_tx`).Scan(&n); err != nil || n != 0 {
+			if err := cn.DB().SQL.QueryRow(`SELECT count(*) FROM it_open_tx`).Scan(&n); err != nil || n != 0 {
 				t.Fatalf("%d rows stayed (%v)", n, err)
 			}
 			if e := rollbackAudited(t, a, "line 2"); e == nil || e.Error != "" {
@@ -189,7 +189,7 @@ func TestSQLFileProductionNeedsTypedName(t *testing.T) {
 	a.confirm = nil
 	testutil.WaitFor(t, tt, "the run", func() bool { return !x.running })
 	var n int
-	if err := cn.DB.SQL.QueryRow(`SELECT count(*) FROM p`).Scan(&n); x.err != "" || err != nil || n != 1 {
+	if err := cn.DB().SQL.QueryRow(`SELECT count(*) FROM p`).Scan(&n); x.err != "" || err != nil || n != 1 {
 		t.Fatalf("the run: %q, %d rows (%v)", x.err, n, err)
 	}
 
@@ -251,7 +251,7 @@ func TestSQLFileRunsOnce(t *testing.T) {
 	a.runSQLFile(x)
 	testutil.WaitFor(t, tt, "the run", func() bool { return !x.running })
 	var n int
-	if err := cn.DB.SQL.QueryRow(`SELECT count(*) FROM p`).Scan(&n); err != nil || n != 1 {
+	if err := cn.DB().SQL.QueryRow(`SELECT count(*) FROM p`).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("the file ran into %d rows (%v)", n, err)
 	}
 }
@@ -339,7 +339,7 @@ func TestSQLFileOneTransactionDefault(t *testing.T) {
 	if !strings.Contains(x.err, "nothing of the file stays") {
 		t.Fatalf("all or nothing: %q", x.err)
 	}
-	if err := lite.DB.SQL.QueryRow(`SELECT count(*) FROM d`).Scan(new(int)); err == nil {
+	if err := lite.DB().SQL.QueryRow(`SELECT count(*) FROM d`).Scan(new(int)); err == nil {
 		t.Fatal("the failed file left its table")
 	}
 }
@@ -417,7 +417,7 @@ func TestQuitListsRunningJobs(t *testing.T) {
 func TestDisconnectCancelsJobs(t *testing.T) {
 	a, tt, cn, file := liteApp(t, db.Development)
 	x := startLongFile(t, a, tt, cn)
-	pool := cn.DB
+	pool := cn.DB()
 	a.requestDisconnect("Disconnect lite?", "Disconnect", []*connection.Conn{cn}, func() { a.disconnect(cn) })
 	if a.closing == nil || !strings.Contains(a.closing.reason, "long.sql") {
 		t.Fatalf("disconnected without asking: %+v", a.closing)
@@ -456,7 +456,7 @@ func TestDisconnectCancelsJobs(t *testing.T) {
 // for them to roll back what they left open.
 func TestDisconnectWaitsForJobs(t *testing.T) {
 	a, tt, cn, _ := liteApp(t, db.Development)
-	pool := cn.DB
+	pool := cn.DB()
 	cancelled := make(chan struct{})
 	finish := a.StartJob(cn, "Waiting: stopping it loses nothing.", func() { close(cancelled) })
 	a.disconnect(cn)

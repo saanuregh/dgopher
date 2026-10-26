@@ -57,7 +57,7 @@ func (r *Tab) loadGroups() {
 	s := &r.stream
 	s.loading, s.err = true, ""
 	s.loads++
-	kv, key, chosen, load := r.conn.KV, r.selected, s.chosenGroup(), s.loads
+	kv, key, chosen, load := r.conn.KV(), r.selected, s.chosenGroup(), s.loads
 	gen := r.valueGen
 	r.loadLatest(func() bool { return gen == r.valueGen && load == s.loads }, &s.loading, &s.err, 30*time.Second, func(ctx context.Context) (func(), error) {
 		groups, err := kv.StreamGroups(ctx, key)

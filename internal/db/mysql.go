@@ -235,7 +235,7 @@ func (mysqlEngine) Label() string                   { return "MySQL" }
 func (mysqlEngine) ColorHex() string                { return "#00758f" }
 func (mysqlEngine) DefaultPort() int                { return 3306 }
 func (mysqlEngine) DefaultUser() string             { return "root" }
-func (mysqlEngine) IsSQL() bool                     { return true }
+func (mysqlEngine) Kind() EngineKind                { return KindSQL }
 func (mysqlEngine) Transactions() bool              { return true }
 func (mysqlEngine) Savepoints() bool                { return true }
 func (mysqlEngine) TransactionalDDL() bool          { return false }

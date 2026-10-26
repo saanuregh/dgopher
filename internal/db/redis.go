@@ -692,13 +692,14 @@ func formatReply(b *strings.Builder, v any, indent string) {
 
 type redisEngine struct{}
 
-var _ engineRules = redisEngine{}
+var _ KeyValueRules = redisEngine{}
 
 func (redisEngine) Label() string                   { return "Redis" }
 func (redisEngine) ColorHex() string                { return "#dc382d" }
 func (redisEngine) DefaultPort() int                { return 6379 }
 func (redisEngine) DefaultUser() string             { return "" }
-func (redisEngine) IsSQL() bool                     { return false }
+func (redisEngine) Kind() EngineKind                { return KindKeyValue }
+func (redisEngine) DefaultKeySeparator() string     { return DefaultKeySeparator }
 func (redisEngine) Transactions() bool              { return false }
 func (redisEngine) Savepoints() bool                { return false }
 func (redisEngine) TransactionalDDL() bool          { return false }

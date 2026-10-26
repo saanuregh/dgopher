@@ -13,7 +13,7 @@ import (
 // running, and a statement that writes.
 func TestPlanView(t *testing.T) {
 	_, tt, cn, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1200, 800, "SELECT * FROM things WHERE kind = 'a' ORDER BY name")
-	cn.DB.SQL.Exec(`CREATE TABLE things (name TEXT, kind TEXT)`)
+	cn.DB().SQL.Exec(`CREATE TABLE things (name TEXT, kind TEXT)`)
 	q.Run(RunExplain)
 	testutil.WaitFor(t, tt, "the plan", func() bool { r := q.current(); return !q.Running && r != nil && r.plan != nil })
 	r := q.current()

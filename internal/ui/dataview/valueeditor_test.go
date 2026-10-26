@@ -39,8 +39,8 @@ func TestDateText(t *testing.T) {
 // the text saved.
 func TestValueEditorForms(t *testing.T) {
 	a, tt, cn := designHost(t)
-	cn.DB.SQL.Exec(`CREATE TABLE things (id INTEGER PRIMARY KEY, due DATE, done BOOLEAN, meta TEXT)`)
-	cn.DB.SQL.Exec(`INSERT INTO things (due, done, meta) VALUES ('2026-01-31', 0, '{"tags": ["a", "b"], "n": 1}')`)
+	cn.DB().SQL.Exec(`CREATE TABLE things (id INTEGER PRIMARY KEY, due DATE, done BOOLEAN, meta TEXT)`)
+	cn.DB().SQL.Exec(`INSERT INTO things (due, done, meta) VALUES ('2026-01-31', 0, '{"tags": ["a", "b"], "n": 1}')`)
 	a.OpenTable(cn, "", db.Object{Schema: "main", Name: "things", Kind: db.KindTable, Rows: -1}, PageData)
 	v := a.Tabs[0].(*TableTab).view
 	testutil.WaitFor(t, tt, "the rows", func() bool { return len(v.src.Rows) == 1 && v.columns != nil })

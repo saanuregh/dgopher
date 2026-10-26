@@ -445,8 +445,8 @@ func TestPinCopyReplaceEmpties(t *testing.T) {
 			}
 			src.SQL.Exec("INSERT INTO t VALUES (1), (2)")
 			dst.SQL.Exec("INSERT INTO t VALUES (9)")
-			from := &connection.Conn{Config: db.Config{Name: "src", Engine: db.SQLite}, DB: src}
-			to := &connection.Conn{Config: db.Config{Name: "dst", Engine: e}, DB: dst}
+			from := &connection.Conn{Config: db.Config{Name: "src", Engine: db.SQLite}, Store: src}
+			to := &connection.Conn{Config: db.Config{Name: "dst", Engine: e}, Store: dst}
 			pool := func(d *db.DB) func(context.Context) (*db.DB, error) {
 				return func(context.Context) (*db.DB, error) { return d, nil }
 			}

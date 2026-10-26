@@ -34,7 +34,7 @@ func (q *Tab) currentSchema() string {
 // schemas of the editor's database, to work in.
 func (q *Tab) switcherView(c *ui.Context) {
 	cn := q.Conn
-	if cn.Status != connection.StatusConnected || cn.DB == nil {
+	if cn.Status != connection.StatusConnected || cn.DB() == nil {
 		return
 	}
 	if cn.SwitchesDatabase() {
@@ -75,7 +75,7 @@ func (q *Tab) switchSchema(schema string) {
 		return
 	}
 	cn := q.Conn
-	if cn.Status != connection.StatusConnected || cn.DB == nil {
+	if cn.Status != connection.StatusConnected || cn.DB() == nil {
 		// Closed since the command was offered, as when left unused.
 		q.a.ShowError("Not switched", cn.Config.Name+" is not connected.")
 		return
@@ -93,7 +93,7 @@ func (q *Tab) switchSchema(schema string) {
 	}
 	run := func() {
 		q.Running, q.StartedAt = true, time.Now()
-		sess, pool, database := q.sess, cn.DB, q.Database
+		sess, pool, database := q.sess, cn.DB(), q.Database
 		go func() {
 			defer dataview.RecoverBackground(q.a.Post, q.a.ShowReport, func() { q.Running = false })
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
