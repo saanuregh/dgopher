@@ -1,12 +1,16 @@
 package widgets_test
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 
+	"dgopher/internal/db"
 	"dgopher/internal/testutil"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/go-sql-driver/mysql"
 )
 
 const cardDetail = "dial tcp 10.0.0.5:5432: connect: connection refused\nis the server running?"
@@ -77,4 +81,21 @@ func TestErrorCardOpensDetailsWithoutHint(t *testing.T) {
 		t.Fatal("Details did not open the caller's disclosure")
 	}
 	testutil.Snapshot(t, tt, "errorcard-hint-open")
+}
+
+// A database error's report and text carry the hint DescribeError finds,
+// as for a transaction that clashed; another error's carry none.
+func TestErrorReportOfDatabaseError(t *testing.T) {
+	clash := fmt.Errorf("commit: %w", &mysql.MySQLError{Number: 9007, Message: "Write conflict"})
+	hint := db.DescribeError(clash).Hint
+	if r := widgets.ErrorReportOf("Could not commit", clash); hint == "" || r.Hint != hint || r.Title != "Could not commit" || r.Detail != clash.Error() {
+		t.Fatalf("report %+v", r)
+	}
+	if got := widgets.ErrorText(clash); got != clash.Error()+"\n\n"+hint {
+		t.Fatalf("text %q", got)
+	}
+	plain := errors.New("plain")
+	if r := widgets.ErrorReportOf("x", plain); r.Hint != "" || widgets.ErrorText(plain) != "plain" {
+		t.Fatalf("report %+v, text %q", r, widgets.ErrorText(plain))
+	}
 }

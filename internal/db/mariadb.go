@@ -65,8 +65,7 @@ func (mariadbDialect) ForeignKeys(ctx context.Context, q Querier, schema, table 
 
 // Items lists routines, triggers, events and sequences.
 func (mariadbDialect) Items(ctx context.Context, q Querier, schema string) ([]Item, error) {
-	return mysqlItems(ctx, q, schema, `SELECT 'sequence', TABLE_NAME, '', '', ''
-FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'SEQUENCE'`)
+	return mysqlItems(ctx, q, schema, mysqlSequenceItems)
 }
 
 func (d mariadbDialect) ItemDDL(ctx context.Context, q Querier, it Item) (string, error) {
@@ -96,6 +95,22 @@ func (mariadbEngine) CreateFile(context.Context, string) error { return noFileEr
 func (mariadbEngine) open(_ context.Context, cfg Config, ep endpoint, tc *tls.Config, w wire) (openedPool, error) {
 	sqldb, connector, err := openMySQL(cfg, ep, tc, w, "tx_read_only")
 	return openedPool{sql: sqldb, connector: connector, tls: tc}, err
+}
+
+// commitsImplicitlyWords: MariaDB commits on CREATE, ALTER and DROP
+// SEQUENCE, of a temporary one too, as well as where MySQL does.
+func (mariadbEngine) commitsImplicitlyWords(words []string, all func() []string) bool {
+	switch wordAt(words, 0) {
+	case "CREATE", "ALTER", "DROP":
+		object, _ := ddlObject(words)
+		if object == "" {
+			object, _ = ddlObject(all())
+		}
+		if object == "SEQUENCE" {
+			return true
+		}
+	}
+	return commitsImplicitly(words, all)
 }
 
 func (mariadbEngine) ReadDesignExtras(ctx context.Context, d *DB, t *TableDesign) error {
@@ -298,9 +313,9 @@ func (mariadbEngine) PlanBackup(ctx context.Context, d *DB, o BackupOptions) (To
 			// MySQL's mysqldump reads column statistics MariaDB does not
 			// keep, and fails.
 			return append(mysqlClientFlags(d), "--column-statistics=0")
-		})
+		}, true)
 	}
-	return planMySQLDump(ctx, d, o, tool, mariadbClientFlags)
+	return planMySQLDump(ctx, d, o, tool, mariadbClientFlags, true)
 }
 
 // mariadbDumpTool is the tool that backs up MariaDB: mariadb-dump, else

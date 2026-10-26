@@ -173,7 +173,7 @@ func classifyEachQuoting(stmt string, d Dialect, unwrap bool) Analysis {
 	}
 	if tooMany && !strictest.Dangerous {
 		strictest.Dangerous = true
-		strictest.Reason = fmt.Sprintf("its executable comments name more than %d server versions, which are not all read", maxExecutableVersions)
+		strictest.Reason = fmt.Sprintf("its executable comments name more than %d server versions or %d TiDB feature lists, which are not all read", maxExecutableVersions, maxExecutableFeatureLists)
 	}
 	return strictest
 }
@@ -897,10 +897,14 @@ func toTable(toks []Token) bool {
 
 // setsServerState reports whether a SET changes more than the session: MySQL
 // GLOBAL, PERSIST and PERSIST_ONLY variables, SET PASSWORD and SET DEFAULT
-// ROLE, which changes an account.
+// ROLE, which changes an account, and TiDB's SET CONFIG, which configures a
+// cluster component, and SET BINDING, which switches a global plan binding.
 func setsServerState(toks []Token, dep []int) bool {
-	if len(toks) > 1 && word(toks[1]) == "PASSWORD" {
-		return true
+	if len(toks) > 1 {
+		switch word(toks[1]) {
+		case "PASSWORD", "CONFIG", "BINDING":
+			return true
+		}
 	}
 	if len(toks) > 2 && word(toks[1]) == "DEFAULT" && word(toks[2]) == "ROLE" {
 		return true
@@ -1195,14 +1199,14 @@ func classifyExplain(toks []Token, d Dialect, r reading) Analysis {
 		if w == "ANALYZE" || w == "ANALYSE" {
 			analyze = true
 		} else if w == "FORMAT" && i+1 < len(toks) {
-			// MySQL "FORMAT=TREE" or "FORMAT TREE".
+			// MySQL "FORMAT=TREE" or "FORMAT TREE"; TiDB "FORMAT='brief'".
 			j := i + 1
 			if toks[j].Text == "=" {
 				j++
 			} else if _, isVerb := verbClasses[word(toks[j])]; isVerb {
 				break
 			}
-			if j >= len(toks) || word(toks[j]) == "" {
+			if j >= len(toks) || word(toks[j]) == "" && toks[j].Kind != String {
 				break
 			}
 			i = j

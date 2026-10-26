@@ -212,7 +212,7 @@ func TestIntegrationLexingConformance(t *testing.T) {
 		runLexCases(t, openFor(t, testutil.PGConfig()), sqltext.Postgres, pgCases)
 	})
 
-	// MariaDB reads these as MySQL does, with the same lexer.
+	// MariaDB and TiDB read these as MySQL does, with the same lexer.
 	mysqlCases := []lexCase{
 		{"SELECT 1--1", func(t *testing.T, a serverAnswer, toks []sqltext.Token) {
 			if a.err != nil || len(a.row) != 1 || a.row[0] != "2" {
@@ -250,6 +250,12 @@ func TestIntegrationLexingConformance(t *testing.T) {
 		optionalserver.SkipUnless(t, "mariadb")
 		d := openFor(t, db.Config{Name: "mariadb", Engine: db.MariaDB, Host: "127.0.0.1", Port: 13307, User: "root", Password: "dgopher", Database: "shop"})
 		runLexCases(t, d, db.LexDialect(db.MariaDB), mysqlCases)
+	})
+
+	t.Run("TiDB", func(t *testing.T) {
+		optionalserver.SkipUnless(t, "tidb")
+		d := openFor(t, db.Config{Name: "tidb", Engine: db.TiDB, Host: "127.0.0.1", Port: 14000, User: "root", Password: "dgopher", Database: "shop"})
+		runLexCases(t, d, db.LexDialect(db.TiDB), mysqlCases)
 	})
 
 	t.Run("ClickHouse", func(t *testing.T) {

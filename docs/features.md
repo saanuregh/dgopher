@@ -287,7 +287,7 @@ when another connection in the project has it.
 | PostgreSQL | browse its other databases from one connection |
 | CockroachDB, YugabyteDB, TimescaleDB | PostgreSQL's family: connect and work as PostgreSQL does |
 | MySQL | |
-| MariaDB, TiDB | MySQL's family: connect and work as MySQL does |
+| MariaDB, TiDB | MySQL's family: connect and work as MySQL does, except that TiDB's read-only is the app's check alone ([engines](engines.md#tidb)) |
 | ClickHouse | native protocol or HTTP, chosen under **Protocol**; the port defaults to 9000 or 8123, 9440 or 8443 with TLS required or verified |
 | SQLite | a file, or in memory; **New…** creates an empty file |
 | DuckDB | a file, or in memory; **New…** creates an empty file |
@@ -1017,7 +1017,8 @@ charts, and best sellers as a table](images/dashboard.png)
 - **Safe by design:** a panel runs one read only. Its statement goes through
   the safety policy and is refused if it writes or would need a
   confirmation. On PostgreSQL and MySQL it runs in a read-only transaction,
-  which the server enforces. Each run is audited, as an editor's is.
+  which the server enforces; TiDB has none, so there the safety policy is
+  the only check. Each run is audited, as an editor's is.
 - **Shared with the team:** a dashboard is a file in the project's
   `dashboards/` folder. It is never overwritten once it changed on disk, as
   by a pull, and reopens with the workspace.

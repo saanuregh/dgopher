@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -47,6 +48,8 @@ func TestClassifyConnectError(t *testing.T) {
 		{"ssh host key", &sshtunnel.HostKeyError{Host: "bastion:22", Fingerprint: "SHA256:x", Mismatch: true}, ProblemSSHHostKey},
 		{"tunnel closed", &TunnelClosedError{Err: errors.New("EOF")}, ProblemTunnelClosed},
 		{"keychain", &SecretReadError{Name: "password", Err: errors.New("locked")}, ProblemKeychain},
+		{"read-only setting refused", &mysql.MySQLError{Number: 1235, Message: "function READ ONLY has only noop implementation in tidb now, use tidb_enable_noop_functions to enable these functions"}, ProblemReadOnlyRefused},
+		{"another feature not supported", &mysql.MySQLError{Number: 1235, Message: "This version of MySQL doesn't yet support 'x'"}, ProblemUnknown},
 		{"unknown", errors.New("something else"), ProblemUnknown},
 	}
 	for _, c := range cases {
@@ -79,9 +82,25 @@ func TestClassifyConnectError(t *testing.T) {
 
 // TestHintsForEveryKind gives every known problem a hint to show.
 func TestHintsForEveryKind(t *testing.T) {
-	for k := ProblemUnknown + 1; k <= ProblemKeychain; k++ {
+	for k := ProblemUnknown + 1; k <= ProblemReadOnlyRefused; k++ {
 		if k.Hint() == "" {
 			t.Errorf("ProblemKind %d has no hint", k)
 		}
+	}
+}
+
+// A read-only connection saved as MySQL that reaches TiDB fails to
+// connect, as TiDB refuses the read-only setting: the hint names the fix.
+func TestIntegrationTiDBRefusesReadOnlyAsMySQL(t *testing.T) {
+	integration(t)
+	cfg := fixtureOf(t, TiDB).cfg
+	cfg.Engine, cfg.ReadOnly = MySQL, true
+	d, err := Open(context.Background(), cfg, nil)
+	if err == nil {
+		d.Close()
+		t.Fatal("connected")
+	}
+	if kind := ClassifyConnectError(err); kind != ProblemReadOnlyRefused || !strings.Contains(kind.Hint(), "engine to TiDB") {
+		t.Fatalf("%v: %v %q", err, kind, kind.Hint())
 	}
 }

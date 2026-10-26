@@ -91,5 +91,18 @@ func DescribeError(err error) ErrorInfo {
 	case errors.As(err, &lite):
 		info.Code = fmt.Sprint(lite.Code())
 	}
+	if info.Hint == "" {
+		info.Hint = conflictHint(err)
+	}
 	return info
+}
+
+// conflictHint is the hint of an error that ends a transaction clashing
+// with another, which may succeed run again: TiDB's write conflict (9007).
+// "" for any other error.
+func conflictHint(err error) string {
+	if mysqlErrorNumber(err) == 9007 {
+		return "The transaction clashed with another that changed the same rows. Run again from its start, it may succeed; DGopher never runs it again on its own."
+	}
+	return ""
 }

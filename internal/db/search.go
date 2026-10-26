@@ -173,8 +173,8 @@ WHERE s NOT LIKE 'pg\_%' AND s <> 'information_schema'
 // views, loses the views whose definition matches: the hint keeps it out.
 var mysqlSearch = mysqlSearchQuery("IF(t.TABLE_TYPE LIKE '%VIEW', 'view', 'table')", "")
 
-// mariadbSearch finds a sequence, which MariaDB keeps as a table, as a
-// sequence, and not its columns.
+// mariadbSearch finds a sequence, which MariaDB and TiDB keep as a table,
+// as a sequence, and not its columns.
 var mariadbSearch = mysqlSearchQuery("IF(t.TABLE_TYPE LIKE '%VIEW', 'view', IF(t.TABLE_TYPE = 'SEQUENCE', 'sequence', 'table'))", " AND t.TABLE_TYPE <> 'SEQUENCE'")
 
 // mysqlSearchQuery is the search of MySQL's catalog with the kind of an

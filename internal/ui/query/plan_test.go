@@ -55,3 +55,19 @@ func TestIntegrationMariaDBExplainAnalyzePlan(t *testing.T) {
 		}
 	}
 }
+
+// TiDB's Explain and Explain Analyze, FORMAT='tidb_json', read as plans,
+// the second as run.
+func TestIntegrationTiDBExplainPlan(t *testing.T) {
+	testutil.Integration(t)
+	optionalserver.SkipUnless(t, "tidb")
+	cfg := db.Config{ID: "tidb", Name: "tidb", Engine: db.TiDB, Host: "127.0.0.1", Port: 14000, User: "root", Password: "dgopher", Database: "shop"}
+	_, tt, _, q := openEditor(t, cfg, 1000, 700, "SELECT COUNT(*) FROM information_schema.TABLES")
+	for _, mode := range []RunMode{RunExplain, RunExplainAnalyze} {
+		q.Run(mode)
+		testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running && q.current() != nil })
+		if r := q.current(); r.err != "" || r.plan == nil || (mode == RunExplainAnalyze) != r.plan.Analyzed {
+			t.Fatalf("mode %d, %s: error %q, plan %+v", mode, r.sql, r.err, r.plan)
+		}
+	}
+}

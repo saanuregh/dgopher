@@ -229,7 +229,7 @@ func (t *TableTab) endTx(commit bool) {
 			} else if refused {
 				t.a.ShowError(title, notEnded)
 			} else if err != nil {
-				t.a.ShowError("Could not end the transaction", err.Error())
+				t.a.ShowReport(widgets.ErrorReportOf("Could not end the transaction", err))
 			}
 			t.RequestReload()
 		})

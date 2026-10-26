@@ -40,8 +40,8 @@ func (mysqlDialect) ObjectNames(ctx context.Context, q Querier, schema string) (
 	return mysqlObjects(ctx, q, schema, false, mysqlCatalog)
 }
 
-// catalogColumns are the expressions by which MySQL and MariaDB read
-// their catalogs differently.
+// catalogColumns are the expressions by which MySQL, MariaDB and TiDB
+// read their catalogs differently.
 type catalogColumns struct {
 	tables        string // more conditions on information_schema.TABLES
 	engine        string // a table's engine, of TABLES
@@ -53,6 +53,10 @@ type catalogColumns struct {
 
 var mysqlCatalog = catalogColumns{engine: "ENGINE", columnType: "COLUMN_TYPE", columnDefault: "COLUMN_DEFAULT",
 	indexPart: "COALESCE(COLUMN_NAME, EXPRESSION)"}
+
+// listSeparator ends a GROUP_CONCAT whose list splitList reads: unitSep
+// in a string, not 0x1f, which TiDB does not take there.
+const listSeparator = "SEPARATOR '" + unitSep + "'"
 
 // mysqlObjects reads a schema's tables and views; their statistics only
 // when asked, which MySQL may read anew from every table.
@@ -105,7 +109,7 @@ func (d mysqlDialect) Indexes(ctx context.Context, q Querier, schema, table stri
 // mysqlIndexes reads the indexes of a table, written in d's quotes.
 func mysqlIndexes(ctx context.Context, q Querier, d Dialect, schema, table string, c catalogColumns) ([]Index, error) {
 	return scanAll(ctx, q, `SELECT INDEX_NAME, MIN(NON_UNIQUE) = 0,
-  GROUP_CONCAT(`+c.indexPart+` ORDER BY SEQ_IN_INDEX SEPARATOR 0x1f), MIN(INDEX_TYPE)
+  GROUP_CONCAT(`+c.indexPart+` ORDER BY SEQ_IN_INDEX `+listSeparator+`), MIN(INDEX_TYPE)
 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
 GROUP BY INDEX_NAME ORDER BY INDEX_NAME = 'PRIMARY' DESC, INDEX_NAME`, []any{schema, table}, func(scan func(...any) error) (Index, error) {
 		var ix Index
@@ -136,8 +140,8 @@ func (mysqlDialect) ForeignKeys(ctx context.Context, q Querier, schema, table st
 // action as a design keeps it: "" for the server's default.
 func mysqlForeignKeys(ctx context.Context, q Querier, schema, table string, actionOf func(string) string) ([]ForeignKey, error) {
 	return scanAll(ctx, q, `SELECT k.CONSTRAINT_NAME, k.REFERENCED_TABLE_SCHEMA, k.REFERENCED_TABLE_NAME, rc.DELETE_RULE, rc.UPDATE_RULE,
-  GROUP_CONCAT(k.COLUMN_NAME ORDER BY k.ORDINAL_POSITION SEPARATOR 0x1f),
-  GROUP_CONCAT(k.REFERENCED_COLUMN_NAME ORDER BY k.ORDINAL_POSITION SEPARATOR 0x1f)
+  GROUP_CONCAT(k.COLUMN_NAME ORDER BY k.ORDINAL_POSITION `+listSeparator+`),
+  GROUP_CONCAT(k.REFERENCED_COLUMN_NAME ORDER BY k.ORDINAL_POSITION `+listSeparator+`)
 FROM information_schema.KEY_COLUMN_USAGE k
 JOIN information_schema.REFERENTIAL_CONSTRAINTS rc
   ON rc.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA AND rc.CONSTRAINT_NAME = k.CONSTRAINT_NAME AND rc.TABLE_NAME = k.TABLE_NAME
@@ -202,6 +206,11 @@ func (mysqlDialect) Items(ctx context.Context, q Querier, schema string) ([]Item
 	return mysqlItems(ctx, q, schema)
 }
 
+// mysqlSequenceItems selects the sequences of a schema, which MariaDB and
+// TiDB keep as tables, as items for mysqlItems.
+const mysqlSequenceItems = `SELECT 'sequence', TABLE_NAME, '', '', ''
+FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'SEQUENCE'`
+
 // mysqlItems lists routines, triggers and events, and the items more
 // selects: each a SELECT of kind, name, table, detail and ID, taking the
 // schema once.
@@ -239,8 +248,8 @@ func (d mysqlDialect) ItemDDL(ctx context.Context, q Querier, it Item) (string, 
 
 func (mysqlDialect) ReferencedBy(ctx context.Context, q Querier, schema, table string) ([]Reference, error) {
 	return scanAll(ctx, q, `SELECT CONSTRAINT_NAME, TABLE_SCHEMA, TABLE_NAME,
-  GROUP_CONCAT(COLUMN_NAME ORDER BY ORDINAL_POSITION SEPARATOR 0x1f),
-  GROUP_CONCAT(REFERENCED_COLUMN_NAME ORDER BY ORDINAL_POSITION SEPARATOR 0x1f)
+  GROUP_CONCAT(COLUMN_NAME ORDER BY ORDINAL_POSITION `+listSeparator+`),
+  GROUP_CONCAT(REFERENCED_COLUMN_NAME ORDER BY ORDINAL_POSITION `+listSeparator+`)
 FROM information_schema.KEY_COLUMN_USAGE
 WHERE REFERENCED_TABLE_SCHEMA = ? AND REFERENCED_TABLE_NAME = ?
 GROUP BY CONSTRAINT_NAME, TABLE_SCHEMA, TABLE_NAME
@@ -704,12 +713,13 @@ func (mysqlEngine) AccountForm() AccountFormFields {
 func (mysqlEngine) BackupFormats() []BackupFormat { return []BackupFormat{BackupSQL} }
 
 func (mysqlEngine) PlanBackup(ctx context.Context, d *DB, o BackupOptions) (ToolRun, error) {
-	return planMySQLDump(ctx, d, o, "mysqldump", mysqlClientFlags)
+	return planMySQLDump(ctx, d, o, "mysqldump", mysqlClientFlags, true)
 }
 
 // planMySQLDump plans the backup of a schema by mysqldump, or a tool that
-// takes its options, flags writing how the tool connects.
-func planMySQLDump(ctx context.Context, d *DB, o BackupOptions, tool string, flags func(*DB) []string) (ToolRun, error) {
+// takes its options, flags writing how the tool connects; snapshot reads
+// the data in one transaction, as one moment's.
+func planMySQLDump(ctx context.Context, d *DB, o BackupOptions, tool string, flags func(*DB) []string, snapshot bool) (ToolRun, error) {
 	if err := backupOptionsError(d.Config.Engine, o); err != nil {
 		return ToolRun{}, err
 	}
@@ -724,7 +734,10 @@ func planMySQLDump(ctx context.Context, d *DB, o BackupOptions, tool string, fla
 	if database == "" {
 		return ToolRun{}, errors.New("choose the database to back up")
 	}
-	run.Argv = append(run.Argv, "--single-transaction", "--routines", "--triggers", "--events", "--verbose", "--result-file="+o.Path)
+	if snapshot {
+		run.Argv = append(run.Argv, "--single-transaction")
+	}
+	run.Argv = append(run.Argv, "--routines", "--triggers", "--events", "--verbose", "--result-file="+o.Path)
 	run.Argv = append(run.Argv, contentFlag(o.Content, "--no-data", "--no-create-info")...)
 	// After --, a schema named as an option, as -Ar/tmp/x.sql, is a
 	// name.

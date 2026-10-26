@@ -377,6 +377,11 @@ func TestClassifyAuditCases(t *testing.T) {
 		{MySQL, "SET PERSIST x = 1", Write, false},
 		{MySQL, "SET @@global.x = 1", Write, false},
 		{MySQL, "SET PASSWORD FOR root = 'x'", Write, false},
+		// TiDB's SET CONFIG changes a cluster component, SET BINDING a
+		// global plan binding.
+		{MySQL, "SET CONFIG tikv `split.qps-threshold` = 1000", Write, false},
+		{MySQL, "set config pd `log.level` = 'info'", Write, false},
+		{MySQL, "SET BINDING DISABLED FOR SELECT * FROM t", Write, false},
 		{MySQL, "START REPLICA", Write, false},
 		{MySQL, "START TRANSACTION", Transaction, false},
 		{Postgres, "COMMIT PREPARED 'x'", Write, false},
@@ -474,6 +479,12 @@ func TestClassifyReadsNotBlocked(t *testing.T) {
 		{MySQL, "EXPLAIN ANALYZE FORMAT=TREE SELECT 1", Read},
 		{MySQL, "EXPLAIN FORMAT=JSON DELETE FROM t", Read},
 		{MySQL, "EXPLAIN ANALYZE FORMAT=TREE DELETE FROM t WHERE id = 1", Write},
+		// TiDB names its formats as strings.
+		{MySQL, "EXPLAIN FORMAT='tidb_json' SELECT 1", Read},
+		{MySQL, "EXPLAIN FORMAT = \"tidb_json\" DELETE FROM t", Read},
+		{MySQL, "EXPLAIN ANALYZE FORMAT='tidb_json' SELECT 1", Read},
+		{MySQL, "EXPLAIN ANALYZE FORMAT='tidb_json' DELETE FROM t WHERE id = 1", Write},
+		{MySQL, "EXPLAIN ANALYZE FORMAT = 'brief' UPDATE t SET a = 1", Write},
 		{MySQL, "ANALYZE FORMAT=JSON SELECT 1", Read},
 		{MySQL, "ANALYZE FORMAT=JSON UPDATE t SET a=1", Write},
 		{MySQL, "ANALYZE SELECT 1", Read},
@@ -1346,6 +1357,21 @@ func TestClassifyExecutableVersions(t *testing.T) {
 		"SELECT 1 /*!50000 , 2 */ /*M!100000 , 3 */":                Read,
 		"/*M!100000 SELECT 1 */":                                    Read,
 		"SELECT 1 /*!99999 /* , SLEEP(1) */ */":                     Read,
+		// TiDB runs /*T! … */, and /*T![feature] … */ where it has the
+		// feature; MySQL and MariaDB skip both.
+		"/*T! DELETE FROM t WHERE id = 1 */":                      Write,
+		"/*T![clustered_index] DELETE FROM t WHERE id = 1 */":     Write,
+		"SELECT 1 /*T![a, b] ; DELETE FROM t */":                  Write,
+		"/*T! SELECT */ DELETE FROM t WHERE id = 1":               Write,
+		"SELECT * FROM t /*T! FOR UPDATE */":                      Write,
+		"SELECT 1 /*!99999 , ' */ /*T! FROM t FOR UPDATE -- ' */": Write,
+		"SELECT 1 /*T![clustered_index] , 2 */":                   Read,
+		// Each feature list runs or not as the server has its features.
+		"SELECT * FROM t /*T![zz] ' */ /*T![clustered_index] FOR UPDATE */ /*T![zz] ' */":            Write,
+		"SELECT * FROM t /*T![zz] ' */ /*T![clustered_index] INTO OUTFILE '/tmp/x' */ /*T![zz] ' */": Write,
+		"SELECT * FROM t /*T![zz] ' */ /*T![placement] , 2 */ /*T![ttl] FOR UPDATE */ /*T![zz] ' */": Write,
+		// A list TiDB cannot read is no list: the comment runs from its [.
+		"SELECT 1 /*T![a,' ] */ ' , SLEEP(1) -- '": Write,
 	} {
 		if a := ClassifyExecutable(src, MySQL); a.Class != want {
 			t.Errorf("%s: got %+v, want class %v", src, a, want)
@@ -1358,6 +1384,14 @@ func TestClassifyExecutableVersions(t *testing.T) {
 	}
 	if a := ClassifyExecutable(many.String(), MySQL); !a.Dangerous {
 		t.Errorf("%d versions read: %+v", maxExecutableVersions+1, a)
+	}
+	many.Reset()
+	many.WriteString("SELECT 1")
+	for f := range maxExecutableFeatureLists + 1 {
+		fmt.Fprintf(&many, " /*T![f%d] , %d */", f, f)
+	}
+	if a := ClassifyExecutable(many.String(), MySQL); !a.Dangerous {
+		t.Errorf("%d feature lists read: %+v", maxExecutableFeatureLists+1, a)
 	}
 }
 

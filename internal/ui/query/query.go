@@ -1422,7 +1422,7 @@ func (q *Tab) endTx(commit bool) {
 				q.note(title+": "+notEnded, "", true)
 				return
 			case err != nil:
-				q.note(err.Error(), "", true)
+				q.note(widgets.ErrorText(err), "", true)
 				return
 			}
 			q.note(word+".", "", false)

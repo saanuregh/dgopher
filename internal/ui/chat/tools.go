@@ -331,31 +331,33 @@ func formatSQL(cfg *db.Config, sql string) string {
 // readRefusal says why a statement is not run for the agent, "" when it
 // may be, once the user allows it: one statement, that only reads, on a
 // connection not production, that the safety policy lets run without
-// asking.
-func readRefusal(cfg *db.Config, sql string) string {
+// asking. checked is that statement, without the text around it: what
+// runs.
+func readRefusal(cfg *db.Config, sql string) (checked, why string) {
 	if cfg.Env == db.Production {
-		return cfg.Name + " is production: the chat runs nothing there. Write the statement in a sql block for the user to insert in the editor and run."
+		return "", cfg.Name + " is production: the chat runs nothing there. Write the statement in a sql block for the user to insert in the editor and run."
 	}
 	d := safety.Dialect(cfg.Engine)
 	stmts := sqltext.SplitWith(sql, d, sqltext.SplitOptions{Mode: sqltext.SemicolonOnly})
 	if len(stmts) != 1 {
-		return fmt.Sprintf("give one statement, not %d", len(stmts))
+		return "", fmt.Sprintf("give one statement, not %d", len(stmts))
 	}
-	if how := fileReader(cfg.Engine, stmts[0].Text); how != "" {
-		return "the statement reads the server's files or URLs (" + how + "): the chat reads the connection's data alone; write it in a sql block for the user to run"
+	checked = stmts[0].Text
+	if how := fileReader(cfg.Engine, checked); how != "" {
+		return "", "the statement reads the server's files or URLs (" + how + "): the chat reads the connection's data alone; write it in a sql block for the user to run"
 	}
-	an := safety.Analyze(cfg, []string{stmts[0].Text})
+	an := safety.Analyze(cfg, []string{checked})
 	if an[0].Analysis.Class != sqltext.Read {
-		return "the statement is not a read: write it in a sql block for the user to insert in the editor, review and run"
+		return "", "the statement is not a read: write it in a sql block for the user to insert in the editor, review and run"
 	}
 	v := safety.ReviewSQL(cfg, an)
 	switch {
 	case v.Blocked != "":
-		return v.Blocked
+		return "", v.Blocked
 	case v.Confirm || v.Writes:
-		return "the statement needs the user's confirmation: write it in a sql block for the user to run in the editor"
+		return "", "the statement needs the user's confirmation: write it in a sql block for the user to run in the editor"
 	}
-	return ""
+	return checked, ""
 }
 
 func (t *Chat) runReadQuery(ctx context.Context, p place) (agent.ToolResult, error) {
@@ -364,7 +366,7 @@ func (t *Chat) runReadQuery(ctx context.Context, p place) (agent.ToolResult, err
 	if err != nil {
 		return agent.ErrorResult(err.Error()), nil
 	}
-	why := readRefusal(&c.cfg, sql)
+	checked, why := readRefusal(&c.cfg, sql)
 	if why == "" && c.cfg.NoRowsToChat {
 		why = c.cfg.Name + " keeps its rows from the AI chat: write the statement in a sql block for the user to run in the editor"
 	}
@@ -374,6 +376,7 @@ func (t *Chat) runReadQuery(ctx context.Context, p place) (agent.ToolResult, err
 	}
 	// The user allows each read, or every read of the connection for
 	// the rest of the chat.
+	sql = checked
 	r := &request{id: fmt.Sprintf("read-%d", t.nextID.Add(1)), title: "Run a read on " + c.cfg.Name, sql: formatSQL(&c.cfg, sql), conn: c.cfg.ID,
 		connName: c.cfg.Name, answer: make(chan decision, 1), always: true}
 	asked, err := onMain(ctx, t.a.Post, func() bool {

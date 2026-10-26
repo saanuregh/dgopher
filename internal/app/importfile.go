@@ -364,7 +364,7 @@ func (a *App) runImport(x *importState) {
 		return func() {
 			x.running = false
 			if err != nil {
-				x.err = err.Error()
+				x.err = widgets.ErrorText(err)
 				a.Notify(started, "Import failed", target.Table+" · "+redact.Secrets(widgets.FirstLine(err.Error())), nil)
 				return
 			}

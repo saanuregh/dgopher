@@ -548,6 +548,30 @@ func TestCommitsImplicitly(t *testing.T) {
 	if v := (txByVerbs{}).after(MySQL, "SET "+assignments+"autocommit = 0", nil, nil); !v.autocommitOff {
 		t.Errorf("MySQL: autocommit off after %d words not followed", leadingWordCount)
 	}
+	// TiDB commits on every DDL but a local temporary table's or a plan
+	// binding's; MariaDB on a sequence's, temporary too (both read on the
+	// servers).
+	for q, want := range map[string]bool{
+		"CREATE SEQUENCE s": true, "ALTER SEQUENCE s RESTART": true, "DROP SEQUENCE s": true,
+		"CREATE PLACEMENT POLICY p FOLLOWERS=1": true, "ALTER RESOURCE GROUP g RU_PER_SEC=1": true,
+		"CREATE GLOBAL TEMPORARY TABLE g (a int) ON COMMIT DELETE ROWS": true,
+		"FLASHBACK TABLE t TO u": true, "RECOVER TABLE t": true, "CREATE INDEX i ON t (a)": true,
+		"CREATE TEMPORARY TABLE x (a int)": false, "DROP TEMPORARY TABLE x": false,
+		"CREATE BINDING FOR SELECT 1 USING SELECT 1": false, "CREATE GLOBAL BINDING FOR SELECT 1 USING SELECT 1": false,
+		"DROP SESSION BINDING FOR SELECT 1": false, "SELECT 1": false,
+	} {
+		if got := CommitsImplicitly(TiDB, q); got != want {
+			t.Errorf("TiDB %q: implicit commit %v, want %v", q, got, want)
+		}
+	}
+	for q, want := range map[string]bool{
+		"CREATE SEQUENCE s": true, "ALTER SEQUENCE s RESTART 5": true, "DROP SEQUENCE IF EXISTS s": true,
+		"CREATE TEMPORARY SEQUENCE s": true, "CREATE TEMPORARY TABLE x (a int)": false,
+	} {
+		if got := CommitsImplicitly(MariaDB, q); got != want {
+			t.Errorf("MariaDB %q: implicit commit %v, want %v", q, got, want)
+		}
+	}
 	for _, e := range []Engine{Postgres, SQLite, DuckDB, ClickHouse} {
 		if CommitsImplicitly(e, "CREATE TABLE t (a int)") || CommitsImplicitly(e, "BEGIN") {
 			t.Errorf("%s: an implicit commit", e)
