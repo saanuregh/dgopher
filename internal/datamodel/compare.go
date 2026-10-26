@@ -39,7 +39,7 @@ type Change struct {
 // order, then B's tables A lacks. Tables match by name, and by schema too
 // when either model has tables of several.
 func Compare(a, b *Model) ([]TableDiff, error) {
-	if a.Engine != b.Engine {
+	if a.Engine.Base() != b.Engine.Base() {
 		return nil, fmt.Errorf("the models are of %s and %s: generate one's DDL for the other's engine, and compare that", a.Engine.Label(), b.Engine.Label())
 	}
 	var out []TableDiff
@@ -333,7 +333,7 @@ func foreignKeyText(fk db.ForeignKeyDesign) string {
 // new ones made, and keys added last. A table whose change the engine
 // cannot make is noted, and left as it is.
 func Migration(a, b *Model, schema string, drop bool) (db.SchemaChange, []string, error) {
-	if a.Engine != b.Engine {
+	if a.Engine.Base() != b.Engine.Base() {
 		return db.SchemaChange{}, nil, errors.New("a migration is between models of one engine")
 	}
 	e := b.Engine

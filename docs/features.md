@@ -285,7 +285,9 @@ when another connection in the project has it.
 | Engine | Notes |
 | --- | --- |
 | PostgreSQL | browse its other databases from one connection |
-| MySQL and MariaDB | |
+| CockroachDB, YugabyteDB, TimescaleDB | PostgreSQL's family: connect and work as PostgreSQL does |
+| MySQL | |
+| MariaDB, TiDB | MySQL's family: connect and work as MySQL does |
 | ClickHouse | native protocol or HTTP, chosen under **Protocol**; the port defaults to 9000 or 8123, 9440 or 8443 with TLS required or verified |
 | SQLite | a file, or in memory; **New…** creates an empty file |
 | DuckDB | a file, or in memory; **New…** creates an empty file |
@@ -293,6 +295,21 @@ when another connection in the project has it.
 
 **New…** never replaces a file that is already there; it opens it as it
 is.
+
+The list also offers **Neon** and **Supabase**, which fill in a
+PostgreSQL connection with TLS verify-full, the service's database and,
+for Supabase, its user, and show the form of its host names.
+
+After connecting, DGopher reads which engine of its family the server
+is. When it differs from the connection's, as a CockroachDB server saved
+as PostgreSQL, a notice says so and offers **Use CockroachDB**, which
+saves the connection with that engine; nothing changes without it. The
+notification keeps the offer, and **Don't Ask Again** stops it for that
+server's version. The offer does nothing while a connection form is open,
+or once the connection's server or engine changed since; when a saved
+password could not be read, the form opens to have it entered before
+saving. **Test Connection** names the server's engine too, and offers to
+change the form's.
 
 ### The connection form
 
@@ -328,9 +345,10 @@ It decides what asks before running; see [Safety model](safety.md).
 Paste a URL, or a file path, into **From URL** to fill in the form,
 including TLS.
 
-- Schemes: `postgres://`, `postgresql://`, `mysql://`, `mariadb://`,
-  `clickhouse://`, `ch://`, `redis://`, `rediss://`, `sqlite://`,
-  `sqlite3://`, `duckdb://` and `file://`.
+- Schemes: `postgres://`, `postgresql://`, `cockroachdb://`,
+  `cockroach://`, `yugabytedb://`, `timescaledb://`, `mysql://`,
+  `mariadb://`, `tidb://`, `clickhouse://`, `ch://`, `redis://`,
+  `rediss://`, `sqlite://`, `sqlite3://`, `duckdb://` and `file://`.
 - ClickHouse's JDBC URLs, as DBeaver shows them, choose HTTP:
   `clickhouse:http://`, `clickhouse:https://` (verify-full TLS), with
   `ch` for `clickhouse` and an optional `jdbc:` before. A URL that names
@@ -1069,7 +1087,8 @@ palette. Its tab shows each table and its DDL.
   (`varchar(40)` stays `VARCHAR(40)`). What the engine cannot have, such as
   another engine's checks, is left out and noted at the top of the script.
   The script opens in an editor, or is copied.
-- **Compare** the model with a schema of a connection of its engine, or with
+- **Compare** the model with a schema of a connection of its engine (or of
+  an engine of its family built on it, as MariaDB on MySQL), or with
   another model. It lists tables missing, differing, or not in the model,
   and for each table the columns, key, indexes, foreign keys and checks that
   differ.

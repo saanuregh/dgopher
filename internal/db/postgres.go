@@ -395,6 +395,7 @@ type postgresEngine struct{ postgresDialect }
 var _ SQLRules = postgresEngine{}
 
 func (postgresEngine) Label() string                   { return "PostgreSQL" }
+func (postgresEngine) Base() Engine                    { return Postgres }
 func (postgresEngine) ColorHex() string                { return "#336791" }
 func (postgresEngine) DefaultPort() int                { return 5432 }
 func (postgresEngine) DefaultUser() string             { return "postgres" }
@@ -485,6 +486,10 @@ func (postgresEngine) LexDialect() sqltext.Dialect              { return sqltext
 func (postgresEngine) BeginStatement() string                   { return "BEGIN" }
 func (postgresEngine) ReadOnlyBeginSQL() string                 { return "START TRANSACTION READ ONLY" }
 func (postgresEngine) followsTransactionByVerbs() bool          { return false }
+
+func (postgresEngine) identify(ctx context.Context, q *sql.DB) (Engine, string, error) {
+	return identifyPostgresFamily(ctx, q)
+}
 
 func (postgresEngine) afterFailedStatement(v txByVerbs, _ error, _ bool, _ func() bool) txByVerbs {
 	return v

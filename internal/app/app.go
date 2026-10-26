@@ -147,6 +147,9 @@ type App struct {
 	snippetForm *snippetForm
 	history     *historyState
 	toasts      []pendingToast // shown in the next frame
+	// identified are the servers found on connect to be other engines
+	// than their connections are set to, told of in the next frame.
+	identified []identifiedConn
 	// notes are the session's notifications, oldest first.
 	notes      []notification
 	noteSeq    int
@@ -854,12 +857,14 @@ func (a *App) open(cn *connection.Conn, cfg db.Config, alert bool) {
 		ctx, cancel := context.WithTimeout(at.ctx, 45*time.Second+secretcmd.Timeout)
 		defer cancel()
 		var version string
+		var server identifiedServer
 		err := resolveCommandSecrets(ctx, &cfg)
 		if err == nil {
 			opened, err = db.OpenStore(ctx, cfg, known)
 		}
 		if err == nil {
-			version = opened.ServerVersion(ctx)
+			server = identifyStore(ctx, opened)
+			version = server.shownVersion(cfg.Engine, opened.ServerVersion(ctx))
 		}
 		return func() {
 			a.endAttempt(cn, at)
@@ -909,6 +914,10 @@ func (a *App) open(cn *connection.Conn, cfg db.Config, alert bool) {
 			}
 			for _, w := range waiters {
 				w()
+			}
+			// Queued: offering here is an initialization cycle (savedKinds, open, saveConnForm).
+			if server.mismatches(cfg.Engine) {
+				a.identified = append(a.identified, identifiedConn{cn, server})
 			}
 		}
 	})

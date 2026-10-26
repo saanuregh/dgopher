@@ -42,9 +42,10 @@ func engineComparison(t *testing.T) *regexp.Regexp {
 
 // keptEngineComparisons are the comparisons with an engine that are not
 // engine behavior: a field only one engine has (Redis's nodes,
-// ClickHouse's protocol), Redis not being SQL, or a file of an engine
-// meant by name. Each is a file under internal/ and its line, trimmed.
+// ClickHouse's protocol), Redis not being SQL, a file of an engine meant
+// by name, or which engine a server identified as. Each is a file under internal/ and its line, trimmed.
 var keptEngineComparisons = []struct{ file, line string }{
+	{"db/timescaledb.go", "if err != nil || e != Postgres {"},
 	{"app/activity.go", `redis := t.conn.Config.Engine == db.Redis`},
 	{"app/connform.go", `if cfg.Engine == db.ClickHouse {`},
 	{"app/connform.go", `case cfg.Engine != db.Redis:`},

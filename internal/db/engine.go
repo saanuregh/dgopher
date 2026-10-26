@@ -17,6 +17,9 @@ import (
 // knows included.
 type engineRules interface {
 	Label() string
+	// Base is the engine whose rules a flavor runs on, the engine itself
+	// for one that is not a flavor.
+	Base() Engine
 	// ColorHex tints the engine's icon, as "#rrggbb".
 	ColorHex() string
 	DefaultPort() int
@@ -107,6 +110,9 @@ type driverRules interface {
 	// CreateFile makes an empty database at path, where there is nothing.
 	CreateFile(ctx context.Context, path string) error
 	VersionQuery() string
+	// identify reads which engine of the rules' family the server is, and
+	// its version (DB.Identify).
+	identify(ctx context.Context, q *sql.DB) (Engine, string, error)
 	LexDialect() sqltext.Dialect
 }
 
@@ -465,12 +471,17 @@ type AccountFormFields struct {
 }
 
 var registeredRules = map[Engine]engineRules{
-	Postgres:   postgresEngine{},
-	MySQL:      mysqlEngine{},
-	ClickHouse: clickhouseEngine{},
-	Redis:      redisEngine{},
-	SQLite:     sqliteEngine{},
-	DuckDB:     duckdbEngine{},
+	Postgres:    postgresEngine{},
+	CockroachDB: cockroachdbEngine{},
+	YugabyteDB:  yugabytedbEngine{},
+	TimescaleDB: timescaledbEngine{},
+	MySQL:       mysqlEngine{},
+	MariaDB:     mariadbEngine{},
+	TiDB:        tidbEngine{},
+	ClickHouse:  clickhouseEngine{},
+	Redis:       redisEngine{},
+	SQLite:      sqliteEngine{},
+	DuckDB:      duckdbEngine{},
 }
 
 // rulesOf returns an engine's rules; unknownEngine's for an ID no build
@@ -511,6 +522,7 @@ var _ engineRules = unknownEngine{}
 type unknownEngine struct{ id Engine }
 
 func (u unknownEngine) Label() string                 { return string(u.id) }
+func (u unknownEngine) Base() Engine                  { return u.id }
 func (unknownEngine) ColorHex() string                { return "#737373" }
 func (unknownEngine) DefaultPort() int                { return 0 }
 func (unknownEngine) DefaultUser() string             { return "" }
@@ -630,6 +642,10 @@ func upsertOnConflictSQL(insert string, keys, updatedColumns []string) string {
 
 // Label is the engine's display name.
 func (e Engine) Label() string { return rulesOf(e).Label() }
+
+// Base is the engine a flavor runs on, as MySQL for MariaDB; the engine
+// itself for one that is not a flavor.
+func (e Engine) Base() Engine { return rulesOf(e).Base() }
 
 // DefaultPort is the port the engine listens on unless configured otherwise.
 func (e Engine) DefaultPort() int { return rulesOf(e).DefaultPort() }

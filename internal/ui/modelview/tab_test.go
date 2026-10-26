@@ -142,3 +142,30 @@ func TestModelTab(t *testing.T) {
 		t.Fatalf("customers after the update: %+v", c.Columns)
 	}
 }
+
+// A MySQL model takes a connection since set to MariaDB as its own: it
+// compares with it and updates from it.
+func TestModelKeepsFlavorsConnection(t *testing.T) {
+	h := dataview.NewFakeHost(t)
+	// Nothing listens on port 1: the update goes as far as connecting.
+	cn := h.AddConn(db.Config{ID: "maria", Name: "maria", Engine: db.MariaDB, Host: "127.0.0.1", Port: 1})
+	tt := ui.NewTester(h.View, 1280, 800)
+	m := &datamodel.Model{Name: "Shop", Engine: db.MySQL, Source: &datamodel.Source{Connection: "maria", Database: "shop", Schema: "shop"}}
+	path := datamodel.File(h.Project, m.Name)
+	if _, err := m.Save(path, nil); err != nil {
+		t.Fatal(err)
+	}
+	tab, err := Open(h, h.Project, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.AddTab(tab)
+	if f := newCompareForm(tab); len(f.conns) != 1 || f.conn != "maria" || f.schema != "shop" {
+		t.Fatalf("compare with %d connections, %q %q", len(f.conns), f.conn, f.schema)
+	}
+	tab.update()
+	if !tab.updating || tab.err != "" {
+		t.Fatalf("the update says %q", tab.err)
+	}
+	testutil.WaitFor(t, tt, "the connection", func() bool { return cn.Status == connection.StatusFailed })
+}

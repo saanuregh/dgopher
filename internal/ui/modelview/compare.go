@@ -51,14 +51,14 @@ func (f *compareForm) inputs() any {
 
 func newCompareForm(t *Tab) *compareForm {
 	f := &compareForm{open: true, conns: t.conns(t.m.Engine)}
-	if src := t.source(); src != nil && src.Config.Engine == t.m.Engine {
+	if src := t.source(); src != nil && src.Config.Engine.Base() == t.m.Engine.Base() {
 		f.conn, f.database, f.schema = src.Config.Name, t.m.Source.Database, t.m.Source.Schema
 	} else if len(f.conns) > 0 {
 		f.conn = f.conns[0].Config.Name
 	}
 	files, _ := datamodel.List(t.Project)
 	for _, path := range files {
-		if m, err := datamodel.Load(path); err == nil && path != t.Path && m.Engine == t.m.Engine {
+		if m, err := datamodel.Load(path); err == nil && path != t.Path && m.Engine.Base() == t.m.Engine.Base() {
 			f.models = append(f.models, m)
 		}
 	}

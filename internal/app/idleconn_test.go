@@ -227,8 +227,7 @@ func TestConnFormIdleConnection(t *testing.T) {
 			t.Errorf("%d asks to reconnect", cfg.IdleConnectionTimeout)
 		}
 	}
-	a.syncEngineChoice(f, slices.Index(db.Engines(), db.SQLite))
-	f.engineIdx = slices.Index(db.Engines(), db.SQLite)
+	a.syncEngineChoice(f, db.SQLite)
 	tt.Frame()
 	if testutil.HasTextContaining(tt, "Idle connection") {
 		t.Fatalf("a file offers to disconnect: %q", tt.Texts())

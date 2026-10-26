@@ -37,7 +37,7 @@ type connForm struct {
 	id string
 
 	engine     string
-	engineIdx  int
+	preset     *connectionPreset // the one the form was filled in from, nil for none
 	port       string
 	sshPort    string
 	env        int
@@ -74,6 +74,9 @@ type connForm struct {
 	testing    bool
 	testResult string
 	testOK     bool
+	// testServer is the server the test found, when it is another engine
+	// than the form's, for the form to switch to.
+	testServer identifiedServer
 	err        string
 
 	// unread are why the keychain failed to give secrets, by secretNames
@@ -173,7 +176,6 @@ func (a *App) openConnForm(cn *connection.Conn) {
 		f.sshSource = sshSources[1]
 	}
 	f.engine = f.cfg.Engine.Label()
-	f.engineIdx = max(0, slices.Index(db.Engines(), f.cfg.Engine))
 	f.port, f.sshPort = portText(f.cfg.Port), portText(f.cfg.SSH.Port)
 	f.proxy = max(0, slices.Index(proxyKinds, f.cfg.Proxy.Kind))
 	f.proxyPort = portText(f.cfg.Proxy.Port)
@@ -371,6 +373,10 @@ func (a *App) connFormView(c *ui.Context) {
 				}
 				ui.Text(c, widgets.FirstLine(f.testResult)).TextColor(col).SingleLine().Shrink(1).Tooltip(f.testResult)
 			}
+			if s := f.testServer; !f.testing && s.mismatches(engineByLabel(f.engine)) && ui.Button(c, "Use "+s.engine.Label()).Clicked() {
+				setFormEngine(f, s.engine)
+				f.testServer, f.testResult = identifiedServer{}, "Set to "+s.engine.Label()+", as the server is: save to keep it."
+			}
 			ui.Spacer(c)
 			if ui.Button(c, "Cancel").Clicked() {
 				f.open = false
@@ -450,8 +456,15 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 		}
 	}).Description("Paste a postgres://, mysql://, clickhouse:// or redis:// URL, or a database file's path, to fill in the rest.").Error(f.urlErr)
 	ui.Field(c, "Engine", func() {
-		if ui.Segmented(c, &f.engineIdx, engineLabels()...).Label("Engine").Changed() {
-			a.syncEngineChoice(f, f.engineIdx)
+		choice, choices := f.engine, engineOptions
+		if f.preset != nil {
+			choice = f.preset.choiceLabel()
+		}
+		if f.editing == nil {
+			choices = engineAndPresetOptions
+		}
+		if ui.Select(c, &choice, choices).Label("Engine").Changed() {
+			a.chooseEngine(f, choice)
 		}
 	})
 	ui.Field(c, "Name", func() {
@@ -515,7 +528,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 		}
 		ui.Field(c, hostLabel, func() {
 			ui.Row(c).Gap(6).Children(func() {
-				ui.TextInput(c, &f.cfg.Host).Placeholder("localhost").Grow(1).Label(hostLabel)
+				ui.TextInput(c, &f.cfg.Host).Placeholder(f.hostPlaceholder()).Grow(1).Label(hostLabel)
 				ui.TextInput(c, &f.port).Placeholder(strconv.Itoa(port)).Width(80).Label("Port")
 			})
 		})
@@ -756,10 +769,58 @@ func engineLabels() []string {
 	return lists.Map(db.Engines(), db.Engine.Label)
 }
 
+// connectionPreset is a hosted service the new-connection form fills a
+// connection in for: an engine with the service's settings, which is not
+// an engine of its own. It connects with TLS verified.
+type connectionPreset struct {
+	label  string
+	engine db.Engine
+	// hostPlaceholder shows the form of the service's host names.
+	hostPlaceholder string
+	user, database  string
+}
+
+var connectionPresets = []connectionPreset{
+	{label: "Neon", engine: db.Postgres, hostPlaceholder: "*.neon.tech", database: "neondb"},
+	{label: "Supabase", engine: db.Postgres, hostPlaceholder: "*.supabase.co", user: "postgres", database: "postgres"},
+}
+
+// choiceLabel is how the engine choice lists the preset.
+func (p *connectionPreset) choiceLabel() string { return p.label + " (" + p.engine.Label() + ")" }
+
+// engineOptions are the engine choice's options; engineAndPresetOptions,
+// a new connection's, the presets too.
+var (
+	engineOptions          = engineLabels()
+	engineAndPresetOptions = append(engineLabels(), lists.Map(connectionPresets, func(p connectionPreset) string { return p.choiceLabel() })...)
+)
+
+// hostPlaceholder is what the host field shows when empty.
+func (f *connForm) hostPlaceholder() string {
+	if f.preset != nil {
+		return f.preset.hostPlaceholder
+	}
+	return "localhost"
+}
+
+// chooseEngine follows the engine choice: an engine, or a preset, which
+// fills in its engine and settings.
+func (a *App) chooseEngine(f *connForm, choice string) {
+	if i := slices.IndexFunc(connectionPresets, func(p connectionPreset) bool { return p.choiceLabel() == choice }); i >= 0 {
+		p := &connectionPresets[i]
+		a.syncEngineChoice(f, p.engine)
+		f.preset, f.cfg.User, f.cfg.Database, f.tls = p, p.user, p.database, tlsLabels[db.TLSVerifyFull]
+		return
+	}
+	if i := slices.Index(engineOptions, choice); i >= 0 {
+		f.preset = nil
+		a.syncEngineChoice(f, db.Engines()[i])
+	}
+}
+
 // syncEngineChoice follows a new engine with the defaults of host, port
 // and user that the user has not changed.
-func (a *App) syncEngineChoice(f *connForm, idx int) {
-	e := db.Engines()[idx]
+func (a *App) syncEngineChoice(f *connForm, e db.Engine) {
 	if e.Label() == f.engine {
 		return
 	}
@@ -900,20 +961,23 @@ func (a *App) testConnection(f *connForm) {
 	a.runTest(f, cfg)
 }
 
-// runTest connects with the form's settings, and says how it went.
+// runTest connects with the form's settings, and says how it went, and
+// what the server is when it is another engine than the form's.
 func (a *App) runTest(f *connForm, cfg db.Config) {
-	f.testing, f.testResult = true, ""
+	f.testing, f.testResult, f.testServer = true, "", identifiedServer{}
 	known := a.knownHosts()
 	dataview.BackgroundResetOnPanic(a, func() { f.testing = false }, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second+secretcmd.Timeout)
 		defer cancel()
 		start := time.Now()
 		var version string
+		var server identifiedServer
 		err := resolveCommandSecrets(ctx, &cfg)
 		if err == nil {
 			var opened db.Store
 			if opened, err = db.OpenStore(ctx, cfg, known); err == nil {
-				version = cfg.Engine.Label() + " " + opened.ServerVersion(ctx)
+				server = identifyStore(ctx, opened)
+				version = cfg.Engine.Label() + " " + server.shownVersion(cfg.Engine, opened.ServerVersion(ctx))
 				opened.Close()
 			}
 		}
@@ -922,6 +986,11 @@ func (a *App) runTest(f *connForm, cfg db.Config) {
 			f.testing = false
 			if err != nil {
 				f.testResult, f.testOK = err.Error(), false
+				return
+			}
+			if server.mismatches(cfg.Engine) {
+				f.testServer = server
+				f.testResult, f.testOK = "Connected to "+server.label()+" in "+elapsed.String()+", but the connection is set to "+cfg.Engine.Label()+".", true
 				return
 			}
 			f.testResult, f.testOK = "Connected to "+version+" in "+elapsed.String(), true
@@ -1143,8 +1212,7 @@ func (a *App) fillFromURL(f *connForm) {
 	} else {
 		f.cfg.Name = cfg.Name
 	}
-	f.engine = cfg.Engine.Label()
-	f.engineIdx = max(0, slices.Index(db.Engines(), cfg.Engine))
+	f.engine, f.preset = cfg.Engine.Label(), nil
 	f.port = portText(cfg.Port)
 	if cfg.TLS != "" {
 		f.tls = tlsLabels[cfg.TLS]
@@ -1160,7 +1228,7 @@ const (
 	sourceEnv
 	sourceCommand
 	sourceAsk
-	sourceIdentity // last: offered for PostgreSQL and MySQL only
+	sourceIdentity // last: offered for PostgreSQL's and MySQL's families only
 )
 
 var passwordSources = []string{"System keychain", "Environment variable", "Command", "Ask every time", "Cloud identity"}

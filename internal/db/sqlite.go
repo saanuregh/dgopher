@@ -226,6 +226,7 @@ type sqliteEngine struct{ sqliteDialect }
 var _ SQLRules = sqliteEngine{}
 
 func (sqliteEngine) Label() string                   { return "SQLite" }
+func (sqliteEngine) Base() Engine                    { return SQLite }
 func (sqliteEngine) ColorHex() string                { return "#0f80cc" }
 func (sqliteEngine) DefaultPort() int                { return 0 }
 func (sqliteEngine) DefaultUser() string             { return "" }
@@ -279,6 +280,10 @@ func (sqliteEngine) LexDialect() sqltext.Dialect     { return sqltext.SQLite }
 func (sqliteEngine) BeginStatement() string          { return "BEGIN" }
 func (sqliteEngine) ReadOnlyBeginSQL() string        { return "" }
 func (sqliteEngine) followsTransactionByVerbs() bool { return true }
+
+func (sqliteEngine) identify(context.Context, *sql.DB) (Engine, string, error) {
+	return SQLite, "", nil
+}
 
 func (sqliteEngine) afterFailedStatement(v txByVerbs, _ error, _ bool, _ func() bool) txByVerbs {
 	return v
