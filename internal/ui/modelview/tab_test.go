@@ -31,7 +31,7 @@ func TestModelTab(t *testing.T) {
 	exec := func(stmts ...string) {
 		t.Helper()
 		for _, q := range stmts {
-			if _, err := cn.DB.SQL.Exec(q); err != nil {
+			if _, err := cn.DB().SQL.Exec(q); err != nil {
 				t.Fatal(q, err)
 			}
 		}
@@ -39,7 +39,7 @@ func TestModelTab(t *testing.T) {
 	exec(`CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT NOT NULL)`,
 		`CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER REFERENCES customers (id), total NUMERIC)`,
 		`INSERT INTO customers VALUES (1, 'Ada')`, `INSERT INTO orders VALUES (1, 1, 10)`)
-	tables, _, err := datamodel.Build(context.Background(), cn.DB, "main", nil, nil)
+	tables, _, err := datamodel.Build(context.Background(), cn.DB(), "main", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestModelTab(t *testing.T) {
 		}
 	}
 	var name string
-	if err := cn.DB.SQL.QueryRow(`SELECT name FROM customers`).Scan(&name); err != nil || name != "Ada" {
+	if err := cn.DB().SQL.QueryRow(`SELECT name FROM customers`).Scan(&name); err != nil || name != "Ada" {
 		t.Fatalf("the rows of customers: %q %v", name, err)
 	}
 

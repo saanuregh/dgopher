@@ -21,7 +21,7 @@ type engineRules interface {
 	ColorHex() string
 	DefaultPort() int
 	DefaultUser() string
-	IsSQL() bool
+	Kind() EngineKind
 	Transactions() bool
 	Savepoints() bool
 	TransactionalDDL() bool
@@ -46,6 +46,27 @@ type engineRules interface {
 	// ActivityPages are the pages of the server's activity, none for an
 	// engine that runs inside the app.
 	ActivityPages() []ActivityPage
+}
+
+// EngineKind is the family of an engine, whose rules it answers besides
+// engineRules.
+type EngineKind int
+
+const (
+	// KindSQL engines speak SQL; their rules are SQLRules.
+	KindSQL EngineKind = iota + 1
+	// KindKeyValue engines store values by key; their rules are
+	// KeyValueRules.
+	KindKeyValue
+)
+
+// KeyValueRules is what a key-value engine answers besides; packages
+// outside db reach it through KeyValue.
+type KeyValueRules interface {
+	engineRules
+	// DefaultKeySeparator splits key names into folders unless a
+	// connection says otherwise.
+	DefaultKeySeparator() string
 }
 
 // SQLRules is what an engine that speaks SQL answers besides; packages
@@ -468,6 +489,13 @@ func SQL(e Engine) (SQLRules, bool) {
 	return r, ok
 }
 
+// KeyValue returns the engine's key-value rules; false for an engine that
+// is not key-value or that no build knows.
+func KeyValue(e Engine) (KeyValueRules, bool) {
+	r, ok := rulesOf(e).(KeyValueRules)
+	return r, ok
+}
+
 // rulesOfDialect returns the SQL rules of a Dialect's engine: every
 // Dialect is a SQL engine's.
 func rulesOfDialect(d Dialect) SQLRules {
@@ -486,7 +514,7 @@ func (u unknownEngine) Label() string                 { return string(u.id) }
 func (unknownEngine) ColorHex() string                { return "#737373" }
 func (unknownEngine) DefaultPort() int                { return 0 }
 func (unknownEngine) DefaultUser() string             { return "" }
-func (unknownEngine) IsSQL() bool                     { return true }
+func (unknownEngine) Kind() EngineKind                { return KindSQL }
 func (unknownEngine) Transactions() bool              { return true }
 func (unknownEngine) Savepoints() bool                { return false }
 func (unknownEngine) TransactionalDDL() bool          { return false }
@@ -610,7 +638,13 @@ func (e Engine) DefaultPort() int { return rulesOf(e).DefaultPort() }
 func (e Engine) DefaultUser() string { return rulesOf(e).DefaultUser() }
 
 // IsSQL reports whether the engine speaks SQL.
-func (e Engine) IsSQL() bool { return rulesOf(e).IsSQL() }
+func (e Engine) IsSQL() bool { return e.Kind() == KindSQL }
+
+// IsKeyValue reports whether the engine stores values by key, as Redis.
+func (e Engine) IsKeyValue() bool { return e.Kind() == KindKeyValue }
+
+// Kind is the engine's family; SQL for an engine no build knows.
+func (e Engine) Kind() EngineKind { return rulesOf(e).Kind() }
 
 // IsFile reports whether the engine's databases are files on this
 // computer, opened by path rather than reached over the network.

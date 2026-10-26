@@ -302,7 +302,7 @@ func (f *connForm) config() db.Config {
 	}
 	cfg.Redis.Mode = redisModes[f.redisMode]
 	cfg.Redis.Nodes, cfg.Redis.Master = strings.TrimSpace(cfg.Redis.Nodes), strings.TrimSpace(cfg.Redis.Master)
-	if cfg.Engine != db.Redis || cfg.KeySeparator == db.DefaultKeySeparator {
+	if keyValue, ok := db.KeyValue(cfg.Engine); !ok || cfg.KeySeparator == keyValue.DefaultKeySeparator() {
 		cfg.KeySeparator = ""
 	}
 	switch {
@@ -539,9 +539,9 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 		if mode == db.RedisSentinel {
 			a.sentinelFields(c, f)
 		}
-		if engine == db.Redis {
+		if keyValue, ok := db.KeyValue(engine); ok {
 			ui.Field(c, "Key separator", func() {
-				ui.TextInput(c, &f.cfg.KeySeparator).Placeholder(db.DefaultKeySeparator).Font(widgets.MonoFont).Width(80).Label("Key separator")
+				ui.TextInput(c, &f.cfg.KeySeparator).Placeholder(keyValue.DefaultKeySeparator()).Font(widgets.MonoFont).Width(80).Label("Key separator")
 			}).Description("Splits key names into folders in the key browser.")
 		}
 	}
@@ -721,7 +721,7 @@ func optionsPage(c *ui.Context, f *connForm, engine db.Engine) {
 		}).Description(fmt.Sprintf("A connection unused this long disconnects; its editors stay, and connect it again when you run. 0 takes the environment's default: %s on %s.",
 			idleSpan(connection.DefaultIdleConnection(db.Environments()[f.env])), db.Environments()[f.env].Label()))
 	}
-	if engine != db.Redis {
+	if !engine.IsKeyValue() {
 		ui.Field(c, "Statement timeout", func() {
 			ui.Row(c).Gap(8).Children(func() {
 				ui.NumberInput(c, &f.timeout, 0, 86400, 30).Label("Seconds")
@@ -910,19 +910,11 @@ func (a *App) runTest(f *connForm, cfg db.Config) {
 		start := time.Now()
 		var version string
 		err := resolveCommandSecrets(ctx, &cfg)
-		switch {
-		case err != nil:
-		case cfg.Engine == db.Redis:
-			var kv *db.KV
-			if kv, err = db.OpenRedis(ctx, cfg, known); err == nil {
-				version = "Redis " + kv.ServerVersion(ctx)
-				kv.Close()
-			}
-		default:
-			var d *db.DB
-			if d, err = db.Open(ctx, cfg, known); err == nil {
-				version = cfg.Engine.Label() + " " + d.ServerVersion(ctx)
-				d.Close()
+		if err == nil {
+			var opened db.Store
+			if opened, err = db.OpenStore(ctx, cfg, known); err == nil {
+				version = cfg.Engine.Label() + " " + opened.ServerVersion(ctx)
+				opened.Close()
 			}
 		}
 		elapsed := time.Since(start).Round(time.Millisecond)

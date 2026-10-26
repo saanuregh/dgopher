@@ -22,7 +22,7 @@ func TestSavedTabOfEachKind(t *testing.T) {
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: writeSQL(t, "x.sqlite", "")})
 	tt := ui.NewTester(a.view, 1200, 760)
 	connectNow(t, a, tt, cn)
-	if _, err := cn.DB.SQL.Exec("CREATE TABLE orders (id INTEGER PRIMARY KEY)"); err != nil {
+	if _, err := cn.DB().SQL.Exec("CREATE TABLE orders (id INTEGER PRIMARY KEY)"); err != nil {
 		t.Fatal(err)
 	}
 	for _, s := range []savedTab{
@@ -62,7 +62,7 @@ func TestWaitingTabConnectsWhenShown(t *testing.T) {
 	seed := addConn(a, db.Config{ID: "seed", Name: "seed", Engine: db.SQLite, Database: path})
 	tt := ui.NewTester(a.view, 1200, 760)
 	connectNow(t, a, tt, seed)
-	if _, err := seed.DB.SQL.Exec("CREATE TABLE orders (id INTEGER PRIMARY KEY)"); err != nil {
+	if _, err := seed.DB().SQL.Exec("CREATE TABLE orders (id INTEGER PRIMARY KEY)"); err != nil {
 		t.Fatal(err)
 	}
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: path})
@@ -118,7 +118,7 @@ func TestWaitingTabEdges(t *testing.T) {
 	cn.Config.ID += "2"
 	a.trust(cn)
 	connectNow(t, a, tt, cn)
-	if _, err := cn.DB.SQL.Exec("CREATE TABLE orders (id INTEGER PRIMARY KEY)"); err != nil {
+	if _, err := cn.DB().SQL.Exec("CREATE TABLE orders (id INTEGER PRIMARY KEY)"); err != nil {
 		t.Fatal(err)
 	}
 	a.OpenTable(cn, "", db.Object{Schema: "main", Name: "orders", Kind: db.KindTable, Rows: -1}, dataview.PageData)
@@ -226,7 +226,7 @@ func TestDisconnectKeepsTabs(t *testing.T) {
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: writeSQL(t, "x.sqlite", ""), AutoConnect: true})
 	tt := ui.NewTester(a.view, 1200, 760)
 	connectNow(t, a, tt, cn)
-	if _, err := cn.DB.SQL.Exec("CREATE TABLE orders (id INTEGER PRIMARY KEY)"); err != nil {
+	if _, err := cn.DB().SQL.Exec("CREATE TABLE orders (id INTEGER PRIMARY KEY)"); err != nil {
 		t.Fatal(err)
 	}
 	q := query.New(a, cn, "", "query", "SELECT 1")

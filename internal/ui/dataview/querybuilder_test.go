@@ -31,7 +31,7 @@ func TestQueryBuilder(t *testing.T) {
 		`INSERT INTO customers VALUES (1, 'Ada'), (2, 'Linus')`,
 		`INSERT INTO orders VALUES (1, 1, 10), (2, 1, 20), (3, 2, 3)`,
 	} {
-		if _, err := cn.DB.SQL.Exec(q); err != nil {
+		if _, err := cn.DB().SQL.Exec(q); err != nil {
 			t.Fatal(q, err)
 		}
 	}
@@ -68,7 +68,7 @@ LIMIT 10`
 	}
 	var name string
 	var total float64
-	if err := cn.DB.SQL.QueryRow(sql).Scan(&name, &total); err != nil || name != "Ada" || total != 30 {
+	if err := cn.DB().SQL.QueryRow(sql).Scan(&name, &total); err != nil || name != "Ada" || total != 30 {
 		t.Fatalf("ran as %q %v: %v", name, total, err)
 	}
 	tt.Frame()
@@ -120,22 +120,22 @@ LIMIT 10`
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rows, err := cn.DB.SQL.Query(sql); err != nil {
+	if rows, err := cn.DB().SQL.Query(sql); err != nil {
 		t.Fatalf("%s: %v", sql, err)
 	} else {
 		rows.Close()
 	}
 
 	// Without the connection nothing is written, and nothing breaks.
-	pool := cn.DB
-	cn.DB = nil
+	pool := cn.Store
+	cn.Store = nil
 	if got := b.sortChoices(); got != nil {
 		t.Fatalf("disconnected, sorted by %q", got)
 	}
 	if _, err := b.sql(); err == nil {
 		t.Fatal("built a query disconnected")
 	}
-	cn.DB = pool
+	cn.Store = pool
 }
 
 // A table whose name holds a dot is found by its columns, and goes alone.
@@ -148,7 +148,7 @@ func TestQueryBuilderDottedName(t *testing.T) {
 	a.Connect(cn, nil)
 	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
 	for _, q := range []string{`CREATE TABLE "a.b" (id INTEGER PRIMARY KEY, n INTEGER)`, `CREATE TABLE a (id INTEGER PRIMARY KEY)`} {
-		if _, err := cn.DB.SQL.Exec(q); err != nil {
+		if _, err := cn.DB().SQL.Exec(q); err != nil {
 			t.Fatal(q, err)
 		}
 	}
@@ -166,7 +166,7 @@ func TestQueryBuilderDottedName(t *testing.T) {
 	if !strings.Contains(sql, `"a.b"."n"`) {
 		t.Fatalf("built\n%s", sql)
 	}
-	if _, err := cn.DB.SQL.Exec(sql); err != nil {
+	if _, err := cn.DB().SQL.Exec(sql); err != nil {
 		t.Fatalf("%s: %v", sql, err)
 	}
 	b.removeTable(b.tables[1])
@@ -185,7 +185,7 @@ func TestQueryBuilderKeepsEdits(t *testing.T) {
 	tt := ui.NewTester(a.View, 1000, 800)
 	a.Connect(cn, nil)
 	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
-	if _, err := cn.DB.SQL.Exec(`CREATE TABLE orders (id INTEGER PRIMARY KEY, total REAL)`); err != nil {
+	if _, err := cn.DB().SQL.Exec(`CREATE TABLE orders (id INTEGER PRIMARY KEY, total REAL)`); err != nil {
 		t.Fatal(err)
 	}
 	open := func() *queryBuilder {

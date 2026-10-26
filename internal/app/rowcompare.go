@@ -71,7 +71,7 @@ func (a *App) startCompare(x *rowCompareDialog) {
 	case to == nil || x.target.schema == "" || x.table == "":
 		x.err = "Choose the table to compare with."
 		return
-	case to.DB == nil:
+	case to.DB() == nil:
 		x.err = to.Config.Name + " is not connected."
 		return
 	case to == x.from && x.target.database == x.fromDB && x.target.schema == x.fromSchema && x.table == x.fromTable:
@@ -190,10 +190,10 @@ func (x *rowCompareDialog) syncBlocked() string {
 	if x.to.Config.ReadOnly {
 		return x.to.Config.Name + " is read-only."
 	}
-	if x.to.DB == nil {
+	if x.to.DB() == nil {
 		return x.to.Config.Name + " is not connected."
 	}
-	if ok, why := x.to.DB.Dialect.Editable(); !ok {
+	if ok, why := x.to.DB().Dialect.Editable(); !ok {
 		return why
 	}
 	return ""

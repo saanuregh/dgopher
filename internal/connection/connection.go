@@ -39,10 +39,12 @@ type Conn struct {
 	Status           Status
 	Err              string
 	ErrKind          db.ProblemKind // what Err most likely means
-	DB               *db.DB
-	KV               *db.KV
-	Version          string
-	Waiters          []func()
+	// Store is the open pool or client, nil when not connected. Only a
+	// store that opened is assigned: a nil *db.DB in it would read as
+	// connected.
+	Store   db.Store
+	Version string
+	Waiters []func()
 	// HeldAt is when something last held the connection, as a tab open
 	// on it; its pool keeps when it last sent something (db.DB.LastUsed).
 	HeldAt time.Time
@@ -58,6 +60,20 @@ type Conn struct {
 	Signatures    map[string][]db.Signature // by lower-case name; nil until read
 	Loading       map[any]bool
 	LoadErr       map[any]string
+}
+
+// DB is the connection's SQL pool, nil when it is not connected or not
+// SQL.
+func (cn *Conn) DB() *db.DB {
+	d, _ := cn.Store.(*db.DB)
+	return d
+}
+
+// KV is the connection's key-value client, nil when it is not connected
+// or not key-value.
+func (cn *Conn) KV() *db.KV {
+	kv, _ := cn.Store.(*db.KV)
+	return kv
 }
 
 // Place is where work runs: a connection, and a database of it, "" for
@@ -134,7 +150,7 @@ func (cn *Conn) ForgetCatalog() {
 // databases. It reads the connection on the main thread, where a
 // disconnect changes it; the function it returns runs anywhere.
 func (cn *Conn) PoolFor(database string) func(ctx context.Context) (*db.DB, error) {
-	pool := cn.DB
+	pool := cn.DB()
 	return func(ctx context.Context) (*db.DB, error) {
 		if pool == nil {
 			return nil, errors.New("not connected")

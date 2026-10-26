@@ -67,7 +67,7 @@ func (t *activityTab) refresh() {
 		return
 	}
 	t.loading = true
-	kv, pool := t.conn.KV, t.conn.DB // read on the main thread
+	kv, pool := t.conn.KV(), t.conn.DB() // read on the main thread
 	page, gen := t.pages[t.page], t.gen
 	dataview.BackgroundResetOnPanic(t.a, func() {
 		if gen == t.gen {
@@ -166,7 +166,7 @@ func redisActivity(ctx context.Context, kv *db.KV) (map[string]string, dataview.
 func (t *activityTab) act(row []any, terminate bool) {
 	var stmt, title string
 	page := t.pages[t.page]
-	redis := t.conn.KV != nil || t.conn.Config.Engine == db.Redis
+	redis := t.conn.Config.Engine == db.Redis
 	switch {
 	case redis:
 		stmt, title = "CLIENT KILL ID "+db.Display(row[0]), "Disconnect client "+db.Display(row[0])+"?"
@@ -181,7 +181,7 @@ func (t *activityTab) act(row []any, terminate bool) {
 	policy.ReadOnly = false
 	var verdict safety.Verdict
 	if redis {
-		verdict = safety.ReviewRedis(&policy, t.conn.KV, strings.Fields(stmt))
+		verdict = safety.ReviewRedis(&policy, t.conn.KV(), strings.Fields(stmt))
 	} else {
 		verdict = safety.ReviewSQL(&policy, safety.Analyze(&policy, []string{stmt}))
 	}
@@ -198,7 +198,7 @@ func (t *activityTab) act(row []any, terminate bool) {
 	v.TypeName = verdict.TypeName || (terminate && t.conn.Config.Env == db.Production)
 	cn := t.conn
 	t.a.AskConfirm(cn, v, title, "Stop", stmt, func() {
-		kv, pool, cfg := cn.KV, cn.DB, cn.Config // read on the main thread
+		kv, pool, cfg := cn.KV(), cn.DB(), cn.Config // read on the main thread
 		t.a.Background(func() func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
@@ -256,7 +256,7 @@ func (t *activityTab) View(c *ui.Context) {
 				t.refresh()
 			}
 			if row := t.selected(); row != nil {
-				if t.conn.KV != nil {
+				if t.conn.KV() != nil {
 					if widgets.Appear(ui.Button(c.Key("disconnect-client"), "Disconnect Client")).Clicked() {
 						t.act(row, true)
 					}

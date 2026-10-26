@@ -73,7 +73,7 @@ func TestCheckText(t *testing.T) {
 // Alt+Enter mends it.
 func TestProblemsInEditor(t *testing.T) {
 	_, tt, cn, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "")
-	cn.DB.SQL.Exec(`CREATE TABLE invoices (id INTEGER)`)
+	cn.DB().SQL.Exec(`CREATE TABLE invoices (id INTEGER)`)
 	q.Editor.SetText("SELECT * FROM invoces")
 	q.GoTo(len(q.Editor.Text()))
 	testutil.WaitFor(t, tt, "the mark", func() bool { return len(q.Editor.Problems) == 1 })

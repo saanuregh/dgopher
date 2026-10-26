@@ -162,7 +162,7 @@ func (t *Chat) connected(ctx context.Context, name, database string) (sqlPool, e
 			case cn.Status != connection.StatusConnected:
 				return found{need: cn}
 			}
-			return found{p: sqlPool{cn: cn, cfg: cn.Config, poolOf: cn.PoolFor(database), pool: cn.DB}}
+			return found{p: sqlPool{cn: cn, cfg: cn.Config, poolOf: cn.PoolFor(database), pool: cn.DB()}}
 		})
 	}
 	f, err := find()

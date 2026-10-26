@@ -31,7 +31,7 @@ func TestLoadRelationsCaches(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	cn := &Conn{Config: cfg, DB: d, Status: StatusConnected}
+	cn := &Conn{Config: cfg, Store: d, Status: StatusConnected}
 	cn.Reset()
 	var got Relations
 	LoadRelations(runNow{}, cn, "", "main", "orders", func(r Relations) { got = r })

@@ -403,7 +403,7 @@ func (t *Tab) runPanel(i int, asked bool) {
 		s.err = fmt.Sprintf("The project has no connection %q.", p.Connection)
 		return
 	}
-	if cn.DB == nil {
+	if cn.DB() == nil {
 		// Its state shows while it connects, or why it did not; it runs
 		// once connected, or at the next refresh.
 		if cn.Status == connection.StatusIdle || asked && cn.Status == connection.StatusFailed {
@@ -432,7 +432,7 @@ func (t *Tab) runPanel(i int, asked bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.running, s.cancel, s.err = true, cancel, ""
 	s.runs++
-	run0, pool, cfg, database := s.runs, cn.DB, cn.Config, p.Database
+	run0, pool, cfg, database := s.runs, cn.DB(), cn.Config, p.Database
 	dataview.BackgroundResetOnPanic(t.h, func() {
 		if run0 == s.runs {
 			s.running, s.cancel = false, nil
@@ -464,7 +464,7 @@ func (t *Tab) runPanel(i int, asked bool) {
 // connecting, or why it failed; "" when it is open.
 func (t *Tab) connState(p Panel) (connecting bool, failed string) {
 	cn := t.conn(p)
-	if cn == nil || cn.DB != nil {
+	if cn == nil || cn.DB() != nil {
 		return false, ""
 	}
 	switch cn.Status {

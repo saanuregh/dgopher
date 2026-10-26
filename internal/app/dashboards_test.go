@@ -29,7 +29,7 @@ func TestAddToDashboard(t *testing.T) {
 	a.saveProject(a.projects[0])
 	tt := ui.NewTester(a.view, 1280, 800)
 	connectNow(t, a, tt, lite)
-	lite.DB.SQL.Exec(`CREATE TABLE sales (region TEXT, amount INTEGER)`)
+	lite.DB().SQL.Exec(`CREATE TABLE sales (region TEXT, amount INTEGER)`)
 
 	add := func(sql, title string) *addToDashboard {
 		t.Helper()

@@ -101,7 +101,7 @@ func (r *Tab) background(b *bulkDialog, job string, work func(ctx context.Contex
 
 // countKeys counts the keys matching the pattern, naming a few.
 func (r *Tab) countKeys(b *bulkDialog) {
-	kv, pattern := r.conn.KV, b.pattern
+	kv, pattern := r.conn.KV(), b.pattern
 	r.background(b, "", func(ctx context.Context) func() {
 		n, sample, err := kv.CountMatching(ctx, pattern, sampleKeys)
 		return func() {
@@ -119,7 +119,7 @@ func (r *Tab) countKeys(b *bulkDialog) {
 func (r *Tab) deleteKeys(b *bulkDialog) {
 	cfg := r.conn.Config
 	pattern, n := b.counted, b.count
-	v := safety.ReviewRedis(&cfg, r.conn.KV, []string{"UNLINK", pattern})
+	v := safety.ReviewRedis(&cfg, r.conn.KV(), []string{"UNLINK", pattern})
 	if v.Blocked != "" {
 		r.a.RecordBlocked(r.conn, v.Blocked, "UNLINK keys matching "+pattern)
 		b.err = v.Blocked
@@ -133,7 +133,7 @@ func (r *Tab) deleteKeys(b *bulkDialog) {
 	}
 	preview := "UNLINK each key matching " + pattern + "\n\n" + strings.Join(b.sample, "\n")
 	r.a.AskConfirm(r.conn, v, fmt.Sprintf("Delete %s keys from %s?", widgets.HumanCount(n), cfg.Name), "Delete", preview, func() {
-		kv := r.conn.KV
+		kv := r.conn.KV()
 		job := fmt.Sprintf("Deleting the keys matching %s on %s: stopping it keeps the deletions made so far.", pattern, cfg.Name)
 		r.background(b, job, func(ctx context.Context) func() {
 			start := time.Now()
@@ -169,7 +169,7 @@ func (r *Tab) chooseExport(b *bulkDialog) {
 }
 
 func (r *Tab) exportKeys(b *bulkDialog) {
-	kv, cfg, pattern, path := r.conn.KV, r.conn.Config, b.pattern, b.path
+	kv, cfg, pattern, path := r.conn.KV(), r.conn.Config, b.pattern, b.path
 	job := fmt.Sprintf("Exporting the keys matching %s of %s: stopping it removes the file it is writing.", pattern, cfg.Name)
 	r.background(b, job, func(ctx context.Context) func() {
 		start := time.Now()
@@ -249,7 +249,7 @@ func (r *Tab) importKeys(b *bulkDialog) {
 				continue
 			}
 			kinds = append(kinds, args[0])
-			kv := safety.ReviewRedis(&cfg, r.conn.KV, args)
+			kv := safety.ReviewRedis(&cfg, r.conn.KV(), args)
 			if kv.Blocked != "" {
 				r.a.RecordBlocked(r.conn, kv.Blocked, redact.Redis(args))
 				b.err = kv.Blocked
@@ -264,7 +264,7 @@ func (r *Tab) importKeys(b *bulkDialog) {
 	}
 	dumps, replace, path := b.dumps, b.replace, b.path
 	run := func() {
-		kv := r.conn.KV
+		kv := r.conn.KV()
 		job := fmt.Sprintf("Importing the keys of %s into %s: stopping it keeps the keys written so far.", filepath.Base(path), cfg.Name)
 		r.background(b, job, func(ctx context.Context) func() {
 			start := time.Now()

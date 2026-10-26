@@ -181,7 +181,7 @@ func (r *Tab) scan() {
 		return
 	}
 	r.scanning = true
-	kv := r.conn.KV
+	kv := r.conn.KV()
 	cursor, pattern := r.cursor, r.pattern
 	typ := typeOf(r.typeFilter)
 	dataview.BackgroundResetOnPanic(r.a, func() { r.scanning = false }, func() func() {
@@ -275,7 +275,7 @@ func (r *Tab) loadKey() {
 	r.loadingKey, r.keyErr = true, ""
 	r.valueGen++
 	gen := r.valueGen
-	kv, cfg := r.conn.KV, r.conn.Config
+	kv, cfg := r.conn.KV(), r.conn.Config
 	r.loadLatest(func() bool { return gen == r.valueGen }, &r.loadingKey, &r.keyErr, 30*time.Second, func(ctx context.Context) (func(), error) {
 		start := time.Now()
 		info, err := kv.Info(ctx, key)
@@ -372,7 +372,7 @@ func (r *Tab) loadMore() {
 	}
 	r.loadingKey = true
 	gen := r.valueGen
-	kv, key, typ, pos := r.conn.KV, r.selected, r.info.Type, r.itemsPos
+	kv, key, typ, pos := r.conn.KV(), r.selected, r.info.Type, r.itemsPos
 	r.loadLatest(func() bool { return gen == r.valueGen }, &r.loadingKey, &r.keyErr, 30*time.Second, func(ctx context.Context) (func(), error) {
 		fields, next, done, err := readPage(ctx, kv, key, typ, pos)
 		return func() {
@@ -386,7 +386,7 @@ func (r *Tab) loadMore() {
 func (r *Tab) loadWhole() {
 	r.loadingKey = true
 	gen := r.valueGen
-	kv, key := r.conn.KV, r.selected
+	kv, key := r.conn.KV(), r.selected
 	r.loadLatest(func() bool { return gen == r.valueGen }, &r.loadingKey, &r.keyErr, 60*time.Second, func(ctx context.Context) (func(), error) {
 		value, err := kv.ReadString(ctx, key, 0)
 		return func() { r.value, r.whole, r.editValue, r.editDirty = value, true, value, false }, err
@@ -420,14 +420,14 @@ func (r *Tab) loadLatest(current func() bool, loading *bool, errText *string, ti
 
 // write runs a command through the safety policy, then reloads the key.
 func (r *Tab) write(args []string, then func()) {
-	v := safety.ReviewRedis(&r.conn.Config, r.conn.KV, args)
+	v := safety.ReviewRedis(&r.conn.Config, r.conn.KV(), args)
 	if v.Blocked != "" {
 		r.a.RecordBlocked(r.conn, v.Blocked, redact.Redis(args))
 		r.a.ShowError("Not allowed", v.Blocked)
 		return
 	}
 	run := func() {
-		kv, cfg := r.conn.KV, r.conn.Config
+		kv, cfg := r.conn.KV(), r.conn.Config
 		r.a.Background(func() func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
@@ -768,7 +768,7 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 	switch r.info.Type {
 	case "hash":
 		cols = []ui.TableColumn{{Title: "Field", Width: 220}, {Title: "Value"}}
-		if r.conn.KV.FieldExpiry() {
+		if r.conn.KV().FieldExpiry() {
 			cols = append(cols, ui.TableColumn{Title: "TTL", Width: 90, Align: ui.End})
 		}
 	case "list":
@@ -825,7 +825,7 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 			if ui.Button(c, "Set").Clicked() && r.newName != "" {
 				r.write([]string{"HSET", key, r.newName, r.newValue}, func() { r.newName, r.newValue = "", ""; r.loadKey() })
 			}
-			if r.fieldRow >= 0 && r.fieldRow < len(r.fields) && r.conn.KV.FieldExpiry() {
+			if r.fieldRow >= 0 && r.fieldRow < len(r.fields) && r.conn.KV().FieldExpiry() {
 				field := r.fields[r.fieldRow].Name
 				ui.TextInput(c, &r.fieldTTL).Placeholder("TTL seconds").Width(100).Label("Field TTL in seconds")
 				if ui.Button(c, "Expire Field").Clicked() {

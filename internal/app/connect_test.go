@@ -101,7 +101,7 @@ func cancelledConnect(t *testing.T, a *App, tt *ui.Tester, cn *connection.Conn) 
 	time.Sleep(300 * time.Millisecond) // the stopped attempt's result arrives
 	tt.Frame()
 	tt.Frame()
-	if cn.Status != connection.StatusFailed || cn.Err != why || cn.DB != nil {
+	if cn.Status != connection.StatusFailed || cn.Err != why || cn.DB() != nil {
 		t.Fatalf("a late result was taken: status %v, error %q", cn.Status, cn.Err)
 	}
 }

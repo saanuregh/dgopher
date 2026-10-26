@@ -58,7 +58,7 @@ func exportHost(t *testing.T) (*FakeHost, *ui.Tester, ExportSource) {
 	a.Connect(cn, nil)
 	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
 	const query = "SELECT * FROM n ORDER BY i"
-	rs, err := cn.DB.SQL.Query(query + " LIMIT 500")
+	rs, err := cn.DB().SQL.Query(query + " LIMIT 500")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func TestExportExcel(t *testing.T) {
 func TestExportTables(t *testing.T) {
 	a, tt, src := exportHost(t)
 	for _, q := range []string{"CREATE TABLE m (x TEXT)", "INSERT INTO m VALUES ('a'), ('b')", "CREATE TABLE skipped (y)"} {
-		if _, err := src.Conn.DB.SQL.Exec(q); err != nil {
+		if _, err := src.Conn.DB().SQL.Exec(q); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -290,7 +290,7 @@ func TestExportSQLNamesSchema(t *testing.T) {
 		t.Fatalf("cleared schema:\n%.300s", data)
 	}
 
-	if _, err := src.Conn.DB.SQL.Exec("CREATE TABLE m (x TEXT); INSERT INTO m VALUES ('a')"); err != nil {
+	if _, err := src.Conn.DB().SQL.Exec("CREATE TABLE m (x TEXT); INSERT INTO m VALUES ('a')"); err != nil {
 		t.Fatal(err)
 	}
 	srcs := []ExportSource{

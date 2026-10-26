@@ -26,7 +26,7 @@ func designHost(t *testing.T) (*FakeHost, *ui.Tester, *connection.Conn) {
 	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
 	for _, q := range []string{`CREATE TABLE items (id INTEGER PRIMARY KEY, label TEXT, price TEXT)`,
 		`INSERT INTO items (label, price) VALUES ('pen', '1.5'), ('ink', '3')`} {
-		if _, err := cn.DB.SQL.Exec(q); err != nil {
+		if _, err := cn.DB().SQL.Exec(q); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -70,7 +70,7 @@ func TestEditStructure(t *testing.T) {
 	testutil.WaitFor(t, tt, "the table again", func() bool { next, ok := a.Tabs[0].(*TableTab); return ok && next != tb && next.columns != nil })
 	var name string
 	var price float64
-	if err := cn.DB.SQL.QueryRow(`SELECT name, price FROM items WHERE stock IS NULL ORDER BY id LIMIT 1`).Scan(&name, &price); err != nil || name != "pen" || price != 1.5 {
+	if err := cn.DB().SQL.QueryRow(`SELECT name, price FROM items WHERE stock IS NULL ORDER BY id LIMIT 1`).Scan(&name, &price); err != nil || name != "pen" || price != 1.5 {
 		t.Fatalf("rows: %q %v %v", name, price, err)
 	}
 	if len(a.Errors) != 0 {
@@ -128,7 +128,7 @@ func TestNewTable(t *testing.T) {
 	a.Confirm.OnConfirm()
 	a.Confirm = nil
 	testutil.WaitFor(t, tt, "the table's tab", func() bool { tb, ok := a.Tabs[0].(*TableTab); return ok && tb.Object.Name == "people" })
-	if _, err := cn.DB.SQL.Exec(`INSERT INTO people (email) VALUES ('a@b'), ('a@b')`); err == nil || !strings.Contains(err.Error(), "UNIQUE") {
+	if _, err := cn.DB().SQL.Exec(`INSERT INTO people (email) VALUES ('a@b'), ('a@b')`); err == nil || !strings.Contains(err.Error(), "UNIQUE") {
 		t.Fatalf("the unique index: %v", err)
 	}
 }

@@ -1038,7 +1038,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool) {
 	manual := q.Conn.Config.ManualCommit()
 	pageSize := q.a.Settings().PageSize
 	cfg := q.Conn.Config
-	sess, pool, database := q.sess, q.Conn.DB, q.Database
+	sess, pool, database := q.sess, q.Conn.DB(), q.Database
 	dialect := q.Editor.Dialect
 	purpose := ""
 	if q.chartAsk != nil {

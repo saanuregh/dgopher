@@ -283,7 +283,7 @@ func (x *importState) plan() (cols []db.Column, idx []int, create string, err er
 	if len(cols) == 0 {
 		return nil, nil, "", errors.New("keep at least one column")
 	}
-	return cols, idx, db.CreateTableSQL(x.conn.DB.Dialect, x.schema, strings.TrimSpace(x.table), defs), nil
+	return cols, idx, db.CreateTableSQL(x.conn.DB().Dialect, x.schema, strings.TrimSpace(x.table), defs), nil
 }
 
 // targetName is the table the rows go into.
@@ -302,7 +302,7 @@ func (a *App) confirmImport(x *importState) {
 		x.err = err.Error()
 		return
 	}
-	insert := "INSERT INTO " + db.QualifiedName(x.conn.DB.Dialect, x.schema, x.targetName()) + " …"
+	insert := "INSERT INTO " + db.QualifiedName(x.conn.DB().Dialect, x.schema, x.targetName()) + " …"
 	stmts := []string{insert}
 	preview := insert
 	if create != "" {
@@ -331,11 +331,11 @@ func (a *App) runImport(x *importState) {
 		return
 	}
 	cn := x.conn
-	target := &db.EditTarget{Dialect: cn.DB.Dialect, Schema: x.schema, Table: x.targetName(), Columns: cols}
+	target := &db.EditTarget{Dialect: cn.DB().Dialect, Schema: x.schema, Table: x.targetName(), Columns: cols}
 	ctx, cancel := context.WithCancel(context.Background())
 	x.running, x.cancel, x.done, x.err = true, cancel, 0, ""
 	x.dismiss.Used()
-	f, pool, cfg, database, path := x.file, cn.DB, cn.Config, x.database, x.path
+	f, pool, cfg, database, path := x.file, cn.DB(), cn.Config, x.database, x.path
 	started := time.Now()
 	job := fmt.Sprintf("Importing %s into %s on %s: %s", filepath.Base(path), target.Table, cfg.Name, writeStopLoss(cfg.Engine, create != ""))
 	stopped := func() { x.running, x.err = false, "The import stopped on an internal error." }

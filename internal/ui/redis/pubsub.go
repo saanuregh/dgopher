@@ -61,7 +61,7 @@ func (r *Tab) listenTo(names string) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	p.cancel, p.err, p.resume, p.listening = cancel, "", false, strings.Join(strings.Fields(names), " ")
-	kv, cfg := r.conn.KV, r.conn.Config
+	kv, cfg := r.conn.KV(), r.conn.Config
 	messages := feed[db.PubSubMessage]{keep: pubSubKeep}
 	go func() {
 		defer dataview.RecoverBackground(r.a.Post, r.a.ShowReport, func() { p.cancel = nil })
@@ -115,7 +115,7 @@ func (r *Tab) publish() {
 func (r *Tab) loadChannels() {
 	p := &r.pubsub
 	p.channelsAsked = true
-	kv := r.conn.KV
+	kv := r.conn.KV()
 	r.a.Background(func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()

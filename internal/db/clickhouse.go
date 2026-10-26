@@ -222,7 +222,7 @@ func (clickhouseEngine) Label() string                   { return "ClickHouse" }
 func (clickhouseEngine) ColorHex() string                { return "#d4a10a" }
 func (clickhouseEngine) DefaultPort() int                { return 9000 }
 func (clickhouseEngine) DefaultUser() string             { return "default" }
-func (clickhouseEngine) IsSQL() bool                     { return true }
+func (clickhouseEngine) Kind() EngineKind                { return KindSQL }
 func (clickhouseEngine) Transactions() bool              { return false }
 func (clickhouseEngine) Savepoints() bool                { return false }
 func (clickhouseEngine) TransactionalDDL() bool          { return false }

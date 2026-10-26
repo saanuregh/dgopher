@@ -105,7 +105,7 @@ func (a *App) openUsers(cn *connection.Conn) {
 
 // refresh reads the accounts again, and the chosen one's privileges.
 func (t *usersTab) refresh() {
-	pool := t.conn.DB
+	pool := t.conn.DB()
 	if pool == nil || t.loading {
 		return
 	}
@@ -133,7 +133,7 @@ func (t *usersTab) loadPrivileges() {
 	if t.sel < 0 {
 		return
 	}
-	pool, acc := t.conn.DB, t.accounts[t.sel]
+	pool, acc := t.conn.DB(), t.accounts[t.sel]
 	t.a.Background(func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -242,7 +242,7 @@ func (t *usersTab) accountRow(c *ui.Context, i int, acc db.Account) {
 func (t *usersTab) accountView(c *ui.Context, acc db.Account) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	d := t.conn.DB.Dialect
+	d := t.conn.DB().Dialect
 	ui.Row(c).Padding(10, 16).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 		ui.Text(c, acc.Label()).FontSize(16).Bold().Grow(1).Shrink(1)
 		if !acc.Role && ui.Button(c, "Change Password…").Clicked() {
@@ -377,7 +377,7 @@ func (t *usersTab) passwordFields(c *ui.Context, f *accountForm) {
 
 // submit turns the form into statements, which apply confirms and runs.
 func (t *usersTab) submit(f *accountForm) {
-	d := t.conn.DB.Dialect
+	d := t.conn.DB().Dialect
 	r, isSQL := db.SQL(d.Engine())
 	f.err = ""
 	if (f.kind == formNewUser || f.kind == formPassword) && f.password != f.repeated {

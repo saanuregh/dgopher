@@ -51,7 +51,7 @@ func (r *Tab) loadSeries() {
 	s := &r.series
 	s.loading, s.err = true, ""
 	s.reads++
-	kv, key, span, read := r.conn.KV, r.selected, seriesSpans[s.span].span, s.reads
+	kv, key, span, read := r.conn.KV(), r.selected, seriesSpans[s.span].span, s.reads
 	s.readFor = key + "\x00" + seriesSpans[s.span].label
 	r.loadLatest(func() bool { return read == s.reads }, &s.loading, &s.err, 30*time.Second, func(ctx context.Context) (func(), error) {
 		first, last, props, err := kv.SeriesInfo(ctx, key)

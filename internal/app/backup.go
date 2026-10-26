@@ -139,7 +139,7 @@ func (a *App) startBackup(b *backupDialog) {
 		return
 	}
 	poolOf := cn.PoolFor(b.database)
-	base := cn.DB
+	base := cn.DB()
 	opts := db.BackupOptions{Format: formats[b.format], Content: db.BackupContent(b.content), Database: b.database, Path: b.path}
 	// planned is a restore planned before it was asked, as DuckDB's is.
 	run := func(planned *db.ToolRun) {
@@ -274,7 +274,7 @@ func (a *App) backupView(c *ui.Context) {
 	if r, ok := db.SQL(e); ok {
 		note = r.BackupNote(b.restore)
 	}
-	if !b.restore && b.conn.DB != nil && db.MysqldumpChecksCAOnly(b.conn.DB) {
+	if d := b.conn.DB(); !b.restore && d != nil && db.MysqldumpChecksCAOnly(d) {
 		note += " Through the tunnel or proxy, verify-full checks the server's certificate against the CA file only, not the server's name, which mysqldump cannot be told."
 	}
 	dlg := widgets.Modal(c, &b.open, func() {

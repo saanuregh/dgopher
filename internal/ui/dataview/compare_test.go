@@ -41,8 +41,8 @@ func TestCompareResults(t *testing.T) {
 	v := a.Tabs[0].(*TableTab).view
 	testutil.WaitFor(t, tt, "the rows", func() bool { return len(v.src.Rows) == 2 && v.columns != nil })
 	a.Dialogs().pinned = v.snapshot()
-	cn.DB.SQL.Exec(`UPDATE items SET price = '9' WHERE label = 'ink'`)
-	cn.DB.SQL.Exec(`INSERT INTO items (label, price) VALUES ('cap', '1')`)
+	cn.DB().SQL.Exec(`UPDATE items SET price = '9' WHERE label = 'ink'`)
+	cn.DB().SQL.Exec(`INSERT INTO items (label, price) VALUES ('cap', '1')`)
 	v.RequestReload()
 	testutil.WaitFor(t, tt, "the rows again", func() bool { return len(v.src.Rows) == 3 })
 	ct := newCompareTab(a.Dialogs().pinned, v.snapshot())

@@ -105,7 +105,7 @@ func TestNonReadResultIsReadOnly(t *testing.T) {
 		a, tt, cn, q := openEditor(t, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"}, 1200, 760, "")
 		testutil.WaitFor(t, tt, "the schemas", func() bool { return cn.DefaultSchema != "" })
 		for _, s := range []string{"CREATE SEQUENCE seq", "CREATE TABLE n (id INTEGER PRIMARY KEY, label TEXT)", "INSERT INTO n VALUES (11, 'row 1'), (12, 'row 2')"} {
-			if _, err := cn.DB.SQL.Exec(s); err != nil {
+			if _, err := cn.DB().SQL.Exec(s); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -119,7 +119,7 @@ func TestNonReadResultIsReadOnly(t *testing.T) {
 		testutil.WaitFor(t, tt, "the schemas", func() bool { return cn.DefaultSchema != "" })
 		for _, s := range []string{"DROP TABLE IF EXISTS shop.rv_lock", "CREATE TABLE shop.rv_lock (id INT PRIMARY KEY, v TEXT)",
 			"INSERT INTO shop.rv_lock VALUES (1, 'alpha'), (2, 'beta')"} {
-			if _, err := cn.DB.SQL.Exec(s); err != nil {
+			if _, err := cn.DB().SQL.Exec(s); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -226,7 +226,7 @@ func TestSchemaReReadAfterReset(t *testing.T) {
 			if q.schema != c.before {
 				t.Fatalf("schema %q after %s", q.schema, c.set)
 			}
-			if _, err := cn.DB.SQL.Exec(c.kill(t, q)); err != nil {
+			if _, err := cn.DB().SQL.Exec(c.kill(t, q)); err != nil {
 				t.Fatal(err)
 			}
 			time.Sleep(300 * time.Millisecond)
@@ -253,7 +253,7 @@ func TestSchemaReReadAfterReset(t *testing.T) {
 			if q.schema != c.before || q.results[0].view == nil {
 				t.Fatalf("schema %q, results %+v", q.schema, q.results)
 			}
-			if _, err := cn.DB.SQL.Exec(c.kill(t, q)); err != nil {
+			if _, err := cn.DB().SQL.Exec(c.kill(t, q)); err != nil {
 				t.Fatal(err)
 			}
 			time.Sleep(300 * time.Millisecond)
@@ -351,7 +351,7 @@ func TestSharedTransactionInsideTab(t *testing.T) {
 		t.Fatalf("the bar stays: %q", tt.Texts())
 	}
 	var n int
-	if err := cn.DB.SQL.QueryRow("SELECT count(*) FROM t").Scan(&n); err != nil || n != 1 {
+	if err := cn.DB().SQL.QueryRow("SELECT count(*) FROM t").Scan(&n); err != nil || n != 1 {
 		t.Fatalf("committed rows %d, %v", n, err)
 	}
 }
@@ -478,7 +478,7 @@ func TestInsideTxBegunMidRunStopsRun(t *testing.T) {
 	a, tt, cn, q := openEditor(t, db.Config{ID: "duck", Name: "duck", Engine: db.DuckDB, Database: ":memory:"}, 1200, 760, "")
 	testutil.WaitFor(t, tt, "the schemas", func() bool { return len(cn.Loading) == 0 })
 	ctx := context.Background()
-	other, err := cn.DB.Session(ctx)
+	other, err := cn.DB().Session(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -568,7 +568,7 @@ func TestStaleOwnerCannotEnd(t *testing.T) {
 	// Another session, as a tab that typed them before it was refused,
 	// commits the transaction and begins its own.
 	ctx := context.Background()
-	other, err := cn.DB.Session(ctx)
+	other, err := cn.DB().Session(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

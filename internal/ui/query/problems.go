@@ -401,7 +401,7 @@ func (q *Tab) checkProblems() {
 	}
 	q.checkedText, q.checkedCatalog = text, read
 	var cat catalog
-	if cn.Status == connection.StatusConnected && cn.DB != nil {
+	if cn.Status == connection.StatusConnected && cn.DB() != nil {
 		cat = tabCatalog{q}
 	}
 	q.Editor.Problems = checkText(text, q.Editor.Dialect, SplitOptions(q.a.Settings()), cat)

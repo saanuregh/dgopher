@@ -396,7 +396,7 @@ func TestPinCountStopOnSharedConnection(t *testing.T) {
 			tt := ui.NewTester(a.View, 800, 600)
 			a.Connect(cn, nil)
 			testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
-			s, err := cn.DB.Session(ctx)
+			s, err := cn.DB().Session(ctx)
 			if err != nil {
 				t.Fatal(err)
 			}

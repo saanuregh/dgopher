@@ -318,11 +318,11 @@ func (a *App) startFill(x *fillDialog) {
 		return
 	}
 	cn := x.conn
-	if cn.DB == nil {
+	if cn.DB() == nil {
 		x.err = cn.Config.Name + " is not connected."
 		return
 	}
-	insert := "INSERT INTO " + db.QualifiedName(cn.DB.Dialect, x.obj.Schema, x.obj.Name) + " …"
+	insert := "INSERT INTO " + db.QualifiedName(cn.DB().Dialect, x.obj.Schema, x.obj.Name) + " …"
 	v := safety.ReviewSQL(&cn.Config, safety.Analyze(&cn.Config, []string{insert}))
 	if v.Blocked != "" {
 		a.RecordBlocked(cn, v.Blocked, insert)
@@ -350,15 +350,15 @@ func (a *App) runFill(x *fillDialog) {
 	if a.filling != x {
 		return // closed while the fill was being confirmed
 	}
-	if cn.DB == nil {
+	if cn.DB() == nil {
 		x.err = cn.Config.Name + " is not connected."
 		return
 	}
-	target := &db.EditTarget{Dialect: cn.DB.Dialect, Schema: obj.Schema, Table: obj.Name, Columns: p.cols}
+	target := &db.EditTarget{Dialect: cn.DB().Dialect, Schema: obj.Schema, Table: obj.Name, Columns: p.cols}
 	ctx, cancel := context.WithCancel(context.Background())
 	x.running, x.cancel, x.done, x.err = true, cancel, 0, ""
 	x.dismiss.Used()
-	pool, cfg, database := cn.DB, cn.Config, x.database
+	pool, cfg, database := cn.DB(), cn.Config, x.database
 	started := time.Now()
 	job := fmt.Sprintf("Adding %s generated rows to %s on %s: %s", widgets.HumanCount(int64(n)), obj.Name, cfg.Name, writeStopLoss(cfg.Engine, false))
 	stopped := func() { x.running, x.cancel, x.err = false, nil, "Generating rows stopped on an internal error." }

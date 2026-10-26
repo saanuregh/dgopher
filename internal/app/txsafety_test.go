@@ -275,7 +275,7 @@ func TestSharedTransactionOwner(t *testing.T) {
 	a.ActivateTab(func(t widgets.Tab) bool { return t == table })
 	testutil.WaitFor(t, tt, "the table tab's bar to go", func() bool { return !testutil.HasTextContaining(tt, "Inside ") })
 	var n int
-	if err := cn.DB.SQL.QueryRow("SELECT count(*) FROM t").Scan(&n); err != nil || n != 0 {
+	if err := cn.DB().SQL.QueryRow("SELECT count(*) FROM t").Scan(&n); err != nil || n != 0 {
 		t.Fatalf("after the rollback: %d rows, %v", n, err)
 	}
 }
@@ -309,7 +309,7 @@ func TestOwnerSeesOtherTabCommit(t *testing.T) {
 
 	// Another session, as a tab that typed it before it was refused.
 	ctx := context.Background()
-	other, err := cn.DB.Session(ctx)
+	other, err := cn.DB().Session(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,7 +377,7 @@ func TestSharedIdleCountsInsideWork(t *testing.T) {
 	a.idleWarn.deadline = a.now
 	testutil.WaitFor(t, tt, "the rollback", func() bool { return !owner.OpenTx() && !owner.Busy() })
 	var n int
-	if err := cn.DB.SQL.QueryRow("SELECT count(*) FROM t").Scan(&n); err != nil || n != 0 {
+	if err := cn.DB().SQL.QueryRow("SELECT count(*) FROM t").Scan(&n); err != nil || n != 0 {
 		t.Fatalf("after the rollback: %d rows, %v", n, err)
 	}
 }

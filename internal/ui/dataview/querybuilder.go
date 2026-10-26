@@ -248,10 +248,10 @@ func (b *queryBuilder) find(label string) (*qbTable, string, bool) {
 // expr writes a column, alias.column, as SQL.
 func (b *queryBuilder) expr(label string) (string, bool) {
 	t, column, ok := b.find(label)
-	if !ok || b.conn.DB == nil {
+	if !ok || b.conn.DB() == nil {
 		return "", false
 	}
-	d := b.conn.DB.Dialect
+	d := b.conn.DB().Dialect
 	return d.Quote(t.alias) + "." + d.Quote(column), true
 }
 
@@ -306,10 +306,10 @@ func (b *queryBuilder) outputs() ([]qbOutput, error) {
 
 // sql writes the query as the choices make it.
 func (b *queryBuilder) sql() (string, error) {
-	if b.conn.DB == nil {
+	if b.conn.DB() == nil {
 		return "", errors.New(b.conn.Config.Name + " is not connected")
 	}
-	d, e := b.conn.DB.Dialect, b.conn.Config.Engine
+	d, e := b.conn.DB().Dialect, b.conn.Config.Engine
 	if len(b.tables) == 0 {
 		return "", errors.New("choose a table")
 	}
@@ -427,7 +427,7 @@ func (b *queryBuilder) sortExpr(choice string) (string, error) {
 	}
 	for i, col := range b.columns {
 		if cols[i].name != "" && cols[i].name == choice {
-			return b.conn.DB.Dialect.Quote(cols[i].name), nil
+			return b.conn.DB().Dialect.Quote(cols[i].name), nil
 		}
 		if cols[i].name == "" && col.label == choice {
 			return cols[i].expr, nil

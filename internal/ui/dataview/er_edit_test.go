@@ -29,7 +29,7 @@ func TestEREditsSchema(t *testing.T) {
 		`CREATE TABLE orders (id INTEGER PRIMARY KEY, customer_id INTEGER, total REAL)`,
 		`INSERT INTO customers VALUES (1, 'Ada')`, `INSERT INTO orders VALUES (1, 1, 9.5)`,
 	} {
-		if _, err := cn.DB.SQL.Exec(q); err != nil {
+		if _, err := cn.DB().SQL.Exec(q); err != nil {
 			t.Fatal(q, err)
 		}
 	}
@@ -67,7 +67,7 @@ func TestEREditsSchema(t *testing.T) {
 		t.Fatalf("customers moved to %v, %v on reload", c.x, c.y)
 	}
 	var n int
-	if cn.DB.SQL.QueryRow(`SELECT count(*) FROM orders`).Scan(&n); n != 1 {
+	if cn.DB().SQL.QueryRow(`SELECT count(*) FROM orders`).Scan(&n); n != 1 {
 		t.Fatalf("the rows of orders: %d", n)
 	}
 
@@ -95,7 +95,7 @@ func TestERKeyboard(t *testing.T) {
 	tt := ui.NewTester(a.View, 1360, 760)
 	a.Connect(cn, nil)
 	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected })
-	if _, err := cn.DB.SQL.Exec(`CREATE TABLE orders (id INTEGER PRIMARY KEY)`); err != nil {
+	if _, err := cn.DB().SQL.Exec(`CREATE TABLE orders (id INTEGER PRIMARY KEY)`); err != nil {
 		t.Fatal(err)
 	}
 	OpenER(a, cn, "", "main")

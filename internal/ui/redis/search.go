@@ -51,7 +51,7 @@ func (r *Tab) loadIndexes() {
 	s := &r.search
 	s.asked, s.loading, s.err = true, true, ""
 	s.reads++
-	kv, chosen, read := r.conn.KV, s.chosen(), s.reads
+	kv, chosen, read := r.conn.KV(), s.chosen(), s.reads
 	r.loadLatest(func() bool { return read == s.reads }, &s.loading, &s.err, 30*time.Second, func(ctx context.Context) (func(), error) {
 		indexes, err := kv.SearchIndexes(ctx)
 		var info *db.SearchIndex
@@ -85,7 +85,7 @@ func (r *Tab) runSearch() {
 	}
 	s.loading, s.err = true, ""
 	s.reads++
-	kv, query, read := r.conn.KV, strings.TrimSpace(s.query), s.reads
+	kv, query, read := r.conn.KV(), strings.TrimSpace(s.query), s.reads
 	dataview.BackgroundResetOnPanic(r.a, func() {
 		if read == s.reads {
 			s.loading = false
@@ -132,7 +132,7 @@ func (r *Tab) searchView(c *ui.Context) {
 	s := &r.search
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	if !r.conn.KV.HasSearch() {
+	if !r.conn.KV().HasSearch() {
 		ui.Text(c, "This server has no Redis Search: it comes with Redis 8, or as a module before.").FontSize(12.5).TextColor(pal.Muted).Padding(8, 12)
 		return
 	}

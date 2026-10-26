@@ -138,7 +138,7 @@ const similarShown = 10
 func (r *Tab) loadVector(element string) {
 	v := &r.vector
 	v.element, v.loading, v.err, v.vector, v.similar = element, true, "", nil, nil
-	kv, key, gen := r.conn.KV, r.selected, r.valueGen
+	kv, key, gen := r.conn.KV(), r.selected, r.valueGen
 	r.loadLatest(func() bool { return gen == r.valueGen && v.element == element }, &v.loading, &v.err, 30*time.Second, func(ctx context.Context) (func(), error) {
 		vector, err := kv.VectorOf(ctx, key, element)
 		var similar []db.Field

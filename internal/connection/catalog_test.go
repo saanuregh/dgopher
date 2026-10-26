@@ -33,7 +33,7 @@ func TestCatalogDepth(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	cn := &Conn{Config: cfg, DB: d, Status: StatusConnected}
+	cn := &Conn{Config: cfg, Store: d, Status: StatusConnected}
 	cn.Reset()
 
 	cn.Config.SetCatalog("", "main", db.CatalogNames)
@@ -85,7 +85,7 @@ func TestCatalogDepthChangedWhileReading(t *testing.T) {
 	if _, err := d.SQL.Exec(`CREATE TABLE a (id INTEGER PRIMARY KEY)`); err != nil {
 		t.Fatal(err)
 	}
-	cn := &Conn{Config: cfg, DB: d, Status: StatusConnected}
+	cn := &Conn{Config: cfg, Store: d, Status: StatusConnected}
 	cn.Reset()
 	h := &held{}
 	LoadObjects(h, cn, "", "main")

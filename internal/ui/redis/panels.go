@@ -119,7 +119,7 @@ func (r *Tab) runMonitor() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel, m.err, m.resume, m.started = cancel, "", false, time.Now()
-	kv, cfg := r.conn.KV, r.conn.Config
+	kv, cfg := r.conn.KV(), r.conn.Config
 	lines := feed[db.MonitorLine]{keep: monitorKeep}
 	go func() {
 		defer dataview.RecoverBackground(r.a.Post, r.a.ShowReport, func() { m.cancel = nil })
@@ -217,7 +217,7 @@ func (r *Tab) monitorView(c *ui.Context) {
 func (r *Tab) loadSlowLog() {
 	s := &r.slow
 	s.asked, s.loading, s.err = true, true, ""
-	kv := r.conn.KV
+	kv := r.conn.KV()
 	r.loadLatest(func() bool { return true }, &s.loading, &s.err, 30*time.Second, func(ctx context.Context) (func(), error) {
 		entries, err := kv.SlowLog(ctx, slowLogRead)
 		return func() { s.entries = entries }, err
@@ -237,14 +237,14 @@ func (r *Tab) slowLogActions(c *ui.Context) {
 func (r *Tab) resetSlowLog() {
 	cfg := r.conn.Config
 	args := []string{"SLOWLOG", "RESET"}
-	v := safety.ReviewRedis(&cfg, r.conn.KV, args)
+	v := safety.ReviewRedis(&cfg, r.conn.KV(), args)
 	if v.Blocked != "" {
 		r.a.RecordBlocked(r.conn, v.Blocked, "SLOWLOG RESET")
 		r.slow.err = v.Blocked
 		return
 	}
 	run := func() {
-		kv := r.conn.KV
+		kv := r.conn.KV()
 		r.a.Background(func() func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
@@ -321,7 +321,7 @@ func (r *Tab) analyseMemory() {
 	m := &r.memory
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel, m.read, m.err, m.row = cancel, 0, "", -1
-	kv, sep, limit := r.conn.KV, r.conn.Config.Separator(), memoryLimits[m.limit]
+	kv, sep, limit := r.conn.KV(), r.conn.Config.Separator(), memoryLimits[m.limit]
 	dataview.BackgroundResetOnPanic(r.a, func() { m.cancel = nil }, func() func() {
 		defer cancel()
 		report, err := kv.AnalyseMemory(ctx, sep, limit, largestKeys, func(n int64) { r.a.Post(func() { m.read = n }) })

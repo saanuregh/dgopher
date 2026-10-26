@@ -65,7 +65,7 @@ func NewTableTab(a Host, cn *connection.Conn, database string, obj db.Object, pa
 		Keys:         func() bool { return a.KeysTo(t) },
 		Conn:         cn,
 		Database:     database,
-		Statement:    "SELECT * FROM " + db.QualifiedName(cn.DB.Dialect, obj.Schema, obj.Name),
+		Statement:    "SELECT * FROM " + db.QualifiedName(cn.DB().Dialect, obj.Schema, obj.Name),
 		Reads:        true,
 		Table:        &t.Object,
 		Session:      func() *db.Session { return t.sess },

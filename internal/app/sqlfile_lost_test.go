@@ -22,11 +22,11 @@ func serverApp(t *testing.T, cfg db.Config, setup, cleanup []string) (*App, *ui.
 	connectNow(t, a, tt, cn)
 	t.Cleanup(func() {
 		for _, s := range cleanup {
-			cn.DB.SQL.Exec(s)
+			cn.DB().SQL.Exec(s)
 		}
 	})
 	for _, s := range setup {
-		if _, err := cn.DB.SQL.Exec(s); err != nil {
+		if _, err := cn.DB().SQL.Exec(s); err != nil {
 			t.Fatalf("%s: %v", s, err)
 		}
 	}
@@ -37,7 +37,7 @@ func serverApp(t *testing.T, cfg db.Config, setup, cleanup []string) (*App, *ui.
 func fileRowCount(t *testing.T, cn *connection.Conn, table string) int {
 	t.Helper()
 	var n int
-	if err := cn.DB.SQL.QueryRow("SELECT count(*) FROM " + table).Scan(&n); err != nil {
+	if err := cn.DB().SQL.QueryRow("SELECT count(*) FROM " + table).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	return n

@@ -80,7 +80,7 @@ func TestWorkspaceRestoresConnectionTabs(t *testing.T) {
 	a.saveProject(p)
 	tt := ui.NewTester(a.view, 1200, 760)
 	connectNow(t, a, tt, cn)
-	if _, err := cn.DB.SQL.Exec("CREATE TABLE orders (id INTEGER PRIMARY KEY)"); err != nil {
+	if _, err := cn.DB().SQL.Exec("CREATE TABLE orders (id INTEGER PRIMARY KEY)"); err != nil {
 		t.Fatal(err)
 	}
 	newAppEditor(t, a, tt, cn, "SELECT 1;")
@@ -160,7 +160,7 @@ func TestWorkspaceRestoresGroups(t *testing.T) {
 	a.saveProject(p)
 	tt := ui.NewTester(a.view, 1200, 760)
 	connectNow(t, a, tt, cn)
-	if _, err := cn.DB.SQL.Exec("CREATE TABLE orders (id INTEGER PRIMARY KEY)"); err != nil {
+	if _, err := cn.DB().SQL.Exec("CREATE TABLE orders (id INTEGER PRIMARY KEY)"); err != nil {
 		t.Fatal(err)
 	}
 	newAppEditor(t, a, tt, cn, "SELECT 1;")

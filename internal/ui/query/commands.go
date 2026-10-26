@@ -47,7 +47,7 @@ func (q *Tab) Commands() []widgets.Command {
 // switcher's menus do.
 func (q *Tab) switchCommands() []widgets.Command {
 	cn := q.Conn
-	if cn.Status != connection.StatusConnected || cn.DB == nil {
+	if cn.Status != connection.StatusConnected || cn.DB() == nil {
 		return nil
 	}
 	var cmds []widgets.Command

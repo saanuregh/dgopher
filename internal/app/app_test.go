@@ -384,8 +384,8 @@ func TestImportCSV(t *testing.T) {
 	testutil.WaitFor(t, tt, "import", func() bool { return !x.running && a.importing == nil })
 	var n int
 	var email *string
-	cn.DB.SQL.QueryRow(`SELECT count(*) FROM shop.customers WHERE name IN ('Ada', 'Lovelace, A.', 'Grace')`).Scan(&n)
-	cn.DB.SQL.QueryRow(`SELECT email FROM shop.customers WHERE name = 'Lovelace, A.'`).Scan(&email)
+	cn.DB().SQL.QueryRow(`SELECT count(*) FROM shop.customers WHERE name IN ('Ada', 'Lovelace, A.', 'Grace')`).Scan(&n)
+	cn.DB().SQL.QueryRow(`SELECT email FROM shop.customers WHERE name = 'Lovelace, A.'`).Scan(&email)
 	if n != 3 || email != nil {
 		t.Fatalf("imported %d rows, email %v", n, email)
 	}
@@ -396,7 +396,7 @@ func TestImportCSV(t *testing.T) {
 	testutil.WaitFor(t, tt, "preview", func() bool { return x.file != nil && len(x.mapping) == 2 })
 	a.confirmImport(x)
 	testutil.WaitFor(t, tt, "failed import", func() bool { return !x.running && x.err != "" })
-	cn.DB.SQL.QueryRow(`SELECT count(*) FROM shop.customers WHERE name = 'Ok'`).Scan(&n)
+	cn.DB().SQL.QueryRow(`SELECT count(*) FROM shop.customers WHERE name = 'Ok'`).Scan(&n)
 	if n != 0 {
 		t.Fatalf("a failed import left %d rows", n)
 	}
@@ -432,7 +432,7 @@ func TestImportNewTables(t *testing.T) {
 	}
 	var n, paid int
 	var amount float64
-	cn.DB.SQL.QueryRow(`SELECT count(*), sum(amount), sum(paid) FROM "imported_2024_sales__eu"`).Scan(&n, &amount, &paid)
+	cn.DB().SQL.QueryRow(`SELECT count(*), sum(amount), sum(paid) FROM "imported_2024_sales__eu"`).Scan(&n, &amount, &paid)
 	if n != 2 || amount != 12.75 || paid != 1 {
 		t.Fatalf("rows %d, amount %v, paid %d", n, amount, paid)
 	}
@@ -444,7 +444,7 @@ func TestImportNewTables(t *testing.T) {
 		x.newCols[0].name = "event"
 	})
 	var kind, meta string
-	cn.DB.SQL.QueryRow(`SELECT event, meta FROM events WHERE event = 'login'`).Scan(&kind, &meta)
+	cn.DB().SQL.QueryRow(`SELECT event, meta FROM events WHERE event = 'login'`).Scan(&kind, &meta)
 	if x.err != "" || kind != "login" || meta != `{"ip":"1.2.3.4"}` {
 		t.Fatalf("events %q: %q %q", x.err, kind, meta)
 	}
@@ -455,7 +455,7 @@ func TestImportNewTables(t *testing.T) {
 	if !strings.Contains(x.err, "the table was not created") {
 		t.Fatalf("a failing import: %q", x.err)
 	}
-	if err := cn.DB.SQL.QueryRow(`SELECT count(*) FROM bad`).Scan(&n); err == nil {
+	if err := cn.DB().SQL.QueryRow(`SELECT count(*) FROM bad`).Scan(&n); err == nil {
 		t.Fatal("a failed import left its table")
 	}
 }
@@ -487,22 +487,22 @@ func TestImportNewTableServers(t *testing.T) {
 			tt := ui.NewTester(a.view, 1200, 800)
 			connectNow(t, a, tt, cn)
 			schema := map[db.Engine]string{db.Postgres: "public", db.MySQL: "shop", db.ClickHouse: "default"}[cfg.Engine]
-			table := db.QualifiedName(cn.DB.Dialect, schema, "it_orders")
-			cn.DB.SQL.Exec("DROP TABLE IF EXISTS " + table)
-			defer cn.DB.SQL.Exec("DROP TABLE IF EXISTS " + table)
+			table := db.QualifiedName(cn.DB().Dialect, schema, "it_orders")
+			cn.DB().SQL.Exec("DROP TABLE IF EXISTS " + table)
+			defer cn.DB().SQL.Exec("DROP TABLE IF EXISTS " + table)
 			x := importNew(t, a, tt, cn, schema, path, func(x *importState) { x.table = "it_orders" })
 			if x.err != "" {
 				t.Fatal(x.err)
 			}
 			var n int
 			var note string
-			if err := cn.DB.SQL.QueryRow("SELECT count(*), max(note) FROM "+table).Scan(&n, &note); err != nil || n != 2 || note != "first" {
+			if err := cn.DB().SQL.QueryRow("SELECT count(*), max(note) FROM "+table).Scan(&n, &note); err != nil || n != 2 || note != "first" {
 				t.Fatalf("rows %d, note %q: %v", n, note, err)
 			}
 			if cfg.Engine != db.MySQL {
 				return
 			}
-			cn.DB.SQL.Exec("DROP TABLE " + table)
+			cn.DB().SQL.Exec("DROP TABLE " + table)
 			x = importNew(t, a, tt, cn, schema, path, func(x *importState) {
 				x.table = "it_orders"
 				x.newCols[4].typ = "VARCHAR(2)" // "first" does not fit
@@ -510,7 +510,7 @@ func TestImportNewTableServers(t *testing.T) {
 			if !strings.Contains(x.err, "the table was not created") {
 				t.Fatalf("a failing import: %q", x.err)
 			}
-			if err := cn.DB.SQL.QueryRow("SELECT count(*) FROM " + table).Scan(&n); err == nil {
+			if err := cn.DB().SQL.QueryRow("SELECT count(*) FROM " + table).Scan(&n); err == nil {
 				t.Fatal("the failed import left its table")
 			}
 		})
@@ -681,8 +681,8 @@ func TestKeyboard(t *testing.T) {
 	cn := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
 	tt := ui.NewTester(a.view, 1200, 760)
 	connectNow(t, a, tt, cn)
-	cn.DB.SQL.Exec("CREATE TABLE notes (id INTEGER PRIMARY KEY, title TEXT)")
-	cn.DB.SQL.Exec("INSERT INTO notes (title) VALUES ('a'), ('b')")
+	cn.DB().SQL.Exec("CREATE TABLE notes (id INTEGER PRIMARY KEY, title TEXT)")
+	cn.DB().SQL.Exec("INSERT INTO notes (title) VALUES ('a'), ('b')")
 	a.NewQueryTab(cn, "", "SELECT * FROM notes;")
 	a.NewQueryTab(cn, "", "SELECT 2;")
 	tt.Frame()
@@ -1124,7 +1124,7 @@ func TestLateConnectIsDropped(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	tt.Frame()
 	tt.Frame()
-	if cn.Status != connection.StatusIdle || cn.DB != nil {
+	if cn.Status != connection.StatusIdle || cn.DB() != nil {
 		t.Fatalf("a late connect was applied: status %v", cn.Status)
 	}
 }
@@ -1282,8 +1282,8 @@ func TestPendingChangesOfTwoResults(t *testing.T) {
 	tt := ui.NewTester(a.view, 1280, 800)
 	a.Connect(cn, nil)
 	testutil.WaitFor(t, tt, "connect", func() bool { return cn.Status == connection.StatusConnected && cn.DefaultSchema != "" })
-	cn.DB.SQL.Exec("CREATE TABLE notes (id INTEGER PRIMARY KEY, title TEXT)")
-	cn.DB.SQL.Exec("INSERT INTO notes (title) VALUES ('first'), ('second')")
+	cn.DB().SQL.Exec("CREATE TABLE notes (id INTEGER PRIMARY KEY, title TEXT)")
+	cn.DB().SQL.Exec("INSERT INTO notes (title) VALUES ('first'), ('second')")
 	q := newAppEditor(t, a, tt, cn, "SELECT * FROM notes")
 	edit := func(cell string) {
 		t.Helper()
@@ -1411,7 +1411,7 @@ func TestRunSQLFile(t *testing.T) {
 
 	x = runFile(t, a, tt, cn, path, nil)
 	var n int
-	cn.DB.SQL.QueryRow(`SELECT count(*) FROM t`).Scan(&n)
+	cn.DB().SQL.QueryRow(`SELECT count(*) FROM t`).Scan(&n)
 	if x.err != "" || n != 3000 || x.done.Load() != 3003 {
 		t.Fatalf("run: %q, %d rows, %d statements", x.err, n, x.done.Load())
 	}
@@ -1435,7 +1435,7 @@ func TestRunSQLFile(t *testing.T) {
 	if !strings.Contains(x.err, "nothing of the file stays") || len(x.failures) != 1 || !strings.HasPrefix(x.failures[0], "Line 3:") {
 		t.Fatalf("all or nothing: %q, %q", x.err, x.failures)
 	}
-	if err := cn.DB.SQL.QueryRow(`SELECT count(*) FROM u`).Scan(&n); err == nil {
+	if err := cn.DB().SQL.QueryRow(`SELECT count(*) FROM u`).Scan(&n); err == nil {
 		t.Fatal("the failed file left its table")
 	}
 
@@ -1457,15 +1457,15 @@ func TestRunPostgresDump(t *testing.T) {
 	cn := addConn(a, testutil.PGConfig())
 	tt := ui.NewTester(a.view, 1200, 800)
 	connectNow(t, a, tt, cn)
-	cn.DB.SQL.Exec(`DROP TABLE IF EXISTS public.it_dump`)
-	defer cn.DB.SQL.Exec(`DROP TABLE IF EXISTS public.it_dump`)
+	cn.DB().SQL.Exec(`DROP TABLE IF EXISTS public.it_dump`)
+	defer cn.DB().SQL.Exec(`DROP TABLE IF EXISTS public.it_dump`)
 	dump := "\\restrict k\n\nSET client_encoding = 'UTF8';\nCREATE TABLE public.it_dump (a integer, b text);\n\nCOPY public.it_dump (a, b) FROM stdin;\n1\tsemi; colon\n2\t\\N\n\\.\n\n\\unrestrict k\n"
 	path := filepath.Join(t.TempDir(), "dump.sql")
 	os.WriteFile(path, []byte(dump), 0o600)
 	x := runFile(t, a, tt, cn, path, nil)
 	var n int
 	var nulls int
-	cn.DB.SQL.QueryRow(`SELECT count(*), count(*) FILTER (WHERE b IS NULL) FROM public.it_dump`).Scan(&n, &nulls)
+	cn.DB().SQL.QueryRow(`SELECT count(*), count(*) FILTER (WHERE b IS NULL) FROM public.it_dump`).Scan(&n, &nulls)
 	if x.err != "" || n != 2 || nulls != 1 {
 		t.Fatalf("dump: %q %q, %d rows, %d NULL", x.err, x.failures, n, nulls)
 	}
@@ -1559,7 +1559,7 @@ func TestMaintenanceOnProduction(t *testing.T) {
 	tt := ui.NewTester(a.view, 1200, 800)
 	connectNow(t, a, tt, cn)
 	r, _ := db.SQL(db.Postgres)
-	cmds := r.MaintenanceCommands(db.QualifiedName(cn.DB.Dialect, "shop", "orders"))
+	cmds := r.MaintenanceCommands(db.QualifiedName(cn.DB().Dialect, "shop", "orders"))
 	vacuum := cmds[slices.IndexFunc(cmds, func(m db.MaintenanceCommand) bool { return m.Label == "Vacuum and Analyze" })]
 	a.runInEditor(cn, "", vacuum.SQL)
 	testutil.WaitFor(t, tt, "the confirmation", func() bool { return a.confirm != nil })
@@ -1576,12 +1576,12 @@ func TestMaintenanceOnProduction(t *testing.T) {
 // policy: at once in development, once agreed on production.
 func TestRenameInDatabase(t *testing.T) {
 	a, tt, cn, _ := liteApp(t, db.Development)
-	if _, err := cn.DB.SQL.Exec(`CREATE TABLE orders (id INTEGER PRIMARY KEY, total REAL)`); err != nil {
+	if _, err := cn.DB().SQL.Exec(`CREATE TABLE orders (id INTEGER PRIMARY KEY, total REAL)`); err != nil {
 		t.Fatal(err)
 	}
 	obj := db.Object{Schema: "main", Name: "orders", Kind: db.KindTable}
 	a.askRenameInDatabase(cn, "", "orders", func(name string) (string, error) {
-		return db.RenameObjectSQL(cn.DB.Dialect, obj, name)
+		return db.RenameObjectSQL(cn.DB().Dialect, obj, name)
 	})
 	if err := a.renaming.rename(" "); err == nil {
 		t.Fatal("an empty name was taken")
@@ -1591,12 +1591,12 @@ func TestRenameInDatabase(t *testing.T) {
 	}
 	var n int
 	testutil.WaitFor(t, tt, "the table renamed", func() bool {
-		return cn.DB.SQL.QueryRow(`SELECT count(*) FROM sales`).Scan(&n) == nil
+		return cn.DB().SQL.QueryRow(`SELECT count(*) FROM sales`).Scan(&n) == nil
 	})
 
 	cn.Config.Env = db.Production
 	a.askRenameInDatabase(cn, "", "total", func(name string) (string, error) {
-		return db.RenameColumnSQL(cn.DB.Dialect, "main", "sales", "total", name), nil
+		return db.RenameColumnSQL(cn.DB().Dialect, "main", "sales", "total", name), nil
 	})
 	if err := a.renaming.rename("amount"); err != nil {
 		t.Fatal(err)
@@ -1608,7 +1608,7 @@ func TestRenameInDatabase(t *testing.T) {
 	a.confirm.OnConfirm()
 	a.confirm = nil
 	testutil.WaitFor(t, tt, "the column renamed", func() bool {
-		return cn.DB.SQL.QueryRow(`SELECT count(amount) FROM sales`).Scan(&n) == nil
+		return cn.DB().SQL.QueryRow(`SELECT count(amount) FROM sales`).Scan(&n) == nil
 	})
 }
 
@@ -1618,7 +1618,7 @@ func TestSearchObjects(t *testing.T) {
 	a, tt, cn, _ := liteApp(t, "")
 	for _, q := range []string{`CREATE TABLE invoices (id INTEGER PRIMARY KEY, customer TEXT)`,
 		`CREATE VIEW unpaid AS SELECT id FROM invoices WHERE customer = 'acme'`} {
-		if _, err := cn.DB.SQL.Exec(q); err != nil {
+		if _, err := cn.DB().SQL.Exec(q); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1651,7 +1651,7 @@ func TestGenerateScript(t *testing.T) {
 	a, tt, cn, _ := liteApp(t, "")
 	for _, q := range []string{`CREATE TABLE lines (order_id INTEGER REFERENCES orders (id))`,
 		`CREATE TABLE orders (id INTEGER PRIMARY KEY)`, `CREATE TABLE scratch (x)`} {
-		if _, err := cn.DB.SQL.Exec(q); err != nil {
+		if _, err := cn.DB().SQL.Exec(q); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1768,7 +1768,7 @@ func TestEditorGroups(t *testing.T) {
 // Run SQL File runs it.
 func TestBackup(t *testing.T) {
 	a, tt, cn, _ := liteApp(t, "")
-	cn.DB.SQL.Exec(`CREATE TABLE t (a INT)`)
+	cn.DB().SQL.Exec(`CREATE TABLE t (a INT)`)
 	a.openBackup(cn, "", false)
 	b := a.backup
 	b.path = filepath.Join(t.TempDir(), "copy.sqlite")
@@ -1854,7 +1854,7 @@ func TestCopyTables(t *testing.T) {
 	for _, cn := range []*connection.Conn{lite, duck} {
 		connectNow(t, a, tt, cn)
 	}
-	mustExec(t, lite.DB, `CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, price REAL, sold BOOLEAN, at DATE, raw BLOB)`,
+	mustExec(t, lite.DB(), `CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, price REAL, sold BOOLEAN, at DATE, raw BLOB)`,
 		`INSERT INTO items VALUES (1, 'pen', 1.5, 1, '2026-01-31', x'0102'), (2, 'ink', NULL, 0, NULL, NULL)`)
 	x := copyTables(t, a, tt, lite, "main", []string{"items"}, duck, "main", copyCreate)
 	testutil.Snapshot(t, tt, "copy-tables")
@@ -1865,7 +1865,7 @@ func TestCopyTables(t *testing.T) {
 	var price float64
 	var sold bool
 	var raw []byte
-	if err := duck.DB.SQL.QueryRow(`SELECT name, price, sold, CAST("at" AS VARCHAR), raw FROM items WHERE id = 1`).Scan(&name, &price, &sold, &at, &raw); err != nil ||
+	if err := duck.DB().SQL.QueryRow(`SELECT name, price, sold, CAST("at" AS VARCHAR), raw FROM items WHERE id = 1`).Scan(&name, &price, &sold, &at, &raw); err != nil ||
 		name != "pen" || price != 1.5 || !sold || at != "2026-01-31" || string(raw) != "\x01\x02" {
 		t.Fatalf("copied %q %v %v %q %v: %v", name, price, sold, at, raw, err)
 	}
@@ -1873,10 +1873,10 @@ func TestCopyTables(t *testing.T) {
 	if !strings.Contains(x.err, "already") {
 		t.Fatalf("a table there: %q", x.err)
 	}
-	lite.DB.SQL.Exec(`INSERT INTO items (id, name) VALUES (3, 'cap')`)
+	lite.DB().SQL.Exec(`INSERT INTO items (id, name) VALUES (3, 'cap')`)
 	x = copyTables(t, a, tt, lite, "main", []string{"items"}, duck, "main", copyReplace)
 	var n int
-	if duck.DB.SQL.QueryRow(`SELECT count(*) FROM items`).Scan(&n); x.err != "" || n != 3 {
+	if duck.DB().SQL.QueryRow(`SELECT count(*) FROM items`).Scan(&n); x.err != "" || n != 3 {
 		t.Fatalf("replaced: %d rows, %q", n, x.err)
 	}
 }
@@ -1894,13 +1894,13 @@ func TestCopyTablesAcrossServers(t *testing.T) {
 		connectNow(t, a, tt, cn)
 	}
 	drop := func() {
-		pg.DB.SQL.Exec(`DROP TABLE IF EXISTS public.it_copy`)
-		my.DB.SQL.Exec("DROP TABLE IF EXISTS shop.it_copy")
-		ch.DB.SQL.Exec("DROP TABLE IF EXISTS default.it_copy")
+		pg.DB().SQL.Exec(`DROP TABLE IF EXISTS public.it_copy`)
+		my.DB().SQL.Exec("DROP TABLE IF EXISTS shop.it_copy")
+		ch.DB().SQL.Exec("DROP TABLE IF EXISTS default.it_copy")
 	}
 	drop()
 	defer drop()
-	mustExec(t, pg.DB, `CREATE TABLE public.it_copy (id int PRIMARY KEY, amount numeric(10,2), at timestamptz, ok boolean, note text)`,
+	mustExec(t, pg.DB(), `CREATE TABLE public.it_copy (id int PRIMARY KEY, amount numeric(10,2), at timestamptz, ok boolean, note text)`,
 		`INSERT INTO public.it_copy VALUES (1, 12345678.91, '2026-01-31 10:20:30.123456+00', true, 'it''s'), (2, NULL, NULL, NULL, NULL)`)
 	for _, c := range []struct {
 		to     *connection.Conn
@@ -1915,7 +1915,7 @@ func TestCopyTablesAcrossServers(t *testing.T) {
 			t.Fatalf("%s: %s", c.to.Config.Engine, x.err)
 		}
 		var amount, at, ok, note string
-		if err := c.to.DB.SQL.QueryRow(c.query).Scan(&amount, &at, &ok, &note); err != nil {
+		if err := c.to.DB().SQL.QueryRow(c.query).Scan(&amount, &at, &ok, &note); err != nil {
 			t.Fatalf("%s: %v", c.to.Config.Engine, err)
 		}
 		if amount != "12345678.91" || !strings.HasPrefix(at, "2026-01-31 10:20:30.123456") || note != "it's" || ok != "1" && ok != "true" {
@@ -1935,8 +1935,8 @@ func TestUsersTab(t *testing.T) {
 	tt := ui.NewTester(a.view, 1300, 800)
 	const secret = "Tr0ub4dor&3-it"
 	cleanup := func() {
-		cn.DB.SQL.Exec(`REASSIGN OWNED BY dgopher_it_grace TO CURRENT_USER; DROP OWNED BY dgopher_it_grace`)
-		cn.DB.SQL.Exec(`DROP ROLE IF EXISTS dgopher_it_grace`)
+		cn.DB().SQL.Exec(`REASSIGN OWNED BY dgopher_it_grace TO CURRENT_USER; DROP OWNED BY dgopher_it_grace`)
+		cn.DB().SQL.Exec(`DROP ROLE IF EXISTS dgopher_it_grace`)
 	}
 	a.openUsers(cn)
 	testutil.WaitFor(t, tt, "the users", func() bool {
@@ -2000,11 +2000,11 @@ func TestNavigatorItems(t *testing.T) {
 	cn := addConn(a, testutil.PGConfig())
 	tt := ui.NewTester(a.view, 1200, 900)
 	connectNow(t, a, tt, cn)
-	mustExec(t, cn.DB, "DROP SCHEMA IF EXISTS it_nav CASCADE", "CREATE SCHEMA it_nav",
+	mustExec(t, cn.DB(), "DROP SCHEMA IF EXISTS it_nav CASCADE", "CREATE SCHEMA it_nav",
 		"CREATE FUNCTION it_nav.twice(a int) RETURNS int LANGUAGE sql AS 'SELECT a * 2'",
 		"CREATE TABLE it_nav.events (id int, at date) PARTITION BY RANGE (at)",
 		"CREATE TABLE it_nav.events_2026 PARTITION OF it_nav.events FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')")
-	defer cn.DB.SQL.Exec("DROP SCHEMA IF EXISTS it_nav CASCADE")
+	defer cn.DB().SQL.Exec("DROP SCHEMA IF EXISTS it_nav CASCADE")
 	a.refresh(cn)
 	schema := navNode{kind: nodeSchema, conn: cn.Config.ID, schema: "it_nav"}
 	a.nav.expand(navNode{kind: nodeConn, conn: cn.Config.ID})
@@ -2052,9 +2052,9 @@ func TestCompareRows(t *testing.T) {
 	for _, cn := range []*connection.Conn{lite, duck} {
 		connectNow(t, a, tt, cn)
 	}
-	mustExec(t, lite.DB, `CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, secret_token TEXT)`,
+	mustExec(t, lite.DB(), `CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT, secret_token TEXT)`,
 		`INSERT INTO items VALUES (1, 'pen', 'a'), (2, 'ink', 'b'), (3, 'pad', 'c')`)
-	mustExec(t, duck.DB, `CREATE TABLE items (id INTEGER PRIMARY KEY, name VARCHAR, secret_token VARCHAR)`,
+	mustExec(t, duck.DB(), `CREATE TABLE items (id INTEGER PRIMARY KEY, name VARCHAR, secret_token VARCHAR)`,
 		`INSERT INTO items VALUES (1, 'pen', 'a'), (2, 'quill', 'z'), (4, 'nib', 'd')`)
 	a.openRowCompare(lite, "", db.Object{Schema: "main", Name: "items", Kind: db.KindTable})
 	x := a.rowCompare
@@ -2086,7 +2086,7 @@ func TestCompareRows(t *testing.T) {
 	a.confirm = nil
 	testutil.WaitFor(t, tt, "the sync", func() bool { return !x.running && x.applied != "" })
 	var names []string
-	rows, err := duck.DB.SQL.Query(`SELECT name FROM items ORDER BY id`)
+	rows, err := duck.DB().SQL.Query(`SELECT name FROM items ORDER BY id`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2150,7 +2150,7 @@ func TestFillTables(t *testing.T) {
 	lite := addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
 	tt := ui.NewTester(a.view, 1200, 800)
 	connectNow(t, a, tt, lite)
-	mustExec(t, lite.DB,
+	mustExec(t, lite.DB(),
 		`PRAGMA foreign_keys = ON`,
 		`CREATE TABLE customers (id INTEGER PRIMARY KEY, email TEXT NOT NULL UNIQUE, name VARCHAR(12), age INTEGER, born DATE, active BOOLEAN, note TEXT)`,
 		`CREATE TABLE orders (code TEXT PRIMARY KEY, customer_id INTEGER NOT NULL REFERENCES customers (id), total NUMERIC(6,2))`,
@@ -2171,7 +2171,7 @@ func TestFillTables(t *testing.T) {
 	if x.err != "" {
 		t.Fatal(x.err)
 	}
-	d := lite.DB
+	d := lite.DB()
 	if n := queryInt(t, d, `SELECT count(DISTINCT email) FROM customers`); n != 300 {
 		t.Fatalf("%d distinct e-mails of 300", n)
 	}
@@ -2224,7 +2224,7 @@ func TestFillTablesOnServers(t *testing.T) {
 	}
 	for _, cn := range []*connection.Conn{pg, my} {
 		for _, q := range setup[cn] {
-			if _, err := cn.DB.SQL.Exec(q); err != nil {
+			if _, err := cn.DB().SQL.Exec(q); err != nil {
 				t.Fatal(q, err)
 			}
 		}
@@ -2232,13 +2232,13 @@ func TestFillTablesOnServers(t *testing.T) {
 		if x := fillTable(t, a, tt, cn, schema, "it_fill", "200", nil); x.err != "" {
 			t.Fatalf("%s: %s", cn.Config.Engine, x.err)
 		}
-		if n := queryInt(t, cn.DB, `SELECT count(*) FROM `+schema+`.it_fill WHERE id > 41 AND id <= 241 AND mood IS NOT NULL AND doc IS NOT NULL AND ok IS NOT NULL`); n != 200 {
+		if n := queryInt(t, cn.DB(), `SELECT count(*) FROM `+schema+`.it_fill WHERE id > 41 AND id <= 241 AND mood IS NOT NULL AND doc IS NOT NULL AND ok IS NOT NULL`); n != 200 {
 			t.Fatalf("%s: %d of 200 rows generated in full after the key 41", cn.Config.Engine, n)
 		}
 	}
-	pg.DB.SQL.Exec(`DROP TABLE IF EXISTS public.it_fill`)
-	pg.DB.SQL.Exec(`DROP TYPE IF EXISTS it_mood`)
-	my.DB.SQL.Exec(`DROP TABLE IF EXISTS shop.it_fill`)
+	pg.DB().SQL.Exec(`DROP TABLE IF EXISTS public.it_fill`)
+	pg.DB().SQL.Exec(`DROP TYPE IF EXISTS it_mood`)
+	my.DB().SQL.Exec(`DROP TABLE IF EXISTS shop.it_fill`)
 }
 
 // A command's words read back as a shell would split them: plain words

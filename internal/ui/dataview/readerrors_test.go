@@ -21,7 +21,7 @@ func (failingIndexes) Indexes(ctx context.Context, q db.Querier, schema, table s
 // a table without indexes.
 func TestStructureShowsIndexReadError(t *testing.T) {
 	a, tt, cn := designHost(t)
-	cn.DB.Dialect = failingIndexes{cn.DB.Dialect}
+	cn.DB().Dialect = failingIndexes{cn.DB().Dialect}
 	a.OpenTable(cn, "", db.Object{Schema: "main", Name: "items", Kind: db.KindTable, Rows: -1}, PageStructure)
 	tb := a.Tabs[0].(*TableTab)
 	testutil.WaitFor(t, tt, "the structure", func() bool { return tb.columns != nil })
@@ -40,7 +40,7 @@ func TestRowsErrorBannerDetails(t *testing.T) {
 	a.OpenTable(cn, "", db.Object{Schema: "main", Name: "items", Kind: db.KindTable, Rows: -1}, PageData)
 	tb := a.Tabs[0].(*TableTab)
 	testutil.WaitFor(t, tt, "the rows", func() bool { return tb.view.src.Rows != nil && !tb.view.loading })
-	if _, err := cn.DB.SQL.Exec(`DROP TABLE items`); err != nil {
+	if _, err := cn.DB().SQL.Exec(`DROP TABLE items`); err != nil {
 		t.Fatal(err)
 	}
 	tb.view.reload()

@@ -384,7 +384,7 @@ func (a *App) navChildren(n navNode) []navNode {
 	open := a.nav.tree.Open.Has(n)
 	switch n.kind {
 	case nodeConn:
-		if cn.Config.Engine == db.Redis {
+		if cn.Config.Engine.IsKeyValue() {
 			return nil
 		}
 		opened := open && !a.nav.openConns[n.conn]
@@ -624,7 +624,7 @@ func (a *App) sidebar(c *ui.Context) {
 			if n := a.nav.tree.Item(a.nav.row); n.kind == nodeObject {
 				if cn, obj, ok := a.object(n); ok {
 					c.DisableAnimations() // by a key: the tab is there at once
-					a.NewQueryTab(cn, n.database, "SELECT *\nFROM "+db.QualifiedName(cn.DB.Dialect, obj.Schema, obj.Name)+"\nLIMIT 100;\n")
+					a.NewQueryTab(cn, n.database, "SELECT *\nFROM "+db.QualifiedName(cn.DB().Dialect, obj.Schema, obj.Name)+"\nLIMIT 100;\n")
 				}
 			}
 		}
@@ -657,7 +657,7 @@ func (a *App) nodeKeys(c *ui.Context) {
 	if !ok {
 		return
 	}
-	quoted := db.QualifiedName(cn.DB.Dialect, obj.Schema, obj.Name)
+	quoted := db.QualifiedName(cn.DB().Dialect, obj.Schema, obj.Name)
 	switch {
 	case keymap.ListPressed(c, l, keymap.NavigatorCopyName):
 		a.WriteClipboard(quoted)
@@ -672,14 +672,14 @@ func (a *App) nodeKeys(c *ui.Context) {
 
 // renamable reports whether the app can rename an object on its engine.
 func renamable(cn *connection.Conn, obj db.Object) bool {
-	_, err := db.RenameObjectSQL(cn.DB.Dialect, obj, obj.Name)
+	_, err := db.RenameObjectSQL(cn.DB().Dialect, obj, obj.Name)
 	return err == nil
 }
 
 // renameObject asks for an object's new name, and renames it.
 func (a *App) renameObject(cn *connection.Conn, database string, obj db.Object) {
 	a.askRenameInDatabase(cn, database, obj.Name, func(name string) (string, error) {
-		return db.RenameObjectSQL(cn.DB.Dialect, obj, name)
+		return db.RenameObjectSQL(cn.DB().Dialect, obj, name)
 	})
 }
 
@@ -720,11 +720,7 @@ func (a *App) activate(n navNode) {
 	}
 	switch n.kind {
 	case nodeConn:
-		if cn.Config.Engine == db.Redis {
-			a.openRedis(cn)
-			return
-		}
-		a.connectNode(cn, n)
+		a.activateConnection(cn, n)
 	case nodeObject:
 		if cn, obj, ok := a.object(n); ok {
 			a.OpenTable(cn, n.database, obj, dataview.PageData)
@@ -740,6 +736,17 @@ func (a *App) activate(n navNode) {
 			a.nav.expand(n)
 		}
 	}
+}
+
+// activateConnection opens a connection's node: the key browser for a
+// key-value engine, which has no tree of schemas, and otherwise connects
+// and expands the node.
+func (a *App) activateConnection(cn *connection.Conn, n navNode) {
+	if cn.Config.Engine.IsKeyValue() {
+		a.openRedis(cn)
+		return
+	}
+	a.connectNode(cn, n)
 }
 
 // connectNode connects cn, opening its node n and then where it starts.
@@ -779,7 +786,7 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 			dot := widgets.ConnDot(c, cn)
 			if cn.Status == connection.StatusConnected {
 				tip := "Connected " + cn.Version
-				if s := tlsStateOf(cn.DB, cn.KV); s != "" {
+				if s := tlsStateOf(cn.Store); s != "" {
 					tip += ", " + s
 				}
 				dot.Tooltip(tip)
@@ -940,16 +947,12 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 				a.refresh(cn)
 			}
 		} else if m.Item("Connect").Chosen() {
-			if cn.Config.Engine == db.Redis {
-				a.openRedis(cn)
-			} else {
-				a.connectNode(cn, n)
-			}
+			a.activateConnection(cn, n)
 		}
 		if _, ok := a.connectStarted(cn); ok && m.Item("Cancel Connecting").Chosen() {
 			a.CancelConnect(cn)
 		}
-		if cn.Config.Engine == db.Redis {
+		if cn.Config.Engine.IsKeyValue() {
 			if m.Item("Open Key Browser").Chosen() {
 				a.openRedis(cn)
 			}
@@ -970,7 +973,7 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		if usersSupported(cn.Config.Engine) && m.Item("Users and Privileges").Chosen() {
 			a.openUsers(cn)
 		}
-		if cn.Config.Engine.IsSQL() && m.Item("Catalog Queries").Disabled(cn.DB == nil).Chosen() {
+		if cn.Config.Engine.IsSQL() && m.Item("Catalog Queries").Disabled(cn.DB() == nil).Chosen() {
 			a.openCatalogQueries(cn)
 		}
 		if backupSupported(cn.Config.Engine) {
@@ -1015,7 +1018,7 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			a.OpenTable(cn, n.database, obj, dataview.PageDDL)
 		}
 		m.Separator()
-		quoted := db.QualifiedName(cn.DB.Dialect, obj.Schema, obj.Name)
+		quoted := db.QualifiedName(cn.DB().Dialect, obj.Schema, obj.Name)
 		if m.Item("New SQL: SELECT").Chosen() {
 			a.NewQueryTab(cn, n.database, "SELECT *\nFROM "+quoted+"\nLIMIT 100;\n")
 		}
@@ -1045,7 +1048,7 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 				a.openFill(cn, n.database, obj)
 			}
 			if obj.Partitioning != "" && m.Item("New Partition…").Disabled(cn.Config.ReadOnly).Chosen() {
-				a.NewQueryTab(cn, n.database, partitionTemplate(cn.DB.Dialect, obj))
+				a.NewQueryTab(cn, n.database, partitionTemplate(cn.DB().Dialect, obj))
 			}
 			var cmds []db.MaintenanceCommand
 			if r, ok := db.SQL(cn.Config.Engine); ok {
@@ -1075,11 +1078,11 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			return
 		}
 		if m.Item("Copy Name").Chosen() {
-			a.WriteClipboard(cn.DB.Dialect.Quote(column))
+			a.WriteClipboard(cn.DB().Dialect.Quote(column))
 		}
 		if obj.Kind == db.KindTable && m.Item("Rename…").Disabled(cn.Config.ReadOnly).Chosen() {
 			a.askRenameInDatabase(cn, n.database, column, func(name string) (string, error) {
-				return db.RenameColumnSQL(cn.DB.Dialect, obj.Schema, obj.Name, column, name), nil
+				return db.RenameColumnSQL(cn.DB().Dialect, obj.Schema, obj.Name, column, name), nil
 			})
 		}
 	case nodeItem:
@@ -1092,7 +1095,7 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 				a.openItem(cn, n.database, it)
 			}
 			if m.Item("Detach…").Disabled(cn.Config.ReadOnly).Chosen() {
-				d := cn.DB.Dialect
+				d := cn.DB().Dialect
 				a.NewQueryTab(cn, n.database, "ALTER TABLE "+db.QualifiedName(d, it.Schema, it.Table)+" DETACH PARTITION "+db.QualifiedName(d, it.Schema, it.Name)+";\n")
 			}
 		}
@@ -1100,7 +1103,7 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 			dataview.OpenItemDefinition(a, cn, n.database, it)
 		}
 		if m.Item("Copy Name").Chosen() {
-			a.WriteClipboard(db.QualifiedName(cn.DB.Dialect, it.Schema, it.Name))
+			a.WriteClipboard(db.QualifiedName(cn.DB().Dialect, it.Schema, it.Name))
 		}
 	case nodeSchema, nodeDatabase, nodeFolder:
 		if n.kind != nodeDatabase && m.Item("New Table…").Disabled(cn.Config.ReadOnly).Chosen() {

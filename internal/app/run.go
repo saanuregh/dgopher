@@ -202,12 +202,7 @@ func (a *App) shutdown() {
 	}
 	stopJobs(a.runningJobs())
 	for _, cn := range a.conns {
-		if cn.DB != nil {
-			cn.DB.Close()
-		}
-		if cn.KV != nil {
-			cn.KV.Close()
-		}
+		closeStore(cn.Store)
 	}
 	for _, p := range a.projects {
 		p.Close()

@@ -92,10 +92,10 @@ func (q *Tab) insideOthersTx() bool {
 		_, inside, ok := dataview.SharedSessionTx(q.sess)
 		return ok && inside != db.TxNone
 	}
-	if q.Conn.DB == nil {
+	if q.Conn.DB() == nil {
 		return false
 	}
-	state, _ := q.Conn.DB.SharedTx()
+	state, _ := q.Conn.DB().SharedTx()
 	return state != db.TxNone
 }
 

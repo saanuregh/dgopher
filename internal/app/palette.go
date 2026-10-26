@@ -159,7 +159,7 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 		detail := cn.Config.Engine.Label() + " · " + cn.Config.Env.Label()
 		title := "Open " + cn.Config.Name
 		run := func() { a.NewQueryTab(cn, "", "") }
-		if cn.Config.Engine == db.Redis {
+		if cn.Config.Engine.IsKeyValue() {
 			run = func() { a.openRedis(cn) }
 		}
 		conns = append(conns, paletteItem{title: title, detail: detail, group: "Connection", icon: widgets.IconDatabase, run: run})

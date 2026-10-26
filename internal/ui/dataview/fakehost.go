@@ -109,11 +109,8 @@ func NewFakeHost(t TB) *FakeHost {
 			tab.Close()
 		}
 		for _, cn := range h.Conns {
-			if cn.DB != nil {
-				cn.DB.Close()
-			}
-			if cn.KV != nil {
-				cn.KV.Close()
+			if cn.Store != nil {
+				cn.Store.Close()
 			}
 		}
 		p.Close()
@@ -258,14 +255,7 @@ func (h *FakeHost) connect(cn *connection.Conn, then func(), alert bool) {
 	h.Background(func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		var d *db.DB
-		var kv *db.KV
-		var err error
-		if cfg.Engine == db.Redis {
-			kv, err = db.OpenRedis(ctx, cfg, nil)
-		} else {
-			d, err = db.Open(ctx, cfg, nil)
-		}
+		store, err := db.OpenStore(ctx, cfg, nil)
 		return func() {
 			if err != nil {
 				cn.Fail(err)
@@ -276,8 +266,8 @@ func (h *FakeHost) connect(cn *connection.Conn, then func(), alert bool) {
 				return
 			}
 			cn.Reset()
-			cn.Status, cn.DB, cn.KV = connection.StatusConnected, d, kv
-			if d != nil {
+			cn.Status, cn.Store = connection.StatusConnected, store
+			if cn.DB() != nil {
 				connection.LoadSchemas(h, cn, "", nil)
 			}
 			waiters := cn.Waiters
