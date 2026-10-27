@@ -134,6 +134,22 @@ services:
       interval: 3s
       retries: 60
 
+  # Oracle Database 23ai Free (capped at 2 CPU threads and 2 GB of memory).
+  # The app user dgopher owns the test schema in the FREEPDB1 service.
+  oracle:
+    image: gvenzl/oracle-free:slim-faststart
+    container_name: dgopher-oracle
+    profiles: ["enterprise"]
+    ports: ["127.0.0.1:11521:1521"]
+    environment:
+      ORACLE_PASSWORD: dgopher
+      APP_USER: dgopher
+      APP_USER_PASSWORD: dgopher
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 5s
+      retries: 60
+
   clickhouse:
     image: clickhouse/clickhouse-server:26.3
     container_name: dgopher-ch

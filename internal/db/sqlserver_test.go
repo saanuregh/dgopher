@@ -245,7 +245,7 @@ func TestSQLServerTLSModes(t *testing.T) {
 }
 
 func TestSQLServerDialsOnlyTheRoute(t *testing.T) {
-	_, err := onlyAddress{addr: "127.0.0.1:1"}.DialContext(context.Background(), "tcp", "worker.example.com:11000")
+	_, err := onlyAddress{addr: "127.0.0.1:1", hint: "set the server's connection policy to Proxy"}.DialContext(context.Background(), "tcp", "worker.example.com:11000")
 	if err == nil || !strings.Contains(err.Error(), "Proxy") {
 		t.Fatalf("dialled elsewhere: %v", err)
 	}

@@ -284,7 +284,7 @@ func unknownNames(stmt []sqltext.Token, d sqltext.Dialect, cat catalog) []editor
 		i := slices.IndexFunc(objs, func(o db.Object) bool { return sameIdent(o.Name, ref.name, ref.quoted) })
 		if i < 0 {
 			names := lists.Map(objs, func(o db.Object) string { return o.Name })
-			out = append(out, unknown(ref.start, ref.end, "table or view", ref.name, schema, names, cat.quote))
+			out = append(out, unknown(ref.start, ref.end, "table or view", ref.name, schema, names, d, cat.quote))
 			continue
 		}
 		ref.schema, ref.name = schema, objs[i].Name
@@ -311,7 +311,7 @@ func unknownNames(stmt []sqltext.Token, d sqltext.Dialect, cat catalog) []editor
 			continue
 		}
 		names := lists.Map(cols, func(c db.Column) string { return c.Name })
-		out = append(out, unknown(stmt[i+2].Start, stmt[i+2].End, "column", col, ref.name, names, cat.quote))
+		out = append(out, unknown(stmt[i+2].Start, stmt[i+2].End, "column", col, ref.name, names, d, cat.quote))
 	}
 	return out
 }
@@ -326,8 +326,9 @@ func sameIdent(catalogName, typed string, quoted bool) bool {
 }
 
 // unknown is the problem of a name the catalog has not, with the closest
-// it has as a fix when one is close enough to be a typo.
-func unknown(start, end int, what, name, where string, names []string, quote func(string) string) editor.Problem {
+// it has as a fix when one is close enough to be a typo, quoted where d
+// needs it.
+func unknown(start, end int, what, name, where string, names []string, d sqltext.Dialect, quote func(string) string) editor.Problem {
 	p := editor.Problem{Start: start, End: end, Message: fmt.Sprintf("No %s %s in %s.", what, name, where)}
 	best, bestDist := "", max(1, utf8.RuneCountInString(name)/3)+1
 	for _, n := range names {
@@ -338,7 +339,7 @@ func unknown(start, end int, what, name, where string, names []string, quote fun
 	if best != "" {
 		p.Message += " Did you mean " + best + "?"
 		p.Fix = best
-		if sqltext.NeedsQuote(best) {
+		if sqltext.NeedsQuoteIn(best, d) {
 			p.Fix = quote(best)
 		}
 	}

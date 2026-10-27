@@ -2,7 +2,9 @@ package db
 
 import (
 	"cmp"
+	"context"
 	"fmt"
+	"net"
 	"net/url"
 	"path/filepath"
 	"regexp"
@@ -13,8 +15,9 @@ import (
 
 // ParseURL reads a connection from a URL, as tools and hosting services
 // print them: postgres://user:pass@host:5432/db?sslmode=require,
-// mysql://…, clickhouse://…, redis://…/0, rediss:// for TLS, or a path to
-// a SQLite or DuckDB file. The password, if any, comes back in Password.
+// mysql://…, clickhouse://…, redis://…/0, rediss:// for TLS, oracle://…
+// or an Oracle connect descriptor, (DESCRIPTION=…), or a path to a SQLite
+// or DuckDB file. The password, if any, comes back in Password.
 // ClickHouse's JDBC URLs, as DBeaver shows them, name HTTP in the scheme:
 // [jdbc:]clickhouse:http://… or :https://…, ch for clickhouse.
 func ParseURL(s string) (Config, error) {
@@ -29,6 +32,11 @@ func ParseURL(s string) (Config, error) {
 		case "http":
 			cfg.ClickHouseProtocol = ClickHouseHTTP
 		}
+	}
+	if strings.HasPrefix(s, "(") {
+		// Oracle's connect descriptor, (DESCRIPTION=…), as tnsnames.ora
+		// holds them.
+		return oracleDescriptorConfig(s)
 	}
 	lower := strings.ToLower(s)
 	switch {
@@ -190,4 +198,18 @@ func urlBool(key, v string) (bool, error) {
 		return false, fmt.Errorf("unknown %s=%s in the URL", key, v)
 	}
 	return b, nil
+}
+
+// onlyAddress dials only the address a tunnel or a proxy listens on.
+// Azure SQL, and an Oracle listener, may send a connection on to another
+// server, which would leave the tunnel or the proxy behind; hint says
+// what to do instead.
+type onlyAddress struct{ addr, hint string }
+
+func (o onlyAddress) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	if addr != o.addr {
+		return nil, fmt.Errorf("the server sent the connection on to %s, which the SSH tunnel or proxy does not lead to: %s", addr, o.hint)
+	}
+	var d net.Dialer
+	return d.DialContext(ctx, network, addr)
 }

@@ -42,6 +42,10 @@ type engineRules interface {
 	// ServerEnforcesReadOnly: the server refuses the writes of a
 	// read-only connection too, not the app's check alone.
 	ServerEnforcesReadOnly() bool
+	// ServerReadOnlySince is the server version from which
+	// ServerEnforcesReadOnly holds, the app's check alone before it; ""
+	// when it holds on every version the app supports.
+	ServerReadOnlySince() string
 	DatabasesNeedOwnConnection() bool
 	// DefaultSchemaName is the schema a database's tables are in unless
 	// named, "" when that is the connection's database.
@@ -124,6 +128,18 @@ type driverRules interface {
 	// statement can move it to another, as SQL Server's USE; "" where
 	// none can.
 	sessionDatabaseSQL() string
+	// ConnectionFields are what the connection form asks of the engine
+	// beyond host, port, user, password and database.
+	ConnectionFields() ConnectionFields
+	// sessionStartSQL are the statements a session sends once its
+	// connection opens, as enabling Oracle's DBMS_OUTPUT.
+	sessionStartSQL() []string
+	// messagesSQL reads what the server printed for the session since it
+	// was last read, as Oracle's DBMS_OUTPUT: one text of lines, each
+	// ended by a unit separator, then, when lines were left out, a record
+	// separator and their count; "" where the driver hands the messages
+	// over itself, or there are none.
+	messagesSQL() string
 }
 
 // transactionRules is how an engine begins, follows and ends transactions.
@@ -176,6 +192,15 @@ type transactionRules interface {
 	// implicitly, in which Begin's then nests, as SQL Server's under
 	// IMPLICIT_TRANSACTIONS ON; "" where none does.
 	implicitTransactionsSQL() string
+	// transactionStateSQL reads, after each statement, whether the server
+	// holds a transaction open for the session: a value, or NULL for none;
+	// "" where the driver tells (readTxState) or the verbs do.
+	transactionStateSQL() string
+	// driverCommitsStatements: the driver commits each change it runs
+	// unless a transaction of its own is open, as go-ora does: the session
+	// opens one in the driver while the server holds a transaction, and
+	// ends transactions through the driver.
+	driverCommitsStatements() bool
 }
 
 // queryRules is how an engine explains, searches and writes the SQL of queries and grid edits.
@@ -220,6 +245,11 @@ type queryRules interface {
 	// Comparable reports whether the server can compare a column type's
 	// values, for their minimum, maximum and distinct count.
 	Comparable(columnType string) bool
+	// CountSQL counts a column's values that are not NULL, for a profile.
+	CountSQL(column, columnType string) string
+	// NullSQL is a NULL a statement selects as a column of its own, for a
+	// figure a profile has none of.
+	NullSQL() string
 	// StableOrderByKey: a table's rows are read ordered by its key, for pages
 	// and edits to find the same rows.
 	StableOrderByKey() bool
@@ -320,6 +350,9 @@ type designRules interface {
 	HasComments() bool
 	// KeepsColumnExtra: a column's Extra is written in its definition.
 	KeepsColumnExtra() bool
+	// NotNullLast: a column's NOT NULL follows its default and what
+	// numbers its rows, as Oracle's syntax has it.
+	NotNullLast() bool
 	// AutoIncrementSQL is what a column that numbers its rows says so
 	// with, "" where it says nothing.
 	AutoIncrementSQL() string
@@ -410,8 +443,20 @@ type ExplainRun struct {
 	// Offset is how many bytes of Statement come before the user's text.
 	Offset int
 	// Read is "" when Statement's own rows hold the plan.
-	Read  string
-	After []string
+	Read string
+	// RunsWhole: Statement's rows are read to their end, and dropped,
+	// before Read, as what Oracle measures of a run is of a cursor read
+	// whole.
+	RunsWhole bool
+	// ReviewsTyped: the safety policy reads the statement as typed,
+	// Statement[Offset:], not Statement: the app's text around it, as
+	// Oracle's EXPLAIN PLAN, writes only rows Discard removes.
+	ReviewsTyped bool
+	// Discard removes what Statement wrote for Read, in a transaction the
+	// session held before the run; one the run began itself is rolled
+	// back instead (Session.RunExplain).
+	Discard []string
+	After   []string
 }
 
 // ActivityPage is a page of a server's activity: what a statement lists,
@@ -480,7 +525,21 @@ const (
 	// NamesIgnoreCase: a name is found whatever its case, the exact one
 	// first.
 	NamesIgnoreCase
+	// NamesFoldToUpper: an unquoted name is found in upper case, a quoted
+	// one as written, as Oracle's.
+	NamesFoldToUpper
 )
+
+// ConnectionFields are what the connection form asks of an engine beyond
+// host, port, user, password and database.
+type ConnectionFields struct {
+	// SID: the database may name an instance's SID rather than a service
+	// (OracleConfig.SID).
+	SID bool
+	// Wallet: TLS may take the certificates of an Oracle wallet
+	// (OracleConfig.Wallet).
+	Wallet bool
+}
 
 // ConstraintKind is what a dropped constraint is.
 type ConstraintKind int
@@ -509,6 +568,8 @@ type BackupChoices struct {
 	// RestoreEndsSessions: a restore ends the other sessions in the
 	// database, rolling their transactions back.
 	RestoreEndsSessions bool
+	// RestoreOnServer: every backup restores from a file on the server.
+	RestoreOnServer bool
 }
 
 // BackupScope is the navigator node an engine backs up.
@@ -549,6 +610,7 @@ var registeredRules = map[Engine]engineRules{
 	SQLite:      sqliteEngine{},
 	DuckDB:      duckdbEngine{},
 	SQLServer:   sqlserverEngine{},
+	Oracle:      oracleEngine{},
 }
 
 // rulesOf returns an engine's rules; unknownEngine's for an ID no build
@@ -605,6 +667,7 @@ func (unknownEngine) URLTLSParameters() map[string]map[string]TLSMode {
 func (unknownEngine) CloudIdentities() []Identity      { return nil }
 func (unknownEngine) ClearTextPassword() bool          { return false }
 func (unknownEngine) ServerEnforcesReadOnly() bool     { return false }
+func (unknownEngine) ServerReadOnlySince() string      { return "" }
 func (unknownEngine) DatabasesNeedOwnConnection() bool { return false }
 
 // The backup dialog's notes; an engine without one of its own shows
@@ -781,6 +844,10 @@ func (e Engine) ClearTextPassword() bool { return rulesOf(e).ClearTextPassword()
 // ServerEnforcesReadOnly reports whether the server refuses the writes of
 // a read-only connection too, not the app's check alone.
 func (e Engine) ServerEnforcesReadOnly() bool { return rulesOf(e).ServerEnforcesReadOnly() }
+
+// ServerReadOnlySince is the server version from which the server refuses
+// a read-only connection's writes, "" when every supported one does.
+func (e Engine) ServerReadOnlySince() string { return rulesOf(e).ServerReadOnlySince() }
 
 // DatabasesNeedOwnConnection reports whether each database of a server
 // is reached by a connection of its own.

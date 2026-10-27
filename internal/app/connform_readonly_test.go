@@ -19,4 +19,8 @@ func TestReadOnlyLabelSaysWhoEnforces(t *testing.T) {
 	if label := readOnlyLabel(db.TiDB); !strings.Contains(label, "the app's check alone: TiDB has no read-only session") {
 		t.Errorf("TiDB: %q", label)
 	}
+	// Oracle has a read-only session from 23ai on.
+	if label := readOnlyLabel(db.Oracle); !strings.Contains(label, "from Oracle 23ai") || !strings.Contains(label, "the app's check alone") {
+		t.Errorf("Oracle: %q", label)
+	}
 }

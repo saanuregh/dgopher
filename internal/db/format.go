@@ -127,7 +127,7 @@ func IsNumeric(v any) bool {
 // IsNumericType reports whether a database type name is numeric.
 func IsNumericType(t string) bool {
 	t = strings.ToUpper(t)
-	for _, p := range []string{"INT", "DECIMAL", "NUMERIC", "FLOAT", "DOUBLE", "REAL", "SERIAL", "MONEY", "UINT", "HUGEINT"} {
+	for _, p := range []string{"INT", "DECIMAL", "NUMERIC", "FLOAT", "DOUBLE", "REAL", "SERIAL", "MONEY", "UINT", "HUGEINT", "NUMBER"} {
 		if strings.Contains(t, p) {
 			return true
 		}

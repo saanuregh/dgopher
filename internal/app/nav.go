@@ -486,7 +486,7 @@ func (a *App) item(n navNode) (*connection.Conn, db.Item, bool) {
 // itemIcon is the icon of an item's kind.
 func itemIcon(k db.ItemKind) *ui.SVG {
 	switch k {
-	case db.ItemFunction, db.ItemProcedure:
+	case db.ItemFunction, db.ItemProcedure, db.ItemPackage:
 		return widgets.IconCode
 	case db.ItemTrigger:
 		return widgets.IconPlay

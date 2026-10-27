@@ -714,6 +714,7 @@ func (redisEngine) URLTLSParameters() map[string]map[string]TLSMode {
 func (redisEngine) CloudIdentities() []Identity      { return nil }
 func (redisEngine) ClearTextPassword() bool          { return false }
 func (redisEngine) ServerEnforcesReadOnly() bool     { return false }
+func (redisEngine) ServerReadOnlySince() string      { return "" }
 func (redisEngine) DatabasesNeedOwnConnection() bool { return false }
 func (redisEngine) DefaultSchemaName() string        { return "" }
 func (redisEngine) FileExtensions() []string         { return nil }

@@ -18,6 +18,7 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5/pgconn"
 	mssql "github.com/microsoft/go-mssqldb"
+	"github.com/sijms/go-ora/v3/network"
 )
 
 // TxState is whether a session holds a transaction open.
@@ -52,6 +53,10 @@ type Session struct {
 	// messages keeps what the server said besides results and errors, as
 	// SQL Server's PRINT, until TakeMessages.
 	messages messageLog
+	// driverHolds is set while a driver that commits each statement by
+	// itself (driverCommitsStatements) has been told a transaction is
+	// open, so that it holds the statements in it.
+	driverHolds bool
 }
 
 // messagesKey holds, in a statement's context, the messageLog of the
@@ -78,6 +83,21 @@ func (l *messageLog) add(msg string) {
 		return
 	}
 	l.text = append(l.text, msg)
+}
+
+// addRead adds what messagesSQL read: lines each ended by a unit
+// separator, then, when lines were left out, a record separator and
+// their count.
+func (l *messageLog) addRead(text string) {
+	lines, more, _ := strings.Cut(text, "\x1e")
+	for line := range strings.SplitSeq(strings.TrimSuffix(lines, unitSep), unitSep) {
+		l.add(line)
+	}
+	if n, err := strconv.Atoi(more); err == nil && n > 0 {
+		l.mu.Lock()
+		l.dropped += n
+		l.mu.Unlock()
+	}
 }
 
 // TakeMessages returns the messages the server sent with the session's
@@ -150,7 +170,15 @@ func (s *Session) connect(ctx context.Context) error {
 		}
 		s.mysqlID = id
 	}
-	s.conn, s.q, s.verbs, s.ran = conn, conn, txByVerbs{}, false
+	if r, ok := SQL(s.db.Config.Engine); ok {
+		for _, text := range r.sessionStartSQL() {
+			if _, err := conn.ExecContext(ctx, text); err != nil {
+				discard(conn)
+				return err
+			}
+		}
+	}
+	s.conn, s.q, s.verbs, s.ran, s.driverHolds = conn, conn, txByVerbs{}, false, false
 	return nil
 }
 
@@ -170,7 +198,11 @@ func (s *Session) Close() error {
 		s.rollBackOwnSharedTx()
 	} else if s.txState() != TxNone {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		s.q.ExecContext(ctx, "ROLLBACK")
+		if r, ok := SQL(s.db.Config.Engine); ok && r.driverCommitsStatements() && s.conn != nil {
+			s.endInDriver(ctx, false)
+		} else {
+			s.q.ExecContext(ctx, "ROLLBACK")
+		}
 		cancel()
 	}
 	var err error
@@ -304,7 +336,7 @@ func (s *Session) txState() TxState {
 // transaction another session began is open, it is refused (ErrNotOwner)
 // and nothing is sent, as ExecTransactionControl refuses one.
 func (s *Session) Begin(ctx context.Context) error {
-	_, err := s.exec(ctx, beginStatement(s.db.Config.Engine), s.mayControlSharedTx)
+	_, err := s.exec(ctx, beginStatement(s.db.Config.Engine), s.mayControlSharedTx, false)
 	return err
 }
 
@@ -329,8 +361,11 @@ var ErrNoTransaction = errors.New("no transaction is open: it was already commit
 // a statement outside the sessions, as an interrupted catalog read, can
 // abort DuckDB's.
 func (s *Session) Commit(ctx context.Context) error {
+	if r, ok := SQL(s.db.Config.Engine); ok && r.driverCommitsStatements() {
+		return s.endThroughDriver(ctx, true)
+	}
 	if s.Tx() != TxFailed {
-		_, err := s.exec(ctx, "COMMIT", s.mayCommitSharedTx)
+		_, err := s.exec(ctx, "COMMIT", s.mayCommitSharedTx, false)
 		if err == nil {
 			err = s.commitImplicit(ctx)
 		}
@@ -338,7 +373,7 @@ func (s *Session) Commit(ctx context.Context) error {
 			return err
 		}
 	}
-	if _, err := s.exec(ctx, "ROLLBACK", s.mayEndSharedTx); errors.Is(err, ErrNotOwner) || errors.Is(err, ErrNoTransaction) {
+	if _, err := s.exec(ctx, "ROLLBACK", s.mayEndSharedTx, false); errors.Is(err, ErrNotOwner) || errors.Is(err, ErrNoTransaction) {
 		return err
 	}
 	return ErrTxFailed
@@ -361,7 +396,7 @@ func (s *Session) commitImplicit(ctx context.Context) error {
 		return err
 	}
 	if len(on) == 1 && on[0] == "1" {
-		if _, err := s.exec(ctx, "COMMIT", nil); err != nil {
+		if _, err := s.exec(ctx, "COMMIT", nil, false); err != nil {
 			return err
 		}
 	}
@@ -391,8 +426,86 @@ func (s *Session) mayCommitSharedTx() error {
 // Rollback rolls the open transaction back; on a pool of one connection,
 // only the session that began it does (ErrNotOwner, ErrNoTransaction).
 func (s *Session) Rollback(ctx context.Context) error {
-	_, err := s.exec(ctx, "ROLLBACK", s.mayEndSharedTx)
+	if r, ok := SQL(s.db.Config.Engine); ok && r.driverCommitsStatements() {
+		return s.endThroughDriver(ctx, false)
+	}
+	_, err := s.exec(ctx, "ROLLBACK", s.mayEndSharedTx, false)
 	return err
+}
+
+// endThroughDriver commits, or rolls back, the session's transaction by
+// the driver's own call, as a driver that commits each statement by
+// itself must be told it ended (driverCommitsStatements): Oracle's
+// READ_ONLY session refuses the COMMIT and ROLLBACK statements, not the
+// calls. The transaction is read again after.
+func (s *Session) endThroughDriver(ctx context.Context, commit bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.ready(ctx); err != nil {
+		return err
+	}
+	wasTx := s.txState()
+	err := s.endInDriver(ctx, commit)
+	if err != nil {
+		err = s.afterError(err, wasTx)
+	}
+	s.ran = s.ran || s.conn != nil
+	s.noteStatement(endStatement(s.db.Config.Engine, commit), err, nil)
+	return err
+}
+
+// endInDriver ends the transaction by the driver's commit or rollback
+// call, which the driver then follows by committing each statement again.
+func (s *Session) endInDriver(ctx context.Context, commit bool) error {
+	err := s.conn.Raw(func(dc any) error {
+		b, ok := dc.(driver.ConnBeginTx)
+		if !ok {
+			return errors.New("the driver cannot end a transaction")
+		}
+		tx, err := b.BeginTx(ctx, driver.TxOptions{})
+		if err != nil {
+			return err
+		}
+		if commit {
+			return tx.Commit()
+		}
+		return tx.Rollback()
+	})
+	s.driverHolds = false
+	return err
+}
+
+// holdDriverTransaction tells a driver that commits each statement by
+// itself (driverCommitsStatements) whether the server holds a transaction
+// open, as read after the last statement: while one is, it must hold the
+// statements in it rather than commit them; once none is, it commits each
+// again. Its BeginTx sends nothing; its commit, sent once the server holds
+// no transaction, ends none.
+func (s *Session) holdDriverTransaction() error {
+	r, ok := SQL(s.db.Config.Engine)
+	if !ok || !r.driverCommitsStatements() || s.conn == nil {
+		return nil
+	}
+	hold := s.verbs.tx != TxNone
+	if hold == s.driverHolds {
+		return nil
+	}
+	err := s.conn.Raw(func(dc any) error {
+		b, ok := dc.(driver.ConnBeginTx)
+		if !ok {
+			return errors.New("the driver cannot begin a transaction")
+		}
+		tx, err := b.BeginTx(context.Background(), driver.TxOptions{})
+		if err != nil || hold {
+			return err
+		}
+		return tx.Commit()
+	})
+	if err != nil {
+		return fmt.Errorf("the driver could not follow the transaction, so the statement was not run: %w", err)
+	}
+	s.driverHolds = hold
+	return nil
 }
 
 // mayControlSharedTx refuses a statement that begins or ends a
@@ -462,10 +575,30 @@ func (s *Session) noteStatement(query string, err error, shared *sql.Conn) {
 	if s.conn == nil {
 		return // lost, and its transaction with it
 	}
+	if r, ok := SQL(e); ok && r.transactionStateSQL() != "" {
+		s.verbs = s.serverTxState(r.transactionStateSQL(), query, err)
+		return
+	}
 	// Only DuckDB's reading takes a statement, and its pool is of one.
 	if _, ok := readTxState(context.Background(), s.conn); !ok {
 		s.verbs = s.verbs.after(e, query, err, s.rollsBackOnTimeout)
 	}
+}
+
+// serverTxState reads whether the server holds a transaction open for the
+// session (transactionStateSQL), whatever the statement did; when it
+// cannot be read, the statement's verbs say, keeping one open in doubt.
+func (s *Session) serverTxState(query, statement string, err error) txByVerbs {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var id sql.NullString
+	if rerr := s.conn.QueryRowContext(ctx, query).Scan(&id); rerr != nil {
+		return s.verbs.after(s.db.Config.Engine, statement, err, s.rollsBackOnTimeout)
+	}
+	if id.Valid {
+		return txByVerbs{tx: TxOpen}
+	}
+	return txByVerbs{tx: TxNone}
 }
 
 // refreshSharedTx reads again, on shared, the one connection of a pool of
@@ -517,7 +650,7 @@ func (s *Session) sharedConn(ctx context.Context) (*sql.Conn, error) {
 // Exec runs a statement that returns no rows, and reports how many rows it
 // changed, -1 when the driver does not say.
 func (s *Session) Exec(ctx context.Context, query string, args ...any) (int64, error) {
-	return s.exec(ctx, query, nil, args...)
+	return s.exec(ctx, query, nil, true, args...)
 }
 
 // ExecChange runs a change of rows the app made, as a grid edit, and
@@ -526,7 +659,7 @@ func (s *Session) Exec(ctx context.Context, query string, args ...any) (int64, e
 func (s *Session) ExecChange(ctx context.Context, query string, args ...any) (int64, error) {
 	r, ok := SQL(s.db.Config.Engine)
 	if !ok || r.ownRowCountSQL() == "" {
-		return s.Exec(ctx, query, args...)
+		return s.exec(ctx, query, nil, false, args...)
 	}
 	counts, err := s.queryStrings(ctx, query+";\n"+r.ownRowCountSQL(), args...)
 	if err != nil {
@@ -549,8 +682,14 @@ func (s *Session) ExecChange(ctx context.Context, query string, args ...any) (in
 // Commit does, and ErrTxFailed says that nothing was committed.
 func (s *Session) ExecTransactionControl(ctx context.Context, query string) (int64, error) {
 	words := leadingWords(s.db.Config.Engine, query)
-	ends, _ := endsTransaction(words)
+	ends, chains := endsTransaction(words)
 	commits := ends && (wordAt(words, 0) == "COMMIT" || wordAt(words, 0) == "END")
+	if r, ok := SQL(s.db.Config.Engine); ok && r.driverCommitsStatements() && ends && !chains &&
+		(len(words) == 1 || len(words) == 2 && words[1] == "WORK" || len(words) == 2 && words[1] == ";") {
+		// A plain COMMIT or ROLLBACK is the driver's call, which ends the
+		// transaction on a read-only session too, and tells the driver.
+		return 0, s.endThroughDriver(ctx, commits)
+	}
 	n, err := s.exec(ctx, query, func() error {
 		if err := s.mayControlSharedTx(); err != nil || !commits {
 			return err
@@ -559,11 +698,11 @@ func (s *Session) ExecTransactionControl(ctx context.Context, query string) (int
 			return errSharedTxFailed
 		}
 		return nil
-	})
+	}, true)
 	if !errors.Is(err, errSharedTxFailed) {
 		return n, err
 	}
-	if _, err := s.exec(ctx, "ROLLBACK", s.mayEndSharedTx); errors.Is(err, ErrNotOwner) || errors.Is(err, ErrNoTransaction) {
+	if _, err := s.exec(ctx, "ROLLBACK", s.mayEndSharedTx, false); errors.Is(err, ErrNotOwner) || errors.Is(err, ErrNoTransaction) {
 		return 0, err
 	}
 	return 0, ErrTxFailed
@@ -571,8 +710,9 @@ func (s *Session) ExecTransactionControl(ctx context.Context, query string) (int
 
 // exec is Exec. On a pool of one connection, check, when set, refuses the
 // statement once it holds the connection, so that no other session's
-// statement comes between (mayEndSharedTx, mayControlSharedTx).
-func (s *Session) exec(ctx context.Context, query string, check func() error, args ...any) (int64, error) {
+// statement comes between (mayEndSharedTx, mayControlSharedTx). userRan
+// reads what the server printed, as the app's own statements print none.
+func (s *Session) exec(ctx context.Context, query string, check func() error, userRan bool, args ...any) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.ready(ctx); err != nil {
@@ -595,6 +735,9 @@ func (s *Session) exec(ctx context.Context, query string, check func() error, ar
 				return 0, err
 			}
 		}
+	}
+	if err := s.holdDriverTransaction(); err != nil {
+		return 0, err
 	}
 	wasTx := s.txState()
 	// Read s.conn and s.q on each call: a retry replaces them.
@@ -635,6 +778,9 @@ func (s *Session) exec(ctx context.Context, query string, check func() error, ar
 	}
 	s.ran = s.ran || s.conn != nil
 	s.noteStatement(query, err, shared)
+	if userRan {
+		s.readMessages()
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -662,6 +808,9 @@ func (s *Session) Query(ctx context.Context, query string, args ...any) (*Cursor
 		defer shared.Close()
 		s.refreshSharedTx(shared)
 	}
+	if err := s.holdDriverTransaction(); err != nil {
+		return nil, err
+	}
 	wasTx := s.txState()
 	// Read s.q on each call: a retry replaces it. The watch goes on with
 	// the rows, until the cursor lets them go.
@@ -688,6 +837,7 @@ func (s *Session) Query(ctx context.Context, query string, args ...any) (*Cursor
 		err = watch.cancelled(s.afterError(err, wasTx)) // as in exec
 		s.ran = s.ran || s.conn != nil
 		s.noteStatement(query, err, shared)
+		s.readMessages()
 		return nil, err
 	}
 	r, ok := SQL(s.db.Config.Engine)
@@ -711,6 +861,7 @@ func (s *Session) Query(ctx context.Context, query string, args ...any) (*Cursor
 	// its connection.
 	s.ran = s.ran || s.conn != nil && (err != nil || !c.HoldsConnection())
 	s.noteStatement(query, err, shared)
+	s.readMessages()
 	if err != nil {
 		return nil, err
 	}
@@ -718,6 +869,23 @@ func (s *Session) Query(ctx context.Context, query string, args ...any) (*Cursor
 		s.cursor = c
 	}
 	return c, nil
+}
+
+// readMessages reads, where the engine keeps them for the session to ask
+// (messagesSQL), what the server printed since the last statement: the
+// statement's, and of a query those its first rows' functions printed.
+// They are kept until TakeMessages; a failure to read them loses them.
+func (s *Session) readMessages() {
+	r, ok := SQL(s.db.Config.Engine)
+	if !ok || r.messagesSQL() == "" || s.conn == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var text sql.NullString
+	if err := s.conn.QueryRowContext(ctx, r.messagesSQL()).Scan(&text); err == nil && text.Valid {
+		s.messages.addRead(text.String)
+	}
 }
 
 // RunExplain gets a plan on the session: run's Before steps, in order,
@@ -729,10 +897,11 @@ func (s *Session) Query(ctx context.Context, query string, args ...any) (*Cursor
 // Before step failed. A connection lost before After took Before's
 // settings with it, and gets none; one on which an After step failed is
 // dropped, which the next statement is told of (ErrSessionReset). step
-// is told of each step sent, for the audit log.
+// is told of each step sent, for the audit log. What the statement wrote
+// for its plan goes before After runs (discardExplain).
 func (s *Session) RunExplain(ctx context.Context, run ExplainRun, step func(sql string, took time.Duration, err error),
 	statement func(context.Context) error) (err error) {
-	if len(run.Before)+len(run.After) == 0 {
+	if len(run.Before)+len(run.After)+len(run.Discard) == 0 {
 		return statement(ctx)
 	}
 	send := func(ctx context.Context, sql string) error {
@@ -741,6 +910,9 @@ func (s *Session) RunExplain(ctx context.Context, run ExplainRun, step func(sql 
 		step(sql, time.Since(start), err)
 		return err
 	}
+	s.mu.Lock()
+	wasTx := s.txState()
+	s.mu.Unlock()
 	for _, sql := range run.Before {
 		if err = send(ctx, sql); err != nil {
 			break
@@ -748,12 +920,47 @@ func (s *Session) RunExplain(ctx context.Context, run ExplainRun, step func(sql 
 	}
 	held := s.heldRunner()
 	defer func() {
-		err = errors.Join(err, s.runAfter(ctx, run.After, held, send))
+		err = errors.Join(err, s.discardExplain(ctx, run.Discard, wasTx, held, step, send), s.runAfter(ctx, run.After, held, send))
 	}()
 	if err != nil {
 		return err
 	}
 	return statement(ctx)
+}
+
+// discardExplain removes what an explain's statement wrote for its plan,
+// when steps are set: a transaction the session held none of before the
+// run, and holds now, is rolled back (Rollback), which removes all the run
+// wrote; inside one held before, the steps run, as After's do. A failed
+// rollback drops the connection, as a failed After step does: it would
+// hold a transaction of the app's own.
+func (s *Session) discardExplain(ctx context.Context, steps []string, wasTx TxState, held runner,
+	step func(string, time.Duration, error), send func(context.Context, string) error) error {
+	if len(steps) == 0 || held == nil {
+		return nil
+	}
+	if wasTx != TxNone {
+		return s.runAfter(ctx, steps, held, send)
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), AfterStepsWait)
+	defer cancel()
+	s.mu.Lock()
+	open := s.q == held && s.txState() != TxNone
+	s.mu.Unlock()
+	if !open {
+		return nil
+	}
+	start := time.Now()
+	err := s.Rollback(ctx)
+	step(endStatement(s.db.Config.Engine, false), time.Since(start), err)
+	if err != nil {
+		s.mu.Lock()
+		if s.q == held && s.conn != nil {
+			err = errors.Join(err, s.drop())
+		}
+		s.mu.Unlock()
+	}
+	return err
 }
 
 // heldRunner is what the session runs statements on now, nil once its
@@ -786,7 +993,7 @@ func (s *Session) runAfter(ctx context.Context, after []string, held runner, sen
 	if len(errs) > 0 {
 		s.mu.Lock()
 		if s.q == held && s.conn != nil {
-			s.drop()
+			errs = append(errs, s.drop())
 		}
 		s.mu.Unlock()
 	}
@@ -850,7 +1057,9 @@ func (s *Session) ensureConnection(ctx context.Context) error {
 		cancel()
 		if err != nil {
 			s.closeCursor()
-			s.drop()
+			if dropErr := s.drop(); dropErr != nil {
+				return fmt.Errorf("%w (%w)", dropErr, err)
+			}
 			if wasTx != TxNone {
 				// The transaction went with the connection: say so, rather
 				// than run this statement, a COMMIT say, on a new one.
@@ -887,13 +1096,28 @@ func (s *Session) retry(ctx context.Context, err error, wasTx TxState) bool {
 	return s.connect(ctx) == nil
 }
 
-// drop closes a connection that was lost. What statements had set on it
-// went with it, which the next statement is told once (ErrSessionReset).
-func (s *Session) drop() {
+// drop closes a connection that was lost, or that the session gives up
+// on. What statements had set on it went with it, which the next statement
+// is told once (ErrSessionReset). A driver that commits each statement by
+// itself (driverCommitsStatements) commits an open transaction as it
+// closes the connection, as go-ora's logoff does, so the transaction is
+// rolled back first; when that rollback failed, or ran out of time, on a
+// connection not gone, the error is ErrTxMayBeCommitted.
+func (s *Session) drop() error {
+	var err error
+	if r, ok := SQL(s.db.Config.Engine); ok && r.driverCommitsStatements() && s.conn != nil && s.txState() != TxNone {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		var ne net.Error
+		if rerr := s.endInDriver(ctx, false); rerr != nil && (!connectionLost(rerr) || errors.As(rerr, &ne) && ne.Timeout()) {
+			err = fmt.Errorf("%w (%w)", ErrTxMayBeCommitted, rerr)
+		}
+		cancel()
+	}
 	discard(s.conn)
-	s.conn, s.q, s.verbs = nil, nil, txByVerbs{}
+	s.conn, s.q, s.verbs, s.driverHolds = nil, nil, txByVerbs{}, false
 	s.resetPending = s.resetPending || s.ran
 	s.ran = false
+	return err
 }
 
 func (s *Session) closeCursor() {
@@ -911,6 +1135,24 @@ var ErrClosedEarly = errors.New("the result was closed by a later statement befo
 // connection with a transaction open: the server rolled it back.
 var ErrTxLost = errors.New("the connection was lost with a transaction open: the server rolled back its changes")
 
+// ErrTxMayBeCommitted is wrapped in the errors of statements whose
+// connection the session dropped with a transaction open after the
+// rollback it sent first failed (drop): closing the connection may have
+// committed the transaction. It is ErrTxLost too (errors.Is), as the
+// transaction is gone from the session either way.
+var ErrTxMayBeCommitted error = txLostError("the connection was dropped with a transaction open, and its rollback failed: closing the connection may have committed the transaction's changes")
+
+type txLostError string
+
+func (e txLostError) Error() string        { return string(e) }
+func (e txLostError) Is(target error) bool { return target == ErrTxLost }
+
+// connectionLost reports an error after which the connection is gone.
+func connectionLost(err error) bool {
+	return errors.Is(err, driver.ErrBadConn) || errors.Is(err, sql.ErrConnDone) || errors.Is(err, mysql.ErrInvalidConn) ||
+		isNetError(err) || endsConnection(err)
+}
+
 // afterError drops a connection the driver reports broken, so that the
 // next statement gets a new one. An open transaction is lost with it,
 // which the error says.
@@ -918,8 +1160,7 @@ func (s *Session) afterError(err error, wasTx TxState) error {
 	if s.conn == nil {
 		return err
 	}
-	lost := errors.Is(err, driver.ErrBadConn) || errors.Is(err, sql.ErrConnDone) || errors.Is(err, mysql.ErrInvalidConn) ||
-		isNetError(err) || endsConnection(err)
+	lost := connectionLost(err)
 	r, ok := SQL(s.db.Config.Engine)
 	if !lost && ok && r.execUnprepared() {
 		// pgx's connection, which PostgreSQL's family runs on, may have
@@ -938,7 +1179,9 @@ func (s *Session) afterError(err error, wasTx TxState) error {
 	if !lost {
 		return err
 	}
-	s.drop()
+	if dropErr := s.drop(); dropErr != nil {
+		return fmt.Errorf("%w (%w)", dropErr, err)
+	}
 	if wasTx != TxNone {
 		return fmt.Errorf("%w (%w)", ErrTxLost, err)
 	}
@@ -1240,7 +1483,7 @@ func (c *Cursor) skipFollowing() error {
 
 func isBinaryType(name string) bool {
 	switch {
-	case name == "BYTEA", strings.Contains(name, "BLOB"), strings.Contains(name, "BINARY"), name == "GEOMETRY", name == "BIT",
+	case name == "BYTEA", strings.Contains(name, "BLOB"), strings.Contains(name, "BINARY"), name == "GEOMETRY", name == "BIT", name == "RAW",
 		name == "GEOGRAPHY", name == "HIERARCHYID", name == "IMAGE", name == "UNIQUEIDENTIFIER":
 		return true
 	}
@@ -1318,7 +1561,7 @@ func (c *Cursor) scan() ([]any, error) {
 		return nil, err
 	}
 	for i, v := range vals {
-		vals[i] = sqlserverValue(c.Columns[i].Type, duckValue(c.Columns[i].Type, v))
+		vals[i] = oracleValue(c.Columns[i].Type, sqlserverValue(c.Columns[i].Type, duckValue(c.Columns[i].Type, v)))
 		v = vals[i]
 		// MySQL's text protocol sends every value as bytes: text is
 		// text unless the column holds binary data.
@@ -1402,13 +1645,16 @@ func (c *Cursor) Close() {
 	c.finish()
 }
 
-// endsConnection reports a PostgreSQL error after which the server closes
-// the connection, such as pg_terminate_backend's.
+// endsConnection reports an error after which the server closes the
+// connection, such as pg_terminate_backend's, or Oracle's ALTER SYSTEM
+// KILL SESSION's.
 func endsConnection(err error) bool {
 	var pe *pgconn.PgError
 	var me mssql.Error
+	var oe *network.OracleError
 	return errors.As(err, &pe) && (pe.Severity == "FATAL" || pe.Severity == "PANIC") ||
-		errors.As(err, &me) && me.Class >= 20 // SQL Server's fatal severities close the connection
+		errors.As(err, &me) && me.Class >= 20 || // SQL Server's fatal severities close the connection
+		errors.As(err, &oe) && oe.Bad() // Oracle's session killed, or its connection gone
 }
 
 func isNetError(err error) bool {

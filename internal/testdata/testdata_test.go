@@ -187,3 +187,21 @@ func TestSuggestSQLServerTypes(t *testing.T) {
 		t.Errorf("tinyint, which holds 0 to 255: to %s", g.To)
 	}
 }
+
+// Oracle's types: a NUMBER of one digit, which holds a flag, gets numbers
+// that fit; text of bytes, RAW(16), as SQL Server's varbinary(16), no
+// more bytes than it holds.
+func TestSuggestOracleTypes(t *testing.T) {
+	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	if g := Suggest(Column{Name: "paid", Type: "NUMBER(1)", Canonical: "DECIMAL(1,0)"}, now); g.Kind != Decimal || g.To != "9" || g.Scale != 0 {
+		t.Errorf("NUMBER(1): %+v", g)
+	}
+	for _, typ := range []string{"RAW(16)", "varbinary(16)", "binary(16)"} {
+		if g := Suggest(Column{Name: "raw", Type: typ, Canonical: "BLOB"}, now); g.Kind != Words || g.MaxLength != 16 {
+			t.Errorf("%s: %+v", typ, g)
+		}
+	}
+	if g := Suggest(Column{Name: "title", Type: "VARCHAR2(40 CHAR)", Canonical: "VARCHAR"}, now); g.MaxLength != 40 {
+		t.Errorf("VARCHAR2(40 CHAR): max length %d", g.MaxLength)
+	}
+}

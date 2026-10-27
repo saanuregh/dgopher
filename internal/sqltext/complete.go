@@ -248,6 +248,36 @@ func NeedsQuote(s string) bool {
 	return false
 }
 
+// NeedsQuoteIn is NeedsQuote for dialect d. Oracle folds an unquoted name
+// to upper case, so there a name needs quotes unless it is upper-case
+// ASCII letters, then digits, '_', '$' and '#', and no reserved word.
+func NeedsQuoteIn(s string, d Dialect) bool {
+	if d != Oracle {
+		return NeedsQuote(s)
+	}
+	if s == "" || oracleReserved[s] {
+		return true
+	}
+	for i, r := range s {
+		switch {
+		case r >= 'A' && r <= 'Z':
+		case i > 0 && (r >= '0' && r <= '9' || r == '_' || r == '$' || r == '#'):
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+// FoldUnquoted returns the name an unquoted name s stands for in d: in
+// Oracle, s in upper case; elsewhere s as written.
+func FoldUnquoted(s string, d Dialect) string {
+	if d == Oracle {
+		return strings.ToUpper(s)
+	}
+	return s
+}
+
 // IsName reports whether a token may name a table, column or alias.
 func IsName(t Token) bool { return t.Kind == Identifier || t.Kind == QuotedIdent }
 

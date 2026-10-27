@@ -292,7 +292,13 @@ func (p fillPlan) rows(r *rand.Rand, e db.Engine, from, to int) [][]any {
 	for i := from; i < to; i++ {
 		row := make([]any, len(p.cols))
 		for j, values := range p.values {
-			row[j] = db.InsertValue(e, values(r, i), p.canonical[j])
+			v := values(r, i)
+			if s, ok := v.(string); ok && p.canonical[j] == "BLOB" {
+				// Words made for a column of bytes go as their bytes: as
+				// text, Oracle reads a RAW's or a BLOB's hex digits.
+				v = []byte(s)
+			}
+			row[j] = db.InsertValue(e, v, p.canonical[j])
 		}
 		out = append(out, row)
 	}

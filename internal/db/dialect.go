@@ -132,9 +132,14 @@ func DialectOf(e Engine) Dialect {
 }
 
 // QuoteIfNeeded quotes a name only where it must be, as people write
-// names: one of lower-case letters, digits and underscores stays bare.
+// names: one of lower-case letters, digits and underscores stays bare,
+// or, where the engine folds names to upper case, of upper-case ones.
 func QuoteIfNeeded(d Dialect, name string) string {
-	if sqltext.NeedsQuote(name) {
+	lex := sqltext.Generic
+	if d != nil {
+		lex = LexDialect(d.Engine())
+	}
+	if sqltext.NeedsQuoteIn(name, lex) {
 		return d.Quote(name)
 	}
 	return name
@@ -195,6 +200,19 @@ func queryString(ctx context.Context, q Querier, query string, args ...any) (str
 		return "", fmt.Errorf("no result")
 	}
 	return out[0], nil
+}
+
+// orEmpty scans a text column into s, NULL as "": Oracle has no empty
+// string, which it reads as NULL.
+type orEmpty struct{ s *string }
+
+func (o orEmpty) Scan(v any) error {
+	var n sql.NullString
+	if err := n.Scan(v); err != nil {
+		return err
+	}
+	*o.s = n.String
+	return nil
 }
 
 // scanRows calls fn for every row, with the row's scanner.

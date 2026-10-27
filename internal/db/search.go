@@ -78,7 +78,7 @@ func scanHits(ctx context.Context, d *DB, text, query string, args []any) ([]Sea
 	hits, err := scanAll(ctx, d.Catalog(), query, args, func(scan func(...any) error) (SearchHit, error) {
 		var h SearchHit
 		var tableKind, def string
-		if err := scan(&h.Schema, &h.Kind, &h.Name, &h.Table, &tableKind, &h.Detail, &h.ID, &def); err != nil {
+		if err := scan(&h.Schema, &h.Kind, &h.Name, orEmpty{&h.Table}, orEmpty{&tableKind}, orEmpty{&h.Detail}, orEmpty{&h.ID}, orEmpty{&def}); err != nil {
 			return h, err
 		}
 		h.TableKind = ObjectKind(tableKind)

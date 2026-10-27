@@ -299,6 +299,14 @@ func (f *connForm) config() db.Config {
 	if cfg.Proxy.Kind == "" || cfg.Engine.IsFile() {
 		cfg.Proxy = db.ProxyConfig{}
 	}
+	fields := connectionFields(cfg.Engine)
+	cfg.Oracle.Wallet = strings.TrimSpace(cfg.Oracle.Wallet)
+	if !fields.SID {
+		cfg.Oracle.SID = false
+	}
+	if !fields.Wallet || cfg.TLS == "" || cfg.TLS == db.TLSDisable {
+		cfg.Oracle.Wallet = ""
+	}
 	cfg.ClickHouseProtocol = ""
 	if cfg.Engine == db.ClickHouse {
 		cfg.ClickHouseProtocol = chProtocols[f.chProtocol]
@@ -550,6 +558,11 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 		if mode != db.RedisCluster { // a cluster has database 0 only
 			textField(c, label, &f.cfg.Database, placeholder)
 		}
+		if connectionFields(engine).SID {
+			ui.Field(c, "SID", func() {
+				ui.Checkbox(c, &f.cfg.Oracle.SID, "It is the instance's SID, not a service name")
+			}).Description("Older connections name the instance by its SID; a pluggable database is reached by its service.")
+		}
 		if mode == db.RedisSentinel {
 			a.sentinelFields(c, f)
 		}
@@ -628,6 +641,9 @@ var connectionColors = []struct{ name, hex string }{
 // readOnlyLabel is the read-only checkbox's, saying whether the server
 // refuses writes too.
 func readOnlyLabel(e db.Engine) string {
+	if since := e.ServerReadOnlySince(); e.ServerEnforcesReadOnly() && since != "" {
+		return "Read-only: refuse every write (the server enforces it too from " + e.Label() + " " + since + "; before, the app's check alone)"
+	}
 	if e.ServerEnforcesReadOnly() {
 		return "Read-only: refuse every write (the server enforces it too)"
 	}
@@ -672,6 +688,11 @@ func (a *App) networkPage(c *ui.Context, f *connForm) {
 		ui.Field(c, "CA certificate", func() {
 			a.fileField(c, &f.cfg.CAFile, "System certificates", "Choose the CA Certificate")
 		})
+	}
+	if f.tls != tlsLabels[db.TLSDisable] && connectionFields(engineByLabel(f.engine)).Wallet {
+		ui.Field(c, "Wallet", func() {
+			a.walletField(c, &f.cfg.Oracle.Wallet)
+		}).Description("The folder of an Oracle wallet, as Autonomous Database's: TLS trusts its certificates, and logs in with its client certificate. Read from its cwallet.sso.")
 	}
 	if f.tls != tlsLabels[db.TLSDisable] {
 		ui.Field(c, "Client certificate", func() {
@@ -914,6 +935,33 @@ func (a *App) newDatabaseFile(e db.Engine) {
 			}
 		})
 	}()
+}
+
+// connectionFields are what the connection form asks of an engine beyond
+// the others, none for an engine without SQL rules.
+func connectionFields(e db.Engine) db.ConnectionFields {
+	if r, ok := db.SQL(e); ok {
+		return r.ConnectionFields()
+	}
+	return db.ConnectionFields{}
+}
+
+// walletField is a wallet's folder typed, or chosen by its cwallet.sso.
+func (a *App) walletField(c *ui.Context, dir *string) {
+	ui.Row(c).Gap(6).Children(func() {
+		ui.TextInput(c, dir).Placeholder("~/wallet_mydb").Grow(1).Label("Wallet folder")
+		if ui.Button(c, "Choose…").Clicked() {
+			form, start := a.connForm, db.ExpandPath(*dir)
+			if *dir == "" {
+				start, _ = os.UserHomeDir()
+			}
+			widgets.ChoosePath(a.Post, mygo.OpenDialogOptions{Title: "Choose the Wallet's cwallet.sso", DefaultPath: start, ShowHiddenFiles: true}, func(chosen string) {
+				if a.connForm == form {
+					*dir = filepath.Dir(chosen) // the form's field, while the form is open
+				}
+			})
+		}
+	})
 }
 
 // fileField is a path typed, or chosen with a button: the dialog starts

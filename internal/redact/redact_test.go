@@ -259,3 +259,39 @@ func TestRedactSQLServerProcedures(t *testing.T) {
 		t.Errorf("an ordinary call changed: %s", Secrets(s))
 	}
 }
+
+// Oracle's passwords may be bare words after IDENTIFIED BY and REPLACE.
+func TestRedactOracle(t *testing.T) {
+	for _, c := range []struct{ in, secret, keep string }{
+		{"CREATE USER scott IDENTIFIED BY tiger", "tiger", "CREATE USER scott IDENTIFIED BY"},
+		{"ALTER USER scott IDENTIFIED BY Tiger123 REPLACE oldpw", "oldpw", "ALTER USER scott IDENTIFIED BY"},
+		{"ALTER USER scott IDENTIFIED BY Tiger123 REPLACE oldpw", "Tiger123", "REPLACE"},
+		{"CREATE DATABASE LINK l CONNECT TO u IDENTIFIED BY secret USING 'x'", "secret", "USING 'x'"},
+		{`CREATE USER scott IDENTIFIED BY "pa ss"`, "pa ss", "CREATE USER scott"},
+		{"create user scott identified by tiger default tablespace users quota 10m on users", "tiger", "default tablespace users"},
+		{"ALTER USER scott IDENTIFIED BY VALUES 'S:ABCDEF0123'", "ABCDEF0123", "IDENTIFIED BY VALUES"},
+		{"CREATE USER u IDENTIFIED BY q'[my pw]'", "my pw", "CREATE USER u"},
+		{"CREATE USER u IDENTIFIED BY PASSWORD '*hashpw1'", "hashpw1", "IDENTIFIED BY PASSWORD"},
+		{"SET ROLE r IDENTIFIED BY rolepw2", "rolepw2", "SET ROLE r"},
+	} {
+		if out := Secrets(c.in); strings.Contains(out, c.secret) || !strings.Contains(out, c.keep) {
+			t.Errorf("%q became %s", c.in, out)
+		}
+	}
+	for _, s := range []string{
+		"CREATE USER ops$scott IDENTIFIED EXTERNALLY",
+		"CREATE USER g IDENTIFIED GLOBALLY AS 'CN=g,O=example'",
+		"CREATE USER u IDENTIFIED BY RANDOM PASSWORD",
+		"CREATE USER u IDENTIFIED WITH caching_sha2_password BY RANDOM PASSWORD",
+		"CREATE USER u IDENTIFIED EXTERNALLY; SELECT * FROM t ORDER BY name",
+		"SELECT name FROM t GROUP BY name ORDER BY name",
+		"ADMINISTER KEY MANAGEMENT SET KEYSTORE OPEN IDENTIFIED BY EXTERNAL STORE",
+	} {
+		if out := Secrets(s); out != s {
+			t.Errorf("%q changed: %s", s, out)
+		}
+	}
+	if got := Error("ORA-01017: invalid credential tiger99", "CREATE USER scott IDENTIFIED BY tiger99"); strings.Contains(got, "tiger99") {
+		t.Errorf("the error kept the password: %s", got)
+	}
+}

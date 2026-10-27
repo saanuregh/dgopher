@@ -2216,10 +2216,10 @@ func TestFillTablesOnServers(t *testing.T) {
 	}
 	setup := map[*connection.Conn][]string{
 		pg: {`DROP TABLE IF EXISTS public.it_fill`, `DROP TYPE IF EXISTS it_mood`, `CREATE TYPE it_mood AS ENUM ('calm', 'busy')`,
-			`CREATE TABLE public.it_fill (id int PRIMARY KEY, ref uuid NOT NULL, mood it_mood, doc jsonb, at timestamptz, ok boolean, price numeric(8,3), day date, tm time)`,
+			`CREATE TABLE public.it_fill (id int PRIMARY KEY, ref uuid NOT NULL, mood it_mood, doc jsonb, at timestamptz, ok boolean, price numeric(8,3), day date, tm time, bin bytea)`,
 			`INSERT INTO public.it_fill (id, ref) VALUES (41, gen_random_uuid())`},
 		my: {`DROP TABLE IF EXISTS shop.it_fill`,
-			"CREATE TABLE shop.it_fill (id int PRIMARY KEY, mood enum('calm','busy'), doc json, at datetime, ok tinyint(1), price decimal(8,3), day date, tm time, title varchar(10))",
+			"CREATE TABLE shop.it_fill (id int PRIMARY KEY, mood enum('calm','busy'), doc json, at datetime, ok tinyint(1), price decimal(8,3), day date, tm time, title varchar(10), bin varbinary(16))",
 			`INSERT INTO shop.it_fill (id) VALUES (41)`},
 	}
 	for _, cn := range []*connection.Conn{pg, my} {
@@ -2232,7 +2232,7 @@ func TestFillTablesOnServers(t *testing.T) {
 		if x := fillTable(t, a, tt, cn, schema, "it_fill", "200", nil); x.err != "" {
 			t.Fatalf("%s: %s", cn.Config.Engine, x.err)
 		}
-		if n := queryInt(t, cn.DB(), `SELECT count(*) FROM `+schema+`.it_fill WHERE id > 41 AND id <= 241 AND mood IS NOT NULL AND doc IS NOT NULL AND ok IS NOT NULL`); n != 200 {
+		if n := queryInt(t, cn.DB(), `SELECT count(*) FROM `+schema+`.it_fill WHERE id > 41 AND id <= 241 AND mood IS NOT NULL AND doc IS NOT NULL AND ok IS NOT NULL AND bin IS NOT NULL`); n != 200 {
 			t.Fatalf("%s: %d of 200 rows generated in full after the key 41", cn.Config.Engine, n)
 		}
 	}

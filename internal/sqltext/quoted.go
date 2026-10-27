@@ -9,10 +9,13 @@ import (
 // stands for, so a name spelled with escapes is the name: the quotes are
 // dropped and doubled quotes undone; Postgres U&"…", U&'…' and E'…' escapes
 // and ClickHouse backslash escapes are decoded, as are T-SQL [names], whose
-// ]] is one ], and N'…' strings. A U& escape changed with UESCAPE is not
-// decoded; callers check for UESCAPE themselves.
+// ]] is one ], and N'…' strings, and Oracle's q'X…X' strings and "names",
+// which have no escape. A U& escape changed with UESCAPE is not decoded;
+// callers check for UESCAPE themselves.
 func DecodeQuoted(text string, d Dialect) string {
 	switch {
+	case d == Oracle:
+		return decodeOracleQuoted(text)
 	case d == TSQL && len(text) >= 2 && text[0] == '[':
 		return strings.ReplaceAll(strings.TrimSuffix(text[1:], "]"), "]]", "]")
 	case d == TSQL && len(text) > 1 && (text[0] == 'N' || text[0] == 'n') && text[1] == '\'':

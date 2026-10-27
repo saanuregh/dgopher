@@ -156,7 +156,13 @@ func (t *EditTarget) Statements(changes []Change) ([]Statement, error) {
 			out = append(out, Statement{SQL: "UPDATE " + table + " SET " + strings.Join(sets, ", ") + " WHERE " + where, Args: args, Want: 1})
 		case ChangeInsert:
 			if len(cols) == 0 {
-				out = append(out, Statement{SQL: rulesOfDialect(t.Dialect).InsertDefaultRowSQL(table), Want: 1})
+				insert := rulesOfDialect(t.Dialect).InsertDefaultRowSQL(table)
+				if insert == "" && len(t.Columns) > 0 {
+					// An engine without DEFAULT VALUES, as Oracle: the first
+					// column's default, which leaves the others theirs.
+					insert = "INSERT INTO " + table + " (" + t.Dialect.Quote(t.Columns[0].Name) + ") VALUES (DEFAULT)"
+				}
+				out = append(out, Statement{SQL: insert, Want: 1})
 				continue
 			}
 			var names, vals []string
@@ -203,8 +209,8 @@ func (s Statement) Script(e Engine) string {
 	})
 }
 
-// inline writes the statement with each of its placeholders, $n, @pn or
-// ?, written by lit; those inside quotes or brackets are names, left as
+// inline writes the statement with each of its placeholders, $n, @pn, :n
+// or ?, written by lit; those inside quotes or brackets are names, left as
 // they are.
 func (s Statement) inline(lit func(any) string) string {
 	var b strings.Builder
@@ -225,7 +231,7 @@ func (s Statement) inline(lit func(any) string) string {
 			b.WriteString(lit(s.Args[next]))
 			next++
 			continue
-		case c == '$' || c == '@' && i+1 < len(s.SQL) && s.SQL[i+1] == 'p':
+		case c == '$' || c == '@' && i+1 < len(s.SQL) && s.SQL[i+1] == 'p' || c == ':' && i+1 < len(s.SQL) && s.SQL[i+1] >= '0' && s.SQL[i+1] <= '9':
 			j := i + 1
 			if c == '@' {
 				j++

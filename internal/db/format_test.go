@@ -45,6 +45,21 @@ func TestLiteral(t *testing.T) {
 // TestQuoteClickHouse checks a ClickHouse name quotes as one identifier
 // that reads back as itself, since ClickHouse reads backslash escapes
 // inside backticks; MySQL reads a backslash there as itself.
+// Oracle's numeric types are numeric: their columns align right, chart
+// and profile with an average.
+func TestIsNumericTypeOracle(t *testing.T) {
+	for _, typ := range []string{"NUMBER", "NUMBER(10,2)", "number", "FLOAT", "BINARY_FLOAT", "BINARY_DOUBLE"} {
+		if !IsNumericType(typ) {
+			t.Errorf("%s not numeric", typ)
+		}
+	}
+	for _, typ := range []string{"VARCHAR2", "CLOB", "DATE", "RAW"} {
+		if IsNumericType(typ) {
+			t.Errorf("%s numeric", typ)
+		}
+	}
+}
+
 func TestQuoteClickHouse(t *testing.T) {
 	cases := []struct{ name, want string }{
 		{"`", "````"},
@@ -219,7 +234,7 @@ func TestCursorSQLiteStorageClass(t *testing.T) {
 
 func TestCursorTextIsString(t *testing.T) {
 	binary := map[Engine]string{Postgres: "bytea", CockroachDB: "bytea", YugabyteDB: "bytea", TimescaleDB: "bytea", MySQL: "BLOB", MariaDB: "BLOB", TiDB: "BLOB", SQLite: "BLOB", DuckDB: "BLOB",
-		SQLServer: "VARBINARY(10)"}
+		SQLServer: "VARBINARY(10)", Oracle: "RAW(10)"}
 	servers := os.Getenv("DGOPHER_IT") != ""
 	if servers {
 		integration(t)
@@ -243,8 +258,12 @@ func cursorTextIsString(t *testing.T, f fixture, binary string) {
 		t.Fatal(err)
 	}
 	bin := Literal(f.cfg.Engine, []byte("abc"))
+	text := "TEXT"
+	if f.cfg.Engine == Oracle {
+		text = "CLOB" // Oracle has no TEXT
+	}
 	for _, q := range []string{`DROP TABLE IF EXISTS zz_cursor`,
-		`CREATE TABLE zz_cursor (t TEXT, v VARCHAR(10), b ` + binary + `)`,
+		`CREATE TABLE zz_cursor (t ` + text + `, v VARCHAR(10), b ` + binary + `)`,
 		`INSERT INTO zz_cursor VALUES ('abc', 'abc', ` + bin + `)`} {
 		if _, err := s.Exec(ctx, q); err != nil {
 			t.Fatalf("%s: %s: %v", f.cfg.Name, q, err)

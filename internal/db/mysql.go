@@ -296,6 +296,7 @@ func (mysqlEngine) URLTLSParameters() map[string]map[string]TLSMode {
 func (mysqlEngine) CloudIdentities() []Identity      { return tokenIdentities }
 func (mysqlEngine) ClearTextPassword() bool          { return true }
 func (mysqlEngine) ServerEnforcesReadOnly() bool     { return true }
+func (mysqlEngine) ServerReadOnlySince() string      { return "" }
 func (mysqlEngine) DatabasesNeedOwnConnection() bool { return false }
 func (mysqlEngine) DefaultSchemaName() string        { return "" }
 func (mysqlEngine) FileExtensions() []string         { return nil }
@@ -439,6 +440,8 @@ func (mysqlEngine) OutsideTransaction(string) bool   { return false }
 func (mysqlEngine) RollbackMayKeepChanges() bool     { return true }
 func (mysqlEngine) RowCountWord() string             { return "matched" }
 func (mysqlEngine) implicitTransactionsSQL() string  { return "" }
+func (mysqlEngine) transactionStateSQL() string      { return "" }
+func (mysqlEngine) driverCommitsStatements() bool    { return false }
 func (mysqlEngine) ownRowCountSQL() string           { return "" }
 
 func (mysqlEngine) Explain(statement string, analyze bool) (ExplainRun, bool) {
@@ -500,6 +503,8 @@ func (mysqlEngine) InsertDefaultRowSQL(table string) string {
 
 func (mysqlEngine) MaxParameters() int               { return 65535 }
 func (mysqlEngine) ProfilesInOneQuery() bool         { return false }
+func (mysqlEngine) CountSQL(column, _ string) string { return "count(" + column + ")" }
+func (mysqlEngine) NullSQL() string                  { return "NULL" }
 func (mysqlEngine) Comparable(string) bool           { return true }
 func (mysqlEngine) StableOrderByKey() bool           { return true }
 func (mysqlEngine) UpdateSetsDefault() bool          { return true }
@@ -629,6 +634,7 @@ func (mysqlEngine) TableCommentSQL(d Dialect, schema, table, comment string) str
 func (mysqlEngine) ColumnCommentInline() bool           { return true }
 func (mysqlEngine) HasComments() bool                   { return true }
 func (mysqlEngine) KeepsColumnExtra() bool              { return true }
+func (mysqlEngine) NotNullLast() bool                   { return false }
 func (mysqlEngine) AutoIncrementSQL() string            { return "AUTO_INCREMENT" }
 func (mysqlEngine) HasAutoNumbering() bool              { return true }
 func (mysqlEngine) HasForeignKeys() bool                { return true }
@@ -797,7 +803,10 @@ func (mysqlEngine) MaintenanceCommands(quotedTable string) []MaintenanceCommand 
 	}
 }
 
-func (mysqlEngine) readsAllResults() bool         { return false }
-func (mysqlEngine) sessionDatabaseSQL() string    { return "" }
-func (mysqlEngine) TakesEffectAtOnce(string) bool { return false }
-func (mysqlEngine) BooleanLiteral(b bool) string  { return booleanWord(b) }
+func (mysqlEngine) readsAllResults() bool              { return false }
+func (mysqlEngine) sessionDatabaseSQL() string         { return "" }
+func (mysqlEngine) ConnectionFields() ConnectionFields { return ConnectionFields{} }
+func (mysqlEngine) sessionStartSQL() []string          { return nil }
+func (mysqlEngine) messagesSQL() string                { return "" }
+func (mysqlEngine) TakesEffectAtOnce(string) bool      { return false }
+func (mysqlEngine) BooleanLiteral(b bool) string       { return booleanWord(b) }

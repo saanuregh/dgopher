@@ -237,6 +237,16 @@ disconnected is dropped.
 - Each editor has its own `db.Session` (`internal/db/session.go`), pinned
   to one server connection, so `SET`, temporary tables and transactions
   last between statements. Closing a session rolls back what it left open.
+- A session follows its transaction from the driver, from the statements
+  it runs (`txstate.go`), or, where the engine has one, from a query of
+  the server after each statement (`transactionStateSQL`, Oracle's
+  `DBMS_TRANSACTION.LOCAL_TRANSACTION_ID`). Oracle's driver, go-ora,
+  commits each statement unless a transaction of its own is open, so
+  while the server holds one the session keeps one open in the driver,
+  and ends it with the driver's commit or rollback call
+  (`driverCommitsStatements`).
+- After each statement, a session of an engine whose server keeps printed
+  lines reads them as messages (`messagesSQL`, Oracle's `DBMS_OUTPUT`).
 
 ### Errors and notices
 

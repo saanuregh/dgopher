@@ -414,7 +414,9 @@ type Column struct {
 }
 
 var (
-	sizedText    = regexp.MustCompile(`(?i)char[a-z ]*\(\s*(\d+)\s*\)`)
+	// sizedText reads the length of text or bytes, as varchar(40),
+	// Oracle's VARCHAR2(40 CHAR) and RAW(16), or varbinary(16).
+	sizedText    = regexp.MustCompile(`(?i)(?:char[a-z0-9 ]*|raw|binary)\(\s*(\d+)(?:\s+(?:char|byte))?\s*\)`)
 	decimalSizes = regexp.MustCompile(`^DECIMAL\((\d+),(\d+)\)$`)
 	// smallInteger matches the types of numbers up to 127: MySQL's and
 	// DuckDB's TINYINT, ClickHouse's Int8 (int8 is PostgreSQL's bigint).

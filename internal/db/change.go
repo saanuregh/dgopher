@@ -100,7 +100,7 @@ func (s *Session) Apply(ctx context.Context, ch SchemaChange, each func(stmt str
 	// check, when set, refuses the statement as Session.exec's does.
 	execChecked := func(ctx context.Context, stmt string, check func() error) error {
 		start := time.Now()
-		n, err := s.exec(ctx, stmt, check)
+		n, err := s.exec(ctx, stmt, check, true)
 		each(stmt, n, time.Since(start), err)
 		return err
 	}

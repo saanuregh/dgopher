@@ -55,6 +55,13 @@ marked **traffic**. They include:
 - the server activity and account lists, and a Redis key's reads;
 - the statements already recorded above, again.
 
+Some drivers end a transaction or check a connection by a call that
+carries no statement, as Oracle's driver, go-ora, commits, rolls back and
+pings. Such a call is recorded as the statement it stands for: `COMMIT`,
+`ROLLBACK`, or `-- ping`. An Oracle connection's settings, its
+`ALTER SESSION` statements, are recorded as it opens, and a session's
+reads of its transaction and of `DBMS_OUTPUT` after each statement.
+
 How traffic is kept:
 
 - Parameter values are not kept, only how many were sent.
@@ -80,8 +87,8 @@ No hook in the app sees these, so they are not in the log:
 - Protocol messages that carry no statement text: MySQL's statement
   prepare and close, PostgreSQL's prepare, deallocate and cancel requests,
   ClickHouse's batch data, and SQLite's rollback after a failed commit.
-- What `pg_dump`, `pg_restore`, `mysqldump` and the `mysql` client send for
-  a backup or restore. One entry sums each of them up.
+- What `pg_dump`, `pg_restore`, `mysqldump`, the `mysql` client, `expdp`
+  and `impdp` send for a backup or restore. One entry sums each of them up.
 - Local DuckDB files the app creates to import, export or restore.
 
 ## What an entry holds
@@ -104,8 +111,9 @@ Each entry holds:
 
 **What was sent.** The statement is the text the server received,
 including `EXPLAIN` when you explained it. An engine that explains in
-steps, as SQL Server's `SET SHOWPLAN_XML ON` and `OFF`, records each step
-as the app's, for Explain. When the app changed what you
+steps, as SQL Server's `SET SHOWPLAN_XML ON` and `OFF`, or Oracle's read
+of `PLAN_TABLE` after `EXPLAIN PLAN`, records each step as the app's, for
+Explain. When the app changed what you
 typed first, for example by writing a `${var}`'s value into it or turning
 `:name` into the engine's placeholder, the entry also keeps your typed
 text, and the parameter values separately. A `BEGIN` that the app sends on

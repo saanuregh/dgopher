@@ -1,7 +1,7 @@
 # AGENTS.md
 
 DGopher is a native database client for PostgreSQL (and CockroachDB,
-YugabyteDB, TimescaleDB), MySQL (and MariaDB, TiDB), SQL Server,
+YugabyteDB, TimescaleDB), MySQL (and MariaDB, TiDB), SQL Server, Oracle,
 ClickHouse, SQLite, DuckDB and Redis: one Go binary whose UI is drawn by
 [MyGo](https://mygo.egoist.dev), without a webview.
 
@@ -66,7 +66,7 @@ integration tests too when it touches `internal/db`.
   `docker compose --profile compat up -d --wait`, `dgopher-mariadb`,
   `dgopher-tidb`, `dgopher-cockroachdb`, `dgopher-yugabytedb` and
   `dgopher-timescaledb`, and, with `--profile enterprise`,
-  `dgopher-sqlserver`; their tests skip when they are not running. Their ports and passwords are in
+  `dgopher-sqlserver` and `dgopher-oracle`; their tests skip when they are not running. Their ports and passwords are in
   `internal/testutil/testutil.go`,
   `internal/db/integration_test.go`, for the profiled servers
   `internal/testutil/optionalserver/optionalserver.go`, and, for Redis 8,

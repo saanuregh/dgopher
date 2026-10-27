@@ -35,6 +35,14 @@ var (
 			"convert newid count_big stdev var checksum hashbytes json_value json_query json_modify isjson openjson " +
 			"object_id object_name schema_name db_name db_id user_name suser_sname host_name app_name scope_identity " +
 			"ident_current error_message error_number error_line error_severity error_state error_procedure xact_state",
+		Oracle: "nvl nvl2 decode lnnvl nanvl trunc power sign exp ln log remainder bitand chr ascii initcap instr substr " +
+			"lengthb lpad rpad translate regexp_like regexp_substr regexp_replace regexp_instr regexp_count soundex " +
+			"listagg xmlagg json_value json_query json_object json_arrayagg json_table to_char to_date to_number " +
+			"to_timestamp to_timestamp_tz to_clob to_nchar to_dsinterval to_yminterval numtodsinterval numtoyminterval " +
+			"sysdate systimestamp current_date current_timestamp localtimestamp add_months months_between last_day " +
+			"next_day extract from_tz sys_extract_utc sessiontimezone dbtimezone sys_context sys_guid user uid " +
+			"ora_hash standard_hash dump vsize hextoraw rawtohex empty_clob empty_blob bfilename median stddev variance " +
+			"percentile_cont percentile_disc cume_dist percent_rank ratio_to_report width_bucket",
 	}
 )
 

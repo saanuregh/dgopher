@@ -428,7 +428,8 @@ func columnSQL(d Dialect, c ColumnDesign, inlinePK bool) string {
 	if r.KeepsColumnExtra() && c.Extra != "" {
 		parts = append(parts, c.Extra)
 	}
-	if !c.Nullable && !r.NullableWrapper() {
+	notNull := !c.Nullable && !r.NullableWrapper()
+	if notNull && !r.NotNullLast() {
 		parts = append(parts, "NOT NULL")
 	}
 	if c.Default != "" {
@@ -442,6 +443,9 @@ func columnSQL(d Dialect, c ColumnDesign, inlinePK bool) string {
 		}
 	case c.AutoIncrement && r.AutoIncrementSQL() != "":
 		parts = append(parts, r.AutoIncrementSQL())
+	}
+	if notNull && r.NotNullLast() {
+		parts = append(parts, "NOT NULL")
 	}
 	if c.Comment != "" && r.ColumnCommentInline() {
 		parts = append(parts, "COMMENT "+Literal(e, c.Comment))

@@ -134,7 +134,11 @@ type Viewer struct {
 	maskChosen map[string]bool
 	// refs are the foreign keys of other tables pointing at this one, read
 	// before the first review that deletes rows.
-	refs        []db.Reference
+	refs []db.Reference
+	// refSelects read each of refs' tables' rows as its grid does
+	// (TableSelectSQL), its XMLType columns as text and the like; read
+	// when referencing rows are first shown.
+	refSelects  []string
 	refsLoading bool
 	refsWaiting []func()
 	cancel      context.CancelFunc // ends the cursor
@@ -2069,18 +2073,22 @@ func (v *Viewer) referencingRows(row int, then func([]refRows, error)) {
 		v.loadRefs(func() { v.referencingRows(row, then) })
 		return
 	}
+	if v.refSelects == nil && len(v.refs) > 0 {
+		v.loadRefSelects(func() { v.referencingRows(row, then) })
+		return
+	}
 	var out []refRows
 	left := 0
 	var firstErr error
-	for _, r := range v.refs {
+	for i, r := range v.refs {
 		where, ok := v.referencingWhere(r, row)
 		if !ok {
 			continue
 		}
 		left++
 		ref := r
-		name := db.QualifiedName(v.dialect(), r.Schema, r.Table)
-		v.queryRows(db.LimitSQL(v.dialect().Engine(), "SELECT * FROM "+name+" WHERE "+where, " ", 50), nil, 50, func(cols []string, rows [][]any, err error) {
+		q := v.refSelects[i] + " WHERE " + where
+		v.queryRows(db.LimitSQL(v.dialect().Engine(), q, " ", 50), nil, 50, func(cols []string, rows [][]any, err error) {
 			if err != nil && firstErr == nil {
 				firstErr = err
 			}
@@ -2095,6 +2103,29 @@ func (v *Viewer) referencingRows(row int, then func([]refRows, error)) {
 	if left == 0 {
 		then(nil, nil)
 	}
+}
+
+// loadRefSelects reads the columns of refs' tables for refSelects, then
+// runs then.
+func (v *Viewer) loadRefSelects(then func()) {
+	poolOf, refs, dialect := v.source.Conn.PoolFor(v.source.Database), v.refs, v.dialect()
+	BackgroundResetOnPanic(v.a, func() {}, func() func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		selects := make([]string, len(refs))
+		d, err := poolOf(ctx)
+		for i, r := range refs {
+			var cols []db.Column
+			if err == nil {
+				cols, _ = d.Dialect.Columns(ctx, d.Catalog(), r.Schema, r.Table)
+			}
+			selects[i] = db.TableSelectSQL(dialect, r.Schema, r.Table, cols)
+		}
+		return func() {
+			v.refSelects = selects
+			then()
+		}
+	})
 }
 
 // keyColumns are the columns that tell the rows' table's rows apart: its

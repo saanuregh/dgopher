@@ -30,6 +30,7 @@ const (
 	SQLite     Engine = "sqlite"
 	DuckDB     Engine = "duckdb"
 	SQLServer  Engine = "sqlserver"
+	Oracle     Engine = "oracle"
 	// The flavors: each runs on its parent's rules but for what it
 	// overrides, PostgreSQL's for the first three, MySQL's for the others.
 	CockroachDB Engine = "cockroachdb"
@@ -42,7 +43,7 @@ const (
 // Engines lists the supported engines in the order the UI offers them,
 // each flavor after its parent.
 func Engines() []Engine {
-	return []Engine{Postgres, CockroachDB, YugabyteDB, TimescaleDB, MySQL, MariaDB, TiDB, ClickHouse, SQLServer, Redis, SQLite, DuckDB}
+	return []Engine{Postgres, CockroachDB, YugabyteDB, TimescaleDB, MySQL, MariaDB, TiDB, ClickHouse, SQLServer, Oracle, Redis, SQLite, DuckDB}
 }
 
 // Environment says how careful the app must be with a connection.
@@ -201,6 +202,9 @@ type Config struct {
 	// ClickHouseProtocol is how a ClickHouse connection talks to its
 	// server.
 	ClickHouseProtocol ClickHouseProtocol `json:"clickhouseProtocol,omitempty"`
+	// Oracle says how an Oracle connection names its database, and the
+	// wallet its TLS takes.
+	Oracle OracleConfig `json:"oracle,omitzero"`
 	// KeySeparator splits a Redis connection's key names into folders;
 	// "" for the usual ":".
 	KeySeparator string `json:"keySeparator,omitempty"`
@@ -208,6 +212,17 @@ type Config struct {
 	// database/schema for another of PostgreSQL's databases; a schema not
 	// named is read as needed.
 	Catalog map[string]CatalogDepth `json:"catalog,omitempty"`
+}
+
+// OracleConfig is what an Oracle connection says beyond the others.
+type OracleConfig struct {
+	// SID: Database names an instance's SID, as older connections do,
+	// rather than the service the listener knows.
+	SID bool `json:"sid,omitempty"`
+	// Wallet is the folder of an Oracle wallet, whose auto-login file
+	// cwallet.sso holds the certificates TLS trusts and the client
+	// certificate it logs in with, as Autonomous Database's mTLS needs.
+	Wallet string `json:"wallet,omitempty"`
 }
 
 // CatalogDepth is how much of a schema's catalog is read: on a very large
@@ -403,6 +418,19 @@ func (c *Config) Validate() error {
 	} else if strings.TrimSpace(c.Host) == "" {
 		errs = append(errs, "a host is required")
 	}
+	var fields ConnectionFields
+	if r, ok := SQL(c.Engine); ok {
+		fields = r.ConnectionFields()
+	}
+	if c.Oracle.SID && !fields.SID {
+		errs = append(errs, "a SID names an Oracle instance: "+c.Engine.Label()+" has none")
+	}
+	if c.Oracle.Wallet != "" && !fields.Wallet {
+		errs = append(errs, "a wallet is Oracle's: "+c.Engine.Label()+" takes none")
+	}
+	if r, ok := rulesOf(c.Engine).(configChecker); ok {
+		errs = append(errs, r.checkConfig(c)...)
+	}
 	if c.Port < 0 || c.Port > 65535 {
 		errs = append(errs, "the port must be between 1 and 65535")
 	}
@@ -510,6 +538,12 @@ func (c *Config) Validate() error {
 		return errors.New(strings.Join(errs, "; "))
 	}
 	return nil
+}
+
+// configChecker is the rules of an engine whose connections need more
+// than the others', as Oracle's a service name or a SID.
+type configChecker interface {
+	checkConfig(c *Config) []string
 }
 
 // AWS identity values become words of the aws command line, which on

@@ -38,6 +38,7 @@ func TestEngineFactsPinned(t *testing.T) {
 		TiDB:        {"TiDB", 4000, "root", sqltext.MySQL, "SELECT VERSION()", tidbDialect{}, []BackupFormat{BackupSQL}},
 
 		SQLServer: {"SQL Server", 1433, "sa", sqltext.TSQL, "SELECT CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(128))", sqlserverDialect{}, []BackupFormat{BackupBacpac, BackupServerFile}},
+		Oracle:    {"Oracle", 1521, "system", sqltext.Oracle, "SELECT version_full FROM product_component_version WHERE ROWNUM = 1", oracleDialect{}, []BackupFormat{BackupDataPump}},
 	}
 	engines := append(Engines(), "unknown")
 	if len(engines) != len(want) {
@@ -68,8 +69,8 @@ func TestEngineFactsPinned(t *testing.T) {
 // Every engine has rules of its own, the SQL ones and only they answer
 // SQL's hooks, and each lexes as a dialect sqltext knows.
 func TestEngineRulesCover(t *testing.T) {
-	sqlEngines := []Engine{Postgres, CockroachDB, YugabyteDB, TimescaleDB, MySQL, MariaDB, TiDB, ClickHouse, SQLServer, SQLite, DuckDB}
-	lexers := []sqltext.Dialect{sqltext.Generic, sqltext.Postgres, sqltext.MySQL, sqltext.ClickHouse, sqltext.SQLite, sqltext.TSQL}
+	sqlEngines := []Engine{Postgres, CockroachDB, YugabyteDB, TimescaleDB, MySQL, MariaDB, TiDB, ClickHouse, SQLServer, Oracle, SQLite, DuckDB}
+	lexers := []sqltext.Dialect{sqltext.Generic, sqltext.Postgres, sqltext.MySQL, sqltext.ClickHouse, sqltext.SQLite, sqltext.TSQL, sqltext.Oracle}
 	if len(registeredRules) != len(Engines()) {
 		t.Errorf("%d engines have rules, want one each of %v", len(registeredRules), Engines())
 	}
@@ -161,6 +162,8 @@ func TestServerEnforcesReadOnly(t *testing.T) {
 	want := map[Engine]bool{
 		Postgres: true, CockroachDB: true, YugabyteDB: true, TimescaleDB: true, MySQL: true, MariaDB: true, TiDB: false,
 		ClickHouse: true, SQLite: true, DuckDB: true, Redis: false, "unknown": false, SQLServer: false,
+		// From 23ai (ServerReadOnlySince).
+		Oracle: true,
 	}
 	for _, e := range append(Engines(), "unknown") {
 		w, ok := want[e]

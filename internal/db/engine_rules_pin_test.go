@@ -452,7 +452,7 @@ func TestPinURLSchemes(t *testing.T) {
 		"sqlite3:///tmp/a.db":                   "engine=sqlite tls=\"\" database=\"/tmp/a.db\"",
 		"file:///tmp/a.db":                      "engine=sqlite tls=\"\" database=\"/tmp/a.db\"",
 		"duckdb:///tmp/a.duckdb":                "engine=duckdb tls=\"\" database=\"/tmp/a.duckdb\"",
-		"oracle://h/d":                          "error: unknown kind of URL \"oracle\": use postgres://, mysql://, clickhouse://, redis:// or a file path",
+		"oracle://h/d":                          "engine=oracle tls=\"\" database=\"d\"",
 		"sqlserver://h/d":                       "error: the URL names the instance \"d\": DGopher connects to an instance by its port, as host:port",
 		"sqlserver://h?database=d&encrypt=true": "engine=sqlserver tls=\"verify-full\" database=\"d\"",
 		"mssql://h:1444?Database=d&Encrypt=true&TrustServerCertificate=yes": "engine=sqlserver tls=\"require\" database=\"d\"",
