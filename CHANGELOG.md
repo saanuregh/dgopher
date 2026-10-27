@@ -2,6 +2,67 @@
 
 The changes of each version of DGopher.
 
+## 0.7.0
+
+### Added
+
+- SQL Server 2019 and later, and Azure SQL: T-SQL run a batch at a time (up
+  to `GO`), with every result set and message of a batch; its catalog and
+  table designer, query plans with SQL Server's index suggestions, users,
+  activity, maintenance and backup. TLS, Entra ID, Kerberos, SSH and
+  proxies. SQL Server has no read-only session, so DGopher's own check is
+  what keeps a read-only connection from writing.
+- Oracle 19c and later: Oracle SQL and PL/SQL units run to a `/` line,
+  binds asked for, `DBMS_OUTPUT` lines shown as messages; its catalog and
+  table designer, query plans, users, activity, maintenance, and Data Pump
+  backup and restore. Service name or SID, EZConnect and connect
+  descriptors, TLS (TCPS) and wallets, SSH and proxies. From 23ai the
+  server itself keeps read-only connections from writing.
+- MariaDB, TiDB, CockroachDB, YugabyteDB and TimescaleDB are engines of
+  their own, each with its own query plans, activity, catalog and backup
+  rather than MySQL's or PostgreSQL's:
+  - MariaDB: its plans, locks, users and roles, sequences, system-versioned
+    tables, and `mariadb-dump`.
+  - TiDB: its plans and cluster activity; a read-only connection is kept
+    from writing by DGopher, as TiDB refuses MySQL's read-only setting;
+    backups are schema only.
+  - CockroachDB 26.2 and later: its catalog, plans with index
+    recommendations, sessions, locks, statistics and jobs.
+  - YugabyteDB 2024.2 and later: plans with storage reads, activity of the
+    node reached, sizes, and `ysql_dump`.
+  - TimescaleDB: hypertables, continuous aggregates, chunks and jobs, and
+    restores wrapped in TimescaleDB's pre- and post-restore calls.
+- After connecting, DGopher checks which engine the server really is and
+  offers to switch a connection set to another engine of its family. Test
+  Connection names the server's engine too.
+- The engine picker is a drop-down, with Neon and Supabase as PostgreSQL
+  presets.
+
+### Changed
+
+- Schema changes and other statements the server commits or applies at
+  once, as on CockroachDB, YugabyteDB and TiDB, ask or warn first instead
+  of promising a rollback.
+- The read-only checkbox says whether the server or DGopher keeps the
+  connection from writing.
+- MyGo 0.7.1: animations repaint only what moves, and the connecting dot
+  and the results' placeholder draw at 30 frames a second, for less power.
+  The macOS disk image and Windows installer are now named
+  `dgopher-<version>-<arch>.dmg` and `dgopher-setup-<version>-<arch>.exe`.
+
+### Fixed
+
+- MySQL and MariaDB: a write hidden behind a version-gated comment
+  (`/*!99999 SELECT */ DELETE …`) is now treated as a write, and so are
+  sequence functions.
+- Statements written with Unicode spaces are read as the server reads
+  them, so they can no longer pass as reads.
+- Passwords written without quotes (`IDENTIFIED BY tiger`) are cut from
+  history and the audit log.
+- `INTERVAL` and `POINT` columns no longer count as numbers.
+- A changed label, such as Connect becoming Disconnect, no longer stays
+  half faded beside the SQL editor's blinking caret.
+
 ## 0.6.0
 
 ### Added
