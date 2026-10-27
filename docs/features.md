@@ -1235,15 +1235,19 @@ in the same database or another, of any engine.
 | MySQL | `mysqldump`, in one transaction, with routines, triggers and events |
 | SQLite | a copy with `VACUUM INTO`, while the database stays in use |
 | DuckDB | a folder of Parquet files (`EXPORT DATABASE`) |
+| SQL Server | a BACPAC file on this computer (its schema and rows), which `sqlpackage` exports and imports; or a copy-only `BACKUP DATABASE` into a file on the server, which `RESTORE DATABASE` restores over the database ([engines](engines.md#sql-server)) |
 | Oracle | Data Pump: `expdp` exports a schema (its definitions, its rows or both) into a dump file that stays on the server, which `impdp` imports ([engines](engines.md#oracle)) |
 
 - The tools reach the server as the connection does, through its tunnel or
   proxy. Their password goes in their environment or a file of their own,
   never on their command line. Their progress shows as they write.
-- The tools take nothing from your environment. A database's name is only a
-  name (one holding `=` or a URL changes nothing). `pg_dump` and
+- The tools run without your environment's variables that begin with
+  `PG`, `MYSQL_` or `LIBMYSQL_`; the rest reach them. A database's name is
+  only a name (one holding `=` or a URL changes nothing). `pg_dump` and
   `pg_restore` never read `~/.pgpass` or `PG*` variables, and `mysqldump`
-  reads no option file but the app's.
+  reads no option file but the app's. Oracle's `expdp` and `impdp` read
+  `ORACLE_HOME` and `TNS_ADMIN` from the environment, as their wallets and
+  network files need.
 - Under verify-full without a CA file, the PostgreSQL tools trust the
   system's roots (they need version 16 or later). `mysqldump` needs the
   connection's CA file. Through a tunnel or proxy, `mysqldump` checks the

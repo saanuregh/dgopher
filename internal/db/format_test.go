@@ -60,6 +60,32 @@ func TestIsNumericTypeOracle(t *testing.T) {
 	}
 }
 
+// A numeric type is known by its words, so INTERVAL and POINT, which hold
+// INT, are not numeric.
+func TestIsNumericType(t *testing.T) {
+	cases := []struct {
+		typ  string
+		want bool
+	}{
+		{"INT", true}, {"integer", true}, {"BIGINT", true}, {"smallint", true}, {"TINYINT", true},
+		{"MEDIUMINT", true}, {"int(10) unsigned", true}, {"INT2", true}, {"int4", true}, {"INT8", true},
+		{"UInt8", true}, {"UInt256", true}, {"Int32", true}, {"Nullable(Int64)", true},
+		{"LowCardinality(Nullable(UInt16))", true}, {"Float64", true}, {"BFloat16", true},
+		{"Decimal(9, 2)", true}, {"Decimal128(4)", true}, {"HUGEINT", true}, {"UHUGEINT", true},
+		{"UBIGINT", true}, {"UTINYINT", true}, {"VARINT", true}, {"numeric(10,2)", true},
+		{"double precision", true}, {"real", true}, {"money", true}, {"smallmoney", true},
+		{"serial", true}, {"bigserial", true}, {"NUMBER(10,2)", true}, {"BINARY_DOUBLE", true},
+		{"INTERVAL", false}, {"interval day to second", false}, {"INTERVAL YEAR(2) TO MONTH", false},
+		{"IntervalSecond", false}, {"POINT", false}, {"GEOMETRY(POINT)", false}, {"geography(Point, 4326)", false},
+		{"MULTIPOINT", false}, {"varchar(20)", false}, {"text", false}, {"timestamp", false}, {"uuid", false},
+	}
+	for _, c := range cases {
+		if got := IsNumericType(c.typ); got != c.want {
+			t.Errorf("IsNumericType(%q) = %v, want %v", c.typ, got, c.want)
+		}
+	}
+}
+
 func TestQuoteClickHouse(t *testing.T) {
 	cases := []struct{ name, want string }{
 		{"`", "````"},
