@@ -64,6 +64,25 @@ services:
       interval: 2s
       retries: 60
 
+  # CockroachDB, in the compat profile: docker compose --profile compat up
+  # -d --wait cockroachdb. One secure node, so that passwords work, taking
+  # them without TLS; the image makes the database, and the user dgopher
+  # (an admin) with its password. Healthy once both exist.
+  cockroachdb:
+    image: cockroachdb/cockroach:latest-v26.3
+    container_name: dgopher-cockroachdb
+    profiles: ["compat"]
+    ports: ["127.0.0.1:26257:26257"]
+    command: ["start-single-node", "--accept-sql-without-tls"]
+    environment:
+      COCKROACH_DATABASE: shop
+      COCKROACH_USER: dgopher
+      COCKROACH_PASSWORD: dgopher
+    healthcheck:
+      test: ["CMD", "test", "-f", "/cockroach/init_success"]
+      interval: 2s
+      retries: 60
+
   clickhouse:
     image: clickhouse/clickhouse-server:26.3
     container_name: dgopher-ch

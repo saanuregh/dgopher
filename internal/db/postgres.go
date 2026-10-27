@@ -133,33 +133,46 @@ ORDER BY c.relname`, []any{schema}, func(scan func(...any) error) (Object, error
 		if err := scan(&o.Name, &kind, &o.Rows, &o.Bytes, &o.Comment, &o.Partitioning); err != nil {
 			return o, err
 		}
-		switch kind {
-		case "v":
-			o.Kind = KindView
-		case "m":
-			o.Kind = KindMaterializedView
-		case "f":
-			o.Kind = KindForeignTable
-		default:
-			o.Kind = KindTable
-		}
+		o.Kind = postgresObjectKind(kind)
 		return o, nil
 	})
 }
 
+// postgresObjectKind is the kind of a pg_class relkind.
+func postgresObjectKind(relkind string) ObjectKind {
+	switch relkind {
+	case "v":
+		return KindView
+	case "m":
+		return KindMaterializedView
+	case "f":
+		return KindForeignTable
+	}
+	return KindTable
+}
+
 func (postgresDialect) Columns(ctx context.Context, q Querier, schema, table string) ([]Column, error) {
-	cols, err := postgresColumns(ctx, q, schema, table)
+	cols, err := postgresColumns(ctx, q, schema, table, postgresColumnsFrom)
 	return cols[table], err
 }
 
 func (postgresDialect) SchemaColumns(ctx context.Context, q Querier, schema string) (map[string][]Column, error) {
-	return postgresColumns(ctx, q, schema, "")
+	return postgresColumns(ctx, q, schema, "", postgresColumnsFrom)
 }
+
+// columnsFrom is how an engine of PostgreSQL's family finds the columns
+// postgresColumns reads: the tables and views whose columns a schema
+// lists, and a join leaving out columns the engine hides.
+type columnsFrom struct {
+	relations, hidden string
+}
+
+var postgresColumnsFrom = columnsFrom{relations: "c.relkind IN ('r','p','v','m','f') AND NOT c.relispartition"}
 
 // postgresColumns reads the columns of a table of a schema, or of every
 // table and view of it for "", by their table.
-func postgresColumns(ctx context.Context, q Querier, schema, table string) (map[string][]Column, error) {
-	which, args := "c.relkind IN ('r','p','v','m','f') AND NOT c.relispartition", []any{schema}
+func postgresColumns(ctx context.Context, q Querier, schema, table string, from columnsFrom) (map[string][]Column, error) {
+	which, args := from.relations, []any{schema}
 	if table != "" {
 		which, args = "c.relname = $2", append(args, table)
 	}
@@ -171,7 +184,7 @@ func postgresColumns(ctx context.Context, q Querier, schema, table string) (map[
 FROM pg_attribute a
 JOIN pg_class c ON c.oid = a.attrelid
 JOIN pg_namespace n ON n.oid = c.relnamespace
-LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+`+from.hidden+`LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
 WHERE n.nspname = $1 AND `+which+` AND a.attnum > 0 AND NOT a.attisdropped
 ORDER BY c.relname, a.attnum`, args)
 }
@@ -412,6 +425,7 @@ func (postgresEngine) URLTLSParameters() map[string]map[string]TLSMode {
 
 func (postgresEngine) CloudIdentity() bool              { return true }
 func (postgresEngine) ClearTextPassword() bool          { return false }
+func (postgresEngine) ServerEnforcesReadOnly() bool     { return true }
 func (postgresEngine) DatabasesNeedOwnConnection() bool { return true }
 func (postgresEngine) DefaultSchemaName() string        { return "public" }
 func (postgresEngine) FileExtensions() []string         { return nil }
@@ -698,7 +712,8 @@ func (postgresEngine) DropConstraintSQL(d Dialect, kind ConstraintKind, schema, 
 	return dropConstraintSQL(d, kind, schema, table, name)
 }
 
-func (postgresEngine) UniqueAsConstraint() bool { return true }
+func (postgresEngine) UniqueAsConstraint() bool       { return true }
+func (postgresEngine) ReplacesPrimaryKeyAtOnce() bool { return false }
 
 func (postgresEngine) TableCommentSQL(d Dialect, schema, table, comment string) string {
 	return commentOnTableSQL(d, schema, table, comment)
@@ -729,10 +744,15 @@ func (postgresEngine) TruncateToEmpty() bool            { return false }
 func (postgresEngine) ManagesAccounts() bool            { return true }
 
 func (postgresEngine) ListAccounts(ctx context.Context, q Querier) ([]Account, error) {
+	return listPostgresAccounts(ctx, q, "r.rolname !~ '^pg_'")
+}
+
+// listPostgresAccounts lists the roles of pg_roles that which keeps.
+func listPostgresAccounts(ctx context.Context, q Querier, which string) ([]Account, error) {
 	return scanAll(ctx, q, `SELECT r.rolname, r.rolcanlogin, r.rolsuper, r.rolcreatedb, r.rolcreaterole, r.rolreplication, r.rolbypassrls,
   r.rolconnlimit, coalesce(r.rolvaliduntil::text, ''),
   coalesce((SELECT string_agg(b.rolname, ',' ORDER BY b.rolname) FROM pg_auth_members m JOIN pg_roles b ON b.oid = m.roleid WHERE m.member = r.oid), '')
-FROM pg_roles r WHERE r.rolname !~ '^pg_' ORDER BY r.rolname`, nil, func(scan func(...any) error) (Account, error) {
+FROM pg_roles r WHERE `+which+` ORDER BY r.rolname`, nil, func(scan func(...any) error) (Account, error) {
 		var a Account
 		var login, super, createDB, createRole, replication, bypass bool
 		var limit int
@@ -784,10 +804,17 @@ GROUP BY kind, name ORDER BY kind = 'TABLE', kind, name`, []any{a.Name}, func(sc
 	if err != nil {
 		return nil, err
 	}
+	return append(out, roleMemberships(d, a)...), nil
+}
+
+// roleMemberships are the roles an account of PostgreSQL's family is a
+// member of, as privileges revoked by REVOKE role FROM account.
+func roleMemberships(d Dialect, a Account) []Privilege {
+	var out []Privilege
 	for _, role := range a.MemberOf {
-		out = append(out, Privilege{Text: "member of " + role, Revoke: "REVOKE " + d.Quote(role) + " FROM " + account})
+		out = append(out, Privilege{Text: "member of " + role, Revoke: "REVOKE " + d.Quote(role) + " FROM " + d.Quote(a.Name)})
 	}
-	return out, nil
+	return out
 }
 
 func (postgresEngine) AccountName(a Account) string { return postgresDialect{}.Quote(a.Name) }
@@ -852,6 +879,11 @@ func (postgresEngine) BackupFormats() []BackupFormat {
 }
 
 func (postgresEngine) PlanBackup(ctx context.Context, d *DB, o BackupOptions) (ToolRun, error) {
+	return planPgDump(ctx, d, o)
+}
+
+// planPgDump is how pg_dump backs up a database of PostgreSQL's family.
+func planPgDump(ctx context.Context, d *DB, o BackupOptions) (ToolRun, error) {
 	if err := backupOptionsError(d.Config.Engine, o); err != nil {
 		return ToolRun{}, err
 	}

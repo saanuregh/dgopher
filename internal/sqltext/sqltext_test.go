@@ -1409,3 +1409,203 @@ func TestUnwrapExecutableNestedComment(t *testing.T) {
 		t.Fatalf("%q unwrapped to %q: %d commas, the server reads 3", src, UnwrapExecutable(src), commas)
 	}
 }
+
+// CockroachDB's statements, read in the Postgres dialect it lexes with:
+// any that changes data, a file, a job, the cluster or its settings is a
+// write, as is the plan bundle EXPLAIN ANALYZE (DEBUG) keeps.
+func TestClassifyCockroachDB(t *testing.T) {
+	for _, c := range []struct {
+		src   string
+		class Class
+	}{
+		{"EXPLAIN SELECT 1", Read},
+		{"EXPLAIN (VERBOSE) SELECT 1", Read},
+		{"EXPLAIN (DISTSQL) SELECT 1", Read},
+		{"EXPLAIN (OPT, ENV) SELECT 1", Read},
+		{"EXPLAIN ANALYZE SELECT 1", Read},
+		{"EXPLAIN ANALYZE (VERBOSE) SELECT 1", Read},
+		{"EXPLAIN ANALYZE (DISTSQL) SELECT 1", Read},
+		{"EXPLAIN ANALYZE (DEBUG) SELECT 1", Write},
+		{"EXPLAIN ANALYZE (VERBOSE, DEBUG) SELECT 1", Write},
+		{"EXPLAIN (ANALYZE, DEBUG) SELECT 1", Write},
+		{"EXPLAIN ANALYZE (VERBOSE) DELETE FROM t WHERE id = 1", Write},
+		{"SHOW TABLES", Read},
+		{"SHOW CLUSTER SETTING sql.defaults.distsql", Read},
+		{"SHOW JOBS", Read},
+		{"SHOW CREATE TABLE t", Read},
+		{"SET CLUSTER SETTING sql.defaults.distsql = off", Write},
+		{"set  cluster setting kv.rangefeed.enabled = true", Write},
+		{"RESET CLUSTER SETTING sql.defaults.distsql", Write},
+		{"CANCEL QUERY '17a8e3c1d2'", Write},
+		{"CANCEL QUERIES (SELECT query_id FROM [SHOW CLUSTER QUERIES])", Write},
+		{"CANCEL SESSION '17a8e3c1d2'", Write},
+		{"CANCEL JOB 1", Write},
+		{"PAUSE JOB 1", Write},
+		{"PAUSE ALL CHANGEFEED JOBS", Write},
+		{"RESUME JOB 1", Write},
+		{"BACKUP INTO 'nodelocal://1/b'", Write},
+		{"RESTORE TABLE t FROM LATEST IN 'nodelocal://1/b'", Write},
+		{"IMPORT INTO t CSV DATA ('nodelocal://1/t.csv')", Write},
+		{"EXPORT INTO CSV 'nodelocal://1/x' FROM SELECT * FROM t", Write},
+		{"ALTER RANGE default CONFIGURE ZONE USING num_replicas = 5", DDL},
+		{"ALTER TABLE t CONFIGURE ZONE USING gc.ttlseconds = 600", DDL},
+		{"CREATE CHANGEFEED FOR t INTO 'kafka://k'", DDL},
+		{"EXPERIMENTAL CHANGEFEED FOR t", Write},
+		{"ALTER TABLE t SPLIT AT VALUES (5)", DDL},
+		{"ALTER TABLE t SCATTER", DDL},
+		{"ALTER TABLE t RELOCATE VALUES (ARRAY[1], 1)", DDL},
+		{"ALTER DATABASE d SURVIVE REGION FAILURE", DDL},
+		{"CREATE STATISTICS s FROM t", DDL},
+		{"UPSERT INTO t VALUES (1)", Write},
+		{"SELECT crdb_internal.reset_sql_stats()", Write},
+		{`SELECT "crdb_internal"."request_statement_bundle"('SELECT _', 0, '0s', '0s')`, Write},
+		{"SELECT crdb_internal.unsafe_upsert_descriptor(1, '')", Write},
+		{"SELECT crdb_internal.force_panic('x')", Write},
+		{"SELECT crdb_internal.cluster_id()", Read},
+		{"SELECT crdb_internal.node_id(), crdb_internal.pretty_key('\\x89'::BYTES, 0)", Read},
+		{"SELECT crdb_internal.show_create_all_tables('shop')", Read},
+		{"SELECT crdb_internal.lease_holder('\\x89'::BYTES), crdb_internal.range_stats('\\x89'::BYTES)", Read},
+		{"SELECT crdb_internal.fingerprint('\\x89'::BYTES, '\\x8a'::BYTES, 0::DECIMAL, false)", Read},
+		// Any other crdb_internal function counts as a write, as one added
+		// in a later version.
+		{"SELECT crdb_internal.inject_hint('SELECT 1', 'x')", Write},
+		{"SELECT crdb_internal.request_transaction_bundle('x', 0, '0s', '0s', false)", Write},
+		{"SELECT crdb_internal.a_function_of_a_later_version()", Write},
+		{"SELECT shop.crdb_internal.read_file('x')", Write},
+		{`SELECT "crdb_internal".node_id(), CRDB_INTERNAL.Check_Consistency(true, '', '')`, Write},
+		{`SELECT U&"crdb!005finternal" UESCAPE '!'.reset_sql_stats()`, Write},
+		{"SELECT * FROM crdb_internal.cluster_sessions", Read},
+		// Unqualified, the names are PostgreSQL's functions, or none.
+		{"SELECT log(10)", Read},
+		{"SELECT * FROM t AS OF SYSTEM TIME '-10s'", Read},
+	} {
+		if a := Classify(c.src, Postgres); a.Class != c.class {
+			t.Errorf("%q: %+v, want class %v", c.src, a, c.class)
+		}
+	}
+	// PostgreSQL's own statements keep their classes.
+	for src, want := range map[string]Class{
+		"SET search_path TO x": Session, "RESET search_path": Session, "RESET ALL": Session,
+		"EXPLAIN (ANALYZE, BUFFERS) SELECT 1": Read, "EXPLAIN ANALYZE VERBOSE SELECT 1": Read,
+		"EXPLAIN ANALYZE (SELECT nextval('s'))": Write, "EXPLAIN ANALYZE ((SELECT 1))": Read,
+	} {
+		if a := Classify(src, Postgres); a.Class != want {
+			t.Errorf("%q: %+v, want class %v", src, a, want)
+		}
+	}
+}
+
+// An EXPLAIN option is a name, quoted or not: a quoted ANALYZE runs the
+// statement and a quoted DEBUG keeps a bundle, as the servers read them. A
+// U& name, or one with a UESCAPE, is not decoded, so it counts as both.
+func TestClassifyExplainQuotedOptions(t *testing.T) {
+	for src, want := range map[string]Class{
+		`EXPLAIN ("analyze") DELETE FROM t WHERE id = 1`:                   Write,
+		`EXPLAIN ("analyze", "verbose") DELETE FROM t WHERE id = 1`:        Write,
+		`EXPLAIN (U&"analyze") DELETE FROM t WHERE id = 1`:                 Write,
+		`EXPLAIN (U&"an!0061lyze" UESCAPE '!') DELETE FROM t WHERE id = 1`: Write,
+		`EXPLAIN (U&"verbose") SELECT 1`:                                   Write,
+		`EXPLAIN ("analyze" false) DELETE FROM t WHERE id = 1`:             Read,
+		`EXPLAIN ("verbose") DELETE FROM t WHERE id = 1`:                   Read,
+		`EXPLAIN ("analyze") SELECT 1`:                                     Read,
+		`EXPLAIN ANALYZE ("debug") SELECT 1`:                               Write,
+		`EXPLAIN ("analyze", "debug") SELECT 1`:                            Write,
+		`EXPLAIN ANALYZE ("verbose") SELECT 1`:                             Read,
+		`EXPLAIN ANALYZE ("verbose") DELETE FROM t WHERE id = 1`:           Write,
+	} {
+		if a := Classify(src, Postgres); a.Class != want {
+			t.Errorf("%q: %+v, want class %v", src, a, want)
+		}
+	}
+}
+
+// CockroachDB runs the statement a "[ … ]" data source holds: the
+// strictest of it and its statement counts. An array's subscript is no
+// statement.
+func TestClassifyBracketStatements(t *testing.T) {
+	for _, c := range []struct {
+		src       string
+		class     Class
+		dangerous bool
+	}{
+		{"SELECT * FROM [DELETE FROM t WHERE id = 1 RETURNING a]", Write, false},
+		{"SELECT * FROM [DELETE FROM t RETURNING a]", Write, true},
+		{"SELECT * FROM t JOIN [UPDATE u SET a = 1 WHERE id = 2 RETURNING id] AS x ON true", Write, false},
+		{"select * from [ insert into t values (1) returning a ]", Write, false},
+		{"SELECT * FROM [EXPLAIN ANALYZE (DEBUG) SELECT 1]", Write, false},
+		{"SELECT * FROM t, [UPSERT INTO u VALUES (1) RETURNING a]", Write, false},
+		{"WITH x AS (SELECT * FROM [DELETE FROM t WHERE id = 1 RETURNING a]) SELECT * FROM x", Write, false},
+		{"SELECT * FROM (SELECT * FROM [SELECT crdb_internal.reset_sql_stats()])", Write, false},
+		{"SELECT * FROM [SHOW JOBS]", Read, false},
+		{"SELECT * FROM [SELECT 1 AS a] WITH ORDINALITY", Read, false},
+		{"SELECT query_id FROM [SHOW CLUSTER QUERIES]", Read, false},
+		{"EXPLAIN SELECT * FROM [DELETE FROM t WHERE id = 1 RETURNING a]", Read, false},
+		{"EXPLAIN ANALYZE SELECT * FROM [DELETE FROM t WHERE id = 1 RETURNING a]", Write, false},
+		// Subscripts and arrays, as PostgreSQL writes them.
+		{"SELECT a[1], a[1:2], b[i], ARRAY[1, 2], ARRAY[1, 2][1] FROM t", Read, false},
+		{"SELECT arr[start:stop], arr[set], m[table] FROM t", Read, false},
+		{`SELECT "a"[start], (f(x))[set], a[1][reset] FROM t`, Read, false},
+		{"SELECT * FROM t@[1]", Read, false},
+		// DuckDB's lists, which it reads in the same dialect.
+		{"SELECT [start, stop], [start], [comment || 'x'], [set:2], [x FOR x IN l] FROM t", Read, false},
+		{"SELECT * FROM [SELECT -1 AS a], [SELECT * FROM t]", Read, false},
+	} {
+		if a := Classify(c.src, Postgres); a.Class != c.class || a.Dangerous != c.dangerous {
+			t.Errorf("%q: %+v, want class %v dangerous %v", c.src, a, c.class, c.dangerous)
+		}
+	}
+	// Each nested source is read once more: too deep counts as unread.
+	deep := strings.Repeat("WITH x AS (SELECT * FROM [", 3000) + "SELECT 1" + strings.Repeat("]) SELECT 1", 3000)
+	if a := Classify(deep, Postgres); a.Class != Write || !a.Dangerous {
+		t.Errorf("%d nested sources: %+v", 3000, a)
+	}
+}
+
+// With crdb_internal on CockroachDB's search path, its functions are
+// called by their names alone: a SET that puts it there is a write.
+func TestClassifySearchPathCrdbInternal(t *testing.T) {
+	for src, want := range map[string]Class{
+		"SET search_path = crdb_internal, public":             Write,
+		"SET search_path TO public, CRDB_INTERNAL":            Write,
+		`SET SESSION search_path = "crdb_internal"`:           Write,
+		"SET LOCAL search_path = 'crdb_internal'":             Write,
+		"SET search_path = 'public, crdb_internal'":           Write,
+		`SET "search_path" = crdb_internal`:                   Write,
+		"SET schema 'crdb_internal'":                          Write,
+		"SET SCHEMA crdb_internal":                            Write,
+		`SET search_path = U&"crdb_internal"`:                 Write,
+		`SET search_path = U&"crdb!005finternal" UESCAPE '!'`: Write,
+		`SET search_path = E'crdb\137internal'`:               Write,
+		`SET search_path = 'crdb\137internal'`:                Write,
+		`SET U&"search!005fpath" UESCAPE '!' = x`:             Write,
+		"SET search_path = public, pg_catalog":                Session,
+		"SET schema 'public'":                                 Session,
+		"SET application_name = 'crdb_internal'":              Session,
+	} {
+		if a := Classify(src, Postgres); a.Class != want {
+			t.Errorf("%q: %+v, want class %v", src, a, want)
+		}
+	}
+}
+
+// CockroachDB's allow_unsafe_internals opens crdb_internal and system to
+// the session: setting or resetting it counts as changing the server.
+func TestClassifyAllowUnsafeInternals(t *testing.T) {
+	for src, want := range map[string]Class{
+		"SET allow_unsafe_internals = on":                     Write,
+		"SET allow_unsafe_internals TO true":                  Write,
+		"set session ALLOW_UNSAFE_INTERNALS = 'on'":           Write,
+		"SET LOCAL allow_unsafe_internals = on":               Write,
+		`SET "allow_unsafe_internals" = on`:                   Write,
+		`SET U&"allow!005funsafe_internals" UESCAPE '!' = on`: Write,
+		"RESET allow_unsafe_internals":                        Write,
+		"RESET SESSION allow_unsafe_internals":                Write,
+		"SET allow_unsafe_internals = off":                    Write,
+		"SET application_name = 'allow_unsafe_internals'":     Session,
+		"RESET application_name":                              Session,
+	} {
+		if a := Classify(src, Postgres); a.Class != want {
+			t.Errorf("%q: %+v, want class %v", src, a, want)
+		}
+	}
+}

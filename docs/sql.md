@@ -137,7 +137,16 @@ These count as writes:
 
 - `INTO` a table or file after `SELECT`, `TABLE` or `VALUES`.
 - `EXPLAIN ANALYZE` and `DESC ANALYZE` of a write, and MariaDB's `ANALYZE`
-  of a write, such as `ANALYZE UPDATE …`, which runs it.
+  of a write, such as `ANALYZE UPDATE …`, which runs it. EXPLAIN's options
+  are read as names, quoted or not, so `EXPLAIN ("analyze") DELETE …`
+  counts too; a `U&` name or a `UESCAPE` among them counts as every
+  option.
+- CockroachDB's `EXPLAIN … (DEBUG)`, which keeps a statement bundle on the
+  server.
+- What a CockroachDB `[ <statement> ]` data source runs, such as
+  `SELECT * FROM [DELETE FROM t RETURNING id]`. Array subscripts
+  (`a[1]`, `ARRAY[…]`) and DuckDB lists (`[start, stop]`) are not
+  statements.
 - A `WITH` (CTE) that changes data.
 - A call to a function with side effects. Examples:
   `pg_terminate_backend`, `pg_cancel_backend`, `setval`, `nextval`,
@@ -147,6 +156,9 @@ These count as writes:
   functions `NEXTVAL`, `SETVAL` and `LASTVAL`, and `NEXT VALUE FOR`; SQLite
   `load_extension`. The full list per engine is in `classify.go`. Quoted
   and escaped function names are decoded first.
+- Any call of a CockroachDB `crdb_internal` function but the known reads
+  (`crdbInternalReads` in `classify.go`), such as `node_id`, `cluster_id`
+  and the `show_create_all_*` functions.
 - `SELECT … FOR UPDATE` or `FOR SHARE` (MySQL: `LOCK IN SHARE MODE`), in a
   subquery or a `WITH` too. It locks its rows for as long as its result,
   or its transaction, is open.
@@ -172,6 +184,11 @@ These change the server rather than the session, so they count as writes:
 - TiDB `SET CONFIG`, which configures a cluster component, and
   `SET BINDING`, which switches a global plan binding.
 - PostgreSQL `COMMIT PREPARED` and `ROLLBACK PREPARED`.
+- CockroachDB `SET CLUSTER SETTING` and `RESET CLUSTER SETTING`.
+- A `SET search_path` or `SET schema` that names `crdb_internal`, whose
+  functions it then lets be called by their names alone, and a `SET` or
+  `RESET` of `allow_unsafe_internals`, which opens `crdb_internal` and
+  `system` to the session.
 - DuckDB `SET`s of a setting that names a file it writes, such as
   `log_query_path`, `profiling_output`, `temp_directory`,
   `extension_directory`, `secret_directory` and `home_directory`.

@@ -44,6 +44,7 @@ func skipUnlessRunning(t *testing.T, cfg Config) {
 
 var mariadbConfig = Config{Name: "mariadb", Engine: MariaDB, Host: "127.0.0.1", Port: 13307, User: "root", Password: "dgopher", Database: "shop"}
 var tidbConfig = Config{Name: "tidb", Engine: TiDB, Host: "127.0.0.1", Port: 14000, User: "root", Password: "dgopher", Database: "shop"}
+var cockroachdbConfig = Config{Name: "cockroachdb", Engine: CockroachDB, Host: "127.0.0.1", Port: 26257, User: "dgopher", Password: "dgopher", Database: "shop"}
 
 type fixture struct {
 	cfg    Config
@@ -69,6 +70,12 @@ line two'), (3, 'Linus', NULL, NULL)`,
 	fs := []fixture{
 		{
 			cfg:    Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"},
+			schema: "it",
+			setup:  append([]string{`DROP SCHEMA IF EXISTS it CASCADE`, `CREATE SCHEMA it`, `SET search_path = it`}, common...),
+			sleep:  `SELECT pg_sleep(10)`,
+		},
+		{
+			cfg:    cockroachdbConfig,
 			schema: "it",
 			setup:  append([]string{`DROP SCHEMA IF EXISTS it CASCADE`, `CREATE SCHEMA it`, `SET search_path = it`}, common...),
 			sleep:  `SELECT pg_sleep(10)`,
@@ -591,7 +598,7 @@ func TestIntegrationTLSPreferFallsBack(t *testing.T) {
 func TestIntegrationLostTransactionIsReported(t *testing.T) {
 	integration(t)
 	for _, f := range fixtures(t) {
-		if f.cfg.Engine.Base() != MySQL && f.cfg.Engine != Postgres {
+		if f.cfg.Engine.Base() != MySQL && f.cfg.Engine.Base() != Postgres {
 			continue
 		}
 		t.Run(f.cfg.Name, func(t *testing.T) {
@@ -645,8 +652,14 @@ func TestIntegrationLostTransactionIsReported(t *testing.T) {
 // splitter missed cannot run a hidden statement.
 func TestIntegrationPostgresRefusesMultiStatementExec(t *testing.T) {
 	integration(t)
+	for _, e := range []Engine{Postgres, CockroachDB} {
+		t.Run(string(e), func(t *testing.T) { refusesMultiStatementExec(t, e) })
+	}
+}
+
+func refusesMultiStatementExec(t *testing.T, e Engine) {
 	ctx := context.Background()
-	d := open(t, fixtureOf(t, Postgres))
+	d := open(t, fixtureOf(t, e))
 	s, err := d.Session(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -661,8 +674,10 @@ func TestIntegrationPostgresRefusesMultiStatementExec(t *testing.T) {
 	if err == nil {
 		t.Fatal("the server ran text holding two statements")
 	}
-	if info := DescribeError(err); info.Code != "42601" {
-		t.Errorf("refusal described as %+v, want SQLSTATE 42601", info)
+	// CockroachDB refuses it as a prepared statement of two.
+	want := map[Engine]string{Postgres: "42601", CockroachDB: "42P14"}[e]
+	if info := DescribeError(err); info.Code != want {
+		t.Errorf("refusal described as %+v, want SQLSTATE %s", info, want)
 	}
 	var a int
 	if err := d.SQL.QueryRowContext(ctx, "SELECT a FROM it.multi_exec").Scan(&a); err != nil {
@@ -680,8 +695,14 @@ func TestIntegrationPostgresRefusesMultiStatementExec(t *testing.T) {
 // extended protocol.
 func TestIntegrationPostgresExtendedExec(t *testing.T) {
 	integration(t)
+	for _, e := range []Engine{Postgres, CockroachDB} {
+		t.Run(string(e), func(t *testing.T) { extendedExec(t, e) })
+	}
+}
+
+func extendedExec(t *testing.T, e Engine) {
 	ctx := context.Background()
-	d := open(t, fixtureOf(t, Postgres))
+	d := open(t, fixtureOf(t, e))
 	s, err := d.Session(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -699,7 +720,14 @@ func TestIntegrationPostgresExtendedExec(t *testing.T) {
 	if s.Tx() != TxOpen {
 		t.Fatalf("tx state %v after BEGIN", s.Tx())
 	}
-	exec("CREATE TEMP TABLE extended_exec (id integer PRIMARY KEY, a integer)")
+	// CockroachDB's temporary tables are experimental, off by default.
+	if e == CockroachDB {
+		exec("CREATE TABLE it.extended_exec (id integer PRIMARY KEY, a integer)")
+		exec("SET search_path TO it")
+		exec("BEGIN")
+	} else {
+		exec("CREATE TEMP TABLE extended_exec (id integer PRIMARY KEY, a integer)")
+	}
 	if n := exec("INSERT INTO extended_exec VALUES (1, 0), (2, 0), (3, 0)"); n != 3 {
 		t.Errorf("INSERT affected %d rows, want 3", n)
 	}
@@ -725,11 +753,14 @@ func TestIntegrationPostgresExtendedExec(t *testing.T) {
 		t.Fatalf("rows after COMMIT and ROLLBACK %v %v", rows, err)
 	}
 	_, err = s.Exec(ctx, "SELEC 1")
-	if info := DescribeError(err); info.Code != "42601" || info.Position != 1 {
+	// CockroachDB's place of the error is a caret under its line.
+	if info := DescribeError(err); info.Code != "42601" || info.Position != 1 && (info.Line != 1 || info.Column != 1) {
 		t.Errorf("syntax error described as %+v", info)
 	}
 	exec("DO $$BEGIN END$$")
-	exec("VACUUM it.customers")
+	if e != CockroachDB { // which has no VACUUM
+		exec("VACUUM it.customers")
+	}
 	exec("SET search_path TO public")
 	schema, err := s.CurrentSchema(ctx)
 	if err != nil || schema != "public" {
@@ -784,7 +815,19 @@ func TestIntegrationClickHouseServerParams(t *testing.T) {
 // lost transaction, and the session no longer counts it as open.
 func TestIntegrationTerminatedTransactionIsLost(t *testing.T) {
 	integration(t)
-	f := fixtureOf(t, Postgres)
+	for _, c := range []struct {
+		e            Engine
+		session, end string
+	}{
+		{Postgres, "SELECT pg_backend_pid()", "SELECT pg_terminate_backend($1)"},
+		{CockroachDB, "SHOW session_id", "CANCEL SESSION $1"},
+	} {
+		t.Run(string(c.e), func(t *testing.T) { terminatedTransactionIsLost(t, c.e, c.session, c.end) })
+	}
+}
+
+func terminatedTransactionIsLost(t *testing.T, e Engine, session, end string) {
+	f := fixtureOf(t, e)
 	d := open(t, f)
 	bg := context.Background()
 	s, err := d.Session(bg)
@@ -795,15 +838,13 @@ func TestIntegrationTerminatedTransactionIsLost(t *testing.T) {
 	if err := s.Begin(bg); err != nil {
 		t.Fatal(err)
 	}
-	var pid int
-	c, err := s.Query(bg, "SELECT pg_backend_pid()")
+	c, err := s.Query(bg, session)
 	if err != nil {
 		t.Fatal(err)
 	}
 	rows, _ := c.Fetch(1)
 	c.Close()
-	fmt.Sscan(fmt.Sprint(rows[0][0]), &pid)
-	if _, err := d.SQL.Exec("SELECT pg_terminate_backend($1)", pid); err != nil {
+	if _, err := d.SQL.Exec(end, fmt.Sprint(rows[0][0])); err != nil {
 		t.Fatal(err)
 	}
 	err = s.Commit(bg)
@@ -961,6 +1002,7 @@ func TestIntegrationUsers(t *testing.T) {
 		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"}, "shop", "it_users"},
 		{mariadbConfig, "shop", "it_users"},
 		{tidbConfig, "shop", "it_users"},
+		{cockroachdbConfig, "public", "it_users"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default", "it_users"},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
@@ -1102,6 +1144,24 @@ func TestIntegrationItems(t *testing.T) {
 		{tidbConfig, "shop",
 			[]string{"DROP SEQUENCE IF EXISTS it_counter", "CREATE SEQUENCE it_counter START WITH 10 INCREMENT BY 5"},
 			map[string]string{"it_counter": "DROP SEQUENCE it_counter"}},
+		// CockroachDB has no domains, range types or partitions as tables.
+		{cockroachdbConfig, "it_items",
+			[]string{"DROP SCHEMA IF EXISTS it_items CASCADE", "CREATE SCHEMA it_items",
+				"CREATE FUNCTION it_items.twice(a int) RETURNS int LANGUAGE sql AS 'SELECT a * 2'",
+				"CREATE FUNCTION it_items.twice(a text) RETURNS text LANGUAGE sql AS 'SELECT a || a'",
+				"CREATE PROCEDURE it_items.noop() LANGUAGE sql AS 'SELECT 1'",
+				"CREATE FUNCTION it_items.stamp() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RETURN NEW; END$$",
+				"CREATE TABLE it_items.t (id int)",
+				"CREATE TRIGGER stamped BEFORE INSERT ON it_items.t FOR EACH ROW EXECUTE FUNCTION it_items.stamp()",
+				"CREATE SEQUENCE it_items.counter START 10 INCREMENT 5",
+				"CREATE TYPE it_items.mood AS ENUM ('sad', 'it''s ok')",
+				"CREATE TYPE it_items.pair AS (a int, b text)",
+			},
+			map[string]string{
+				"twice(a int8)": "DROP FUNCTION it_items.twice(int)", "twice(a text)": "DROP FUNCTION it_items.twice(text)",
+				"noop()": "DROP PROCEDURE it_items.noop()", "stamped on t": "DROP TRIGGER stamped ON it_items.t",
+				"counter": "DROP SEQUENCE it_items.counter", "mood": "DROP TYPE it_items.mood", "pair": "DROP TYPE it_items.pair",
+			}},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "items.sqlite")}, "main",
 			[]string{"CREATE TABLE t (id int)", "CREATE TRIGGER stamp AFTER INSERT ON t BEGIN UPDATE t SET id = id + 1 WHERE rowid = NEW.rowid; END"},
 			map[string]string{"stamp on t": "DROP TRIGGER stamp"}},
@@ -1180,6 +1240,7 @@ func TestIntegrationRename(t *testing.T) {
 		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"}, "shop"},
 		{mariadbConfig, "shop"},
 		{tidbConfig, "shop"},
+		{cockroachdbConfig, "public"},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "r.sqlite")}, "main"},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default"},
@@ -1227,6 +1288,7 @@ func TestIntegrationSearch(t *testing.T) {
 		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"}, "shop"},
 		{mariadbConfig, "shop"},
 		{tidbConfig, "shop"},
+		{cockroachdbConfig, "public"},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "s.sqlite")}, "main"},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default"},
@@ -1299,6 +1361,7 @@ func TestIntegrationTableDesign(t *testing.T) {
 		// MariaDB writes integers with their display width.
 		{mariadbConfig, "shop", "int(11)", "bigint(20)", "varchar(50)", true, true, true},
 		{tidbConfig, "shop", "int", "bigint", "varchar(50)", true, true, true},
+		{cockroachdbConfig, "public", "int4", "bigint", "text", true, true, true},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main", "INTEGER", "BIGINT", "VARCHAR", false, true, false},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default", "Int32", "Int64", "String", false, false, false},
 	} {
@@ -1432,8 +1495,18 @@ func TestIntegrationTableDesign(t *testing.T) {
 // format_type writes it.
 func TestIntegrationPostgresEnum(t *testing.T) {
 	integration(t)
+	for _, cfg := range []Config{
+		{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"},
+		cockroachdbConfig,
+	} {
+		t.Run(string(cfg.Engine), func(t *testing.T) { postgresEnum(t, cfg) })
+	}
+}
+
+func postgresEnum(t *testing.T, cfg Config) {
+	skipUnlessRunning(t, cfg)
 	ctx := context.Background()
-	d, err := Open(ctx, Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"}, nil)
+	d, err := Open(ctx, cfg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1610,6 +1683,9 @@ func TestIntegrationPlans(t *testing.T) {
 				"INSERT INTO it_plan WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 1000) " +
 					"SELECT r.i * 3 + k.i, r.i % 100 FROM r CROSS JOIN (SELECT 0 AS i UNION ALL SELECT 1 UNION ALL SELECT 2) k", "ANALYZE TABLE it_plan"},
 			"SELECT * FROM it_plan WHERE g = 5", "table scan reads every row of it_plan"},
+		{cockroachdbConfig, "public",
+			[]string{"CREATE TABLE it_plan AS SELECT i AS id, i % 1000 AS g FROM generate_series(1, 20000) i", "ANALYZE it_plan"},
+			"SELECT * FROM it_plan WHERE g = 5", "full scan reads every row of it_plan"},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "p.sqlite")}, "main",
 			[]string{"CREATE TABLE it_plan (id INTEGER, g INTEGER)"},
 			"SELECT * FROM it_plan WHERE g = 5 ORDER BY id", "SCAN reads every row of it_plan"},
@@ -1754,6 +1830,19 @@ func TestIntegrationUntrackedTransactionsAreSeen(t *testing.T) {
 		},
 	}
 	steps[MariaDB] = steps[MySQL]
+	// CockroachDB commits the open transaction before a schema change
+	// (autocommit_before_ddl, on by default).
+	steps[CockroachDB] = []step{
+		{sql: "SET search_path TO it", want: TxNone},
+		{sql: "/* why */ BEGIN", want: TxOpen},
+		{sql: "SAVEPOINT s", want: TxOpen},
+		{sql: "ROLLBACK TO SAVEPOINT s", want: TxOpen},
+		{sql: "SELEC 1", want: TxFailed, fails: true},
+		{sql: "ROLLBACK", want: TxNone},
+		{sql: "-- why\nBEGIN", want: TxOpen},
+		{sql: "INSERT INTO customers (id, name) VALUES (99, 'committed')", want: TxOpen},
+		{sql: "CREATE TABLE untracked_commit (a INT)", want: TxNone},
+	}
 	// TiDB has no START REPLICA, XA or procedures, and its AND CHAIN
 	// begins no transaction.
 	for _, st := range steps[MySQL] {
@@ -1765,7 +1854,7 @@ func TestIntegrationUntrackedTransactionsAreSeen(t *testing.T) {
 			steps[TiDB] = append(steps[TiDB], st)
 		}
 	}
-	for _, e := range []Engine{MySQL, MariaDB, TiDB, SQLite, DuckDB} {
+	for _, e := range []Engine{MySQL, MariaDB, TiDB, CockroachDB, SQLite, DuckDB} {
 		t.Run(string(e), func(t *testing.T) {
 			d := open(t, fixtureOf(t, e))
 			if e.Base() == MySQL {
@@ -1796,6 +1885,13 @@ func TestIntegrationUntrackedTransactionsAreSeen(t *testing.T) {
 				}
 				if got := s.Tx(); got != st.want {
 					t.Fatalf("after %q: %v, want %v", st.sql, got, st.want)
+				}
+			}
+			if e == CockroachDB {
+				var n int
+				d.SQL.QueryRow("SELECT count(*) FROM it.customers WHERE id = 99").Scan(&n)
+				if n != 1 {
+					t.Fatal("the schema change did not commit the row before it")
 				}
 			}
 			if e == DuckDB {
@@ -1838,6 +1934,15 @@ func TestIntegrationCloseLeaksNothing(t *testing.T) {
 				{"SELECT current_user", "postgres"},
 				{"SELECT current_setting('statement_timeout')", "0"},
 				{"SELECT to_regclass('pg_temp.close_leak') IS NULL", "true"},
+			},
+		},
+		{
+			e:    CockroachDB,
+			leak: []string{"SET search_path TO it", "SET statement_timeout = 4321", "SET ROLE admin", "BEGIN", "SELECT 1"},
+			checks: []check{
+				{"SELECT current_setting('search_path')", `"$user", public`},
+				{"SELECT current_user", "dgopher"},
+				{"SELECT current_setting('statement_timeout')", "0"},
 			},
 		},
 		{
@@ -2030,6 +2135,19 @@ func TestIntegrationReconnectRefusesOnce(t *testing.T) {
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
+	// CockroachDB has no pg_terminate_backend: its sessions end by id.
+	cockroachLose := func(t *testing.T, d *DB, s *Session) {
+		c, err := s.Query(ctx, "SHOW session_id")
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows, _ := c.Fetch(1)
+		c.Close()
+		if _, err := d.SQL.Exec("CANCEL SESSION $1", fmt.Sprint(rows[0][0])); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
 	mysqlLose := func(t *testing.T, d *DB, s *Session) {
 		if _, err := d.SQL.Exec(fmt.Sprintf("KILL %d", s.mysqlID)); err != nil {
 			t.Fatal(err)
@@ -2039,6 +2157,8 @@ func TestIntegrationReconnectRefusesOnce(t *testing.T) {
 	cases := []engineCase{
 		{e: Postgres, set: "SET search_path TO it", before: "it", after: "public", table: "it.customers",
 			lose: pgLose, sleep: "SELECT pg_sleep(10)"},
+		{e: CockroachDB, set: "SET search_path TO it", before: "it", after: "public", table: "it.customers",
+			lose: cockroachLose, sleep: "SELECT pg_sleep(10)"},
 		{e: MySQL, set: "USE information_schema", before: "information_schema", after: "shop", table: "shop.customers",
 			lose: mysqlLose, sleep: "SELECT SLEEP(10)"},
 		{e: MariaDB, set: "USE information_schema", before: "information_schema", after: "shop", table: "shop.customers",

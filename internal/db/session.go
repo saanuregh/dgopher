@@ -732,7 +732,13 @@ func (s *Session) afterError(err error, wasTx TxState) error {
 	}
 	lost := errors.Is(err, driver.ErrBadConn) || errors.Is(err, sql.ErrConnDone) || errors.Is(err, mysql.ErrInvalidConn) ||
 		isNetError(err) || endsConnection(err)
-	if r, ok := SQL(s.db.Config.Engine); !lost && ok && r.pingAfterError() {
+	r, ok := SQL(s.db.Config.Engine)
+	if !lost && ok && r.execUnprepared() {
+		// pgx's connection, which PostgreSQL's family runs on, may have
+		// closed with an ordinary error.
+		lost = pgConnClosed(s.conn)
+	}
+	if !lost && ok && r.pingAfterError() {
 		// The driver keeps the transaction's flags from OK packets, not
 		// errors: a ping refreshes them, as after a deadlock, which rolled
 		// the transaction back, or a failed CREATE TABLE, which committed

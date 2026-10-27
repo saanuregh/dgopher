@@ -60,6 +60,14 @@ var sideEffectFunctions = map[Dialect]map[string]bool{
 	SQLite: setOf("load_extension"),
 }
 
+// crdbInternalReads are the CockroachDB crdb_internal functions known
+// only to read: any other, called by its qualified name, which alone
+// reaches it, counts as a write, as one a later version adds.
+var crdbInternalReads = setOf("node_id cluster_id cluster_name active_version node_executable_version release_series is_at_least_version " +
+	"locality_value pretty_key pretty_span pretty_value table_span index_span range_stats range_stats_with_errors " +
+	"lease_holder lease_holder_with_errors fingerprint show_create_all_routines show_create_all_schemas " +
+	"show_create_all_tables show_create_all_triggers show_create_all_types")
+
 // maxCodeDepth caps how many levels of code quoted inside code are read: a
 // DO block that EXECUTEs a string is two levels down. Deeper code counts as
 // dangerous, unread.
@@ -598,6 +606,9 @@ func classifyTokens(toks []Token, d Dialect, r reading) Analysis {
 		// statement, calls included.
 		return a
 	}
+	if d == Postgres && word(toks[0]) != "WITH" { // WITH classified its parts
+		a = withBracketStatements(a, toks, d, r)
+	}
 	if a.Class == Read {
 		if fn := sideEffectCall(toks, d); fn != "" {
 			a.Class = Write
@@ -605,6 +616,59 @@ func classifyTokens(toks []Token, d Dialect, r reading) Analysis {
 		}
 	}
 	return a
+}
+
+// withBracketStatements returns a raised to the strictest class and danger
+// of the statements CockroachDB's "[ <statement> ]" data sources in toks
+// run: a '[' before a statement's verb, unless it follows what an array
+// subscript follows, a name, a value or a closing bracket, or the word is
+// a value in a list.
+func withBracketStatements(a Analysis, toks []Token, d Dialect, r reading) Analysis {
+	for i := 0; i+1 < len(toks); i++ {
+		if !isPunct(toks[i], "[") {
+			continue
+		}
+		if _, verb := verbClasses[word(toks[i+1])]; !verb || i > 0 && subscripted(toks[i-1]) || i+2 < len(toks) && listed(toks[i+2]) {
+			continue
+		}
+		end, depth := i, 0
+		for ; end < len(toks); end++ {
+			if isPunct(toks[end], "[") {
+				depth++
+			} else if isPunct(toks[end], "]") {
+				if depth--; depth == 0 {
+					break
+				}
+			}
+		}
+		if *r.left -= toks[min(end, len(toks)-1)].End - toks[i].Start; *r.left < 0 {
+			return Analysis{Class: Write, Verb: a.Verb, Dangerous: true, Reason: "it holds too much code to check"}
+		}
+		inner := classifyTokens(toks[i+1:end], d, r)
+		if classRank(inner.Class) > classRank(a.Class) {
+			a.Class = inner.Class
+		}
+		if inner.Dangerous && !a.Dangerous {
+			a.Dangerous, a.Reason = true, "in a [ ] data source, "+inner.Reason
+		}
+		i = end
+	}
+	return a
+}
+
+// listed reports whether t, after the first word in brackets, makes the
+// word a value, as in DuckDB's list [start, stop], not a statement's verb.
+func listed(t Token) bool {
+	return t.Kind == Punct && strings.Contains(",]:.[)", t.Text) || t.Kind == Operator && t.Text != "*" && t.Text != "-"
+}
+
+// subscripted reports whether a '[' after t opens an array subscript.
+func subscripted(t Token) bool {
+	switch t.Kind {
+	case Identifier, QuotedIdent, String, Number, Param:
+		return true
+	}
+	return isPunct(t, ")") || isPunct(t, "]") || word(t) == "ARRAY"
 }
 
 // analyzedVerbs are the statements MariaDB's ANALYZE runs and reports on.
@@ -647,8 +711,27 @@ func sideEffectCall(toks []Token, d Dialect) string {
 		if name = strings.ToLower(name); fns[name] {
 			return name
 		}
+		if d == Postgres && !crdbInternalReads[name] && crdbInternalQualifies(toks, i, uescape) {
+			return "crdb_internal." + name
+		}
 	}
 	return ""
+}
+
+// crdbInternalQualifies reports whether the name toks[i] is qualified by
+// crdb_internal, or, with a UESCAPE, by a U& name, which is not decoded.
+func crdbInternalQualifies(toks []Token, i int, uescape bool) bool {
+	if i < 2 || !isPunct(toks[i-1], ".") {
+		return false
+	}
+	q := i - 2
+	if q >= 2 && word(toks[q-1]) == "UESCAPE" {
+		q -= 2
+	}
+	if t := toks[q].Text; uescape && toks[q].Kind == QuotedIdent && len(t) > 1 && (t[0] == 'U' || t[0] == 'u') && t[1] == '&' {
+		return true
+	}
+	return strings.EqualFold(DecodeQuoted(toks[q].Text, Postgres), "crdb_internal")
 }
 
 func classifyVerb(toks []Token, d Dialect, r reading) Analysis {
@@ -717,12 +800,13 @@ func classifyVerb(toks []Token, d Dialect, r reading) Analysis {
 		}
 		return Analysis{Class: Read, Verb: verb}
 	case "RESET":
-		if d == MySQL {
-			// RESET MASTER, REPLICA, PERSIST and the like change server state.
+		// RESET MASTER, REPLICA, PERSIST and the like change server state,
+		// as CockroachDB's RESET CLUSTER SETTING does.
+		if d == MySQL || next == "CLUSTER" || d == Postgres && opensUnsafeInternals(toks) {
 			return Analysis{Class: Write, Verb: verb}
 		}
 	case "SET":
-		if setsServerState(toks, dep) || d == Postgres && setsFile(toks) {
+		if setsServerState(toks, dep) || d == Postgres && (setsFile(toks) || searchesCrdbInternal(toks, r.q) || opensUnsafeInternals(toks)) {
 			return Analysis{Class: Write, Verb: verb}
 		}
 	case "DO":
@@ -897,12 +981,13 @@ func toTable(toks []Token) bool {
 
 // setsServerState reports whether a SET changes more than the session: MySQL
 // GLOBAL, PERSIST and PERSIST_ONLY variables, SET PASSWORD and SET DEFAULT
-// ROLE, which changes an account, and TiDB's SET CONFIG, which configures a
-// cluster component, and SET BINDING, which switches a global plan binding.
+// ROLE, which changes an account, TiDB's SET CONFIG, which configures a
+// cluster component, and SET BINDING, which switches a global plan binding,
+// and CockroachDB's SET CLUSTER SETTING.
 func setsServerState(toks []Token, dep []int) bool {
 	if len(toks) > 1 {
 		switch word(toks[1]) {
-		case "PASSWORD", "CONFIG", "BINDING":
+		case "PASSWORD", "CONFIG", "BINDING", "CLUSTER":
 			return true
 		}
 	}
@@ -952,6 +1037,49 @@ func setsFile(toks []Token) bool {
 		name = DecodeQuoted(name, Postgres)
 	}
 	return fileSettings[strings.ToLower(name)]
+}
+
+// searchesCrdbInternal reports whether a SET, after any SESSION or LOCAL,
+// puts CockroachDB's crdb_internal on the search path, where its functions
+// are then called by their names alone: search_path or schema set to a
+// value that names it, as quoting q reads it. With a UESCAPE, whose escapes
+// are not decoded, any such SET does.
+func searchesCrdbInternal(toks []Token, q quoting) bool {
+	i := settingAt(toks)
+	if i < 0 {
+		return false
+	}
+	uescape := hasWord(toks, "UESCAPE")
+	if name := strings.ToLower(DecodeQuoted(toks[i].Text, Postgres)); name != "search_path" && name != "schema" && !uescape {
+		return false
+	}
+	for _, t := range toks[i+1:] {
+		if uescape || strings.Contains(strings.ToLower(codeText(t, Postgres, q)), "crdb_internal") {
+			return true
+		}
+	}
+	return false
+}
+
+// opensUnsafeInternals reports whether a SET or RESET changes CockroachDB's
+// allow_unsafe_internals, which opens crdb_internal and system to the
+// session, or, with a UESCAPE, whose escapes are not decoded, any setting.
+func opensUnsafeInternals(toks []Token) bool {
+	i := settingAt(toks)
+	return i >= 0 && (hasWord(toks, "UESCAPE") || strings.EqualFold(DecodeQuoted(toks[i].Text, Postgres), "allow_unsafe_internals"))
+}
+
+// settingAt returns the index of the setting a SET or RESET names, after
+// any SESSION or LOCAL, or -1.
+func settingAt(toks []Token) int {
+	i := 1
+	if i < len(toks) && (word(toks[i]) == "SESSION" || word(toks[i]) == "LOCAL") {
+		i++
+	}
+	if i >= len(toks) {
+		return -1
+	}
+	return i
 }
 
 // preparedDanger finds the danger of the statement a PREPARE prepares:
@@ -1176,28 +1304,57 @@ func skipParens(toks []Token, i int) int {
 }
 
 // classifyExplain classifies EXPLAIN, DESC and DESCRIBE: Read, unless
-// ANALYZE runs the statement, which is then classified.
+// ANALYZE runs the statement, which is then classified. CockroachDB's
+// options may follow ANALYZE too, in parentheses, and its DEBUG keeps a
+// statement bundle on the server: a write. Options are names, quoted or
+// not; a U& name, or a UESCAPE, counts as every option.
 func classifyExplain(toks []Token, d Dialect, r reading) Analysis {
 	read := Analysis{Class: Read, Verb: word(toks[0])}
 	i := 1
-	analyze := false
-	if i < len(toks) && isPunct(toks[i], "(") {
+	analyze, debug := false, false
+	options := func(i int) int {
 		end := skipParens(toks, i)
 		for j := i + 1; j < end; j++ {
-			if w := word(toks[j]); w == "ANALYZE" || w == "ANALYSE" {
+			name := ""
+			switch t := toks[j]; t.Kind {
+			case Keyword, Identifier:
+				name = strings.ToUpper(t.Text)
+			case QuotedIdent:
+				if len(t.Text) > 1 && (t.Text[0] == 'U' || t.Text[0] == 'u') && t.Text[1] == '&' {
+					name = "UESCAPE" // not decoded: any option
+				} else {
+					name = strings.ToUpper(DecodeQuoted(t.Text, d))
+				}
+			}
+			switch name {
+			case "UESCAPE":
+				analyze, debug = true, d == Postgres
+			case "ANALYZE", "ANALYSE":
 				next := ""
 				if j+1 < end {
 					next = strings.ToUpper(toks[j+1].Text)
 				}
 				analyze = next != "FALSE" && next != "OFF" && next != "0"
+			case "DEBUG":
+				debug = d == Postgres
 			}
 		}
-		i = end
+		return end
+	}
+	if i < len(toks) && isPunct(toks[i], "(") {
+		i = options(i)
 	}
 	for i < len(toks) {
 		w := word(toks[i])
 		if w == "ANALYZE" || w == "ANALYSE" {
 			analyze = true
+			// Options, not a statement in parentheses, as PostgreSQL's
+			// EXPLAIN ANALYZE (SELECT …).
+			if i+2 < len(toks) && isPunct(toks[i+1], "(") && !isPunct(toks[i+2], "(") {
+				if _, isVerb := verbClasses[word(toks[i+2])]; !isVerb {
+					i = options(i+1) - 1
+				}
+			}
 		} else if w == "FORMAT" && i+1 < len(toks) {
 			// MySQL "FORMAT=TREE" or "FORMAT TREE"; TiDB "FORMAT='brief'".
 			j := i + 1
@@ -1214,6 +1371,9 @@ func classifyExplain(toks []Token, d Dialect, r reading) Analysis {
 			break
 		}
 		i++
+	}
+	if debug {
+		return Analysis{Class: Write, Verb: read.Verb, Reason: "EXPLAIN with DEBUG keeps a statement bundle on the server"}
 	}
 	if !analyze || i >= len(toks) {
 		return read

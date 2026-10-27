@@ -76,7 +76,8 @@ func createTableSQL(d Dialect, t TableDesign, more []string) string {
 
 // AlterTableChange writes the statements changing a table from what was
 // read to what the form made of it: drops first, so that what is added
-// may take a dropped object's name, the table's rename last.
+// may take a dropped object's name, the table's rename last. A primary
+// key replaced at once is replaced before columns are dropped.
 func AlterTableChange(d Dialect, was, now TableDesign) (SchemaChange, error) {
 	if err := validateDesign(d, now); err != nil {
 		return SchemaChange{}, err
@@ -108,7 +109,12 @@ func AlterTableChange(d Dialect, was, now TableDesign) (SchemaChange, error) {
 			steps = append(steps, drop(ConstraintIndex, ix.Name))
 		}
 	}
-	if diff.primaryKeyChanged && len(primaryKey(was)) > 0 {
+	pk, hadPK := primaryKey(now), len(primaryKey(was)) > 0
+	// An engine that replaces the key at once keeps one at all times: the
+	// new key's columns are made and changed first, the old key's dropped
+	// after it.
+	atOnce := diff.primaryKeyChanged && hadPK && r.ReplacesPrimaryKeyAtOnce()
+	if diff.primaryKeyChanged && hadPK && !atOnce {
 		steps = append(steps, drop(ConstraintPrimaryKey, was.PrimaryKeyName))
 	}
 	for _, c := range now.Columns {
@@ -116,29 +122,55 @@ func AlterTableChange(d Dialect, was, now TableDesign) (SchemaChange, error) {
 			steps = append(steps, alter("RENAME COLUMN "+d.Quote(c.Was)+" TO "+d.Quote(c.Name)))
 		}
 	}
-	for _, c := range diff.droppedColumns {
-		steps = append(steps, alter("DROP COLUMN "+d.Quote(c.Name)))
-	}
-	for _, m := range diff.changedColumns {
-		changes, err := r.ModifyColumnSQL(d, now, m.was, m.now)
-		if err != nil {
-			return SchemaChange{}, err
-		}
-		for _, s := range changes {
-			if strings.HasPrefix(s, "COMMENT ON ") {
-				steps = append(steps, Step{SQL: s})
-			} else {
-				steps = append(steps, alter(s))
+	changeColumns := func() error {
+		for _, m := range diff.changedColumns {
+			changes, err := r.ModifyColumnSQL(d, now, m.was, m.now)
+			if err != nil {
+				return err
+			}
+			for _, s := range changes {
+				if strings.HasPrefix(s, "COMMENT ON ") {
+					steps = append(steps, Step{SQL: s})
+				} else {
+					steps = append(steps, alter(s))
+				}
 			}
 		}
+		return nil
 	}
-	for _, c := range diff.addedColumns {
+	addColumn := func(c ColumnDesign) {
 		steps = append(steps, alter("ADD COLUMN "+columnSQL(d, c, false)))
 		if commentsApart(r) && c.Comment != "" {
 			steps = append(steps, Step{SQL: columnCommentSQL(d, now, c)})
 		}
 	}
-	if pk := primaryKey(now); diff.primaryKeyChanged && len(pk) > 0 {
+	added := diff.addedColumns
+	if atOnce {
+		if err := changeColumns(); err != nil {
+			return SchemaChange{}, err
+		}
+		added = nil
+		for _, c := range diff.addedColumns {
+			if c.PrimaryKey {
+				addColumn(c)
+			} else {
+				added = append(added, c)
+			}
+		}
+		steps = append(steps, alter("DROP CONSTRAINT "+d.Quote(was.PrimaryKeyName)+", ADD PRIMARY KEY ("+QuoteNames(d, pk)+")"))
+	}
+	for _, c := range diff.droppedColumns {
+		steps = append(steps, alter("DROP COLUMN "+d.Quote(c.Name)))
+	}
+	if !atOnce {
+		if err := changeColumns(); err != nil {
+			return SchemaChange{}, err
+		}
+	}
+	for _, c := range added {
+		addColumn(c)
+	}
+	if diff.primaryKeyChanged && !atOnce && len(pk) > 0 {
 		steps = append(steps, alter("ADD PRIMARY KEY ("+QuoteNames(d, pk)+")"))
 	}
 	for _, ix := range diff.addedIndexes {
@@ -185,6 +217,7 @@ type designDiff struct {
 	droppedColumns, addedColumns []ColumnDesign
 	changedColumns               []columnChange
 	primaryKeyChanged            bool
+	primaryKeyRemoved            bool
 	droppedIndexes, addedIndexes []IndexDesign
 	droppedKeys, addedKeys       []ForeignKeyDesign
 	droppedChecks, addedChecks   []CheckDesign
@@ -225,6 +258,7 @@ func diffDesigns(was, now TableDesign) designDiff {
 		}
 	}
 	diff.primaryKeyChanged = !slices.Equal(wasKey, nowKey)
+	diff.primaryKeyRemoved = len(wasKey) > 0 && len(nowKey) == 0
 
 	for _, ix := range was.Indexes {
 		if !slices.ContainsFunc(now.Indexes, func(n IndexDesign) bool { return n.Read && n.Name == ix.Name }) {
@@ -266,6 +300,9 @@ func (diff designDiff) supported(r SQLRules) error {
 	// Where a table holds no indexes of its own, none of them changes.
 	if why := r.KeysOfMadeTable(); why != "" && (keys || indexes && !r.HasSecondaryIndexes()) {
 		return errors.New(why)
+	}
+	if diff.primaryKeyRemoved && r.ReplacesPrimaryKeyAtOnce() {
+		return fmt.Errorf("%s keeps a primary key on every table: mark the columns of a new key instead of removing it", r.Label())
 	}
 	for _, ch := range diff.droppedChecks {
 		if ch.Name == "" {

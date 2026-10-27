@@ -28,6 +28,10 @@ func TestReferencedBy(t *testing.T) {
 			[]string{"DROP TABLE IF EXISTS refs_child", "DROP TABLE IF EXISTS refs_parent", "CREATE TABLE refs_parent (id int PRIMARY KEY)",
 				"CREATE TABLE refs_child (id int PRIMARY KEY, parent_id int, FOREIGN KEY (parent_id) REFERENCES refs_parent (id))"},
 			[]string{"DROP TABLE refs_child", "DROP TABLE refs_parent"}},
+		{cockroachdbConfig, true, "refs_t",
+			[]string{"DROP SCHEMA IF EXISTS refs_t CASCADE", "CREATE SCHEMA refs_t", "CREATE TABLE refs_t.parent (id int PRIMARY KEY)",
+				"CREATE TABLE refs_t.child (id int PRIMARY KEY, parent_id int REFERENCES refs_t.parent (id))"},
+			[]string{"DROP SCHEMA refs_t CASCADE"}},
 		{Config{Engine: SQLite, Database: lite}, false, "main",
 			[]string{"CREATE TABLE parent (id int PRIMARY KEY)", "CREATE TABLE child (id int PRIMARY KEY, parent_id int REFERENCES parent (id))"}, nil},
 		{Config{Engine: DuckDB, Database: ":memory:"}, false, "main",
@@ -38,6 +42,7 @@ func TestReferencedBy(t *testing.T) {
 			if c.it && os.Getenv("DGOPHER_IT") == "" {
 				t.Skip("set DGOPHER_IT=1")
 			}
+			skipUnlessRunning(t, c.cfg)
 			c.cfg.Name = "r"
 			ctx := context.Background()
 			d, err := Open(ctx, c.cfg, nil)

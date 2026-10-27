@@ -67,7 +67,8 @@ func (tidbEngine) open(_ context.Context, cfg Config, ep endpoint, tc *tls.Confi
 	return openedPool{sql: sqldb, connector: connector, tls: tc}, err
 }
 
-func (tidbEngine) ReadOnlyBeginSQL() string { return "" }
+func (tidbEngine) ReadOnlyBeginSQL() string     { return "" }
+func (tidbEngine) ServerEnforcesReadOnly() bool { return false }
 
 // commitsImplicitlyWords: TiDB commits the open transaction on any CREATE,
 // ALTER or DROP but a local temporary table's or a plan binding's, and on

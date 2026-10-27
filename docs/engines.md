@@ -149,3 +149,47 @@ PingCAP still maintains (until 2026-12-01; 8.1 then).
 - **Backup** writes the schema only, by `mysqldump`: TiDB cannot give a
   dump a consistent snapshot of the data.
 
+### CockroachDB
+
+Supported from 26.2, the older of the two newest CockroachDB releases.
+
+- **Read-only** is enforced by the server (`default_transaction_read_only`),
+  and the app also refuses what CockroachDB still runs on a read-only
+  session: `CREATE STATISTICS`, `EXPLAIN ANALYZE (DEBUG)`, any
+  `crdb_internal` function but known reads, a `SET search_path` that
+  names `crdb_internal`, and a `SET` or `RESET` of
+  `allow_unsafe_internals`, which opens `crdb_internal` to the session. A
+  `[ <statement> ]` data source counts as the statement it runs.
+- **Transactions** are serializable: a statement that clashes with another
+  transaction fails with SQLSTATE 40001, which says to roll back and run
+  it again from its start; the app never retries it. A schema change commits the open transaction
+  first (CockroachDB's `autocommit_before_ddl`), so the app warns as it
+  does for MySQL, and schema scripts run statement by statement.
+  `SET CLUSTER SETTING`, `BACKUP`, `RESTORE`, `IMPORT`, `EXPORT` and
+  `CREATE CHANGEFEED` run outside a transaction, and count as changing
+  the server.
+- **Explain** and **Explain Analyze** use `EXPLAIN (VERBOSE)`, read as a
+  tree; the advice flags full scans and repeats CockroachDB's own index
+  recommendations.
+- **Catalog** reads only what CockroachDB supports reading: `pg_catalog`,
+  `information_schema` and `SHOW` statements, never the `crdb_internal`
+  tables CockroachDB closes to sessions by default. Estimated rows come
+  from table statistics (about ten seconds after `ANALYZE`); sizes come
+  from `SHOW RANGES`, read once for the database's ranges each time a
+  schema's objects are listed, need the `VIEWACTIVITY` or `ZONECONFIG`
+  privilege, and are blank without it; hidden columns such as `rowid` are
+  left out; there are no partitions, domains, range types or extensions.
+  Changing a primary key is one statement, as CockroachDB requires; the
+  table designer cannot remove one.
+- **Activity**: sessions with Cancel Query and End Session, locks (read
+  when asked, as they are costly) and statement statistics, kept per hour;
+  they need `VIEWACTIVITY`. A **Jobs** page lists `SHOW JOBS`: those
+  running and those of the last 12 hours.
+- **Errors** point at the place CockroachDB's message marks, since it
+  gives no position.
+- **Backup** writes the schema only, by `pg_dump`, and needs CockroachDB
+  26.3 or later with `pg_dump` 18; restore runs the file with Run SQL
+  File. Run by a user other than `root`, the restore stops at the dump's
+  `REVOKE ALL ON SCHEMA public FROM root`, near its end, after the tables
+  are made. **Maintenance** offers Analyze.
+

@@ -212,6 +212,32 @@ func TestIntegrationLexingConformance(t *testing.T) {
 		runLexCases(t, openFor(t, testutil.PGConfig()), sqltext.Postgres, pgCases)
 	})
 
+	t.Run("CockroachDB", func(t *testing.T) {
+		optionalserver.SkipUnless(t, "cockroachdb")
+		d := openFor(t, db.Config{Name: "cockroachdb", Engine: db.CockroachDB, Host: "127.0.0.1", Port: 26257, User: "dgopher", Password: "dgopher", Database: "shop"})
+		runLexCases(t, d, db.LexDialect(db.CockroachDB), append(pgCases[1:3:3],
+			// CockroachDB ends a line comment only at \n: the lexer ends it
+			// at \r, as PostgreSQL does, and reads more as code than the
+			// server runs, the strict side.
+			lexCase{"SELECT 1 -- c\r, 2", func(t *testing.T, a serverAnswer, toks []sqltext.Token) {
+				if a.err != nil || len(a.columns) != 1 {
+					t.Fatalf("server columns %q err %v, want one", a.columns, a.err)
+				}
+				if c := commentTexts(toks); len(c) != 1 || c[0] != "-- c" {
+					t.Errorf("want Comment %q, got %s", "-- c", describe(toks))
+				}
+			}},
+			// CockroachDB has no U&'…' strings: it reads a column U.
+			lexCase{`SELECT U&'d\0061t'`, func(t *testing.T, a serverAnswer, toks []sqltext.Token) {
+				if a.err == nil {
+					t.Fatalf("server read U&'…': %q", a.row)
+				}
+			}},
+			lexCase{"SELECT $$a;b$$", valueIsString("a;b", "$$a;b$$", sqltext.Postgres, "SELECT $$a;b$$")},
+			lexCase{`SELECT e'a\';b'`, valueIsString("a';b", `e'a\';b'`, sqltext.Postgres, `SELECT e'a\';b'`)},
+		))
+	})
+
 	// MariaDB and TiDB read these as MySQL does, with the same lexer.
 	mysqlCases := []lexCase{
 		{"SELECT 1--1", func(t *testing.T, a serverAnswer, toks []sqltext.Token) {

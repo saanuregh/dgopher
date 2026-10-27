@@ -243,6 +243,7 @@ func (sqliteEngine) URLTLSParameters() map[string]map[string]TLSMode {
 
 func (sqliteEngine) CloudIdentity() bool              { return false }
 func (sqliteEngine) ClearTextPassword() bool          { return false }
+func (sqliteEngine) ServerEnforcesReadOnly() bool     { return true }
 func (sqliteEngine) DatabasesNeedOwnConnection() bool { return false }
 func (sqliteEngine) DefaultSchemaName() string        { return "main" }
 func (sqliteEngine) FileExtensions() []string         { return []string{"sqlite", "sqlite3", "db", "db3"} }
@@ -433,7 +434,8 @@ func (sqliteEngine) DropConstraintSQL(d Dialect, kind ConstraintKind, schema, ta
 	return dropConstraintSQL(d, kind, schema, table, name)
 }
 
-func (sqliteEngine) UniqueAsConstraint() bool { return false }
+func (sqliteEngine) UniqueAsConstraint() bool       { return false }
+func (sqliteEngine) ReplacesPrimaryKeyAtOnce() bool { return false }
 
 func (sqliteEngine) TableCommentSQL(d Dialect, schema, table, comment string) string {
 	return commentOnTableSQL(d, schema, table, comment)

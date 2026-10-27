@@ -602,7 +602,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 	})
 	colorField(c, f)
 	ui.Field(c, "Safety", func() {
-		ui.Checkbox(c, &f.cfg.ReadOnly, "Read-only: refuse every write (the server enforces it too, where it can)")
+		ui.Checkbox(c, &f.cfg.ReadOnly, readOnlyLabel(engine))
 		ui.Checkbox(c, &f.cfg.NoRowsToChat, "No rows to the AI chat: its agent reads the schema and writes SQL, but sees no data")
 	})
 	ui.Field(c, "Project", func() {
@@ -622,6 +622,15 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 var connectionColors = []struct{ name, hex string }{
 	{"Blue", "#2563eb"}, {"Violet", "#7c3aed"}, {"Pink", "#db2777"}, {"Orange", "#ea580c"},
 	{"Yellow", "#ca8a04"}, {"Lime", "#65a30d"}, {"Teal", "#0d9488"}, {"Cyan", "#0891b2"}, {"Slate", "#64748b"},
+}
+
+// readOnlyLabel is the read-only checkbox's, saying whether the server
+// refuses writes too.
+func readOnlyLabel(e db.Engine) string {
+	if e.ServerEnforcesReadOnly() {
+		return "Read-only: refuse every write (the server enforces it too)"
+	}
+	return "Read-only: refuse every write (the app's check alone: " + e.Label() + " has no read-only session)"
 }
 
 // colorField chooses the connection's color: its environment's, one of

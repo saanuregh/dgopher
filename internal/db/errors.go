@@ -54,6 +54,9 @@ func DescribeError(err error) ErrorInfo {
 	case errors.As(err, &pg):
 		info.Message, info.Code, info.Detail, info.Hint = pg.Message, pg.Code, pg.Detail, pg.Hint
 		info.Position = int(pg.Position)
+		if info.Position == 0 {
+			info.Line, info.Column, info.Bytes = caretOf(pg.Detail)
+		}
 	case errors.As(err, &my):
 		info.Message = my.Message
 		info.Code = strconv.Itoa(int(my.Number))
@@ -91,18 +94,40 @@ func DescribeError(err error) ErrorInfo {
 	case errors.As(err, &lite):
 		info.Code = fmt.Sprint(lite.Code())
 	}
-	if info.Hint == "" {
-		info.Hint = conflictHint(err)
+	if hint := conflictHint(err); hint != "" {
+		info.Hint = strings.TrimSpace(hint + "\n" + info.Hint)
 	}
 	return info
 }
 
+// caretOf reads where CockroachDB's detail of a syntax error puts its
+// caret: under the statement's lines up to the error's, at its byte. 0
+// when the detail is none such.
+func caretOf(detail string) (line, column int, bytes bool) {
+	source, ok := strings.CutPrefix(detail, "source SQL:\n")
+	if !ok {
+		return 0, 0, false
+	}
+	lines := strings.Split(source, "\n")
+	caret := lines[len(lines)-1]
+	if len(lines) < 2 || strings.TrimLeft(caret, " ") != "^" {
+		return 0, 0, false
+	}
+	return len(lines) - 1, len(caret), true
+}
+
 // conflictHint is the hint of an error that ends a transaction clashing
-// with another, which may succeed run again: TiDB's write conflict (9007).
-// "" for any other error.
+// with another, which may succeed run again from its start: TiDB's write
+// conflict (9007), and a serialization failure (SQLSTATE 40001) of
+// PostgreSQL's family, as CockroachDB's retry errors. The app never runs
+// it again itself. "" for any other error.
 func conflictHint(err error) string {
-	if mysqlErrorNumber(err) == 9007 {
+	var pg *pgconn.PgError
+	switch {
+	case mysqlErrorNumber(err) == 9007:
 		return "The transaction clashed with another that changed the same rows. Run again from its start, it may succeed; DGopher never runs it again on its own."
+	case errors.As(err, &pg) && pg.Code == "40001":
+		return "The transaction could not be serialized with others and was aborted: roll back and run it again from its start."
 	}
 	return ""
 }

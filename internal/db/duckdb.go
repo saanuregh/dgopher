@@ -286,6 +286,7 @@ func (duckdbEngine) URLTLSParameters() map[string]map[string]TLSMode {
 
 func (duckdbEngine) CloudIdentity() bool              { return false }
 func (duckdbEngine) ClearTextPassword() bool          { return false }
+func (duckdbEngine) ServerEnforcesReadOnly() bool     { return true }
 func (duckdbEngine) DatabasesNeedOwnConnection() bool { return false }
 func (duckdbEngine) DefaultSchemaName() string        { return "main" }
 func (duckdbEngine) FileExtensions() []string         { return []string{"duckdb", "ddb", "db"} }
@@ -486,7 +487,8 @@ func (duckdbEngine) DropConstraintSQL(d Dialect, kind ConstraintKind, schema, ta
 	return dropConstraintSQL(d, kind, schema, table, name)
 }
 
-func (duckdbEngine) UniqueAsConstraint() bool { return false }
+func (duckdbEngine) UniqueAsConstraint() bool       { return false }
+func (duckdbEngine) ReplacesPrimaryKeyAtOnce() bool { return false }
 
 func (duckdbEngine) TableCommentSQL(d Dialect, schema, table, comment string) string {
 	return commentOnTableSQL(d, schema, table, comment)

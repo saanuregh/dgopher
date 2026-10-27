@@ -39,6 +39,9 @@ type engineRules interface {
 	// Identity.
 	CloudIdentity() bool
 	ClearTextPassword() bool
+	// ServerEnforcesReadOnly: the server refuses the writes of a
+	// read-only connection too, not the app's check alone.
+	ServerEnforcesReadOnly() bool
 	DatabasesNeedOwnConnection() bool
 	// DefaultSchemaName is the schema a database's tables are in unless
 	// named, "" when that is the connection's database.
@@ -261,6 +264,9 @@ type designRules interface {
 	// UniqueAsConstraint: a unique constraint added to a table made is
 	// added as a constraint, not as a unique index.
 	UniqueAsConstraint() bool
+	// ReplacesPrimaryKeyAtOnce: a table's primary key changes in one
+	// statement, dropped and added, as the table may not lack one between.
+	ReplacesPrimaryKeyAtOnce() bool
 	// TableCommentSQL is the statement setting a table's comment, which
 	// "" removes where the engine keeps comments apart.
 	TableCommentSQL(d Dialect, schema, table, comment string) string
@@ -541,6 +547,7 @@ func (unknownEngine) URLTLSParameters() map[string]map[string]TLSMode {
 }
 func (unknownEngine) CloudIdentity() bool              { return false }
 func (unknownEngine) ClearTextPassword() bool          { return false }
+func (unknownEngine) ServerEnforcesReadOnly() bool     { return false }
 func (unknownEngine) DatabasesNeedOwnConnection() bool { return false }
 
 // The backup dialog's notes; an engine without one of its own shows
@@ -696,6 +703,10 @@ func (e Engine) CloudIdentity() bool { return rulesOf(e).CloudIdentity() }
 // ClearTextPassword reports whether a connection may send its password as
 // clear text.
 func (e Engine) ClearTextPassword() bool { return rulesOf(e).ClearTextPassword() }
+
+// ServerEnforcesReadOnly reports whether the server refuses the writes of
+// a read-only connection too, not the app's check alone.
+func (e Engine) ServerEnforcesReadOnly() bool { return rulesOf(e).ServerEnforcesReadOnly() }
 
 // DatabasesNeedOwnConnection reports whether each database of a server
 // is reached by a connection of its own.

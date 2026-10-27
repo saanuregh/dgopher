@@ -23,7 +23,7 @@ func TestIdentifyFromVersionStrings(t *testing.T) {
 	}{
 		{"postgres", postgresFamily("PostgreSQL 17.2 (Debian 17.2-1.pgdg120+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14) 12.2.0, 64-bit", ""), Postgres, "17.2"},
 		{"postgres from source", postgresFamily("PostgreSQL 16.4 on aarch64-apple-darwin23.4.0, compiled by Apple clang version 15.0.0, 64-bit", ""), Postgres, "16.4"},
-		{"cockroachdb", postgresFamily("CockroachDB CCL v25.2.1 (x86_64-pc-linux-gnu, built 2025/06/02 18:44:43, go1.23.7 X:nocoverageredesign)", ""), CockroachDB, "25.2.1"},
+		{"cockroachdb", postgresFamily("CockroachDB CCL v26.3.3 (x86_64-pc-linux-gnu, built 2026/10/21 01:51:29, go1.26.10)", ""), CockroachDB, "26.3.3"},
 		{"cockroachdb oss", postgresFamily("CockroachDB OSS v23.1.11 (x86_64-pc-linux-gnu, built 2023/09/27 01:53:43, go1.19.13)", ""), CockroachDB, "23.1.11"},
 		{"yugabytedb", postgresFamily("PostgreSQL 15.2-YB-2.25.1.0-b0 on x86_64-pc-linux-gnu, compiled by clang version 17.0.6, 64-bit", ""), YugabyteDB, "2.25.1.0"},
 		{"yugabytedb 11", postgresFamily("PostgreSQL 11.2-YB-2024.2.2.1-b0 on x86_64-pc-linux-gnu, compiled by clang version 17.0.6, 64-bit", ""), YugabyteDB, "2024.2.2.1"},

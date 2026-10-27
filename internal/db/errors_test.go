@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,6 +35,7 @@ func TestDescribeError(t *testing.T) {
 			"SELECT *\nFRM x", want{code: true, position: true}},
 		{Config{Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher", Database: "default"}, true,
 			"SELECT *\nFRM x", want{code: true, position: true}},
+		{cockroachdbConfig, true, "SELECT *\nFRM x", want{code: true, position: true}},
 		{Config{Engine: SQLite, Database: ":memory:"}, false, "SELECT * FROM missing_table_x", want{code: true}},
 		{Config{Engine: DuckDB, Database: ":memory:"}, false, "SELECT *\nFRM x", want{position: true}},
 	}
@@ -42,6 +44,7 @@ func TestDescribeError(t *testing.T) {
 			if tc.it && os.Getenv("DGOPHER_IT") == "" {
 				t.Skip("set DGOPHER_IT=1")
 			}
+			skipUnlessRunning(t, tc.cfg)
 			tc.cfg.Name = "x"
 			if tc.cfg.Engine == SQLite {
 				tc.cfg.Database = filepath.Join(t.TempDir(), "e.sqlite")
@@ -89,7 +92,38 @@ func TestConflictErrorHint(t *testing.T) {
 			t.Errorf("%v: hint %q", err, got)
 		}
 	}
-	if got := DescribeError(&pgconn.PgError{Code: "40001", Hint: "its own"}).Hint; got != "its own" {
+	// A serialization failure (SQLSTATE 40001) of PostgreSQL's family, as
+	// CockroachDB's retry errors, is one too; the server's own hint stays.
+	for _, err := range []error{&pgconn.PgError{Code: "40001", Message: "could not serialize access"}, fmt.Errorf("commit: %w", &pgconn.PgError{Code: "40001", Hint: "its own"})} {
+		hint := DescribeError(err).Hint
+		if !strings.HasPrefix(hint, "The transaction could not be serialized with others and was aborted: roll back and run it again from its start.") {
+			t.Errorf("%v: hint %q", err, hint)
+		}
+		if own := (&pgconn.PgError{}); errors.As(err, &own) && own.Hint != "" && !strings.HasSuffix(hint, "\n"+own.Hint) {
+			t.Errorf("the server's hint lost: %q", hint)
+		}
+	}
+	if got := DescribeError(&pgconn.PgError{Code: "40P01", Hint: "its own"}).Hint; got != "its own" {
 		t.Errorf("PostgreSQL's hint replaced by %q", got)
+	}
+}
+
+// CockroachDB gives no position of a syntax error, but shows its
+// statement up to the line of the error, a caret under its byte.
+func TestDescribeErrorCaret(t *testing.T) {
+	for detail, want := range map[string][2]int{
+		"source SQL:\nSELEC 1\n^":                           {1, 1},
+		"source SQL:\nSELECT 'é',\n 'ü' FRM x\n          ^": {2, 11},
+		"source SQL:\nSELECT 1\n\n, 2,\n3 +\n   ^":          {4, 4},
+	} {
+		info := DescribeError(&pgconn.PgError{Code: "42601", Message: "syntax error", Detail: detail})
+		if info.Line != want[0] || info.Column != want[1] || !info.Bytes || info.Position != 0 {
+			t.Errorf("%q: %+v, want line %d, column %d in bytes", detail, info, want[0], want[1])
+		}
+	}
+	for _, detail := range []string{"", "source SQL:\nSELECT 1", "Key (id)=(1) already exists.", "source SQL:\nx\n  y"} {
+		if info := DescribeError(&pgconn.PgError{Detail: detail, Position: 3}); info.Line != 0 || info.Column != 0 || info.Bytes || info.Position != 3 {
+			t.Errorf("%q: %+v", detail, info)
+		}
 	}
 }
