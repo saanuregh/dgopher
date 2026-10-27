@@ -112,7 +112,11 @@ func (t *EditTarget) where(key []any, args *[]any) (string, error) {
 			return "", fmt.Errorf("the key column %s is NULL", name)
 		}
 		*args = append(*args, key[i])
-		parts = append(parts, t.Dialect.Quote(name)+" = "+t.Dialect.Placeholder(len(*args)))
+		ph := t.Dialect.Placeholder(len(*args))
+		if col, ok := t.column(name); ok {
+			ph = rulesOfDialect(t.Dialect).KeyParameter(ph, col.Type)
+		}
+		parts = append(parts, t.Dialect.Quote(name)+" = "+ph)
 	}
 	return strings.Join(parts, " AND "), nil
 }
@@ -199,8 +203,9 @@ func (s Statement) Script(e Engine) string {
 	})
 }
 
-// inline writes the statement with each of its placeholders, $n or ?,
-// written by lit; those inside quotes are names, left as they are.
+// inline writes the statement with each of its placeholders, $n, @pn or
+// ?, written by lit; those inside quotes or brackets are names, left as
+// they are.
 func (s Statement) inline(lit func(any) string) string {
 	var b strings.Builder
 	var quote rune
@@ -214,16 +219,22 @@ func (s Statement) inline(lit func(any) string) string {
 			}
 		case c == '"' || c == '`' || c == '\'':
 			quote = c
+		case c == '[':
+			quote = ']'
 		case c == '?' && next < len(s.Args):
 			b.WriteString(lit(s.Args[next]))
 			next++
 			continue
-		case c == '$':
+		case c == '$' || c == '@' && i+1 < len(s.SQL) && s.SQL[i+1] == 'p':
 			j := i + 1
+			if c == '@' {
+				j++
+			}
+			from := j
 			for j < len(s.SQL) && s.SQL[j] >= '0' && s.SQL[j] <= '9' {
 				j++
 			}
-			if n, err := strconv.Atoi(s.SQL[i+1 : j]); err == nil && n >= 1 && n <= len(s.Args) {
+			if n, err := strconv.Atoi(s.SQL[from:j]); err == nil && n >= 1 && n <= len(s.Args) {
 				b.WriteString(lit(s.Args[n-1]))
 				i = j - 1
 				continue

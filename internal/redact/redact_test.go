@@ -236,3 +236,26 @@ func BenchmarkSecretsLargeInsert(b *testing.B) {
 		Secrets(s)
 	}
 }
+
+// SQL Server's procedures that take a password among their strings have
+// all their strings cut, to the end of the statement.
+func TestRedactSQLServerProcedures(t *testing.T) {
+	for _, c := range []struct{ in, secret, keep string }{
+		{"EXEC sp_addlinkedsrvlogin @rmtsrvname = N'srv', @useself = 'FALSE', @locallogin = NULL, @rmtuser = N'u', @rmtpassword = N'linkpw1'", "linkpw1", "EXEC sp_addlinkedsrvlogin @rmtsrvname = "},
+		{"EXEC sp_password 'oldpw22', 'newpw33', 'sa'", "newpw33", "EXEC sp_password"},
+		{"exec sys.sp_password @old = NULL, @new = N'newpw44', @loginame = N'u'", "newpw44", "exec sys.sp_password @old = NULL"},
+		{"EXECUTE master.dbo.sp_addlogin N'u', N'loginpw5'; SELECT 'kept'", "loginpw5", "SELECT 'kept'"},
+		{"EXEC sp_setapprole 'app', 'rolepw66'", "rolepw66", "EXEC sp_setapprole"},
+		{"EXEC sp_addapprole 'app', 'rolepw77'", "rolepw77", "EXEC sp_addapprole"},
+		{"EXEC sp_change_users_login 'Auto_Fix', 'u', NULL, 'fixpw88'", "fixpw88", "EXEC sp_change_users_login"},
+		{"sp_password NULL, 'barepw99'", "barepw99", "sp_password NULL"},
+		{"CREATE CREDENTIAL c WITH IDENTITY = 'u', SECRET = 'credpw12'", "credpw12", "CREATE CREDENTIAL c"},
+	} {
+		if out := Secrets(c.in); strings.Contains(out, c.secret) || !strings.Contains(out, c.keep) {
+			t.Errorf("%q became %s", c.in, out)
+		}
+	}
+	if s := "EXEC sp_helplogins 'sa'"; Secrets(s) != s {
+		t.Errorf("an ordinary call changed: %s", Secrets(s))
+	}
+}

@@ -624,7 +624,7 @@ func (a *App) sidebar(c *ui.Context) {
 			if n := a.nav.tree.Item(a.nav.row); n.kind == nodeObject {
 				if cn, obj, ok := a.object(n); ok {
 					c.DisableAnimations() // by a key: the tab is there at once
-					a.NewQueryTab(cn, n.database, "SELECT *\nFROM "+db.QualifiedName(cn.DB().Dialect, obj.Schema, obj.Name)+"\nLIMIT 100;\n")
+					a.NewQueryTab(cn, n.database, db.LimitSQL(cn.Config.Engine, "SELECT *\nFROM "+db.QualifiedName(cn.DB().Dialect, obj.Schema, obj.Name), "\n", 100)+";\n")
 				}
 			}
 		}
@@ -1020,7 +1020,7 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		m.Separator()
 		quoted := db.QualifiedName(cn.DB().Dialect, obj.Schema, obj.Name)
 		if m.Item("New SQL: SELECT").Chosen() {
-			a.NewQueryTab(cn, n.database, "SELECT *\nFROM "+quoted+"\nLIMIT 100;\n")
+			a.NewQueryTab(cn, n.database, db.LimitSQL(cn.Config.Engine, "SELECT *\nFROM "+quoted, "\n", 100)+";\n")
 		}
 		if m.Item("Build a Query…").Chosen() {
 			dataview.OpenQueryBuilder(a, cn, n.database, obj)

@@ -2,6 +2,7 @@ package db
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/duckdb/duckdb-go/v2"
 	"github.com/jackc/pgx/v5/pgconn"
+	mssql "github.com/microsoft/go-mssqldb"
 )
 
 // BackupFormat is the form a backup is written in.
@@ -37,6 +39,12 @@ const (
 	// BackupParquet is a folder of a DuckDB database's schema and its
 	// tables' rows in Parquet files, which IMPORT DATABASE restores.
 	BackupParquet BackupFormat = "parquet"
+	// BackupBacpac is a SQL Server database's schema and rows in a BACPAC
+	// file, which sqlpackage writes and imports.
+	BackupBacpac BackupFormat = "bacpac"
+	// BackupServerFile is SQL Server's BACKUP DATABASE into a file on the
+	// server's disk, which RESTORE DATABASE restores.
+	BackupServerFile BackupFormat = "server"
 )
 
 // Label names a format.
@@ -50,9 +58,17 @@ func (f BackupFormat) Label() string {
 		return "Copy of the database"
 	case BackupParquet:
 		return "Folder of Parquet files"
+	case BackupBacpac:
+		return "BACPAC file"
+	case BackupServerFile:
+		return "Backup file on the server"
 	}
 	return string(f)
 }
+
+// OnServer reports whether a format's file is on the server's disk, at a
+// path the server reads, which this computer cannot choose.
+func (f BackupFormat) OnServer() bool { return f == BackupServerFile }
 
 // BackupContent is what of a database a backup keeps.
 type BackupContent int
@@ -82,7 +98,17 @@ type ToolRun struct {
 	// MySQLDefaults, when set, is an option file the tool reads first,
 	// written for it alone.
 	MySQLDefaults string
-	Statement     string
+	// ArgsFile, when set, holds arguments, one a line, in a file written
+	// for the tool alone, named after the others behind ArgsFilePrefix:
+	// sqlpackage's connection, with its password.
+	ArgsFile string
+	// ArgsFilePrefix is how the tool is told the file's name: "@" when
+	// empty, as sqlpackage reads it; "parfile=" for Oracle's Data Pump.
+	ArgsFilePrefix string
+	Statement      string
+	// StatementDatabase is the database Statement runs on, "" for the one
+	// the run backs up or restores into.
+	StatementDatabase string
 	// Import is a DuckDB backup folder, which RestoreDuckDB imports into
 	// Stage, a database of its own, before Statements copy what it made
 	// into the connection's.
@@ -547,25 +573,24 @@ func RunTool(ctx context.Context, run ToolRun, line func(string)) error {
 	}
 	args := slices.Clone(run.Argv[1:])
 	if run.MySQLDefaults != "" {
-		f, err := os.CreateTemp("", "dgopher-*.cnf")
+		name, err := writePrivateFile("dgopher-*.cnf", run.MySQLDefaults)
 		if err != nil {
 			return err
 		}
-		defer os.Remove(f.Name())
-		if err := f.Chmod(0o600); err == nil {
-			_, err = f.WriteString(run.MySQLDefaults)
-		}
-		if cerr := f.Close(); err == nil {
-			err = cerr
-		}
-		if err != nil {
-			return err
-		}
+		defer os.Remove(name)
 		// MySQL reads it only as the first option; it alone, not the
 		// user's ~/.my.cnf, whose password is for some other server.
-		args = append([]string{"--defaults-file=" + f.Name()}, args...)
+		args = append([]string{"--defaults-file=" + name}, args...)
 	} else if base := filepath.Base(run.Argv[0]); strings.HasPrefix(base, "mysql") || strings.HasPrefix(base, "mariadb") {
 		args = append([]string{"--no-defaults"}, args...)
+	}
+	if run.ArgsFile != "" {
+		name, err := writePrivateFile("dgopher-*.args", run.ArgsFile)
+		if err != nil {
+			return err
+		}
+		defer os.Remove(name)
+		args = append(args, cmp.Or(run.ArgsFilePrefix, "@")+name)
 	}
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Env = append(toolEnv(os.Environ()), run.Env...)
@@ -595,6 +620,26 @@ func RunTool(ctx context.Context, run ToolRun, line func(string)) error {
 		return fmt.Errorf("%s: %w: %s", run.Argv[0], err, strings.Join(last, " "))
 	}
 	return nil
+}
+
+// writePrivateFile writes text into a new temporary file only its owner
+// reads, named after pattern, and returns its name.
+func writePrivateFile(pattern, text string) (string, error) {
+	f, err := os.CreateTemp("", pattern)
+	if err != nil {
+		return "", err
+	}
+	if err := f.Chmod(0o600); err == nil {
+		_, err = f.WriteString(text)
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(f.Name())
+		return "", err
+	}
+	return f.Name(), nil
 }
 
 // AfterStepsWait is how long a run's After and Undo steps may take in
@@ -647,6 +692,9 @@ func runPlannedWork(ctx context.Context, run ToolRun, database func(context.Cont
 		return RunTool(ctx, run, line)
 	}
 	d, err := database(ctx)
+	if err == nil && run.StatementDatabase != "" {
+		d, err = d.Database(ctx, run.StatementDatabase)
+	}
 	switch {
 	case err != nil:
 		return err
@@ -708,5 +756,14 @@ func runStep(ctx context.Context, d *DB, statement string) error {
 // want of a privilege.
 func privilegeRefused(err error) bool {
 	var pg *pgconn.PgError
-	return errors.As(err, &pg) && pg.Code == "42501"
+	if errors.As(err, &pg) {
+		return pg.Code == "42501"
+	}
+	var ms mssql.Error
+	if errors.As(err, &ms) {
+		// Permission denied on an object (229, 230), in a database (262),
+		// to alter one (5011) or to restore one (3110).
+		return slices.Contains([]int32{229, 230, 262, 3110, 5011}, ms.Number)
+	}
+	return false
 }

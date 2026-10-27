@@ -288,6 +288,7 @@ when another connection in the project has it.
 | CockroachDB, YugabyteDB, TimescaleDB | PostgreSQL's family: connect and work as PostgreSQL does, except where [Engine support](engines.md#engines-of-a-family) says otherwise |
 | MySQL | |
 | MariaDB, TiDB | MySQL's family: connect and work as MySQL does, except where [Engine support](engines.md#engines-of-a-family) says otherwise (TiDB's read-only is the app's check alone) |
+| SQL Server | SQL Server 2019 and later, and Azure SQL; databases above schemas; password, Entra ID or Kerberos ([engines](engines.md#sql-server)) |
 | ClickHouse | native protocol or HTTP, chosen under **Protocol**; the port defaults to 9000 or 8123, 9440 or 8443 with TLS required or verified |
 | SQLite | a file, or in memory; **New…** creates an empty file |
 | DuckDB | a file, or in memory; **New…** creates an empty file |

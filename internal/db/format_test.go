@@ -218,7 +218,8 @@ func TestCursorSQLiteStorageClass(t *testing.T) {
 }
 
 func TestCursorTextIsString(t *testing.T) {
-	binary := map[Engine]string{Postgres: "bytea", CockroachDB: "bytea", YugabyteDB: "bytea", TimescaleDB: "bytea", MySQL: "BLOB", MariaDB: "BLOB", TiDB: "BLOB", SQLite: "BLOB", DuckDB: "BLOB"}
+	binary := map[Engine]string{Postgres: "bytea", CockroachDB: "bytea", YugabyteDB: "bytea", TimescaleDB: "bytea", MySQL: "BLOB", MariaDB: "BLOB", TiDB: "BLOB", SQLite: "BLOB", DuckDB: "BLOB",
+		SQLServer: "VARBINARY(10)"}
 	servers := os.Getenv("DGOPHER_IT") != ""
 	if servers {
 		integration(t)
@@ -227,10 +228,8 @@ func TestCursorTextIsString(t *testing.T) {
 		if f.cfg.Engine == ClickHouse {
 			continue
 		}
-		if f.cfg.Engine.Base() == Postgres || f.cfg.Engine.Base() == MySQL {
-			if !servers {
-				continue
-			}
+		if !f.cfg.Engine.IsFile() && !servers {
+			continue
 		}
 		t.Run(f.cfg.Name, func(t *testing.T) { cursorTextIsString(t, f, binary[f.cfg.Engine]) })
 	}

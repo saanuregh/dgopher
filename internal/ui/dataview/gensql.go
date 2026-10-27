@@ -196,7 +196,7 @@ func (s sqlGen) template(kind string, cols []db.ColumnInfo, fks []db.ForeignKey)
 			// Unreached: s.dialect, which quoted the keys, is the engine's.
 			return insert + ";"
 		}
-		return r.UpsertSQL(insert, keys, updated) + ";"
+		return r.UpsertSQL(db.Upsert{Table: s.name(), Columns: quoted, Values: params, Keys: keys, UpdatedColumns: updated}) + ";"
 	case "join":
 		var b strings.Builder
 		b.WriteString("SELECT *\nFROM " + s.name() + " t")

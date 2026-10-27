@@ -797,3 +797,90 @@ func TestAllowUnsafeInternals(t *testing.T) {
 		}
 	}
 }
+
+// A T-SQL batch is read statement by statement for manual commit: UPDATE
+// STATISTICS among writes runs in the transaction opened for them, and
+// asks first, as it takes effect at once; a statement that refuses a
+// transaction among writes asks first, as manual commit then opens none.
+func TestSQLServerBatchTransaction(t *testing.T) {
+	cfg := &db.Config{Name: "ms", Engine: db.SQLServer, Env: db.Development, Commit: db.CommitManual}
+	for _, c := range []struct {
+		sql        string
+		writesInTx bool
+		manual     string // the reason manual commit asks with, "" for none
+	}{
+		{"UPDATE STATISTICS t", false, ""},
+		{"EXEC sp_updatestats", false, ""},
+		{"UPDATE STATISTICS t\nUPDATE t SET a = 1 WHERE id = 1", true, "UPDATE STATISTICS takes effect at once"},
+		{"INSERT INTO t VALUES (1)\nEXEC sp_updatestats", true, "EXEC sp_updatestats takes effect at once"},
+		{"INSERT INTO t VALUES (1)\nKILL 52", false, "KILL cannot run in a transaction"},
+		{"BACKUP DATABASE shop TO DISK = 'x'\nDELETE FROM t WHERE id = 1", false, "BACKUP cannot run in a transaction"},
+		{"BACKUP DATABASE shop TO DISK = 'x'", false, ""},
+		{"SELECT 1\nBACKUP DATABASE shop TO DISK = 'x'", false, ""},
+		{"KILL 52\nUPDATE STATISTICS t", false, ""},
+		{"UPDATE t SET a = 1 WHERE id = 1\nSELECT 2", true, ""},
+		{"CREATE PROCEDURE p AS BEGIN UPDATE t SET a = 1 WHERE id = 1; BACKUP DATABASE shop TO DISK = 'x' END", true, ""},
+	} {
+		s := Analyze(cfg, []string{c.sql})
+		if got := WritesInTransaction(cfg.Engine, s[0]); got != c.writesInTx {
+			t.Errorf("%q: WritesInTransaction %v, want %v", c.sql, got, c.writesInTx)
+		}
+		var v Verdict
+		v.EndsRunTransaction(cfg, s, true, false)
+		if c.manual == "" && (v.Confirm || len(v.Reasons) > 0) || c.manual != "" && (!v.Confirm || len(v.Reasons) != 1 || !strings.HasPrefix(v.Reasons[0], c.manual)) {
+			t.Errorf("%q under manual commit: %+v", c.sql, v)
+		}
+		var auto Verdict
+		if auto.EndsRunTransaction(cfg, s, false, false); auto.Confirm {
+			t.Errorf("%q under autocommit: %+v", c.sql, auto)
+		}
+	}
+}
+
+// A T-SQL batch that writes and begins or ends a transaction of its own
+// controls it: the change guard's transaction would end inside it.
+func TestControlsOwnTransaction(t *testing.T) {
+	for _, c := range []struct {
+		engine db.Engine
+		sql    string
+		want   bool
+	}{
+		{db.SQLServer, "UPDATE t SET a = 1 WHERE id > 0\nCOMMIT", true},
+		{db.SQLServer, "DELETE FROM t WHERE id > 0\nROLLBACK TRANSACTION", true},
+		{db.SQLServer, "BEGIN TRAN\nUPDATE t SET a = 1 WHERE id > 0", true},
+		{db.SQLServer, "UPDATE t SET a = 1 WHERE id > 0\nSELECT 1", false},
+		{db.SQLServer, "COMMIT", false},
+		{db.SQLServer, "SELECT 1\nCOMMIT", false},
+		{db.SQLServer, "CREATE PROCEDURE p AS BEGIN UPDATE t SET a = 1 WHERE id > 0 COMMIT END", false},
+		{db.Postgres, "UPDATE t SET a = 1 WHERE id > 0", false},
+	} {
+		cfg := &db.Config{Engine: c.engine}
+		if got := ControlsOwnTransaction(c.engine, Analyze(cfg, []string{c.sql})[0]); got != c.want {
+			t.Errorf("%s %q: %v, want %v", c.engine, c.sql, got, c.want)
+		}
+	}
+}
+
+// A T-SQL batch holding more than one statement that writes makes
+// several changes; one write among reads, or another engine's statement,
+// does not.
+func TestMakesSeveralChanges(t *testing.T) {
+	for _, c := range []struct {
+		engine db.Engine
+		sql    string
+		want   bool
+	}{
+		{db.SQLServer, "INSERT INTO t VALUES (1)\nUPDATE t SET a = 1 WHERE id > 0", true},
+		{db.SQLServer, "UPDATE t SET a = 1 WHERE id > 0\nUPDATE t SET b = 2 WHERE id > 0", true},
+		{db.SQLServer, "DELETE FROM t WHERE id = 1; DELETE FROM u WHERE id = 1", true},
+		{db.SQLServer, "UPDATE t SET a = 1 WHERE id > 0\nSELECT 1", false},
+		{db.SQLServer, "DECLARE @n int = 1\nUPDATE t SET a = @n WHERE id > 0", false},
+		{db.SQLServer, "CREATE PROCEDURE p AS BEGIN UPDATE t SET a = 1 WHERE id > 0 DELETE FROM t WHERE id = 1 END", false},
+		{db.Postgres, "WITH d AS (DELETE FROM t RETURNING id) UPDATE u SET a = 1 WHERE id IN (SELECT id FROM d)", false},
+	} {
+		cfg := &db.Config{Engine: c.engine}
+		if got := MakesSeveralChanges(c.engine, Analyze(cfg, []string{c.sql})[0]); got != c.want {
+			t.Errorf("%s %q: %v, want %v", c.engine, c.sql, got, c.want)
+		}
+	}
+}

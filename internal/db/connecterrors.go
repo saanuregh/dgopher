@@ -14,6 +14,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5/pgconn"
+	mssql "github.com/microsoft/go-mssqldb"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -135,6 +136,15 @@ func ClassifyConnectError(err error) ProblemKind {
 			}
 		}
 	}
+	var msErr mssql.Error
+	if errors.As(err, &msErr) {
+		switch msErr.Number {
+		case 18456:
+			return ProblemAuth
+		case 4060:
+			return ProblemUnknownDatabase
+		}
+	}
 	var chErr *proto.Exception
 	if errors.As(err, &chErr) {
 		switch chErr.Code {
@@ -159,7 +169,9 @@ func ClassifyConnectError(err error) ProblemKind {
 	var hostnameErr x509.HostnameError
 	var invalidErr x509.CertificateInvalidError
 	if errors.As(err, &certErr) || errors.As(err, &alertErr) || errors.As(err, &authorityErr) ||
-		errors.As(err, &hostnameErr) || errors.As(err, &invalidErr) || errors.Is(err, mysql.ErrNoTLS) {
+		errors.As(err, &hostnameErr) || errors.As(err, &invalidErr) || errors.Is(err, mysql.ErrNoTLS) ||
+		// SQL Server's driver words its TLS failures without wrapping them.
+		strings.Contains(err.Error(), "TLS Handshake failed") || strings.Contains(err.Error(), "server does not support encryption") {
 		return ProblemTLS
 	}
 

@@ -400,6 +400,8 @@ type Column struct {
 	Type, Canonical string
 	Nullable        bool
 	AutoIncrement   bool
+	// Generated is set for a column the server writes.
+	Generated bool
 	// PartOfForeignKey is set for a column of a foreign key of several,
 	// whose values together must be another table's.
 	PartOfForeignKey bool
@@ -454,7 +456,7 @@ func Suggest(c Column, now time.Time) Generator {
 	}
 	typeName := strings.ToLower(strings.TrimSpace(typeArgs.ReplaceAllString(inner, "")))
 	switch {
-	case c.AutoIncrement:
+	case c.AutoIncrement, c.Generated:
 		g.Kind = Default
 		return g
 	case c.PartOfForeignKey:

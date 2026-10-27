@@ -5,6 +5,7 @@ package safety
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"dgopher/internal/db"
@@ -143,17 +144,85 @@ func (v *Verdict) EndsTransaction(cfg *db.Config, stmts []Statement, open bool) 
 }
 
 // takesEffectAtOnce makes a statement that TakesEffectAtOnce, run inside
-// a transaction, ask first.
+// a transaction, ask first: in a T-SQL batch, by the name of the
+// statement of it that does.
 func (v *Verdict) takesEffectAtOnce(e db.Engine, s Statement) {
 	if !TakesEffectAtOnce(e, s) {
 		return
 	}
+	name := verbOf(s.Analysis)
+	if parts := batchParts(e, s); len(parts) > 1 {
+		for _, p := range parts {
+			if TakesEffectAtOnce(e, p) {
+				name = statementName(e, p)
+				break
+			}
+		}
+	}
 	v.Confirm = true
-	reason := verbOf(s.Analysis) + " takes effect at once: Roll Back will not undo it"
+	reason := name + " takes effect at once: Roll Back will not undo it"
 	if OutsideTransaction(e, s.SQL) {
 		reason += ", and it should run outside a transaction, as inside one the server refuses it or runs it another way"
 	}
 	v.Reasons = append(v.Reasons, reason)
+}
+
+// outsideAmongWrites makes a T-SQL batch holding a statement that cannot
+// run in a transaction and writes besides ask first under manual commit,
+// which then opens no transaction for the batch.
+func (v *Verdict) outsideAmongWrites(e db.Engine, s Statement) {
+	parts := batchParts(e, s)
+	name := ""
+	writes := false
+	for _, p := range parts {
+		switch {
+		case OutsideTransaction(e, p.SQL):
+			if name == "" {
+				name = verbOf(p.Analysis)
+			}
+		case p.Analysis.Class == sqltext.Write || p.Analysis.Class == sqltext.DDL:
+			writes = writes || !TakesEffectAtOnce(e, p)
+		}
+	}
+	if name == "" || !writes {
+		return
+	}
+	v.Confirm = true
+	v.Reasons = append(v.Reasons, name+" cannot run in a transaction, so manual commit opens none for this batch: "+
+		"its other changes take effect at once, and Roll Back will not undo them")
+}
+
+// batchParts are the statements of a T-SQL batch, each analyzed
+// (sqltext.BatchStatements); of another statement, the statement alone.
+func batchParts(e db.Engine, s Statement) []Statement {
+	d := Dialect(e)
+	texts := sqltext.BatchStatements(PolicyText(e, s.SQL), d)
+	if len(texts) == 1 {
+		return []Statement{s}
+	}
+	out := make([]Statement, len(texts))
+	for i, text := range texts {
+		out[i] = Statement{SQL: text, Analysis: sqltext.ClassifyExecutable(text, d), Start: -1}
+	}
+	return out
+}
+
+// statementName is a statement's first two words, as UPDATE STATISTICS,
+// where its verb alone would read as another statement's.
+func statementName(e db.Engine, s Statement) string {
+	var words []string
+	for _, t := range sqltext.TokenizeFirst(s.SQL, Dialect(e), 2) {
+		switch t.Kind {
+		case sqltext.Keyword:
+			words = append(words, strings.ToUpper(t.Text))
+		case sqltext.Identifier:
+			words = append(words, t.Text)
+		}
+	}
+	if len(words) == 0 {
+		return verbOf(s.Analysis)
+	}
+	return strings.Join(words, " ")
 }
 
 // EndsRunTransaction is EndsTransaction for statements run with no
@@ -192,8 +261,16 @@ func (v *Verdict) EndsRunTransaction(cfg *db.Config, stmts []Statement, manual, 
 			held, begun = false, ""
 		case WritesInTransaction(cfg.Engine, s):
 			held = manual || begun != "" || off
+			if held {
+				// A T-SQL batch's UPDATE STATISTICS, in the transaction
+				// opened for its writes.
+				v.takesEffectAtOnce(cfg.Engine, s)
+			}
 		case held || begun != "":
 			v.takesEffectAtOnce(cfg.Engine, s)
+		}
+		if manual && begun == "" && OutsideTransaction(cfg.Engine, s.SQL) {
+			v.outsideAmongWrites(cfg.Engine, s)
 		}
 		if BeginsTransaction(s) {
 			begun = BeginStatement(s.Analysis.Verb)
@@ -208,19 +285,36 @@ func (v *Verdict) EndsRunTransaction(cfg *db.Config, stmts []Statement, manual, 
 // WritesInTransaction reports whether a statement changes data or schema
 // in the transaction manual commit opens for it (Verdict.Writes): not one
 // that cannot run in a transaction, as VACUUM, or that TakesEffectAtOnce.
+//
+// A T-SQL batch is read statement by statement: one holding UPDATE
+// STATISTICS writes in the transaction when another of its statements
+// does.
 func WritesInTransaction(e db.Engine, s Statement) bool {
-	cls := s.Analysis.Class
-	return (cls == sqltext.Write || cls == sqltext.DDL) && !OutsideTransaction(e, s.SQL) && !TakesEffectAtOnce(e, s)
+	if OutsideTransaction(e, s.SQL) {
+		return false
+	}
+	for _, p := range batchParts(e, s) {
+		cls := p.Analysis.Class
+		if (cls == sqltext.Write || cls == sqltext.DDL) && !TakesEffectAtOnce(e, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // TakesEffectAtOnce reports whether a statement changes the schema, or
 // truncates, at once even inside a transaction, which Roll Back then does
 // not undo: on an engine whose schema changes are neither part of the
 // transaction (TransactionalDDL) nor commit it (CommitsImplicitly), as
-// YugabyteDB's, and MySQL's CREATE TEMPORARY TABLE.
+// YugabyteDB's, and MySQL's CREATE TEMPORARY TABLE; and statements of
+// any class the engine's rules name, as SQL Server's UPDATE STATISTICS.
 func TakesEffectAtOnce(e db.Engine, s Statement) bool {
-	_, isSQL := db.SQL(e)
-	return isSQL && s.Analysis.Class == sqltext.DDL && e.Transactions() && !e.TransactionalDDL() && !CommitsImplicitly(e, s)
+	r, isSQL := db.SQL(e)
+	if !isSQL || !e.Transactions() {
+		return false
+	}
+	return r.TakesEffectAtOnce(PolicyText(e, s.SQL)) ||
+		s.Analysis.Class == sqltext.DDL && !e.TransactionalDDL() && !CommitsImplicitly(e, s)
 }
 
 // CommitsOrRollsBack reports whether a statement ends the open transaction
@@ -232,6 +326,29 @@ func CommitsOrRollsBack(e db.Engine, s Statement) bool {
 	}
 	ends, _ := db.EndsTransaction(e, PolicyText(e, s.SQL))
 	return ends
+}
+
+// ControlsOwnTransaction reports a T-SQL batch that writes and begins or
+// ends a transaction of its own (ControlsTransaction): a transaction the
+// app opened around it ends inside it.
+func ControlsOwnTransaction(e db.Engine, s Statement) bool {
+	if cls := s.Analysis.Class; cls != sqltext.Write && cls != sqltext.DDL {
+		return false
+	}
+	parts := batchParts(e, s)
+	return len(parts) > 1 && slices.ContainsFunc(parts, func(p Statement) bool { return ControlsTransaction(e, p) })
+}
+
+// MakesSeveralChanges reports a T-SQL batch holding more than one
+// statement that writes, whose rows one count does not tell apart.
+func MakesSeveralChanges(e db.Engine, s Statement) bool {
+	n := 0
+	for _, p := range batchParts(e, s) {
+		if cls := p.Analysis.Class; cls == sqltext.Write || cls == sqltext.DDL {
+			n++
+		}
+	}
+	return n > 1
 }
 
 // CommitsImplicitly reports whether a statement commits the open

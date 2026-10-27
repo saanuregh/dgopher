@@ -268,7 +268,8 @@ func (f *connForm) config() db.Config {
 		cfg.AskPassword = true
 	case sourceIdentity:
 		cfg.Password, cfg.PasswordEnv, cfg.PasswordCommand, cfg.ClearTextPassword = "", "", "", false
-		cfg.Identity = db.Identities()[max(0, slices.IndexFunc(db.Identities(), func(i db.Identity) bool { return i.Label() == f.identity }))]
+		ids := cfg.Engine.CloudIdentities()
+		cfg.Identity = ids[max(0, slices.IndexFunc(ids, func(i db.Identity) bool { return i.Label() == f.identity }))]
 		cfg.IdentityRegion, cfg.IdentityProfile = strings.TrimSpace(cfg.IdentityRegion), strings.TrimSpace(cfg.IdentityProfile)
 		if cfg.Identity != db.IdentityAWS {
 			cfg.IdentityRegion, cfg.IdentityProfile = "", ""
@@ -1237,7 +1238,7 @@ const (
 	sourceEnv
 	sourceCommand
 	sourceAsk
-	sourceIdentity // last: offered for PostgreSQL's and MySQL's families only
+	sourceIdentity // last: offered for an engine that takes a cloud identity's token
 )
 
 var passwordSources = []string{"System keychain", "Environment variable", "Command", "Ask every time", "Cloud identity"}
@@ -1373,9 +1374,9 @@ func (a *App) passwordField(c *ui.Context, f *connForm) {
 			ui.Text(c, note).FontSize(12).TextColor(widgets.PaletteOf(c).Muted)
 		})
 	case sourceIdentity:
-		labels := make([]string, len(db.Identities()))
-		for i, id := range db.Identities() {
-			labels[i] = id.Label()
+		labels := lists.Map(cfg.Engine.CloudIdentities(), db.Identity.Label)
+		if !slices.Contains(labels, f.identity) {
+			f.identity = labels[0] // the engine chosen now takes another
 		}
 		ui.Field(c, "Identity", func() {
 			ui.Select(c, &f.identity, labels).Label("Identity")

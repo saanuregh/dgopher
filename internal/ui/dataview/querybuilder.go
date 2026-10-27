@@ -393,7 +393,7 @@ func (b *queryBuilder) sql() (string, error) {
 		if err != nil || n < 1 {
 			return "", errors.New("the limit is a number of rows, 1 or more")
 		}
-		sb.WriteString("\nLIMIT " + strconv.Itoa(n))
+		return db.LimitSQL(e, sb.String(), "\n", n), nil
 	}
 	return sb.String(), nil
 }

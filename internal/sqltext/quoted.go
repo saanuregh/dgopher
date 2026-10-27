@@ -8,10 +8,15 @@ import (
 // DecodeQuoted returns the text a string or quoted-name token of dialect d
 // stands for, so a name spelled with escapes is the name: the quotes are
 // dropped and doubled quotes undone; Postgres U&"…", U&'…' and E'…' escapes
-// and ClickHouse backslash escapes are decoded. A U& escape changed with
-// UESCAPE is not decoded; callers check for UESCAPE themselves.
+// and ClickHouse backslash escapes are decoded, as are T-SQL [names], whose
+// ]] is one ], and N'…' strings. A U& escape changed with UESCAPE is not
+// decoded; callers check for UESCAPE themselves.
 func DecodeQuoted(text string, d Dialect) string {
 	switch {
+	case d == TSQL && len(text) >= 2 && text[0] == '[':
+		return strings.ReplaceAll(strings.TrimSuffix(text[1:], "]"), "]]", "]")
+	case d == TSQL && len(text) > 1 && (text[0] == 'N' || text[0] == 'n') && text[1] == '\'':
+		return unquoteText(text[1:])
 	case d == Postgres && len(text) > 3 && (text[0] == 'U' || text[0] == 'u') && text[1] == '&':
 		return decodeUnicodeEscapes(unquoteText(text[2:]))
 	case d == Postgres && len(text) > 1 && (text[0] == 'E' || text[0] == 'e') && text[1] == '\'':

@@ -116,7 +116,7 @@ func (p *refPicker) query() {
 		}
 		q += " WHERE " + strings.Join(conds, " OR ")
 	}
-	q += " ORDER BY " + d.Quote(key) + " LIMIT " + strconv.Itoa(refPickerRows)
+	q = db.LimitSQL(e, q+" ORDER BY "+d.Quote(key), " ", refPickerRows)
 	p.loading, p.searched = true, search
 	v.queryRows(q, nil, refPickerRows, func(_ []string, rows [][]any, err error) {
 		p.loading, p.rows, p.sel, p.err = false, rows, 0, ""

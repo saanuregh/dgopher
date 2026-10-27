@@ -284,7 +284,7 @@ func (duckdbEngine) URLTLSParameters() map[string]map[string]TLSMode {
 	return nil
 }
 
-func (duckdbEngine) CloudIdentity() bool              { return false }
+func (duckdbEngine) CloudIdentities() []Identity      { return nil }
 func (duckdbEngine) ClearTextPassword() bool          { return false }
 func (duckdbEngine) ServerEnforcesReadOnly() bool     { return true }
 func (duckdbEngine) DatabasesNeedOwnConnection() bool { return false }
@@ -363,8 +363,10 @@ func (duckdbEngine) OutsideTransaction(sql string) bool {
 	return len(words) > 0 && words[0] == "VACUUM"
 }
 
-func (duckdbEngine) RollbackMayKeepChanges() bool { return false }
-func (duckdbEngine) RowCountWord() string         { return "changed" }
+func (duckdbEngine) RollbackMayKeepChanges() bool    { return false }
+func (duckdbEngine) RowCountWord() string            { return "changed" }
+func (duckdbEngine) implicitTransactionsSQL() string { return "" }
+func (duckdbEngine) ownRowCountSQL() string          { return "" }
 
 func (duckdbEngine) Explain(statement string, analyze bool) (ExplainRun, bool) {
 	if analyze {
@@ -418,6 +420,8 @@ func (duckdbEngine) BytesLiteral(b []byte) string {
 func (duckdbEngine) BooleansAreNumbers() bool { return false }
 func (duckdbEngine) OffsetTimesAsUTC() bool   { return false }
 
+func (duckdbEngine) KeyParameter(placeholder, _ string) string { return placeholder }
+
 func (duckdbEngine) CastParameter(placeholder, columnType string) string {
 	return "CAST(" + placeholder + " AS " + columnType + ")"
 }
@@ -443,9 +447,10 @@ func (duckdbEngine) JSONPathSQL(column string, path []any, leaf bool) string {
 	return jsonPathSQL(column, path, leaf, false)
 }
 
-func (duckdbEngine) UpsertSQL(insert string, keys, updatedColumns []string) string {
-	return upsertOnConflictSQL(insert, keys, updatedColumns)
-}
+func (duckdbEngine) UpsertSQL(u Upsert) string { return upsertOnConflictSQL(u) }
+
+func (duckdbEngine) RowLimit(n int) (string, string)      { return limitAtEnd(n) }
+func (duckdbEngine) ShownColumnSQL(string, string) string { return "" }
 
 func (duckdbEngine) CommonTypes() []string {
 	return []string{"INTEGER", "BIGINT", "SMALLINT", "DECIMAL(12,2)", "DOUBLE", "BOOLEAN", "VARCHAR", "DATE", "TIMESTAMP",
@@ -465,6 +470,22 @@ func (duckdbEngine) ModifyColumnSQL(d Dialect, t TableDesign, was, now ColumnDes
 
 func (duckdbEngine) RenameObjectSQL(obj Object, name string) (string, error) {
 	return alterRenameSQL(duckdbDialect{}, obj, name), nil
+}
+
+func (duckdbEngine) RenameColumnSQL(d Dialect, schema, table, column, name string) string {
+	return renameColumnSQL(d, schema, table, column, name)
+}
+
+func (duckdbEngine) AddColumnSQL(d Dialect, schema, table, definition string) string {
+	return addColumnSQL(d, schema, table, definition)
+}
+
+func (duckdbEngine) DropColumnSQL(d Dialect, schema, table string, c ColumnDesign) []string {
+	return dropColumnSQL(d, schema, table, c)
+}
+
+func (duckdbEngine) ColumnCommentSQL(d Dialect, schema, table, column, _, comment string) string {
+	return columnCommentSQL(d, schema, table, column, comment)
 }
 
 func (duckdbEngine) ScriptPreamble(bool) string { return "" }
@@ -554,6 +575,8 @@ func (duckdbEngine) GrantSQL(privileges []string, schema, _ string, _ Account) (
 	return nil, noAccountsError(DuckDB)
 }
 
+func (duckdbEngine) GrantRoleSQL(d Dialect, role, a Account) string { return grantRoleSQL(d, role, a) }
+
 func (duckdbEngine) Privileges() []string { return standardPrivileges() }
 
 func (duckdbEngine) AccountForm() AccountFormFields {
@@ -586,3 +609,8 @@ func (duckdbEngine) BackupToolChecksCAOnly(*DB) bool { return false }
 func (duckdbEngine) MaintenanceCommands(quotedTable string) []MaintenanceCommand {
 	return nil
 }
+
+func (duckdbEngine) readsAllResults() bool         { return false }
+func (duckdbEngine) sessionDatabaseSQL() string    { return "" }
+func (duckdbEngine) TakesEffectAtOnce(string) bool { return false }
+func (duckdbEngine) BooleanLiteral(b bool) string  { return booleanWord(b) }

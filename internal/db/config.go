@@ -29,6 +29,7 @@ const (
 	Redis      Engine = "redis"
 	SQLite     Engine = "sqlite"
 	DuckDB     Engine = "duckdb"
+	SQLServer  Engine = "sqlserver"
 	// The flavors: each runs on its parent's rules but for what it
 	// overrides, PostgreSQL's for the first three, MySQL's for the others.
 	CockroachDB Engine = "cockroachdb"
@@ -41,7 +42,7 @@ const (
 // Engines lists the supported engines in the order the UI offers them,
 // each flavor after its parent.
 func Engines() []Engine {
-	return []Engine{Postgres, CockroachDB, YugabyteDB, TimescaleDB, MySQL, MariaDB, TiDB, ClickHouse, Redis, SQLite, DuckDB}
+	return []Engine{Postgres, CockroachDB, YugabyteDB, TimescaleDB, MySQL, MariaDB, TiDB, ClickHouse, SQLServer, Redis, SQLite, DuckDB}
 }
 
 // Environment says how careful the app must be with a connection.
@@ -486,8 +487,10 @@ func (c *Config) Validate() error {
 	case c.Identity == "":
 	case !slices.Contains(Identities(), c.Identity):
 		errs = append(errs, fmt.Sprintf("unknown identity %q", c.Identity))
-	case !rulesOf(c.Engine).CloudIdentity():
-		errs = append(errs, "a cloud identity logs in to an engine of PostgreSQL's or MySQL's family")
+	case !c.Engine.CloudIdentity():
+		errs = append(errs, "a cloud identity logs in to an engine of PostgreSQL's or MySQL's family, or to SQL Server")
+	case !slices.Contains(c.Engine.CloudIdentities(), c.Identity):
+		errs = append(errs, fmt.Sprintf("%s does not log in to %s", c.Identity.Label(), c.Engine.Label()))
 	case !verified:
 		errs = append(errs, "a cloud identity's token goes only over verified TLS: choose TLS verify-full "+
 			"(Verify certificate and host) and, unless the system trusts it, the server's CA file: AWS's RDS CA bundle, Cloud SQL's server CA")

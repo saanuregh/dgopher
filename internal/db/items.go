@@ -25,12 +25,14 @@ const (
 	// ItemPartition is a partition of a PostgreSQL table, shown under the
 	// table rather than with the schema's.
 	ItemPartition ItemKind = "partition"
+	// ItemSynonym is a name standing for another object, as SQL Server's.
+	ItemSynonym ItemKind = "synonym"
 )
 
 // ItemKinds are the kinds a schema's navigator shows as folders, in
 // their order.
 func ItemKinds() []ItemKind {
-	return []ItemKind{ItemFunction, ItemProcedure, ItemTrigger, ItemSequence, ItemType, ItemExtension, ItemEvent, ItemProjection, ItemChunk, ItemJob}
+	return []ItemKind{ItemFunction, ItemProcedure, ItemTrigger, ItemSequence, ItemType, ItemExtension, ItemEvent, ItemProjection, ItemChunk, ItemJob, ItemSynonym}
 }
 
 // Plural names a kind's folder.

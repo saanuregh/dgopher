@@ -151,3 +151,39 @@ func TestPrepareRefuses(t *testing.T) {
 		}
 	}
 }
+
+// SQL Server's types, as its catalog names them and CanonicalType reads
+// them, get the generators of their values; a rowversion and a computed
+// column, which the server writes, and a spatial type are left to the
+// server.
+func TestSuggestSQLServerTypes(t *testing.T) {
+	now := time.Date(2026, 5, 1, 12, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		col  Column
+		want Kind
+	}{
+		{Column{Name: "level", Type: "tinyint", Canonical: "BIGINT"}, Integer},
+		{Column{Name: "active", Type: "bit", Canonical: "BOOLEAN"}, Boolean},
+		{Column{Name: "title", Type: "nvarchar(40)", Canonical: "VARCHAR"}, Words},
+		{Column{Name: "body", Type: "nvarchar(max)", Canonical: "VARCHAR"}, Paragraph},
+		{Column{Name: "price", Type: "money", Canonical: "DECIMAL(19,4)"}, Decimal},
+		{Column{Name: "ref", Type: "uniqueidentifier", Canonical: "UUID"}, UUID},
+		{Column{Name: "at", Type: "datetimeoffset(7)", Canonical: "TIMESTAMPTZ"}, Timestamp},
+		{Column{Name: "at", Type: "smalldatetime", Canonical: "TIMESTAMP"}, Timestamp},
+		{Column{Name: "version", Type: "timestamp", Canonical: "BLOB", Generated: true}, Default},
+		{Column{Name: "twice", Type: "int", Canonical: "BIGINT", Generated: true}, Default},
+		{Column{Name: "place", Type: "geography", Canonical: "VARCHAR", Nullable: true}, Null},
+		{Column{Name: "node", Type: "hierarchyid", Canonical: "VARCHAR"}, Default},
+		{Column{Name: "doc", Type: "xml", Canonical: "VARCHAR", Nullable: true}, Null},
+	} {
+		if got := Suggest(c.col, now); got.Kind != c.want {
+			t.Errorf("%s (%s): %s, want %s", c.col.Type, c.col.Canonical, got.Kind.Label(), c.want.Label())
+		}
+	}
+	if g := Suggest(Column{Name: "title", Type: "nvarchar(40)", Canonical: "VARCHAR"}, now); g.MaxLength != 40 {
+		t.Errorf("nvarchar(40): max length %d", g.MaxLength)
+	}
+	if g := Suggest(Column{Name: "level", Type: "tinyint", Canonical: "BIGINT"}, now); g.To != "100" {
+		t.Errorf("tinyint, which holds 0 to 255: to %s", g.To)
+	}
+}

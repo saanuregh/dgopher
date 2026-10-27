@@ -110,6 +110,9 @@ func TestTokenizeNonASCIIIdent(t *testing.T) {
 			}
 		}
 		want := []string{"🙂x", "x\u00a0y", "café\u2028z", "t"}
+		if d == ClickHouse { // ClickHouse reads U+00A0 and U+2028 as spaces
+			want = []string{"🙂x", "x", "y", "café", "z", "t"}
+		}
 		if !reflect.DeepEqual(idents, want) {
 			t.Fatalf("dialect %d: identifiers = %q, want %q", d, idents, want)
 		}

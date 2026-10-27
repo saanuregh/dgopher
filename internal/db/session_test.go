@@ -3,9 +3,12 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -371,5 +374,110 @@ func TestOwnsTx(t *testing.T) {
 	a.Rollback(ctx)
 	if a.OwnsTx() || b.OwnsTx() {
 		t.Fatal("a transaction owned after ROLLBACK")
+	}
+}
+
+// An explain's steps run around its statement on the session's one
+// connection, which a temporary table shows; After runs even when the
+// statement failed or was cancelled, or a Before step failed, and a
+// connection whose After failed is dropped rather than kept as Before
+// left it.
+func TestExplainRunAfterOnFailure(t *testing.T) {
+	const steps = "SELECT group_concat(step, ',') FROM explain_steps"
+	before := []string{"CREATE TEMP TABLE explain_steps (step TEXT)", "INSERT INTO explain_steps VALUES ('before')"}
+	after := []string{"INSERT INTO explain_steps VALUES ('after')"}
+	for _, c := range []struct {
+		name      string
+		run       ExplainRun
+		statement func(ctx context.Context, s *Session, cancel func()) error
+		err       string // what the run's error holds
+		ran       bool   // whether the statement ran
+		sent      []string
+		left      string // explain_steps after the run; "" when the table went with the connection
+	}{
+		{"the statement fails", ExplainRun{Before: before, After: after},
+			func(ctx context.Context, s *Session, _ func()) error {
+				s.Exec(ctx, "INSERT INTO explain_steps VALUES ('statement')")
+				return errors.New("the statement failed")
+			}, "the statement failed", true, append(append([]string{}, before...), after...), "before,statement,after"},
+		{"the run is cancelled", ExplainRun{Before: before, After: after},
+			func(ctx context.Context, s *Session, cancel func()) error {
+				s.Exec(ctx, "INSERT INTO explain_steps VALUES ('statement')")
+				cancel()
+				return ctx.Err()
+			}, "context canceled", true, append(append([]string{}, before...), after...), "before,statement,after"},
+		{"a step before fails", ExplainRun{Before: []string{before[0], "NOT SQL", before[1]}, After: after},
+			nil, "syntax error", false, []string{before[0], "NOT SQL", after[0]}, "after"},
+		{"a step after fails", ExplainRun{Before: before, After: []string{"NOT SQL", after[0]}},
+			func(ctx context.Context, s *Session, _ func()) error { return nil },
+			"syntax error", true, append(append([]string{}, before...), "NOT SQL", after[0]), ""},
+		{"no steps", ExplainRun{},
+			func(ctx context.Context, s *Session, _ func()) error { return nil }, "", true, nil, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			bg := context.Background()
+			d, err := Open(bg, sqliteFile(t), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer d.Close()
+			s, _ := d.Session(bg)
+			defer s.Close()
+			ctx, cancel := context.WithCancel(bg)
+			defer cancel()
+			var sent []string
+			ran := false
+			err = s.RunExplain(ctx, c.run, func(sql string, _ time.Duration, _ error) { sent = append(sent, sql) }, func(ctx context.Context) error {
+				ran = true
+				if c.statement == nil {
+					t.Fatal("the statement ran after a step before it failed")
+				}
+				return c.statement(ctx, s, cancel)
+			})
+			if c.err == "" && err != nil || c.err != "" && (err == nil || !strings.Contains(err.Error(), c.err)) {
+				t.Fatalf("error %v, want %q", err, c.err)
+			}
+			if ran != c.ran || !slices.Equal(sent, c.sent) {
+				t.Fatalf("ran %v, steps %q", ran, sent)
+			}
+			if c.left == "" {
+				if c.run.After != nil {
+					// Dropped: the next statement is told, once, and the
+					// connection is a new one.
+					if _, err := s.Exec(bg, "SELECT 1"); !errors.Is(err, ErrSessionReset) {
+						t.Fatalf("after a failed step after: %v", err)
+					}
+					if _, err := s.Query(bg, steps); err == nil {
+						t.Fatal("the connection Before set up was kept")
+					}
+				}
+				return
+			}
+			cur, err := s.Query(bg, steps)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rows, _ := cur.Fetch(1)
+			if got := rows[0][0]; got != c.left {
+				t.Fatalf("steps %v, want %q", got, c.left)
+			}
+		})
+	}
+}
+
+// A session keeps the first messages of a run, a loop of PRINTs not
+// filling memory, and says how many more came.
+func TestSessionMessagesCapped(t *testing.T) {
+	s := &Session{}
+	for i := range maxMessages + 5 {
+		s.messages.add(fmt.Sprint(i))
+	}
+	got := s.TakeMessages()
+	if len(got) != maxMessages+1 || got[maxMessages-1] != fmt.Sprint(maxMessages-1) || got[maxMessages] != "5 more messages not shown." {
+		t.Fatalf("%d messages, the last %q", len(got), got[len(got)-1])
+	}
+	s.messages.add("next")
+	if got := s.TakeMessages(); len(got) != 1 || got[0] != "next" {
+		t.Fatalf("the next run's: %q", got)
 	}
 }

@@ -23,6 +23,12 @@ type Account struct {
 	// Attributes are what the account may do, or is, in a few words each.
 	Attributes []string
 	MemberOf   []string
+	// User is SQL Server's user of a login in the current database, ""
+	// for none read; NoLogin marks a user of the database with no login,
+	// and ServerRole a role of the server, not of the database.
+	User       string
+	NoLogin    bool
+	ServerRole bool
 }
 
 // Label names the account as its server writes it.
@@ -160,6 +166,12 @@ func grantOnDatabaseSQL(d Dialect, privileges []string, schema, table, name stri
 
 // GrantRoleSQL writes the statement making an account a member of a role.
 func GrantRoleSQL(d Dialect, role Account, a Account) string {
+	return rulesOfDialect(d).GrantRoleSQL(d, role, a)
+}
+
+// grantRoleSQL makes an account a member of a role with GRANT, as most
+// engines do.
+func grantRoleSQL(d Dialect, role Account, a Account) string {
 	return "GRANT " + accountName(d, role) + " TO " + accountName(d, a)
 }
 

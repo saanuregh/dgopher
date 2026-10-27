@@ -28,6 +28,13 @@ var (
 			"avgIf if multiIf ifNull toDate toDateTime toStartOfDay toStartOfHour toStartOfMonth toYYYYMM now today " +
 			"yesterday dateDiff formatDateTime toString toInt64 toFloat64 toDecimal64 replaceAll splitByChar arrayJoin has " +
 			"indexOf arrayMap arrayFilter JSONExtract JSONExtractString round intDiv rand generateUUIDv4 cityHash64 toTypeName",
+		TSQL: "ceiling power square sign rand isnull iif choose len datalength charindex patindex left right replicate reverse " +
+			"stuff concat_ws string_agg string_split format quotename translate space str char ascii unicode " +
+			"getdate getutcdate sysdatetime sysutcdatetime sysdatetimeoffset current_timestamp dateadd datediff datediff_big " +
+			"datename datepart datefromparts datetimefromparts eomonth year month day isdate try_cast try_convert try_parse " +
+			"convert newid count_big stdev var checksum hashbytes json_value json_query json_modify isjson openjson " +
+			"object_id object_name schema_name db_name db_id user_name suser_sname host_name app_name scope_identity " +
+			"ident_current error_message error_number error_line error_severity error_state error_procedure xact_state",
 	}
 )
 

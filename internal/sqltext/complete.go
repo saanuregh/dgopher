@@ -109,8 +109,9 @@ func unquote(t Token) string {
 	}
 	q := t.Text[:1]
 	if q == "[" {
-		// SQLite [name] has no escape for ']'.
-		return strings.TrimSuffix(t.Text[1:], "]")
+		// T-SQL's ]] is one ]; SQLite's [name], which has no escape for
+		// ], holds none.
+		return strings.ReplaceAll(strings.TrimSuffix(t.Text[1:], "]"), "]]", "]")
 	}
 	inner := strings.TrimSuffix(t.Text[1:], q)
 	return strings.ReplaceAll(inner, q+q, q)

@@ -400,19 +400,19 @@ func TestPinValidateByEngine(t *testing.T) {
 		"mysql identity":        "ok",
 		"mysql clear text":      "ok",
 		"clickhouse plain":      "ok",
-		"clickhouse identity":   "error: a cloud identity logs in to an engine of PostgreSQL's or MySQL's family",
+		"clickhouse identity":   "error: a cloud identity logs in to an engine of PostgreSQL's or MySQL's family, or to SQL Server",
 		"clickhouse clear text": "error: a password sent as clear text goes only to MySQL",
 		"sqlite plain":          "ok",
-		"sqlite identity":       "error: a cloud identity logs in to an engine of PostgreSQL's or MySQL's family",
+		"sqlite identity":       "error: a cloud identity logs in to an engine of PostgreSQL's or MySQL's family, or to SQL Server",
 		"sqlite clear text":     "error: a password sent as clear text goes only to MySQL",
 		"duckdb plain":          "ok",
-		"duckdb identity":       "error: a cloud identity logs in to an engine of PostgreSQL's or MySQL's family",
+		"duckdb identity":       "error: a cloud identity logs in to an engine of PostgreSQL's or MySQL's family, or to SQL Server",
 		"duckdb clear text":     "error: a password sent as clear text goes only to MySQL",
 		"redis plain":           "ok",
-		"redis identity":        "error: a cloud identity logs in to an engine of PostgreSQL's or MySQL's family",
+		"redis identity":        "error: a cloud identity logs in to an engine of PostgreSQL's or MySQL's family, or to SQL Server",
 		"redis clear text":      "error: a password sent as clear text goes only to MySQL",
 		"unknown plain":         "error: unknown engine \"unknown\"",
-		"unknown identity":      "error: unknown engine \"unknown\"; a cloud identity logs in to an engine of PostgreSQL's or MySQL's family",
+		"unknown identity":      "error: unknown engine \"unknown\"; a cloud identity logs in to an engine of PostgreSQL's or MySQL's family, or to SQL Server",
 		"unknown clear text":    "error: unknown engine \"unknown\"; a password sent as clear text goes only to MySQL",
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
@@ -433,38 +433,40 @@ func TestPinURLSchemes(t *testing.T) {
 	urls := []string{
 		"postgres://h/d", "postgresql://h/d", "mysql://h/d", "mariadb://h/d", "clickhouse://h/d", "ch://h/d",
 		"redis://h/0", "rediss://h/0", "sqlite:///tmp/a.db", "sqlite3:///tmp/a.db", "file:///tmp/a.db", "duckdb:///tmp/a.duckdb",
-		"oracle://h/d", "sqlserver://h/d",
+		"oracle://h/d", "sqlserver://h/d", "sqlserver://h?database=d&encrypt=true", "mssql://h:1444?Database=d&Encrypt=true&TrustServerCertificate=yes",
 		"postgres://h/d?sslmode=require", "postgres://h/d?ssl-mode=REQUIRED", "postgres://h/d?secure=true",
 		"mysql://h/d?ssl-mode=REQUIRED", "mysql://h/d?sslmode=require", "mysql://h/d?secure=true",
 		"clickhouse://h/d?secure=true", "clickhouse://h/d?sslmode=require", "clickhouse://h/d?skip_verify=true",
 		"redis://h/0?sslmode=require", "redis://h/0?skip_verify=true",
 	}
 	pinValues(t, "url schemes", map[string]string{
-		"postgres://h/d":                    "engine=postgres tls=\"\" database=\"d\"",
-		"postgresql://h/d":                  "engine=postgres tls=\"\" database=\"d\"",
-		"mysql://h/d":                       "engine=mysql tls=\"\" database=\"d\"",
-		"mariadb://h/d":                     "engine=mariadb tls=\"\" database=\"d\"",
-		"clickhouse://h/d":                  "engine=clickhouse tls=\"\" database=\"d\"",
-		"ch://h/d":                          "engine=clickhouse tls=\"\" database=\"d\"",
-		"redis://h/0":                       "engine=redis tls=\"\" database=\"0\"",
-		"rediss://h/0":                      "engine=redis tls=\"verify-full\" database=\"0\"",
-		"sqlite:///tmp/a.db":                "engine=sqlite tls=\"\" database=\"/tmp/a.db\"",
-		"sqlite3:///tmp/a.db":               "engine=sqlite tls=\"\" database=\"/tmp/a.db\"",
-		"file:///tmp/a.db":                  "engine=sqlite tls=\"\" database=\"/tmp/a.db\"",
-		"duckdb:///tmp/a.duckdb":            "engine=duckdb tls=\"\" database=\"/tmp/a.duckdb\"",
-		"oracle://h/d":                      "error: unknown kind of URL \"oracle\": use postgres://, mysql://, clickhouse://, redis:// or a file path",
-		"sqlserver://h/d":                   "error: unknown kind of URL \"sqlserver\": use postgres://, mysql://, clickhouse://, redis:// or a file path",
-		"postgres://h/d?sslmode=require":    "engine=postgres tls=\"require\" database=\"d\"",
-		"postgres://h/d?ssl-mode=REQUIRED":  "error: ssl-mode is no PostgreSQL URL parameter",
-		"postgres://h/d?secure=true":        "error: secure is no PostgreSQL URL parameter",
-		"mysql://h/d?ssl-mode=REQUIRED":     "engine=mysql tls=\"require\" database=\"d\"",
-		"mysql://h/d?sslmode=require":       "error: sslmode is no MySQL URL parameter",
-		"mysql://h/d?secure=true":           "error: secure is no MySQL URL parameter",
-		"clickhouse://h/d?secure=true":      "engine=clickhouse tls=\"verify-full\" database=\"d\"",
-		"clickhouse://h/d?sslmode=require":  "error: sslmode is no ClickHouse URL parameter",
-		"clickhouse://h/d?skip_verify=true": "error: the URL's skip_verify needs TLS",
-		"redis://h/0?sslmode=require":       "error: sslmode is no Redis URL parameter",
-		"redis://h/0?skip_verify=true":      "error: the URL's skip_verify needs TLS",
+		"postgres://h/d":                        "engine=postgres tls=\"\" database=\"d\"",
+		"postgresql://h/d":                      "engine=postgres tls=\"\" database=\"d\"",
+		"mysql://h/d":                           "engine=mysql tls=\"\" database=\"d\"",
+		"mariadb://h/d":                         "engine=mariadb tls=\"\" database=\"d\"",
+		"clickhouse://h/d":                      "engine=clickhouse tls=\"\" database=\"d\"",
+		"ch://h/d":                              "engine=clickhouse tls=\"\" database=\"d\"",
+		"redis://h/0":                           "engine=redis tls=\"\" database=\"0\"",
+		"rediss://h/0":                          "engine=redis tls=\"verify-full\" database=\"0\"",
+		"sqlite:///tmp/a.db":                    "engine=sqlite tls=\"\" database=\"/tmp/a.db\"",
+		"sqlite3:///tmp/a.db":                   "engine=sqlite tls=\"\" database=\"/tmp/a.db\"",
+		"file:///tmp/a.db":                      "engine=sqlite tls=\"\" database=\"/tmp/a.db\"",
+		"duckdb:///tmp/a.duckdb":                "engine=duckdb tls=\"\" database=\"/tmp/a.duckdb\"",
+		"oracle://h/d":                          "error: unknown kind of URL \"oracle\": use postgres://, mysql://, clickhouse://, redis:// or a file path",
+		"sqlserver://h/d":                       "error: the URL names the instance \"d\": DGopher connects to an instance by its port, as host:port",
+		"sqlserver://h?database=d&encrypt=true": "engine=sqlserver tls=\"verify-full\" database=\"d\"",
+		"mssql://h:1444?Database=d&Encrypt=true&TrustServerCertificate=yes": "engine=sqlserver tls=\"require\" database=\"d\"",
+		"postgres://h/d?sslmode=require":                                    "engine=postgres tls=\"require\" database=\"d\"",
+		"postgres://h/d?ssl-mode=REQUIRED":                                  "error: ssl-mode is no PostgreSQL URL parameter",
+		"postgres://h/d?secure=true":                                        "error: secure is no PostgreSQL URL parameter",
+		"mysql://h/d?ssl-mode=REQUIRED":                                     "engine=mysql tls=\"require\" database=\"d\"",
+		"mysql://h/d?sslmode=require":                                       "error: sslmode is no MySQL URL parameter",
+		"mysql://h/d?secure=true":                                           "error: secure is no MySQL URL parameter",
+		"clickhouse://h/d?secure=true":                                      "engine=clickhouse tls=\"verify-full\" database=\"d\"",
+		"clickhouse://h/d?sslmode=require":                                  "error: sslmode is no ClickHouse URL parameter",
+		"clickhouse://h/d?skip_verify=true":                                 "error: the URL's skip_verify needs TLS",
+		"redis://h/0?sslmode=require":                                       "error: sslmode is no Redis URL parameter",
+		"redis://h/0?skip_verify=true":                                      "error: the URL's skip_verify needs TLS",
 	}, func(add func(key, got string)) {
 		for _, u := range urls {
 			cfg, err := ParseURL(u)
@@ -2086,6 +2088,49 @@ func TestPinReadTableDesign(t *testing.T) {
 			add(string(cfg.Engine), fmt.Sprintf("%s pk=%q unkept=%q\ncolumns: %s\nindexes: %s\nkeys: %d\nchecks: %+v",
 				errText(err), td.PrimaryKeyName, td.Unkept(), strings.Join(cols, "; "), strings.Join(ixs, "; "), len(td.ForeignKeys), td.Checks))
 			d.Close()
+		}
+	})
+}
+
+// TestPinLimitSQL pins how each engine limits the rows of a SELECT the
+// app writes: LIMIT at its end, as before LimitSQL.
+func TestPinLimitSQL(t *testing.T) {
+	pinValues(t, "limit", map[string]string{
+		"postgres plain":      "SELECT a FROM t ORDER BY a LIMIT 50",
+		"postgres distinct":   "SELECT DISTINCT a FROM t\nLIMIT 3",
+		"mysql plain":         "SELECT a FROM t ORDER BY a LIMIT 50",
+		"mysql distinct":      "SELECT DISTINCT a FROM t\nLIMIT 3",
+		"clickhouse plain":    "SELECT a FROM t ORDER BY a LIMIT 50",
+		"clickhouse distinct": "SELECT DISTINCT a FROM t\nLIMIT 3",
+		"sqlite plain":        "SELECT a FROM t ORDER BY a LIMIT 50",
+		"sqlite distinct":     "SELECT DISTINCT a FROM t\nLIMIT 3",
+		"duckdb plain":        "SELECT a FROM t ORDER BY a LIMIT 50",
+		"duckdb distinct":     "SELECT DISTINCT a FROM t\nLIMIT 3",
+		"redis plain":         "SELECT a FROM t ORDER BY a LIMIT 50",
+		"redis distinct":      "SELECT DISTINCT a FROM t\nLIMIT 3",
+		"unknown plain":       "SELECT a FROM t ORDER BY a LIMIT 50",
+		"unknown distinct":    "SELECT DISTINCT a FROM t\nLIMIT 3",
+	}, func(add func(key, got string)) {
+		for _, e := range pinEngines {
+			add(string(e)+" plain", LimitSQL(e, "SELECT a FROM t ORDER BY a", " ", 50))
+			add(string(e)+" distinct", LimitSQL(e, "SELECT DISTINCT a FROM t", "\n", 3))
+		}
+	})
+}
+
+// TestPinTableSelectSQL pins how a table's rows are read: with *, as
+// before TableSelectSQL, whatever the columns.
+func TestPinTableSelectSQL(t *testing.T) {
+	cols := []Column{{Name: "id", Type: "int"}, {Name: "g", Type: "geography"}, {Name: "h", Type: "hierarchyid"}, {Name: "x", Type: "geometry"}}
+	pinValues(t, "table select", map[string]string{
+		"postgres":   "SELECT * FROM \"s\".\"t\"",
+		"mysql":      "SELECT * FROM `s`.`t`",
+		"clickhouse": "SELECT * FROM `s`.`t`",
+		"sqlite":     "SELECT * FROM \"s\".\"t\"",
+		"duckdb":     "SELECT * FROM \"s\".\"t\"",
+	}, func(add func(key, got string)) {
+		for _, e := range sqlDialectEngines {
+			add(string(e), TableSelectSQL(DialectOf(e), "s", "t", cols))
 		}
 	})
 }

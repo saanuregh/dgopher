@@ -377,7 +377,7 @@ func (s *Session) ApplyEdits(ctx context.Context, stmts []Statement, each func(i
 	for i, st := range stmts {
 		start := time.Now()
 		var n int64
-		n, err = s.Exec(ctx, st.SQL, st.Args...)
+		n, err = s.ExecChange(ctx, st.SQL, st.Args...)
 		if err == nil && st.Want >= 0 && n >= 0 && n != st.Want {
 			// Not the statement itself: its values may be hidden ones.
 			err = fmt.Errorf("statement %d of %d changed %d rows instead of %d", i+1, len(stmts), n, st.Want)

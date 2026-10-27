@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -550,5 +551,23 @@ func TestRunPlannedUndoesAfterFailedAfter(t *testing.T) {
 	err = RunPlanned(ctx, run, pool, func(string) {})
 	if err == nil || !strings.Contains(err.Error(), "nothing_here") || !strings.Contains(err.Error(), "run DROP TABLE nothing_here") {
 		t.Errorf("not undone: %v", err)
+	}
+}
+
+// A tool is given its file of arguments as it reads one: @file, as
+// sqlpackage, unless the run names another way, as Data Pump's parfile=.
+func TestRunToolArgsFile(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	for prefix, want := range map[string]string{"": "@", "parfile=": "parfile="} {
+		var lines []string
+		run := ToolRun{Argv: []string{"sh", "-c", `echo "$0" >&2; cat "${0#` + want + `}" >&2`}, ArgsFile: "a=1\n", ArgsFilePrefix: prefix}
+		if err := RunTool(context.Background(), run, func(l string) { lines = append(lines, l) }); err != nil {
+			t.Fatal(err)
+		}
+		if len(lines) != 2 || !strings.HasPrefix(lines[0], want) || lines[1] != "a=1" {
+			t.Errorf("prefix %q: %q", prefix, lines)
+		}
 	}
 }

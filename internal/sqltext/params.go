@@ -23,7 +23,8 @@ type Parameter struct {
 // Params finds :name and ${name} outside strings, comments, quoted identifiers
 // and dollar quotes; also {name:Type} in ClickHouse, and @name and $name in
 // SQLite. A ':' inside [ ] is an array slice, and in MySQL and
-// ClickHouse a ':' directly after a name (such as {id:UInt32}) is part of it.
+// ClickHouse a ':' directly after a name (such as {id:UInt32}) is part of
+// it, as in T-SQL, where it ends a label.
 func Params(stmt string, d Dialect) []Parameter {
 	toks := Tokenize(stmt, d)
 	var out []Parameter
@@ -57,7 +58,7 @@ func Params(stmt string, d Dialect) []Parameter {
 			out = append(out, Parameter{Name: n.Text, Start: t.Start, End: n.End, Kind: ParamNamed, Sigil: rune(stmt[t.Start])})
 			skipUntil = n.End
 		case t.Kind == Param && stmt[t.Start] == ':' && brackets <= 0:
-			if (d == MySQL || d == ClickHouse) && i > 0 && toks[i-1].End == t.Start &&
+			if (d == MySQL || d == ClickHouse || d == TSQL) && i > 0 && toks[i-1].End == t.Start &&
 				(toks[i-1].Kind == Identifier || toks[i-1].Kind == Keyword || toks[i-1].Kind == QuotedIdent) {
 				continue
 			}

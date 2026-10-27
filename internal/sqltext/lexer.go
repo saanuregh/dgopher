@@ -5,6 +5,7 @@ package sqltext
 import (
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // Dialect selects lexing and keyword rules.
@@ -16,6 +17,8 @@ const (
 	MySQL
 	ClickHouse
 	SQLite
+	// TSQL is SQL Server's Transact-SQL.
+	TSQL
 )
 
 // Kind is the lexical category of a token.
@@ -52,26 +55,66 @@ var postgresOperators = []string{"?|", "?&", "#-", "@@", "//", "**"}
 var postgresAndMultiCharOperators = slices.Concat(postgresOperators, multiCharOperators)
 
 // isIdentStart treats every byte >= 0x80 as a name character, as the servers
-// do, so no non-ASCII character can end a name and expose what follows to
-// splitting. Every byte of a multi-byte character is >= 0x80, so a name
-// never ends inside one, and an invalid byte reads as U+FFFD would.
+// do but for the spaces spaceWidth reads, so no other non-ASCII character
+// can end a name and expose what follows to splitting. Every byte of a
+// multi-byte character is >= 0x80, so a name never ends inside one, and an
+// invalid byte reads as U+FFFD would.
 func isIdentStart(c byte) bool {
 	return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c >= 0x80
 }
 
+// isIdentPart reports whether c continues a name; T-SQL names may also
+// hold '@' and '#' after their first character.
 func isIdentPart(c byte, d Dialect) bool {
-	return isIdentStart(c) || isDigit(c) || (c == '$' && (d == Postgres || d == MySQL || d == ClickHouse || d == SQLite))
+	return isIdentStart(c) || isDigit(c) || (c == '$' && (d == Postgres || d == MySQL || d == ClickHouse || d == SQLite || d == TSQL)) ||
+		(d == TSQL && (c == '@' || c == '#'))
 }
 
 // identPartAt reports whether s[i] continues a name. A '$' before '{'
-// never does, so "logs_${suffix}" keeps its ${suffix} variable.
+// never does, so "logs_${suffix}" keeps its ${suffix} variable, and
+// neither does a character the server reads as a space.
 func identPartAt(s string, i int, d Dialect) bool {
-	return isIdentPart(s[i], d) && !(s[i] == '$' && i+1 < len(s) && s[i+1] == '{')
+	return isIdentPart(s[i], d) && !(s[i] == '$' && i+1 < len(s) && s[i+1] == '{') &&
+		!(s[i] >= 0x80 && (d == TSQL || d == ClickHouse) && spaceWidth(s, i, d) > 0)
 }
 
-// isSpace is ASCII whitespace only; no server treats a character >= 0x80 as a separator.
+// isSpace is ASCII whitespace.
 func isSpace(c byte) bool {
 	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v'
+}
+
+// spaceWidth returns the length in bytes of the space at s[i] where a
+// token starts, as d's servers read it, or 0. Beyond ASCII's, SQL Server
+// reads every other C0 control character and some Unicode spaces as
+// spaces, ClickHouse other Unicode spaces, and SQLite a byte order mark;
+// PostgreSQL, MySQL and their kin none. TestIntegrationLexingSpaces
+// (internal/db) checks each server.
+func spaceWidth(s string, i int, d Dialect) int {
+	c := s[i]
+	switch {
+	case isSpace(c), d == TSQL && c < 0x20:
+		return 1
+	case c < 0x80 || d != TSQL && d != ClickHouse && d != SQLite:
+		return 0
+	}
+	r, size := utf8.DecodeRuneInString(s[i:])
+	switch d {
+	case TSQL:
+		if r == 0x85 || r == 0xA0 || r == 0x1680 || r >= 0x2000 && r <= 0x200B || r == 0x2028 || r == 0x2029 ||
+			r == 0x202F || r == 0x205F || r == 0x3000 {
+			return size
+		}
+	case ClickHouse:
+		if r == 0x85 || r == 0xA0 || r == 0x180E || r >= 0x2000 && r <= 0x200D || r == 0x2028 || r == 0x2029 ||
+			r == 0x202F || r == 0x205F || r == 0x2060 || r == 0x3000 || r == 0xFEFF {
+			return size
+		}
+	case SQLite:
+		if r == 0xFEFF {
+			return size
+		}
+	}
+	return 0
 }
 
 // startsLineComment reports whether a line comment starts at s[i].
@@ -137,8 +180,8 @@ func tokenizeQuoted(src string, d Dialect, q quoting) []Token {
 
 // tokenizeUpTo tokenizes s with strings read as q reads them; it stops
 // after limit significant tokens when limit is above 0. SQL's syntax
-// characters are all ASCII, so s is read byte by byte; every Text is a
-// substring of s.
+// characters are all ASCII, so s is read byte by byte, but for the
+// Unicode spaces of spaceWidth; every Text is a substring of s.
 func tokenizeUpTo(s string, d Dialect, q quoting, limit int) []Token {
 	keywords := keywordSet(d)
 	n := len(s)
@@ -164,19 +207,25 @@ func tokenizeUpTo(s string, d Dialect, q quoting, limit int) []Token {
 		kind := Unknown
 		c := s[i]
 		switch {
-		case isSpace(c):
-			for i < n && isSpace(s[i]) {
-				i++
+		case spaceWidth(s, i, d) > 0:
+			for i < n {
+				w := spaceWidth(s, i, d)
+				if w == 0 {
+					break
+				}
+				i += w
 			}
 			kind = Whitespace
 		case startsLineComment(s, i, d):
-			// Postgres also ends a line comment at a lone carriage return.
-			for i < n && s[i] != '\n' && (d != Postgres || s[i] != '\r') {
+			// Postgres also ends a line comment at a lone carriage return,
+			// and T-SQL is read so: more code, never less, than the server
+			// may run.
+			for i < n && s[i] != '\n' && (d != Postgres && d != TSQL || s[i] != '\r') {
 				i++
 			}
 			kind = Comment
 		case c == '/' && at(i+1) == '*':
-			i = scanBlockComment(s, i, d == Postgres || d == ClickHouse)
+			i = scanBlockComment(s, i, d == Postgres || d == ClickHouse || d == TSQL)
 			kind = Comment
 		case c == '\'':
 			i = scanQuoted(s, i+1, '\'', q.backslashes)
@@ -206,6 +255,28 @@ func tokenizeUpTo(s string, d Dialect, q quoting, limit int) []Token {
 		case c == '`' && (d == MySQL || d == ClickHouse || d == SQLite):
 			i = scanQuoted(s, i+1, '`', d == ClickHouse)
 			kind = QuotedIdent
+		case c == '[' && d == TSQL:
+			i = scanQuoted(s, i+1, ']', false)
+			kind = QuotedIdent
+		case d == TSQL && c == '@' && i+1 < n && isIdentPart(s[i+1], d):
+			// A variable, @name, or a system function, @@name: no app parameter.
+			for i++; i < n && identPartAt(s, i, d); i++ {
+			}
+			kind = Param
+		case d == TSQL && c == '#' && i+1 < n && isIdentPart(s[i+1], d):
+			// A temporary table, #name or ##name.
+			for i++; i < n && identPartAt(s, i, d); i++ {
+			}
+			kind = Identifier
+		case d == TSQL && c == '$' && (isDigit(at(i+1)) || at(i+1) == '.' && isDigit(at(i+2))):
+			// A money literal, as $12.50.
+			i = scanNumber(s, i+1, d)
+			kind = Number
+		case d == TSQL && c == '$' && isIdentStart(at(i+1)):
+			// $action, $IDENTITY, $PARTITION and the like.
+			for i++; i < n && identPartAt(s, i, d); i++ {
+			}
+			kind = Identifier
 		case c == '[' && d == SQLite:
 			for i++; i < n && s[i] != ']'; i++ {
 			}
@@ -262,7 +333,7 @@ func tokenizeUpTo(s string, d Dialect, q quoting, limit int) []Token {
 				}
 				kind = Identifier
 			}
-		case strings.IndexByte("xXbBnN", c) >= 0 && at(i+1) == '\'':
+		case strings.IndexByte("xXbBnN", c) >= 0 && at(i+1) == '\'' && (d != TSQL || c == 'n' || c == 'N'):
 			i = scanQuoted(s, i+2, '\'', q.backslashes)
 			kind = String
 		case isIdentStart(c):
@@ -405,6 +476,10 @@ func scanDollarQuote(s string, i int) (int, bool) {
 func scanNumber(s string, i int, d Dialect) int {
 	n := len(s)
 	underscore := d == Postgres || d == ClickHouse
+	if d == TSQL && s[i] == '0' && i+1 < n && (s[i+1] == 'x' || s[i+1] == 'X') {
+		// T-SQL's binary literal; 0x alone is an empty one.
+		return scanDigits(s, i+2, isHexDigit, false)
+	}
 	if s[i] == '0' && i+1 < n {
 		var isRadixDigit func(byte) bool
 		switch s[i+1] {

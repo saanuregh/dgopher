@@ -58,6 +58,9 @@ var sideEffectFunctions = map[Dialect]map[string]bool{
 		"pg_import_system_collations"),
 	MySQL:  setOf("get_lock release_lock release_all_locks sleep benchmark nextval setval lastval"),
 	SQLite: setOf("load_extension"),
+	// SQL Server's rowset functions that reach other servers or the
+	// server's files.
+	TSQL: setOf("openrowset opendatasource openquery"),
 }
 
 // crdbInternalReads are the CockroachDB crdb_internal functions known
@@ -114,9 +117,9 @@ type functionRule struct {
 	reads, writes map[string]bool
 }
 
-// functionRules are the engine families' functions read in the Postgres
-// dialect, which a later version may add to, so that most count as writes
-// unless known to read.
+// functionRules are the engine families' functions, and SQL Server's
+// system procedures, which a later version may add to, so that most count
+// as writes unless known to read.
 var functionRules = []functionRule{
 	// YugabyteDB's yb_ functions, or a user's of that name.
 	{dialect: Postgres, namePrefix: "yb_", reads: ybReads},
@@ -125,6 +128,9 @@ var functionRules = []functionRule{
 	{dialect: Postgres, schema: "crdb_internal", reads: crdbInternalReads},
 	// TimescaleDB's internal schemas, _timescaledb_functions and the like.
 	{dialect: Postgres, schema: "_timescaledb_", schemaPrefix: true},
+	// SQL Server's system procedures, run by EXECUTE (tsqlProcedureReads).
+	{dialect: TSQL, namePrefix: "sp_", reads: tsqlProcedureReads},
+	{dialect: TSQL, namePrefix: "xp_", reads: tsqlProcedureReads},
 }
 
 // writesCall reports whether the rule makes a call of name, lower case,
@@ -199,6 +205,10 @@ func setOf(words string) map[string]bool {
 // A session or server setting can change where a string ends, so the text
 // is read under each quoting rule its engine can switch to, and the
 // strictest reading counts.
+//
+// T-SQL needs no ';' between statements, so a T-SQL statement as the
+// splitter sees it is a batch read as every statement it holds
+// (classifyTSQL).
 func Classify(stmt string, d Dialect) Analysis {
 	return classifyEachQuoting(stmt, d, false)
 }
@@ -308,6 +318,54 @@ func classRank(c Class) int {
 
 // classifyQuoted is Classify under the one quoting rule q.
 func classifyQuoted(stmt string, d Dialect, q quoting) Analysis {
+	a := classifyStatements(stmt, d, q)
+	if classRank(a.Class) < classRank(Write) {
+		if reason := unclearSpace(stmt, d, q); reason != "" {
+			a.Class, a.Reason = Write, reason
+		}
+	}
+	return a
+}
+
+// unclearSpace says why stmt counts as a write for a character outside
+// strings, quoted names and comments that d's servers read differently,
+// or returns "". DuckDB reads Unicode spaces as spaces where PostgreSQL
+// reads them as part of a name, and both are lexed as Postgres; SQL Server
+// runs a batch with no ASCII space, as SELECT<U+0001>1, as a call of the
+// procedure the whole text names.
+func unclearSpace(stmt string, d Dialect, q quoting) string {
+	var unclear func(r rune) bool
+	var reason string
+	switch d {
+	case Postgres:
+		unclear = func(r rune) bool {
+			return r == 0x85 || r == 0xA0 || r == 0x1680 || r == 0x180E || r >= 0x2000 && r <= 0x200D || r == 0x2028 ||
+				r == 0x2029 || r == 0x202F || r == 0x205F || r == 0x2060 || r == 0x3000 || r == 0xFEFF
+		}
+		reason = "it holds a Unicode space outside quotes, which DuckDB reads as a space and PostgreSQL as part of a name"
+	case TSQL:
+		unclear = func(r rune) bool { return r < 0x20 && !isSpace(byte(r)) || r == 0x200B }
+		reason = "it holds a control character or zero-width space outside quotes, which SQL Server may read as part of a procedure's name"
+	default:
+		return ""
+	}
+	if !strings.ContainsFunc(stmt, unclear) {
+		return ""
+	}
+	for _, t := range tokenizeQuoted(stmt, d, q) {
+		switch t.Kind {
+		case String, QuotedIdent, Comment:
+			continue
+		}
+		if strings.ContainsFunc(t.Text, unclear) {
+			return reason
+		}
+	}
+	return ""
+}
+
+// classifyStatements is classifyQuoted before unclearSpace.
+func classifyStatements(stmt string, d Dialect, q quoting) Analysis {
 	o := SplitOptions{Mode: SemicolonOnly}
 	segs := splitSegments(stmt, d, q, o)
 	first, count := statementCode(segs)
@@ -318,8 +376,13 @@ func classifyQuoted(stmt string, d Dialect, q quoting) Analysis {
 		return Analysis{Class: Write, Dangerous: false}
 	}
 	r := newReading(len(stmt), q)
-	a := classifyTokens(first, d, r)
-	if count == 1 {
+	var a Analysis
+	if d == TSQL {
+		a = classifyTSQL(first, r)
+	} else {
+		a = classifyTokens(first, d, r)
+	}
+	if count == 1 && d != TSQL {
 		for _, seg := range segs {
 			if bodyHidesStatement(seg, d) {
 				if _, n := statementCode(splitSegmentsWithoutBodies(stmt, d, q, o)); n > count {
@@ -335,6 +398,9 @@ func classifyQuoted(stmt string, d Dialect, q quoting) Analysis {
 		a.Dangerous = true
 		a.Reason = "the text holds more than one statement"
 		return a
+	}
+	if d == TSQL {
+		return a // classifyTSQL read every statement of the batch
 	}
 	// Read as statements, a routine's text keeps the danger of what it
 	// holds: the body may be a name the splitter took for one.
@@ -390,11 +456,8 @@ func dangerInside(stmts [][]Token, d Dialect, r reading) (Analysis, bool) {
 // DO block's body: each statement, what follows a word that opens a block,
 // and the strings EXECUTE runs.
 func codeDanger(code string, d Dialect, r reading) (Analysis, bool) {
-	if r.depth > maxCodeDepth {
-		return Analysis{Class: Write, Dangerous: true, Reason: fmt.Sprintf("it quotes code more than %d levels deep, too deep to check", maxCodeDepth)}, true
-	}
-	if *r.left -= len(code) + 1; *r.left < 0 {
-		return Analysis{Class: Write, Dangerous: true, Reason: "it holds too much code to check"}, true
+	if a, over := codeOverLimit(code, r); over {
+		return a, true
 	}
 	stmts := statementsCode(splitSegmentsWithoutBodies(code, d, r.q, SplitOptions{Mode: SemicolonOnly}))
 	if len(stmts) == 0 {
@@ -418,6 +481,18 @@ func codeDanger(code string, d Dialect, r reading) (Analysis, bool) {
 				return a, true
 			}
 		}
+	}
+	return Analysis{}, false
+}
+
+// codeOverLimit counts code quoted as a string against r's limits, and
+// reports it dangerous, unread, past them.
+func codeOverLimit(code string, r reading) (Analysis, bool) {
+	if r.depth > maxCodeDepth {
+		return Analysis{Class: Write, Dangerous: true, Reason: fmt.Sprintf("it quotes code more than %d levels deep, too deep to check", maxCodeDepth)}, true
+	}
+	if *r.left -= len(code) + 1; *r.left < 0 {
+		return Analysis{Class: Write, Dangerous: true, Reason: "it holds too much code to check"}, true
 	}
 	return Analysis{}, false
 }
@@ -753,7 +828,8 @@ func subscripted(t Token) bool {
 var analyzedVerbs = setOf("SELECT WITH INSERT REPLACE UPDATE DELETE")
 
 // sideEffectCall returns the first function in toks, called anywhere, that
-// changes state on dialect d, or MySQL's NEXT VALUE FOR, or "". Quoted
+// changes state on dialect d, or MySQL's or T-SQL's NEXT VALUE FOR, which
+// takes a sequence's next value, or "". Quoted
 // names are decoded first; with a UESCAPE anywhere, whose escapes are not
 // decoded, any call to a U& name counts.
 func sideEffectCall(toks []Token, d Dialect) string {
@@ -766,7 +842,7 @@ func sideEffectCall(toks []Token, d Dialect) string {
 	}
 	for i := 0; i+1 < len(toks); i++ {
 		t := toks[i]
-		if d == MySQL && i+2 < len(toks) && word(t) == "NEXT" && word(toks[i+1]) == "VALUE" && word(toks[i+2]) == "FOR" {
+		if (d == MySQL || d == TSQL) && i+2 < len(toks) && word(t) == "NEXT" && word(toks[i+1]) == "VALUE" && word(toks[i+2]) == "FOR" {
 			return "NEXT VALUE FOR"
 		}
 		open := i + 1
@@ -823,6 +899,9 @@ func qualifierOf(toks []Token, i int, uescape bool) (schema string, undecoded bo
 }
 
 func classifyVerb(toks []Token, d Dialect, r reading) Analysis {
+	if d == TSQL {
+		return classifyTSQLVerb(toks, r)
+	}
 	verb := word(toks[0])
 	if verb == "" {
 		return Analysis{Class: Write, Verb: strings.ToUpper(toks[0].Text)}

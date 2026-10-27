@@ -19,10 +19,19 @@ const (
 	IdentityAWS   Identity = "aws-rds-iam"
 	IdentityGCP   Identity = "gcp-cloud-sql-iam"
 	IdentityAzure Identity = "azure-entra-id"
+	// IdentityAzureSQL is Entra ID's token for Azure SQL and SQL Server,
+	// whose audience differs from that of Azure's PostgreSQL and MySQL.
+	IdentityAzureSQL Identity = "azure-entra-id-sql"
 )
 
 // Identities lists the identities in the order the form offers them.
-func Identities() []Identity { return []Identity{IdentityAWS, IdentityGCP, IdentityAzure} }
+func Identities() []Identity {
+	return []Identity{IdentityAWS, IdentityGCP, IdentityAzure, IdentityAzureSQL}
+}
+
+// tokenIdentities are those PostgreSQL's and MySQL's families log in
+// with, a token in place of the password.
+var tokenIdentities = []Identity{IdentityAWS, IdentityGCP, IdentityAzure}
 
 // Label names an identity.
 func (i Identity) Label() string {
@@ -33,6 +42,8 @@ func (i Identity) Label() string {
 		return "Google Cloud IAM (Cloud SQL)"
 	case IdentityAzure:
 		return "Microsoft Entra ID (Azure)"
+	case IdentityAzureSQL:
+		return "Microsoft Entra ID (Azure SQL)"
 	}
 	return string(i)
 }
@@ -56,6 +67,8 @@ func IdentityCommand(cfg *Config) []string {
 		return []string{"gcloud", "sql", "generate-login-token"}
 	case IdentityAzure:
 		return []string{"az", "account", "get-access-token", "--resource-type", "oss-rdbms", "--query", "accessToken", "--output", "tsv"}
+	case IdentityAzureSQL:
+		return []string{"az", "account", "get-access-token", "--resource", "https://database.windows.net/", "--query", "accessToken", "--output", "tsv"}
 	}
 	return nil
 }

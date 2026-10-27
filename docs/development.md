@@ -98,7 +98,8 @@ with their profile, and their tests skip, naming the command, when they
 are not running:
 
 ```sh
-docker compose --profile compat up -d --wait   # also MariaDB, TiDB, CockroachDB, YugabyteDB and TimescaleDB
+docker compose --profile compat up -d --wait       # also MariaDB, TiDB, CockroachDB, YugabyteDB and TimescaleDB
+docker compose --profile enterprise up -d --wait   # also SQL Server (x86-64 only, about 2 GB)
 ```
 
 The Redis cluster and sentinel use the host's network, so the addresses

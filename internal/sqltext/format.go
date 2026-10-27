@@ -157,7 +157,7 @@ func formatStatement(toks []Token, d Dialect) string {
 			}
 		}
 		b.WriteString(sep)
-		if w != "" && (reservedUpper[w] || (d != MySQL && d != ClickHouse)) {
+		if w != "" && upperCased(w, d) {
 			b.WriteString(w)
 		} else {
 			b.WriteString(t.Text)
@@ -212,6 +212,19 @@ func nameNotClause(toks []Token, idx int, d Dialect) bool {
 		if significant(t) {
 			return t.Kind != Identifier && t.Kind != QuotedIdent
 		}
+	}
+	return true
+}
+
+// upperCased reports whether the formatter writes the keyword w in upper
+// case: on MySQL and ClickHouse only reservedUpper, and on T-SQL only its
+// reserved words, as other keywords may be names whose case matters.
+func upperCased(w string, d Dialect) bool {
+	switch d {
+	case MySQL, ClickHouse:
+		return reservedUpper[w]
+	case TSQL:
+		return tsqlReserved[w]
 	}
 	return true
 }
