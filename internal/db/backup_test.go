@@ -557,6 +557,9 @@ func TestRunPlannedUndoesAfterFailedAfter(t *testing.T) {
 // A tool is given its file of arguments as it reads one: @file, as
 // sqlpackage, unless the run names another way, as Data Pump's parfile=.
 func TestRunToolArgsFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake tools are shell scripts")
+	}
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("no sh")
 	}
