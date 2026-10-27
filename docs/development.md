@@ -108,7 +108,17 @@ Oracle Free (service `oracle`, container `dgopher-oracle`) uses up to
 2 GB of memory, its edition's cap, and an image of several GB. Once the
 image is pulled it is ready in about ten seconds. Tests connect to its
 `FREEPDB1` service as `dgopher`, or as `SYSTEM` for what needs a DBA;
-backup tests run stand-ins for `expdp` and `impdp`.
+backup tests run stand-ins for `expdp` and `impdp`. Two listeners also
+speak TCPS: one on a port of its own, and one on another port that asks
+for a client certificate (`compose.yaml`; both `oracle-tcps` entries in
+`optionalserver.go`), set up as it starts by
+`internal/db/testdata/oracle-tls/tcps.sh` with the wallet beside it. That
+wallet and the CA signing the tests' client certificates are written by
+`TestWriteOracleTLS` in `internal/db/oraclewallet_test.go`; after writing
+them again, make the container again with `docker compose --profile
+enterprise up -d --force-recreate --wait oracle`. A container made before
+it had TCPS gets it from `docker compose --profile enterprise up -d
+--wait oracle`, which makes it again.
 
 The Redis cluster and sentinel use the host's network, so the addresses
 the nodes announce are reachable from the tests. This needs Docker on

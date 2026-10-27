@@ -247,6 +247,9 @@ disconnected is dropped.
   (`driverCommitsStatements`).
 - After each statement, a session of an engine whose server keeps printed
   lines reads them as messages (`messagesSQL`, Oracle's `DBMS_OUTPUT`).
+  After one the user ran, an engine that has both reads may send them as
+  one query (`transactionStateAndMessagesSQL`); after the app's own, the
+  transaction alone is read.
 
 ### Errors and notices
 

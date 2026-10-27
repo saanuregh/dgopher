@@ -311,12 +311,13 @@ func (sqlserverEngine) VersionQuery() string {
 	return "SELECT CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(128))"
 }
 
-func (sqlserverEngine) LexDialect() sqltext.Dialect        { return sqltext.TSQL }
-func (sqlserverEngine) readsAllResults() bool              { return true }
-func (sqlserverEngine) sessionDatabaseSQL() string         { return "SELECT DB_NAME()" }
-func (sqlserverEngine) ConnectionFields() ConnectionFields { return ConnectionFields{} }
-func (sqlserverEngine) sessionStartSQL() []string          { return nil }
-func (sqlserverEngine) messagesSQL() string                { return "" }
+func (sqlserverEngine) LexDialect() sqltext.Dialect            { return sqltext.TSQL }
+func (sqlserverEngine) readsAllResults() bool                  { return true }
+func (sqlserverEngine) sessionDatabaseSQL() string             { return "SELECT DB_NAME()" }
+func (sqlserverEngine) ConnectionFields() ConnectionFields     { return ConnectionFields{} }
+func (sqlserverEngine) sessionStartSQL() []string              { return nil }
+func (sqlserverEngine) messagesSQL() string                    { return "" }
+func (sqlserverEngine) transactionStateAndMessagesSQL() string { return "" }
 
 // identify reads the server's version; SQL Server has no flavors, and
 // Azure SQL's edition only names it.

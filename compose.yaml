@@ -136,11 +136,15 @@ services:
 
   # Oracle Database 23ai Free (capped at 2 CPU threads and 2 GB of memory).
   # The app user dgopher owns the test schema in the FREEPDB1 service.
+  # TCPS is set up by internal/db/testdata/oracle-tls/tcps.sh.
   oracle:
     image: gvenzl/oracle-free:slim-faststart
     container_name: dgopher-oracle
     profiles: ["enterprise"]
-    ports: ["127.0.0.1:11521:1521"]
+    ports: ["127.0.0.1:11521:1521", "127.0.0.1:12484:2484", "127.0.0.1:12485:2485"]
+    volumes:
+      - ./internal/db/testdata/oracle-tls/server:/opt/oracle/tls:ro
+      - ./internal/db/testdata/oracle-tls/tcps.sh:/container-entrypoint-startdb.d/tcps.sh:ro
     environment:
       ORACLE_PASSWORD: dgopher
       APP_USER: dgopher

@@ -803,10 +803,11 @@ func (mysqlEngine) MaintenanceCommands(quotedTable string) []MaintenanceCommand 
 	}
 }
 
-func (mysqlEngine) readsAllResults() bool              { return false }
-func (mysqlEngine) sessionDatabaseSQL() string         { return "" }
-func (mysqlEngine) ConnectionFields() ConnectionFields { return ConnectionFields{} }
-func (mysqlEngine) sessionStartSQL() []string          { return nil }
-func (mysqlEngine) messagesSQL() string                { return "" }
-func (mysqlEngine) TakesEffectAtOnce(string) bool      { return false }
-func (mysqlEngine) BooleanLiteral(b bool) string       { return booleanWord(b) }
+func (mysqlEngine) readsAllResults() bool                  { return false }
+func (mysqlEngine) sessionDatabaseSQL() string             { return "" }
+func (mysqlEngine) ConnectionFields() ConnectionFields     { return ConnectionFields{} }
+func (mysqlEngine) sessionStartSQL() []string              { return nil }
+func (mysqlEngine) messagesSQL() string                    { return "" }
+func (mysqlEngine) transactionStateAndMessagesSQL() string { return "" }
+func (mysqlEngine) TakesEffectAtOnce(string) bool          { return false }
+func (mysqlEngine) BooleanLiteral(b bool) string           { return booleanWord(b) }

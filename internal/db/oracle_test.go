@@ -665,6 +665,76 @@ func TestOracleMessages(t *testing.T) {
 	}
 }
 
+// After a statement the user ran, one query reads both the transaction and
+// what DBMS_OUTPUT printed, failed statements too; after the app's own, the
+// transaction alone.
+func TestOracleOneReadAfterStatement(t *testing.T) {
+	d := openOracle(t, oracleConfig)
+	ctx := context.Background()
+	mustExec(t, d, `DROP TABLE IF EXISTS "rt_t"`, `CREATE TABLE "rt_t" ("id" NUMBER PRIMARY KEY, "v" VARCHAR2(10))`, `INSERT INTO "rt_t" VALUES (1, 'a')`)
+	t.Cleanup(func() { mustExec(t, d, `DROP TABLE IF EXISTS "rt_t"`) })
+	s, err := d.Session(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	r, _ := SQL(Oracle)
+	sent := captureSends(t, oracleConfig.Name)
+	for _, c := range []struct {
+		name     string
+		run      func() error
+		fails    bool
+		userRan  bool
+		want     TxState
+		messages []string
+	}{
+		{name: "exec", run: func() error { _, err := s.Exec(ctx, `UPDATE "rt_t" SET "v" = 'b' WHERE "id" = 1`); return err }, userRan: true, want: TxNone},
+		{name: "select for update", run: func() error { _, err := s.Exec(ctx, `SELECT * FROM "rt_t" FOR UPDATE`); return err }, userRan: true, want: TxOpen},
+		{name: "printing in a transaction", run: func() error {
+			_, err := s.Exec(ctx, `BEGIN UPDATE "rt_t" SET "v" = 'c' WHERE "id" = 1; DBMS_OUTPUT.PUT_LINE('done'); END;`)
+			return err
+		}, userRan: true, want: TxOpen, messages: []string{"done"}},
+		{name: "failed", run: func() error { _, err := s.Exec(ctx, "SELEC 1"); return err }, fails: true, userRan: true, want: TxOpen},
+		{name: "failed DDL commits", run: func() error { _, err := s.Exec(ctx, `CREATE TABLE "rt_t" (a NUMBER)`); return err }, fails: true, userRan: true, want: TxNone},
+		{name: "cursor", run: func() error {
+			c, err := s.Query(ctx, `SELECT * FROM "rt_t"`)
+			if err == nil {
+				c.Close()
+			}
+			return err
+		}, userRan: true, want: TxNone},
+		{name: "app's change", run: func() error { _, err := s.ExecChange(ctx, `UPDATE "rt_t" SET "v" = 'd' WHERE "id" = 1`); return err }, want: TxNone},
+	} {
+		// Run a plain SELECT first, so that the driver's own bookkeeping
+		// after the previous case is not counted in this one.
+		if _, err := s.Exec(ctx, "SELECT 1 FROM dual"); err != nil {
+			t.Fatal(err)
+		}
+		sent.take()
+		err := c.run()
+		if (err != nil) != c.fails {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		list := sent.take()
+		if len(list) != 2 {
+			t.Fatalf("%s: sent %d statements, want the statement and one read: %v", c.name, len(list), list)
+		}
+		read := list[1].Text
+		if c.userRan && (!strings.Contains(read, "DBMS_OUTPUT.GET_LINE") || !strings.Contains(read, "LOCAL_TRANSACTION_ID")) {
+			t.Errorf("%s: read %q, want the transaction and the messages", c.name, read)
+		}
+		if !c.userRan && read != r.transactionStateSQL() {
+			t.Errorf("%s: read %q, want the transaction alone", c.name, read)
+		}
+		if s.Tx() != c.want {
+			t.Errorf("%s: %v, want %v", c.name, s.Tx(), c.want)
+		}
+		if got := s.TakeMessages(); !slices.Equal(got, c.messages) {
+			t.Errorf("%s: messages %q, want %q", c.name, got, c.messages)
+		}
+	}
+}
+
 // A cancelled statement keeps the session and its transaction.
 func TestOracleCancelKeepsTransaction(t *testing.T) {
 	d := openOracle(t, oracleConfig)
@@ -938,7 +1008,10 @@ func TestOracleCatalog(t *testing.T) {
 // go-ora v3.0.1 reads no rows of a result with a column of no length, as
 // a NULL or an empty string selected as it is, and fails reading one with
 // other columns: both fail, with a hint to give the column a type, rather
-// than show no rows. A NULL of a type reads.
+// than show no rows. The failure may come from the query or from the
+// fetch, which may return rows beside its error; either is accepted when
+// it carries the hint. The right rows with no error are accepted too, as
+// the driver sometimes reads such a result. A NULL of a type reads.
 func TestOracleColumnOfNoLength(t *testing.T) {
 	d := openOracle(t, oracleConfig)
 	ctx := context.Background()
@@ -951,12 +1024,21 @@ func TestOracleColumnOfNoLength(t *testing.T) {
 		"SELECT NULL a, 'x' b FROM dual", "SELECT NULL a, TO_CLOB('x') b FROM dual", "SELECT CASE WHEN 1 = 0 THEN 0 END a FROM dual",
 		"SELECT CASE WHEN 1 = 0 THEN HEXTORAW('00') END a FROM dual", "SELECT CASE WHEN 1 = 0 THEN TRUE END a FROM dual",
 		"SELECT CASE WHEN 1 = 0 THEN 1.5d END a FROM dual"} {
+		want := 1
+		if strings.Contains(q, "CONNECT BY") {
+			want = 3
+		}
 		c, err := s.Query(ctx, q)
 		if err == nil {
-			rows, ferr := c.Fetch(10)
+			var rows [][]any
+			rows, err = c.Fetch(10)
 			c.Close()
-			t.Errorf("%s: %d rows, %v", q, len(rows), ferr)
-			continue
+			if err == nil {
+				if len(rows) != want {
+					t.Errorf("%s: %d rows, want %d", q, len(rows), want)
+				}
+				continue
+			}
 		}
 		if hint := DescribeError(err).Hint; !strings.Contains(hint, "CAST(NULL AS VARCHAR2(1))") {
 			t.Errorf("%s: %v, hint %q", q, err, hint)

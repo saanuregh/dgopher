@@ -397,10 +397,12 @@ which needs no Oracle client installed.
   schemas of the connection. TLS is disable, require or verify-full:
   prefer is refused, as an Oracle listener speaks TCPS or plain TCP on a
   port of its own. Verify-full checks the certificate against the host
-  the connection names, through an SSH tunnel too. A **wallet** is a
-  folder holding an auto-login wallet (`cwallet.sso`): the app trusts its
-  certificates and sends its client certificate; a wallet that only a
-  password opens (`ewallet.p12`) is not read. URLs:
+  the connection names, through an SSH tunnel or a proxy too. A
+  **wallet** is a folder holding an auto-login wallet (`cwallet.sso`): the
+  app trusts its certificates and sends its client certificate, for a
+  listener that asks for one; a client certificate's PEM files do the
+  same. A wallet that only a password opens (`ewallet.p12`) is not read.
+  Kerberos is not offered. URLs:
   `oracle://user@host:1521/service`, with `?SID=…` instead of a service,
   and `SSL`, `SSL VERIFY` and `WALLET` as go-ora writes them; any other
   parameter is refused. From URL also reads a connect descriptor,
