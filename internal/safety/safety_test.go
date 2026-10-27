@@ -322,7 +322,6 @@ func TestEndsTransactionWarns(t *testing.T) {
 		{my, "CREATE INDEX i ON t (a)", true, false, true},
 		{my, "/*!50000 ALTER TABLE t ADD COLUMN b INT */", true, false, true},
 		{my, "CREATE INDEX i ON t (a)", false, false, false},
-		{my, "CREATE TEMPORARY TABLE x (a INT)", true, false, false},
 		{my, "INSERT INTO t VALUES (1)", true, false, false},
 		{pg, "CREATE INDEX i ON t (a)", true, false, false},
 		{my, "INSERT INTO t VALUES (1); CREATE INDEX i ON t (a)", false, true, true},
@@ -333,7 +332,6 @@ func TestEndsTransactionWarns(t *testing.T) {
 		{my, "SELECT * FROM t; CREATE INDEX i ON t (a)", false, true, false},
 		{my, "CREATE TABLE u (a INT); CREATE INDEX i ON u (a)", false, true, false},
 		{my, "INSERT INTO t VALUES (1); CREATE INDEX i ON t (a); CREATE INDEX j ON t (b)", false, true, true},
-		{my, "INSERT INTO t VALUES (1); CREATE TEMPORARY TABLE x (a INT)", false, true, false},
 		{my, "INSERT INTO t VALUES (1); COMMIT; CREATE INDEX i ON t (a)", false, true, false},
 		{my, "INSERT INTO t VALUES (1); SAVEPOINT s; ROLLBACK WORK TO SAVEPOINT s; CREATE INDEX i ON t (a)", false, true, true},
 		{pg, "INSERT INTO t VALUES (1); CREATE INDEX i ON t (a)", false, true, false},
@@ -345,7 +343,6 @@ func TestEndsTransactionWarns(t *testing.T) {
 		// TiDB commits on any DDL.
 		{tidb, "UPDATE t SET a = 1 WHERE id = 2; CREATE SEQUENCE s", false, true, true},
 		{tidb, "UPDATE t SET a = 1 WHERE id = 2; CREATE PLACEMENT POLICY p FOLLOWERS=1", false, true, true},
-		{tidb, "UPDATE t SET a = 1 WHERE id = 2; CREATE TEMPORARY TABLE x (a INT)", false, true, false},
 	} {
 		stmts := Analyze(c.cfg, strings.Split(c.sql, ";"))
 		v := ReviewSQL(c.cfg, stmts)
@@ -390,7 +387,6 @@ func TestEndsTransactionWarns(t *testing.T) {
 		"BEGIN; CREATE INDEX i ON t (a)":                                                                        "",
 		"BEGIN; INSERT INTO t VALUES (1); COMMIT; CREATE INDEX i ON t (a)":                                      "",
 		"BEGIN; INSERT INTO t VALUES (1); ROLLBACK; INSERT INTO t VALUES (2); CREATE INDEX i ON t (a)":          "",
-		"BEGIN; INSERT INTO t VALUES (1); CREATE TEMPORARY TABLE x (a INT)":                                     "",
 	} {
 		stmts := Analyze(my, strings.Split(sql, ";"))
 		var v Verdict
@@ -575,6 +571,49 @@ func TestIntegrationCockroachDBReadOnly(t *testing.T) {
 	}
 }
 
+// YugabyteDB refuses the writes of a read-only session, after a COMMIT
+// too, its functions that write among them; the app refuses those, and
+// the ones changing another transaction or the server's files, first.
+func TestIntegrationYugabyteDBReadOnly(t *testing.T) {
+	testutil.Integration(t)
+	optionalserver.SkipUnless(t, "yugabytedb")
+	cfg := db.Config{Name: "yb", Engine: db.YugabyteDB, Host: "127.0.0.1", Port: 15433, User: "yugabyte", Password: "dgopher", Database: "shop", ReadOnly: true}
+	for _, sql := range []string{
+		"INSERT INTO t VALUES (1)", "SELECT yb_reset_analyze_statistics(NULL)", "SELECT yb_cancel_transaction('6a074fc7-5ede-46c9-8017-caad24f14ddf')",
+		"SELECT yb_query_diagnostics(query_id => 1)", "CREATE TABLEGROUP g", "EXPLAIN (ANALYZE, DIST) DELETE FROM t",
+	} {
+		if v := ReviewSQL(&cfg, Analyze(&cfg, []string{sql})); v.Blocked == "" {
+			t.Errorf("%q not refused on a read-only connection", sql)
+		}
+	}
+	run, _ := db.Explain(cfg.Engine, "SELECT 1", true)
+	if v := ReviewSQL(&cfg, Analyze(&cfg, []string{run.Statement})); v.Blocked != "" || v.Writes {
+		t.Fatalf("%q: %+v", run.Statement, v)
+	}
+	ctx := context.Background()
+	d, err := db.Open(ctx, cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	s, err := d.Session(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	c, err := s.Query(ctx, run.Statement)
+	if err != nil {
+		t.Fatalf("%q on read-only: %v", run.Statement, err)
+	}
+	c.Close()
+	for _, sql := range []string{"BEGIN", "COMMIT", "CREATE TABLE yb_read_only (a INT)", "SELECT yb_reset_analyze_statistics(NULL)"} {
+		_, err := s.Exec(ctx, sql)
+		if (strings.HasPrefix(sql, "CREATE") || strings.Contains(sql, "yb_")) && err == nil {
+			t.Fatalf("the server ran %q on a read-only session", sql)
+		}
+	}
+}
+
 // A quoted EXPLAIN option is read as the server reads it: a quoted
 // ANALYZE of a write asks on production, is refused on read-only and gets
 // manual commit's BEGIN, as does a quoted DEBUG on CockroachDB.
@@ -592,6 +631,106 @@ func TestExplainQuotedOptions(t *testing.T) {
 			if !WritesInTransaction(e, Analyze(prod, []string{sql})[0]) {
 				t.Errorf("%s %q gets no BEGIN under manual commit", e, sql)
 			}
+		}
+	}
+}
+
+// A schema change or TRUNCATE on YugabyteDB takes effect at once, neither
+// part of the open transaction nor committing it: inside one it asks
+// first, saying Roll Back will not undo it, and manual commit opens no
+// transaction for it. A CREATE INDEX there should run outside one too.
+// PostgreSQL's are part of the transaction, and CockroachDB's commit it.
+func TestSchemaChangeTakesEffectAtOnce(t *testing.T) {
+	const atOnce = "takes effect at once: Roll Back will not undo it"
+	has := func(v Verdict, part string) bool {
+		return slices.ContainsFunc(v.Reasons, func(r string) bool { return strings.Contains(r, part) })
+	}
+	yb := &db.Config{Name: "yb", Engine: db.YugabyteDB}
+	for _, sql := range []string{"CREATE TABLE t (a int)", "TRUNCATE t", "ALTER TABLE t ADD b int", "DROP TABLE t", "GRANT SELECT ON t TO public",
+		"CREATE INDEX i ON t (a)", "CREATE INDEX NONCONCURRENTLY i ON t (a)"} {
+		st := Analyze(yb, []string{sql})
+		var v Verdict
+		v.EndsTransaction(yb, st, true)
+		if !v.Confirm || !has(v, atOnce) {
+			t.Errorf("%q in an open transaction: %+v", sql, v)
+		}
+		if outside := has(v, "should run outside a transaction"); outside != (sql == "CREATE INDEX i ON t (a)") {
+			t.Errorf("%q: outside a transaction %v: %+v", sql, outside, v)
+		}
+		if WritesInTransaction(yb.Engine, st[0]) {
+			t.Errorf("%q: manual commit opens a transaction for it", sql)
+		}
+		var none Verdict
+		if none.EndsTransaction(yb, st, false); none.Confirm {
+			t.Errorf("%q with no transaction open: %+v", sql, none)
+		}
+	}
+	if ins := Analyze(yb, []string{"INSERT INTO t VALUES (1)"})[0]; !WritesInTransaction(yb.Engine, ins) {
+		t.Error("INSERT: manual commit opens no transaction for it")
+	}
+	for _, c := range []struct {
+		sql    string
+		manual bool
+		warns  bool
+	}{
+		{"BEGIN;TRUNCATE t", false, true},
+		{"INSERT INTO t VALUES (1);CREATE TABLE u (a int)", true, true},
+		{"TRUNCATE t", true, false},
+		{"TRUNCATE t", false, false},
+		{"BEGIN;COMMIT;TRUNCATE t", false, false},
+	} {
+		var v Verdict
+		v.EndsRunTransaction(yb, Analyze(yb, strings.Split(c.sql, ";")), c.manual, false)
+		if v.Confirm != c.warns || has(v, atOnce) != c.warns {
+			t.Errorf("%q, manual %v: %+v", c.sql, c.manual, v)
+		}
+	}
+	pg := &db.Config{Name: "pg", Engine: db.Postgres}
+	crdb := &db.Config{Name: "crdb", Engine: db.CockroachDB}
+	for _, cfg := range []*db.Config{pg, crdb} {
+		st := Analyze(cfg, []string{"TRUNCATE t"})
+		var v Verdict
+		v.EndsTransaction(cfg, st, true)
+		if has(v, atOnce) || cfg == pg && (v.Confirm || !WritesInTransaction(cfg.Engine, st[0])) {
+			t.Errorf("%s TRUNCATE in an open transaction: %+v", cfg.Engine, v)
+		}
+	}
+	// The MySQL family's CREATE TEMPORARY TABLE commits nothing, and
+	// ROLLBACK keeps the table (checked on MySQL 8.4, MariaDB 11.4 and
+	// TiDB 8.5).
+	for _, e := range []db.Engine{db.MySQL, db.MariaDB, db.TiDB} {
+		cfg := &db.Config{Name: "my", Engine: e}
+		st := Analyze(cfg, []string{"CREATE TEMPORARY TABLE x (a INT)"})
+		var v Verdict
+		if v.EndsTransaction(cfg, st, true); !v.Confirm || !has(v, atOnce) || has(v, "commits") || WritesInTransaction(e, st[0]) {
+			t.Errorf("%s CREATE TEMPORARY TABLE in an open transaction: %+v", e, v)
+		}
+		for _, run := range []struct {
+			sql    string
+			manual bool
+		}{
+			{"INSERT INTO t VALUES (1); CREATE TEMPORARY TABLE x (a INT)", true},
+			{"BEGIN; INSERT INTO t VALUES (1); CREATE TEMPORARY TABLE x (a INT)", false},
+		} {
+			var v Verdict
+			if v.EndsRunTransaction(cfg, Analyze(cfg, strings.Split(run.sql, ";")), run.manual, false); !v.Confirm || len(v.Reasons) != 1 || !has(v, atOnce) {
+				t.Errorf("%s %q: %+v", e, run.sql, v)
+			}
+		}
+	}
+}
+
+// Turning off YugabyteDB's transactional writes or turning on its upsert
+// mode is refused on read-only and asks on production.
+func TestYugabyteDBUnsafeSettings(t *testing.T) {
+	prod := &db.Config{Name: "prod", Engine: db.YugabyteDB, Env: db.Production}
+	ro := &db.Config{Name: "replica", Engine: db.YugabyteDB, ReadOnly: true}
+	for _, sql := range []string{"SET yb_disable_transactional_writes = true", "RESET yb_enable_upsert_mode", "SET LOCAL yb_enable_upsert_mode = on"} {
+		if v := ReviewSQL(ro, Analyze(ro, []string{sql})); v.Blocked == "" {
+			t.Errorf("%q not refused on read-only", sql)
+		}
+		if v := ReviewSQL(prod, Analyze(prod, []string{sql})); !v.Confirm {
+			t.Errorf("%q on production: %+v", sql, v)
 		}
 	}
 }

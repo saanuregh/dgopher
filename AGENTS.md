@@ -63,8 +63,8 @@ integration tests too when it touches `internal/db`.
   `dgopher-mysql`, `dgopher-ch`, `dgopher-redis`, `dgopher-redis8`,
   `dgopher-redis-cluster` and `dgopher-redis-sentinel`, and, started with
   `docker compose --profile compat up -d --wait`, `dgopher-mariadb`,
-  `dgopher-tidb` and `dgopher-cockroachdb`; their tests skip when they are
-  not running. Their ports and passwords are in
+  `dgopher-tidb`, `dgopher-cockroachdb` and `dgopher-yugabytedb`; their
+  tests skip when they are not running. Their ports and passwords are in
   `internal/testutil/testutil.go`,
   `internal/db/integration_test.go`, for the profiled servers
   `internal/testutil/optionalserver/optionalserver.go`, and, for Redis 8,

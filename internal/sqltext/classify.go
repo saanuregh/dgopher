@@ -68,6 +68,21 @@ var crdbInternalReads = setOf("node_id cluster_id cluster_name active_version no
 	"lease_holder lease_holder_with_errors fingerprint show_create_all_routines show_create_all_schemas " +
 	"show_create_all_tables show_create_all_triggers show_create_all_types")
 
+// ybReads are the YugabyteDB yb_ functions known only to read, as of
+// 2025.2: any other function named yb_ counts as a write in the Postgres
+// dialect, as one a later version adds, or a user's of that name.
+var ybReads = setOf("yb_active_session_history yb_backend_heap_snapshot yb_backend_heap_snapshot_peak yb_catalog_version " +
+	"yb_compute_row_ybctid yb_database_clones yb_get_current_hybrid_time_lsn yb_get_current_transaction " +
+	"yb_get_current_transaction_priority yb_get_effective_transaction_isolation_level yb_get_percentile " +
+	"yb_get_query_diagnostics_status yb_get_range_split_clause yb_get_tablet_metadata yb_getrusage yb_hash_code yb_heap_stats " +
+	"yb_index_check yb_is_database_colocated yb_is_local_table yb_local_tablets yb_lock_status " +
+	"yb_mem_usage yb_mem_usage_kb yb_mem_usage_sql yb_mem_usage_sql_b yb_mem_usage_sql_kb " +
+	"yb_pg_stat_get_backend_allocated_mem_bytes yb_pg_stat_get_backend_catalog_version yb_pg_stat_get_backend_local_catalog_version " +
+	"yb_pg_stat_get_backend_pss_mem_bytes yb_pg_stat_get_backend_rss_mem_bytes yb_pg_stat_get_queries " +
+	"yb_pg_stat_plans_get_all_entries yb_pg_stat_plans_total_calls yb_pg_stat_plans_total_time " +
+	"yb_server_cloud yb_server_region yb_server_zone yb_servers yb_servers_metrics yb_stat_auto_analyze " +
+	"yb_table_properties yb_wait_event_desc")
+
 // maxCodeDepth caps how many levels of code quoted inside code are read: a
 // DO block that EXECUTEs a string is two levels down. Deeper code counts as
 // dangerous, unread.
@@ -708,7 +723,7 @@ func sideEffectCall(toks []Token, d Dialect) string {
 			}
 			name = DecodeQuoted(t.Text, d)
 		}
-		if name = strings.ToLower(name); fns[name] {
+		if name = strings.ToLower(name); fns[name] || d == Postgres && strings.HasPrefix(name, "yb_") && !ybReads[name] {
 			return name
 		}
 		if d == Postgres && !crdbInternalReads[name] && crdbInternalQualifies(toks, i, uescape) {
@@ -802,11 +817,11 @@ func classifyVerb(toks []Token, d Dialect, r reading) Analysis {
 	case "RESET":
 		// RESET MASTER, REPLICA, PERSIST and the like change server state,
 		// as CockroachDB's RESET CLUSTER SETTING does.
-		if d == MySQL || next == "CLUSTER" || d == Postgres && opensUnsafeInternals(toks) {
+		if d == MySQL || next == "CLUSTER" || d == Postgres && changesUnsafeSetting(toks) {
 			return Analysis{Class: Write, Verb: verb}
 		}
 	case "SET":
-		if setsServerState(toks, dep) || d == Postgres && (setsFile(toks) || searchesCrdbInternal(toks, r.q) || opensUnsafeInternals(toks)) {
+		if setsServerState(toks, dep) || d == Postgres && (setsFile(toks) || searchesCrdbInternal(toks, r.q) || changesUnsafeSetting(toks)) {
 			return Analysis{Class: Write, Verb: verb}
 		}
 	case "DO":
@@ -1061,12 +1076,19 @@ func searchesCrdbInternal(toks []Token, q quoting) bool {
 	return false
 }
 
-// opensUnsafeInternals reports whether a SET or RESET changes CockroachDB's
-// allow_unsafe_internals, which opens crdb_internal and system to the
-// session, or, with a UESCAPE, whose escapes are not decoded, any setting.
-func opensUnsafeInternals(toks []Token) bool {
+// unsafeSettings are the session settings that loosen the server's own
+// guards: CockroachDB's allow_unsafe_internals opens crdb_internal and
+// system to the session; YugabyteDB's yb_disable_transactional_writes
+// writes outside transactions, and yb_enable_upsert_mode makes INSERT
+// overwrite rows, skipping unique and foreign key checks.
+var unsafeSettings = setOf("allow_unsafe_internals yb_disable_transactional_writes yb_enable_upsert_mode")
+
+// changesUnsafeSetting reports whether a SET or RESET changes one of the
+// unsafeSettings, or, with a UESCAPE, whose escapes are not decoded, any
+// setting.
+func changesUnsafeSetting(toks []Token) bool {
 	i := settingAt(toks)
-	return i >= 0 && (hasWord(toks, "UESCAPE") || strings.EqualFold(DecodeQuoted(toks[i].Text, Postgres), "allow_unsafe_internals"))
+	return i >= 0 && (hasWord(toks, "UESCAPE") || unsafeSettings[strings.ToLower(DecodeQuoted(toks[i].Text, Postgres))])
 }
 
 // settingAt returns the index of the setting a SET or RESET names, after

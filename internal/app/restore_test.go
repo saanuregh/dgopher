@@ -4,12 +4,14 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"dgopher/internal/audit"
 	"dgopher/internal/db"
 	"dgopher/internal/testutil"
+	"dgopher/internal/testutil/optionalserver"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -167,5 +169,87 @@ func TestSQLRestoreConfirms(t *testing.T) {
 	a.openBackup(ro, "", true)
 	if a.backup != nil {
 		t.Fatal("a read-only connection restores")
+	}
+}
+
+// A YugabyteDB restore runs a statement at a time, not in one
+// transaction: the job, and its failure, say that what was restored so
+// far stays.
+func TestRestoreNotInOneTransactionSaysWhatStays(t *testing.T) {
+	testutil.Integration(t)
+	optionalserver.SkipUnless(t, "yugabytedb")
+	bin := t.TempDir()
+	release := filepath.Join(bin, "release")
+	script := "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'pg_restore (PostgreSQL) 16.4'; exit 0; fi\n" +
+		"i=0; while [ ! -f '" + release + "' ] && [ $i -lt 600 ]; do sleep 0.05; i=$((i+1)); done\necho 'pg_restore: error: could not execute query' >&2\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(bin, "pg_restore"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	archive := filepath.Join(t.TempDir(), "x.dump")
+	if err := os.WriteFile(archive, []byte("PGDMP-not-really"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	a := newTestApp(t)
+	cn := addConn(a, db.Config{ID: "yb", Name: "yb", Engine: db.YugabyteDB, Host: "127.0.0.1", Port: 15433, User: "yugabyte", Password: "dgopher", Database: "shop"})
+	tt := ui.NewTester(a.view, 1200, 800)
+	connectNow(t, a, tt, cn)
+	a.openBackup(cn, "shop", true)
+	b := a.backup
+	b.path = archive
+	a.startBackup(b)
+	testutil.WaitFor(t, tt, "the question", func() bool { return a.confirm != nil || b.err != "" })
+	if a.confirm == nil {
+		t.Fatalf("not asked: %q", b.err)
+	}
+	a.confirm.OnConfirm()
+	a.confirm = nil
+	const stays = "stopping it, or an error, keeps what was restored so far."
+	testutil.WaitFor(t, tt, "the job", func() bool { return len(a.runningJobs()) > 0 })
+	if title := a.runningJobs()[0].title; !strings.HasSuffix(title, stays) || strings.Contains(title, "rolls it back") {
+		t.Fatalf("job %q", title)
+	}
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WaitFor(t, tt, "the failure", func() bool { return !b.running && (b.err != "" || b.done) })
+	if !strings.Contains(b.err, "What was restored before the error stays") {
+		t.Fatalf("error %q", b.err)
+	}
+}
+
+// A YugabyteDB backup that pg_dump 17 or later writes as an archive, with
+// no ysql_dump installed, asks first: the archive restores only into
+// PostgreSQL. Declining runs nothing.
+func TestBackupAsksBeforePgDumpArchiveOfYugabyteDB(t *testing.T) {
+	testutil.Integration(t)
+	optionalserver.SkipUnless(t, "yugabytedb")
+	bin := t.TempDir()
+	ran := filepath.Join(bin, "ran")
+	script := "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'pg_dump (PostgreSQL) 18.6'; exit 0; fi\n: > '" + ran + "'\n"
+	if err := os.WriteFile(filepath.Join(bin, "pg_dump"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	a := newTestApp(t)
+	cn := addConn(a, db.Config{ID: "yb", Name: "yb", Engine: db.YugabyteDB, Host: "127.0.0.1", Port: 15433, User: "yugabyte", Password: "dgopher", Database: "shop"})
+	tt := ui.NewTester(a.view, 1200, 800)
+	connectNow(t, a, tt, cn)
+	a.openBackup(cn, "shop", false)
+	b := a.backup
+	formats, _ := backupRules(db.YugabyteDB)
+	b.format = slices.Index(formats, db.BackupArchive)
+	b.path = filepath.Join(t.TempDir(), "x.dump")
+	a.startBackup(b)
+	testutil.WaitFor(t, tt, "the question", func() bool { return a.confirm != nil || !b.running })
+	if a.confirm == nil || !slices.ContainsFunc(a.confirm.Reasons, func(r string) bool { return strings.Contains(r, "restores only into PostgreSQL") }) {
+		t.Fatalf("not asked: %+v, error %q", a.confirm, b.err)
+	}
+	r := a.confirm
+	r.Open, a.confirm = false, nil
+	r.OnCancel()
+	testutil.WaitFor(t, tt, "the end", func() bool { return !b.running })
+	if _, err := os.Stat(ran); err == nil || b.done || b.err != "" {
+		t.Fatalf("ran %v, done %v, error %q", err == nil, b.done, b.err)
 	}
 }

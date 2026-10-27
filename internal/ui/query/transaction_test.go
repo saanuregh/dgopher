@@ -16,6 +16,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/lists"
 	"dgopher/internal/testutil"
+	"dgopher/internal/testutil/optionalserver"
 	"dgopher/internal/ui/dataview"
 
 	"github.com/egoist/mygo/ui"
@@ -852,4 +853,125 @@ func TestAutocommitOffHoldsWrites(t *testing.T) {
 	if got := committed(); got != "11" {
 		t.Fatalf("after COMMIT: %q", got)
 	}
+}
+
+// yugabytedbConfig is the YugabyteDB test server's, on its shop database.
+func yugabytedbConfig() db.Config {
+	return db.Config{ID: "yb", Name: "yb", Engine: db.YugabyteDB, Host: "127.0.0.1", Port: 15433, User: "yugabyte", Password: "dgopher", Database: "shop"}
+}
+
+// yugabytedbRows counts a table's rows as another connection sees them.
+func yugabytedbRows(t *testing.T, d *db.DB, table string) int {
+	t.Helper()
+	var n int
+	if err := d.SQL.QueryRow("SELECT count(*) FROM public." + table).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// YugabyteDB's schema changes and TRUNCATE take effect at once, which
+// Roll Back would not undo: manual commit opens no transaction for them,
+// so a CREATE INDEX there is built online, and opens one for the write
+// after them; inside the user's own transaction they ask first, saying
+// so.
+func TestYugabyteDBSchemaChangeOutsideManualTransaction(t *testing.T) {
+	testutil.Integration(t)
+	optionalserver.SkipUnless(t, "yugabytedb")
+	cfg := yugabytedbConfig()
+	cfg.Commit = db.CommitManual
+	d := serverWith(t, cfg, []string{"DROP TABLE IF EXISTS public.rv_yb_at_once", "CREATE TABLE public.rv_yb_at_once (id INT PRIMARY KEY, v INT)",
+		"INSERT INTO public.rv_yb_at_once VALUES (1, 1)"}, "DROP TABLE IF EXISTS public.rv_yb_at_once")
+	a, tt, _, q := openEditor(t, cfg, 1200, 760, "CREATE INDEX rv_yb_at_once_v ON rv_yb_at_once (v);")
+	t.Cleanup(func() { q.sess.Close() })
+	// at lists the statements the host recorded, the app's BEGIN as such.
+	ran := func() []string {
+		var out []string
+		for _, e := range a.Events {
+			switch {
+			case e.Purpose == purposeManualCommit:
+				out = append(out, "manual BEGIN")
+			case e.Kind == audit.KindStatement:
+				out = append(out, strings.Fields(e.Statement)[0])
+			}
+		}
+		return out
+	}
+	runWith(t, tt, q, "CREATE", RunStatement)
+	if a.Confirm != nil || len(q.results) != 1 || q.results[0].err != "" || q.Tx != db.TxNone || slices.Contains(ran(), "manual BEGIN") {
+		t.Fatalf("CREATE INDEX: confirm %+v, tx %v, ran %q; messages %+v", a.Confirm, q.Tx, ran(), q.messages)
+	}
+	q.Editor.SetText("TRUNCATE rv_yb_at_once;\n\nINSERT INTO rv_yb_at_once VALUES (2, 2);")
+	testutil.SetCaret(tt, q.Editor, 0)
+	q.Run(RunScript)
+	testutil.WaitFor(t, tt, "the TRUNCATE's question", func() bool { return a.Confirm != nil })
+	if slices.ContainsFunc(a.Confirm.Reasons, func(r string) bool { return strings.Contains(r, "at once") }) {
+		t.Fatalf("warned with no transaction open: %+v", a.Confirm)
+	}
+	a.Confirm.Open = false
+	a.Confirm.OnConfirm()
+	a.Confirm = nil
+	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running })
+	if got := strings.Join(ran(), ","); got != "CREATE,TRUNCATE,manual BEGIN,INSERT" || q.Tx != db.TxOpen {
+		t.Fatalf("ran %s, tx %v; messages %+v", got, q.Tx, q.messages)
+	}
+	q.endTx(false)
+	testutil.WaitFor(t, tt, "the rollback", func() bool { return !q.Running })
+	if n := yugabytedbRows(t, d, "rv_yb_at_once"); n != 0 {
+		t.Fatalf("after TRUNCATE and Roll Back: %d rows", n)
+	}
+	q.Editor.SetText("BEGIN;\n\nINSERT INTO rv_yb_at_once VALUES (3, 3);\n\nALTER TABLE rv_yb_at_once ADD w INT;")
+	runWith(t, tt, q, "BEGIN", RunStatement)
+	runWith(t, tt, q, "INSERT", RunStatement)
+	if q.Tx != db.TxOpen {
+		t.Fatalf("tx %v; messages %+v", q.Tx, q.messages)
+	}
+	testutil.SetCaret(tt, q.Editor, strings.Index(q.Editor.Text(), "ALTER"))
+	q.Run(RunStatement)
+	tt.Frame()
+	if a.Confirm == nil || !slices.ContainsFunc(a.Confirm.Reasons, func(r string) bool {
+		return strings.Contains(r, "ALTER takes effect at once: Roll Back will not undo it")
+	}) {
+		t.Fatalf("no warning: %+v", a.Confirm)
+	}
+	a.Confirm.Open, a.Confirm = false, nil
+	tt.Frame()
+	if q.Running || q.Tx != db.TxOpen {
+		t.Fatalf("ran without agreeing: running %v, tx %v", q.Running, q.Tx)
+	}
+	q.endTx(false)
+	testutil.WaitFor(t, tt, "the rollback", func() bool { return !q.Running })
+}
+
+// On production, Run All answers for plain writes, not for a YugabyteDB
+// schema change inside the open transaction, which asks still, saying
+// Roll Back will not undo it.
+func TestYugabyteDBProductionRunAllAsksSchemaChange(t *testing.T) {
+	testutil.Integration(t)
+	optionalserver.SkipUnless(t, "yugabytedb")
+	cfg := yugabytedbConfig()
+	cfg.Env = db.Production // manual commit
+	serverWith(t, cfg, []string{"DROP TABLE IF EXISTS public.rv_yb_runall", "CREATE TABLE public.rv_yb_runall (id INT PRIMARY KEY, v INT)"},
+		"DROP TABLE IF EXISTS public.rv_yb_runall")
+	a, tt, _, q := openEditor(t, cfg, 1200, 760, "INSERT INTO rv_yb_runall VALUES (1, 1);\nINSERT INTO rv_yb_runall VALUES (2, 2);\nALTER TABLE rv_yb_runall ADD w INT;")
+	t.Cleanup(func() { q.sess.Close() })
+	testutil.SetCaret(tt, q.Editor, 0)
+	q.Run(RunScript)
+	testutil.WaitFor(t, tt, "the first question", func() bool { return a.Confirm != nil && strings.Contains(a.Confirm.Preview, "(1, 1)") })
+	r := a.Confirm
+	r.Open, r.Answered, a.Confirm = false, true, nil
+	if r.OnRunAll == nil {
+		t.Fatal("no Run All")
+	}
+	r.OnRunAll()
+	testutil.WaitFor(t, tt, "the ALTER's question or the end", func() bool { return a.Confirm != nil || !q.Running })
+	r = a.Confirm
+	if r == nil || !strings.Contains(r.Preview, "ALTER") || !slices.ContainsFunc(r.Reasons, func(s string) bool { return strings.Contains(s, "takes effect at once") }) {
+		t.Fatalf("the ALTER did not ask after Run All: %+v; messages %+v", r, q.messages)
+	}
+	r.Open, r.Answered, a.Confirm = false, true, nil
+	r.OnCancel()
+	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running })
+	q.endTx(false)
+	testutil.WaitFor(t, tt, "the rollback", func() bool { return !q.Running })
 }

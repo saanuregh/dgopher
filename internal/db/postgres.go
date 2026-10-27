@@ -104,20 +104,24 @@ ORDER BY nspname = 'public' DESC, nspname`)
 }
 
 func (postgresDialect) Objects(ctx context.Context, q Querier, schema string) ([]Object, error) {
-	return postgresObjects(ctx, q, schema, true)
+	return postgresObjects(ctx, q, schema, postgresTableSize)
 }
 
 func (postgresDialect) ObjectNames(ctx context.Context, q Querier, schema string) ([]Object, error) {
-	return postgresObjects(ctx, q, schema, false)
+	return postgresObjects(ctx, q, schema, "")
 }
 
-// postgresObjects reads a schema's tables and views; their sizes and
-// comments only when asked, which read every table's files and a
-// catalog more.
-func postgresObjects(ctx context.Context, q Querier, schema string, sized bool) ([]Object, error) {
+// postgresTableSize is the size of table c: its files, its indexes' and
+// TOAST's included.
+const postgresTableSize = "pg_total_relation_size(c.oid)"
+
+// postgresObjects reads a schema's tables and views; their sizes, by
+// tableSize, and comments only when tableSize is not "", as they read
+// every table's files and a catalog more.
+func postgresObjects(ctx context.Context, q Querier, schema, tableSize string) ([]Object, error) {
 	size, comment := "-1", "''"
-	if sized {
-		size = "CASE WHEN c.relkind IN ('r','m','p') THEN pg_total_relation_size(c.oid) ELSE -1 END"
+	if tableSize != "" {
+		size = "CASE WHEN c.relkind IN ('r','m','p') THEN " + tableSize + " ELSE -1 END"
 		comment = "COALESCE(obj_description(c.oid, 'pg_class'), '')"
 	}
 	return scanAll(ctx, q, `SELECT c.relname, c.relkind::text,
@@ -430,13 +434,16 @@ func (postgresEngine) DatabasesNeedOwnConnection() bool { return true }
 func (postgresEngine) DefaultSchemaName() string        { return "public" }
 func (postgresEngine) FileExtensions() []string         { return nil }
 
+// postgresSessionsQuery lists the client sessions but the app's own.
+const postgresSessionsQuery = `SELECT pid, usename AS "user", datname AS database, application_name AS application, client_addr::text AS client,
+  state, date_trunc('second', now() - query_start)::text AS running_for, wait_event_type AS waiting_on, left(query, 400) AS query
+FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND backend_type = 'client backend'
+ORDER BY state = 'active' DESC, query_start NULLS LAST`
+
 func (postgresEngine) ActivityPages() []ActivityPage {
 	return []ActivityPage{{
 		Name: "Sessions", Live: true, Stop: sessionStatement(postgresStopQuery), Kill: sessionStatement(postgresEndSession),
-		Query: `SELECT pid, usename AS "user", datname AS database, application_name AS application, client_addr::text AS client,
-  state, date_trunc('second', now() - query_start)::text AS running_for, wait_event_type AS waiting_on, left(query, 400) AS query
-FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND backend_type = 'client backend'
-ORDER BY state = 'active' DESC, query_start NULLS LAST`,
+		Query: postgresSessionsQuery,
 	}, {
 		Name: "Locks", Live: true, Stop: sessionStatement(postgresStopQuery), Kill: sessionStatement(postgresEndSession),
 		Query: `SELECT l.pid, a.usename AS "user", l.locktype AS lock_type,
@@ -884,10 +891,16 @@ func (postgresEngine) PlanBackup(ctx context.Context, d *DB, o BackupOptions) (T
 
 // planPgDump is how pg_dump backs up a database of PostgreSQL's family.
 func planPgDump(ctx context.Context, d *DB, o BackupOptions) (ToolRun, error) {
+	return planPostgresDump(ctx, d, o, "pg_dump")
+}
+
+// planPostgresDump is how tool, pg_dump or one taking its options, backs
+// up a database of PostgreSQL's family.
+func planPostgresDump(ctx context.Context, d *DB, o BackupOptions, tool string) (ToolRun, error) {
 	if err := backupOptionsError(d.Config.Engine, o); err != nil {
 		return ToolRun{}, err
 	}
-	run, err := postgresTool(ctx, d, "pg_dump", o.Database)
+	run, err := postgresTool(ctx, d, tool, o.Database)
 	if err != nil {
 		return run, err
 	}
@@ -900,6 +913,7 @@ func planPgDump(ctx context.Context, d *DB, o BackupOptions) (ToolRun, error) {
 	return run, nil
 }
 
+// PlanRestore: YugabyteDB's differs, without --single-transaction.
 func (postgresEngine) PlanRestore(ctx context.Context, d *DB, database, path string, clean bool) (ToolRun, error) {
 	run, err := postgresTool(ctx, d, "pg_restore", database)
 	if err != nil {

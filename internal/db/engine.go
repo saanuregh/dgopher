@@ -379,9 +379,11 @@ type ActivityPage struct {
 	Live bool
 	// Stop and Kill return the statement that cancels the query of a row,
 	// and the one that ends its session, nil when the page has none. A
-	// row's first column names its session.
-	Stop func(row []any) string
-	Kill func(row []any) string
+	// row's first column names its session; they return "" for a row
+	// naming none, for which NoSession says what to do instead.
+	Stop      func(row []any) string
+	Kill      func(row []any) string
+	NoSession string
 	// Hint says what the page needs of the server, when it fails.
 	Hint string
 	// EmptyHint says why the page may read no rows, "" when it says nothing.
@@ -453,6 +455,9 @@ type BackupChoices struct {
 	Clean bool
 	// Folder: a backup is a folder, not a file.
 	Folder bool
+	// RestoreKeepsPart: a restore is not one transaction, so one stopped,
+	// or failed, keeps what it restored so far.
+	RestoreKeepsPart bool
 }
 
 // BackupScope is the navigator node an engine backs up.

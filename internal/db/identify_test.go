@@ -26,6 +26,7 @@ func TestIdentifyFromVersionStrings(t *testing.T) {
 		{"cockroachdb", postgresFamily("CockroachDB CCL v26.3.3 (x86_64-pc-linux-gnu, built 2026/10/21 01:51:29, go1.26.10)", ""), CockroachDB, "26.3.3"},
 		{"cockroachdb oss", postgresFamily("CockroachDB OSS v23.1.11 (x86_64-pc-linux-gnu, built 2023/09/27 01:53:43, go1.19.13)", ""), CockroachDB, "23.1.11"},
 		{"yugabytedb", postgresFamily("PostgreSQL 15.2-YB-2.25.1.0-b0 on x86_64-pc-linux-gnu, compiled by clang version 17.0.6, 64-bit", ""), YugabyteDB, "2.25.1.0"},
+		{"yugabytedb 2025.2", postgresFamily("PostgreSQL 15.12-YB-2025.2.8.0-b0 on x86_64-pc-linux-gnu, compiled by clang version 19.1.0 (https://github.com/yugabyte/llvm-project.git a2a6b655e14e7fa1fcf1011a6cb29cb8575249c0), 64-bit", ""), YugabyteDB, "2025.2.8.0"},
 		{"yugabytedb 11", postgresFamily("PostgreSQL 11.2-YB-2024.2.2.1-b0 on x86_64-pc-linux-gnu, compiled by clang version 17.0.6, 64-bit", ""), YugabyteDB, "2024.2.2.1"},
 		{"timescaledb", postgresFamily("PostgreSQL 17.2 (Ubuntu 17.2-1.pgdg22.04+1) on x86_64-pc-linux-gnu, compiled by gcc, 64-bit", "2.17.2"), TimescaleDB, "2.17.2"},
 		{"mysql", mysqlFamily("8.4.3", "MySQL Community Server - GPL"), MySQL, "8.4.3"},

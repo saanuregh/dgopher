@@ -1588,6 +1588,27 @@ func TestClassifySearchPathCrdbInternal(t *testing.T) {
 	}
 }
 
+// YugabyteDB's yb_disable_transactional_writes and yb_enable_upsert_mode
+// make the session's writes skip transactions, or overwrite rows
+// unchecked: setting or resetting either counts as a write.
+func TestClassifyYugabyteDBUnsafeSettings(t *testing.T) {
+	for src, want := range map[string]Class{
+		"SET yb_disable_transactional_writes = true":      Write,
+		"SET LOCAL yb_disable_transactional_writes TO on": Write,
+		"set session YB_ENABLE_UPSERT_MODE = on":          Write,
+		`SET "yb_enable_upsert_mode" = true`:              Write,
+		"RESET yb_disable_transactional_writes":           Write,
+		"RESET SESSION yb_enable_upsert_mode":             Write,
+		"SET yb_enable_upsert_mode = off":                 Write,
+		"SET application_name = 'yb_enable_upsert_mode'":  Session,
+		"SET yb_transaction_priority = 0.5":               Session,
+	} {
+		if a := Classify(src, Postgres); a.Class != want {
+			t.Errorf("%q: %+v, want class %v", src, a, want)
+		}
+	}
+}
+
 // CockroachDB's allow_unsafe_internals opens crdb_internal and system to
 // the session: setting or resetting it counts as changing the server.
 func TestClassifyAllowUnsafeInternals(t *testing.T) {
@@ -1606,6 +1627,66 @@ func TestClassifyAllowUnsafeInternals(t *testing.T) {
 	} {
 		if a := Classify(src, Postgres); a.Class != want {
 			t.Errorf("%q: %+v, want class %v", src, a, want)
+		}
+	}
+}
+
+// YugabyteDB's statements, read in the Postgres dialect it lexes with: its
+// functions that change the catalog, statistics, other transactions or
+// the server's files are writes; those that read stay reads.
+func TestClassifyYugabyteDB(t *testing.T) {
+	for _, c := range []struct {
+		src   string
+		class Class
+	}{
+		{"EXPLAIN (ANALYZE, DIST, VERBOSE, FORMAT JSON) SELECT 1", Read},
+		{"EXPLAIN (ANALYZE, DIST) DELETE FROM t WHERE id = 1", Write},
+		{"SELECT yb_reset_analyze_statistics(NULL)", Write},
+		{"SELECT pg_catalog.yb_reset_analyze_statistics('t'::regclass)", Write},
+		{"SELECT yb_cancel_transaction('6a074fc7-5ede-46c9-8017-caad24f14ddf')", Write},
+		{"SELECT yb_increment_all_db_catalog_versions(true)", Write},
+		{"SELECT yb_increment_all_db_catalog_versions_with_inval_messages(1, true, '', 0)", Write},
+		{"SELECT yb_increment_db_catalog_version_with_inval_messages(1, true, '', 0)", Write},
+		{"SELECT yb_fix_catalog_version_table(true)", Write},
+		{"SELECT yb_binary_upgrade_set_next_pg_enum_sortorder(1)", Write},
+		{"SELECT yb_xcluster_set_next_oid_assignments('')", Write},
+		{"SELECT yb_query_diagnostics(query_id => 1)", Write},
+		{"SELECT yb_cancel_query_diagnostics(1)", Write},
+		{"SELECT yb_log_backend_heap_snapshot(1)", Write},
+		{"SELECT yb_log_backend_heap_snapshot_peak(1)", Write},
+		{"SELECT yb_log_catcache_stats(1)", Write},
+		{`SELECT "yb_reset_analyze_statistics"(NULL)`, Write},
+		// Any other yb_ function counts as a write, as one a later
+		// version adds, or a user's.
+		{"SELECT yb_pg_stat_plans_reset(1, 1, 1, 1)", Write},
+		{"SELECT yb_pg_stat_plans_write_file()", Write},
+		{"SELECT yb_replication_origin_session_setup_shared('x')", Write},
+		{"SELECT yb_binary_upgrade_set_next_colocation_id(1)", Write},
+		{"SELECT yb_not_yet_known(1)", Write},
+		{`SELECT "YB_Not_Yet_Known"(1)`, Write},
+		{"SELECT * FROM pg_catalog.yb_not_yet_known()", Write},
+		{"SELECT yb_servers_metrics(), yb_get_current_hybrid_time_lsn(), yb_get_range_split_clause(1), yb_catalog_version()", Read},
+		{"SELECT * FROM yb_get_tablet_metadata(), yb_local_tablets(), yb_database_clones(), yb_stat_auto_analyze(), yb_wait_event_desc()", Read},
+		{"SELECT yb_get_current_transaction(), yb_get_current_transaction_priority(), yb_get_effective_transaction_isolation_level()", Read},
+		{"SELECT yb_server_cloud(), yb_server_region(), yb_server_zone(), yb_is_local_table(1), yb_compute_row_ybctid(1, ROW(1))", Read},
+		{"SELECT yb_pg_stat_get_queries(1), yb_pg_stat_plans_get_all_entries(), yb_get_query_diagnostics_status()", Read},
+		{"SELECT * FROM yb_backend_heap_snapshot(), yb_heap_stats(), yb_getrusage(), yb_get_percentile('{}', 50)", Read},
+		{"SELECT * FROM yb_table_properties('t'::regclass)", Read},
+		{"SELECT * FROM yb_lock_status(NULL, NULL)", Read},
+		{"SELECT * FROM yb_active_session_history", Read},
+		{"SELECT * FROM yb_servers()", Read},
+		{"SELECT yb_index_check('t_idx'::regclass)", Read},
+		{"SELECT yb_hash_code(1), yb_is_database_colocated(), yb_mem_usage()", Read},
+		{"CREATE TABLEGROUP g", DDL},
+		{"DROP TABLEGROUP g", DDL},
+		{"CREATE DATABASE d WITH COLOCATION = true", DDL},
+		{"CREATE TABLE t (id int, PRIMARY KEY (id ASC)) SPLIT AT VALUES ((100))", DDL},
+		{"CREATE TABLE t (id int PRIMARY KEY) SPLIT INTO 4 TABLETS", DDL},
+		{`CREATE TABLESPACE ts WITH (replica_placement = '{"num_replicas": 1}')`, DDL},
+		{"BACKFILL INDEX 16384 READ TIME 1 PARTITION 'x'", Write},
+	} {
+		if a := Classify(c.src, Postgres); a.Class != c.class {
+			t.Errorf("%q: %+v, want class %v", c.src, a, c.class)
 		}
 	}
 }

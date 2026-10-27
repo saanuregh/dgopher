@@ -36,6 +36,7 @@ func TestDescribeError(t *testing.T) {
 		{Config{Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher", Database: "default"}, true,
 			"SELECT *\nFRM x", want{code: true, position: true}},
 		{cockroachdbConfig, true, "SELECT *\nFRM x", want{code: true, position: true}},
+		{yugabytedbConfig, true, "SELECT *\nFROM missing_table_x", want{code: true, position: true}},
 		{Config{Engine: SQLite, Database: ":memory:"}, false, "SELECT * FROM missing_table_x", want{code: true}},
 		{Config{Engine: DuckDB, Database: ":memory:"}, false, "SELECT *\nFRM x", want{position: true}},
 	}

@@ -64,3 +64,25 @@ func TestActivityEmptyPageHint(t *testing.T) {
 		t.Fatalf("a hint on a page with rows: %q", tt.Texts())
 	}
 }
+
+// A row naming no session, as a YugabyteDB lock held on another node, is
+// not stopped: the app says why, asking nothing.
+func TestActivityRowWithoutSession(t *testing.T) {
+	a := newTestApp(t)
+	cn := addConn(a, db.Config{ID: "yb", Name: "yb", Engine: db.YugabyteDB})
+	pages := db.YugabyteDB.ActivityPages()
+	locks := slices.IndexFunc(pages, func(p db.ActivityPage) bool { return p.Name == "Locks" })
+	at := &activityTab{a: a, conn: cn, grid: dataview.NewGrid(), pages: pages, page: locks}
+	row := []any{nil, "ada"}
+	at.src = dataview.Source{Cols: []db.ColumnInfo{{Name: "pid"}, {Name: "user"}}, Rows: [][]any{row}}
+	for _, terminate := range []bool{false, true} {
+		at.act(row, terminate)
+		if a.confirm != nil {
+			t.Fatalf("terminate %v: asked %q", terminate, a.confirm.Preview)
+		}
+		if al := a.frontAlert(); al == nil || !strings.Contains(al.report.Detail, "yb_cancel_transaction") {
+			t.Fatalf("terminate %v: alert %+v", terminate, al)
+		}
+		a.alerts = nil
+	}
+}
