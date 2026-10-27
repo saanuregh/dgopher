@@ -492,6 +492,27 @@ func TestStopJobsTimesOut(t *testing.T) {
 	}
 }
 
+// A job that runs steps after it is stopped, as a restore's After, holds a
+// disconnect or a quit up past jobStopWait, up to its own wait more.
+func TestStopJobsWaitsForStepsAfterStop(t *testing.T) {
+	old := jobStopWait
+	jobStopWait = 50 * time.Millisecond
+	t.Cleanup(func() { jobStopWait = old })
+	a, _, cn, _ := liteApp(t, db.Development)
+	stopped := make(chan struct{})
+	finish := a.startJobWaiting(cn, "Restoring: stopping it rolls it back.", func() { close(stopped) }, time.Second)
+	go func() {
+		<-stopped
+		time.Sleep(300 * time.Millisecond) // the steps after the stop
+		finish()
+	}()
+	start := time.Now()
+	stopJobs(a.runningJobs())
+	if took := time.Since(start); took < 300*time.Millisecond || took > 2*time.Second || len(a.runningJobs()) != 0 {
+		t.Fatalf("stopping took %s; %d jobs left", took, len(a.runningJobs()))
+	}
+}
+
 // A panic in background work shows an error, its secrets hidden, its
 // first line as the hint and its full text and stack under Details, and
 // the app goes on; a job's UI ends as it would have, and the job is no longer

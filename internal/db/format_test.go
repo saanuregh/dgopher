@@ -84,8 +84,8 @@ func TestLiteralRoundTrip(t *testing.T) {
 		t.Run(f.cfg.Name, func(t *testing.T) {
 			d := open(t, f)
 			values := hostile
-			// PostgreSQL's and YugabyteDB's text cannot hold NUL.
-			if f.cfg.Engine != Postgres && f.cfg.Engine != YugabyteDB {
+			// The text of PostgreSQL, YugabyteDB and TimescaleDB cannot hold NUL.
+			if f.cfg.Engine != Postgres && f.cfg.Engine != YugabyteDB && f.cfg.Engine != TimescaleDB {
 				values = append(values[:len(values):len(values)], "nul\x00byte", "\x00", `\`+"\x00'")
 			}
 			for _, s := range values {
@@ -218,7 +218,7 @@ func TestCursorSQLiteStorageClass(t *testing.T) {
 }
 
 func TestCursorTextIsString(t *testing.T) {
-	binary := map[Engine]string{Postgres: "bytea", CockroachDB: "bytea", YugabyteDB: "bytea", MySQL: "BLOB", MariaDB: "BLOB", TiDB: "BLOB", SQLite: "BLOB", DuckDB: "BLOB"}
+	binary := map[Engine]string{Postgres: "bytea", CockroachDB: "bytea", YugabyteDB: "bytea", TimescaleDB: "bytea", MySQL: "BLOB", MariaDB: "BLOB", TiDB: "BLOB", SQLite: "BLOB", DuckDB: "BLOB"}
 	servers := os.Getenv("DGOPHER_IT") != ""
 	if servers {
 		integration(t)

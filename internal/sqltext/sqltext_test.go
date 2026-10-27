@@ -1690,3 +1690,84 @@ func TestClassifyYugabyteDB(t *testing.T) {
 		}
 	}
 }
+
+// TimescaleDB's statements, read in the Postgres dialect it lexes with:
+// its functions that change hypertables, chunks, jobs or the restore
+// state are writes, as are its internal schemas' functions, called by
+// their schema or after a SET puts one on the search path; those that
+// read stay reads.
+func TestClassifyTimescaleDB(t *testing.T) {
+	for _, c := range []struct {
+		src   string
+		class Class
+	}{
+		{"SELECT create_hypertable('metrics', by_range('t'))", Write},
+		{"SELECT public.create_hypertable('metrics', 't', chunk_time_interval => INTERVAL '1 day')", Write},
+		{"SELECT add_dimension('metrics', by_hash('device', 4))", Write},
+		{"SELECT drop_chunks('metrics', older_than => INTERVAL '30 days')", Write},
+		{"SELECT compress_chunk(c) FROM show_chunks('metrics') c", Write},
+		{"SELECT decompress_chunk(c, true) FROM show_chunks('metrics') c", Write},
+		{"SELECT reorder_chunk('_timescaledb_internal._hyper_1_1_chunk', 'metrics_t_idx')", Write},
+		{"SELECT move_chunk(chunk => 'c', destination_tablespace => 'pg_default', index_destination_tablespace => 'pg_default')", Write},
+		{"SELECT add_retention_policy('metrics', INTERVAL '1 year')", Write},
+		{"SELECT remove_retention_policy('metrics')", Write},
+		{"SELECT add_compression_policy('metrics', INTERVAL '7 days')", Write},
+		{"SELECT remove_compression_policy('metrics')", Write},
+		{"SELECT add_continuous_aggregate_policy('m', start_offset => INTERVAL '3 days', end_offset => NULL, schedule_interval => INTERVAL '1 hour')", Write},
+		{"SELECT remove_continuous_aggregate_policy('m')", Write},
+		{"SELECT add_reorder_policy('metrics', 'metrics_t_idx')", Write},
+		{"SELECT remove_reorder_policy('metrics')", Write},
+		{"SELECT add_job('my_job', '1 hour')", Write},
+		{"SELECT alter_job(1000, scheduled => false)", Write},
+		{"SELECT delete_job(1000)", Write},
+		{"SELECT set_chunk_time_interval('metrics', INTERVAL '2 days')", Write},
+		{"SELECT set_partitioning_interval('metrics', INTERVAL '2 days')", Write},
+		{"SELECT set_number_partitions('metrics', 2)", Write},
+		{"SELECT set_integer_now_func('metrics', 'now_int')", Write},
+		{"SELECT attach_tablespace('ts', 'metrics')", Write},
+		{"SELECT detach_tablespace('ts', 'metrics')", Write},
+		{"SELECT detach_tablespaces('metrics')", Write},
+		{"SELECT enable_chunk_skipping('metrics', 'device')", Write},
+		{"SELECT disable_chunk_skipping('metrics', 'device')", Write},
+		{"SELECT timescaledb_pre_restore()", Write},
+		{"SELECT timescaledb_post_restore()", Write},
+		{"SELECT timescaledb_experimental.remove_all_policies('m')", Write},
+		{"SELECT timescaledb_experimental.add_policies('m', refresh_start_offset => '3 days'::interval)", Write},
+		{"SELECT timescaledb_experimental.alter_policies('m', refresh_start_offset => '4 days'::interval)", Write},
+		{"SELECT timescaledb_experimental.remove_policies('m', false, 'policy_refresh_continuous_aggregate')", Write},
+		{"SELECT create_distributed_hypertable('metrics', 't')", Write},
+		{"SELECT add_data_node('dn1', host => 'h')", Write},
+		{`SELECT "drop_chunks"('metrics', older_than => INTERVAL '30 days')`, Write},
+		{"CALL refresh_continuous_aggregate('m', NULL, NULL)", Write},
+		{"CALL run_job(1000)", Write},
+		// Any function of TimescaleDB's internal schemas counts as a write.
+		{"SELECT _timescaledb_functions.stop_background_workers()", Write},
+		{`SELECT "_timescaledb_functions".start_background_workers()`, Write},
+		{"SELECT _timescaledb_internal.freeze_chunk('c')", Write},
+		{"SET search_path = _timescaledb_functions, public", Write},
+		{"SET search_path TO '_timescaledb_internal'", Write},
+		{"SELECT time_bucket('1 hour', t), first(v, t), last(v, t), histogram(v, 0, 10, 5) FROM metrics GROUP BY 1", Read},
+		{"SELECT time_bucket_gapfill('1 hour', t), locf(avg(v)), interpolate(avg(v)) FROM metrics GROUP BY 1", Read},
+		{"SELECT * FROM show_chunks('metrics'), hypertable_size('metrics'), hypertable_detailed_size('metrics')", Read},
+		{"SELECT approximate_row_count('metrics'), hypertable_index_size('metrics_t_idx'), chunks_detailed_size('metrics')", Read},
+		{"SELECT * FROM hypertable_compression_stats('metrics'), chunk_compression_stats('metrics'), show_tablespaces('metrics')", Read},
+		{"SELECT * FROM timescaledb_information.jobs j JOIN timescaledb_information.job_stats s USING (job_id)", Read},
+		{"SELECT * FROM timescaledb_experimental.show_policies('m')", Read},
+		{"SELECT set_adaptive_chunking('metrics', '1MB')", Write},
+		{"SELECT timescaledb_experimental.refresh_continuous_aggregate('m', NULL, NULL)", Write},
+		{"SET timescaledb.restoring = on", Write},
+		{"SET SESSION timescaledb.restoring TO 'off'", Write},
+		{`SET "timescaledb.restoring" = on`, Write},
+		{`SET timescaledb."restoring" = on`, Write},
+		{"RESET timescaledb.restoring", Write},
+		// A U& schema not decoded under a UESCAPE may be an internal one.
+		{`SELECT U&"crdb!005finternal" UESCAPE '!' . node_id()`, Write},
+		{"SET timescaledb.enable_chunk_skipping = on", Session},
+		{"RESET timescaledb.enable_chunk_skipping", Session},
+		{"SET search_path = public", Session},
+	} {
+		if a := Classify(c.src, Postgres); a.Class != c.class {
+			t.Errorf("%q: %+v, want class %v", c.src, a, c.class)
+		}
+	}
+}

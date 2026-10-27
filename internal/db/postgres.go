@@ -98,8 +98,14 @@ func (postgresDialect) CurrentSchema(ctx context.Context, q Querier) (string, er
 }
 
 func (postgresDialect) Schemas(ctx context.Context, q Querier) ([]string, error) {
+	return postgresSchemas(ctx, q, "")
+}
+
+// postgresSchemas reads the schemas but PostgreSQL's own, and but those
+// filter, more conditions on nspname, leaves out, public first.
+func postgresSchemas(ctx context.Context, q Querier, filter string) ([]string, error) {
 	return queryStrings(ctx, q, `SELECT nspname FROM pg_namespace
-WHERE nspname NOT LIKE 'pg\_%' AND nspname <> 'information_schema'
+WHERE nspname NOT LIKE 'pg\_%' AND nspname <> 'information_schema'`+filter+`
 ORDER BY nspname = 'public' DESC, nspname`)
 }
 
@@ -913,7 +919,8 @@ func planPostgresDump(ctx context.Context, d *DB, o BackupOptions, tool string) 
 	return run, nil
 }
 
-// PlanRestore: YugabyteDB's differs, without --single-transaction.
+// PlanRestore: YugabyteDB's differs, without --single-transaction, and
+// TimescaleDB's runs between its pre- and post-restore calls.
 func (postgresEngine) PlanRestore(ctx context.Context, d *DB, database, path string, clean bool) (ToolRun, error) {
 	run, err := postgresTool(ctx, d, "pg_restore", database)
 	if err != nil {

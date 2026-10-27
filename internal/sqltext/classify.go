@@ -83,6 +83,69 @@ var ybReads = setOf("yb_active_session_history yb_backend_heap_snapshot yb_backe
 	"yb_server_cloud yb_server_region yb_server_zone yb_servers yb_servers_metrics yb_stat_auto_analyze " +
 	"yb_table_properties yb_wait_event_desc")
 
+// timescaleWrites are TimescaleDB's functions, of its extension's schema
+// and timescaledb_experimental, of 2.x up to 2.31, that change hypertables,
+// chunks, jobs, data nodes or the restore state. Its procedures run by
+// CALL, a write already; refresh_continuous_aggregate is listed for the
+// versions that had it as a function. Some run on a read-only session
+// (reorder_chunk, remove_all_policies), so this check is what refuses
+// them there.
+var timescaleWrites = setOf("create_hypertable create_distributed_hypertable add_dimension set_chunk_time_interval " +
+	"set_partitioning_interval set_number_partitions set_integer_now_func set_adaptive_chunking refresh_continuous_aggregate " +
+	"attach_tablespace detach_tablespace detach_tablespaces " +
+	"drop_chunks compress_chunk decompress_chunk reorder_chunk move_chunk enable_chunk_skipping disable_chunk_skipping " +
+	"add_job alter_job delete_job add_retention_policy remove_retention_policy add_compression_policy remove_compression_policy " +
+	"add_continuous_aggregate_policy remove_continuous_aggregate_policy add_reorder_policy remove_reorder_policy " +
+	"add_compaction_policy remove_compaction_policy add_policies alter_policies remove_policies remove_all_policies " +
+	"timescaledb_pre_restore timescaledb_post_restore add_data_node delete_data_node attach_data_node detach_data_node " +
+	"alter_data_node distributed_exec set_replication_factor create_distributed_restore_point block_new_chunks allow_new_chunks " +
+	"subscription_exec")
+
+// functionRule says which functions of an engine family count as writes in
+// a dialect: those of schema, or of a schema starting with it when
+// schemaPrefix, or of any schema, qualified or not, when it is "", and
+// whose name starts with namePrefix. With writes, those listed are
+// writes; otherwise all but the reads.
+type functionRule struct {
+	dialect       Dialect
+	schema        string
+	schemaPrefix  bool
+	namePrefix    string
+	reads, writes map[string]bool
+}
+
+// functionRules are the engine families' functions read in the Postgres
+// dialect, which a later version may add to, so that most count as writes
+// unless known to read.
+var functionRules = []functionRule{
+	// YugabyteDB's yb_ functions, or a user's of that name.
+	{dialect: Postgres, namePrefix: "yb_", reads: ybReads},
+	{dialect: Postgres, writes: timescaleWrites},
+	// CockroachDB's crdb_internal, which only its qualified name reaches.
+	{dialect: Postgres, schema: "crdb_internal", reads: crdbInternalReads},
+	// TimescaleDB's internal schemas, _timescaledb_functions and the like.
+	{dialect: Postgres, schema: "_timescaledb_", schemaPrefix: true},
+}
+
+// writesCall reports whether the rule makes a call of name, lower case,
+// qualified by schema, a write: undecoded when the schema is a U& name not
+// decoded under a UESCAPE, which may be any.
+func (r functionRule) writesCall(name, schema string, undecoded bool) bool {
+	switch {
+	case !strings.HasPrefix(name, r.namePrefix):
+		return false
+	case r.schema == "" || undecoded:
+	case r.schemaPrefix && !strings.HasPrefix(strings.ToLower(schema), r.schema):
+		return false
+	case !r.schemaPrefix && !strings.EqualFold(schema, r.schema):
+		return false
+	}
+	if r.writes != nil {
+		return r.writes[name]
+	}
+	return !r.reads[name]
+}
+
 // maxCodeDepth caps how many levels of code quoted inside code are read: a
 // DO block that EXECUTEs a string is two levels down. Deeper code counts as
 // dangerous, unread.
@@ -723,30 +786,40 @@ func sideEffectCall(toks []Token, d Dialect) string {
 			}
 			name = DecodeQuoted(t.Text, d)
 		}
-		if name = strings.ToLower(name); fns[name] || d == Postgres && strings.HasPrefix(name, "yb_") && !ybReads[name] {
+		name = strings.ToLower(name)
+		if fns[name] {
 			return name
 		}
-		if d == Postgres && !crdbInternalReads[name] && crdbInternalQualifies(toks, i, uescape) {
-			return "crdb_internal." + name
+		schema, undecoded := qualifierOf(toks, i, uescape)
+		for _, r := range functionRules {
+			switch {
+			case r.dialect != d || !r.writesCall(name, schema, undecoded):
+			case r.schema == "" || r.schemaPrefix && undecoded:
+				return name
+			case r.schemaPrefix:
+				return schema + "." + name
+			default:
+				return r.schema + "." + name
+			}
 		}
 	}
 	return ""
 }
 
-// crdbInternalQualifies reports whether the name toks[i] is qualified by
-// crdb_internal, or, with a UESCAPE, by a U& name, which is not decoded.
-func crdbInternalQualifies(toks []Token, i int, uescape bool) bool {
+// qualifierOf returns the schema qualifying the name toks[i], decoded, or
+// reports that a U& name, not decoded under a UESCAPE, qualifies it.
+func qualifierOf(toks []Token, i int, uescape bool) (schema string, undecoded bool) {
 	if i < 2 || !isPunct(toks[i-1], ".") {
-		return false
+		return "", false
 	}
 	q := i - 2
 	if q >= 2 && word(toks[q-1]) == "UESCAPE" {
 		q -= 2
 	}
 	if t := toks[q].Text; uescape && toks[q].Kind == QuotedIdent && len(t) > 1 && (t[0] == 'U' || t[0] == 'u') && t[1] == '&' {
-		return true
+		return "", true
 	}
-	return strings.EqualFold(DecodeQuoted(toks[q].Text, Postgres), "crdb_internal")
+	return DecodeQuoted(toks[q].Text, Postgres), false
 }
 
 func classifyVerb(toks []Token, d Dialect, r reading) Analysis {
@@ -821,7 +894,7 @@ func classifyVerb(toks []Token, d Dialect, r reading) Analysis {
 			return Analysis{Class: Write, Verb: verb}
 		}
 	case "SET":
-		if setsServerState(toks, dep) || d == Postgres && (setsFile(toks) || searchesCrdbInternal(toks, r.q) || changesUnsafeSetting(toks)) {
+		if setsServerState(toks, dep) || d == Postgres && (setsFile(toks) || searchesInternalSchema(toks, r.q) || changesUnsafeSetting(toks)) {
 			return Analysis{Class: Write, Verb: verb}
 		}
 	case "DO":
@@ -1054,12 +1127,13 @@ func setsFile(toks []Token) bool {
 	return fileSettings[strings.ToLower(name)]
 }
 
-// searchesCrdbInternal reports whether a SET, after any SESSION or LOCAL,
-// puts CockroachDB's crdb_internal on the search path, where its functions
-// are then called by their names alone: search_path or schema set to a
-// value that names it, as quoting q reads it. With a UESCAPE, whose escapes
-// are not decoded, any such SET does.
-func searchesCrdbInternal(toks []Token, q quoting) bool {
+// searchesInternalSchema reports whether a SET, after any SESSION or
+// LOCAL, puts a schema of the functionRules on the search path, as
+// CockroachDB's crdb_internal or a TimescaleDB internal schema, where
+// their functions are then called by their names alone: search_path or
+// schema set to a value that names one, as quoting q reads it. With a
+// UESCAPE, whose escapes are not decoded, any such SET does.
+func searchesInternalSchema(toks []Token, q quoting) bool {
 	i := settingAt(toks)
 	if i < 0 {
 		return false
@@ -1069,7 +1143,10 @@ func searchesCrdbInternal(toks []Token, q quoting) bool {
 		return false
 	}
 	for _, t := range toks[i+1:] {
-		if uescape || strings.Contains(strings.ToLower(codeText(t, Postgres, q)), "crdb_internal") {
+		text := strings.ToLower(codeText(t, Postgres, q))
+		if uescape || slices.ContainsFunc(functionRules, func(r functionRule) bool {
+			return r.dialect == Postgres && r.schema != "" && strings.Contains(text, r.schema)
+		}) {
 			return true
 		}
 	}
@@ -1080,15 +1157,26 @@ func searchesCrdbInternal(toks []Token, q quoting) bool {
 // guards: CockroachDB's allow_unsafe_internals opens crdb_internal and
 // system to the session; YugabyteDB's yb_disable_transactional_writes
 // writes outside transactions, and yb_enable_upsert_mode makes INSERT
-// overwrite rows, skipping unique and foreign key checks.
-var unsafeSettings = setOf("allow_unsafe_internals yb_disable_transactional_writes yb_enable_upsert_mode")
+// overwrite rows, skipping unique and foreign key checks; TimescaleDB's
+// timescaledb.restoring turns off what makes hypertables work, so that
+// their inserts land in no chunk.
+var unsafeSettings = setOf("allow_unsafe_internals yb_disable_transactional_writes yb_enable_upsert_mode timescaledb.restoring")
 
 // changesUnsafeSetting reports whether a SET or RESET changes one of the
-// unsafeSettings, or, with a UESCAPE, whose escapes are not decoded, any
-// setting.
+// unsafeSettings, named by its first name or its whole dotted one, or,
+// with a UESCAPE, whose escapes are not decoded, any setting.
 func changesUnsafeSetting(toks []Token) bool {
 	i := settingAt(toks)
-	return i >= 0 && (hasWord(toks, "UESCAPE") || unsafeSettings[strings.ToLower(DecodeQuoted(toks[i].Text, Postgres))])
+	if i < 0 {
+		return false
+	}
+	first := strings.ToLower(DecodeQuoted(toks[i].Text, Postgres))
+	name := first
+	for i+2 < len(toks) && isPunct(toks[i+1], ".") {
+		i += 2
+		name += "." + strings.ToLower(DecodeQuoted(toks[i].Text, Postgres))
+	}
+	return hasWord(toks, "UESCAPE") || unsafeSettings[first] || unsafeSettings[name]
 }
 
 // settingAt returns the index of the setting a SET or RESET names, after

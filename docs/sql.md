@@ -163,6 +163,13 @@ These count as writes:
   (`ybReads` in `classify.go`), such as `yb_servers`,
   `yb_table_properties` and `yb_lock_status`. A PostgreSQL function of
   your own whose name starts with `yb_` counts too.
+- A call of TimescaleDB's functions that change hypertables, chunks,
+  jobs, policies, data nodes or the restore state (`timescaleWrites` in
+  `classify.go`), such as `create_hypertable`, `drop_chunks`,
+  `compress_chunk`, `add_retention_policy`, `alter_job`,
+  `set_adaptive_chunking` and `timescaledb_pre_restore`, and any function
+  of its internal schemas, whose names start with `_timescaledb_`. A
+  PostgreSQL function of your own of one of those names counts too.
 - `SELECT … FOR UPDATE` or `FOR SHARE` (MySQL: `LOCK IN SHARE MODE`), in a
   subquery or a `WITH` too. It locks its rows for as long as its result,
   or its transaction, is open.
@@ -189,13 +196,16 @@ These change the server rather than the session, so they count as writes:
   `SET BINDING`, which switches a global plan binding.
 - PostgreSQL `COMMIT PREPARED` and `ROLLBACK PREPARED`.
 - CockroachDB `SET CLUSTER SETTING` and `RESET CLUSTER SETTING`.
-- A `SET search_path` or `SET schema` that names `crdb_internal`, whose
-  functions it then lets be called by their names alone, and a `SET` or
-  `RESET` of `allow_unsafe_internals`, which opens `crdb_internal` and
-  `system` to the session.
+- A `SET search_path` or `SET schema` that names `crdb_internal` or a
+  schema starting with `_timescaledb_`, whose functions it then lets be
+  called by their names alone, and a `SET` or `RESET` of
+  `allow_unsafe_internals`, which opens `crdb_internal` and `system` to
+  the session.
 - A YugabyteDB `SET` or `RESET` of `yb_disable_transactional_writes`, which
   writes outside transactions, or `yb_enable_upsert_mode`, which makes
   `INSERT` overwrite rows, skipping unique and foreign key checks.
+- A TimescaleDB `SET` or `RESET` of `timescaledb.restoring`, which turns
+  off what makes hypertables work: a row inserted then lands in no chunk.
 - DuckDB `SET`s of a setting that names a file it writes, such as
   `log_query_path`, `profiling_output`, `temp_directory`,
   `extension_directory`, `secret_directory` and `home_directory`.

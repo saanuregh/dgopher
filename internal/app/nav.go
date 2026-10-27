@@ -496,7 +496,7 @@ func itemIcon(k db.ItemKind) *ui.SVG {
 		return widgets.IconSchema
 	case db.ItemExtension:
 		return widgets.IconPlug
-	case db.ItemEvent:
+	case db.ItemEvent, db.ItemJob:
 		return widgets.IconClock
 	}
 	return widgets.IconTable

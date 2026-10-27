@@ -12,13 +12,15 @@ import (
 // kindOrder is the order a script creates objects in, so that each comes
 // after what it needs: types before the tables using them, functions
 // before the defaults and views calling them, tables before their views,
-// triggers and partitions.
+// triggers, partitions and TimescaleDB's jobs; chunks, which TimescaleDB
+// makes itself, last.
 var kindOrder = []string{
 	string(db.ItemExtension), string(db.ItemType), string(db.ItemSequence),
 	string(db.ItemFunction), string(db.ItemProcedure),
 	string(db.KindTable), string(db.KindForeignTable),
 	string(db.KindView), string(db.KindMaterializedView), string(db.KindDictionary),
 	string(db.ItemTrigger), string(db.ItemEvent), string(db.ItemProjection), string(db.ItemPartition),
+	string(db.ItemJob), string(db.ItemChunk),
 }
 
 // statement is an object's part of a script.

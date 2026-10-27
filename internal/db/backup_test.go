@@ -460,3 +460,95 @@ func TestIntegrationPostgresBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// liteTables lists the tables of the SQLite database at path.
+func liteTables(t *testing.T, path string) []string {
+	t.Helper()
+	d, err := Open(context.Background(), Config{Name: "lite", Engine: SQLite, Database: path}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	names, err := queryStrings(context.Background(), d.SQL, "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return names
+}
+
+// A planned statement runs between its steps, as a tool does: SQLite's
+// VACUUM INTO copies what Before made, not what After makes; Shown lists
+// them in order.
+func TestRunPlannedStatementWithSteps(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.sqlite"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d, err := Open(ctx, Config{Name: "lite", Engine: SQLite, Database: filepath.Join(dir, "a.sqlite")}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	path := filepath.Join(dir, "copy.sqlite")
+	run, err := PlanBackup(ctx, d, BackupOptions{Format: BackupCopy, Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run.Before = []RunStep{{SQL: "CREATE TABLE before_it (a int)"}}
+	run.After = []RunStep{{SQL: "CREATE TABLE after_it (a int)"}}
+	if shown := run.Shown(); shown != "CREATE TABLE before_it (a int);\n"+run.Statement+";\nCREATE TABLE after_it (a int)" {
+		t.Errorf("shown %q", shown)
+	}
+	asked := 0
+	pool := func(context.Context) (*DB, error) { asked++; return d, nil }
+	if err := RunPlanned(ctx, run, pool, func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+	if got := liteTables(t, path); !slices.Equal(got, []string{"before_it"}) || asked != 1 {
+		t.Errorf("the copy holds %q; the pool asked for %d times", got, asked)
+	}
+	if got := liteTables(t, filepath.Join(dir, "a.sqlite")); !slices.Equal(got, []string{"after_it", "before_it"}) {
+		t.Errorf("the database holds %q", got)
+	}
+}
+
+// After runs even when the run was stopped, in a time of its own; when
+// an After step fails, Undo runs, and the error says what it ran, or, when
+// it fails too, what to run.
+func TestRunPlannedUndoesAfterFailedAfter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "a.sqlite")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d, err := Open(context.Background(), Config{Name: "lite", Engine: SQLite, Database: path}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	pool := func(context.Context) (*DB, error) { return d, nil }
+	stopped, stop := context.WithCancel(context.Background())
+	stop()
+	run := ToolRun{Statement: "CREATE TABLE never (a int)", Before: []RunStep{{SQL: "CREATE TABLE never_before (a int)"}}, After: []RunStep{{SQL: "CREATE TABLE after_it (a int)"}}}
+	if err := RunPlanned(stopped, run, pool, func(string) {}); !errors.Is(err, context.Canceled) {
+		t.Errorf("stopped: %v", err)
+	}
+	if got := liteTables(t, path); !slices.Equal(got, []string{"after_it"}) {
+		t.Errorf("after a stop the database holds %q", got)
+	}
+	ctx := context.Background()
+	run = ToolRun{Statement: "SELECT 1", Before: []RunStep{{SQL: "CREATE TABLE b (a int)"}},
+		After: []RunStep{{SQL: "INSERT INTO missing VALUES (1)"}}, Undo: []RunStep{{SQL: "DROP TABLE b"}}}
+	err = RunPlanned(ctx, run, pool, func(string) {})
+	if err == nil || !strings.Contains(err.Error(), "missing") || !strings.Contains(err.Error(), "ran DROP TABLE b instead") {
+		t.Errorf("undone: %v", err)
+	}
+	if got := liteTables(t, path); slices.Contains(got, "b") {
+		t.Errorf("not undone: %q", got)
+	}
+	run.Undo = []RunStep{{SQL: "DROP TABLE nothing_here"}}
+	err = RunPlanned(ctx, run, pool, func(string) {})
+	if err == nil || !strings.Contains(err.Error(), "nothing_here") || !strings.Contains(err.Error(), "run DROP TABLE nothing_here") {
+		t.Errorf("not undone: %v", err)
+	}
+}

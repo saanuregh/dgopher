@@ -239,3 +239,56 @@ Supported from 2024.2, the oldest YugabyteDB release still maintained.
   `yb_enable_upsert_mode`.
 - `LISTEN` and `NOTIFY` are accepted and ignored.
 
+### TimescaleDB
+
+TimescaleDB 2, tested on 2.31 and checked from 2.13; Timescale publishes
+no end of life for its 2.x releases. A database without the extension
+works as PostgreSQL does.
+
+- The navigator and Search Objects leave out TimescaleDB's own schemas
+  (`_timescaledb_*`, `timescaledb_information`,
+  `timescaledb_experimental`).
+- A **hypertable** is a table marked `hypertable` (or `hypertable,
+  compressed`), with its size and estimated rows over all its chunks; its
+  definition adds `create_hypertable`, its other dimensions and its
+  compression settings. A **continuous aggregate** is a materialized view
+  marked `continuous aggregate`, whose definition is its own query,
+  created `WITH NO DATA`. When TimescaleDB's catalog cannot be read, the
+  schema lists as PostgreSQL's, unmarked, and a definition ends with a
+  comment saying what it lacks.
+- Each schema has **Chunks**, the newest (`timescaleChunkItems` in
+  `internal/db/timescaledb.go`), with each chunk's range and whether it is
+  compressed, and an item saying how many more there are, which
+  `timescaledb_information.chunks` lists; and **Jobs**: policies and
+  `add_job` jobs, each defined by the call that creates it. Activity adds
+  a **Jobs** page with their last and next runs.
+- Plans name the `ChunkAppend` and `ColumnarScan` steps, as PostgreSQL's
+  name any extension's custom scan, and show their vectorized filters.
+- These run outside a transaction, as TimescaleDB requires: calls of
+  `refresh_continuous_aggregate`, `merge_chunks_concurrently`, `run_job`
+  (whose job may commit as it goes), `reorder_chunk` and `move_chunk`, by
+  quoted names too; a continuous aggregate created with its data; and
+  `CREATE INDEX … WITH (timescaledb.transaction_per_chunk)`.
+- On a **read-only** connection the app refuses TimescaleDB's functions
+  that change something, and `SET` or `RESET` of
+  `timescaledb.restoring`; the server itself still runs `reorder_chunk`,
+  `remove_all_policies`, its internal functions and that `SET`, so for
+  those the app's check is the only one.
+- **Restore** runs between `public.timescaledb_pre_restore()` and
+  `public.timescaledb_post_restore()` (of the extension's schema), each on
+  a connection of its own, without "drop first", which TimescaleDB's own
+  objects refuse; the server needs the TimescaleDB version the backup was
+  made with. It needs a **superuser**: `timescaledb_pre_restore()` sets
+  `timescaledb.restoring` on the database and stops its background
+  workers, which TimescaleDB 2.31 refuses any other user, even one
+  granted `SET` on the parameter. Should `timescaledb_post_restore()`
+  fail, the app resets the setting and restarts the workers itself
+  (`ALTER DATABASE … RESET timescaledb.restoring`, `SELECT
+  _timescaledb_functions.restart_background_workers()`), or says to run
+  them; and the connections opened during the restore are not used again.
+  An editor opened on that database while the restore ran keeps
+  TimescaleDB switched off until its tab closes: close it afterwards.
+  A SQL file restored with Run SQL File needs `SELECT
+  public.timescaledb_pre_restore();` first and `SELECT
+  public.timescaledb_post_restore();` last.
+
