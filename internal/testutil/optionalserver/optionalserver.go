@@ -15,7 +15,8 @@ type server struct {
 	start   string
 }
 
-// servers are the optional servers, by compose.yaml's service name.
+// servers are the optional servers, by compose.yaml's service name, or
+// the service and a listener of its own.
 var servers = map[string]server{
 	"mariadb":     {"127.0.0.1:13307", "docker compose --profile compat up -d --wait mariadb"},
 	"tidb":        {"127.0.0.1:14000", "docker compose --profile compat up -d --wait tidb"},
@@ -24,6 +25,10 @@ var servers = map[string]server{
 	"timescaledb": {"127.0.0.1:15434", "docker compose --profile compat up -d --wait timescaledb"},
 	"sqlserver":   {"127.0.0.1:11433", "docker compose --profile enterprise up -d --wait sqlserver"},
 	"oracle":      {"127.0.0.1:11521", "docker compose --profile enterprise up -d --wait oracle"},
+	// The oracle service's TCPS listeners, absent from a container made
+	// before compose.yaml had them, which the command makes again.
+	"oracle-tcps":      {"127.0.0.1:12484", "docker compose --profile enterprise up -d --wait oracle"},
+	"oracle-tcps-mtls": {"127.0.0.1:12485", "docker compose --profile enterprise up -d --wait oracle"},
 }
 
 // SkipUnless skips the test unless the optional server service is

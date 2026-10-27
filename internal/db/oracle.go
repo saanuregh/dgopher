@@ -421,12 +421,20 @@ func (oracleEngine) sessionStartSQL() []string {
 	return []string{"BEGIN DBMS_OUTPUT.ENABLE(NULL); END;"}
 }
 
-func (oracleEngine) messagesSQL() string { return oracleMessagesSQL }
+func (oracleEngine) messagesSQL() string {
+	return oracleOutputFunction + "SELECT dgopher_output FROM dual"
+}
 
-// oracleMessagesSQL reads the lines DBMS_OUTPUT kept, maxMessages of them
-// and the count of the others, in a query, which the driver never commits
-// as it does a PL/SQL block.
-var oracleMessagesSQL = `WITH FUNCTION dgopher_output RETURN CLOB IS
+// transactionStateAndMessagesSQL reads the transaction's id beside the
+// messages: reading DBMS_OUTPUT begins no transaction (verified on 23ai).
+func (oracleEngine) transactionStateAndMessagesSQL() string {
+	return oracleOutputFunction + "SELECT DBMS_TRANSACTION.LOCAL_TRANSACTION_ID, dgopher_output FROM dual"
+}
+
+// oracleOutputFunction reads the lines DBMS_OUTPUT kept, maxMessages of
+// them and the count of the others, in a query, which the driver never
+// commits as it does a PL/SQL block.
+var oracleOutputFunction = `WITH FUNCTION dgopher_output RETURN CLOB IS
   line VARCHAR2(32767);
   status INTEGER;
   shown PLS_INTEGER := 0;
@@ -448,7 +456,7 @@ BEGIN
   END IF;
   RETURN text;
 END;
-SELECT dgopher_output FROM dual`
+`
 
 // identify reads the server's version; Oracle has no flavors, and
 // Autonomous Database's service only names it.

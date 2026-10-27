@@ -777,10 +777,7 @@ func (s *Session) exec(ctx context.Context, query string, check func() error, us
 		err = watch.cancelled(s.afterError(err, wasTx))
 	}
 	s.ran = s.ran || s.conn != nil
-	s.noteStatement(query, err, shared)
-	if userRan {
-		s.readMessages()
-	}
+	s.afterStatement(query, err, shared, userRan)
 	if err != nil {
 		return 0, err
 	}
@@ -836,8 +833,7 @@ func (s *Session) Query(ctx context.Context, query string, args ...any) (*Cursor
 	if err != nil {
 		err = watch.cancelled(s.afterError(err, wasTx)) // as in exec
 		s.ran = s.ran || s.conn != nil
-		s.noteStatement(query, err, shared)
-		s.readMessages()
+		s.afterStatement(query, err, shared, true)
 		return nil, err
 	}
 	r, ok := SQL(s.db.Config.Engine)
@@ -860,8 +856,7 @@ func (s *Session) Query(ctx context.Context, query string, args ...any) (*Cursor
 	// without an error (ensureConnection): the statement may yet end with
 	// its connection.
 	s.ran = s.ran || s.conn != nil && (err != nil || !c.HoldsConnection())
-	s.noteStatement(query, err, shared)
-	s.readMessages()
+	s.afterStatement(query, err, shared, true)
 	if err != nil {
 		return nil, err
 	}
@@ -869,6 +864,65 @@ func (s *Session) Query(ctx context.Context, query string, args ...any) (*Cursor
 		s.cursor = c
 	}
 	return c, nil
+}
+
+// afterStatement records the transaction state after a statement. After
+// a statement the user ran, it also reads what the server printed, in one
+// query where the engine supports that. The app's own statements print
+// nothing, so only the transaction is read after them. When that one query
+// fails in a way that leaves the connection unusable, or runs out of time,
+// the statement's verbs give the state, as reading again would fail too.
+func (s *Session) afterStatement(query string, err error, shared *sql.Conn, userRan bool) {
+	if userRan {
+		switch s.readTxStateAndMessages(shared) {
+		case combinedRead:
+			return
+		case combinedReadUnusable:
+			s.verbs = s.verbs.after(s.db.Config.Engine, query, err, s.rollsBackOnTimeout)
+			return
+		}
+	}
+	s.noteStatement(query, err, shared)
+	if userRan {
+		s.readMessages()
+	}
+}
+
+type combinedReadResult int
+
+const (
+	combinedReadUnsupported combinedReadResult = iota
+	combinedRead
+	combinedReadFailed
+	combinedReadUnusable
+)
+
+// readTxStateAndMessages is noteStatement's serverTxState and
+// readMessages in one query, on a connection of the session's own. Where
+// the engine reads them apart, or the query failed, they are read apart,
+// the messages it took being lost.
+func (s *Session) readTxStateAndMessages(shared *sql.Conn) combinedReadResult {
+	r, ok := SQL(s.db.Config.Engine)
+	if !ok || r.transactionStateAndMessagesSQL() == "" || shared != nil || s.conn == nil {
+		return combinedReadUnsupported
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var id, text sql.NullString
+	if err := s.conn.QueryRowContext(ctx, r.transactionStateAndMessagesSQL()).Scan(&id, &text); err != nil {
+		if endsConnection(err) || isNetError(err) || ctx.Err() != nil {
+			return combinedReadUnusable
+		}
+		return combinedReadFailed
+	}
+	if text.Valid {
+		s.messages.addRead(text.String)
+	}
+	s.verbs = txByVerbs{tx: TxNone}
+	if id.Valid {
+		s.verbs = txByVerbs{tx: TxOpen}
+	}
+	return combinedRead
 }
 
 // readMessages reads, where the engine keeps them for the session to ask

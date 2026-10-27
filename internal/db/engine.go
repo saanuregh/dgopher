@@ -140,6 +140,11 @@ type driverRules interface {
 	// separator and their count; "" where the driver hands the messages
 	// over itself, or there are none.
 	messagesSQL() string
+	// transactionStateAndMessagesSQL reads, after a statement the user
+	// ran, in one row, what transactionStateSQL and messagesSQL read, in
+	// that order: one round trip instead of two; "" where they are read
+	// apart.
+	transactionStateAndMessagesSQL() string
 }
 
 // transactionRules is how an engine begins, follows and ends transactions.

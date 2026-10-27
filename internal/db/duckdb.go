@@ -616,10 +616,11 @@ func (duckdbEngine) MaintenanceCommands(quotedTable string) []MaintenanceCommand
 	return nil
 }
 
-func (duckdbEngine) readsAllResults() bool              { return false }
-func (duckdbEngine) sessionDatabaseSQL() string         { return "" }
-func (duckdbEngine) ConnectionFields() ConnectionFields { return ConnectionFields{} }
-func (duckdbEngine) sessionStartSQL() []string          { return nil }
-func (duckdbEngine) messagesSQL() string                { return "" }
-func (duckdbEngine) TakesEffectAtOnce(string) bool      { return false }
-func (duckdbEngine) BooleanLiteral(b bool) string       { return booleanWord(b) }
+func (duckdbEngine) readsAllResults() bool                  { return false }
+func (duckdbEngine) sessionDatabaseSQL() string             { return "" }
+func (duckdbEngine) ConnectionFields() ConnectionFields     { return ConnectionFields{} }
+func (duckdbEngine) sessionStartSQL() []string              { return nil }
+func (duckdbEngine) messagesSQL() string                    { return "" }
+func (duckdbEngine) transactionStateAndMessagesSQL() string { return "" }
+func (duckdbEngine) TakesEffectAtOnce(string) bool          { return false }
+func (duckdbEngine) BooleanLiteral(b bool) string           { return booleanWord(b) }

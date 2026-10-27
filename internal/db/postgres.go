@@ -989,10 +989,11 @@ func (postgresEngine) MaintenanceCommands(quotedTable string) []MaintenanceComma
 	}
 }
 
-func (postgresEngine) readsAllResults() bool              { return false }
-func (postgresEngine) sessionDatabaseSQL() string         { return "" }
-func (postgresEngine) ConnectionFields() ConnectionFields { return ConnectionFields{} }
-func (postgresEngine) sessionStartSQL() []string          { return nil }
-func (postgresEngine) messagesSQL() string                { return "" }
-func (postgresEngine) TakesEffectAtOnce(string) bool      { return false }
-func (postgresEngine) BooleanLiteral(b bool) string       { return booleanWord(b) }
+func (postgresEngine) readsAllResults() bool                  { return false }
+func (postgresEngine) sessionDatabaseSQL() string             { return "" }
+func (postgresEngine) ConnectionFields() ConnectionFields     { return ConnectionFields{} }
+func (postgresEngine) sessionStartSQL() []string              { return nil }
+func (postgresEngine) messagesSQL() string                    { return "" }
+func (postgresEngine) transactionStateAndMessagesSQL() string { return "" }
+func (postgresEngine) TakesEffectAtOnce(string) bool          { return false }
+func (postgresEngine) BooleanLiteral(b bool) string           { return booleanWord(b) }

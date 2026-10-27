@@ -7,9 +7,9 @@ the [Roadmap](roadmap.md).
 
 | Area | Limitation |
 | --- | --- |
-| Kerberos | PostgreSQL and SQL Server; MySQL's Kerberos plugin has no Go client, and the app does not offer Oracle's yet. On macOS, `KRB5CCNAME` must name a `FILE:` cache, because the system's default cache is not a file. |
+| Kerberos | PostgreSQL and SQL Server; MySQL's Kerberos plugin has no Go client. Oracle's is not offered: its driver, go-ora, leaves getting the ticket to the app, and no test server has a Kerberos realm to try it against. On macOS, `KRB5CCNAME` must name a `FILE:` cache, because the system's default cache is not a file. |
 | Cancelling behind a proxy | Cancelling a MySQL statement sends `KILL QUERY` for the session's connection ID as MySQL numbers it. ProxySQL or RDS Proxy, which share server connections, may number it differently. |
-| Oracle TLS | TLS is tested only against a TLS server of the tests' own, which checks how the app verifies its certificate, not against an Oracle listener speaking TCPS; reading a wallet is not tested. Only an auto-login wallet (`cwallet.sso`) is read. |
+| Oracle wallets | Only an auto-login wallet (`cwallet.sso`) is read, and of its client certificates only one with an RSA key. The tests use wallets they write as Oracle's tools lay them out, not wallets `orapki` wrote: the test server's image has no `orapki`, which needs Java. |
 | Trust prompt | A change to the prompt's wording asks once more for connections already trusted. |
 
 ## Engines

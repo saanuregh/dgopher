@@ -60,7 +60,8 @@ carries no statement, as Oracle's driver, go-ora, commits, rolls back and
 pings. Such a call is recorded as the statement it stands for: `COMMIT`,
 `ROLLBACK`, or `-- ping`. An Oracle connection's settings, its
 `ALTER SESSION` statements, are recorded as it opens, and a session's
-reads of its transaction and of `DBMS_OUTPUT` after each statement.
+read of its transaction after each statement, with `DBMS_OUTPUT` in the
+same query after a statement the user ran.
 
 How traffic is kept:
 

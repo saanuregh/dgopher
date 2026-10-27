@@ -681,10 +681,11 @@ func (clickhouseEngine) MaintenanceCommands(quotedTable string) []MaintenanceCom
 	}
 }
 
-func (clickhouseEngine) readsAllResults() bool              { return false }
-func (clickhouseEngine) sessionDatabaseSQL() string         { return "" }
-func (clickhouseEngine) ConnectionFields() ConnectionFields { return ConnectionFields{} }
-func (clickhouseEngine) sessionStartSQL() []string          { return nil }
-func (clickhouseEngine) messagesSQL() string                { return "" }
-func (clickhouseEngine) TakesEffectAtOnce(string) bool      { return false }
-func (clickhouseEngine) BooleanLiteral(b bool) string       { return booleanWord(b) }
+func (clickhouseEngine) readsAllResults() bool                  { return false }
+func (clickhouseEngine) sessionDatabaseSQL() string             { return "" }
+func (clickhouseEngine) ConnectionFields() ConnectionFields     { return ConnectionFields{} }
+func (clickhouseEngine) sessionStartSQL() []string              { return nil }
+func (clickhouseEngine) messagesSQL() string                    { return "" }
+func (clickhouseEngine) transactionStateAndMessagesSQL() string { return "" }
+func (clickhouseEngine) TakesEffectAtOnce(string) bool          { return false }
+func (clickhouseEngine) BooleanLiteral(b bool) string           { return booleanWord(b) }

@@ -563,10 +563,11 @@ func (sqliteEngine) MaintenanceCommands(quotedTable string) []MaintenanceCommand
 	}
 }
 
-func (sqliteEngine) readsAllResults() bool              { return false }
-func (sqliteEngine) sessionDatabaseSQL() string         { return "" }
-func (sqliteEngine) ConnectionFields() ConnectionFields { return ConnectionFields{} }
-func (sqliteEngine) sessionStartSQL() []string          { return nil }
-func (sqliteEngine) messagesSQL() string                { return "" }
-func (sqliteEngine) TakesEffectAtOnce(string) bool      { return false }
-func (sqliteEngine) BooleanLiteral(b bool) string       { return booleanWord(b) }
+func (sqliteEngine) readsAllResults() bool                  { return false }
+func (sqliteEngine) sessionDatabaseSQL() string             { return "" }
+func (sqliteEngine) ConnectionFields() ConnectionFields     { return ConnectionFields{} }
+func (sqliteEngine) sessionStartSQL() []string              { return nil }
+func (sqliteEngine) messagesSQL() string                    { return "" }
+func (sqliteEngine) transactionStateAndMessagesSQL() string { return "" }
+func (sqliteEngine) TakesEffectAtOnce(string) bool          { return false }
+func (sqliteEngine) BooleanLiteral(b bool) string           { return booleanWord(b) }
