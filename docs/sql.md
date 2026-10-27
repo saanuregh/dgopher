@@ -396,8 +396,11 @@ PL/SQL unit. The rules are in [`oracle.go`](../internal/sqltext/oracle.go).
   and those given to `DBMS_SQL.PARSE` and
   `DBMS_UTILITY.EXEC_DDL_STATEMENT`, by position or by name, and run by
   `CALL` or `EXEC` too, are read as code; so are the actions a job runs
-  later, given to `DBMS_SCHEDULER.CREATE_JOB` (`job_action`) and to
-  `DBMS_JOB`'s `SUBMIT`, `ISUBMIT`, `CHANGE` and `WHAT` (`what`). SQL held
+  later, given to `DBMS_SCHEDULER.CREATE_JOB` (`job_action`),
+  `DBMS_SCHEDULER.CREATE_PROGRAM` (`program_action`),
+  `DBMS_SCHEDULER.SET_ATTRIBUTE` (`value`, when the attribute is
+  `job_action` or `program_action`) and `DBMS_JOB`'s `SUBMIT`, `ISUBMIT`,
+  `CHANGE` and `WHAT` (`what`). SQL held
   in a variable cannot be known.
 - **Not known:** a function of your own may write in an autonomous
   transaction (`PRAGMA AUTONOMOUS_TRANSACTION`), and so may a synonym of a

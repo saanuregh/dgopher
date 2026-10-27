@@ -118,7 +118,8 @@ Then start DGopher from that shell.
 
 Backups and restores run the engine's own tools: `pg_dump` and
 `pg_restore` (at least the server's version, and 16 or later for
-verify-full without a CA file), `mysqldump` and `mysql`, and Oracle's
+verify-full without a CA file), `mysqldump` and `mysql`, SQL Server's
+`sqlpackage` for BACPAC files, and Oracle's
 Data Pump `expdp` and `impdp`, which come with Oracle's Instant Client
 Tools package (installed with its Basic package). Install them and make
 sure they are on the `PATH` DGopher starts with.

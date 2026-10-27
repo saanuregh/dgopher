@@ -289,9 +289,11 @@ func oracleNameOf(t Token) string {
 // oracleCodeCalls are the procedures that run, or schedule to run, the
 // SQL or PL/SQL one of their string arguments holds, with that argument's
 // name: DBMS_SQL.PARSE runs DDL as it parses it; a job runs its action
-// later, in a session of its own.
+// later, in a session of its own. DBMS_SCHEDULER.SET_ATTRIBUTE holds code
+// only when it sets an action; see oracleSetsAction.
 var oracleCodeCalls = map[string]string{
 	"dbms_sql.parse": "statement", "dbms_utility.exec_ddl_statement": "parse_string", "dbms_scheduler.create_job": "job_action",
+	"dbms_scheduler.create_program": "program_action", "dbms_scheduler.set_attribute": "value",
 	"dbms_job.submit": "what", "dbms_job.isubmit": "what", "dbms_job.change": "what", "dbms_job.what": "what",
 }
 
@@ -494,6 +496,9 @@ func oracleCallDanger(toks []Token, a Analysis, r reading) Analysis {
 	end := skipParens(toks, open)
 	args := toks[open+1 : max(end-1, open+1)]
 	dep := depths(args)
+	if code == "value" && !oracleSetsAction(args, dep, r) {
+		return a
+	}
 	start := 0
 	for i := 0; i <= len(args); i++ {
 		if i < len(args) && !(dep[i] == 0 && isPunct(args[i], ",")) {
@@ -516,6 +521,38 @@ func oracleCallDanger(toks []Token, a Analysis, r reading) Analysis {
 		start = i + 1
 	}
 	return a
+}
+
+// oracleSetsAction reports whether DBMS_SCHEDULER.SET_ATTRIBUTE's
+// arguments set a job's or a program's action, the attribute named
+// second or by attribute =>; any other attribute's value is not code.
+func oracleSetsAction(args []Token, dep []int, r reading) bool {
+	start, position := 0, 0
+	for i := 0; i <= len(args); i++ {
+		if i < len(args) && !(dep[i] == 0 && isPunct(args[i], ",")) {
+			continue
+		}
+		arg := args[start:i]
+		start = i + 1
+		position++
+		if len(arg) >= 3 && isOperator(arg[1], "=") && isOperator(arg[2], ">") {
+			if oracleNameOf(arg[0]) != "attribute" {
+				continue
+			}
+			arg = arg[3:]
+		} else if position != 2 {
+			continue
+		}
+		if arg = unwrapParens(arg); len(arg) == 0 || arg[0].Kind != String {
+			return false
+		}
+		switch strings.ToLower(strings.TrimSpace(executedText(arg, Oracle, r.q))) {
+		case "job_action", "program_action":
+			return true
+		}
+		return false
+	}
+	return false
 }
 
 // unwrapParens returns toks without the parentheses around all of them.

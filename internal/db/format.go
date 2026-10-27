@@ -124,15 +124,28 @@ func IsNumeric(v any) bool {
 	return false
 }
 
-// IsNumericType reports whether a database type name is numeric.
+// IsNumericType reports whether a database type name is numeric: whether
+// one of its words, without trailing digits, as INT8, UInt256 or
+// Decimal128, or the wrappers of ClickHouse's Nullable(Int64), names a
+// number. Words, not substrings, so INTERVAL and POINT are not numeric.
 func IsNumericType(t string) bool {
-	t = strings.ToUpper(t)
-	for _, p := range []string{"INT", "DECIMAL", "NUMERIC", "FLOAT", "DOUBLE", "REAL", "SERIAL", "MONEY", "UINT", "HUGEINT", "NUMBER"} {
-		if strings.Contains(t, p) {
+	for _, w := range strings.FieldsFunc(strings.ToUpper(t), func(r rune) bool {
+		return !(r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_')
+	}) {
+		if numericTypeWords[strings.TrimRight(w, "0123456789")] {
 			return true
 		}
 	}
 	return false
+}
+
+var numericTypeWords = map[string]bool{
+	"INT": true, "INTEGER": true, "BIGINT": true, "SMALLINT": true, "TINYINT": true, "MEDIUMINT": true,
+	"UINT": true, "UINTEGER": true, "UBIGINT": true, "USMALLINT": true, "UTINYINT": true,
+	"HUGEINT": true, "UHUGEINT": true, "VARINT": true,
+	"SERIAL": true, "BIGSERIAL": true, "SMALLSERIAL": true,
+	"DECIMAL": true, "DEC": true, "NUMERIC": true, "NUMBER": true, "MONEY": true, "SMALLMONEY": true,
+	"FLOAT": true, "BFLOAT": true, "DOUBLE": true, "REAL": true, "BINARY_FLOAT": true, "BINARY_DOUBLE": true,
 }
 
 // Literal writes a value as a SQL literal of an engine, for SQL the user
