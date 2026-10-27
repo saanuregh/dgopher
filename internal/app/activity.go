@@ -175,6 +175,10 @@ func (t *activityTab) act(row []any, terminate bool) {
 	default:
 		stmt, title = page.Stop(row), "Cancel this query?"
 	}
+	if stmt == "" {
+		t.a.ShowError("Could not stop it", page.NoSession)
+		return
+	}
 	// Stopping another session's work is exempt from read-only, which the
 	// server enforces through its own privileges; the rest of the policy holds.
 	policy := t.conn.Config

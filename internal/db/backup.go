@@ -87,6 +87,8 @@ type ToolRun struct {
 	Import     string
 	Stage      string
 	Statements []string
+	// Warning, when set, is asked about before the run.
+	Warning string
 }
 
 // Shown is the run as the app shows and audits it, without its secrets.
@@ -395,7 +397,9 @@ func postgresTool(ctx context.Context, d *DB, tool, database string) (ToolRun, e
 	return run, nil
 }
 
-var pgVersionPattern = regexp.MustCompile(`\(PostgreSQL\) (\d+)`)
+// pgVersionPattern reads a tool's major version: YugabyteDB's ysql_dump
+// says its version as YSQL's.
+var pgVersionPattern = regexp.MustCompile(`\((?:PostgreSQL|YSQL)\) (\d+)`)
 
 // pgToolVersion is the major version of an installed PostgreSQL tool, as
 // its --version says; ok is false when it is not installed or does not

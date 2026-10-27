@@ -126,7 +126,8 @@ func (v *Verdict) ManyRows(cfg *db.Config, rows, limit int) {
 
 // EndsTransaction makes statements that commit the transaction open, as
 // MySQL's DDL does without being asked, ask first: Roll Back then cannot
-// undo what ran in it before them.
+// undo what ran in it before them. So do those that TakesEffectAtOnce,
+// which Roll Back cannot undo.
 func (v *Verdict) EndsTransaction(cfg *db.Config, stmts []Statement, open bool) {
 	if !open {
 		return
@@ -136,8 +137,23 @@ func (v *Verdict) EndsTransaction(cfg *db.Config, stmts []Statement, open bool) 
 			v.Confirm = true
 			v.Reasons = append(v.Reasons, verbOf(s.Analysis)+" commits the open transaction: Roll Back will not undo what ran before it")
 		}
+		v.takesEffectAtOnce(cfg.Engine, s)
 	}
 	v.Reasons = dedupe(v.Reasons)
+}
+
+// takesEffectAtOnce makes a statement that TakesEffectAtOnce, run inside
+// a transaction, ask first.
+func (v *Verdict) takesEffectAtOnce(e db.Engine, s Statement) {
+	if !TakesEffectAtOnce(e, s) {
+		return
+	}
+	v.Confirm = true
+	reason := verbOf(s.Analysis) + " takes effect at once: Roll Back will not undo it"
+	if OutsideTransaction(e, s.SQL) {
+		reason += ", and it should run outside a transaction, as inside one the server refuses it or runs it another way"
+	}
+	v.Reasons = append(v.Reasons, reason)
 }
 
 // EndsRunTransaction is EndsTransaction for statements run with no
@@ -149,7 +165,8 @@ func (v *Verdict) EndsTransaction(cfg *db.Config, stmts []Statement, open bool) 
 // TRANSACTION opens one, which holds the statements after it until the
 // transaction ends. A
 // statement that commits implicitly asks only after a write it commits,
-// for before one the transaction holds nothing.
+// for before one the transaction holds nothing; one that TakesEffectAtOnce,
+// only in a transaction already open.
 func (v *Verdict) EndsRunTransaction(cfg *db.Config, stmts []Statement, manual, autocommitOff bool) {
 	held := false // a write waits in the transaction
 	begun := ""   // the typed statement that began the open transaction
@@ -175,6 +192,8 @@ func (v *Verdict) EndsRunTransaction(cfg *db.Config, stmts []Statement, manual, 
 			held, begun = false, ""
 		case WritesInTransaction(cfg.Engine, s):
 			held = manual || begun != "" || off
+		case held || begun != "":
+			v.takesEffectAtOnce(cfg.Engine, s)
 		}
 		if BeginsTransaction(s) {
 			begun = BeginStatement(s.Analysis.Verb)
@@ -188,10 +207,20 @@ func (v *Verdict) EndsRunTransaction(cfg *db.Config, stmts []Statement, manual, 
 
 // WritesInTransaction reports whether a statement changes data or schema
 // in the transaction manual commit opens for it (Verdict.Writes): not one
-// that cannot run in a transaction, as VACUUM.
+// that cannot run in a transaction, as VACUUM, or that TakesEffectAtOnce.
 func WritesInTransaction(e db.Engine, s Statement) bool {
 	cls := s.Analysis.Class
-	return (cls == sqltext.Write || cls == sqltext.DDL) && !OutsideTransaction(e, s.SQL)
+	return (cls == sqltext.Write || cls == sqltext.DDL) && !OutsideTransaction(e, s.SQL) && !TakesEffectAtOnce(e, s)
+}
+
+// TakesEffectAtOnce reports whether a statement changes the schema, or
+// truncates, at once even inside a transaction, which Roll Back then does
+// not undo: on an engine whose schema changes are neither part of the
+// transaction (TransactionalDDL) nor commit it (CommitsImplicitly), as
+// YugabyteDB's, and MySQL's CREATE TEMPORARY TABLE.
+func TakesEffectAtOnce(e db.Engine, s Statement) bool {
+	_, isSQL := db.SQL(e)
+	return isSQL && s.Analysis.Class == sqltext.DDL && e.Transactions() && !e.TransactionalDDL() && !CommitsImplicitly(e, s)
 }
 
 // CommitsOrRollsBack reports whether a statement ends the open transaction

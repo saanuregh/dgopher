@@ -126,6 +126,22 @@ func restoreVerdict(cn *connection.Conn, what string) safety.Verdict {
 		TypeName: cn.Config.Env == db.Production}
 }
 
+// agreedDuringJob asks, from a job, about a planned run's Warning, and
+// waits for the answer: false when declined or stopped.
+func (a *App) agreedDuringJob(ctx context.Context, cn *connection.Conn, tool db.ToolRun, title, action string) bool {
+	answer := make(chan bool, 1)
+	a.Post(func() {
+		r := a.AskConfirm(cn, safety.Verdict{Confirm: true, Reasons: []string{tool.Warning}}, title, action, tool.Shown(), func() { answer <- true })
+		r.OnCancel = func() { answer <- false }
+	})
+	select {
+	case ok := <-answer:
+		return ok
+	case <-ctx.Done():
+		return false
+	}
+}
+
 // startBackup backs up as the dialog says, or restores, once agreed.
 func (a *App) startBackup(b *backupDialog) {
 	cn := b.conn
@@ -147,9 +163,12 @@ func (a *App) startBackup(b *backupDialog) {
 		b.running, b.cancel, b.err, b.lines, b.done = true, cancel, "", nil, false
 		b.dismiss.Used()
 		started := time.Now()
-		restore, path, clean, database := b.restore, b.path, b.clean, b.database
+		restore, path, clean, database, what := b.restore, b.path, b.clean, b.database, b.what()
 		job := "Backing up " + b.what() + ": stopping it leaves the backup unfinished."
-		if restore {
+		switch {
+		case restore && choices.RestoreKeepsPart:
+			job = "Restoring " + filepath.Base(path) + " into " + b.what() + ": stopping it, or an error, keeps what was restored so far."
+		case restore:
 			job = "Restoring " + filepath.Base(path) + " into " + b.what() + ": stopping it rolls it back, and nothing of the backup stays."
 		}
 		stopped := func() { b.running, b.cancel, b.err = false, nil, "It stopped on an internal error." }
@@ -164,6 +183,9 @@ func (a *App) startBackup(b *backupDialog) {
 				tool, err = db.PlanRestore(ctx, base, database, path, clean)
 			default:
 				tool, err = db.PlanBackup(ctx, base, opts)
+			}
+			if err == nil && tool.Warning != "" && !a.agreedDuringJob(ctx, cn, tool, "Back up "+what+"?", "Back Up") {
+				return func() { b.running, b.cancel = false, nil }
 			}
 			if err == nil {
 				switch {
@@ -193,6 +215,9 @@ func (a *App) startBackup(b *backupDialog) {
 				b.running, b.cancel = false, nil
 				if err != nil {
 					b.err = err.Error()
+					if restore && choices.RestoreKeepsPart {
+						b.err += "\n\nWhat was restored before the error stays in " + b.what() + "."
+					}
 					a.Notify(started, "Backup failed", b.what(), nil)
 					return
 				}

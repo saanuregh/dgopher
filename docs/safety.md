@@ -75,6 +75,7 @@ A read-only connection refuses writes in two places:
   | MariaDB | `tx_read_only`, which every release from 10.11 has |
   | TiDB | none: TiDB refuses the read-only setting (error 1235), so the app's check is the only one |
   | CockroachDB | `default_transaction_read_only`; the app also refuses `CREATE STATISTICS`, `EXPLAIN ANALYZE (DEBUG)`, any `crdb_internal` function but known reads, a `SET search_path` that names `crdb_internal`, and a `SET` or `RESET` of `allow_unsafe_internals`, which it lets through |
+  | YugabyteDB | `default_transaction_read_only`; the app also refuses any `yb_` function but known reads, and a `SET` or `RESET` of `yb_disable_transactional_writes` or `yb_enable_upsert_mode`, which it lets through |
   | ClickHouse | `readonly=2` |
   | SQLite | `mode=ro` with `query_only` |
   | DuckDB | `access_mode=READ_ONLY` |
@@ -178,7 +179,9 @@ open.
 
 In manual commit, every write runs in a transaction. Before a run's first
 statement the app begins one if none is open. After a statement that
-committed it implicitly, it begins another and says so.
+committed it implicitly, it begins another and says so. It begins none for
+a statement that takes effect at once, which Roll Back would not undo (see
+below), or that cannot run in a transaction.
 
 ### Closing, disconnecting and quitting
 
@@ -242,6 +245,19 @@ temporary table's or a plan binding's, and `FLASHBACK` and `RECOVER`.
 When no transaction is open yet, it still asks if a write comes before it
 in the same run inside a transaction: the app's own in manual commit, or
 one the run begins with `BEGIN` or `START TRANSACTION`.
+
+### Schema changes that take effect at once
+
+On YugabyteDB, a schema change, `TRUNCATE`, `GRANT` or `REVOKE` inside an
+open transaction takes effect at once: it is not part of the transaction,
+and does not commit it. Roll Back does not undo it, so it asks first, as
+an implicit commit does, and manual commit begins no transaction for it.
+The MySQL family's `CREATE TEMPORARY TABLE` is the same: it commits
+nothing, and Roll Back keeps the table.
+
+YugabyteDB builds an index without online backfill inside a transaction,
+and writes to the table meanwhile can leave it inconsistent. So manual
+commit runs `CREATE INDEX` outside one, unless it says `NONCONCURRENTLY`.
 
 ### Cancelling and stopping
 

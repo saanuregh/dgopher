@@ -83,6 +83,24 @@ services:
       interval: 2s
       retries: 60
 
+  # YugabyteDB, in the compat profile: docker compose --profile compat up
+  # -d --wait yugabytedb. One node, which takes about 1.5 GB of memory; the
+  # first start turns on passwords, sets yugabyte's and makes the database.
+  # Healthy once it logs in there.
+  yugabytedb:
+    image: yugabytedb/yugabyte:2025.2.8.0-b60
+    container_name: dgopher-yugabytedb
+    profiles: ["compat"]
+    ports: ["127.0.0.1:15433:5433"]
+    command: ["bin/yugabyted", "start", "--background=false", "--ui=false"]
+    environment:
+      YSQL_PASSWORD: dgopher
+      YSQL_DB: shop
+    healthcheck:
+      test: ["CMD-SHELL", "PGPASSWORD=dgopher bin/ysqlsh -h \"$$(hostname)\" -U yugabyte -d shop -c 'SELECT 1'"]
+      interval: 2s
+      retries: 90
+
   clickhouse:
     image: clickhouse/clickhouse-server:26.3
     container_name: dgopher-ch

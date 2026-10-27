@@ -193,3 +193,49 @@ Supported from 26.2, the older of the two newest CockroachDB releases.
   `REVOKE ALL ON SCHEMA public FROM root`, near its end, after the tables
   are made. **Maintenance** offers Analyze.
 
+### YugabyteDB
+
+Supported from 2024.2, the oldest YugabyteDB release still maintained.
+
+- **Read-only**, savepoints, users and grants work as on PostgreSQL. A
+  statement that clashes with another Repeatable Read or Serializable
+  transaction fails with SQLSTATE 40001, which says it can be run again;
+  the app never retries it.
+- **Schema changes** and `TRUNCATE` are not part of the open transaction:
+  each one takes effect at once, and Roll Back does not undo it, so the
+  app warns before one runs inside an open transaction, and manual commit
+  opens none for it. Run SQL File does not offer "in one transaction", and
+  the table form's changes are not all-or-nothing. `CREATE TABLEGROUP`,
+  and `CREATE INDEX` without `NONCONCURRENTLY`, run outside a transaction:
+  inside one, YugabyteDB builds an index without online backfill.
+- **Explain Analyze** adds `DIST`: steps show the filters YugabyteDB runs
+  in storage, with storage reads and times, and the advice weighs rows
+  read in storage against rows kept.
+- **Sizes** count each table's secondary indexes; tables of a colocated
+  database show no size, and a new table may show 0 until storage writes
+  it.
+- **Activity**: Sessions, Statistics and Wait Events cover only the node
+  the connection reached. Locks cover the cluster, for transactions open
+  at least a second (`yb_locks_min_txn_age`), at most 16 of them; a lock
+  held on another node names its transaction, not a process, and Cancel
+  Query and End Session refuse it: `yb_cancel_transaction` with the ID in
+  its transaction column cancels it. Cancel Query and End Session on a
+  statement waiting for a row lock take effect when the wait ends: end the
+  holder's session to free it. On 2024.2, Wait Events needs the server's
+  `ysql_yb_enable_ash` flag.
+- **Maintenance** offers Analyze: YugabyteDB's VACUUM does nothing, and it
+  has no REINDEX or CLUSTER.
+- **Backup** runs `ysql_dump` when it is installed, which keeps
+  YugabyteDB's key order and colocation, else `pg_dump`. Under
+  verify-full without a CA file, `ysql_dump`, of PostgreSQL 15 or older,
+  cannot check the certificate: `pg_dump` 16 or later backs up instead,
+  or the connection needs its CA file. The app asks before `pg_dump` 17
+  or later writes an archive, as it restores only into PostgreSQL.
+  Restore runs a statement at a time and stops at the first error,
+  without "drop first"; stopping it, or an error, keeps what was restored
+  so far. It needs `pg_restore` 16 or earlier, or YugabyteDB's own.
+- `yb_` functions count as writes, except those known only to read, and
+  so does a `SET` or `RESET` of `yb_disable_transactional_writes` or
+  `yb_enable_upsert_mode`.
+- `LISTEN` and `NOTIFY` are accepted and ignored.
+

@@ -145,10 +145,11 @@ func (q *Tab) insideTxText(s safety.Statement) string {
 }
 
 // warnImplicitCommits makes statements that commit a transaction without
-// being asked, as MySQL's DDL, ask first: the transaction open, or, with
-// none open, the one whose BEGIN the run sends before its writes under
-// manual commit, or one a typed BEGIN or START TRANSACTION of the run
-// begins under auto-commit.
+// being asked, as MySQL's DDL, or take effect at once inside it, as
+// YugabyteDB's, ask first: the transaction open, or, with none open, the
+// one whose BEGIN the run sends before its writes under manual commit, or
+// one a typed BEGIN or START TRANSACTION of the run begins under
+// auto-commit.
 func (q *Tab) warnImplicitCommits(v *safety.Verdict, stmts []safety.Statement) {
 	cfg := &q.Conn.Config
 	switch {

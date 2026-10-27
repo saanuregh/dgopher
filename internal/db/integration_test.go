@@ -45,6 +45,7 @@ func skipUnlessRunning(t *testing.T, cfg Config) {
 var mariadbConfig = Config{Name: "mariadb", Engine: MariaDB, Host: "127.0.0.1", Port: 13307, User: "root", Password: "dgopher", Database: "shop"}
 var tidbConfig = Config{Name: "tidb", Engine: TiDB, Host: "127.0.0.1", Port: 14000, User: "root", Password: "dgopher", Database: "shop"}
 var cockroachdbConfig = Config{Name: "cockroachdb", Engine: CockroachDB, Host: "127.0.0.1", Port: 26257, User: "dgopher", Password: "dgopher", Database: "shop"}
+var yugabytedbConfig = Config{Name: "yugabytedb", Engine: YugabyteDB, Host: "127.0.0.1", Port: 15433, User: "yugabyte", Password: "dgopher", Database: "shop"}
 
 type fixture struct {
 	cfg    Config
@@ -76,6 +77,12 @@ line two'), (3, 'Linus', NULL, NULL)`,
 		},
 		{
 			cfg:    cockroachdbConfig,
+			schema: "it",
+			setup:  append([]string{`DROP SCHEMA IF EXISTS it CASCADE`, `CREATE SCHEMA it`, `SET search_path = it`}, common...),
+			sleep:  `SELECT pg_sleep(10)`,
+		},
+		{
+			cfg:    yugabytedbConfig,
 			schema: "it",
 			setup:  append([]string{`DROP SCHEMA IF EXISTS it CASCADE`, `CREATE SCHEMA it`, `SET search_path = it`}, common...),
 			sleep:  `SELECT pg_sleep(10)`,
@@ -652,7 +659,7 @@ func TestIntegrationLostTransactionIsReported(t *testing.T) {
 // splitter missed cannot run a hidden statement.
 func TestIntegrationPostgresRefusesMultiStatementExec(t *testing.T) {
 	integration(t)
-	for _, e := range []Engine{Postgres, CockroachDB} {
+	for _, e := range []Engine{Postgres, CockroachDB, YugabyteDB} {
 		t.Run(string(e), func(t *testing.T) { refusesMultiStatementExec(t, e) })
 	}
 }
@@ -675,7 +682,7 @@ func refusesMultiStatementExec(t *testing.T, e Engine) {
 		t.Fatal("the server ran text holding two statements")
 	}
 	// CockroachDB refuses it as a prepared statement of two.
-	want := map[Engine]string{Postgres: "42601", CockroachDB: "42P14"}[e]
+	want := map[Engine]string{Postgres: "42601", CockroachDB: "42P14", YugabyteDB: "42601"}[e]
 	if info := DescribeError(err); info.Code != want {
 		t.Errorf("refusal described as %+v, want SQLSTATE %s", info, want)
 	}
@@ -695,7 +702,7 @@ func refusesMultiStatementExec(t *testing.T, e Engine) {
 // extended protocol.
 func TestIntegrationPostgresExtendedExec(t *testing.T) {
 	integration(t)
-	for _, e := range []Engine{Postgres, CockroachDB} {
+	for _, e := range []Engine{Postgres, CockroachDB, YugabyteDB} {
 		t.Run(string(e), func(t *testing.T) { extendedExec(t, e) })
 	}
 }
@@ -821,6 +828,7 @@ func TestIntegrationTerminatedTransactionIsLost(t *testing.T) {
 	}{
 		{Postgres, "SELECT pg_backend_pid()", "SELECT pg_terminate_backend($1)"},
 		{CockroachDB, "SHOW session_id", "CANCEL SESSION $1"},
+		{YugabyteDB, "SELECT pg_backend_pid()", "SELECT pg_terminate_backend($1)"},
 	} {
 		t.Run(string(c.e), func(t *testing.T) { terminatedTransactionIsLost(t, c.e, c.session, c.end) })
 	}
@@ -1003,6 +1011,7 @@ func TestIntegrationUsers(t *testing.T) {
 		{mariadbConfig, "shop", "it_users"},
 		{tidbConfig, "shop", "it_users"},
 		{cockroachdbConfig, "public", "it_users"},
+		{yugabytedbConfig, "public", "it_users"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default", "it_users"},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
@@ -1085,6 +1094,32 @@ func TestIntegrationUsers(t *testing.T) {
 	}
 }
 
+// postgresItems makes one item of each kind PostgreSQL lists, and
+// postgresItemDrops drops each by its label.
+var postgresItems = []string{"DROP SCHEMA IF EXISTS it_items CASCADE", "CREATE SCHEMA it_items",
+	"CREATE FUNCTION it_items.twice(a int) RETURNS int LANGUAGE sql AS 'SELECT a * 2'",
+	"CREATE FUNCTION it_items.twice(a text) RETURNS text LANGUAGE sql AS 'SELECT a || a'",
+	"CREATE PROCEDURE it_items.noop() LANGUAGE sql AS 'SELECT 1'",
+	"CREATE TABLE it_items.events (id int, at date) PARTITION BY RANGE (at)",
+	"CREATE TABLE it_items.events_2026 PARTITION OF it_items.events FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')",
+	"CREATE FUNCTION it_items.stamp() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RETURN NEW; END$$",
+	"CREATE TABLE it_items.t (id int)",
+	"CREATE TRIGGER stamped BEFORE INSERT ON it_items.t FOR EACH ROW EXECUTE FUNCTION it_items.stamp()",
+	"CREATE SEQUENCE it_items.counter START 10 INCREMENT 5",
+	"CREATE TYPE it_items.mood AS ENUM ('sad', 'it''s ok')",
+	"CREATE DOMAIN it_items.positive AS int NOT NULL CHECK (VALUE > 0)",
+	"CREATE TYPE it_items.pair AS (a int, b text)",
+	"CREATE TYPE it_items.floats AS RANGE (subtype = float8)",
+}
+
+var postgresItemDrops = map[string]string{
+	"twice(a integer)": "DROP FUNCTION it_items.twice(int)", "twice(a text)": "DROP FUNCTION it_items.twice(text)",
+	"noop()": "DROP PROCEDURE it_items.noop()", "events_2026": "DROP TABLE it_items.events_2026",
+	"stamped on t": "DROP TRIGGER stamped ON it_items.t", "counter": "DROP SEQUENCE it_items.counter",
+	"mood": "DROP TYPE it_items.mood", "positive": "DROP DOMAIN it_items.positive",
+	"pair": "DROP TYPE it_items.pair", "floats": "DROP TYPE it_items.floats",
+}
+
 // Each item a schema lists has a definition that makes it again: dropped,
 // then made from its definition, it is listed as before.
 func TestIntegrationItems(t *testing.T) {
@@ -1099,28 +1134,8 @@ func TestIntegrationItems(t *testing.T) {
 		drop map[string]string
 	}{
 		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"}, "it_items",
-			[]string{"DROP SCHEMA IF EXISTS it_items CASCADE", "CREATE SCHEMA it_items",
-				"CREATE FUNCTION it_items.twice(a int) RETURNS int LANGUAGE sql AS 'SELECT a * 2'",
-				"CREATE FUNCTION it_items.twice(a text) RETURNS text LANGUAGE sql AS 'SELECT a || a'",
-				"CREATE PROCEDURE it_items.noop() LANGUAGE sql AS 'SELECT 1'",
-				"CREATE TABLE it_items.events (id int, at date) PARTITION BY RANGE (at)",
-				"CREATE TABLE it_items.events_2026 PARTITION OF it_items.events FOR VALUES FROM ('2026-01-01') TO ('2027-01-01')",
-				"CREATE FUNCTION it_items.stamp() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RETURN NEW; END$$",
-				"CREATE TABLE it_items.t (id int)",
-				"CREATE TRIGGER stamped BEFORE INSERT ON it_items.t FOR EACH ROW EXECUTE FUNCTION it_items.stamp()",
-				"CREATE SEQUENCE it_items.counter START 10 INCREMENT 5",
-				"CREATE TYPE it_items.mood AS ENUM ('sad', 'it''s ok')",
-				"CREATE DOMAIN it_items.positive AS int NOT NULL CHECK (VALUE > 0)",
-				"CREATE TYPE it_items.pair AS (a int, b text)",
-				"CREATE TYPE it_items.floats AS RANGE (subtype = float8)",
-			},
-			map[string]string{
-				"twice(a integer)": "DROP FUNCTION it_items.twice(int)", "twice(a text)": "DROP FUNCTION it_items.twice(text)",
-				"noop()": "DROP PROCEDURE it_items.noop()", "events_2026": "DROP TABLE it_items.events_2026",
-				"stamped on t": "DROP TRIGGER stamped ON it_items.t", "counter": "DROP SEQUENCE it_items.counter",
-				"mood": "DROP TYPE it_items.mood", "positive": "DROP DOMAIN it_items.positive",
-				"pair": "DROP TYPE it_items.pair", "floats": "DROP TYPE it_items.floats",
-			}},
+			postgresItems, postgresItemDrops},
+		{yugabytedbConfig, "it_items", postgresItems, postgresItemDrops},
 		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"}, "shop",
 			[]string{"DROP TABLE IF EXISTS it_items_t", "CREATE TABLE it_items_t (id int)",
 				"DROP FUNCTION IF EXISTS it_twice", "CREATE FUNCTION it_twice(a int) RETURNS int DETERMINISTIC RETURN a * 2",
@@ -1241,6 +1256,7 @@ func TestIntegrationRename(t *testing.T) {
 		{mariadbConfig, "shop"},
 		{tidbConfig, "shop"},
 		{cockroachdbConfig, "public"},
+		{yugabytedbConfig, "public"},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "r.sqlite")}, "main"},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default"},
@@ -1289,6 +1305,7 @@ func TestIntegrationSearch(t *testing.T) {
 		{mariadbConfig, "shop"},
 		{tidbConfig, "shop"},
 		{cockroachdbConfig, "public"},
+		{yugabytedbConfig, "public"},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "s.sqlite")}, "main"},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default"},
@@ -1362,6 +1379,7 @@ func TestIntegrationTableDesign(t *testing.T) {
 		{mariadbConfig, "shop", "int(11)", "bigint(20)", "varchar(50)", true, true, true},
 		{tidbConfig, "shop", "int", "bigint", "varchar(50)", true, true, true},
 		{cockroachdbConfig, "public", "int4", "bigint", "text", true, true, true},
+		{yugabytedbConfig, "public", "integer", "bigint", "text", true, true, true},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main", "INTEGER", "BIGINT", "VARCHAR", false, true, false},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default", "Int32", "Int64", "String", false, false, false},
 	} {
@@ -1498,6 +1516,7 @@ func TestIntegrationPostgresEnum(t *testing.T) {
 	for _, cfg := range []Config{
 		{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"},
 		cockroachdbConfig,
+		yugabytedbConfig,
 	} {
 		t.Run(string(cfg.Engine), func(t *testing.T) { postgresEnum(t, cfg) })
 	}
@@ -1686,6 +1705,9 @@ func TestIntegrationPlans(t *testing.T) {
 		{cockroachdbConfig, "public",
 			[]string{"CREATE TABLE it_plan AS SELECT i AS id, i % 1000 AS g FROM generate_series(1, 20000) i", "ANALYZE it_plan"},
 			"SELECT * FROM it_plan WHERE g = 5", "full scan reads every row of it_plan"},
+		{yugabytedbConfig, "public",
+			[]string{"CREATE TABLE it_plan AS SELECT i AS id, i % 1000 AS g FROM generate_series(1, 20000) i", "ANALYZE it_plan"},
+			"SELECT * FROM it_plan WHERE g = 5", "an index on (g)"},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "p.sqlite")}, "main",
 			[]string{"CREATE TABLE it_plan (id INTEGER, g INTEGER)"},
 			"SELECT * FROM it_plan WHERE g = 5 ORDER BY id", "SCAN reads every row of it_plan"},
@@ -1747,7 +1769,7 @@ func TestIntegrationPlans(t *testing.T) {
 				})
 				advice := Advise(c.cfg.Engine, p)
 				texts := lists.Map(advice, func(a Advice) string { return a.Text })
-				wantAdvice := c.advice != "" && (analyze || c.cfg.Engine != Postgres)
+				wantAdvice := c.advice != "" && (analyze || c.cfg.Engine != Postgres && c.cfg.Engine != YugabyteDB)
 				if got := strings.Join(texts, "\n"); wantAdvice && !strings.Contains(strings.ToLower(got), strings.ToLower(c.advice)) {
 					t.Errorf("%s: %d steps, advice %q, want %q", prefix, steps, got, c.advice)
 				}
@@ -1843,6 +1865,22 @@ func TestIntegrationUntrackedTransactionsAreSeen(t *testing.T) {
 		{sql: "INSERT INTO customers (id, name) VALUES (99, 'committed')", want: TxOpen},
 		{sql: "CREATE TABLE untracked_commit (a INT)", want: TxNone},
 	}
+	// YugabyteDB runs a schema change in a transaction of its own, which
+	// commits at once (yb_ddl_transaction_block_enabled, off by default),
+	// and leaves the open transaction open.
+	steps[YugabyteDB] = []step{
+		{sql: "SET search_path TO it", want: TxNone},
+		{sql: "/* why */ BEGIN", want: TxOpen},
+		{sql: "SAVEPOINT s", want: TxOpen},
+		{sql: "ROLLBACK TO SAVEPOINT s", want: TxOpen},
+		{sql: "SELEC 1", want: TxFailed, fails: true},
+		{sql: "ROLLBACK", want: TxNone},
+		{sql: "-- why\nBEGIN", want: TxOpen},
+		{sql: "INSERT INTO customers (id, name) VALUES (99, 'rolled back')", want: TxOpen},
+		{sql: "DROP TABLE IF EXISTS untracked_commit", want: TxOpen},
+		{sql: "CREATE TABLE untracked_commit (a INT)", want: TxOpen},
+		{sql: "ROLLBACK", want: TxNone},
+	}
 	// TiDB has no START REPLICA, XA or procedures, and its AND CHAIN
 	// begins no transaction.
 	for _, st := range steps[MySQL] {
@@ -1854,7 +1892,7 @@ func TestIntegrationUntrackedTransactionsAreSeen(t *testing.T) {
 			steps[TiDB] = append(steps[TiDB], st)
 		}
 	}
-	for _, e := range []Engine{MySQL, MariaDB, TiDB, CockroachDB, SQLite, DuckDB} {
+	for _, e := range []Engine{MySQL, MariaDB, TiDB, CockroachDB, YugabyteDB, SQLite, DuckDB} {
 		t.Run(string(e), func(t *testing.T) {
 			d := open(t, fixtureOf(t, e))
 			if e.Base() == MySQL {
@@ -1892,6 +1930,14 @@ func TestIntegrationUntrackedTransactionsAreSeen(t *testing.T) {
 				d.SQL.QueryRow("SELECT count(*) FROM it.customers WHERE id = 99").Scan(&n)
 				if n != 1 {
 					t.Fatal("the schema change did not commit the row before it")
+				}
+			}
+			if e == YugabyteDB {
+				var n int
+				var table *string
+				d.SQL.QueryRow("SELECT count(*), to_regclass('it.untracked_commit')::text FROM it.customers WHERE id = 99").Scan(&n, &table)
+				if n != 0 || table == nil {
+					t.Fatalf("after ROLLBACK: %d rows of the transaction, table %v; want none, and the table kept", n, table)
 				}
 			}
 			if e == DuckDB {
@@ -1943,6 +1989,17 @@ func TestIntegrationCloseLeaksNothing(t *testing.T) {
 				{"SELECT current_setting('search_path')", `"$user", public`},
 				{"SELECT current_user", "dgopher"},
 				{"SELECT current_setting('statement_timeout')", "0"},
+			},
+		},
+		{
+			// YugabyteDB 2024.2 has no advisory locks.
+			e:    YugabyteDB,
+			leak: []string{"SET search_path TO it", "SET statement_timeout = 4321", "CREATE TEMP TABLE close_leak (a int)", "SET ROLE pg_monitor", "BEGIN", "SELECT 1"},
+			checks: []check{
+				{"SELECT current_setting('search_path')", `"$user", public`},
+				{"SELECT current_user", "yugabyte"},
+				{"SELECT current_setting('statement_timeout')", "0"},
+				{"SELECT to_regclass('pg_temp.close_leak') IS NULL", "true"},
 			},
 		},
 		{
@@ -2159,6 +2216,8 @@ func TestIntegrationReconnectRefusesOnce(t *testing.T) {
 			lose: pgLose, sleep: "SELECT pg_sleep(10)"},
 		{e: CockroachDB, set: "SET search_path TO it", before: "it", after: "public", table: "it.customers",
 			lose: cockroachLose, sleep: "SELECT pg_sleep(10)"},
+		{e: YugabyteDB, set: "SET search_path TO it", before: "it", after: "public", table: "it.customers",
+			lose: pgLose, sleep: "SELECT pg_sleep(10)"},
 		{e: MySQL, set: "USE information_schema", before: "information_schema", after: "shop", table: "shop.customers",
 			lose: mysqlLose, sleep: "SELECT SLEEP(10)"},
 		{e: MariaDB, set: "USE information_schema", before: "information_schema", after: "shop", table: "shop.customers",

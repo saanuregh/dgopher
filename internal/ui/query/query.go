@@ -1100,10 +1100,11 @@ func (q *Tab) execute(stmts []safety.Statement, writes, explain bool) {
 					break
 				}
 			}
-			// Not before a statement that would commit it at once, or that
-			// cannot run in a transaction.
-			if i <= lastWrite && sess.Tx() == db.TxNone &&
-				!safety.CommitsImplicitly(cfg.Engine, s) && !safety.OutsideTransaction(cfg.Engine, s.SQL) {
+			// Not before a statement that would commit it at once, that
+			// cannot run in a transaction, or that takes effect at once,
+			// which Roll Back would not undo.
+			if i <= lastWrite && sess.Tx() == db.TxNone && !safety.CommitsImplicitly(cfg.Engine, s) &&
+				!safety.OutsideTransaction(cfg.Engine, s.SQL) && !safety.TakesEffectAtOnce(cfg.Engine, s) {
 				err := sess.Begin(ctx)
 				q.a.Record(&cfg, audit.Event{Kind: audit.KindStatement, Database: database, Statement: beginStatement(cfg.Engine),
 					Purpose: purposeManualCommit, Rows: -1, Err: err})
@@ -2407,13 +2408,14 @@ func SplitOptions(s *settings.Settings) sqltext.SplitOptions {
 // askStep asks, on the main thread, whether to run a statement of a
 // script on production, and waits for the answer: "run", "skip" or
 // "cancel". Run All answers for the plain writes left; a destructive
-// statement asks still, as one that commits the open transaction does.
+// statement asks still, as one that commits the open transaction, or
+// takes effect at once inside it, does.
 // open is whether a transaction is open on the session that holds what
 // the statement may commit.
 func (q *Tab) askStep(ctx context.Context, s safety.Statement, i, n int, runAll *bool, open bool) string {
 	cfg := q.Conn.Config
 	v := safety.ReviewSQL(&cfg, []safety.Statement{s})
-	commits := open && safety.CommitsImplicitly(cfg.Engine, s)
+	commits := open && (safety.CommitsImplicitly(cfg.Engine, s) || safety.TakesEffectAtOnce(cfg.Engine, s))
 	v.EndsTransaction(&cfg, []safety.Statement{s}, commits)
 	if !v.Confirm || *runAll && !v.TypeName && !commits {
 		return "run"

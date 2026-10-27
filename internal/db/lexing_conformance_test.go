@@ -238,6 +238,16 @@ func TestIntegrationLexingConformance(t *testing.T) {
 		))
 	})
 
+	// YugabyteDB parses as PostgreSQL does.
+	t.Run("YugabyteDB", func(t *testing.T) {
+		optionalserver.SkipUnless(t, "yugabytedb")
+		d := openFor(t, db.Config{Name: "yugabytedb", Engine: db.YugabyteDB, Host: "127.0.0.1", Port: 15433, User: "yugabyte", Password: "dgopher", Database: "shop"})
+		runLexCases(t, d, db.LexDialect(db.YugabyteDB), append(pgCases[:len(pgCases):len(pgCases)],
+			lexCase{"SELECT $$a;b$$", valueIsString("a;b", "$$a;b$$", sqltext.Postgres, "SELECT $$a;b$$")},
+			lexCase{`SELECT e'a\';b'`, valueIsString("a';b", `e'a\';b'`, sqltext.Postgres, `SELECT e'a\';b'`)},
+		))
+	})
+
 	// MariaDB and TiDB read these as MySQL does, with the same lexer.
 	mysqlCases := []lexCase{
 		{"SELECT 1--1", func(t *testing.T, a serverAnswer, toks []sqltext.Token) {
