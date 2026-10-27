@@ -142,5 +142,5 @@ func alterRenameSQL(d Dialect, obj Object, name string) string {
 
 // RenameColumnSQL writes the statement renaming a column of a table.
 func RenameColumnSQL(d Dialect, schema, table, column, name string) string {
-	return "ALTER TABLE " + QualifiedName(d, schema, table) + " RENAME COLUMN " + d.Quote(column) + " TO " + d.Quote(name)
+	return rulesOfDialect(d).RenameColumnSQL(d, schema, table, column, name)
 }

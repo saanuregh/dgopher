@@ -11,6 +11,7 @@ import (
 	"github.com/duckdb/duckdb-go/v2"
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5/pgconn"
+	mssql "github.com/microsoft/go-mssqldb"
 	"modernc.org/sqlite"
 )
 
@@ -40,6 +41,7 @@ var (
 	chPos     = regexp.MustCompile(`failed at position (\d+)`)
 	duckLine  = regexp.MustCompile(`(?m)^LINE (\d+):`)
 	duckNear  = regexp.MustCompile(`at or near "([^"]*)"`)
+	mssqlNear = regexp.MustCompile(`(?i)near '((?s).*)'\.?$`)
 )
 
 // DescribeError reads the details each driver's error carries.
@@ -50,6 +52,7 @@ func DescribeError(err error) ErrorInfo {
 	var ch *proto.Exception
 	var duck *duckdb.Error
 	var lite *sqlite.Error
+	var ms mssql.Error
 	switch {
 	case errors.As(err, &pg):
 		info.Message, info.Code, info.Detail, info.Hint = pg.Message, pg.Code, pg.Detail, pg.Hint
@@ -93,6 +96,25 @@ func DescribeError(err error) ErrorInfo {
 		}
 	case errors.As(err, &lite):
 		info.Code = fmt.Sprint(lite.Code())
+	case errors.As(err, &ms):
+		// The last error of a statement is the one described; the others
+		// come before it, as SQL Server sends them.
+		info.Message, info.Code = ms.Message, strconv.Itoa(int(ms.Number))
+		info.Line = int(ms.LineNo)
+		if ms.ProcName != "" {
+			// The line is the routine's, not the batch's.
+			info.Line, info.Detail = 0, "In "+ms.ProcName+", line "+strconv.Itoa(int(ms.LineNo))+"."
+		}
+		var before []string
+		for _, e := range ms.All[:max(0, len(ms.All)-1)] {
+			before = append(before, e.Message)
+		}
+		if len(before) > 0 {
+			info.Detail = strings.TrimSpace(info.Detail + "\n" + strings.Join(before, "\n"))
+		}
+		if m := mssqlNear.FindStringSubmatch(ms.Message); m != nil {
+			info.Near = m[1]
+		}
 	}
 	if hint := conflictHint(err); hint != "" {
 		info.Hint = strings.TrimSpace(hint + "\n" + info.Hint)
@@ -118,12 +140,18 @@ func caretOf(detail string) (line, column int, bytes bool) {
 
 // conflictHint is the hint of an error that ends a transaction clashing
 // with another, which may succeed run again from its start: TiDB's write
-// conflict (9007), and a serialization failure (SQLSTATE 40001) of
-// PostgreSQL's family, as CockroachDB's retry errors. The app never runs
+// conflict (9007), a serialization failure (SQLSTATE 40001) of
+// PostgreSQL's family, as CockroachDB's retry errors, and SQL Server's
+// deadlock victim (1205) and snapshot update conflict (3960). The app never runs
 // it again itself. "" for any other error.
 func conflictHint(err error) string {
 	var pg *pgconn.PgError
+	var ms mssql.Error
 	switch {
+	case errors.As(err, &ms) && ms.Number == 1205:
+		return "The transaction was chosen as the victim of a deadlock and rolled back. Run it again from its start, it may succeed; DGopher never runs it again on its own."
+	case errors.As(err, &ms) && ms.Number == 3960:
+		return "The snapshot transaction clashed with another that changed the same rows, and was rolled back. Run it again from its start, it may succeed; DGopher never runs it again on its own."
 	case mysqlErrorNumber(err) == 9007:
 		return "The transaction clashed with another that changed the same rows. Run again from its start, it may succeed; DGopher never runs it again on its own."
 	case errors.As(err, &pg) && pg.Code == "40001":

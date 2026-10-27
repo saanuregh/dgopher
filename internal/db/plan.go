@@ -73,6 +73,63 @@ func explainWithPrefix(prefix, statement string) ExplainRun {
 	return ExplainRun{Statement: prefix + statement, Offset: len(prefix)}
 }
 
+// PlanResults finds the plan among the results of an explained statement,
+// each given by its columns' names and rows: SQL Server's Explain Analyze
+// returns each statement's rows and then a result holding its plan. The
+// plan is read from the rows of every result read as one with the columns
+// of the first, whose indexes it returns, that one first; nil when no
+// result holds a plan. The results of the same columns are read together,
+// once; should they not make a plan together, each is read alone.
+func PlanResults(e Engine, names [][]string, rows [][][]any) (*Plan, []int) {
+	r, ok := SQL(e)
+	if !ok {
+		return nil, nil
+	}
+	tried := map[int]bool{}
+	for i := range rows {
+		if tried[i] {
+			continue
+		}
+		var at []int
+		var all [][]any
+		for j := i; j < len(rows); j++ {
+			if slices.Equal(names[j], names[i]) {
+				tried[j] = true
+				at, all = append(at, j), append(all, rows[j]...)
+			}
+		}
+		if plan, ok := r.ParsePlan(names[i], all); ok {
+			return plan, at
+		}
+		if len(at) > 1 {
+			return planResultsEach(r, names, rows)
+		}
+	}
+	return nil, nil
+}
+
+// planResultsEach is PlanResults reading each result alone, then those
+// holding a plan together.
+func planResultsEach(r SQLRules, names [][]string, rows [][][]any) (*Plan, []int) {
+	var plan *Plan
+	var at []int
+	var all [][]any
+	for i := range rows {
+		if len(at) > 0 && !slices.Equal(names[i], names[at[0]]) {
+			continue
+		}
+		p, ok := r.ParsePlan(names[i], rows[i])
+		if !ok {
+			continue
+		}
+		plan, at, all = p, append(at, i), append(all, rows[i]...)
+	}
+	if len(at) > 1 {
+		plan, _ = r.ParsePlan(names[at[0]], all)
+	}
+	return plan, at
+}
+
 // planText is the last column of an EXPLAIN's rows, a line each.
 func planText(rows [][]any) string {
 	var lines []string

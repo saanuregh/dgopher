@@ -466,6 +466,7 @@ func TestPinConnectionFormDatabaseField(t *testing.T) {
 	pinValues(t, "connection form database", map[string]string{
 		"postgres":   "Database=true Database index=false Database file=false",
 		"mysql":      "Database=true Database index=false Database file=false",
+		"sqlserver":  "Database=true Database index=false Database file=false",
 		"clickhouse": "Database=true Database index=false Database file=false",
 		"redis":      "Database=true Database index=true Database file=false",
 		"sqlite":     "Database=false Database index=false Database file=false",

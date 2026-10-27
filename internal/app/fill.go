@@ -183,7 +183,7 @@ func readFillColumns(ctx context.Context, poolOf func(context.Context) (*db.DB, 
 		partOfFK := slices.ContainsFunc(fks, func(fk db.ForeignKey) bool { return len(fk.Columns) > 1 && slices.Contains(fk.Columns, c.Name) })
 		fc.unique = unique(c.Name)
 		fc.gen = testdata.Suggest(testdata.Column{Name: c.Name, Type: c.Type, Canonical: fc.canonical, Nullable: c.Nullable,
-			AutoIncrement: c.AutoIncrement, PartOfForeignKey: partOfFK, Unique: fc.unique, Enum: enum, References: fk >= 0}, now)
+			AutoIncrement: c.AutoIncrement, Generated: c.Generated, PartOfForeignKey: partOfFK, Unique: fc.unique, Enum: enum, References: fk >= 0}, now)
 		k := fc.gen.Kind
 		switch {
 		case partOfFK:

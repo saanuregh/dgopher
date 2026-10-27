@@ -244,6 +244,10 @@ func (v *Viewer) BindTable(obj db.Object, cols []db.Column, fks []db.ForeignKey)
 // table is not found.
 func (v *Viewer) SetReadOnly(why string) { v.source.ReadOnly = why }
 
+// Unbind takes a query's rows from the table BindTable gave them, which
+// they no longer edit, saying why.
+func (v *Viewer) Unbind(why string) { v.source.Table, v.source.ReadOnly = nil, why }
+
 // SetColumns gives the Viewer the table's columns and foreign keys once
 // they are read.
 func (v *Viewer) SetColumns(cols []db.Column, fks []db.ForeignKey) {
@@ -1067,7 +1071,7 @@ func (v *Viewer) apply(stmts, shown []db.Statement) {
 			s := stmts[i]
 			var n int64
 			start := time.Now()
-			n, err = sess.Exec(ctx, s.SQL, s.Args...)
+			n, err = sess.ExecChange(ctx, s.SQL, s.Args...)
 			if err == nil && s.Want >= 0 && n >= 0 && n != s.Want {
 				err = fmt.Errorf("%s\nchanged %d rows instead of %d: nothing was applied", shown[i].Preview(), n, s.Want)
 			}
@@ -1884,7 +1888,7 @@ func (v *Viewer) distinctValues(col int, then func([]distinctValue, error)) {
 	}
 	name := v.dialect().Quote(v.src.Cols[col].Name)
 	q := "SELECT " + name + ", count(*) AS n FROM " + v.from() + whereClause(v.where)
-	q += " GROUP BY " + name + " ORDER BY n DESC LIMIT " + strconv.Itoa(maxDistinct)
+	q = db.LimitSQL(v.dialect().Engine(), q+" GROUP BY "+name+" ORDER BY n DESC", " ", maxDistinct)
 	v.queryRows(q, v.source.Args, maxDistinct, func(_ []string, rows [][]any, err error) {
 		vals := make([]distinctValue, 0, len(rows))
 		for _, r := range rows {
@@ -2014,8 +2018,17 @@ func (v *Viewer) profileOnServer(then func([]columnProfile, error)) {
 		then(nil, err)
 		return
 	}
-	cols := v.src.Cols
 	e := v.dialect().Engine()
+	cols := slices.Clone(v.src.Cols)
+	if r, ok := db.SQL(e); ok {
+		for i := range cols {
+			// A column the table's rows read as text is profiled as the
+			// table's type, which the profile reads.
+			if typ := v.columnInfo(i).Type; r.ShownColumnSQL("c", typ) != "" {
+				cols[i].Type = typ
+			}
+		}
+	}
 	q := profileQuery(v.dialect(), cols, v.from(), strings.TrimSpace(v.where))
 	format := func(x any) string { return cellText(v.a.Settings().ViewFormat.Format(x), 40) }
 	v.queryRows(q, v.source.Args, 10_000, func(names []string, rows [][]any, err error) {
@@ -2037,7 +2050,7 @@ func (v *Viewer) groupOnServer(cols []int, then func([]groupRow, error)) {
 	names := lists.Map(cols, func(c int) string { return v.dialect().Quote(v.src.Cols[c].Name) })
 	list := strings.Join(names, ", ")
 	q := "SELECT " + list + ", count(*) AS n FROM " + v.from() + whereClause(v.where)
-	q += " GROUP BY " + list + " ORDER BY n DESC LIMIT 1000"
+	q = db.LimitSQL(v.dialect().Engine(), q+" GROUP BY "+list+" ORDER BY n DESC", " ", 1000)
 	v.queryRows(q, v.source.Args, 1000, func(_ []string, rows [][]any, err error) {
 		var out []groupRow
 		for _, r := range rows {
@@ -2067,7 +2080,7 @@ func (v *Viewer) referencingRows(row int, then func([]refRows, error)) {
 		left++
 		ref := r
 		name := db.QualifiedName(v.dialect(), r.Schema, r.Table)
-		v.queryRows("SELECT * FROM "+name+" WHERE "+where+" LIMIT 50", nil, 50, func(cols []string, rows [][]any, err error) {
+		v.queryRows(db.LimitSQL(v.dialect().Engine(), "SELECT * FROM "+name+" WHERE "+where, " ", 50), nil, 50, func(cols []string, rows [][]any, err error) {
 			if err != nil && firstErr == nil {
 				firstErr = err
 			}

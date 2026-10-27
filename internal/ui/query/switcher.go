@@ -195,7 +195,7 @@ func (q *Tab) releaseConnection() {
 			sess.Close()
 		}
 	}()
-	q.sess, q.schema, q.autocommitOff = nil, "", false
+	q.sess, q.schema, q.autocommitOff, q.movedTo = nil, "", false, ""
 }
 
 // ConnectionClosed lets the session go with its connection, closed as

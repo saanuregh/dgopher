@@ -348,6 +348,25 @@ func TestIntegrationLexingConformance(t *testing.T) {
 		})
 	})
 
+	t.Run("SQLServer", func(t *testing.T) {
+		optionalserver.SkipUnless(t, "sqlserver")
+		d := openFor(t, db.Config{Name: "sqlserver", Engine: db.SQLServer, Host: "127.0.0.1", Port: 11433, User: "sa", Password: "Dgopher-1", Database: "shop"})
+		runLexCases(t, d, db.LexDialect(db.SQLServer), []lexCase{
+			{"SELECT 1 AS [a]]b]", columnNamed("a]b", sqltext.QuotedIdent, "[a]]b]")},
+			{`SELECT 1 AS "a b"`, columnNamed("a b", sqltext.QuotedIdent, `"a b"`)},
+			{"SELECT N'it''s;'", valueIsString("it's;", "N'it''s;'", sqltext.TSQL, "SELECT N'it''s;'")},
+			{"SELECT 1 /* a /* b */ c */", oneComment("/* a /* b */ c */")},
+			{"SELECT 1 -- c\r, 2", columnsRecorded},
+			{"SELECT 1 AS #t", func(t *testing.T, a serverAnswer, toks []sqltext.Token) {
+				t.Logf("server: columns %q err %v", a.columns, a.err)
+				if a.err == nil && !hasToken(toks, sqltext.Identifier, "#t") {
+					t.Errorf("server read #t as a name, our tokens: %s", describe(toks))
+				}
+			}},
+			{"SELECT @@SPID AS x", columnNamed("x", sqltext.Identifier, "x")},
+		})
+	})
+
 	t.Run("SQLite", func(t *testing.T) {
 		d := openFor(t, db.Config{Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 		runLexCases(t, d, sqltext.SQLite, []lexCase{
@@ -385,6 +404,80 @@ func TestIntegrationLexingConformance(t *testing.T) {
 			}},
 		})
 	})
+}
+
+// TestIntegrationLexingSpaces asks each server which characters it reads
+// as spaces, where a token starts and after a word, and which end a line
+// comment. The lexer must read each such space as one, or count the
+// statement as a write; it may read a space the server does not only
+// where the server refuses the text.
+func TestIntegrationLexingSpaces(t *testing.T) {
+	testutil.Integration(t)
+	ctx := context.Background()
+	points := []rune{0x7F, 0x85, 0xA0, 0x1680, 0x180E, 0x2028, 0x2029, 0x202F, 0x205F, 0x2060, 0x3000, 0xFEFF}
+	for r := rune(0); r < 0x20; r++ {
+		points = append(points, r)
+	}
+	for r := rune(0x2000); r <= 0x200D; r++ {
+		points = append(points, r)
+	}
+	servers := []struct {
+		optional string
+		cfg      db.Config
+	}{
+		{"", testutil.PGConfig()},
+		{"timescaledb", db.Config{Name: "timescaledb", Engine: db.TimescaleDB, Host: "127.0.0.1", Port: 15434, User: "postgres", Password: "dgopher", Database: "shop"}},
+		{"cockroachdb", db.Config{Name: "cockroachdb", Engine: db.CockroachDB, Host: "127.0.0.1", Port: 26257, User: "dgopher", Password: "dgopher", Database: "shop"}},
+		{"yugabytedb", db.Config{Name: "yugabytedb", Engine: db.YugabyteDB, Host: "127.0.0.1", Port: 15433, User: "yugabyte", Password: "dgopher", Database: "shop"}},
+		{"", db.Config{Name: "mysql", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"}},
+		{"mariadb", db.Config{Name: "mariadb", Engine: db.MariaDB, Host: "127.0.0.1", Port: 13307, User: "root", Password: "dgopher", Database: "shop"}},
+		{"tidb", db.Config{Name: "tidb", Engine: db.TiDB, Host: "127.0.0.1", Port: 14000, User: "root", Password: "dgopher", Database: "shop"}},
+		{"", db.Config{Name: "ch", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher", Database: "default"}},
+		{"sqlserver", db.Config{Name: "sqlserver", Engine: db.SQLServer, Host: "127.0.0.1", Port: 11433, User: "sa", Password: "Dgopher-1", Database: "shop"}},
+		{"", db.Config{Name: "lite", Engine: db.SQLite, Database: ":memory:"}},
+		{"", db.Config{Name: "duck", Engine: db.DuckDB, Database: ":memory:"}},
+	}
+	for _, server := range servers {
+		t.Run(string(server.cfg.Engine), func(t *testing.T) {
+			if server.optional != "" {
+				optionalserver.SkipUnless(t, server.optional)
+			}
+			d := openFor(t, server.cfg)
+			dialect := db.LexDialect(server.cfg.Engine)
+			tokenAt := func(src string, at int) sqltext.Token {
+				for _, tok := range sqltext.Tokenize(src, dialect) {
+					if tok.Start <= at && at < tok.End {
+						return tok
+					}
+				}
+				return sqltext.Token{}
+			}
+			var spaces []string
+			for _, r := range points {
+				for _, probe := range []struct{ before, after string }{{"SELECT 1, ", "1"}, {"SELECT", "1, 1"}} {
+					query := probe.before + string(r) + probe.after
+					a := ask(ctx, d, query)
+					serverSpace := a.err == nil && len(a.row) == 2 && a.row[0] == "1" && a.row[1] == "1"
+					lexerSpace := tokenAt(query, len(probe.before)).Kind == sqltext.Whitespace
+					switch {
+					case serverSpace && !lexerSpace && sqltext.Classify(query, dialect).Class != sqltext.Write:
+						t.Errorf("the server reads U+%04X in %q as a space, the lexer does not and classifies it %v", r, query, sqltext.Classify(query, dialect).Class)
+					case !serverSpace && lexerSpace && a.err == nil:
+						t.Errorf("the lexer reads U+%04X in %q as a space, the server ran it otherwise: %q", r, query, a.row)
+					}
+					if serverSpace && probe.after == "1" {
+						spaces = append(spaces, fmt.Sprintf("U+%04X", r))
+					}
+				}
+				query := "SELECT 1 -- c" + string(r) + ", 1"
+				a := ask(ctx, d, query)
+				if a.err == nil && len(a.columns) == 2 && tokenAt(query, len("SELECT 1 -- c")).Kind == sqltext.Comment {
+					t.Errorf("the server ends a line comment at U+%04X, the lexer does not", r)
+				}
+			}
+			t.Logf("spaces where a token starts: %v", spaces)
+		})
+	}
 }
 
 // TestIntegrationLexingClickHouseNames checks names holding backslashes and

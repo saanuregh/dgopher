@@ -56,6 +56,14 @@ var credentialFunctions = map[string]bool{
 	"deltalakecluster": true, "hudicluster": true, "externaldistributed": true, "odbc": true, "jdbc": true,
 }
 
+// credentialProcedures are SQL Server's procedures that take a password
+// among their arguments: the strings after one are cut, to the end of the
+// statement.
+var credentialProcedures = map[string]bool{
+	"sp_addlinkedsrvlogin": true, "sp_password": true, "sp_addlogin": true, "sp_setapprole": true,
+	"sp_addapprole": true, "sp_change_users_login": true,
+}
+
 // lexDialects are the lexers whose secrets are all redacted: callers do
 // not know the engine, and each reads strings its own way (PostgreSQL's
 // dollar quotes, MySQL's and ClickHouse's backslash escapes).
@@ -268,6 +276,7 @@ func sqlSecrets(s string, d sqltext.Dialect) (ranges []secretRange, found []stri
 	)
 	state, identified := idle, false
 	depth, inFunc := 0, false
+	inCall := false // the arguments of a credentialProcedures call
 	prevIdent := ""
 	// A secret MAP {…} is cut whole; its values, not its keys, are found.
 	mapDepth, mapStart := 0, 0
@@ -302,8 +311,8 @@ func sqlSecrets(s string, d sqltext.Dialect) (ranges []secretRange, found []stri
 		}
 		switch t.Kind {
 		case sqltext.String, sqltext.QuotedIdent:
-			if inFunc && t.Kind == sqltext.String || state == wantSecret || t.Kind == sqltext.String && carriesPassword(t.Text) {
-				cut(t, state == wantSecret || carriesPassword(t.Text))
+			if (inFunc || inCall) && t.Kind == sqltext.String || state == wantSecret || t.Kind == sqltext.String && carriesPassword(t.Text) {
+				cut(t, state == wantSecret || inCall || carriesPassword(t.Text))
 				if state == wantSecret {
 					state = idle
 				}
@@ -312,6 +321,12 @@ func sqlSecrets(s string, d sqltext.Dialect) (ranges []secretRange, found []stri
 			continue
 		}
 		word := strings.ToUpper(t.Text)
+		switch {
+		case word == ";":
+			inCall = false
+		case t.Kind == sqltext.Identifier || t.Kind == sqltext.Keyword:
+			inCall = inCall || credentialProcedures[strings.ToLower(t.Text)]
+		}
 		if word == "{" && state == wantSecret {
 			mapDepth, mapStart, hasMapValue = 1, t.Start, false
 			continue

@@ -170,6 +170,7 @@ func (t *TableTab) loadMeta(then func()) {
 				t.idxErr, t.fkErr = errText(idxErr), errText(fkErr)
 				t.view.fkErr = t.fkErr
 				cn.Columns[connection.ObjectKey{Database: database, Schema: obj.Schema, Name: obj.Name}] = cols
+				t.view.source.Statement = db.TableSelectSQL(d.Dialect, obj.Schema, obj.Name, cols)
 				t.view.SetColumns(cols, fks)
 			}
 			if then != nil {

@@ -293,7 +293,7 @@ func (mysqlEngine) URLTLSParameters() map[string]map[string]TLSMode {
 	return mysqlURLTLS
 }
 
-func (mysqlEngine) CloudIdentity() bool              { return true }
+func (mysqlEngine) CloudIdentities() []Identity      { return tokenIdentities }
 func (mysqlEngine) ClearTextPassword() bool          { return true }
 func (mysqlEngine) ServerEnforcesReadOnly() bool     { return true }
 func (mysqlEngine) DatabasesNeedOwnConnection() bool { return false }
@@ -438,6 +438,8 @@ func (mysqlEngine) SavepointBeginsTransaction() bool { return false }
 func (mysqlEngine) OutsideTransaction(string) bool   { return false }
 func (mysqlEngine) RollbackMayKeepChanges() bool     { return true }
 func (mysqlEngine) RowCountWord() string             { return "matched" }
+func (mysqlEngine) implicitTransactionsSQL() string  { return "" }
+func (mysqlEngine) ownRowCountSQL() string           { return "" }
 
 func (mysqlEngine) Explain(statement string, analyze bool) (ExplainRun, bool) {
 	if analyze {
@@ -483,11 +485,13 @@ func (mysqlEngine) EnumValues(_ context.Context, _ *DB, typ string) ([]string, e
 	return enumListValues(typ, true), nil
 }
 
-func (mysqlEngine) ParameterAsText() bool                      { return false }
-func (mysqlEngine) TextLiteral(s string) string                { return "'" + mysqlEscaper.Replace(s) + "'" }
-func (mysqlEngine) BytesLiteral(b []byte) string               { return hexLiteral(b) }
-func (mysqlEngine) BooleansAreNumbers() bool                   { return true }
-func (mysqlEngine) OffsetTimesAsUTC() bool                     { return false }
+func (mysqlEngine) ParameterAsText() bool                     { return false }
+func (mysqlEngine) TextLiteral(s string) string               { return "'" + mysqlEscaper.Replace(s) + "'" }
+func (mysqlEngine) BytesLiteral(b []byte) string              { return hexLiteral(b) }
+func (mysqlEngine) BooleansAreNumbers() bool                  { return true }
+func (mysqlEngine) OffsetTimesAsUTC() bool                    { return false }
+func (mysqlEngine) KeyParameter(placeholder, _ string) string { return placeholder }
+
 func (mysqlEngine) CastParameter(placeholder, _ string) string { return placeholder }
 
 func (mysqlEngine) InsertDefaultRowSQL(table string) string {
@@ -512,13 +516,17 @@ func (mysqlEngine) JSONPathSQL(column string, path []any, leaf bool) string {
 	return jsonPathSQL(column, path, leaf, true)
 }
 
-func (mysqlEngine) UpsertSQL(insert string, _, updatedColumns []string) string {
-	if len(updatedColumns) == 0 {
+func (mysqlEngine) UpsertSQL(u Upsert) string {
+	insert := u.InsertSQL()
+	if len(u.UpdatedColumns) == 0 {
 		return "INSERT IGNORE" + strings.TrimPrefix(insert, "INSERT")
 	}
-	sets := lists.Map(updatedColumns, func(c string) string { return c + " = VALUES(" + c + ")" })
+	sets := lists.Map(u.UpdatedColumns, func(c string) string { return c + " = VALUES(" + c + ")" })
 	return insert + "\nON DUPLICATE KEY UPDATE " + strings.Join(sets, ", ")
 }
+
+func (mysqlEngine) RowLimit(n int) (string, string)      { return limitAtEnd(n) }
+func (mysqlEngine) ShownColumnSQL(string, string) string { return "" }
 
 func (mysqlEngine) CommonTypes() []string {
 	return []string{"int", "bigint", "smallint", "tinyint(1)", "decimal(12,2)", "float", "double", "varchar(255)", "text",
@@ -557,6 +565,22 @@ func (mysqlEngine) ModifyColumnSQL(d Dialect, _ TableDesign, was, now ColumnDesi
 
 func (mysqlEngine) RenameObjectSQL(obj Object, name string) (string, error) {
 	return renameTableSQL(mysqlDialect{}, obj, name), nil
+}
+
+func (mysqlEngine) RenameColumnSQL(d Dialect, schema, table, column, name string) string {
+	return renameColumnSQL(d, schema, table, column, name)
+}
+
+func (mysqlEngine) AddColumnSQL(d Dialect, schema, table, definition string) string {
+	return addColumnSQL(d, schema, table, definition)
+}
+
+func (mysqlEngine) DropColumnSQL(d Dialect, schema, table string, c ColumnDesign) []string {
+	return dropColumnSQL(d, schema, table, c)
+}
+
+func (mysqlEngine) ColumnCommentSQL(d Dialect, schema, table, column, _, comment string) string {
+	return columnCommentSQL(d, schema, table, column, comment)
 }
 
 func (mysqlEngine) ScriptPreamble(bool) string { return "" }
@@ -706,6 +730,8 @@ func (mysqlEngine) GrantSQL(privileges []string, schema, table string, a Account
 	return grantOnDatabaseSQL(mysqlDialect{}, privileges, schema, table, mysqlAccountName(a))
 }
 
+func (mysqlEngine) GrantRoleSQL(d Dialect, role, a Account) string { return grantRoleSQL(d, role, a) }
+
 func (mysqlEngine) Privileges() []string { return standardPrivileges() }
 
 func (mysqlEngine) AccountForm() AccountFormFields {
@@ -770,3 +796,8 @@ func (mysqlEngine) MaintenanceCommands(quotedTable string) []MaintenanceCommand 
 		{"Check", "CHECK TABLE " + quotedTable},
 	}
 }
+
+func (mysqlEngine) readsAllResults() bool         { return false }
+func (mysqlEngine) sessionDatabaseSQL() string    { return "" }
+func (mysqlEngine) TakesEffectAtOnce(string) bool { return false }
+func (mysqlEngine) BooleanLiteral(b bool) string  { return booleanWord(b) }

@@ -69,7 +69,12 @@ func Search(ctx context.Context, d *DB, text string, definitions bool) ([]Search
 // searchWith runs a search's query, whose rows are hits, for text in
 // lower case.
 func searchWith(ctx context.Context, d *DB, text, query string, args []any) ([]SearchHit, bool, error) {
-	query += " ORDER BY 1, 3, 4 LIMIT " + strconv.Itoa(SearchLimit+1)
+	return scanHits(ctx, d, text, query+" ORDER BY 1, 3, 4 LIMIT "+strconv.Itoa(SearchLimit+1), args)
+}
+
+// scanHits runs a search's query, ordered and limited to SearchLimit+1
+// rows, whose rows are hits, for text in lower case.
+func scanHits(ctx context.Context, d *DB, text, query string, args []any) ([]SearchHit, bool, error) {
 	hits, err := scanAll(ctx, d.Catalog(), query, args, func(scan func(...any) error) (SearchHit, error) {
 		var h SearchHit
 		var tableKind, def string

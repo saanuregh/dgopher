@@ -433,7 +433,7 @@ func (postgresEngine) URLTLSParameters() map[string]map[string]TLSMode {
 	return postgresURLTLS
 }
 
-func (postgresEngine) CloudIdentity() bool              { return true }
+func (postgresEngine) CloudIdentities() []Identity      { return tokenIdentities }
 func (postgresEngine) ClearTextPassword() bool          { return false }
 func (postgresEngine) ServerEnforcesReadOnly() bool     { return true }
 func (postgresEngine) DatabasesNeedOwnConnection() bool { return true }
@@ -559,8 +559,10 @@ func (postgresEngine) OutsideTransaction(sql string) bool {
 	return false
 }
 
-func (postgresEngine) RollbackMayKeepChanges() bool { return false }
-func (postgresEngine) RowCountWord() string         { return "changed" }
+func (postgresEngine) RollbackMayKeepChanges() bool    { return false }
+func (postgresEngine) RowCountWord() string            { return "changed" }
+func (postgresEngine) implicitTransactionsSQL() string { return "" }
+func (postgresEngine) ownRowCountSQL() string          { return "" }
 
 func (postgresEngine) Explain(statement string, analyze bool) (ExplainRun, bool) {
 	if analyze {
@@ -627,6 +629,8 @@ func (postgresEngine) BytesLiteral(b []byte) string {
 func (postgresEngine) BooleansAreNumbers() bool { return false }
 func (postgresEngine) OffsetTimesAsUTC() bool   { return false }
 
+func (postgresEngine) KeyParameter(placeholder, _ string) string { return placeholder }
+
 func (postgresEngine) CastParameter(placeholder, columnType string) string {
 	return placeholder + "::text::" + columnType
 }
@@ -671,9 +675,10 @@ func (postgresEngine) JSONPathSQL(column string, path []any, leaf bool) string {
 	return b.String()
 }
 
-func (postgresEngine) UpsertSQL(insert string, keys, updatedColumns []string) string {
-	return upsertOnConflictSQL(insert, keys, updatedColumns)
-}
+func (postgresEngine) UpsertSQL(u Upsert) string { return upsertOnConflictSQL(u) }
+
+func (postgresEngine) RowLimit(n int) (string, string)      { return limitAtEnd(n) }
+func (postgresEngine) ShownColumnSQL(string, string) string { return "" }
 
 func (postgresEngine) CommonTypes() []string {
 	return []string{"integer", "bigint", "smallint", "numeric(12,2)", "real", "double precision", "boolean", "text", "varchar(255)",
@@ -696,6 +701,22 @@ func (postgresEngine) ModifyColumnSQL(d Dialect, t TableDesign, was, now ColumnD
 
 func (postgresEngine) RenameObjectSQL(obj Object, name string) (string, error) {
 	return alterRenameSQL(postgresDialect{}, obj, name), nil
+}
+
+func (postgresEngine) RenameColumnSQL(d Dialect, schema, table, column, name string) string {
+	return renameColumnSQL(d, schema, table, column, name)
+}
+
+func (postgresEngine) AddColumnSQL(d Dialect, schema, table, definition string) string {
+	return addColumnSQL(d, schema, table, definition)
+}
+
+func (postgresEngine) DropColumnSQL(d Dialect, schema, table string, c ColumnDesign) []string {
+	return dropColumnSQL(d, schema, table, c)
+}
+
+func (postgresEngine) ColumnCommentSQL(d Dialect, schema, table, column, _, comment string) string {
+	return columnCommentSQL(d, schema, table, column, comment)
 }
 
 func (postgresEngine) ScriptPreamble(functions bool) string {
@@ -880,6 +901,10 @@ func (postgresEngine) GrantSQL(privileges []string, schema, table string, a Acco
 	return []string{"GRANT USAGE ON SCHEMA " + d.Quote(schema) + " TO " + name, "GRANT " + privs + " ON " + on + " TO " + name}, nil
 }
 
+func (postgresEngine) GrantRoleSQL(d Dialect, role, a Account) string {
+	return grantRoleSQL(d, role, a)
+}
+
 func (postgresEngine) Privileges() []string { return standardPrivileges() }
 
 func (postgresEngine) AccountForm() AccountFormFields {
@@ -957,3 +982,8 @@ func (postgresEngine) MaintenanceCommands(quotedTable string) []MaintenanceComma
 		{"Vacuum Full (locks reads and writes)", "VACUUM FULL " + quotedTable},
 	}
 }
+
+func (postgresEngine) readsAllResults() bool         { return false }
+func (postgresEngine) sessionDatabaseSQL() string    { return "" }
+func (postgresEngine) TakesEffectAtOnce(string) bool { return false }
+func (postgresEngine) BooleanLiteral(b bool) string  { return booleanWord(b) }

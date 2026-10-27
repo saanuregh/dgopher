@@ -103,7 +103,9 @@ Each entry holds:
   `BEGIN` before a change is counted, or a grid edit.
 
 **What was sent.** The statement is the text the server received,
-including `EXPLAIN` when you explained it. When the app changed what you
+including `EXPLAIN` when you explained it. An engine that explains in
+steps, as SQL Server's `SET SHOWPLAN_XML ON` and `OFF`, records each step
+as the app's, for Explain. When the app changed what you
 typed first, for example by writing a `${var}`'s value into it or turning
 `:name` into the engine's placeholder, the entry also keeps your typed
 text, and the parameter values separately. A `BEGIN` that the app sends on

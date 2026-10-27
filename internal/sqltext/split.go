@@ -57,7 +57,9 @@ func splitSegmentsWithoutBodies(s string, d Dialect, q quoting, o SplitOptions) 
 // were lexed with q, as any text it lexes again is. With bodies, a ';'
 // inside a routine body (CREATE PROCEDURE … BEGIN … END and the like) stays
 // in its statement; a body still open at the end of the text is split again
-// without bodies, so an unclosed BEGIN never merges statements.
+// without bodies, so an unclosed BEGIN never merges statements. In T-SQL
+// a GO line ends a batch, ';' ends nothing, and blocks are read as
+// tsqlBlocks says.
 func splitTokens(s string, toks []Token, d Dialect, q quoting, o SplitOptions, bodies bool) []segment {
 	var out []segment
 	var cur []Token
@@ -72,16 +74,63 @@ func splitTokens(s string, toks []Token, d Dialect, q quoting, o SplitOptions, b
 	skipBlockWord := -1
 	bodyEnd := -1
 	var prev Token
+	// T-SQL only: routine is 1 when the statement creates or alters a
+	// procedure, function or trigger, whose body runs to the end of its
+	// batch, -1 when not, 0 before it is known; control marks an IF, WHILE
+	// or ELSE still waiting for the statement it runs.
+	tsql := d == TSQL
+	routine, control := 0, false
 	reset := func() {
 		cur, blocks = nil, blocks[:0]
 		openBodies, parens, codeTokens, header, skipBlockWord, bodyEnd = 0, 0, 0, 0, -1, -1
+		routine, control = 0, false
 	}
 	closeSegment := func(terminated bool) {
 		out = append(out, segment{toks: cur, terminated: terminated, bodyEnd: bodyEnd, delim: delimiter})
 		reset()
 	}
+	// flush ends the statement at the end of the text or of a T-SQL batch.
+	flush := func() {
+		if openBodies == 0 {
+			closeSegment(false)
+			return
+		}
+		again := o
+		again.Delimiter = delimiter
+		open := cur
+		reset()
+		out = append(out, splitTokens(s, open, d, q, again, false)...)
+	}
+	// keepsTogether reports whether the blank line at toks[i] is inside a
+	// T-SQL statement: a routine's body, an IF, WHILE or ELSE before its
+	// statement, or before an ELSE.
+	keepsTogether := func(i int) bool {
+		if !tsql {
+			return false
+		}
+		if routine == 0 {
+			routine = -1
+			if tsqlRoutineHeader(cur) {
+				routine = 1
+			}
+		}
+		_, next := nextSignificant(toks, i)
+		return routine == 1 || control || next == "ELSE"
+	}
 	for i := 0; i < len(toks); i++ {
 		t := toks[i]
+		if tsql && isWord(t, "GO") && atLineStart(s, t.Start) {
+			if next, count, ok := goLine(s, toks, i); ok {
+				if len(cur) > 0 {
+					flush()
+				}
+				// A GO with a count stays a statement, which Classify
+				// reports, rather than run its batch once silently.
+				out = append(out, segment{toks: toks[i:next], directive: count == "", bodyEnd: -1, delim: delimiter})
+				i = next - 1
+				continue
+			}
+		}
 		if d == MySQL && codeTokens == 0 && isWord(t, "DELIMITER") && atLineStart(s, t.Start) {
 			if delim, lineEnd, ok := delimiterDirective(s, t); ok && lineEndsToken(toks[i:], lineEnd) {
 				line := cur
@@ -119,12 +168,14 @@ func splitTokens(s string, toks []Token, d Dialect, q quoting, o SplitOptions, b
 			}
 			continue
 		}
-		if isPunct(t, ";") && openBodies == 0 {
+		// A T-SQL batch is sent whole, as SSMS sends it: ';' ends no
+		// statement there, so a variable stays in scope after one.
+		if isPunct(t, ";") && openBodies == 0 && !tsql {
 			closeSegment(true)
 			continue
 		}
 		if t.Kind == Whitespace {
-			if o.Mode == BlankLineAndSemicolon && parens <= 0 && len(blocks) == 0 && len(cur) > 0 && lineBreaks(t.Text) >= 2 {
+			if o.Mode == BlankLineAndSemicolon && parens <= 0 && len(blocks) == 0 && len(cur) > 0 && lineBreaks(t.Text) >= 2 && !keepsTogether(i) {
 				closeSegment(false)
 				continue
 			}
@@ -138,6 +189,10 @@ func splitTokens(s string, toks []Token, d Dialect, q quoting, o SplitOptions, b
 			continue
 		}
 		codeTokens++
+		if tsql {
+			parens, blocks, openBodies, control = tsqlBlocks(toks, i, cur, parens, blocks, openBodies, control, bodies)
+			continue
+		}
 		before := prev
 		prev = t
 		switch {
@@ -197,15 +252,122 @@ func splitTokens(s string, toks []Token, d Dialect, q quoting, o SplitOptions, b
 		}
 	}
 	if len(cur) > 0 {
-		if openBodies > 0 {
-			again := o
-			again.Delimiter = delimiter
-			out = append(out, splitTokens(s, cur, d, q, again, false)...)
-		} else {
-			closeSegment(false)
-		}
+		flush()
 	}
 	return out
+}
+
+// tsqlBeginsStatement are the words after a T-SQL BEGIN that make it a
+// statement of its own rather than open a block.
+var tsqlBeginsStatement = setOf("TRAN TRANSACTION DISTRIBUTED DIALOG CONVERSATION")
+
+// tsqlBlocks follows T-SQL's blocks through the code token toks[i], the
+// last of cur, and returns the new state: BEGIN … END (with TRY or CATCH
+// or not), unless BEGIN starts a transaction or dialog; CASE … END; and
+// whether an IF, WHILE or ELSE waits for its statement. BEGIN and END are
+// reserved, so never names. Without bodies, BEGIN opens nothing.
+func tsqlBlocks(toks []Token, i int, cur []Token, parens int, blocks []byte, openBodies int, control, bodies bool) (int, []byte, int, bool) {
+	t := toks[i]
+	w := word(t)
+	_, next := nextSignificant(toks, i)
+	inCase := len(blocks) > 0 && blocks[len(blocks)-1] == 'C'
+	switch {
+	case isPunct(t, "("):
+		parens++
+	case isPunct(t, ")"):
+		parens--
+	case parens > 0 || w == "":
+	case w == "CASE":
+		blocks = append(blocks, 'C')
+	case w == "END":
+		if next != "CONVERSATION" && len(blocks) > 0 {
+			if !inCase {
+				openBodies--
+			}
+			blocks = blocks[:len(blocks)-1]
+		}
+	case inCase:
+	case w == "BEGIN":
+		control = false
+		if bodies && !tsqlBeginsStatement[next] {
+			blocks = append(blocks, 'B')
+			openBodies++
+		}
+	case w == "WHILE", w == "ELSE", w == "IF" && !(next == "EXISTS" && dropsBefore(cur[:len(cur)-1])):
+		control = true
+	case tsqlStatementWords[w]:
+		control = false
+	}
+	return parens, blocks, openBodies, control
+}
+
+// dropsBefore reports whether one of the last three code tokens of toks
+// is DROP, as before the IF of "DROP TABLE IF EXISTS".
+func dropsBefore(toks []Token) bool {
+	seen := 0
+	for j := len(toks) - 1; j >= 0 && seen < 3; j-- {
+		if !significant(toks[j]) {
+			continue
+		}
+		if word(toks[j]) == "DROP" {
+			return true
+		}
+		seen++
+	}
+	return false
+}
+
+// tsqlRoutineHeader reports whether toks start with CREATE [OR ALTER] or
+// ALTER, then PROC, PROCEDURE, FUNCTION or TRIGGER, whose body runs to the
+// end of its batch.
+func tsqlRoutineHeader(toks []Token) bool {
+	var words []string
+	for _, t := range toks {
+		if significant(t) {
+			if words = append(words, word(t)); len(words) == 4 {
+				break
+			}
+		}
+	}
+	i := 1
+	switch {
+	case len(words) > 3 && words[0] == "CREATE" && words[1] == "OR" && words[2] == "ALTER":
+		i = 3
+	case len(words) > 1 && (words[0] == "CREATE" || words[0] == "ALTER"):
+	default:
+		return false
+	}
+	switch words[i] {
+	case "PROC", "PROCEDURE", "FUNCTION", "TRIGGER":
+		return true
+	}
+	return false
+}
+
+// goLine reads the line of the T-SQL batch separator GO, the word
+// toks[i]: GO alone on its line but for whitespace, comments that end on
+// it and a count, as sqlcmd and SSMS read it. next is the index of the
+// first token after the line; count is "" for none or 1.
+func goLine(s string, toks []Token, i int) (next int, count string, ok bool) {
+	lineEnd := toks[i].End
+	for lineEnd < len(s) && s[lineEnd] != '\n' && s[lineEnd] != '\r' {
+		lineEnd++
+	}
+	k := i + 1
+	for ; k < len(toks) && toks[k].Start < lineEnd; k++ {
+		switch t := toks[k]; {
+		case t.Kind == Whitespace:
+		case t.Kind == Comment && t.End <= lineEnd:
+		case t.Kind == Number && count == "" && strings.Trim(t.Text, "0123456789") == "":
+			count = t.Text
+		default:
+			return 0, "", false
+		}
+	}
+	if strings.TrimLeft(count, "0") == "1" {
+		count = ""
+	}
+	return k, count, true
 }
 
 // opensBody reports whether the BEGIN at toks[i], after the significant
@@ -439,7 +601,11 @@ func resumeAt(s string, toks []Token, p int, d Dialect, q quoting) []Token {
 // blocks. A ';' inside the BEGIN … END body of CREATE PROCEDURE, FUNCTION,
 // TRIGGER or EVENT does not split, unless the body is never closed. For MySQL,
 // a "DELIMITER x" line sets what ends a statement and is not a statement
-// itself. Text and Start exclude leading comments; End is the end of the last
+// itself. For T-SQL, ';' splits nothing, and a GO line ends a batch and is
+// not a statement, but for "GO n", which is; at a blank line, every
+// BEGIN … END block keeps its statements, a procedure, function or trigger
+// runs to the end of its batch, and an IF, WHILE or ELSE keeps the
+// statement it runs and an ELSE after it. Text and Start exclude leading comments; End is the end of the last
 // non-whitespace token, before any ';' or delimiter. Empty and comment-only
 // statements are dropped, but those of MySQL's executable comments.
 func SplitWith(src string, d Dialect, o SplitOptions) []Statement {

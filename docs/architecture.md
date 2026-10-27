@@ -116,7 +116,9 @@ What happens when you press ⌘↵ in an editor
 1. **`Tab.Run`** refuses while a run or its results are busy. If the
    connection is not connected, it connects first and runs when that ends.
 2. **`Tab.run`** picks the statements (at the caret, the selection or the
-   whole script), adds the `EXPLAIN` prefix when explaining, and asks for
+   whole script), takes the engine's way to explain when explaining (a
+   prefix, or steps around the statement that `Session.RunExplain` runs on
+   one connection, the last even after an error or a cancel), and asks for
    missing parameter values.
 3. **`Tab.runBound`** binds parameters, then asks the safety policy:
    - `safety.Analyze` classifies each statement

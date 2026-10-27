@@ -119,7 +119,7 @@ func TableCard(c *ui.Context, card *widgets.Card, h Host, cn *connection.Conn, d
 		}
 		if o.NewQuery && a.Button(c, "New Query", "") {
 			quoted := db.QualifiedName(db.DialectOf(cn.Config.Engine), obj.Schema, obj.Name)
-			h.NewQueryTab(cn, database, "SELECT *\nFROM "+quoted+"\nLIMIT 100;\n")
+			h.NewQueryTab(cn, database, db.LimitSQL(cn.Config.Engine, "SELECT *\nFROM "+quoted, "\n", 100)+";\n")
 		}
 		a.Copy(c, "Copy Name", obj.Name)
 	})

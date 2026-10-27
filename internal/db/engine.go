@@ -35,9 +35,9 @@ type engineRules interface {
 	// URLTLSParameters are a URL's TLS parameters, with the mode each of
 	// their values means.
 	URLTLSParameters() map[string]map[string]TLSMode
-	// CloudIdentity reports whether a connection may log in with an
-	// Identity.
-	CloudIdentity() bool
+	// CloudIdentities are the Identities a connection may log in with,
+	// none for an engine that takes no token.
+	CloudIdentities() []Identity
 	ClearTextPassword() bool
 	// ServerEnforcesReadOnly: the server refuses the writes of a
 	// read-only connection too, not the app's check alone.
@@ -117,6 +117,13 @@ type driverRules interface {
 	// its version (DB.Identify).
 	identify(ctx context.Context, q *sql.DB) (Engine, string, error)
 	LexDialect() sqltext.Dialect
+	// readsAllResults: a statement may return several results, as a T-SQL
+	// batch does, which are all read as it runs, before the next.
+	readsAllResults() bool
+	// sessionDatabaseSQL reads the database a session works in, where a
+	// statement can move it to another, as SQL Server's USE; "" where
+	// none can.
+	sessionDatabaseSQL() string
 }
 
 // transactionRules is how an engine begins, follows and ends transactions.
@@ -151,11 +158,24 @@ type transactionRules interface {
 	// OutsideTransaction reports a statement that cannot run in a
 	// transaction, which manual commit must then not open for it.
 	OutsideTransaction(sql string) bool
+	// TakesEffectAtOnce reports a statement that changes something at once
+	// even inside a transaction, which Roll Back then does not undo,
+	// beyond the schema changes TransactionalDDL leaves out.
+	TakesEffectAtOnce(sql string) bool
 	// RollbackMayKeepChanges: a table may keep no transactions, as MySQL's
 	// MyISAM tables, whose changes a rollback keeps.
 	RollbackMayKeepChanges() bool
 	// RowCountWord is how the engine counts the rows a change makes.
 	RowCountWord() string
+	// ownRowCountSQL, run in the batch right after a change, reads the
+	// rows the change made itself, where the driver's count adds those of
+	// the triggers it fired, or is none under SET NOCOUNT ON, as SQL
+	// Server's; "" where the driver's count is the change's.
+	ownRowCountSQL() string
+	// implicitTransactionsSQL reads 1 when the session begins transactions
+	// implicitly, in which Begin's then nests, as SQL Server's under
+	// IMPLICIT_TRANSACTIONS ON; "" where none does.
+	implicitTransactionsSQL() string
 }
 
 // queryRules is how an engine explains, searches and writes the SQL of queries and grid edits.
@@ -182,10 +202,16 @@ type queryRules interface {
 	ParameterAsText() bool
 	TextLiteral(s string) string
 	BytesLiteral(b []byte) string
+	BooleanLiteral(b bool) string
 	// BooleansAreNumbers: the engine's booleans are 1 and 0.
 	BooleansAreNumbers() bool
 	OffsetTimesAsUTC() bool
 	CastParameter(placeholder, columnType string) string
+	// KeyParameter compares a row's key value, as the driver read it,
+	// with its column: the placeholder, or it converted to the column's
+	// type where the driver sends the value as another the server would
+	// compare in, as SQL Server's datetime against a datetimeoffset.
+	KeyParameter(placeholder, columnType string) string
 	InsertDefaultRowSQL(table string) string
 	MaxParameters() int
 	// ProfilesInOneQuery: the engine profiles all of a table's columns in
@@ -215,9 +241,16 @@ type queryRules interface {
 	// JSONPathSQL reads a JSON column, quoted, at path, keys and array
 	// places; leaf reads a scalar as text rather than a part.
 	JSONPathSQL(column string, path []any, leaf bool) string
-	// UpsertSQL makes an insert of a row update the row of its key, or
-	// keep it when updatedColumns is empty; names come quoted.
-	UpsertSQL(insert string, keys, updatedColumns []string) string
+	// UpsertSQL writes an insert of a row that updates the row of its
+	// key, or keeps it when UpdatedColumns is empty.
+	UpsertSQL(u Upsert) string
+	// RowLimit limits a SELECT to n rows: top follows its SELECT and
+	// DISTINCT, tail ends it (LimitSQL).
+	RowLimit(n int) (top, tail string)
+	// ShownColumnSQL reads a column, quoted, of a type the driver gives as
+	// bytes as text a table's grid shows and edits write back, "" to read
+	// it as it is (TableSelectSQL).
+	ShownColumnSQL(column, columnType string) string
 }
 
 // designRules is how an engine maps types and writes the DDL of the table designer.
@@ -235,6 +268,16 @@ type designRules interface {
 	// its new name already.
 	ModifyColumnSQL(d Dialect, t TableDesign, was, now ColumnDesign) ([]string, error)
 	RenameObjectSQL(obj Object, name string) (string, error)
+	// RenameColumnSQL is the statement renaming a column of a table.
+	RenameColumnSQL(d Dialect, schema, table, column, name string) string
+	// AddColumnSQL is the statement adding a column, written as
+	// definition, to a table.
+	AddColumnSQL(d Dialect, schema, table, definition string) string
+	// DropColumnSQL are the statements dropping a column of a table.
+	DropColumnSQL(d Dialect, schema, table string, c ColumnDesign) []string
+	// ColumnCommentSQL is the statement changing a column's comment from
+	// was, where comments are kept apart (commentsApart); "" removes it.
+	ColumnCommentSQL(d Dialect, schema, table, column, was, comment string) string
 	// ScriptPreamble is what a schema's script starts with; functions says it
 	// makes functions.
 	ScriptPreamble(functions bool) string
@@ -331,6 +374,8 @@ type accountRules interface {
 	PasswordSQL(a Account, password string) (string, error)
 	DropAccountSQL(a Account) []string
 	GrantSQL(privileges []string, schema, table string, a Account) ([]string, error)
+	// GrantRoleSQL is the statement making an account a member of a role.
+	GrantRoleSQL(d Dialect, role, a Account) string
 	// Privileges are those a grant offers.
 	Privileges() []string
 	// AccountForm is what the account form asks, and says, for the engine.
@@ -458,6 +503,12 @@ type BackupChoices struct {
 	// RestoreKeepsPart: a restore is not one transaction, so one stopped,
 	// or failed, keeps what it restored so far.
 	RestoreKeepsPart bool
+	// RestoresByPlan: every backup restores by PlanRestore, none as a SQL
+	// file Run SQL File runs.
+	RestoresByPlan bool
+	// RestoreEndsSessions: a restore ends the other sessions in the
+	// database, rolling their transactions back.
+	RestoreEndsSessions bool
 }
 
 // BackupScope is the navigator node an engine backs up.
@@ -497,6 +548,7 @@ var registeredRules = map[Engine]engineRules{
 	Redis:       redisEngine{},
 	SQLite:      sqliteEngine{},
 	DuckDB:      duckdbEngine{},
+	SQLServer:   sqlserverEngine{},
 }
 
 // rulesOf returns an engine's rules; unknownEngine's for an ID no build
@@ -550,7 +602,7 @@ func (unknownEngine) URLSchemes() []string            { return nil }
 func (unknownEngine) URLTLSParameters() map[string]map[string]TLSMode {
 	return nil
 }
-func (unknownEngine) CloudIdentity() bool              { return false }
+func (unknownEngine) CloudIdentities() []Identity      { return nil }
 func (unknownEngine) ClearTextPassword() bool          { return false }
 func (unknownEngine) ServerEnforcesReadOnly() bool     { return false }
 func (unknownEngine) DatabasesNeedOwnConnection() bool { return false }
@@ -641,13 +693,27 @@ func plainJSONKey(s string) bool {
 	return true
 }
 
+// Upsert is an insert of a row that updates the row of its key: Table,
+// Columns, Keys and UpdatedColumns come quoted, and Values are the row's,
+// written as SQL, one a column.
+type Upsert struct {
+	Table                string
+	Columns, Values      []string
+	Keys, UpdatedColumns []string
+}
+
+// InsertSQL is the row's plain insert.
+func (u Upsert) InsertSQL() string {
+	return "INSERT INTO " + u.Table + " (" + strings.Join(u.Columns, ", ") + ")\nVALUES (" + strings.Join(u.Values, ", ") + ")"
+}
+
 // upsertOnConflictSQL is the upsert of ON CONFLICT … EXCLUDED.
-func upsertOnConflictSQL(insert string, keys, updatedColumns []string) string {
-	conflict := insert + "\nON CONFLICT (" + strings.Join(keys, ", ") + ")"
-	if len(updatedColumns) == 0 {
+func upsertOnConflictSQL(u Upsert) string {
+	conflict := u.InsertSQL() + "\nON CONFLICT (" + strings.Join(u.Keys, ", ") + ")"
+	if len(u.UpdatedColumns) == 0 {
 		return conflict + " DO NOTHING"
 	}
-	sets := lists.Map(updatedColumns, func(c string) string { return c + " = EXCLUDED." + c })
+	sets := lists.Map(u.UpdatedColumns, func(c string) string { return c + " = EXCLUDED." + c })
 	return conflict + " DO UPDATE SET " + strings.Join(sets, ", ")
 }
 
@@ -703,7 +769,10 @@ func (e Engine) ColorHex() string { return rulesOf(e).ColorHex() }
 func (e Engine) DatabaseField() (label, placeholder string) { return rulesOf(e).DatabaseField() }
 
 // CloudIdentity reports whether a connection may log in with an Identity.
-func (e Engine) CloudIdentity() bool { return rulesOf(e).CloudIdentity() }
+func (e Engine) CloudIdentity() bool { return len(e.CloudIdentities()) > 0 }
+
+// CloudIdentities are the Identities a connection may log in with.
+func (e Engine) CloudIdentities() []Identity { return rulesOf(e).CloudIdentities() }
 
 // ClearTextPassword reports whether a connection may send its password as
 // clear text.
@@ -741,6 +810,13 @@ func Explain(e Engine, statement string, analyze bool) (ExplainRun, bool) {
 	return explainWithPrefix("EXPLAIN ", statement), true
 }
 
+// ReadsAllResults reports whether a statement may return several
+// results, as a T-SQL batch does, which are read whole as it runs.
+func ReadsAllResults(e Engine) bool {
+	r, ok := SQL(e)
+	return ok && r.readsAllResults()
+}
+
 // JSONPathSQL reads a JSON column, quoted, at path, keys and array places;
 // leaf reads a scalar as text rather than a part of the document.
 func JSONPathSQL(e Engine, column string, path []any, leaf bool) string {
@@ -749,6 +825,48 @@ func JSONPathSQL(e Engine, column string, path []any, leaf bool) string {
 	}
 	return jsonPathSQL(column, path, leaf, false)
 }
+
+// LimitSQL limits a SELECT the app writes, starting "SELECT " or "SELECT
+// DISTINCT ", to n rows, sep before a clause added at its end: LIMIT for
+// an engine without SQL rules.
+func LimitSQL(e Engine, query, sep string, n int) string {
+	top, tail := limitAtEnd(n)
+	if r, ok := SQL(e); ok {
+		top, tail = r.RowLimit(n)
+	}
+	if top != "" {
+		at := len("SELECT ")
+		if strings.HasPrefix(query, "SELECT DISTINCT ") {
+			at = len("SELECT DISTINCT ")
+		}
+		query = query[:at] + top + query[at:]
+	}
+	if tail != "" {
+		query += sep + tail
+	}
+	return query
+}
+
+// TableSelectSQL is how a table's grid reads its rows: with *, unless a
+// column is read as text (ShownColumnSQL), which then names each.
+func TableSelectSQL(d Dialect, schema, table string, cols []Column) string {
+	r := rulesOfDialect(d)
+	list := make([]string, len(cols))
+	shown := false
+	for i, c := range cols {
+		list[i] = d.Quote(c.Name)
+		if expr := r.ShownColumnSQL(list[i], c.Type); expr != "" {
+			list[i], shown = expr+" AS "+list[i], true
+		}
+	}
+	if !shown {
+		return "SELECT * FROM " + QualifiedName(d, schema, table)
+	}
+	return "SELECT " + strings.Join(list, ", ") + " FROM " + QualifiedName(d, schema, table)
+}
+
+// limitAtEnd limits rows with LIMIT, as most engines do.
+func limitAtEnd(n int) (top, tail string) { return "", "LIMIT " + strconv.Itoa(n) }
 
 // SchemaChangesCommit reports whether a schema change cannot be part of a
 // transaction, so that a table is made before one opens.

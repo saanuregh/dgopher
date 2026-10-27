@@ -139,6 +139,9 @@ type Tab struct {
 	// schema is the schema the session finds names in, as last read,
 	// "" before it is.
 	schema string
+	// movedTo is the database a USE moved the session to, away from the
+	// editor's, as last read (db.Session.SessionDatabase); "" for none.
+	movedTo string
 	// checkedText and checkedCatalog are what the editor's problems were
 	// found for: its text, and how much of the catalog was read.
 	checkedText, checkedCatalog string
@@ -519,9 +522,14 @@ const (
 // purposeManualCommit is why a manual-commit editor begins a transaction.
 const purposeManualCommit = "for manual commit: a transaction begins before the editor's first change"
 
+// purposeExplain is why Explain sends a statement of its own around the
+// one explained.
+const purposeExplain = "for Explain: a step that gets the statement's plan on the editor's session"
+
 // statements returns what a run sends, and where each starts in the
 // editor. Explaining, the statement is the selection, or the one at the
-// caret, behind EXPLAIN; it is never run as it is.
+// caret, behind EXPLAIN, or as it is between the steps of the engine's
+// ExplainRun, as SQL Server's SET SHOWPLAN_XML.
 func (q *Tab) statements(mode RunMode) ([]string, []int) {
 	d := q.Editor.Dialect
 	text, base := q.Editor.Text(), 0
@@ -829,14 +837,16 @@ func (q *Tab) run(mode RunMode) {
 		return
 	}
 	skip := 0
+	var explain *db.ExplainRun
 	if explaining(mode) {
+		// Its steps; the statement is the one statements gave.
 		run, _ := db.Explain(q.Conn.Config.Engine, "", mode == RunExplainAnalyze)
-		skip = run.Offset
+		skip, explain = run.Offset, &run
 	}
 	newTab := q.newTab
 	q.withParams(stmts, func(values map[string]params.Input) {
 		q.newTab = newTab
-		q.runBound(stmts, starts, values, skip, explaining(mode))
+		q.runBound(stmts, starts, values, skip, explain)
 	})
 }
 
@@ -887,9 +897,9 @@ func (q *Tab) keepParam(connID, key string, in params.Input) {
 
 // runBound reviews statements whose parameters have their values, then
 // runs them. The policy reads them as they will run: a ${var} that holds
-// a DELETE is a DELETE. explain marks Explain's run, whose rows are a
-// plan.
-func (q *Tab) runBound(stmts []string, starts []int, values map[string]params.Input, skip int, explain bool) {
+// a DELETE is a DELETE. explain is Explain's run, whose rows are a plan,
+// nil for another run.
+func (q *Tab) runBound(stmts []string, starts []int, values map[string]params.Input, skip int, explain *db.ExplainRun) {
 	cfg := &q.Conn.Config
 	sqls := make([]string, len(stmts))
 	args := make([][]any, len(stmts))
@@ -932,6 +942,7 @@ func (q *Tab) runBound(stmts []string, starts []int, values map[string]params.In
 	}
 	v := safety.ReviewSQL(cfg, an)
 	q.warnImplicitCommits(&v, an)
+	q.warnUncounted(&v, an)
 	if v.Blocked != "" {
 		q.a.RecordBlocked(q.Conn, v.Blocked, strings.Join(sqls, ";\n"))
 		q.note(v.Blocked, "", true)
@@ -958,11 +969,34 @@ func (q *Tab) runBound(stmts []string, starts []int, values map[string]params.In
 	q.execute(an, v.Writes, explain)
 }
 
+// followingResult is a result after the first of one statement, read
+// whole, with its first page.
+type followingResult struct {
+	cursor *db.Cursor
+	first  [][]any
+	done   bool
+	plan   *db.Plan
+	advice []db.Advice
+}
+
+// batchResultReason is why the rows of a statement returning several
+// results are not edited.
+const batchResultReason = "The statement returned several results, which its rows are one of: they are not edited."
+
 // wantsRows reports whether a statement, in dialect d, is read with a
 // cursor rather than executed for a count of rows.
 func wantsRows(s safety.Statement, d sqltext.Dialect) bool {
 	if s.Analysis.Class == sqltext.Read {
 		return true
+	}
+	// A T-SQL batch that sets the session up, as USE or SET does, and
+	// reads.
+	if s.Analysis.Class == sqltext.Session {
+		for _, part := range sqltext.BatchStatements(s.SQL, d) {
+			if part != s.SQL && sqltext.Classify(part, d).Class == sqltext.Read {
+				return true
+			}
+		}
 	}
 	switch s.Analysis.Verb {
 	case "PRAGMA", "CALL", "EXEC", "EXECUTE", "SHOW", "DESCRIBE", "DESC", "EXPLAIN", "WITH",
@@ -980,7 +1014,9 @@ func wantsRows(s safety.Statement, d sqltext.Dialect) bool {
 	return strings.Contains(strings.ToUpper(s.SQL), "RETURNING")
 }
 
-func (q *Tab) execute(stmts []safety.Statement, writes, explain bool) {
+// execute runs reviewed statements. explain, for Explain's run of one
+// statement, holds the steps run around it, nil for another run.
+func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.ExplainRun) {
 	if q.Conn.Status != connection.StatusConnected {
 		// It closed while a confirmation or the parameters waited.
 		q.a.Connect(q.Conn, func() { q.execute(stmts, writes, explain) })
@@ -1041,6 +1077,11 @@ func (q *Tab) execute(stmts []safety.Statement, writes, explain bool) {
 	cfg := q.Conn.Config
 	sess, pool, database := q.sess, q.Conn.DB(), q.Database
 	dialect := q.Editor.Dialect
+	// A USE may move the session to another database; once moved, every
+	// run reads where it is.
+	readsDatabase := q.movedTo != "" || slices.ContainsFunc(stmts, func(s safety.Statement) bool {
+		return strings.Contains(strings.ToUpper(s.SQL), "USE")
+	})
 	purpose := ""
 	if q.chartAsk != nil {
 		purpose = chartPurpose // the chart's run, as Run drops one left over
@@ -1076,7 +1117,9 @@ func (q *Tab) execute(stmts []safety.Statement, writes, explain bool) {
 		// nothing of; reopens, whether the note of an implicit commit said
 		// that the next write opens one again.
 		lastWrite := -1
-		if manual && writes {
+		// Explain's statement opens none: it is explained, or, analyzed,
+		// a read.
+		if manual && writes && explain == nil {
 			for i, s := range stmts {
 				if safety.WritesInTransaction(cfg.Engine, s) {
 					lastWrite = i
@@ -1102,9 +1145,11 @@ func (q *Tab) execute(stmts []safety.Statement, writes, explain bool) {
 			}
 			// Not before a statement that would commit it at once, that
 			// cannot run in a transaction, or that takes effect at once,
-			// which Roll Back would not undo.
+			// which Roll Back would not undo, but for a T-SQL batch that
+			// also writes in it.
 			if i <= lastWrite && sess.Tx() == db.TxNone && !safety.CommitsImplicitly(cfg.Engine, s) &&
-				!safety.OutsideTransaction(cfg.Engine, s.SQL) && !safety.TakesEffectAtOnce(cfg.Engine, s) {
+				!safety.OutsideTransaction(cfg.Engine, s.SQL) &&
+				(safety.WritesInTransaction(cfg.Engine, s) || !safety.TakesEffectAtOnce(cfg.Engine, s)) {
 				err := sess.Begin(ctx)
 				q.a.Record(&cfg, audit.Event{Kind: audit.KindStatement, Database: database, Statement: beginStatement(cfg.Engine),
 					Purpose: purposeManualCommit, Rows: -1, Err: err})
@@ -1136,6 +1181,9 @@ func (q *Tab) execute(stmts []safety.Statement, writes, explain bool) {
 			var cursor *db.Cursor
 			var first [][]any
 			var done bool
+			// following are the results after the first of a statement
+			// that returns several, as a T-SQL batch.
+			var following []followingResult
 			var guard *changeGuard
 			start := time.Now()
 			var rows int64
@@ -1159,9 +1207,58 @@ func (q *Tab) execute(stmts []safety.Statement, writes, explain bool) {
 			}
 			// A statement that begins or ends a transaction goes where it is
 			// checked, whatever its text holds (RETURNING in a comment).
-			if wantsRows(s, dialect) && !safety.ControlsTransaction(cfg.Engine, s) {
+			// Explain's is read for its plan, whatever it is: under SQL
+			// Server's SHOWPLAN_XML an UPDATE returns its plan, not run.
+			if explain != nil || wantsRows(s, dialect) && !safety.ControlsTransaction(cfg.Engine, s) {
 				res.rowsMode = true
-				cursor, err = sess.Query(sctx, s.SQL, s.Args...)
+				var batchErr error
+				query := func(ctx context.Context) error {
+					sql, args := s.SQL, s.Args
+					if explain != nil && explain.Read != "" {
+						// The statement makes the plan, which Read's rows hold.
+						if _, err := sess.Exec(ctx, sql, args...); err != nil {
+							return err
+						}
+						sql, args = explain.Read, nil
+					}
+					var err error
+					sent := time.Now()
+					cursor, err = sess.Query(ctx, sql, args...)
+					if explain != nil && explain.Read != "" {
+						q.recordExplainStep(&cfg, database, sql, time.Since(sent), err)
+					}
+					// Every result now, the statement run to its end: a
+					// batch's later statements wait for the rows before
+					// them, and an explain's After steps for its end.
+					if err == nil && (db.ReadsAllResults(cfg.Engine) || explain != nil && len(explain.After) > 0) {
+						var more []*db.Cursor
+						more, batchErr = cursor.ReadAll(db.MaxRows)
+						for _, c := range more {
+							f := followingResult{cursor: c}
+							f.first, _ = c.Fetch(pageSize)
+							f.done = c.Done()
+							following = append(following, f)
+						}
+						if len(following) > 0 {
+							res.tableWhy = batchResultReason
+						}
+					}
+					return err
+				}
+				if explain != nil {
+					stepsErr := sess.RunExplain(sctx, *explain, func(sql string, took time.Duration, err error) {
+						q.recordExplainStep(&cfg, database, sql, took, err)
+					}, func(ctx context.Context) error { err = query(ctx); return err })
+					switch {
+					case cursor == nil:
+						err = stepsErr
+					case err == nil:
+						// An After step failed: the plan shows, with why.
+						batchErr = errors.Join(batchErr, stepsErr)
+					}
+				} else {
+					err = query(sctx)
+				}
 				if err == nil {
 					first, err = cursor.Fetch(pageSize)
 					done = cursor.Done()
@@ -1171,14 +1268,12 @@ func (q *Tab) execute(stmts []safety.Statement, writes, explain bool) {
 						res.affected = -1
 					}
 					// MariaDB's Explain Analyze reads as the SELECT it runs.
-					if explain || strings.EqualFold(res.verb, "EXPLAIN") {
-						names := lists.Map(cursor.Columns, func(col db.ColumnInfo) string { return col.Name })
-						if r, ok := db.SQL(cfg.Engine); ok {
-							if plan, ok := r.ParsePlan(names, first); ok {
-								res.plan, res.advice = plan, db.Advise(cfg.Engine, plan)
-							}
-						}
+					if explain != nil || strings.EqualFold(res.verb, "EXPLAIN") {
+						first, following = readPlan(cfg.Engine, res, cursor, first, following)
 					}
+				}
+				if err == nil {
+					err = batchErr
 				}
 			} else {
 				if guarded(cfg, changeLimit, s, sess, dialect) {
@@ -1235,11 +1330,21 @@ func (q *Tab) execute(stmts []safety.Statement, writes, explain bool) {
 					resetSchema, _ = sess.CurrentSchema(ctx)
 				}
 			}
+			messages := sess.TakeMessages()
 			q.a.Post(func() {
+				for _, m := range messages {
+					q.note(m, res.sql, false)
+				}
 				if res.rowsMode && cursor != nil {
 					res.view = q.newView(res, cursor, first, done, stop)
 				}
 				q.results = append(q.results, res)
+				for _, f := range following {
+					more := &result{sql: res.sql, verb: res.verb, stmt: s, start: s.Start, skip: s.Skip, rowsMode: true,
+						tableWhy: batchResultReason, elapsed: res.elapsed, plan: f.plan, advice: f.advice}
+					more.view = q.newView(more, f.cursor, f.first, f.done, nil)
+					q.results = append(q.results, more)
+				}
 				// The values it ran with: a run takes those kept without
 				// asking.
 				with := ""
@@ -1294,6 +1399,12 @@ func (q *Tab) execute(stmts []safety.Statement, writes, explain bool) {
 		}
 		own, inside := dataview.SessionTx(sess)
 		autocommitOff := sess.AutocommitOff()
+		sessionDB, tracked := "", false
+		if readsDatabase {
+			if name, ok, err := sess.SessionDatabase(ctx); ok && err == nil {
+				sessionDB, tracked = name, true
+			}
+		}
 		// A SET search_path or a USE may have moved where names are found.
 		schema := resetSchema
 		if own != db.TxFailed && inside != db.TxFailed && slices.ContainsFunc(stmts, func(s safety.Statement) bool { return s.Analysis.Verb == "SET" || s.Analysis.Verb == "USE" }) {
@@ -1308,6 +1419,9 @@ func (q *Tab) execute(stmts []safety.Statement, writes, explain bool) {
 			}
 			q.setTx(own, inside)
 			q.autocommitOff = autocommitOff
+			if tracked {
+				q.noteMoved(sessionDB, q.results[firstNew:])
+			}
 			// A statement's cursor closes as the next one runs: those
 			// results end where they were read.
 			for i, r := range q.results {
@@ -1325,6 +1439,13 @@ func (q *Tab) execute(stmts []safety.Statement, writes, explain bool) {
 					break
 				}
 			}
+			// Explain's plan, after the rows of Explain Analyze.
+			for i := firstNew; explain != nil && i < len(q.results); i++ {
+				if q.results[i].plan != nil {
+					q.resultIdx = i
+					break
+				}
+			}
 			for i, r := range q.results[firstNew:] {
 				if r.err != "" {
 					i += firstNew
@@ -1337,6 +1458,77 @@ func (q *Tab) execute(stmts []safety.Statement, writes, explain bool) {
 			q.runEnded()
 		})
 	}()
+}
+
+// noteMoved follows the database the session works in, read after a run:
+// moved away from the editor's, it says so once, and the run's rows,
+// read there, are not edited as the editor's database's tables.
+func (q *Tab) noteMoved(sessionDB string, results []*result) {
+	database := q.currentDatabase()
+	if strings.EqualFold(sessionDB, database) {
+		q.movedTo = ""
+		return
+	}
+	if !strings.EqualFold(sessionDB, q.movedTo) {
+		q.note(fmt.Sprintf("The session works in %s now, not in the editor's database %s: rows read there are not edited. USE %s, or switch the editor's database, to edit them.",
+			sessionDB, database, database), "", false)
+	}
+	q.movedTo = sessionDB
+	for _, r := range results {
+		if r.view != nil {
+			r.view.Unbind(q.movedReason())
+		}
+	}
+}
+
+// movedReason says why rows read after a USE moved the session are not
+// edited.
+func (q *Tab) movedReason() string {
+	return "The session works in " + q.movedTo + ", not in the editor's database " + q.currentDatabase() +
+		" whose tables the rows would be edited as."
+}
+
+// recordExplainStep audits a step Explain sent around its statement.
+func (q *Tab) recordExplainStep(cfg *db.Config, database, sql string, took time.Duration, err error) {
+	q.a.Record(cfg, audit.Event{Kind: audit.KindStatement, Database: database, Statement: sql, Purpose: purposeExplain,
+		Rows: -1, DurationMS: took.Milliseconds(), Err: err})
+}
+
+// readPlan finds the plan in an explained statement's results, its first
+// and those following it, and puts it, with its advice, on the result
+// holding it, which then holds the rows of every result of the plan, as
+// SQL Server's of each statement of a batch; the others of the plan go.
+// It returns the first result's rows and the results following it.
+func readPlan(e db.Engine, res *result, cursor *db.Cursor, first [][]any, following []followingResult) ([][]any, []followingResult) {
+	columns := func(c *db.Cursor) []string {
+		return lists.Map(c.Columns, func(col db.ColumnInfo) string { return col.Name })
+	}
+	names, rows := [][]string{columns(cursor)}, [][][]any{first}
+	for _, f := range following {
+		names, rows = append(names, columns(f.cursor)), append(rows, f.first)
+	}
+	plan, at := db.PlanResults(e, names, rows)
+	if plan == nil {
+		return first, following
+	}
+	advice := db.Advise(e, plan)
+	var all [][]any
+	for _, i := range at {
+		all = append(all, rows[i]...)
+	}
+	if at[0] == 0 {
+		res.plan, res.advice, first = plan, advice, all
+	} else {
+		f := &following[at[0]-1]
+		f.plan, f.advice, f.first = plan, advice, all
+	}
+	kept := following[:0:0]
+	for i, f := range following {
+		if !slices.Contains(at[1:], i+1) {
+			kept = append(kept, f)
+		}
+	}
+	return first, kept
 }
 
 // notifyRun tells of the end of a run by a system notification, when it
@@ -2021,6 +2213,8 @@ func (q *Tab) bindTable(v *dataview.Viewer, ref sqltext.TableRef, schema string)
 		}
 		return func() {
 			switch {
+			case q.movedTo != "":
+				v.SetReadOnly(q.movedReason())
 			case err != nil:
 				v.SetReadOnly("Could not read the table's columns: " + err.Error())
 			case !found:
@@ -2086,6 +2280,7 @@ func (q *Tab) rerun(s safety.Statement) {
 		}
 		v := safety.ReviewSQL(cfg, []safety.Statement{s})
 		q.warnImplicitCommits(&v, []safety.Statement{s})
+		q.warnUncounted(&v, []safety.Statement{s})
 		if v.Blocked != "" {
 			q.a.RecordBlocked(q.Conn, v.Blocked, s.SQL)
 			q.note(v.Blocked, "", true)
@@ -2098,7 +2293,7 @@ func (q *Tab) rerun(s safety.Statement) {
 			preview += "\n-- " + s.Shown
 		}
 		title := fmt.Sprintf("Run the statement again on %s?", cfg.Name)
-		q.a.AskConfirm(q.Conn, v, title, "Run", preview, func() { q.execute([]safety.Statement{s}, v.Writes, false) })
+		q.a.AskConfirm(q.Conn, v, title, "Run", preview, func() { q.execute([]safety.Statement{s}, v.Writes, nil) })
 	})
 }
 
@@ -2472,9 +2667,8 @@ type changeGuard struct {
 // transaction that holds it until the user commits or rolls back: the
 // guard's COMMIT would commit it unasked.
 func guarded(cfg db.Config, limit int, s safety.Statement, sess *db.Session, dialect sqltext.Dialect) bool {
-	if limit <= 0 || !changesRows(s, dialect) || sess.Tx() != db.TxNone || sess.DB().Single() ||
-		cfg.Env != db.Staging && cfg.Env != db.Production || !cfg.Engine.Transactions() ||
-		sess.AutocommitOff() {
+	if !guardApplies(cfg, limit, s, dialect) || uncountedReason(cfg, limit, s, dialect) != "" || sess.Tx() != db.TxNone ||
+		sess.DB().Single() || sess.AutocommitOff() {
 		return false
 	}
 	for _, t := range sqltext.Tokenize(s.SQL, dialect) {
@@ -2483,6 +2677,48 @@ func guarded(cfg db.Config, limit int, s safety.Statement, sess *db.Session, dia
 		}
 	}
 	return true
+}
+
+// guardApplies reports whether the change limit counts what a statement
+// changes on the connection, but for the session's state.
+func guardApplies(cfg db.Config, limit int, s safety.Statement, dialect sqltext.Dialect) bool {
+	return limitCounts(cfg, limit) && changesRows(s, dialect)
+}
+
+// limitCounts reports whether the change limit counts changes on the
+// connection.
+func limitCounts(cfg db.Config, limit int) bool {
+	return limit > 0 && (cfg.Env == db.Staging || cfg.Env == db.Production) && cfg.Engine.Transactions()
+}
+
+// warnUncounted makes a batch whose rows the change limit cannot count
+// ask first where the limit would count them (uncountedReason).
+func (q *Tab) warnUncounted(v *safety.Verdict, stmts []safety.Statement) {
+	cfg := q.Conn.Config
+	limit := q.a.Settings().ChangeLimit
+	for _, s := range stmts {
+		if why := uncountedReason(cfg, limit, s, q.Editor.Dialect); why != "" {
+			v.Confirm = true
+			v.Reasons = append(v.Reasons, why)
+		}
+	}
+}
+
+// uncountedReason says why the change limit cannot count the rows of a
+// statement it would count, "" when it can or would not: a T-SQL batch
+// that makes several changes, whose one count does not tell them apart,
+// and one that changes rows and begins or ends its own transaction, which
+// the count's would end inside it, the rows committed.
+func uncountedReason(cfg db.Config, limit int, s safety.Statement, dialect sqltext.Dialect) string {
+	switch {
+	case limitCounts(cfg, limit) && safety.MakesSeveralChanges(cfg.Engine, s):
+		return fmt.Sprintf("This batch makes several changes: their rows cannot be counted against the %d a change makes "+
+			"without asking (Settings) before they run.", limit)
+	case guardApplies(cfg, limit, s, dialect) && safety.ControlsOwnTransaction(cfg.Engine, s):
+		return fmt.Sprintf("The batch begins or ends its own transaction, so the rows it changes are committed "+
+			"before they are counted against the %d a change makes without asking (Settings).", limit)
+	}
+	return ""
 }
 
 // changesRows reports whether a statement changes rows already there:

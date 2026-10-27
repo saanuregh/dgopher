@@ -143,10 +143,10 @@ func Literal(e Engine, v any) string {
 	case nil:
 		return "NULL"
 	case bool:
-		if x {
-			return "TRUE"
+		if r, ok := SQL(e); ok {
+			return r.BooleanLiteral(x)
 		}
-		return "FALSE"
+		return booleanWord(x)
 	case []byte:
 		if r, ok := SQL(e); ok {
 			return r.BytesLiteral(x)
@@ -169,6 +169,14 @@ var (
 	clickHouseEscaper   = strings.NewReplacer(`\`, `\\`, `'`, `\'`, "\x00", `\0`)
 	escapeStringEscaper = strings.NewReplacer(`\`, `\\`, `'`, `''`)
 )
+
+// booleanWord is a boolean as standard SQL writes it, TRUE or FALSE.
+func booleanWord(b bool) string {
+	if b {
+		return "TRUE"
+	}
+	return "FALSE"
+}
 
 // textLiteral writes text as a literal, each part by quote. NUL ends a
 // quoted string in DuckDB and SQLite, so text holding it is joined from

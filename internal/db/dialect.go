@@ -50,6 +50,9 @@ type Column struct {
 	PrimaryKey    bool
 	AutoIncrement bool
 	Comment       string
+	// Generated is set for a column the server writes, which no statement
+	// may: SQL Server's computed columns and rowversion.
+	Generated bool
 }
 
 // Index is an index of a table.

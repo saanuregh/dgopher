@@ -234,7 +234,7 @@ func (clickhouseEngine) URLTLSParameters() map[string]map[string]TLSMode {
 	return clickhouseURLTLS
 }
 
-func (clickhouseEngine) CloudIdentity() bool              { return false }
+func (clickhouseEngine) CloudIdentities() []Identity      { return nil }
 func (clickhouseEngine) ClearTextPassword() bool          { return false }
 func (clickhouseEngine) ServerEnforcesReadOnly() bool     { return true }
 func (clickhouseEngine) DatabasesNeedOwnConnection() bool { return false }
@@ -322,6 +322,8 @@ func (clickhouseEngine) SavepointBeginsTransaction() bool { return false }
 func (clickhouseEngine) OutsideTransaction(string) bool   { return false }
 func (clickhouseEngine) RollbackMayKeepChanges() bool     { return false }
 func (clickhouseEngine) RowCountWord() string             { return "changed" }
+func (clickhouseEngine) implicitTransactionsSQL() string  { return "" }
+func (clickhouseEngine) ownRowCountSQL() string           { return "" }
 
 func (clickhouseEngine) Explain(statement string, analyze bool) (ExplainRun, bool) {
 	if analyze {
@@ -382,8 +384,10 @@ func (clickhouseEngine) BytesLiteral(b []byte) string {
 	return "unhex('" + hex.EncodeToString(b) + "')"
 }
 
-func (clickhouseEngine) BooleansAreNumbers() bool                   { return false }
-func (clickhouseEngine) OffsetTimesAsUTC() bool                     { return true }
+func (clickhouseEngine) BooleansAreNumbers() bool                  { return false }
+func (clickhouseEngine) OffsetTimesAsUTC() bool                    { return true }
+func (clickhouseEngine) KeyParameter(placeholder, _ string) string { return placeholder }
+
 func (clickhouseEngine) CastParameter(placeholder, _ string) string { return placeholder }
 
 func (clickhouseEngine) InsertDefaultRowSQL(table string) string {
@@ -425,9 +429,12 @@ func (clickhouseEngine) JSONPathSQL(column string, path []any, leaf bool) string
 	return fn + "(" + strings.Join(parts, ", ") + ")"
 }
 
-func (clickhouseEngine) UpsertSQL(insert string, _, _ []string) string {
-	return "-- ClickHouse has no upsert: a ReplacingMergeTree keeps the last row of a key.\n" + insert
+func (clickhouseEngine) UpsertSQL(u Upsert) string {
+	return "-- ClickHouse has no upsert: a ReplacingMergeTree keeps the last row of a key.\n" + u.InsertSQL()
 }
+
+func (clickhouseEngine) RowLimit(n int) (string, string)      { return limitAtEnd(n) }
+func (clickhouseEngine) ShownColumnSQL(string, string) string { return "" }
 
 func (clickhouseEngine) CommonTypes() []string {
 	return []string{"Int32", "Int64", "UInt32", "UInt64", "Float64", "Decimal(12,2)", "Bool", "String", "LowCardinality(String)",
@@ -481,6 +488,22 @@ func (clickhouseEngine) ModifyColumnSQL(d Dialect, _ TableDesign, was, now Colum
 
 func (clickhouseEngine) RenameObjectSQL(obj Object, name string) (string, error) {
 	return renameTableSQL(clickhouseDialect{}, obj, name), nil
+}
+
+func (clickhouseEngine) RenameColumnSQL(d Dialect, schema, table, column, name string) string {
+	return renameColumnSQL(d, schema, table, column, name)
+}
+
+func (clickhouseEngine) AddColumnSQL(d Dialect, schema, table, definition string) string {
+	return addColumnSQL(d, schema, table, definition)
+}
+
+func (clickhouseEngine) DropColumnSQL(d Dialect, schema, table string, c ColumnDesign) []string {
+	return dropColumnSQL(d, schema, table, c)
+}
+
+func (clickhouseEngine) ColumnCommentSQL(d Dialect, schema, table, column, _, comment string) string {
+	return columnCommentSQL(d, schema, table, column, comment)
 }
 
 func (clickhouseEngine) ScriptPreamble(bool) string { return "" }
@@ -614,6 +637,10 @@ func (clickhouseEngine) GrantSQL(privileges []string, schema, table string, a Ac
 	return grantOnDatabaseSQL(clickhouseDialect{}, privileges, schema, table, clickhouseDialect{}.Quote(a.Name))
 }
 
+func (clickhouseEngine) GrantRoleSQL(d Dialect, role, a Account) string {
+	return grantRoleSQL(d, role, a)
+}
+
 func (clickhouseEngine) Privileges() []string { return []string{"SELECT", "INSERT", "ALTER", "ALL"} }
 
 func (clickhouseEngine) AccountForm() AccountFormFields {
@@ -647,3 +674,8 @@ func (clickhouseEngine) MaintenanceCommands(quotedTable string) []MaintenanceCom
 		{"Optimize Final (merges every part)", "OPTIMIZE TABLE " + quotedTable + " FINAL"},
 	}
 }
+
+func (clickhouseEngine) readsAllResults() bool         { return false }
+func (clickhouseEngine) sessionDatabaseSQL() string    { return "" }
+func (clickhouseEngine) TakesEffectAtOnce(string) bool { return false }
+func (clickhouseEngine) BooleanLiteral(b bool) string  { return booleanWord(b) }

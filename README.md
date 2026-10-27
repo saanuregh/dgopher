@@ -1,8 +1,9 @@
 # DGopher
 
 **Dig into your databases.** DGopher is a fast, open-source database client
-for Linux, macOS and Windows. It works with **PostgreSQL, MySQL,
-ClickHouse, SQLite, DuckDB and Redis**.
+for Linux, macOS and Windows. It works with **PostgreSQL, MySQL, SQL
+Server, ClickHouse, SQLite, DuckDB and Redis**, and with CockroachDB,
+YugabyteDB, TimescaleDB, MariaDB and TiDB as engines of their own.
 
 It is a single Go binary. Its interface is drawn natively by
 [MyGo](https://mygo.egoist.dev), with no webview, JVM or Electron. It

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"strconv"
 )
 
 // DistinctValues reads up to limit values of a column, without NULL or
@@ -12,8 +11,8 @@ import (
 // referring to it may take.
 func DistinctValues(ctx context.Context, d *DB, schema, table string, col Column, limit int) ([]string, error) {
 	name := d.Dialect.Quote(col.Name)
-	rows, err := d.Catalog().QueryContext(ctx, "SELECT DISTINCT "+name+" FROM "+QualifiedName(d.Dialect, schema, table)+
-		" WHERE "+name+" IS NOT NULL LIMIT "+strconv.Itoa(limit))
+	rows, err := d.Catalog().QueryContext(ctx, LimitSQL(d.Config.Engine, "SELECT DISTINCT "+name+" FROM "+QualifiedName(d.Dialect, schema, table)+
+		" WHERE "+name+" IS NOT NULL", " ", limit))
 	if err != nil {
 		return nil, err
 	}

@@ -110,6 +110,9 @@ func TestTokenizeNonASCIIIdent(t *testing.T) {
 			}
 		}
 		want := []string{"🙂x", "x\u00a0y", "café\u2028z", "t"}
+		if d == ClickHouse { // ClickHouse reads U+00A0 and U+2028 as spaces
+			want = []string{"🙂x", "x", "y", "café", "z", "t"}
+		}
 		if !reflect.DeepEqual(idents, want) {
 			t.Fatalf("dialect %d: identifiers = %q, want %q", d, idents, want)
 		}
@@ -1194,9 +1197,16 @@ func TestClassifyNestedCodeTime(t *testing.T) {
 		// twice a level, past the budget.
 		{"a rule's DO block", nest(maxCodeDepth, "CREATE RULE r AS ON INSERT TO t DO DO TAG INNER TAG", "SELECT 1"), true, "too much code"},
 	} {
-		start := time.Now()
-		a := Classify(c.sql, Postgres)
-		if took := time.Since(start); took > 50*time.Millisecond {
+		// The fastest of a few runs, so that one pause of the machine (a
+		// slow CI runner's) is not taken for a blowup, which every run has.
+		var a Analysis
+		took := time.Duration(1 << 62)
+		for range 3 {
+			start := time.Now()
+			a = Classify(c.sql, Postgres)
+			took = min(took, time.Since(start))
+		}
+		if took > 50*time.Millisecond {
 			t.Errorf("%s (%d bytes): took %v", c.name, len(c.sql), took)
 		}
 		if a.Dangerous != c.dangerous || !strings.Contains(a.Reason, c.reason) {

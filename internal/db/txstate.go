@@ -6,6 +6,7 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+	"time"
 	"unsafe"
 
 	"dgopher/internal/sqltext"
@@ -78,11 +79,13 @@ func pgConnClosed(conn *sql.Conn) bool {
 }
 
 // The packages whose unexported fields reflectedTxState reads, as of
-// go-sql-driver/mysql v1.10.1 (mysqlConn.status) and modernc.org/sqlite
-// v1.60.1 (conn.db and conn.tls).
+// go-sql-driver/mysql v1.10.1 (mysqlConn.status), modernc.org/sqlite
+// v1.60.1 (conn.db and conn.tls) and microsoft/go-mssqldb v1.11.2
+// (Conn.sess.tranid).
 const (
 	mysqlPackage  = "github.com/go-sql-driver/mysql"
 	sqlitePackage = "modernc.org/sqlite"
+	mssqlPackage  = "github.com/microsoft/go-mssqldb"
 )
 
 // reflectedTxState reads the transaction of a MySQL or SQLite driver
@@ -97,8 +100,30 @@ func reflectedTxState(dc any) (TxState, bool) {
 		return mysqlTxState(c)
 	case t.PkgPath() == sqlitePackage && t.Name() == "conn":
 		return sqliteTxState(c)
+	case t.PkgPath() == mssqlPackage && t.Name() == "Conn":
+		return mssqlTxState(c)
 	}
 	return TxNone, false
+}
+
+// mssqlTxState reads the transaction a SQL Server connection is in, which
+// the server tells the driver of as it begins and ends, however: BEGIN
+// TRAN in a batch, IMPLICIT_TRANSACTIONS, XACT_ABORT's rollback, nested
+// ones counting as their outermost. Read once the statement's answer is
+// read to its end.
+func mssqlTxState(c reflect.Value) (TxState, bool) {
+	sess := c.FieldByName("sess")
+	if sess.Kind() != reflect.Pointer || sess.IsNil() || sess.Elem().Kind() != reflect.Struct {
+		return TxNone, false
+	}
+	id := sess.Elem().FieldByName("tranid")
+	if id.Kind() != reflect.Uint64 {
+		return TxNone, false
+	}
+	if id.Uint() != 0 {
+		return TxOpen, true
+	}
+	return TxNone, true
 }
 
 // driverStruct is the struct a driver connection points to.
@@ -151,6 +176,35 @@ func mysqlStatus(c reflect.Value) (uint64, bool) {
 		return 0, false
 	}
 	return status.Uint(), true
+}
+
+// readAutocommitOff reads whether autocommit is off on a connection:
+// MySQL's flag, SQL Server's IMPLICIT_TRANSACTIONS, which a statement
+// reads, so only when mayQuery, no rows holding the connection. ok is
+// false when it cannot tell.
+func readAutocommitOff(conn *sql.Conn, mayQuery bool) (off, ok bool) {
+	if off, ok = readMySQLAutocommitOff(conn); ok {
+		return off, ok
+	}
+	isMSSQL := false
+	conn.Raw(func(dc any) error {
+		c, isStruct := driverStruct(driverConn(dc))
+		isMSSQL = isStruct && c.Type().PkgPath() == mssqlPackage && c.Type().Name() == "Conn"
+		return nil
+	})
+	if !isMSSQL || !mayQuery {
+		return false, false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	// IMPLICIT_TRANSACTIONS is bit 2 of @@OPTIONS. Under SHOWPLAN, NOEXEC
+	// or PARSEONLY the SELECT runs not, and returns no row: then off,
+	// which keeps transactions shown, in doubt.
+	var options int64
+	if err := conn.QueryRowContext(ctx, "SELECT @@OPTIONS").Scan(&options); err != nil {
+		return true, false
+	}
+	return options&2 != 0, true
 }
 
 // readMySQLAutocommitOff reads whether SERVER_STATUS_AUTOCOMMIT is clear

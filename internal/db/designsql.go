@@ -36,11 +36,11 @@ func NewTableChange(d Dialect, t TableDesign) (SchemaChange, error) {
 	}
 	if commentsApart(r) {
 		if t.Comment != "" {
-			ch.Steps = append(ch.Steps, Step{SQL: "COMMENT ON TABLE " + QualifiedName(d, t.Schema, t.Name) + " IS " + Literal(e, t.Comment)})
+			ch.Steps = append(ch.Steps, Step{SQL: r.TableCommentSQL(d, t.Schema, t.Name, t.Comment)})
 		}
 		for _, c := range t.Columns {
 			if c.Comment != "" {
-				ch.Steps = append(ch.Steps, Step{SQL: columnCommentSQL(d, t, c)})
+				ch.Steps = append(ch.Steps, Step{SQL: r.ColumnCommentSQL(d, t.Schema, t.Name, c.Name, "", c.Comment)})
 			}
 		}
 	}
@@ -119,17 +119,20 @@ func AlterTableChange(d Dialect, was, now TableDesign) (SchemaChange, error) {
 	}
 	for _, c := range now.Columns {
 		if c.Was != "" && c.Was != c.Name {
-			steps = append(steps, alter("RENAME COLUMN "+d.Quote(c.Was)+" TO "+d.Quote(c.Name)))
+			steps = append(steps, Step{SQL: r.RenameColumnSQL(d, was.Schema, was.Name, c.Was, c.Name)})
 		}
 	}
+	// The table keeps its name until the last step renames it.
+	named := now
+	named.Schema, named.Name = was.Schema, was.Name
 	changeColumns := func() error {
 		for _, m := range diff.changedColumns {
-			changes, err := r.ModifyColumnSQL(d, now, m.was, m.now)
+			changes, err := r.ModifyColumnSQL(d, named, m.was, m.now)
 			if err != nil {
 				return err
 			}
 			for _, s := range changes {
-				if strings.HasPrefix(s, "COMMENT ON ") {
+				if ownStatement(s) {
 					steps = append(steps, Step{SQL: s})
 				} else {
 					steps = append(steps, alter(s))
@@ -139,9 +142,9 @@ func AlterTableChange(d Dialect, was, now TableDesign) (SchemaChange, error) {
 		return nil
 	}
 	addColumn := func(c ColumnDesign) {
-		steps = append(steps, alter("ADD COLUMN "+columnSQL(d, c, false)))
+		steps = append(steps, Step{SQL: r.AddColumnSQL(d, was.Schema, was.Name, columnSQL(d, c, false))})
 		if commentsApart(r) && c.Comment != "" {
-			steps = append(steps, Step{SQL: columnCommentSQL(d, now, c)})
+			steps = append(steps, Step{SQL: r.ColumnCommentSQL(d, was.Schema, was.Name, c.Name, "", c.Comment)})
 		}
 	}
 	added := diff.addedColumns
@@ -160,7 +163,9 @@ func AlterTableChange(d Dialect, was, now TableDesign) (SchemaChange, error) {
 		steps = append(steps, alter("DROP CONSTRAINT "+d.Quote(was.PrimaryKeyName)+", ADD PRIMARY KEY ("+QuoteNames(d, pk)+")"))
 	}
 	for _, c := range diff.droppedColumns {
-		steps = append(steps, alter("DROP COLUMN "+d.Quote(c.Name)))
+		for _, s := range r.DropColumnSQL(d, was.Schema, was.Name, c) {
+			steps = append(steps, Step{SQL: s})
+		}
 	}
 	if !atOnce {
 		if err := changeColumns(); err != nil {
@@ -197,6 +202,34 @@ func AlterTableChange(d Dialect, was, now TableDesign) (SchemaChange, error) {
 		steps = append(steps, Step{SQL: rename})
 	}
 	return SchemaChange{Steps: steps, Atomic: e.TransactionalDDL()}, nil
+}
+
+// ownStatement reports a change of ModifyColumnSQL that is a statement of
+// its own, not a clause of ALTER TABLE: a COMMENT ON, or T-SQL's EXEC,
+// IF and DECLARE.
+func ownStatement(s string) bool {
+	for _, p := range []string{"COMMENT ON ", "EXEC ", "IF ", "DECLARE "} {
+		if strings.HasPrefix(s, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// renameColumnSQL renames a column with RENAME COLUMN, as standard SQL
+// does.
+func renameColumnSQL(d Dialect, schema, table, column, name string) string {
+	return "ALTER TABLE " + QualifiedName(d, schema, table) + " RENAME COLUMN " + d.Quote(column) + " TO " + d.Quote(name)
+}
+
+// addColumnSQL adds a column with ADD COLUMN, as standard SQL does.
+func addColumnSQL(d Dialect, schema, table, definition string) string {
+	return "ALTER TABLE " + QualifiedName(d, schema, table) + " ADD COLUMN " + definition
+}
+
+// dropColumnSQL drops a column with DROP COLUMN, as standard SQL does.
+func dropColumnSQL(d Dialect, schema, table string, c ColumnDesign) []string {
+	return []string{"ALTER TABLE " + QualifiedName(d, schema, table) + " DROP COLUMN " + d.Quote(c.Name)}
 }
 
 // dropConstraintSQL drops a constraint by its name, as standard SQL does,
@@ -378,7 +411,7 @@ func alterColumnSQL(d Dialect, t TableDesign, was, now ColumnDesign, cast bool) 
 		}
 	}
 	if now.Comment != was.Comment {
-		out = append(out, columnCommentSQL(d, t, now))
+		out = append(out, columnCommentSQL(d, t.Schema, t.Name, now.Name, now.Comment))
 	}
 	return out, nil
 }
@@ -466,8 +499,10 @@ func createIndexSQL(d Dialect, t TableDesign, ix IndexDesign) string {
 // with statements of their own.
 func commentsApart(r SQLRules) bool { return r.HasComments() && !r.ColumnCommentInline() }
 
-func columnCommentSQL(d Dialect, t TableDesign, c ColumnDesign) string {
-	return "COMMENT ON COLUMN " + QualifiedName(d, t.Schema, t.Name) + "." + d.Quote(c.Name) + " IS " + commentLiteral(d.Engine(), c.Comment)
+// columnCommentSQL comments on a column with COMMENT ON, which NULL
+// removes.
+func columnCommentSQL(d Dialect, schema, table, column, comment string) string {
+	return "COMMENT ON COLUMN " + QualifiedName(d, schema, table) + "." + d.Quote(column) + " IS " + commentLiteral(d.Engine(), comment)
 }
 
 // commentLiteral is a comment as COMMENT ON takes it: NULL removes it.

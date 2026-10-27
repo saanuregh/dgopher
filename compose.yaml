@@ -118,6 +118,22 @@ services:
       interval: 2s
       retries: 30
 
+  # SQL Server 2025 Developer edition, for x86-64 only; it needs about 2 GB
+  # of memory. sa's password must meet SQL Server's complexity rules.
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    container_name: dgopher-sqlserver
+    profiles: ["enterprise"]
+    ports: ["127.0.0.1:11433:1433"]
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: Dgopher-1
+      MSSQL_PID: Developer
+    healthcheck:
+      test: ["CMD", "/opt/mssql-tools18/bin/sqlcmd", "-C", "-S", "127.0.0.1", "-U", "sa", "-P", "Dgopher-1", "-Q", "IF DB_ID('shop') IS NULL CREATE DATABASE shop; SELECT 1"]
+      interval: 3s
+      retries: 60
+
   clickhouse:
     image: clickhouse/clickhouse-server:26.3
     container_name: dgopher-ch

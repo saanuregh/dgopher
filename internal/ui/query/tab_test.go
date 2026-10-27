@@ -121,7 +121,7 @@ func TestTransactionSurvivesNewRun(t *testing.T) {
 			d.Close()
 			_, tt, cn, q := openEditor(t, cfg, 1200, 760, "")
 			run := func(sql string) {
-				q.execute(safety.Analyze(&cn.Config, []string{sql}), !strings.HasPrefix(sql, "SELECT"), false)
+				q.execute(safety.Analyze(&cn.Config, []string{sql}), !strings.HasPrefix(sql, "SELECT"), nil)
 				testutil.WaitFor(t, tt, sql, func() bool { return !q.Running })
 			}
 			run("UPDATE " + table + " SET v = 1 WHERE id = 7")
@@ -763,7 +763,7 @@ func TestTransactionKeys(t *testing.T) {
 	tt := ui.NewTester(a.view, 1000, 700)
 	q := newEditor(t, a, tt, cn, "")
 	run := func(sql string) {
-		q.execute(safety.Analyze(&cn.Config, []string{sql}), true, false)
+		q.execute(safety.Analyze(&cn.Config, []string{sql}), true, nil)
 		testutil.WaitFor(t, tt, sql, func() bool { return !q.Running })
 	}
 	run("CREATE TABLE t (id INTEGER PRIMARY KEY)")

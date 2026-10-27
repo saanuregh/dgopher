@@ -711,7 +711,7 @@ func (redisEngine) URLTLSParameters() map[string]map[string]TLSMode {
 	return nil
 }
 
-func (redisEngine) CloudIdentity() bool              { return false }
+func (redisEngine) CloudIdentities() []Identity      { return nil }
 func (redisEngine) ClearTextPassword() bool          { return false }
 func (redisEngine) ServerEnforcesReadOnly() bool     { return false }
 func (redisEngine) DatabasesNeedOwnConnection() bool { return false }

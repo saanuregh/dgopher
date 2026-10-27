@@ -95,6 +95,8 @@ func (a *App) choosePath(b *backupDialog) {
 		name += ".sql"
 	case db.BackupCopy:
 		name += filepath.Ext(b.conn.Config.Database)
+	case db.BackupBacpac:
+		name += ".bacpac"
 	}
 	go func() {
 		var path string
@@ -147,7 +149,7 @@ func (a *App) startBackup(b *backupDialog) {
 	cn := b.conn
 	cfg := cn.Config
 	formats, choices := backupRules(cfg.Engine)
-	if b.restore && !choices.Folder && !db.IsArchive(b.path) {
+	if b.restore && !choices.Folder && !choices.RestoresByPlan && !db.IsArchive(b.path) {
 		// A SQL file restores as any SQL file runs, asked once, as any
 		// restore is, once read through.
 		b.open = false
@@ -224,6 +226,11 @@ func (a *App) startBackup(b *backupDialog) {
 	}
 	if !b.restore {
 		run(nil)
+		return
+	}
+	// A transaction the restore would end is never rolled back unasked.
+	if txs := a.openTxTabs(cn); choices.RestoreEndsSessions && len(txs) > 0 {
+		b.err = "A transaction is open in " + txs[0].Title() + ", which the restore would roll back with the other sessions it ends: commit it or roll it back, then restore."
 		return
 	}
 	// A restore writes: always asked, the connection's name typed on
@@ -315,13 +322,18 @@ func (a *App) backupView(c *ui.Context) {
 					}).Description("A pg_dump archive restores in one transaction with pg_restore; a SQL file runs as Run SQL File runs it.")
 				}
 				label := "File"
-				if choices.Folder {
+				// A file on the server's disk is typed, as the server sees it.
+				onServer := !b.restore && b.format < len(formats) && formats[b.format].OnServer()
+				switch {
+				case choices.Folder:
 					label = "Folder"
+				case onServer:
+					label = "File on the server"
 				}
 				ui.Field(c, label, func() {
 					ui.Row(c).Gap(6).Children(func() {
 						ui.TextInput(c, &b.path).Font(widgets.MonoFont).FontSize(12.5).Grow(1).Label(label).Disabled(b.running).AutoFocus()
-						if ui.Button(c, "Choose…").Disabled(b.running).Clicked() {
+						if !onServer && ui.Button(c, "Choose…").Disabled(b.running).Clicked() {
 							a.choosePath(b)
 						}
 					})

@@ -95,11 +95,22 @@ func ParseURL(s string) (Config, error) {
 	if cfg.Engine == ClickHouse && q.Get("database") != "" {
 		cfg.Database = q.Get("database")
 	}
+	if r, ok := rulesOf(cfg.Engine).(urlReader); ok {
+		if err := r.readURL(&cfg, u); err != nil {
+			return cfg, err
+		}
+	}
 	cfg.Name = cfg.Host
 	if cfg.Database != "" {
 		cfg.Name += "/" + cfg.Database
 	}
 	return cfg, nil
+}
+
+// urlReader is the rules of an engine whose URLs say more than the
+// others', in a form of their own, as SQL Server's.
+type urlReader interface {
+	readURL(cfg *Config, u *url.URL) error
 }
 
 // clickhouseJDBC matches the scheme of a ClickHouse JDBC URL, with the

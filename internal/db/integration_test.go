@@ -46,6 +46,7 @@ var mariadbConfig = Config{Name: "mariadb", Engine: MariaDB, Host: "127.0.0.1", 
 var tidbConfig = Config{Name: "tidb", Engine: TiDB, Host: "127.0.0.1", Port: 14000, User: "root", Password: "dgopher", Database: "shop"}
 var cockroachdbConfig = Config{Name: "cockroachdb", Engine: CockroachDB, Host: "127.0.0.1", Port: 26257, User: "dgopher", Password: "dgopher", Database: "shop"}
 var yugabytedbConfig = Config{Name: "yugabytedb", Engine: YugabyteDB, Host: "127.0.0.1", Port: 15433, User: "yugabyte", Password: "dgopher", Database: "shop"}
+var sqlserverConfig = Config{Name: "sqlserver", Engine: SQLServer, Host: "127.0.0.1", Port: 11433, User: "sa", Password: "Dgopher-1", Database: "shop"}
 var timescaledbConfig = Config{Name: "timescaledb", Engine: TimescaleDB, Host: "127.0.0.1", Port: 15434, User: "postgres", Password: "dgopher", Database: "shop"}
 
 type fixture struct {
@@ -133,6 +134,21 @@ line two'), (3, 'Linus', NULL, NULL)`,
 		},
 	}
 	fs = append(fs, fixture{
+		cfg:    sqlserverConfig,
+		schema: "it",
+		setup: []string{
+			`DROP VIEW IF EXISTS it.big_orders`, `DROP TABLE IF EXISTS it.orders`, `DROP TABLE IF EXISTS it.customers`,
+			`IF SCHEMA_ID('it') IS NULL EXEC('CREATE SCHEMA it')`,
+			`CREATE TABLE it.customers (id INTEGER PRIMARY KEY, name VARCHAR(100) NOT NULL, email VARCHAR(200), note NVARCHAR(MAX))`,
+			`CREATE TABLE it.orders (id INTEGER PRIMARY KEY, customer_id INTEGER, total DECIMAL(10,2), FOREIGN KEY (customer_id) REFERENCES it.customers (id))`,
+			`CREATE INDEX orders_customer ON it.orders (customer_id)`,
+			`CREATE VIEW it.big_orders AS SELECT * FROM it.orders WHERE total > 100`,
+			`INSERT INTO it.customers VALUES (1, 'Ada', 'ada@example.com', NULL), (2, 'Grace', 'grace@example.com', N'line one
+line two'), (3, 'Linus', NULL, NULL)`,
+			`INSERT INTO it.orders VALUES (1, 1, 99.50), (2, 1, 250.00), (3, 2, 12.00)`,
+		},
+		sleep: `WAITFOR DELAY '00:00:10'`,
+	}, fixture{
 		cfg:    Config{Name: "duck", Engine: DuckDB, Database: duckFile},
 		schema: "main",
 		setup:  common,
@@ -366,10 +382,12 @@ func TestIntegrationReadOnly(t *testing.T) {
 			}
 			defer s.Close()
 			table := QualifiedName(d.Dialect, f.schema, "customers")
-			// TiDB has no read-only session: the app's check alone refuses
-			// writes there (internal/safety), and the connection opens.
-			if _, err := s.Exec(ctx, "INSERT INTO "+table+" (id, name) VALUES (9, 'x')"); err == nil && f.cfg.Engine != TiDB {
-				t.Fatal("the server accepted a write on a read-only connection")
+			// TiDB and SQL Server have no read-only session: the app's check
+			// alone refuses writes there (internal/safety), and the
+			// connection opens.
+			_, err = s.Exec(ctx, "INSERT INTO "+table+" (id, name) VALUES (9, 'x')")
+			if enforced := f.cfg.Engine.ServerEnforcesReadOnly(); enforced != (err != nil) {
+				t.Fatalf("server enforces read-only %v, but the write gave %v", enforced, err)
 			}
 			c, err := s.Query(ctx, "SELECT COUNT(*) FROM "+table)
 			if err != nil {
@@ -1021,6 +1039,7 @@ func TestIntegrationUsers(t *testing.T) {
 		{cockroachdbConfig, "public", "it_users"},
 		{yugabytedbConfig, "public", "it_users"},
 		{timescaledbConfig, "public", "it_users"},
+		{sqlserverConfig, "dbo", "it_users"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default", "it_users"},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
@@ -1187,6 +1206,19 @@ func TestIntegrationItems(t *testing.T) {
 				"noop()": "DROP PROCEDURE it_items.noop()", "stamped on t": "DROP TRIGGER stamped ON it_items.t",
 				"counter": "DROP SEQUENCE it_items.counter", "mood": "DROP TYPE it_items.mood", "pair": "DROP TYPE it_items.pair",
 			}},
+		{sqlserverConfig, "dbo",
+			[]string{"DROP SYNONYM IF EXISTS it_alias", "DROP TABLE IF EXISTS it_items_t", "CREATE TABLE it_items_t (id int)",
+				"DROP FUNCTION IF EXISTS it_twice", "CREATE FUNCTION it_twice(@a int) RETURNS int AS BEGIN RETURN @a * 2 END",
+				"DROP PROCEDURE IF EXISTS it_noop", "CREATE PROCEDURE it_noop AS SELECT 1",
+				"CREATE TRIGGER it_stamp ON it_items_t AFTER INSERT AS SET NOCOUNT ON",
+				"DROP SEQUENCE IF EXISTS it_counter", "CREATE SEQUENCE it_counter START WITH 10 INCREMENT BY 5",
+				"CREATE SYNONYM it_alias FOR dbo.it_items_t",
+				"DROP TYPE IF EXISTS it_code", "CREATE TYPE it_code FROM nvarchar(10) NOT NULL",
+				"DROP TYPE IF EXISTS it_rows", "CREATE TYPE it_rows AS TABLE (id int NOT NULL, label nvarchar(20) NULL)",
+			},
+			map[string]string{"it_twice(@a int)": "DROP FUNCTION it_twice", "it_noop()": "DROP PROCEDURE it_noop",
+				"it_stamp on it_items_t": "DROP TRIGGER it_stamp", "it_counter": "DROP SEQUENCE it_counter",
+				"it_alias": "DROP SYNONYM it_alias", "it_code": "DROP TYPE it_code", "it_rows": "DROP TYPE it_rows"}},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "items.sqlite")}, "main",
 			[]string{"CREATE TABLE t (id int)", "CREATE TRIGGER stamp AFTER INSERT ON t BEGIN UPDATE t SET id = id + 1 WHERE rowid = NEW.rowid; END"},
 			map[string]string{"stamp on t": "DROP TRIGGER stamp"}},
@@ -1268,6 +1300,7 @@ func TestIntegrationRename(t *testing.T) {
 		{cockroachdbConfig, "public"},
 		{yugabytedbConfig, "public"},
 		{timescaledbConfig, "public"},
+		{sqlserverConfig, "dbo"},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "r.sqlite")}, "main"},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default"},
@@ -1318,6 +1351,7 @@ func TestIntegrationSearch(t *testing.T) {
 		{cockroachdbConfig, "public"},
 		{yugabytedbConfig, "public"},
 		{timescaledbConfig, "public"},
+		{sqlserverConfig, "dbo"},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "s.sqlite")}, "main"},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default"},
@@ -1393,6 +1427,7 @@ func TestIntegrationTableDesign(t *testing.T) {
 		{cockroachdbConfig, "public", "int4", "bigint", "text", true, true, true},
 		{yugabytedbConfig, "public", "integer", "bigint", "text", true, true, true},
 		{timescaledbConfig, "public", "integer", "bigint", "text", true, true, true},
+		{sqlserverConfig, "dbo", "int", "bigint", "nvarchar(50)", true, true, true},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main", "INTEGER", "BIGINT", "VARCHAR", false, true, false},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default", "Int32", "Int64", "String", false, false, false},
 	} {
@@ -1739,6 +1774,11 @@ func TestIntegrationPlans(t *testing.T) {
 			[]string{"CREATE TABLE it_plan (id UInt64, g UInt64) ENGINE = MergeTree ORDER BY id SETTINGS index_granularity = 1024",
 				"INSERT INTO it_plan SELECT number, number % 1000 FROM numbers(20000)"},
 			"SELECT * FROM it_plan WHERE g = 5", "all 20 granules of"},
+		{sqlserverConfig, "dbo",
+			[]string{"CREATE TABLE dbo.it_plan (id INT PRIMARY KEY, g INT)",
+				"WITH n AS (SELECT TOP (20000) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS i FROM sys.all_objects a CROSS JOIN sys.all_objects b) " +
+					"INSERT INTO dbo.it_plan SELECT i, i % 1000 FROM n"},
+			"SELECT * FROM dbo.it_plan WHERE g = 5", "clustered index scan reads 20000 rows of dbo.it_plan to keep 20 of them: an index on (g)"},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
 			skipUnlessRunning(t, c.cfg)
@@ -1759,27 +1799,33 @@ func TestIntegrationPlans(t *testing.T) {
 				if !ok {
 					continue
 				}
-				prefix := run.Statement[:run.Offset]
-				rows, err := d.SQL.QueryContext(ctx, run.Statement)
+				prefix := fmt.Sprint(run.Before, run.Statement[:run.Offset])
+				s, err := d.Session(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var names [][]string
+				var results [][][]any
+				err = s.RunExplain(ctx, run, func(string, time.Duration, error) {}, func(ctx context.Context) error {
+					cur, err := s.Query(ctx, run.Statement)
+					if err != nil {
+						return err
+					}
+					more, err := cur.ReadAll(MaxRows)
+					for _, c := range append([]*Cursor{cur}, more...) {
+						rows, _ := c.Fetch(MaxRows)
+						names = append(names, lists.Map(c.Columns, func(col ColumnInfo) string { return col.Name }))
+						results = append(results, rows)
+					}
+					return err
+				})
+				s.Close()
 				if err != nil {
 					t.Fatal(prefix, err)
 				}
-				cols, _ := rows.Columns()
-				var all [][]any
-				for rows.Next() {
-					vals := make([]any, len(cols))
-					ptrs := make([]any, len(cols))
-					for i := range vals {
-						ptrs[i] = &vals[i]
-					}
-					rows.Scan(ptrs...)
-					all = append(all, vals)
-				}
-				rows.Close()
-				r, _ := SQL(c.cfg.Engine)
-				p, ok := r.ParsePlan(cols, all)
-				if !ok || p.Root == nil || p.Analyzed != analyze {
-					t.Fatalf("%s: plan %+v %v from %v", prefix, p, ok, all)
+				p, _ := PlanResults(c.cfg.Engine, names, results)
+				if p == nil || p.Root == nil || p.Analyzed != analyze {
+					t.Fatalf("%s: plan %+v from %v", prefix, p, results)
 				}
 				steps := 0
 				p.Root.Walk(func(n *PlanNode, _ int) {

@@ -241,7 +241,7 @@ func (sqliteEngine) URLTLSParameters() map[string]map[string]TLSMode {
 	return nil
 }
 
-func (sqliteEngine) CloudIdentity() bool              { return false }
+func (sqliteEngine) CloudIdentities() []Identity      { return nil }
 func (sqliteEngine) ClearTextPassword() bool          { return false }
 func (sqliteEngine) ServerEnforcesReadOnly() bool     { return true }
 func (sqliteEngine) DatabasesNeedOwnConnection() bool { return false }
@@ -302,8 +302,10 @@ func (sqliteEngine) OutsideTransaction(sql string) bool {
 	return len(words) > 0 && words[0] == "VACUUM"
 }
 
-func (sqliteEngine) RollbackMayKeepChanges() bool { return false }
-func (sqliteEngine) RowCountWord() string         { return "changed" }
+func (sqliteEngine) RollbackMayKeepChanges() bool    { return false }
+func (sqliteEngine) RowCountWord() string            { return "changed" }
+func (sqliteEngine) implicitTransactionsSQL() string { return "" }
+func (sqliteEngine) ownRowCountSQL() string          { return "" }
 
 // SQLite and ClickHouse explain without running: analyze cannot.
 func (sqliteEngine) Explain(statement string, analyze bool) (ExplainRun, bool) {
@@ -357,7 +359,9 @@ func (sqliteEngine) TextLiteral(s string) string                               {
 func (sqliteEngine) BytesLiteral(b []byte) string                              { return hexLiteral(b) }
 func (sqliteEngine) BooleansAreNumbers() bool                                  { return true }
 func (sqliteEngine) OffsetTimesAsUTC() bool                                    { return false }
-func (sqliteEngine) CastParameter(placeholder, _ string) string                { return placeholder }
+func (sqliteEngine) KeyParameter(placeholder, _ string) string                 { return placeholder }
+
+func (sqliteEngine) CastParameter(placeholder, _ string) string { return placeholder }
 
 func (sqliteEngine) InsertDefaultRowSQL(table string) string {
 	return "INSERT INTO " + table + " DEFAULT VALUES"
@@ -381,9 +385,10 @@ func (sqliteEngine) JSONPathSQL(column string, path []any, leaf bool) string {
 	return jsonPathSQL(column, path, leaf, false)
 }
 
-func (sqliteEngine) UpsertSQL(insert string, keys, updatedColumns []string) string {
-	return upsertOnConflictSQL(insert, keys, updatedColumns)
-}
+func (sqliteEngine) UpsertSQL(u Upsert) string { return upsertOnConflictSQL(u) }
+
+func (sqliteEngine) RowLimit(n int) (string, string)      { return limitAtEnd(n) }
+func (sqliteEngine) ShownColumnSQL(string, string) string { return "" }
 
 func (sqliteEngine) CommonTypes() []string {
 	return []string{"INTEGER", "REAL", "TEXT", "BLOB", "NUMERIC"}
@@ -412,6 +417,22 @@ func (sqliteEngine) RenameObjectSQL(obj Object, name string) (string, error) {
 		return "", errors.New("SQLite cannot rename a view: drop it and create it again under the new name")
 	}
 	return alterRenameSQL(sqliteDialect{}, obj, name), nil
+}
+
+func (sqliteEngine) RenameColumnSQL(d Dialect, schema, table, column, name string) string {
+	return renameColumnSQL(d, schema, table, column, name)
+}
+
+func (sqliteEngine) AddColumnSQL(d Dialect, schema, table, definition string) string {
+	return addColumnSQL(d, schema, table, definition)
+}
+
+func (sqliteEngine) DropColumnSQL(d Dialect, schema, table string, c ColumnDesign) []string {
+	return dropColumnSQL(d, schema, table, c)
+}
+
+func (sqliteEngine) ColumnCommentSQL(d Dialect, schema, table, column, _, comment string) string {
+	return columnCommentSQL(d, schema, table, column, comment)
 }
 
 func (sqliteEngine) ScriptPreamble(bool) string { return "" }
@@ -498,6 +519,8 @@ func (sqliteEngine) GrantSQL(privileges []string, schema, _ string, _ Account) (
 	return nil, noAccountsError(SQLite)
 }
 
+func (sqliteEngine) GrantRoleSQL(d Dialect, role, a Account) string { return grantRoleSQL(d, role, a) }
+
 func (sqliteEngine) Privileges() []string { return standardPrivileges() }
 
 func (sqliteEngine) AccountForm() AccountFormFields {
@@ -533,3 +556,8 @@ func (sqliteEngine) MaintenanceCommands(quotedTable string) []MaintenanceCommand
 		{"Reindex", "REINDEX " + quotedTable},
 	}
 }
+
+func (sqliteEngine) readsAllResults() bool         { return false }
+func (sqliteEngine) sessionDatabaseSQL() string    { return "" }
+func (sqliteEngine) TakesEffectAtOnce(string) bool { return false }
+func (sqliteEngine) BooleanLiteral(b bool) string  { return booleanWord(b) }

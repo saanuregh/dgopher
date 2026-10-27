@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,6 +17,7 @@ import (
 	"github.com/duckdb/duckdb-go/v2"
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5/pgconn"
+	mssql "github.com/microsoft/go-mssqldb"
 )
 
 // TxState is whether a session holds a transaction open.
@@ -47,6 +49,49 @@ type Session struct {
 	// the next statement is refused (ErrSessionReset).
 	ran          bool
 	resetPending bool
+	// messages keeps what the server said besides results and errors, as
+	// SQL Server's PRINT, until TakeMessages.
+	messages messageLog
+}
+
+// messagesKey holds, in a statement's context, the messageLog of the
+// session that runs it.
+type messagesKey struct{}
+
+// maxMessages is the most messages a session keeps until TakeMessages:
+// a loop of PRINTs would otherwise fill memory.
+const maxMessages = 1000
+
+// messageLog keeps a session's messages, added as the driver reads them,
+// and counts those past maxMessages.
+type messageLog struct {
+	mu      sync.Mutex
+	text    []string
+	dropped int
+}
+
+func (l *messageLog) add(msg string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.text) >= maxMessages {
+		l.dropped++
+		return
+	}
+	l.text = append(l.text, msg)
+}
+
+// TakeMessages returns the messages the server sent with the session's
+// statements since it was last called, as SQL Server's PRINT and
+// RAISERROR of a low severity, and forgets them.
+func (s *Session) TakeMessages() []string {
+	s.messages.mu.Lock()
+	defer s.messages.mu.Unlock()
+	out := s.messages.text
+	if s.messages.dropped > 0 {
+		out = append(out, fmt.Sprintf("%d more messages not shown.", s.messages.dropped))
+	}
+	s.messages.text, s.messages.dropped = nil, 0
+	return out
 }
 
 // ErrSessionClosed is the error of statements sent to a closed session:
@@ -205,10 +250,12 @@ func (s *Session) OwnsTx() bool {
 	return s.txState() != TxNone
 }
 
-// AutocommitOff reports MySQL's autocommit off on the session's
-// connection, as the server reports it however it was turned off: the
-// next statement that reads or writes a table begins a transaction. It
-// is false on other engines, and when unknown.
+// AutocommitOff reports autocommit off on the session's connection, as
+// the server reports it however it was turned off: MySQL's autocommit,
+// SQL Server's IMPLICIT_TRANSACTIONS. The next statement that reads or
+// writes a table begins a transaction. It is false on other engines, and
+// while rows still to read hold the connection; true when SQL Server's
+// cannot be read.
 func (s *Session) AutocommitOff() bool {
 	if r, ok := SQL(s.db.Config.Engine); !ok || !r.autocommitMayBeOff() {
 		return false
@@ -218,7 +265,7 @@ func (s *Session) AutocommitOff() bool {
 	if s.conn == nil {
 		return false
 	}
-	off, _ := readMySQLAutocommitOff(s.conn)
+	off, _ := readAutocommitOff(s.conn, s.cursor == nil || !s.cursor.HoldsConnection())
 	return off
 }
 
@@ -284,6 +331,9 @@ var ErrNoTransaction = errors.New("no transaction is open: it was already commit
 func (s *Session) Commit(ctx context.Context) error {
 	if s.Tx() != TxFailed {
 		_, err := s.exec(ctx, "COMMIT", s.mayCommitSharedTx)
+		if err == nil {
+			err = s.commitImplicit(ctx)
+		}
 		if !errors.Is(err, errSharedTxFailed) {
 			return err
 		}
@@ -292,6 +342,33 @@ func (s *Session) Commit(ctx context.Context) error {
 		return err
 	}
 	return ErrTxFailed
+}
+
+// ErrStillOpen is the error of a Commit that left a transaction open, as
+// one the user began around the app's: what ran in it is not committed.
+var ErrStillOpen = errors.New("a transaction is still open after the commit, begun around this one: nothing is committed until it is")
+
+// commitImplicit commits, once, the transaction the session began
+// implicitly and the app's Begin nested in (implicitTransactionsSQL);
+// another left open is ErrStillOpen.
+func (s *Session) commitImplicit(ctx context.Context) error {
+	r, ok := SQL(s.db.Config.Engine)
+	if !ok || r.implicitTransactionsSQL() == "" || s.Tx() == TxNone {
+		return nil
+	}
+	on, err := s.queryStrings(ctx, r.implicitTransactionsSQL())
+	if err != nil {
+		return err
+	}
+	if len(on) == 1 && on[0] == "1" {
+		if _, err := s.exec(ctx, "COMMIT", nil); err != nil {
+			return err
+		}
+	}
+	if s.Tx() != TxNone {
+		return ErrStillOpen
+	}
+	return nil
 }
 
 // errSharedTxFailed refuses the COMMIT of a failed transaction of a pool
@@ -443,6 +520,24 @@ func (s *Session) Exec(ctx context.Context, query string, args ...any) (int64, e
 	return s.exec(ctx, query, nil, args...)
 }
 
+// ExecChange runs a change of rows the app made, as a grid edit, and
+// returns the rows it changed itself (ownRowCountSQL): not those of the
+// triggers it fired.
+func (s *Session) ExecChange(ctx context.Context, query string, args ...any) (int64, error) {
+	r, ok := SQL(s.db.Config.Engine)
+	if !ok || r.ownRowCountSQL() == "" {
+		return s.Exec(ctx, query, args...)
+	}
+	counts, err := s.queryStrings(ctx, query+";\n"+r.ownRowCountSQL(), args...)
+	if err != nil {
+		return 0, err
+	}
+	if len(counts) != 1 {
+		return 0, fmt.Errorf("the change's row count came as %d rows", len(counts))
+	}
+	return strconv.ParseInt(counts[0], 10, 64)
+}
+
 // ExecTransactionControl runs a statement typed to begin or end a
 // transaction, as BEGIN or COMMIT. On a pool of one connection, while a
 // transaction another session began is open, it is refused (ErrNotOwner)
@@ -487,6 +582,7 @@ func (s *Session) exec(ctx context.Context, query string, check func() error, ar
 	if err != nil {
 		return 0, err
 	}
+	ctx = context.WithValue(ctx, messagesKey{}, &s.messages)
 	shared, err := s.sharedConn(ctx)
 	if err != nil {
 		return 0, err
@@ -557,6 +653,7 @@ func (s *Session) Query(ctx context.Context, query string, args ...any) (*Cursor
 	if err != nil {
 		return nil, err
 	}
+	ctx = context.WithValue(ctx, messagesKey{}, &s.messages)
 	shared, err := s.sharedConn(ctx)
 	if err != nil {
 		return nil, err
@@ -596,6 +693,9 @@ func (s *Session) Query(ctx context.Context, query string, args ...any) (*Cursor
 	r, ok := SQL(s.db.Config.Engine)
 	c, err := newCursor(rows, watch, ok && r.bytesAreBinary())
 	if err == nil {
+		c.batch = ok && r.readsAllResults()
+	}
+	if err == nil {
 		c.pool = s.db
 		if err = watch.ranPastCancel(); err != nil {
 			c.Close() // its rows go unread
@@ -620,6 +720,79 @@ func (s *Session) Query(ctx context.Context, query string, args ...any) (*Cursor
 	return c, nil
 }
 
+// RunExplain gets a plan on the session: run's Before steps, in order,
+// then statement, which runs run's Statement and its Read, then run's
+// After steps, which run even when a step or the statement failed, ctx
+// ended or statement panicked, on a context of their own, so that the
+// session is not left as Before set it: under SQL Server's SHOWPLAN_XML,
+// statements are compiled, never run. statement is not called once a
+// Before step failed. A connection lost before After took Before's
+// settings with it, and gets none; one on which an After step failed is
+// dropped, which the next statement is told of (ErrSessionReset). step
+// is told of each step sent, for the audit log.
+func (s *Session) RunExplain(ctx context.Context, run ExplainRun, step func(sql string, took time.Duration, err error),
+	statement func(context.Context) error) (err error) {
+	if len(run.Before)+len(run.After) == 0 {
+		return statement(ctx)
+	}
+	send := func(ctx context.Context, sql string) error {
+		start := time.Now()
+		_, err := s.Exec(ctx, sql)
+		step(sql, time.Since(start), err)
+		return err
+	}
+	for _, sql := range run.Before {
+		if err = send(ctx, sql); err != nil {
+			break
+		}
+	}
+	held := s.heldRunner()
+	defer func() {
+		err = errors.Join(err, s.runAfter(ctx, run.After, held, send))
+	}()
+	if err != nil {
+		return err
+	}
+	return statement(ctx)
+}
+
+// heldRunner is what the session runs statements on now, nil once its
+// connection was lost.
+func (s *Session) heldRunner() runner {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.q
+}
+
+// runAfter sends an explain's After steps on held, the connection Before
+// set, while the session still holds it, and drops it when one fails.
+func (s *Session) runAfter(ctx context.Context, after []string, held runner, send func(context.Context, string) error) error {
+	if held == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), AfterStepsWait)
+	defer cancel()
+	var errs []error
+	for _, sql := range after {
+		// Sent on a connection made again, it would take the session's
+		// ErrSessionReset, and on a new connection do nothing.
+		if s.heldRunner() != held {
+			break
+		}
+		if err := send(ctx, sql); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		s.mu.Lock()
+		if s.q == held && s.conn != nil {
+			s.drop()
+		}
+		s.mu.Unlock()
+	}
+	return errors.Join(errs...)
+}
+
 // CurrentSchema is the schema the session's unqualified names resolve in,
 // as its own statements (SET search_path, USE) left it. On a connection
 // made again, it is the new one's, read without refusing (ErrSessionReset).
@@ -630,6 +803,21 @@ func (s *Session) CurrentSchema(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return s.db.Dialect.CurrentSchema(ctx, s.q)
+}
+
+// SessionDatabase is the database the session works in, read on the
+// server where a statement can move it to another (sessionDatabaseSQL);
+// ok is false where none can.
+func (s *Session) SessionDatabase(ctx context.Context) (name string, ok bool, err error) {
+	r, isSQL := SQL(s.db.Config.Engine)
+	if !isSQL || r.sessionDatabaseSQL() == "" {
+		return "", false, nil
+	}
+	names, err := s.queryStrings(ctx, r.sessionDatabaseSQL())
+	if err != nil || len(names) != 1 {
+		return "", true, err
+	}
+	return names[0], true, nil
 }
 
 // ready makes the session ready for a statement (ensureConnection), and
@@ -945,33 +1133,115 @@ type Cursor struct {
 	finished atomic.Bool
 	// pool is the pool whose use a page read counts as (DB.LastUsed).
 	pool *DB
+	// batch: more results may follow the cursor's in its statement, as
+	// those of a T-SQL batch, whose errors are the cursor's too.
+	batch bool
 }
 
 // newCursor reads rows. bytesAreBinary is set for a driver whose []byte
 // values are binary whatever their column declares, as SQLite's, which
 // keeps each value's own type.
 func newCursor(rows *sql.Rows, watch *cancelWatch, bytesAreBinary bool) (*Cursor, error) {
-	types, err := rows.ColumnTypes()
-	if err != nil {
+	c := &Cursor{rows: rows, watch: watch}
+	if err := c.readColumns(bytesAreBinary); err != nil {
 		rows.Close()
 		watch.stop()
 		return nil, watch.cancelled(err)
 	}
-	c := &Cursor{rows: rows, watch: watch, binary: make([]bool, len(types))}
-	for i, t := range types {
-		name := strings.ToUpper(t.DatabaseTypeName())
-		c.Columns = append(c.Columns, ColumnInfo{Name: t.Name(), Type: name})
-		c.binary[i] = bytesAreBinary || isBinaryType(name)
-	}
-	if len(types) == 0 {
+	if len(c.Columns) == 0 {
 		c.finish()
 	}
 	return c, nil
 }
 
+// readColumns reads the columns of the rows' current result.
+func (c *Cursor) readColumns(bytesAreBinary bool) error {
+	types, err := c.rows.ColumnTypes()
+	if err != nil {
+		return err
+	}
+	c.Columns, c.binary = nil, make([]bool, len(types))
+	for i, t := range types {
+		name := strings.ToUpper(t.DatabaseTypeName())
+		c.Columns = append(c.Columns, ColumnInfo{Name: t.Name(), Type: name})
+		c.binary[i] = bytesAreBinary || isBinaryType(name)
+	}
+	return nil
+}
+
+// ReadAll reads the cursor's rows ahead, up to n, then each result that
+// follows them in the statement, as a T-SQL batch's, up to n rows each,
+// as cursors of their own: the statement ran to its end, and the
+// connection is free. The first error of any is the cursor's; rows past
+// n are read and dropped (Truncated).
+func (c *Cursor) ReadAll(n int) ([]*Cursor, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.done {
+		return nil, c.err
+	}
+	var following []*Cursor
+	rows, err := c.readResult(n)
+	c.buffered = rows
+	for err == nil && c.rows.NextResultSet() {
+		next := &Cursor{rows: c.rows, watch: c.watch, done: true, pool: c.pool}
+		next.finished.Store(true)
+		if err = next.readColumns(false); err != nil {
+			break
+		}
+		next.buffered, err = next.readResult(n)
+		next.truncated, next.err = len(next.buffered) > n, err
+		next.buffered = next.buffered[:min(n, len(next.buffered))]
+		following = append(following, next)
+	}
+	if err == nil {
+		err = c.rows.Err()
+	}
+	c.truncated = len(c.buffered) > n
+	c.buffered = c.buffered[:min(n, len(c.buffered))]
+	c.err = err
+	c.finish()
+	c.err = c.watch.cancelled(c.err)
+	if c.err == nil {
+		c.err = c.watch.ranPastCancel()
+	}
+	return following, c.err
+}
+
+// readResult reads up to n+1 rows of the current result, then reads the
+// rest of it, dropping them, to come to the next.
+func (c *Cursor) readResult(n int) ([][]any, error) {
+	var out [][]any
+	for c.rows.Next() {
+		if len(out) > n {
+			continue
+		}
+		vals, err := c.scan()
+		if err != nil {
+			return out, err
+		}
+		out = append(out, vals)
+	}
+	return out, c.rows.Err()
+}
+
+// skipFollowing reads and drops the results that follow the cursor's in
+// its statement, for the first error of any.
+func (c *Cursor) skipFollowing() error {
+	for c.rows.NextResultSet() {
+		for c.rows.Next() {
+		}
+		if err := c.rows.Err(); err != nil {
+			return err
+		}
+	}
+	return c.rows.Err()
+}
+
 func isBinaryType(name string) bool {
 	switch {
-	case name == "BYTEA", strings.Contains(name, "BLOB"), strings.Contains(name, "BINARY"), name == "GEOMETRY", name == "BIT":
+	case name == "BYTEA", strings.Contains(name, "BLOB"), strings.Contains(name, "BINARY"), name == "GEOMETRY", name == "BIT",
+		name == "GEOGRAPHY", name == "HIERARCHYID", name == "IMAGE", name == "UNIQUEIDENTIFIER":
 		return true
 	}
 	return false
@@ -1012,10 +1282,12 @@ func (c *Cursor) buffer(n int) error {
 
 func (c *Cursor) read(n int) ([][]any, error) {
 	out := make([][]any, 0, min(n, 1024))
-	cols := len(c.Columns)
 	for len(out) < n {
 		if !c.rows.Next() {
 			c.err = c.rows.Err()
+			if c.err == nil && c.batch {
+				c.err = c.skipFollowing()
+			}
 			c.finish()
 			c.err = c.watch.cancelled(c.err)
 			if c.err == nil {
@@ -1023,31 +1295,40 @@ func (c *Cursor) read(n int) ([][]any, error) {
 			}
 			return out, c.err
 		}
-		vals := make([]any, cols)
-		ptrs := make([]any, cols)
-		for i := range vals {
-			ptrs[i] = &vals[i]
-		}
-		if err := c.rows.Scan(ptrs...); err != nil {
+		vals, err := c.scan()
+		if err != nil {
 			c.err = err
 			c.finish()
 			c.err = c.watch.cancelled(c.err)
 			return out, c.err
 		}
-		for i, v := range vals {
-			vals[i] = duckValue(c.Columns[i].Type, v)
-			v = vals[i]
-			// MySQL's text protocol sends every value as bytes: text is
-			// text unless the column holds binary data.
-			if b, ok := v.([]byte); ok && !c.binary[i] && utf8.Valid(b) {
-				vals[i] = string(b)
-			} else if ok {
-				vals[i] = append([]byte(nil), b...)
-			}
-		}
 		out = append(out, vals)
 	}
 	return out, nil
+}
+
+// scan reads the current row's values, as the app shows them.
+func (c *Cursor) scan() ([]any, error) {
+	vals := make([]any, len(c.Columns))
+	ptrs := make([]any, len(vals))
+	for i := range vals {
+		ptrs[i] = &vals[i]
+	}
+	if err := c.rows.Scan(ptrs...); err != nil {
+		return nil, err
+	}
+	for i, v := range vals {
+		vals[i] = sqlserverValue(c.Columns[i].Type, duckValue(c.Columns[i].Type, v))
+		v = vals[i]
+		// MySQL's text protocol sends every value as bytes: text is
+		// text unless the column holds binary data.
+		if b, ok := v.([]byte); ok && !c.binary[i] && utf8.Valid(b) {
+			vals[i] = string(b)
+		} else if ok {
+			vals[i] = append([]byte(nil), b...)
+		}
+	}
+	return vals, nil
 }
 
 // duckValue turns what DuckDB's driver gives for a UUID (16 bytes) and a
@@ -1061,7 +1342,8 @@ func duckValue(typ string, v any) any {
 		}
 	case time.Time:
 		if typ == "TIME" && x.Year() == 1 && x.YearDay() == 1 {
-			return x.Format("15:04:05.999999")
+			// To SQL Server's 100 ns; DuckDB's microseconds read the same.
+			return x.Format("15:04:05.9999999")
 		}
 	}
 	return v
@@ -1124,7 +1406,9 @@ func (c *Cursor) Close() {
 // the connection, such as pg_terminate_backend's.
 func endsConnection(err error) bool {
 	var pe *pgconn.PgError
-	return errors.As(err, &pe) && (pe.Severity == "FATAL" || pe.Severity == "PANIC")
+	var me mssql.Error
+	return errors.As(err, &pe) && (pe.Severity == "FATAL" || pe.Severity == "PANIC") ||
+		errors.As(err, &me) && me.Class >= 20 // SQL Server's fatal severities close the connection
 }
 
 func isNetError(err error) bool {

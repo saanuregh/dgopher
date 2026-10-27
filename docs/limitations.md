@@ -7,7 +7,7 @@ the [Roadmap](roadmap.md).
 
 | Area | Limitation |
 | --- | --- |
-| Kerberos | PostgreSQL only; MySQL's Kerberos plugin has no Go client. On macOS, `KRB5CCNAME` must name a `FILE:` cache, because the system's default cache is not a file. |
+| Kerberos | PostgreSQL and SQL Server; MySQL's Kerberos plugin has no Go client. On macOS, `KRB5CCNAME` must name a `FILE:` cache, because the system's default cache is not a file. |
 | Cancelling behind a proxy | Cancelling a MySQL statement sends `KILL QUERY` for the session's connection ID as MySQL numbers it. ProxySQL or RDS Proxy, which share server connections, may number it differently. |
 | Trust prompt | A change to the prompt's wording asks once more for connections already trusted. |
 
@@ -19,6 +19,7 @@ the [Roadmap](roadmap.md).
 | DuckDB columns | A column of a table with an index or a key cannot be dropped or retyped, from the table form or a model's migration: DuckDB refuses it. |
 | DuckDB transactions | The open transaction is read with `current_transaction_id()`, which DuckDB does not document. A test fails if an upgrade changes it. |
 | ClickHouse | Rows cannot be edited in the grid, because ClickHouse changes rows with asynchronous mutations. Use SQL. |
+| SQL Server batches | The editor reads every result of a T-SQL batch, each up to the row limit, before it shows the first page: the driver reads the next result only after the one before it. |
 
 ## Data
 
