@@ -155,8 +155,8 @@ github.com/saanuregh/agent-cli-connector/bindings/go/lib/linux-arm64 v0.4.1 h1:C
 github.com/saanuregh/agent-cli-connector/bindings/go/lib/linux-arm64 v0.4.1/go.mod h1:uCLHIcvWsGaskjTuMWg07BuPIa2+toI7U+2CmvWilFs=
 github.com/saanuregh/agent-cli-connector/bindings/go/lib/windows-amd64 v0.4.1 h1:uJwNDUNnZm2Xxz3RV9qKgypq0jwG9fU+yKhAE+J0SFU=
 github.com/saanuregh/agent-cli-connector/bindings/go/lib/windows-amd64 v0.4.1/go.mod h1:vNg6i+5zO7fSr3nd15e5XSSy6vqWukEg3AKYLHv4ZGg=
-github.com/saanuregh/mygo v0.3.4-0.20261026032705-a079b29e796b h1:JLPLB7uBl1SXP1RzbFrLm7w3QNWMDdkjrQdgxlhnLfk=
-github.com/saanuregh/mygo v0.3.4-0.20261026032705-a079b29e796b/go.mod h1:dVav53PwF2xEotjf4oA5lTY2Jp2exgzyjLhbSXhbMwE=
+github.com/saanuregh/mygo v0.3.4-0.20261027230603-dd988a3cce4c h1:qO6wJVVg+rtgxnB2cEWaeGdXsm3se8/AO2Ik8h1aqYk=
+github.com/saanuregh/mygo v0.3.4-0.20261027230603-dd988a3cce4c/go.mod h1:dVav53PwF2xEotjf4oA5lTY2Jp2exgzyjLhbSXhbMwE=
 github.com/segmentio/asm v1.2.1 h1:DTNbBqs57ioxAD4PrArqftgypG4/qNpXoJx8TVXxPR0=
 github.com/segmentio/asm v1.2.1/go.mod h1:BqMnlJP91P8d+4ibuonYZw9mfnzI9HfxselHZr5aAcs=
 github.com/shopspring/decimal v1.4.0 h1:bxl37RwXBklmTi0C79JfXCEBD1cqqHt0bbgBAGFp81k=

@@ -49,7 +49,7 @@ func Skeleton(c *ui.Context, since time.Time) {
 		// to past the right one.
 		at := float32(-1e9)
 		if !still {
-			p.AnimationFrame()
+			p.AnimationFrameRate(pulseFrameRate)
 			phase := float32(p.Now().UnixMilli()%skeletonSweep) / skeletonSweep
 			at = r.X - 0.3*r.W + phase*1.6*r.W
 		}

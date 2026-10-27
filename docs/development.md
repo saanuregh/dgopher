@@ -158,8 +158,9 @@ Pushing a tag `v<version>` builds and publishes a release
 
 Each platform builds on a runner of its own system, because DuckDB needs
 cgo. `go tool mygo build -upload` uploads its installers, the macOS disk
-image, the Windows installer, and the Linux Debian package, archive and
-`install.sh`, with its signed update: an archive of the app, a manifest
+image, the Windows installer, the Linux Debian package and archive, and
+the install scripts, `install.sh` for macOS and Linux and `install.ps1`
+for Windows, with its signed update: an archive of the app, a manifest
 (`update-<platform>.json`) and deltas from earlier versions. The release
 is published, with a `SHA256SUMS` of every file, once every platform's
 files are there. Installed apps then update to it.
@@ -210,7 +211,11 @@ does not have yet:
 - the code editor's `LinkAt` and `OnLink`, which underline a name while
   ⌘ is held and open it on a click;
 - `DragMissed`, which tells a drag's source it was let go over no target,
-  and where.
+  and where;
+- a fix to painting only what moves: a frame paints the window whole when
+  the frame before asked from outside a `Draw` callback, as a text's
+  `ContentTransition` does, which otherwise stays half faded beside a
+  blinking caret.
 
 An API missing from upstream MyGo may exist there.
 
@@ -219,10 +224,11 @@ To move to a new MyGo release:
 1. Create a new branch from the release and apply those commits, dropping
    the ones upstream has taken. Make a new branch rather than rewriting the
    old one, so the commit `go.mod` pins now stays reachable.
-2. Point `go.mod` at the new commit:
+2. Require the release and point `go.mod` at the new commit:
 
    ```sh
-   go mod edit -replace=github.com/egoist/mygo=github.com/saanuregh/mygo@<commit> && go mod tidy
+   go mod edit -require=github.com/egoist/mygo@v<release> \
+     -replace=github.com/egoist/mygo=github.com/saanuregh/mygo@<commit> && go mod tidy
    ```
 
 ## agent-cli-connector
