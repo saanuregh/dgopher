@@ -91,6 +91,7 @@ func (sqlserverEngine) ClearTextPassword() bool     { return false }
 // and ApplicationIntent=ReadOnly only routes to a readable secondary of an
 // availability group, writing on a primary as on any other connection.
 func (sqlserverEngine) ServerEnforcesReadOnly() bool     { return false }
+func (sqlserverEngine) ServerReadOnlySince() string      { return "" }
 func (sqlserverEngine) DatabasesNeedOwnConnection() bool { return true }
 func (sqlserverEngine) DefaultSchemaName() string        { return "dbo" }
 func (sqlserverEngine) FileExtensions() []string         { return nil }
@@ -124,7 +125,7 @@ func sqlserverConnector(cfg Config, ep endpoint, tc *tls.Config) (*mssql.Connect
 		c = mssql.NewConnectorConfig(p)
 	}
 	if addr := net.JoinHostPort(ep.host, strconv.Itoa(ep.port)); ep.host != cfg.Host || ep.port != cfg.port() {
-		c.Dialer = onlyAddress{addr: addr}
+		c.Dialer = onlyAddress{addr: addr, hint: "set the server's connection policy to Proxy"}
 	}
 	return c, nil
 }
@@ -192,20 +193,6 @@ func kerberosCache() (string, error) {
 		return path, nil
 	}
 	return name, nil
-}
-
-// onlyAddress dials only the address a tunnel or a proxy listens on.
-// Azure SQL may send a connection on to another server, which would
-// leave the tunnel or the proxy behind.
-type onlyAddress struct{ addr string }
-
-func (o onlyAddress) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	if addr != o.addr {
-		return nil, fmt.Errorf("the server sent the connection on to %s, which the SSH tunnel or proxy does not lead to: "+
-			"set the server's connection policy to Proxy", addr)
-	}
-	var d net.Dialer
-	return d.DialContext(ctx, network, addr)
 }
 
 // readURL reads what a sqlserver:// URL says besides host, port and
@@ -324,9 +311,12 @@ func (sqlserverEngine) VersionQuery() string {
 	return "SELECT CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(128))"
 }
 
-func (sqlserverEngine) LexDialect() sqltext.Dialect { return sqltext.TSQL }
-func (sqlserverEngine) readsAllResults() bool       { return true }
-func (sqlserverEngine) sessionDatabaseSQL() string  { return "SELECT DB_NAME()" }
+func (sqlserverEngine) LexDialect() sqltext.Dialect        { return sqltext.TSQL }
+func (sqlserverEngine) readsAllResults() bool              { return true }
+func (sqlserverEngine) sessionDatabaseSQL() string         { return "SELECT DB_NAME()" }
+func (sqlserverEngine) ConnectionFields() ConnectionFields { return ConnectionFields{} }
+func (sqlserverEngine) sessionStartSQL() []string          { return nil }
+func (sqlserverEngine) messagesSQL() string                { return "" }
 
 // identify reads the server's version; SQL Server has no flavors, and
 // Azure SQL's edition only names it.
@@ -535,6 +525,8 @@ func (sqlserverEngine) ownRowCountSQL() string { return "SELECT @@ROWCOUNT" }
 // implicitTransactionsSQL reads IMPLICIT_TRANSACTIONS, bit 2 of @@OPTIONS,
 // which the server's user options may set at login.
 func (sqlserverEngine) implicitTransactionsSQL() string { return "SELECT (@@OPTIONS & 2) / 2" }
+func (sqlserverEngine) transactionStateSQL() string     { return "" }
+func (sqlserverEngine) driverCommitsStatements() bool   { return false }
 
 // Explain: under SET SHOWPLAN_XML the session returns each statement's
 // estimated plan instead of running it; under SET STATISTICS XML it runs
@@ -605,8 +597,10 @@ func (sqlserverEngine) InsertDefaultRowSQL(table string) string {
 
 // MaxParameters is the most parameters a statement may have: a request
 // takes 2100, two of them sp_executesql's own, which the driver sends.
-func (sqlserverEngine) MaxParameters() int       { return 2098 }
-func (sqlserverEngine) ProfilesInOneQuery() bool { return false }
+func (sqlserverEngine) MaxParameters() int               { return 2098 }
+func (sqlserverEngine) ProfilesInOneQuery() bool         { return false }
+func (sqlserverEngine) CountSQL(column, _ string) string { return "count(" + column + ")" }
+func (sqlserverEngine) NullSQL() string                  { return "NULL" }
 
 func (sqlserverEngine) Comparable(columnType string) bool {
 	switch typeName(columnType) {

@@ -237,6 +237,7 @@ func (clickhouseEngine) URLTLSParameters() map[string]map[string]TLSMode {
 func (clickhouseEngine) CloudIdentities() []Identity      { return nil }
 func (clickhouseEngine) ClearTextPassword() bool          { return false }
 func (clickhouseEngine) ServerEnforcesReadOnly() bool     { return true }
+func (clickhouseEngine) ServerReadOnlySince() string      { return "" }
 func (clickhouseEngine) DatabasesNeedOwnConnection() bool { return false }
 func (clickhouseEngine) DefaultSchemaName() string        { return "default" }
 func (clickhouseEngine) FileExtensions() []string         { return nil }
@@ -323,6 +324,8 @@ func (clickhouseEngine) OutsideTransaction(string) bool   { return false }
 func (clickhouseEngine) RollbackMayKeepChanges() bool     { return false }
 func (clickhouseEngine) RowCountWord() string             { return "changed" }
 func (clickhouseEngine) implicitTransactionsSQL() string  { return "" }
+func (clickhouseEngine) transactionStateSQL() string      { return "" }
+func (clickhouseEngine) driverCommitsStatements() bool    { return false }
 func (clickhouseEngine) ownRowCountSQL() string           { return "" }
 
 func (clickhouseEngine) Explain(statement string, analyze bool) (ExplainRun, bool) {
@@ -394,8 +397,10 @@ func (clickhouseEngine) InsertDefaultRowSQL(table string) string {
 	return "INSERT INTO " + table + " DEFAULT VALUES"
 }
 
-func (clickhouseEngine) MaxParameters() int       { return 65535 }
-func (clickhouseEngine) ProfilesInOneQuery() bool { return false }
+func (clickhouseEngine) MaxParameters() int               { return 65535 }
+func (clickhouseEngine) ProfilesInOneQuery() bool         { return false }
+func (clickhouseEngine) CountSQL(column, _ string) string { return "count(" + column + ")" }
+func (clickhouseEngine) NullSQL() string                  { return "NULL" }
 
 func (clickhouseEngine) Comparable(columnType string) bool {
 	t := strings.ToLower(columnType)
@@ -548,6 +553,7 @@ func (clickhouseEngine) TableCommentSQL(d Dialect, schema, table, comment string
 func (clickhouseEngine) ColumnCommentInline() bool           { return true }
 func (clickhouseEngine) HasComments() bool                   { return true }
 func (clickhouseEngine) KeepsColumnExtra() bool              { return false }
+func (clickhouseEngine) NotNullLast() bool                   { return false }
 func (clickhouseEngine) AutoIncrementSQL() string            { return "" }
 func (clickhouseEngine) HasAutoNumbering() bool              { return false }
 func (clickhouseEngine) HasForeignKeys() bool                { return false }
@@ -675,7 +681,10 @@ func (clickhouseEngine) MaintenanceCommands(quotedTable string) []MaintenanceCom
 	}
 }
 
-func (clickhouseEngine) readsAllResults() bool         { return false }
-func (clickhouseEngine) sessionDatabaseSQL() string    { return "" }
-func (clickhouseEngine) TakesEffectAtOnce(string) bool { return false }
-func (clickhouseEngine) BooleanLiteral(b bool) string  { return booleanWord(b) }
+func (clickhouseEngine) readsAllResults() bool              { return false }
+func (clickhouseEngine) sessionDatabaseSQL() string         { return "" }
+func (clickhouseEngine) ConnectionFields() ConnectionFields { return ConnectionFields{} }
+func (clickhouseEngine) sessionStartSQL() []string          { return nil }
+func (clickhouseEngine) messagesSQL() string                { return "" }
+func (clickhouseEngine) TakesEffectAtOnce(string) bool      { return false }
+func (clickhouseEngine) BooleanLiteral(b bool) string       { return booleanWord(b) }

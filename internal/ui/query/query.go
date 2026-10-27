@@ -576,6 +576,16 @@ func (q *Tab) StatementToRun() (string, error) {
 	return stmts[0], nil
 }
 
+// explainRefusal says why a run of mode cannot explain the statement, ""
+// when it can, or does not explain: the plan cannot be measured
+// (analyzeRefusal).
+func (q *Tab) explainRefusal(mode RunMode) string {
+	if mode == RunExplainAnalyze {
+		return q.analyzeRefusal()
+	}
+	return ""
+}
+
 // analyzeRefusal says why a statement's plan cannot be measured by
 // running it, "" when it can: the engine explains without running, or
 // the statement changes the database.
@@ -818,12 +828,10 @@ func (q *Tab) run(mode RunMode) {
 	if q.Running {
 		return
 	}
-	if mode == RunExplainAnalyze {
-		if why := q.analyzeRefusal(); why != "" {
-			q.note(why, "", true)
-			q.cellSkipped()
-			return
-		}
+	if why := q.explainRefusal(mode); why != "" {
+		q.note(why, "", true)
+		q.cellSkipped()
+		return
 	}
 	q.newTab = mode == RunNewTab
 	stmts, starts := q.statements(mode)
@@ -928,6 +936,10 @@ func (q *Tab) runBound(stmts []string, starts []int, values map[string]params.In
 	}
 	an := safety.Analyze(cfg, sqls)
 	for i := range an {
+		if explain != nil && explain.ReviewsTyped && skip <= len(sqls[i]) {
+			// The explain's own text around it writes nothing that lasts.
+			an[i].Analysis = safety.Analyze(cfg, []string{sqls[i][skip:]})[0].Analysis
+		}
 		an[i].Start, an[i].Args, an[i].Shown = starts[i], args[i], shown[i]
 		if sqls[i] != stmts[i] {
 			an[i].Typed = stmts[i]
@@ -1216,7 +1228,15 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 					sql, args := s.SQL, s.Args
 					if explain != nil && explain.Read != "" {
 						// The statement makes the plan, which Read's rows hold.
-						if _, err := sess.Exec(ctx, sql, args...); err != nil {
+						if explain.RunsWhole {
+							c, err := sess.Query(ctx, sql, args...)
+							if err != nil {
+								return err
+							}
+							if _, err := c.ReadAll(0); err != nil {
+								return err
+							}
+						} else if _, err := sess.Exec(ctx, sql, args...); err != nil {
 							return err
 						}
 						sql, args = explain.Read, nil
@@ -1229,8 +1249,9 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 					}
 					// Every result now, the statement run to its end: a
 					// batch's later statements wait for the rows before
-					// them, and an explain's After steps for its end.
-					if err == nil && (db.ReadsAllResults(cfg.Engine) || explain != nil && len(explain.After) > 0) {
+					// them, and an explain's Discard and After steps for
+					// its end.
+					if err == nil && (db.ReadsAllResults(cfg.Engine) || explain != nil && len(explain.After)+len(explain.Discard) > 0) {
 						var more []*db.Cursor
 						more, batchErr = cursor.ReadAll(db.MaxRows)
 						for _, c := range more {
@@ -2237,8 +2258,9 @@ func findObject(objs []db.Object, name string, quoted bool, engine db.Engine) (d
 }
 
 // matchName finds a name among names as the engine folds it, -1 when
-// none: PostgreSQL folds an unquoted name to lower case, ClickHouse folds
-// none, and the others find names whatever the case, the exact one first.
+// none: PostgreSQL folds an unquoted name to lower case, Oracle to upper
+// case, ClickHouse folds none, and the others find names whatever the
+// case, the exact one first.
 func matchName(names []string, name string, quoted bool, engine db.Engine) int {
 	folding := db.NamesIgnoreCase
 	if r, ok := db.SQL(engine); ok {
@@ -2247,7 +2269,9 @@ func matchName(names []string, name string, quoted bool, engine db.Engine) int {
 	switch {
 	case folding == db.NamesFoldToLower && !quoted:
 		return slices.Index(names, strings.ToLower(name))
-	case folding == db.NamesFoldToLower || folding == db.NamesKeepCase:
+	case folding == db.NamesFoldToUpper && !quoted:
+		return slices.Index(names, sqltext.FoldUnquoted(name, db.LexDialect(engine)))
+	case folding == db.NamesFoldToLower || folding == db.NamesFoldToUpper || folding == db.NamesKeepCase:
 		return slices.Index(names, name)
 	}
 	if i := slices.Index(names, name); i >= 0 {

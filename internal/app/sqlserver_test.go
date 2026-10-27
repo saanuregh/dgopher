@@ -212,7 +212,7 @@ func TestSQLServerFill(t *testing.T) {
 		`INSERT INTO dbo.it_fill_customers VALUES (1, N'Ada'), (2, N'Grace')`,
 		`CREATE TABLE dbo.it_fill_orders (id int IDENTITY(1,1) PRIMARY KEY, customer_id int NOT NULL REFERENCES dbo.it_fill_customers (id),
 			code nvarchar(40) NOT NULL UNIQUE, level tinyint, paid bit NOT NULL, total money, ref uniqueidentifier, placed datetimeoffset(7),
-			note nvarchar(max), ver rowversion, twice AS id * 2)`)
+			note nvarchar(max), ver rowversion, twice AS id * 2, bin varbinary(16) NOT NULL)`)
 	x := fillTable(t, a, tt, cn, "dbo", "it_fill_orders", "50", nil)
 	if x.err != "" {
 		t.Fatal(x.err)

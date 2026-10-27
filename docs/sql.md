@@ -31,6 +31,7 @@ each server exactly, and a test checks them against the real servers.
 | ClickHouse | `ClickHouse` |
 | SQLite | `SQLite` |
 | SQL Server | `TSQL` (Transact-SQL) |
+| Oracle | `Oracle` (SQL and PL/SQL) |
 
 Each engine's dialect is its rules' `LexDialect()`
 ([`internal/db/engine.go`](../internal/db/engine.go)); the engines built on
@@ -41,17 +42,17 @@ PostgreSQL and MySQL use their dialects.
 These rules decide where strings, names and comments end, and so where
 statements end.
 
-| Rule | PostgreSQL, DuckDB | MySQL | ClickHouse | SQLite | T-SQL |
-| --- | --- | --- | --- | --- | --- |
-| `--` comment | always; ends at `\n` or `\r` | only before whitespace or a control character (`1--1` is 2) | always; ends at `\n` | always; ends at `\n` | always; ends at `\n` or `\r` |
-| `#` comment | — | always | only before whitespace or `!` (`#x` is an error) | — | — (`#t` is a temporary table) |
-| `/* */` nests | yes | no | yes | no | yes |
-| `"…"` | name | string, `\` escapes | name, `\` escapes | name | name |
-| `` `…` `` | — | name | name, `\` escapes | name | — |
-| `[…]` | — | — | — | name | name; `]]` is one `]` |
-| `'…'` escapes | doubled quote; `E'…'` takes `\` | `\` and doubled quote | `\` and doubled quote | doubled quote | doubled quote; `N'…'` the same |
-| `$$…$$`, `$tag$…$tag$` | string | — | string | — | — |
-| `$` inside a name | yes | yes | yes | yes | yes, and `@` and `#` |
+| Rule | PostgreSQL, DuckDB | MySQL | ClickHouse | SQLite | T-SQL | Oracle |
+| --- | --- | --- | --- | --- | --- | --- |
+| `--` comment | always; ends at `\n` or `\r` | only before whitespace or a control character (`1--1` is 2) | always; ends at `\n` | always; ends at `\n` | always; ends at `\n` or `\r` | always; ends at `\n` only |
+| `#` comment | — | always | only before whitespace or `!` (`#x` is an error) | — | — (`#t` is a temporary table) | — |
+| `/* */` nests | yes | no | yes | no | yes | no |
+| `"…"` | name | string, `\` escapes | name, `\` escapes | name | name | name; no escape, the next `"` ends it |
+| `` `…` `` | — | name | name, `\` escapes | name | — | — |
+| `[…]` | — | — | — | name | name; `]]` is one `]` | — |
+| `'…'` escapes | doubled quote; `E'…'` takes `\` | `\` and doubled quote | `\` and doubled quote | doubled quote | doubled quote; `N'…'` the same | doubled quote; `N'…'` and `U'…'` the same; `q'[…]'` none |
+| `$$…$$`, `$tag$…$tag$` | string | — | string | — | — | — |
+| `$` inside a name | yes | yes | yes | yes | yes, and `@` and `#` | yes, and `#` |
 
 In every dialect:
 
@@ -64,8 +65,9 @@ In every dialect:
   character below U+0020, and U+0085, U+00A0, U+1680, U+2000 to U+200B,
   U+2028, U+2029, U+202F, U+205F and U+3000; ClickHouse U+0085, U+00A0,
   U+180E, U+2000 to U+200D, U+2028, U+2029, U+202F, U+205F, U+2060,
-  U+3000 and U+FEFF; SQLite U+FEFF where a token starts. The lexer reads
-  them so.
+  U+3000 and U+FEFF; SQLite U+FEFF where a token starts; Oracle's SQL
+  parser NUL and U+3000 (its PL/SQL compiler rejects both, and vertical
+  tabs and form feeds). The lexer reads them so.
 - DuckDB reads U+00A0, U+2000 to U+200B, U+202F, U+205F, U+2060, U+3000
   and U+FEFF as spaces, and PostgreSQL as part of a name, with one lexer
   for both: a statement holding a Unicode space outside strings, quoted
@@ -75,6 +77,12 @@ In every dialect:
   text names.
 - A multi-character operator never swallows the start of a comment, so
   `//* c */` keeps its comment.
+- Oracle reads these full-width forms as the ASCII punctuation they stand
+  for, in SQL but not PL/SQL: `！ ＆ （ ） ＊ ＋ ， － ． ／ ： ； ＜ ＝ ＞ ＠ ［ ］ ＾ ｛ ｜ ｝`.
+  So `IN (1）FOR UPDATE` locks rows. The lexer ends a name at one, and a
+  statement holding one outside strings, quoted names and comments counts
+  as a destructive write. No other character stands for a quote, a comment
+  or a `;`.
 
 In T-SQL:
 
@@ -84,6 +92,23 @@ In T-SQL:
   `$action` or `$PARTITION` a name. `x'…'` is a name followed by a string.
 - A `--` comment also ends at a lone `\r`. This reads more code than the
   server may run, never less.
+
+In Oracle:
+
+- `q'X…X'` is a string without escapes: `X` is any character but a space,
+  tab, line feed or quote, and `[`, `{`, `(` and `<` close with `]`, `}`,
+  `)` and `>`. The first `X'` ends it. `nq'…'` and `uq'…'` are the same.
+- `:name` and `:1` are bind variables; `&name` (SQL*Plus substitution) is
+  plain text, which the server rejects.
+- `1.5f` and `2d` are numbers whatever follows (`1from` is `1f` and
+  `rom`); `0x10` is `0` and a name. `@` before a database link is an
+  operator. Hints (`/*+ … */`) are comments.
+- The server runs one SQL statement per call, a trailing `;` allowed, or
+  one PL/SQL block; text after either is an error (ORA-03405).
+- An unquoted name stands for itself in upper case: `emp` is `EMP`
+  (`FoldUnquoted`). So a name needs quotes unless it is upper-case ASCII
+  letters, then digits, `_`, `$` and `#`, and no reserved word
+  (`NeedsQuoteIn`).
 
 [`internal/db/lexing_conformance_test.go`](../internal/db/lexing_conformance_test.go)
 runs a query per rule on each server and checks that the lexer agrees.
@@ -144,6 +169,27 @@ it.
   server. A view splits as other statements do.
 - **Control flow.** An `IF`, `WHILE` or `ELSE` keeps the statement it runs
   across a blank line, and a statement keeps an `ELSE` after it.
+
+### Oracle scripts
+
+Oracle scripts split as SQL*Plus and SQL Developer split them.
+
+- **`/`.** A line holding only `/` ends a statement or a PL/SQL unit.
+  Whitespace and comments that end on the line may follow it. The line
+  itself is not sent. A `/` inside a string, comment or quoted name is
+  text, and so is a `/` with code on its line. After a statement that a
+  `;` already ended, SQL*Plus runs the statement again; DGopher runs each
+  statement once.
+- **PL/SQL units.** An anonymous block (`DECLARE`, `BEGIN`, or a
+  `<<label>>` before one), a `CREATE` of a `PROCEDURE`, `FUNCTION`,
+  `PACKAGE [BODY]`, `TRIGGER`, `TYPE [BODY]`, `LIBRARY`, `JAVA` source or
+  `MLE MODULE` (after `OR REPLACE`, `EDITIONABLE` and the like), and a
+  query whose `WITH` declares a `FUNCTION` or `PROCEDURE` run to their `/`
+  line, or to the end of the text. `;` and blank lines end nothing in them.
+  So a block not followed by `/` takes in the statements after it, and the
+  server rejects the whole.
+- **Other statements** end at `;`, at a `/` line, or at a blank line when
+  the setting says so.
 
 ## Classification
 
@@ -310,6 +356,54 @@ that starts none, as the `DELETE` of `GRANT DELETE` or
   T-SQL and keep their danger. A procedure body keeps the danger of its
   statements. SQL held in a variable cannot be known.
 
+### Oracle
+
+Oracle runs a single statement per call, so the text holds one, or one
+PL/SQL unit. The rules are in [`oracle.go`](../internal/sqltext/oracle.go).
+
+- **Reads:** `SELECT` and `WITH` queries, but those below.
+- **Session:** `ALTER SESSION` and `SET ROLE`.
+- **Transactions:** `COMMIT`, `ROLLBACK`, `SAVEPOINT`, `SET TRANSACTION`
+  and `SET CONSTRAINTS`.
+- **Writes:** `INSERT` (with `ALL` and `FIRST` too), `UPDATE`, `DELETE`,
+  `MERGE`, `CALL`, `LOCK TABLE`, `EXPLAIN PLAN` (it writes `PLAN_TABLE`),
+  `ALTER SYSTEM`, `COMMIT FORCE` and `ROLLBACK FORCE`, and every PL/SQL
+  block. Also `ALTER SESSION SET EVENTS` and `SQL_TRACE`, which write trace
+  files on the server, a hidden `_parameter`, and `DISABLE GUARD`. SQL*Plus
+  commands (`EXEC`, `DESCRIBE`, `SET SERVEROUTPUT`, `SHOW`) are not SQL; the
+  server rejects them, and they count as writes.
+- **Writes hidden in reads:** `FOR UPDATE`; `SELECT … INTO`; a sequence's
+  `NEXTVAL`; `HTTPURITYPE`, `URIFACTORY` and `APEX_WEB_SERVICE`, which
+  fetch URLs; a query whose `WITH` declares PL/SQL, a subquery's too; any
+  function of a `DBMS_` or `UTL_` package, called with or without
+  parentheses, after `FROM` or `JOIN` too, but those known to read
+  (`oracleReads`), such as
+  `DBMS_METADATA.GET_DDL`, `DBMS_XPLAN.DISPLAY_CURSOR`, `DBMS_RANDOM` and
+  `UTL_RAW`; a function named `dbms_` or `utl_` of your own; and a `SYS.`
+  function but the ODCI list types.
+- **Schema changes:** `CREATE`, `ALTER` (but `SESSION` and `SYSTEM`),
+  `DROP`, `TRUNCATE`, `RENAME`, `COMMENT`, `GRANT`, `REVOKE`, `AUDIT`,
+  `NOAUDIT`, `ANALYZE`, `ASSOCIATE` and `DISASSOCIATE STATISTICS`,
+  `FLASHBACK` and `PURGE`. Each commits the open transaction before and
+  after it runs (`OracleCommitsImplicitly`), even some that fail, as a
+  `DROP` of a missing table.
+- **Destructive**, besides the general rules: `PURGE`, `FLASHBACK` but
+  `TO BEFORE DROP`, `ALTER TABLE … SET UNUSED`,
+  `EXCHANGE PARTITION` and `TRUNCATE SUBPARTITION`.
+- **Code:** a PL/SQL block and a routine keep the danger of their
+  statements, those under `FORALL` and after a `<<label>>` too. The
+  strings `EXECUTE IMMEDIATE` runs, joined with `||`, in parentheses too,
+  and those given to `DBMS_SQL.PARSE` and
+  `DBMS_UTILITY.EXEC_DDL_STATEMENT`, by position or by name, and run by
+  `CALL` or `EXEC` too, are read as code; so are the actions a job runs
+  later, given to `DBMS_SCHEDULER.CREATE_JOB` (`job_action`) and to
+  `DBMS_JOB`'s `SUBMIT`, `ISUBMIT`, `CHANGE` and `WHAT` (`what`). SQL held
+  in a variable cannot be known.
+- **Not known:** a function of your own may write in an autonomous
+  transaction (`PRAGMA AUTONOMOUS_TRANSACTION`), and so may a synonym of a
+  `DBMS_` package. A `SELECT` calling one counts as a read, and Oracle's
+  `SET TRANSACTION READ ONLY` does not stop it.
+
 ### Reads
 
 Reads include `SHOW`, `DESCRIBE`, `EXPLAIN`, `FETCH`, cursor declarations
@@ -321,12 +415,15 @@ write.
 ### Secrets
 
 History and the audit log redact secrets from statements, and from errors
-that quote them. Secrets are found with the PostgreSQL, MySQL and
-ClickHouse lexers together, so a backslash-escaped quote cannot cut one
+that quote them. Secrets are found with the PostgreSQL, MySQL, ClickHouse
+and Oracle lexers together, so a backslash-escaped quote cannot cut one
 short. The redactor ([`internal/redact`](../internal/redact)) hides:
 
 - strings after `PASSWORD`, `IDENTIFIED … BY`, `SECRET`, `TOKEN`,
   `SESSION_TOKEN`, `CONNECTION_STRING` and `EXTRA_HTTP_HEADERS`;
+- Oracle's unquoted passwords, right after `IDENTIFIED BY` and after the
+  `REPLACE` that follows one, as in `ALTER USER u IDENTIFIED BY new
+  REPLACE old`;
 - the arguments of functions and table engines that take credentials, such
   as `dblink`, `mysql()`, `s3()`, `MaterializedPostgreSQL` and `S3Queue`;
 - any string that holds `password=`, `pwd=`, `passwd=`, `AccountKey=`,
@@ -364,12 +461,20 @@ Why these choices:
 | Syntax | Engines | Sent as |
 | --- | --- | --- |
 | `:name` | all | a placeholder with its value |
+| `:1` | Oracle | a placeholder with its value |
 | `@name`, `$name` | SQLite | a placeholder with its value |
 | `{name:Type}` | ClickHouse | a server-side query parameter; the text is unchanged |
 | `${var}` | all | written into the text, which is then checked again |
 
 - In T-SQL, `@name` is the server's variable, not a parameter, and a `:`
   right after a name, as a label's, starts none.
+- In Oracle, `:name` is the server's bind variable too, and so is a
+  numbered one, `:1`: the app asks for a value of each, as for any
+  `:name`, and sends each as a bind by position, its value given in
+  order. An Oracle `CREATE` has no parameters: DDL takes no binds, and a
+  trigger's `:new` and `:old` name its rows. `&name` (SQL*Plus
+  substitution) is not a parameter: it is sent as written, and the server
+  rejects it.
 - A statement that mixes `:name` with `$1` or `?` placeholders is refused.
 - You type values in the editor's Parameters bar. A run asks for any value
   left empty there, unless its kind is NULL. The kind you choose is kept.
@@ -389,6 +494,9 @@ and [`internal/params`](../internal/params/params.go).
   only clause, join and operator words are upper-cased.
 - On T-SQL only reserved words are upper-cased, as a case-sensitive
   collation tells other words apart by case. `[names]` are kept as written.
+- On Oracle every keyword is upper-cased, as the server folds unquoted
+  names to upper case. A `/` is never left alone on a line, where it would
+  end the statement.
 - It never adds a space that would create a comment, such as between
   MySQL's `-` `-`.
 
@@ -398,5 +506,6 @@ and [`internal/params`](../internal/params/params.go).
 | --- | --- |
 | `go test ./internal/sqltext` | the lexer, splitter, classifier, parameters, completion and formatter |
 | `go test ./internal/sqltext -run '^$' -fuzz '^FuzzTokenize$' -fuzztime 60s` | that tokens cover the text and formatting keeps every token |
+| `go test ./internal/sqltext -run '^$' -fuzz '^FuzzOracle$' -fuzztime 60s` | the same for Oracle, with splitting, classifying and parameters |
 | `DGOPHER_IT=1 go test ./internal/db -p 1 -run LexingConformance` | the lexing rules against the real servers |
 | `go test ./internal/sqltext -run '^$' -bench Tokenize -benchmem` | the lexer's speed |

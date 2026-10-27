@@ -464,9 +464,11 @@ func TestPinCopyReplaceEmpties(t *testing.T) {
 func TestPinConnectionFormDatabaseField(t *testing.T) {
 	labels := []string{"Database", "Database index", "Database file"}
 	pinValues(t, "connection form database", map[string]string{
-		"postgres":   "Database=true Database index=false Database file=false",
-		"mysql":      "Database=true Database index=false Database file=false",
-		"sqlserver":  "Database=true Database index=false Database file=false",
+		"postgres":  "Database=true Database index=false Database file=false",
+		"mysql":     "Database=true Database index=false Database file=false",
+		"sqlserver": "Database=true Database index=false Database file=false",
+		// Oracle's is its service name.
+		"oracle":     "Database=false Database index=false Database file=false",
 		"clickhouse": "Database=true Database index=false Database file=false",
 		"redis":      "Database=true Database index=true Database file=false",
 		"sqlite":     "Database=false Database index=false Database file=false",

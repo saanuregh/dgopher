@@ -12,6 +12,7 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5/pgconn"
 	mssql "github.com/microsoft/go-mssqldb"
+	"github.com/sijms/go-ora/v3/network"
 	"modernc.org/sqlite"
 )
 
@@ -53,6 +54,7 @@ func DescribeError(err error) ErrorInfo {
 	var duck *duckdb.Error
 	var lite *sqlite.Error
 	var ms mssql.Error
+	var ora *network.OracleError
 	switch {
 	case errors.As(err, &pg):
 		info.Message, info.Code, info.Detail, info.Hint = pg.Message, pg.Code, pg.Detail, pg.Hint
@@ -96,6 +98,14 @@ func DescribeError(err error) ErrorInfo {
 		}
 	case errors.As(err, &lite):
 		info.Code = fmt.Sprint(lite.Code())
+	case errors.As(err, &ora):
+		// "ORA-00942: table or view … does not exist", which go-ora ends
+		// with where the statement went wrong, 0-based.
+		info.Code = fmt.Sprintf("ORA-%05d", ora.ErrCode)
+		info.Message = strings.TrimSpace(strings.TrimPrefix(ora.ErrMsg, info.Code+":"))
+		if at := ora.ErrPos(); at > 0 {
+			info.Position, info.Bytes = at+1, true
+		}
 	case errors.As(err, &ms):
 		// The last error of a statement is the one described; the others
 		// come before it, as SQL Server sends them.
@@ -119,6 +129,15 @@ func DescribeError(err error) ErrorInfo {
 	if hint := conflictHint(err); hint != "" {
 		info.Hint = strings.TrimSpace(hint + "\n" + info.Hint)
 	}
+	if strings.Contains(info.Message, oracleXMLTypeError) {
+		info.Hint = oracleXMLTypeHint
+	}
+	if ora != nil && ora.ErrCode == 942 && oracleCatalogView.MatchString(info.Message) {
+		info.Hint = oracleCatalogHint
+	}
+	if errors.As(err, new(oracleNoLengthError)) || oracleTTCError(info.Message) {
+		info.Hint = oracleNoLengthHint
+	}
 	return info
 }
 
@@ -141,13 +160,19 @@ func caretOf(detail string) (line, column int, bytes bool) {
 // conflictHint is the hint of an error that ends a transaction clashing
 // with another, which may succeed run again from its start: TiDB's write
 // conflict (9007), a serialization failure (SQLSTATE 40001) of
-// PostgreSQL's family, as CockroachDB's retry errors, and SQL Server's
-// deadlock victim (1205) and snapshot update conflict (3960). The app never runs
-// it again itself. "" for any other error.
+// PostgreSQL's family, as CockroachDB's retry errors, SQL Server's
+// deadlock victim (1205) and snapshot update conflict (3960), and Oracle's
+// deadlock (ORA-00060) and serialization failure (ORA-08177). The app
+// never runs it again itself. "" for any other error.
 func conflictHint(err error) string {
 	var pg *pgconn.PgError
 	var ms mssql.Error
+	var ora *network.OracleError
 	switch {
+	case errors.As(err, &ora) && ora.ErrCode == 60:
+		return "The statement was chosen to break a deadlock and rolled back; the rest of the transaction stays. Roll back and run it again from its start, it may succeed; DGopher never runs it again on its own."
+	case errors.As(err, &ora) && ora.ErrCode == 8177:
+		return "The serializable transaction clashed with another that changed the same rows. Roll back and run it again from its start, it may succeed; DGopher never runs it again on its own."
 	case errors.As(err, &ms) && ms.Number == 1205:
 		return "The transaction was chosen as the victim of a deadlock and rolled back. Run it again from its start, it may succeed; DGopher never runs it again on its own."
 	case errors.As(err, &ms) && ms.Number == 3960:

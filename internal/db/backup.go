@@ -45,6 +45,9 @@ const (
 	// BackupServerFile is SQL Server's BACKUP DATABASE into a file on the
 	// server's disk, which RESTORE DATABASE restores.
 	BackupServerFile BackupFormat = "server"
+	// BackupDataPump is an Oracle schema in a dump file on the server,
+	// which Data Pump's expdp writes and impdp imports.
+	BackupDataPump BackupFormat = "datapump"
 )
 
 // Label names a format.
@@ -62,13 +65,15 @@ func (f BackupFormat) Label() string {
 		return "BACPAC file"
 	case BackupServerFile:
 		return "Backup file on the server"
+	case BackupDataPump:
+		return "Data Pump file on the server"
 	}
 	return string(f)
 }
 
 // OnServer reports whether a format's file is on the server's disk, at a
 // path the server reads, which this computer cannot choose.
-func (f BackupFormat) OnServer() bool { return f == BackupServerFile }
+func (f BackupFormat) OnServer() bool { return f == BackupServerFile || f == BackupDataPump }
 
 // BackupContent is what of a database a backup keeps.
 type BackupContent int

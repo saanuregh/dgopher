@@ -66,8 +66,9 @@ var credentialProcedures = map[string]bool{
 
 // lexDialects are the lexers whose secrets are all redacted: callers do
 // not know the engine, and each reads strings its own way (PostgreSQL's
-// dollar quotes, MySQL's and ClickHouse's backslash escapes).
-var lexDialects = []sqltext.Dialect{sqltext.Postgres, sqltext.MySQL, sqltext.ClickHouse}
+// dollar quotes, MySQL's and ClickHouse's backslash escapes, Oracle's
+// q'[…]' quotes).
+var lexDialects = []sqltext.Dialect{sqltext.Postgres, sqltext.MySQL, sqltext.ClickHouse, sqltext.Oracle}
 
 // Secrets replaces the secrets of a statement or command with •••,
 // for the query history and the audit log.
@@ -256,6 +257,8 @@ type secretRange struct{ start, end int }
 // sqlSecrets finds, as one lexer reads them, the strings that carry
 // passwords: after PASSWORD (PASSWORD FOR 'u' = 'x' included) or
 // IDENTIFIED … BY, the strings among the arguments of credentialFunctions,
+// Oracle's bare-word password right after IDENTIFIED BY, and after the
+// REPLACE that follows it,
 // and the MAP {…} after a word such as EXTRA_HTTP_HEADERS. It reads the
 // tokens, so a string that only mentions a password stays. found are the
 // tokens cut that are secrets for certain, as written.
@@ -275,6 +278,10 @@ func sqlSecrets(s string, d sqltext.Dialect) (ranges []secretRange, found []stri
 		wantEquals // after PASSWORD FOR: the user, then =
 	)
 	state, identified := idle, false
+	// bare: the token may be a bare-word password, as right after
+	// IDENTIFIED BY, or after the REPLACE that follows that password;
+	// afterSecret: the last token was that password.
+	bare, afterSecret, lastWord := false, false, ""
 	depth, inFunc := 0, false
 	inCall := false // the arguments of a credentialProcedures call
 	prevIdent := ""
@@ -282,11 +289,13 @@ func sqlSecrets(s string, d sqltext.Dialect) (ranges []secretRange, found []stri
 	mapDepth, mapStart := 0, 0
 	var mapValue sqltext.Token
 	hasMapValue := false
-	for _, t := range toks {
+	for i, t := range toks {
 		switch t.Kind {
 		case sqltext.Whitespace, sqltext.Comment:
 			continue
 		}
+		wasBare, wasSecret, prevWord := bare, afterSecret, lastWord
+		bare, afterSecret, lastWord = false, false, ""
 		if mapDepth > 0 {
 			switch {
 			case t.Kind == sqltext.String:
@@ -314,13 +323,22 @@ func sqlSecrets(s string, d sqltext.Dialect) (ranges []secretRange, found []stri
 			if (inFunc || inCall) && t.Kind == sqltext.String || state == wantSecret || t.Kind == sqltext.String && carriesPassword(t.Text) {
 				cut(t, state == wantSecret || inCall || carriesPassword(t.Text))
 				if state == wantSecret {
-					state = idle
+					state, afterSecret = idle, wasBare
 				}
 			}
 			prevIdent = ""
 			continue
 		}
 		word := strings.ToUpper(t.Text)
+		if wasBare && state == wantSecret && (t.Kind == sqltext.Identifier || t.Kind == sqltext.Keyword) && !keywordAfterBy(toks, i) {
+			if word == "VALUES" || prefixesString(toks, i) {
+				bare = true // the secret is the string that follows
+			} else {
+				cut(t, true)
+				state, afterSecret = idle, true
+			}
+			continue
+		}
 		switch {
 		case word == ";":
 			inCall = false
@@ -356,6 +374,7 @@ func sqlSecrets(s string, d sqltext.Dialect) (ranges []secretRange, found []stri
 			identified = true
 		case (word == "BY" || word == "REPLACE") && identified:
 			state = wantSecret
+			bare = word == "BY" && prevWord == "IDENTIFIED" || word == "REPLACE" && wasSecret
 		default:
 			state = idle
 		}
@@ -363,8 +382,41 @@ func sqlSecrets(s string, d sqltext.Dialect) (ranges []secretRange, found []stri
 		if t.Kind == sqltext.Identifier || t.Kind == sqltext.Keyword {
 			prevIdent = t.Text
 		}
+		lastWord = word
 	}
 	return ranges, found
+}
+
+// keywordAfterBy reports a word at toks[i], after IDENTIFIED BY, that is
+// no password: MySQL's RANDOM PASSWORD and PASSWORD 'hash', whose hash
+// PASSWORD makes a secret, and Oracle's EXTERNAL STORE.
+func keywordAfterBy(toks []sqltext.Token, i int) bool {
+	var next sqltext.Token
+	for _, t := range toks[i+1:] {
+		if t.Kind != sqltext.Whitespace && t.Kind != sqltext.Comment {
+			next = t
+			break
+		}
+	}
+	switch strings.ToUpper(toks[i].Text) {
+	case "RANDOM":
+		return strings.EqualFold(next.Text, "PASSWORD")
+	case "PASSWORD":
+		return next.Kind == sqltext.String
+	case "EXTERNAL":
+		return strings.EqualFold(next.Text, "STORE")
+	}
+	return false
+}
+
+// prefixesString reports a word written against the string or & after
+// it, as the E of E'x', the q of q'[x]' a lexer other than Oracle's
+// reads, and the U of U&'x'.
+func prefixesString(toks []sqltext.Token, i int) bool {
+	if i+1 >= len(toks) || toks[i+1].Start != toks[i].End {
+		return false
+	}
+	return toks[i+1].Kind == sqltext.String || toks[i+1].Text == "&"
 }
 
 // redisSecretSettings are the CONFIG SET parameters that hold secrets.

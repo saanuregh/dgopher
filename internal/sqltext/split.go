@@ -58,8 +58,10 @@ func splitSegmentsWithoutBodies(s string, d Dialect, q quoting, o SplitOptions) 
 // inside a routine body (CREATE PROCEDURE … BEGIN … END and the like) stays
 // in its statement; a body still open at the end of the text is split again
 // without bodies, so an unclosed BEGIN never merges statements. In T-SQL
-// a GO line ends a batch, ';' ends nothing, and blocks are read as
-// tsqlBlocks says.
+// and Oracle a separator line (separatorLine) ends a statement and is no
+// statement itself; in T-SQL ';' ends nothing, and in Oracle it ends
+// nothing inside a PL/SQL unit, whose blocks are read as blockState's
+// steps say.
 func splitTokens(s string, toks []Token, d Dialect, q quoting, o SplitOptions, bodies bool) []segment {
 	var out []segment
 	var cur []Token
@@ -67,31 +69,26 @@ func splitTokens(s string, toks []Token, d Dialect, q quoting, o SplitOptions, b
 	if d == MySQL && o.Delimiter != "" {
 		delimiter = o.Delimiter
 	}
-	// blocks holds the open blocks: 'B' for a body BEGIN, 'C' for CASE.
-	var blocks []byte
-	openBodies, parens, codeTokens := 0, 0, 0
+	var st blockState
+	codeTokens := 0
 	header := 0 // 0 unknown, 1 routine header, -1 not
 	skipBlockWord := -1
 	bodyEnd := -1
 	var prev Token
-	// T-SQL only: routine is 1 when the statement creates or alters a
-	// procedure, function or trigger, whose body runs to the end of its
-	// batch, -1 when not, 0 before it is known; control marks an IF, WHILE
-	// or ELSE still waiting for the statement it runs.
-	tsql := d == TSQL
-	routine, control := 0, false
+	tsql, oracle := d == TSQL, d == Oracle
 	reset := func() {
-		cur, blocks = nil, blocks[:0]
-		openBodies, parens, codeTokens, header, skipBlockWord, bodyEnd = 0, 0, 0, 0, -1, -1
-		routine, control = 0, false
+		cur = nil
+		st.reset()
+		codeTokens, header, skipBlockWord, bodyEnd = 0, 0, -1, -1
 	}
 	closeSegment := func(terminated bool) {
 		out = append(out, segment{toks: cur, terminated: terminated, bodyEnd: bodyEnd, delim: delimiter})
 		reset()
 	}
-	// flush ends the statement at the end of the text or of a T-SQL batch.
+	// flush ends the statement at the end of the text or at a separator
+	// line.
 	flush := func() {
-		if openBodies == 0 {
+		if st.openBodies == 0 {
 			closeSegment(false)
 			return
 		}
@@ -101,26 +98,10 @@ func splitTokens(s string, toks []Token, d Dialect, q quoting, o SplitOptions, b
 		reset()
 		out = append(out, splitTokens(s, open, d, q, again, false)...)
 	}
-	// keepsTogether reports whether the blank line at toks[i] is inside a
-	// T-SQL statement: a routine's body, an IF, WHILE or ELSE before its
-	// statement, or before an ELSE.
-	keepsTogether := func(i int) bool {
-		if !tsql {
-			return false
-		}
-		if routine == 0 {
-			routine = -1
-			if tsqlRoutineHeader(cur) {
-				routine = 1
-			}
-		}
-		_, next := nextSignificant(toks, i)
-		return routine == 1 || control || next == "ELSE"
-	}
 	for i := 0; i < len(toks); i++ {
 		t := toks[i]
-		if tsql && isWord(t, "GO") && atLineStart(s, t.Start) {
-			if next, count, ok := goLine(s, toks, i); ok {
+		if tsql || oracle {
+			if next, count, ok := separatorLine(s, toks, i, d); ok {
 				if len(cur) > 0 {
 					flush()
 				}
@@ -170,12 +151,12 @@ func splitTokens(s string, toks []Token, d Dialect, q quoting, o SplitOptions, b
 		}
 		// A T-SQL batch is sent whole, as SSMS sends it: ';' ends no
 		// statement there, so a variable stays in scope after one.
-		if isPunct(t, ";") && openBodies == 0 && !tsql {
+		if isPunct(t, ";") && st.openBodies == 0 && !tsql && !st.unit {
 			closeSegment(true)
 			continue
 		}
 		if t.Kind == Whitespace {
-			if o.Mode == BlankLineAndSemicolon && parens <= 0 && len(blocks) == 0 && len(cur) > 0 && lineBreaks(t.Text) >= 2 && !keepsTogether(i) {
+			if o.Mode == BlankLineAndSemicolon && st.parens <= 0 && len(st.blocks) == 0 && len(cur) > 0 && lineBreaks(t.Text) >= 2 && !st.keepsTogether(toks, i, cur, d) {
 				closeSegment(false)
 				continue
 			}
@@ -189,23 +170,27 @@ func splitTokens(s string, toks []Token, d Dialect, q quoting, o SplitOptions, b
 			continue
 		}
 		codeTokens++
-		if tsql {
-			parens, blocks, openBodies, control = tsqlBlocks(toks, i, cur, parens, blocks, openBodies, control, bodies)
+		switch {
+		case tsql:
+			st.tsqlStep(toks, i, cur, bodies)
+			continue
+		case oracle:
+			st.oracleStep(toks, i, codeTokens == 1, bodies)
 			continue
 		}
 		before := prev
 		prev = t
 		switch {
 		case isPunct(t, "("):
-			parens++
+			st.parens++
 		case isPunct(t, ")"):
-			parens--
+			st.parens--
 		case i == skipBlockWord:
 		case t.Kind == Keyword || t.Kind == Identifier:
 			switch strings.ToUpper(t.Text) {
 			case "BEGIN":
 				// A statement-initial BEGIN starts a transaction, not a body.
-				if !bodies || codeTokens <= 1 || parens > 0 {
+				if !bodies || codeTokens <= 1 || st.parens > 0 {
 					break
 				}
 				if header == 0 {
@@ -218,12 +203,12 @@ func splitTokens(s string, toks []Token, d Dialect, q quoting, o SplitOptions, b
 				// the header already holds; a statement starting "name: BEGIN"
 				// is the only other place it may open a body.
 				label := d == MySQL && before.Kind == Operator && before.Text == ":" && codeTokens == 3
-				if (header == 1 || openBodies > 0 || label) && opensBody(before, toks, i) {
-					blocks = append(blocks, 'B')
-					openBodies++
+				if (header == 1 || st.openBodies > 0 || label) && opensBody(before, toks, i) {
+					st.blocks = append(st.blocks, 'B')
+					st.openBodies++
 				}
 			case "CASE":
-				blocks = append(blocks, 'C')
+				st.blocks = append(st.blocks, 'C')
 			case "END":
 				next, word := nextSignificant(toks, i)
 				switch word {
@@ -231,19 +216,19 @@ func splitTokens(s string, toks []Token, d Dialect, q quoting, o SplitOptions, b
 					skipBlockWord = next
 				case "CASE":
 					skipBlockWord = next
-					if n := len(blocks); n > 0 && blocks[n-1] == 'C' {
-						blocks = blocks[:n-1]
+					if n := len(st.blocks); n > 0 && st.blocks[n-1] == 'C' {
+						st.blocks = st.blocks[:n-1]
 					}
 				default:
-					n := len(blocks)
+					n := len(st.blocks)
 					switch {
 					case n == 0:
-					case blocks[n-1] == 'C':
-						blocks = blocks[:n-1]
+					case st.blocks[n-1] == 'C':
+						st.blocks = st.blocks[:n-1]
 					case closesBody(before, toks, next):
-						blocks = blocks[:n-1]
-						openBodies--
-						if openBodies == 0 && bodyEnd < 0 {
+						st.blocks = st.blocks[:n-1]
+						st.openBodies--
+						if st.openBodies == 0 && bodyEnd < 0 {
 							bodyEnd = len(cur) - 1
 						}
 					}
@@ -257,48 +242,116 @@ func splitTokens(s string, toks []Token, d Dialect, q quoting, o SplitOptions, b
 	return out
 }
 
+// blockState is what splitTokens knows of the blocks open in the statement
+// it reads. T-SQL's and Oracle's steps (tsqlStep, oracleStep) keep it for
+// theirs; other dialects keep its parens, blocks and bodies themselves.
+type blockState struct {
+	parens int
+	// blocks holds the open blocks: 'B' for a body BEGIN, 'C' for CASE.
+	blocks     []byte
+	openBodies int
+	// routine is 1 when a T-SQL statement creates or alters a procedure,
+	// function or trigger, whose body runs to the end of its batch, -1
+	// when not, 0 before it is known; control marks an IF, WHILE or ELSE
+	// still waiting for the statement it runs.
+	routine int
+	control bool
+	// unit marks an Oracle PL/SQL unit (oracleUnitStart), which runs to
+	// its separator line or the end of the text.
+	unit bool
+}
+
+func (st *blockState) reset() {
+	*st = blockState{blocks: st.blocks[:0]}
+}
+
+// keepsTogether reports whether the blank line at toks[i] is inside a
+// statement of d, whose tokens so far are cur, besides its parentheses
+// and blocks: a T-SQL routine's body, an IF, WHILE or ELSE before its
+// statement, or before an ELSE; an Oracle PL/SQL unit.
+func (st *blockState) keepsTogether(toks []Token, i int, cur []Token, d Dialect) bool {
+	switch d {
+	case Oracle:
+		return st.unit
+	case TSQL:
+	default:
+		return false
+	}
+	if st.routine == 0 {
+		st.routine = -1
+		if tsqlRoutineHeader(cur) {
+			st.routine = 1
+		}
+	}
+	_, next := nextSignificant(toks, i)
+	return st.routine == 1 || st.control || next == "ELSE"
+}
+
 // tsqlBeginsStatement are the words after a T-SQL BEGIN that make it a
 // statement of its own rather than open a block.
 var tsqlBeginsStatement = setOf("TRAN TRANSACTION DISTRIBUTED DIALOG CONVERSATION")
 
-// tsqlBlocks follows T-SQL's blocks through the code token toks[i], the
-// last of cur, and returns the new state: BEGIN … END (with TRY or CATCH
-// or not), unless BEGIN starts a transaction or dialog; CASE … END; and
-// whether an IF, WHILE or ELSE waits for its statement. BEGIN and END are
-// reserved, so never names. Without bodies, BEGIN opens nothing.
-func tsqlBlocks(toks []Token, i int, cur []Token, parens int, blocks []byte, openBodies int, control, bodies bool) (int, []byte, int, bool) {
+// tsqlStep follows T-SQL's blocks through the code token toks[i], the
+// last of cur: BEGIN … END (with TRY or CATCH or not), unless BEGIN starts
+// a transaction or dialog; CASE … END; and whether an IF, WHILE or ELSE
+// waits for its statement. BEGIN and END are reserved, so never names.
+// Without bodies, BEGIN opens nothing.
+func (st *blockState) tsqlStep(toks []Token, i int, cur []Token, bodies bool) {
 	t := toks[i]
 	w := word(t)
 	_, next := nextSignificant(toks, i)
-	inCase := len(blocks) > 0 && blocks[len(blocks)-1] == 'C'
+	inCase := len(st.blocks) > 0 && st.blocks[len(st.blocks)-1] == 'C'
 	switch {
 	case isPunct(t, "("):
-		parens++
+		st.parens++
 	case isPunct(t, ")"):
-		parens--
-	case parens > 0 || w == "":
+		st.parens--
+	case st.parens > 0 || w == "":
 	case w == "CASE":
-		blocks = append(blocks, 'C')
+		st.blocks = append(st.blocks, 'C')
 	case w == "END":
-		if next != "CONVERSATION" && len(blocks) > 0 {
+		if next != "CONVERSATION" && len(st.blocks) > 0 {
 			if !inCase {
-				openBodies--
+				st.openBodies--
 			}
-			blocks = blocks[:len(blocks)-1]
+			st.blocks = st.blocks[:len(st.blocks)-1]
 		}
 	case inCase:
 	case w == "BEGIN":
-		control = false
+		st.control = false
 		if bodies && !tsqlBeginsStatement[next] {
-			blocks = append(blocks, 'B')
-			openBodies++
+			st.blocks = append(st.blocks, 'B')
+			st.openBodies++
 		}
 	case w == "WHILE", w == "ELSE", w == "IF" && !(next == "EXISTS" && dropsBefore(cur[:len(cur)-1])):
-		control = true
+		st.control = true
 	case tsqlStatementWords[w]:
-		control = false
+		st.control = false
 	}
-	return parens, blocks, openBodies, control
+}
+
+// oracleStep follows an Oracle statement through the code token toks[i],
+// its first when first: a PL/SQL unit, from its start or from a
+// subquery's WITH that declares PL/SQL, which ';' does not end and whose
+// blocks need no reading, as its separator line or the end of the text
+// ends it; otherwise parentheses and CASE … END, which keep a blank line.
+// Without bodies, no unit starts, so each ';' ends a statement.
+func (st *blockState) oracleStep(toks []Token, i int, first, bodies bool) {
+	t := toks[i]
+	if bodies && (first && oracleUnitStart(toks, i) || !first && declaresPLSQL(toks, i)) {
+		st.unit = true
+	}
+	switch {
+	case st.unit:
+	case isPunct(t, "("):
+		st.parens++
+	case isPunct(t, ")"):
+		st.parens--
+	case isWord(t, "CASE"):
+		st.blocks = append(st.blocks, 'C')
+	case isWord(t, "END") && len(st.blocks) > 0:
+		st.blocks = st.blocks[:len(st.blocks)-1]
+	}
 }
 
 // dropsBefore reports whether one of the last three code tokens of toks
@@ -344,13 +397,28 @@ func tsqlRoutineHeader(toks []Token) bool {
 	return false
 }
 
-// goLine reads the line of the T-SQL batch separator GO, the word
-// toks[i]: GO alone on its line but for whitespace, comments that end on
-// it and a count, as sqlcmd and SSMS read it. next is the index of the
+// separatorLine reads a line that ends a statement and is no statement
+// itself, starting at the code token toks[i]: T-SQL's batch separator GO,
+// as sqlcmd and SSMS read it, which may give a count, or Oracle's "/", as
+// SQL*Plus and SQL Developer read it, which may not; alone on its line but
+// for whitespace and comments that end on it. next is the index of the
 // first token after the line; count is "" for none or 1.
-func goLine(s string, toks []Token, i int) (next int, count string, ok bool) {
-	lineEnd := toks[i].End
-	for lineEnd < len(s) && s[lineEnd] != '\n' && s[lineEnd] != '\r' {
+func separatorLine(s string, toks []Token, i int, d Dialect) (next int, count string, ok bool) {
+	t := toks[i]
+	counted := false
+	switch {
+	case d == TSQL && isWord(t, "GO"):
+		counted = true
+	case d == Oracle && t.Kind == Operator && t.Text == "/":
+	default:
+		return 0, "", false
+	}
+	if !atLineStart(s, t.Start) {
+		return 0, "", false
+	}
+	// An Oracle line comment runs past a carriage return, to a line feed.
+	lineEnd := t.End
+	for lineEnd < len(s) && s[lineEnd] != '\n' && (s[lineEnd] != '\r' || d == Oracle) {
 		lineEnd++
 	}
 	k := i + 1
@@ -358,7 +426,7 @@ func goLine(s string, toks []Token, i int) (next int, count string, ok bool) {
 		switch t := toks[k]; {
 		case t.Kind == Whitespace:
 		case t.Kind == Comment && t.End <= lineEnd:
-		case t.Kind == Number && count == "" && strings.Trim(t.Text, "0123456789") == "":
+		case counted && t.Kind == Number && count == "" && strings.Trim(t.Text, "0123456789") == "":
 			count = t.Text
 		default:
 			return 0, "", false
@@ -605,7 +673,12 @@ func resumeAt(s string, toks []Token, p int, d Dialect, q quoting) []Token {
 // not a statement, but for "GO n", which is; at a blank line, every
 // BEGIN … END block keeps its statements, a procedure, function or trigger
 // runs to the end of its batch, and an IF, WHILE or ELSE keeps the
-// statement it runs and an ELSE after it. Text and Start exclude leading comments; End is the end of the last
+// statement it runs and an ELSE after it. For Oracle, a "/" line ends a
+// statement and is not one, and a PL/SQL unit (an anonymous block, or
+// CREATE of a procedure, function, package, trigger, type, library, Java
+// source or MLE module, or a WITH FUNCTION query) runs to its "/" line or
+// the end of the text, ';' and blank lines splitting nothing in it. Text
+// and Start exclude leading comments; End is the end of the last
 // non-whitespace token, before any ';' or delimiter. Empty and comment-only
 // statements are dropped, but those of MySQL's executable comments.
 func SplitWith(src string, d Dialect, o SplitOptions) []Statement {

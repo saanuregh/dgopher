@@ -15,6 +15,7 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.27
 	github.com/redis/rueidis v1.0.78
 	github.com/saanuregh/agent-cli-connector/bindings/go v0.4.1
+	github.com/sijms/go-ora/v3 v3.0.1
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/crypto v0.57.0
 	modernc.org/sqlite v1.60.1

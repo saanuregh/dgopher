@@ -322,8 +322,7 @@ func (a *App) backupView(c *ui.Context) {
 					}).Description("A pg_dump archive restores in one transaction with pg_restore; a SQL file runs as Run SQL File runs it.")
 				}
 				label := "File"
-				// A file on the server's disk is typed, as the server sees it.
-				onServer := !b.restore && b.format < len(formats) && formats[b.format].OnServer()
+				onServer := b.restore && choices.RestoreOnServer || !b.restore && b.format < len(formats) && formats[b.format].OnServer()
 				switch {
 				case choices.Folder:
 					label = "Folder"

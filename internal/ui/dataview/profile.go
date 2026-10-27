@@ -146,15 +146,19 @@ func profileQuery(d db.Dialect, cols []db.ColumnInfo, from, where string) string
 	parts := []string{"count(*)"}
 	for _, c := range cols {
 		col := d.Quote(c.Name)
+		count, null := "count("+col+")", "NULL"
+		if ok {
+			count, null = r.CountSQL(col, c.Type), r.NullSQL()
+		}
 		if !ok || r.Comparable(c.Type) {
-			parts = append(parts, "count("+col+")", "count(DISTINCT "+col+")", "min("+col+")", "max("+col+")")
+			parts = append(parts, count, "count(DISTINCT "+col+")", "min("+col+")", "max("+col+")")
 		} else {
-			parts = append(parts, "count("+col+")", "NULL", "NULL", "NULL")
+			parts = append(parts, count, null, null, null)
 		}
 		if db.IsNumericType(c.Type) {
 			parts = append(parts, "avg("+col+")")
 		} else {
-			parts = append(parts, "NULL")
+			parts = append(parts, null)
 		}
 	}
 	return "SELECT " + strings.Join(parts, ", ") + " FROM " + from + whereClause(where)

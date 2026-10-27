@@ -17,6 +17,7 @@ import (
 	"dgopher/internal/lists"
 	"dgopher/internal/netproxy"
 	"dgopher/internal/netproxy/proxytest"
+	"dgopher/internal/sqltext"
 	"dgopher/internal/sshtunnel"
 	"dgopher/internal/sshtunnel/sshtest"
 	"dgopher/internal/testutil/optionalserver"
@@ -148,6 +149,25 @@ line two'), (3, 'Linus', NULL, NULL)`,
 			`INSERT INTO it.orders VALUES (1, 1, 99.50), (2, 1, 250.00), (3, 2, 12.00)`,
 		},
 		sleep: `WAITFOR DELAY '00:00:10'`,
+	}, fixture{
+		// The test tables' names are quoted, in lower case, as the tests
+		// name them; Oracle folds unquoted names to upper case.
+		cfg:    oracleConfig,
+		schema: "DGOPHER",
+		setup: []string{
+			`DROP VIEW IF EXISTS "big_orders"`, `DROP TABLE IF EXISTS "orders"`, `DROP TABLE IF EXISTS "customers"`,
+			`CREATE TABLE "customers" ("id" INTEGER PRIMARY KEY, "name" VARCHAR2(100) NOT NULL, "email" VARCHAR2(200), "note" CLOB)`,
+			`CREATE TABLE "orders" ("id" INTEGER PRIMARY KEY, "customer_id" INTEGER, "total" NUMBER(10,2), FOREIGN KEY ("customer_id") REFERENCES "customers" ("id"))`,
+			`CREATE INDEX "orders_customer" ON "orders" ("customer_id")`,
+			`CREATE VIEW "big_orders" AS SELECT * FROM "orders" WHERE "total" > 100`,
+			`INSERT INTO "customers" VALUES (1, 'Ada', 'ada@example.com', NULL)`,
+			`INSERT INTO "customers" VALUES (2, 'Grace', 'grace@example.com', 'line one
+line two')`,
+			`INSERT INTO "customers" VALUES (3, 'Linus', NULL, NULL)`,
+			`INSERT INTO "orders" VALUES (1, 1, 99.50)`, `INSERT INTO "orders" VALUES (2, 1, 250.00)`, `INSERT INTO "orders" VALUES (3, 2, 12.00)`,
+		},
+		// DBMS_SESSION.SLEEP does not answer a break; a query that works does.
+		sleep: `SELECT COUNT(*) FROM all_objects a, all_objects b, all_objects c`,
 	}, fixture{
 		cfg:    Config{Name: "duck", Engine: DuckDB, Database: duckFile},
 		schema: "main",
@@ -281,7 +301,8 @@ func TestIntegrationQueryAndTransactions(t *testing.T) {
 			}
 			defer s.Close()
 			table := QualifiedName(d.Dialect, f.schema, "customers")
-			c, err := s.Query(ctx, "SELECT id, name, note FROM "+table+" ORDER BY id")
+			id := QuoteIfNeeded(d.Dialect, "id")
+			c, err := s.Query(ctx, "SELECT "+id+", "+QuoteIfNeeded(d.Dialect, "name")+", "+QuoteIfNeeded(d.Dialect, "note")+" FROM "+table+" ORDER BY "+id)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -308,7 +329,7 @@ func TestIntegrationQueryAndTransactions(t *testing.T) {
 			if s.Tx() != TxOpen {
 				t.Fatalf("tx state %v after BEGIN", s.Tx())
 			}
-			n, err := s.Exec(ctx, "DELETE FROM "+table+" WHERE id = 3")
+			n, err := s.Exec(ctx, "DELETE FROM "+table+" WHERE "+id+" = 3")
 			if err != nil || n != 1 {
 				t.Fatalf("delete %d %v", n, err)
 			}
@@ -385,7 +406,7 @@ func TestIntegrationReadOnly(t *testing.T) {
 			// TiDB and SQL Server have no read-only session: the app's check
 			// alone refuses writes there (internal/safety), and the
 			// connection opens.
-			_, err = s.Exec(ctx, "INSERT INTO "+table+" (id, name) VALUES (9, 'x')")
+			_, err = s.Exec(ctx, "INSERT INTO "+table+" ("+QuoteIfNeeded(d.Dialect, "id")+", "+QuoteIfNeeded(d.Dialect, "name")+") VALUES (9, 'x')")
 			if enforced := f.cfg.Engine.ServerEnforcesReadOnly(); enforced != (err != nil) {
 				t.Fatalf("server enforces read-only %v, but the write gave %v", enforced, err)
 			}
@@ -418,7 +439,8 @@ func TestIntegrationEdits(t *testing.T) {
 			// The key as the grid read it.
 			s, _ := d.Session(ctx)
 			defer s.Close()
-			c, err := s.Query(ctx, "SELECT id FROM "+QualifiedName(d.Dialect, f.schema, "customers")+" WHERE id = 1")
+			id := QuoteIfNeeded(d.Dialect, "id")
+			c, err := s.Query(ctx, "SELECT "+id+" FROM "+QualifiedName(d.Dialect, f.schema, "customers")+" WHERE "+id+" = 1")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -442,7 +464,7 @@ func TestIntegrationEdits(t *testing.T) {
 				}
 			}
 			var name string
-			if err := d.SQL.QueryRowContext(ctx, "SELECT name FROM "+QualifiedName(d.Dialect, f.schema, "customers")+" WHERE id = 1").Scan(&name); err != nil || name != "Ada L. 'Countess'" {
+			if err := d.SQL.QueryRowContext(ctx, "SELECT "+QuoteIfNeeded(d.Dialect, "name")+" FROM "+QualifiedName(d.Dialect, f.schema, "customers")+" WHERE "+id+" = 1").Scan(&name); err != nil || name != "Ada L. 'Countess'" {
 				t.Fatalf("after update %q %v", name, err)
 			}
 		})
@@ -1041,6 +1063,8 @@ func TestIntegrationUsers(t *testing.T) {
 		{timescaledbConfig, "public", "it_users"},
 		{sqlserverConfig, "dbo", "it_users"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default", "it_users"},
+		// As SYSTEM, who makes users.
+		{oracleSystemConfig, "DGOPHER", "it_users"},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
 			skipUnlessRunning(t, c.cfg)
@@ -1057,6 +1081,9 @@ func TestIntegrationUsers(t *testing.T) {
 			ada := Account{Name: "dgopher_it_ada"}
 			if c.cfg.Engine.Base() == MySQL {
 				ada.Host = "%"
+			}
+			if c.cfg.Engine == Oracle {
+				ada.Name = "DGOPHER_IT_ADA" // as Oracle keeps the name made
 			}
 			cleanup := func() {
 				for _, q := range DropAccountSQL(d.Dialect, ada) {
@@ -1075,6 +1102,10 @@ func TestIntegrationUsers(t *testing.T) {
 				t.Fatal(err)
 			}
 			mustExec(t, d, append([]string{create, stmt}, grants...)...)
+			if c.cfg.Engine == Oracle {
+				// A user logs in once granted CREATE SESSION, which CONNECT holds.
+				mustExec(t, d, GrantRoleSQL(d.Dialect, Account{Name: "CONNECT", Role: true}, ada))
+			}
 			accounts, err := ListAccounts(ctx, d.Dialect, d.SQL)
 			if err != nil {
 				t.Fatal(err)
@@ -1219,6 +1250,21 @@ func TestIntegrationItems(t *testing.T) {
 			map[string]string{"it_twice(@a int)": "DROP FUNCTION it_twice", "it_noop()": "DROP PROCEDURE it_noop",
 				"it_stamp on it_items_t": "DROP TRIGGER it_stamp", "it_counter": "DROP SEQUENCE it_counter",
 				"it_alias": "DROP SYNONYM it_alias", "it_code": "DROP TYPE it_code", "it_rows": "DROP TYPE it_rows"}},
+		// Oracle folds the unquoted names to upper case.
+		{oracleConfig, "DGOPHER",
+			[]string{"DROP TABLE IF EXISTS it_items_t", "CREATE TABLE it_items_t (id NUMBER)",
+				"CREATE OR REPLACE FUNCTION it_twice(a NUMBER) RETURN NUMBER IS BEGIN RETURN a * 2; END;",
+				"CREATE OR REPLACE PROCEDURE it_noop AS BEGIN NULL; END;",
+				"CREATE OR REPLACE PACKAGE it_pkg AS FUNCTION f RETURN NUMBER; END;",
+				"CREATE OR REPLACE PACKAGE BODY it_pkg AS FUNCTION f RETURN NUMBER IS BEGIN RETURN 1; END; END;",
+				"CREATE OR REPLACE TRIGGER it_stamp BEFORE INSERT ON it_items_t FOR EACH ROW BEGIN :new.id := :new.id + 1; END;",
+				"DROP SEQUENCE IF EXISTS it_counter", "CREATE SEQUENCE it_counter START WITH 10 INCREMENT BY 5",
+				"CREATE OR REPLACE SYNONYM it_alias FOR it_items_t",
+				"CREATE OR REPLACE TYPE it_pair AS OBJECT (a NUMBER, b VARCHAR2(10))",
+			},
+			map[string]string{"IT_TWICE(A NUMBER)": "DROP FUNCTION it_twice", "IT_NOOP()": "DROP PROCEDURE it_noop",
+				"IT_PKG": "DROP PACKAGE it_pkg", "IT_STAMP on IT_ITEMS_T": "DROP TRIGGER it_stamp", "IT_COUNTER": "DROP SEQUENCE it_counter",
+				"IT_ALIAS": "DROP SYNONYM it_alias", "IT_PAIR": "DROP TYPE it_pair"}},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "items.sqlite")}, "main",
 			[]string{"CREATE TABLE t (id int)", "CREATE TRIGGER stamp AFTER INSERT ON t BEGIN UPDATE t SET id = id + 1 WHERE rowid = NEW.rowid; END"},
 			map[string]string{"stamp on t": "DROP TRIGGER stamp"}},
@@ -1272,7 +1318,17 @@ func TestIntegrationItems(t *testing.T) {
 				if err != nil {
 					t.Fatalf("%s: %v", label, err)
 				}
-				for _, q := range []string{drop, def} {
+				run := []string{drop, def}
+				if c.cfg.Engine == Oracle {
+					// A package's spec and body, and a trigger and its ALTER
+					// TRIGGER … ENABLE, are statements of their own, which
+					// Oracle runs one at a time.
+					run = []string{drop}
+					for _, st := range sqltext.SplitWith(def, sqltext.Oracle, sqltext.SplitOptions{}) {
+						run = append(run, st.Text)
+					}
+				}
+				for _, q := range run {
 					if _, err := s.Exec(ctx, q); err != nil {
 						t.Fatalf("%s: %s: %v", label, q, err)
 					}
@@ -1304,6 +1360,7 @@ func TestIntegrationRename(t *testing.T) {
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "r.sqlite")}, "main"},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default"},
+		{oracleConfig, "DGOPHER"},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
 			skipUnlessRunning(t, c.cfg)
@@ -1316,7 +1373,7 @@ func TestIntegrationRename(t *testing.T) {
 			}
 			defer d.Close()
 			old, renamed := QualifiedName(d.Dialect, c.schema, "it_rename"), QualifiedName(d.Dialect, c.schema, "it_renamed")
-			create := "CREATE TABLE " + old + " (a int)"
+			create := "CREATE TABLE " + old + " (" + QuoteIfNeeded(d.Dialect, "a") + " int)"
 			if c.cfg.Engine == ClickHouse {
 				create += " ENGINE = Memory"
 			}
@@ -1355,6 +1412,7 @@ func TestIntegrationSearch(t *testing.T) {
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "s.sqlite")}, "main"},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default"},
+		{oracleConfig, "DGOPHER"},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
 			skipUnlessRunning(t, c.cfg)
@@ -1367,12 +1425,13 @@ func TestIntegrationSearch(t *testing.T) {
 			}
 			defer d.Close()
 			table, view := QualifiedName(d.Dialect, c.schema, "It_Find_Orders"), QualifiedName(d.Dialect, c.schema, "it_find_paid")
-			create := "CREATE TABLE " + table + " (it_find_total int, note varchar(20))"
+			total, note := QuoteIfNeeded(d.Dialect, "it_find_total"), QuoteIfNeeded(d.Dialect, "note")
+			create := "CREATE TABLE " + table + " (" + total + " int, " + note + " varchar(20))"
 			if c.cfg.Engine == ClickHouse {
 				create = "CREATE TABLE " + table + " (it_find_total Int32, note String) ENGINE = Memory"
 			}
 			drop := []string{"DROP VIEW IF EXISTS " + view, "DROP TABLE IF EXISTS " + table}
-			mustExec(t, d, append(drop, create, "CREATE VIEW "+view+" AS SELECT it_find_total FROM "+table+" WHERE note = 'Zebra marker'")...)
+			mustExec(t, d, append(drop, create, "CREATE VIEW "+view+" AS SELECT "+total+" FROM "+table+" WHERE "+note+" = 'Zebra marker'")...)
 			defer func() {
 				for _, q := range drop {
 					d.SQL.ExecContext(ctx, q)
@@ -1430,6 +1489,7 @@ func TestIntegrationTableDesign(t *testing.T) {
 		{sqlserverConfig, "dbo", "int", "bigint", "nvarchar(50)", true, true, true},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main", "INTEGER", "BIGINT", "VARCHAR", false, true, false},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default", "Int32", "Int64", "String", false, false, false},
+		{oracleConfig, "DGOPHER", "NUMBER(10)", "NUMBER(19)", "VARCHAR2(50)", true, true, true},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
 			skipUnlessRunning(t, c.cfg)
@@ -1458,12 +1518,14 @@ func TestIntegrationTableDesign(t *testing.T) {
 				design.Indexes = []IndexDesign{{Name: "it_design_customer", Columns: []string{"customer"}}}
 			}
 			if c.keys {
-				if _, err := d.SQL.ExecContext(ctx, "CREATE TABLE "+parent+" (id "+c.integer+" PRIMARY KEY)"); err != nil {
+				if _, err := d.SQL.ExecContext(ctx, "CREATE TABLE "+parent+" ("+QuoteIfNeeded(d.Dialect, "id")+" "+c.integer+" PRIMARY KEY)"); err != nil {
 					t.Fatal(err)
 				}
 				design.ForeignKeys = []ForeignKeyDesign{{Name: "it_design_customer_fkey", Columns: []string{"customer"},
 					RefSchema: c.schema, RefTable: "it_design_customers", RefColumns: []string{"id"}, OnDelete: "SET NULL"}}
-				design.Checks = []CheckDesign{{Name: "it_design_qty", Expression: "qty > 0"}}
+				// Quoted where the engine folds names to another case, as
+				// the design's columns are made.
+				design.Checks = []CheckDesign{{Name: "it_design_qty", Expression: QuoteIfNeeded(d.Dialect, "qty") + " > 0"}}
 			}
 			ch, err := NewTableChange(d.Dialect, design)
 			if err != nil {
@@ -1527,7 +1589,7 @@ func TestIntegrationTableDesign(t *testing.T) {
 			newKey := c.more && c.cfg.Engine != TiDB
 			if c.more {
 				now.ForeignKeys = nil
-				now.Checks = []CheckDesign{{Name: "it_design_qty_small", Expression: "qty < 1000"}}
+				now.Checks = []CheckDesign{{Name: "it_design_qty_small", Expression: QuoteIfNeeded(d.Dialect, "qty") + " < 1000"}}
 				now.Columns[2].PrimaryKey = newKey
 			}
 			ch, err = AlterTableChange(d.Dialect, was, now)
@@ -1779,6 +1841,10 @@ func TestIntegrationPlans(t *testing.T) {
 				"WITH n AS (SELECT TOP (20000) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) AS i FROM sys.all_objects a CROSS JOIN sys.all_objects b) " +
 					"INSERT INTO dbo.it_plan SELECT i, i % 1000 FROM n"},
 			"SELECT * FROM dbo.it_plan WHERE g = 5", "clustered index scan reads 20000 rows of dbo.it_plan to keep 20 of them: an index on (g)"},
+		// As SYSTEM, whose V$ views Explain Analyze reads.
+		{oracleSystemConfig, "DGOPHER",
+			[]string{`CREATE TABLE "DGOPHER"."it_plan" AS SELECT LEVEL AS "id", MOD(LEVEL, 1000) AS "g" FROM dual CONNECT BY LEVEL <= 20000`},
+			`SELECT * FROM "DGOPHER"."it_plan" WHERE "g" = 5`, "full scan reads all 20000 rows of DGOPHER.it_plan to keep 20 of them: an index on (g)"},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
 			skipUnlessRunning(t, c.cfg)
@@ -1807,7 +1873,7 @@ func TestIntegrationPlans(t *testing.T) {
 				var names [][]string
 				var results [][][]any
 				err = s.RunExplain(ctx, run, func(string, time.Duration, error) {}, func(ctx context.Context) error {
-					cur, err := s.Query(ctx, run.Statement)
+					cur, err := explainStatement(ctx, s, run)
 					if err != nil {
 						return err
 					}
@@ -1843,6 +1909,27 @@ func TestIntegrationPlans(t *testing.T) {
 			}
 		})
 	}
+}
+
+// explainStatement runs an explain's statement as the editor does, and
+// returns the cursor of the rows holding its plan: its own, or Read's
+// after it, the statement's rows read to their end when it RunsWhole.
+func explainStatement(ctx context.Context, s *Session, run ExplainRun) (*Cursor, error) {
+	if run.Read == "" {
+		return s.Query(ctx, run.Statement)
+	}
+	if run.RunsWhole {
+		cur, err := s.Query(ctx, run.Statement)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := cur.ReadAll(0); err != nil {
+			return nil, err
+		}
+	} else if _, err := s.Exec(ctx, run.Statement); err != nil {
+		return nil, err
+	}
+	return s.Query(ctx, run.Read)
 }
 
 // fixtureOf returns the fixture of an engine.
@@ -1959,7 +2046,22 @@ func TestIntegrationUntrackedTransactionsAreSeen(t *testing.T) {
 			steps[TiDB] = append(steps[TiDB], st)
 		}
 	}
-	for _, e := range []Engine{MySQL, MariaDB, TiDB, CockroachDB, YugabyteDB, SQLite, DuckDB} {
+	// Oracle begins a transaction at the first change, SET TRANSACTION or
+	// SAVEPOINT, and commits at every schema change, one that fails too.
+	steps[Oracle] = []step{
+		{sql: "/* why */ SET TRANSACTION READ WRITE", want: TxOpen},
+		{sql: "ROLLBACK", want: TxNone},
+		{sql: "-- why\nSAVEPOINT s", want: TxOpen},
+		{sql: `UPDATE "customers" SET "name" = "name" WHERE "id" = 1`, want: TxOpen},
+		{sql: "ROLLBACK TO SAVEPOINT s", want: TxOpen},
+		{sql: "SELEC 1", want: TxOpen, fails: true},
+		{sql: "ROLLBACK", want: TxNone},
+		{sql: "SET TRANSACTION READ WRITE", want: TxOpen},
+		{sql: `INSERT INTO "customers" ("id", "name") VALUES (99, 'committed')`, want: TxOpen},
+		{sql: `CREATE TABLE "customers" (a INT)`, want: TxNone, fails: true},
+		{sql: `DELETE FROM "customers" WHERE "id" = 99`, want: TxNone},
+	}
+	for _, e := range []Engine{MySQL, MariaDB, TiDB, CockroachDB, YugabyteDB, SQLite, DuckDB, Oracle} {
 		t.Run(string(e), func(t *testing.T) {
 			d := open(t, fixtureOf(t, e))
 			if e.Base() == MySQL {
@@ -2108,6 +2210,17 @@ func TestIntegrationCloseLeaksNothing(t *testing.T) {
 				{"SELECT @close_leak IS NULL", "1"},
 				{"SELECT @@autocommit", "1"},
 				{"SELECT @@session.sql_mode LIKE '%ANSI_QUOTES%'", "0"},
+			},
+		},
+		{
+			e: Oracle,
+			leak: []string{"ALTER SESSION SET CURRENT_SCHEMA = SYSTEM", "ALTER SESSION SET NLS_DATE_FORMAT = 'DD'",
+				"SET TRANSACTION READ WRITE", `INSERT INTO DGOPHER."customers" ("id", "name") VALUES (99, 'leak')`},
+			checks: []check{
+				{"SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM dual", "DGOPHER"},
+				{"SELECT TO_CHAR(DATE '2024-02-03') FROM dual", "2024-02-03 00:00:00"},
+				{`SELECT COUNT(*) FROM "customers" WHERE "id" = 99`, "0"},
+				{"SELECT DBMS_TRANSACTION.LOCAL_TRANSACTION_ID FROM dual", "NULL"},
 			},
 		},
 		{
@@ -2283,6 +2396,31 @@ func TestIntegrationReconnectRefusesOnce(t *testing.T) {
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
+	// Oracle's session ends by ALTER SYSTEM KILL SESSION, as SYSTEM, which
+	// the test user may not.
+	oracleLose := func(t *testing.T, d *DB, s *Session) {
+		c, err := s.Query(ctx, "SELECT SYS_CONTEXT('USERENV', 'SID') FROM dual")
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows, _ := c.Fetch(1)
+		c.Close()
+		system := oracleConfig
+		system.User = "system"
+		admin, err := Open(ctx, system, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer admin.Close()
+		var serial string
+		if err := admin.SQL.QueryRow("SELECT serial# FROM v$session WHERE sid = :1", Display(rows[0][0])).Scan(&serial); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := admin.SQL.Exec("ALTER SYSTEM KILL SESSION '" + Display(rows[0][0]) + "," + serial + "' IMMEDIATE"); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(300 * time.Millisecond)
+	}
 	mysqlLose := func(t *testing.T, d *DB, s *Session) {
 		if _, err := d.SQL.Exec(fmt.Sprintf("KILL %d", s.mysqlID)); err != nil {
 			t.Fatal(err)
@@ -2304,6 +2442,8 @@ func TestIntegrationReconnectRefusesOnce(t *testing.T) {
 			lose: mysqlLose, sleep: "SELECT SLEEP(10)"},
 		{e: TiDB, set: "USE information_schema", before: "information_schema", after: "shop", table: "shop.customers",
 			lose: mysqlLose, sleep: "SELECT SLEEP(10)"},
+		{e: Oracle, set: "ALTER SESSION SET CURRENT_SCHEMA = SYSTEM", before: "SYSTEM", after: "DGOPHER", table: `DGOPHER."customers"`,
+			lose: oracleLose, sleep: fixtureOf(t, Oracle).sleep},
 	}
 	// untilRun runs a statement until it runs, and returns the errors before.
 	untilRun := func(t *testing.T, s *Session, q string) []error {
@@ -2343,13 +2483,14 @@ func TestIntegrationReconnectRefusesOnce(t *testing.T) {
 				t.Fatalf("schema %q after %s", schema, c.set)
 			}
 			c.lose(t, d, s)
-			insert := "INSERT INTO " + c.table + " (id, name) VALUES (77, 'after the loss')"
+			id := QuoteIfNeeded(d.Dialect, "id")
+			insert := "INSERT INTO " + c.table + " (" + id + ", " + QuoteIfNeeded(d.Dialect, "name") + ") VALUES (77, 'after the loss')"
 			errs := untilRun(t, s, insert)
 			if refusals(errs) != 1 || !errors.Is(errs[len(errs)-1], ErrSessionReset) {
 				t.Fatalf("errors before the statement ran on the new connection: %v; want one ErrSessionReset, last", errs)
 			}
 			var n int
-			d.SQL.QueryRow("SELECT count(*) FROM " + c.table + " WHERE id = 77").Scan(&n)
+			d.SQL.QueryRow("SELECT count(*) FROM " + c.table + " WHERE " + id + " = 77").Scan(&n)
 			if n != 1 {
 				t.Fatalf("%d rows: the refused statement ran too, or the last did not", n)
 			}

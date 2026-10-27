@@ -158,6 +158,7 @@ func (sqlserverEngine) TableCommentSQL(d Dialect, schema, table, comment string)
 func (sqlserverEngine) ColumnCommentInline() bool           { return false }
 func (sqlserverEngine) HasComments() bool                   { return true }
 func (sqlserverEngine) KeepsColumnExtra() bool              { return false }
+func (sqlserverEngine) NotNullLast() bool                   { return false }
 func (sqlserverEngine) AutoIncrementSQL() string            { return "IDENTITY(1,1)" }
 func (sqlserverEngine) HasAutoNumbering() bool              { return true }
 func (sqlserverEngine) HasForeignKeys() bool                { return true }

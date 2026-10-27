@@ -19,6 +19,9 @@ const (
 	SQLite
 	// TSQL is SQL Server's Transact-SQL.
 	TSQL
+	// Oracle is Oracle Database's SQL and PL/SQL, split as SQL*Plus and
+	// SQL Developer split scripts.
+	Oracle
 )
 
 // Kind is the lexical category of a token.
@@ -64,18 +67,20 @@ func isIdentStart(c byte) bool {
 }
 
 // isIdentPart reports whether c continues a name; T-SQL names may also
-// hold '@' and '#' after their first character.
+// hold '@' and '#' after their first character, and Oracle's '#'.
 func isIdentPart(c byte, d Dialect) bool {
-	return isIdentStart(c) || isDigit(c) || (c == '$' && (d == Postgres || d == MySQL || d == ClickHouse || d == SQLite || d == TSQL)) ||
-		(d == TSQL && (c == '@' || c == '#'))
+	return isIdentStart(c) || isDigit(c) || (c == '$' && (d == Postgres || d == MySQL || d == ClickHouse || d == SQLite || d == TSQL || d == Oracle)) ||
+		(d == TSQL && (c == '@' || c == '#')) || (d == Oracle && c == '#')
 }
 
 // identPartAt reports whether s[i] continues a name. A '$' before '{'
 // never does, so "logs_${suffix}" keeps its ${suffix} variable, and
-// neither does a character the server reads as a space.
+// neither does a character the server reads as a space, or as
+// punctuation, as Oracle reads some full-width forms.
 func identPartAt(s string, i int, d Dialect) bool {
 	return isIdentPart(s[i], d) && !(s[i] == '$' && i+1 < len(s) && s[i+1] == '{') &&
-		!(s[i] >= 0x80 && (d == TSQL || d == ClickHouse) && spaceWidth(s, i, d) > 0)
+		!(s[i] >= 0x80 && (d == TSQL || d == ClickHouse || d == Oracle) && spaceWidth(s, i, d) > 0) &&
+		!(s[i] >= 0x80 && d == Oracle && oraclePunctuationWidth(s, i) > 0)
 }
 
 // isSpace is ASCII whitespace.
@@ -86,15 +91,16 @@ func isSpace(c byte) bool {
 // spaceWidth returns the length in bytes of the space at s[i] where a
 // token starts, as d's servers read it, or 0. Beyond ASCII's, SQL Server
 // reads every other C0 control character and some Unicode spaces as
-// spaces, ClickHouse other Unicode spaces, and SQLite a byte order mark;
-// PostgreSQL, MySQL and their kin none. TestIntegrationLexingSpaces
-// (internal/db) checks each server.
+// spaces, ClickHouse other Unicode spaces, SQLite a byte order mark, and
+// Oracle's SQL parser NUL and the ideographic space U+3000; PostgreSQL,
+// MySQL and their kin none. TestIntegrationLexingSpaces (internal/db)
+// checks each server.
 func spaceWidth(s string, i int, d Dialect) int {
 	c := s[i]
 	switch {
-	case isSpace(c), d == TSQL && c < 0x20:
+	case isSpace(c), d == TSQL && c < 0x20, d == Oracle && c == 0:
 		return 1
-	case c < 0x80 || d != TSQL && d != ClickHouse && d != SQLite:
+	case c < 0x80 || d != TSQL && d != ClickHouse && d != SQLite && d != Oracle:
 		return 0
 	}
 	r, size := utf8.DecodeRuneInString(s[i:])
@@ -111,6 +117,10 @@ func spaceWidth(s string, i int, d Dialect) int {
 		}
 	case SQLite:
 		if r == 0xFEFF {
+			return size
+		}
+	case Oracle:
+		if r == 0x3000 {
 			return size
 		}
 	}
@@ -227,6 +237,9 @@ func tokenizeUpTo(s string, d Dialect, q quoting, limit int) []Token {
 		case c == '/' && at(i+1) == '*':
 			i = scanBlockComment(s, i, d == Postgres || d == ClickHouse || d == TSQL)
 			kind = Comment
+		case d == Oracle && oracleQuoteEnd(s, i) > 0:
+			i = oracleQuoteEnd(s, i)
+			kind = String
 		case c == '\'':
 			i = scanQuoted(s, i+1, '\'', q.backslashes)
 			kind = String
@@ -240,6 +253,14 @@ func tokenizeUpTo(s string, d Dialect, q quoting, limit int) []Token {
 			if quote == '"' {
 				kind = QuotedIdent
 			}
+		case c == '"' && d == Oracle:
+			// Oracle names have no escape: the first '"' ends one.
+			if end := strings.IndexByte(s[i+1:], '"'); end >= 0 {
+				i += end + 2
+			} else {
+				i = n
+			}
+			kind = QuotedIdent
 		case c == '"':
 			switch {
 			case d == MySQL && q.ansiQuotes:
@@ -308,6 +329,11 @@ func tokenizeUpTo(s string, d Dialect, q quoting, limit int) []Token {
 		case c == '?' && d != Postgres:
 			i++
 			kind = Param
+		case d == Oracle && c == ':' && isDigit(at(i+1)):
+			// A bind variable by position, :1.
+			for i++; i < n && isDigit(s[i]); i++ {
+			}
+			kind = Param
 		case c == ':' && at(i+1) != ':' && isIdentStart(at(i+1)):
 			i++
 			for i < n && identPartAt(s, i, d) {
@@ -326,6 +352,11 @@ func tokenizeUpTo(s string, d Dialect, q quoting, limit int) []Token {
 		case isDigit(c) || (c == '.' && isDigit(at(i+1))):
 			i = scanNumber(s, i, d)
 			kind = Number
+			// Oracle's 1.5f and 2d are BINARY_FLOAT and BINARY_DOUBLE
+			// literals, whatever follows: "1from" is 1f and rom.
+			if d == Oracle && i < n && strings.IndexByte("fFdD", s[i]) >= 0 {
+				i++
+			}
 			// ClickHouse names may start with digits: "1abc" is one word.
 			if d == ClickHouse && i < n && identPartAt(s, i, d) {
 				for i < n && identPartAt(s, i, d) {
@@ -333,9 +364,12 @@ func tokenizeUpTo(s string, d Dialect, q quoting, limit int) []Token {
 				}
 				kind = Identifier
 			}
-		case strings.IndexByte("xXbBnN", c) >= 0 && at(i+1) == '\'' && (d != TSQL || c == 'n' || c == 'N'):
+		case stringPrefix(c, d) && at(i+1) == '\'':
 			i = scanQuoted(s, i+2, '\'', q.backslashes)
 			kind = String
+		case d == Oracle && c >= 0x80 && oraclePunctuationWidth(s, i) > 0:
+			i += oraclePunctuationWidth(s, i)
+			kind = Operator
 		case isIdentStart(c):
 			for i < n && identPartAt(s, i, d) {
 				i++
@@ -361,6 +395,19 @@ func tokenizeUpTo(s string, d Dialect, q quoting, limit int) []Token {
 		}
 	}
 	return toks
+}
+
+// stringPrefix reports whether the letter c, before a quote, starts a
+// string with it in d: N'…' everywhere, X'…' and B'…' but in T-SQL and
+// Oracle, and Oracle's U'…'.
+func stringPrefix(c byte, d Dialect) bool {
+	switch d {
+	case TSQL:
+		return c == 'n' || c == 'N'
+	case Oracle:
+		return c == 'n' || c == 'N' || c == 'u' || c == 'U'
+	}
+	return strings.IndexByte("xXbBnN", c) >= 0
 }
 
 // isKeyword upper-cases an ASCII word into buf so the map lookup does not
@@ -484,7 +531,9 @@ func scanNumber(s string, i int, d Dialect) int {
 		var isRadixDigit func(byte) bool
 		switch s[i+1] {
 		case 'x', 'X':
-			isRadixDigit = isHexDigit
+			if d != Oracle { // Oracle reads 0x10 as 0 and a name
+				isRadixDigit = isHexDigit
+			}
 		case 'b', 'B':
 			if d == Postgres || d == MySQL || d == ClickHouse {
 				isRadixDigit = func(c byte) bool { return c == '0' || c == '1' }

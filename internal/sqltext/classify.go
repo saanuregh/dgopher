@@ -61,6 +61,9 @@ var sideEffectFunctions = map[Dialect]map[string]bool{
 	// SQL Server's rowset functions that reach other servers or the
 	// server's files.
 	TSQL: setOf("openrowset opendatasource openquery"),
+	// Oracle's types and packages that fetch a URL from the server:
+	// UriFactory's URIs fetch on GETCLOB as HTTPURITYPE does.
+	Oracle: setOf("httpuritype urifactory apex_web_service"),
 }
 
 // crdbInternalReads are the CockroachDB crdb_internal functions known
@@ -108,13 +111,16 @@ var timescaleWrites = setOf("create_hypertable create_distributed_hypertable add
 // a dialect: those of schema, or of a schema starting with it when
 // schemaPrefix, or of any schema, qualified or not, when it is "", and
 // whose name starts with namePrefix. With writes, those listed are
-// writes; otherwise all but the reads.
+// writes; otherwise all but the reads. With byPackage, reads names
+// "schema.name", or "schema.*" for all of a schema's, as an Oracle
+// package's functions are named, and a call without parentheses counts.
 type functionRule struct {
 	dialect       Dialect
 	schema        string
 	schemaPrefix  bool
 	namePrefix    string
 	reads, writes map[string]bool
+	byPackage     bool
 }
 
 // functionRules are the engine families' functions, and SQL Server's
@@ -131,6 +137,14 @@ var functionRules = []functionRule{
 	// SQL Server's system procedures, run by EXECUTE (tsqlProcedureReads).
 	{dialect: TSQL, namePrefix: "sp_", reads: tsqlProcedureReads},
 	{dialect: TSQL, namePrefix: "xp_", reads: tsqlProcedureReads},
+	// Oracle's DBMS_ and UTL_ packages, whose functions may lock, send,
+	// schedule or write in an autonomous transaction; a function of either
+	// name outside them; and the SYS schema's functions.
+	{dialect: Oracle, schema: "dbms_", schemaPrefix: true, reads: oracleReads, byPackage: true},
+	{dialect: Oracle, schema: "utl_", schemaPrefix: true, reads: oracleReads, byPackage: true},
+	{dialect: Oracle, namePrefix: "dbms_"},
+	{dialect: Oracle, namePrefix: "utl_"},
+	{dialect: Oracle, schema: "sys", reads: oracleSysReads},
 }
 
 // writesCall reports whether the rule makes a call of name, lower case,
@@ -148,6 +162,10 @@ func (r functionRule) writesCall(name, schema string, undecoded bool) bool {
 	}
 	if r.writes != nil {
 		return r.writes[name]
+	}
+	if r.byPackage {
+		schema = strings.ToLower(schema)
+		return !r.reads[schema+"."+name] && !r.reads[schema+".*"]
 	}
 	return !r.reads[name]
 }
@@ -209,6 +227,11 @@ func setOf(words string) map[string]bool {
 // T-SQL needs no ';' between statements, so a T-SQL statement as the
 // splitter sees it is a batch read as every statement it holds
 // (classifyTSQL).
+//
+// An Oracle PL/SQL block is a write that keeps the danger of what it
+// holds, the SQL its EXECUTE IMMEDIATE runs too; an Oracle statement
+// holding full-width punctuation outside quotes, which the server reads
+// as ASCII punctuation, is a dangerous write (oraclePunctuation).
 func Classify(stmt string, d Dialect) Analysis {
 	return classifyEachQuoting(stmt, d, false)
 }
@@ -324,6 +347,14 @@ func classifyQuoted(stmt string, d Dialect, q quoting) Analysis {
 			a.Class, a.Reason = Write, reason
 		}
 	}
+	if d == Oracle && oraclePunctuationOutsideQuotes(stmt, q) {
+		if classRank(a.Class) < classRank(Write) {
+			a.Class = Write
+		}
+		if !a.Dangerous {
+			a.Dangerous, a.Reason = true, oraclePunctuationReason
+		}
+	}
 	return a
 }
 
@@ -403,12 +434,17 @@ func classifyStatements(stmt string, d Dialect, q quoting) Analysis {
 		return a // classifyTSQL read every statement of the batch
 	}
 	// Read as statements, a routine's text keeps the danger of what it
-	// holds: the body may be a name the splitter took for one.
+	// holds: the body may be a name the splitter took for one. So does an
+	// Oracle PL/SQL block's.
 	if !a.Dangerous {
 		if stmts := statementsCode(splitSegmentsWithoutBodies(stmt, d, q, o)); len(stmts) > 1 {
 			if inner, ok := dangerInside(stmts, d, r); ok {
+				holder := routineHolds
+				if d == Oracle && (a.Verb == "BEGIN" || a.Verb == "DECLARE") {
+					holder = plsqlBlockHolds
+				}
 				a.Dangerous = true
-				a.Reason = routineHolds + inner.Reason
+				a.Reason = holder + inner.Reason
 			}
 		}
 	}
@@ -833,6 +869,9 @@ var analyzedVerbs = setOf("SELECT WITH INSERT REPLACE UPDATE DELETE")
 // names are decoded first; with a UESCAPE anywhere, whose escapes are not
 // decoded, any call to a U& name counts.
 func sideEffectCall(toks []Token, d Dialect) string {
+	if d == Oracle {
+		return oracleSideEffect(toks)
+	}
 	fns := sideEffectFunctions[d]
 	uescape := false
 	for _, t := range toks {
@@ -899,8 +938,11 @@ func qualifierOf(toks []Token, i int, uescape bool) (schema string, undecoded bo
 }
 
 func classifyVerb(toks []Token, d Dialect, r reading) Analysis {
-	if d == TSQL {
+	switch d {
+	case TSQL:
 		return classifyTSQLVerb(toks, r)
+	case Oracle:
+		return classifyOracleVerb(toks, r)
 	}
 	verb := word(toks[0])
 	if verb == "" {

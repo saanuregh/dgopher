@@ -287,6 +287,7 @@ func (duckdbEngine) URLTLSParameters() map[string]map[string]TLSMode {
 func (duckdbEngine) CloudIdentities() []Identity      { return nil }
 func (duckdbEngine) ClearTextPassword() bool          { return false }
 func (duckdbEngine) ServerEnforcesReadOnly() bool     { return true }
+func (duckdbEngine) ServerReadOnlySince() string      { return "" }
 func (duckdbEngine) DatabasesNeedOwnConnection() bool { return false }
 func (duckdbEngine) DefaultSchemaName() string        { return "main" }
 func (duckdbEngine) FileExtensions() []string         { return []string{"duckdb", "ddb", "db"} }
@@ -366,6 +367,8 @@ func (duckdbEngine) OutsideTransaction(sql string) bool {
 func (duckdbEngine) RollbackMayKeepChanges() bool    { return false }
 func (duckdbEngine) RowCountWord() string            { return "changed" }
 func (duckdbEngine) implicitTransactionsSQL() string { return "" }
+func (duckdbEngine) transactionStateSQL() string     { return "" }
+func (duckdbEngine) driverCommitsStatements() bool   { return false }
 func (duckdbEngine) ownRowCountSQL() string          { return "" }
 
 func (duckdbEngine) Explain(statement string, analyze bool) (ExplainRun, bool) {
@@ -432,6 +435,8 @@ func (duckdbEngine) InsertDefaultRowSQL(table string) string {
 
 func (duckdbEngine) MaxParameters() int               { return 65535 }
 func (duckdbEngine) ProfilesInOneQuery() bool         { return true }
+func (duckdbEngine) CountSQL(column, _ string) string { return "count(" + column + ")" }
+func (duckdbEngine) NullSQL() string                  { return "NULL" }
 func (duckdbEngine) Comparable(string) bool           { return true }
 func (duckdbEngine) StableOrderByKey() bool           { return true }
 func (duckdbEngine) UpdateSetsDefault() bool          { return true }
@@ -518,6 +523,7 @@ func (duckdbEngine) TableCommentSQL(d Dialect, schema, table, comment string) st
 func (duckdbEngine) ColumnCommentInline() bool           { return false }
 func (duckdbEngine) HasComments() bool                   { return true }
 func (duckdbEngine) KeepsColumnExtra() bool              { return false }
+func (duckdbEngine) NotNullLast() bool                   { return false }
 func (duckdbEngine) AutoIncrementSQL() string            { return "" }
 func (duckdbEngine) HasAutoNumbering() bool              { return false }
 func (duckdbEngine) HasForeignKeys() bool                { return true }
@@ -610,7 +616,10 @@ func (duckdbEngine) MaintenanceCommands(quotedTable string) []MaintenanceCommand
 	return nil
 }
 
-func (duckdbEngine) readsAllResults() bool         { return false }
-func (duckdbEngine) sessionDatabaseSQL() string    { return "" }
-func (duckdbEngine) TakesEffectAtOnce(string) bool { return false }
-func (duckdbEngine) BooleanLiteral(b bool) string  { return booleanWord(b) }
+func (duckdbEngine) readsAllResults() bool              { return false }
+func (duckdbEngine) sessionDatabaseSQL() string         { return "" }
+func (duckdbEngine) ConnectionFields() ConnectionFields { return ConnectionFields{} }
+func (duckdbEngine) sessionStartSQL() []string          { return nil }
+func (duckdbEngine) messagesSQL() string                { return "" }
+func (duckdbEngine) TakesEffectAtOnce(string) bool      { return false }
+func (duckdbEngine) BooleanLiteral(b bool) string       { return booleanWord(b) }

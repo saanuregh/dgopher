@@ -244,6 +244,7 @@ func (sqliteEngine) URLTLSParameters() map[string]map[string]TLSMode {
 func (sqliteEngine) CloudIdentities() []Identity      { return nil }
 func (sqliteEngine) ClearTextPassword() bool          { return false }
 func (sqliteEngine) ServerEnforcesReadOnly() bool     { return true }
+func (sqliteEngine) ServerReadOnlySince() string      { return "" }
 func (sqliteEngine) DatabasesNeedOwnConnection() bool { return false }
 func (sqliteEngine) DefaultSchemaName() string        { return "main" }
 func (sqliteEngine) FileExtensions() []string         { return []string{"sqlite", "sqlite3", "db", "db3"} }
@@ -305,6 +306,8 @@ func (sqliteEngine) OutsideTransaction(sql string) bool {
 func (sqliteEngine) RollbackMayKeepChanges() bool    { return false }
 func (sqliteEngine) RowCountWord() string            { return "changed" }
 func (sqliteEngine) implicitTransactionsSQL() string { return "" }
+func (sqliteEngine) transactionStateSQL() string     { return "" }
+func (sqliteEngine) driverCommitsStatements() bool   { return false }
 func (sqliteEngine) ownRowCountSQL() string          { return "" }
 
 // SQLite and ClickHouse explain without running: analyze cannot.
@@ -369,6 +372,8 @@ func (sqliteEngine) InsertDefaultRowSQL(table string) string {
 
 func (sqliteEngine) MaxParameters() int               { return 32766 }
 func (sqliteEngine) ProfilesInOneQuery() bool         { return false }
+func (sqliteEngine) CountSQL(column, _ string) string { return "count(" + column + ")" }
+func (sqliteEngine) NullSQL() string                  { return "NULL" }
 func (sqliteEngine) Comparable(string) bool           { return true }
 func (sqliteEngine) StableOrderByKey() bool           { return true }
 func (sqliteEngine) UpdateSetsDefault() bool          { return false }
@@ -465,6 +470,7 @@ func (sqliteEngine) TableCommentSQL(d Dialect, schema, table, comment string) st
 func (sqliteEngine) ColumnCommentInline() bool           { return false }
 func (sqliteEngine) HasComments() bool                   { return false }
 func (sqliteEngine) KeepsColumnExtra() bool              { return false }
+func (sqliteEngine) NotNullLast() bool                   { return false }
 func (sqliteEngine) AutoIncrementSQL() string            { return "" }
 func (sqliteEngine) HasAutoNumbering() bool              { return true }
 func (sqliteEngine) HasForeignKeys() bool                { return true }
@@ -557,7 +563,10 @@ func (sqliteEngine) MaintenanceCommands(quotedTable string) []MaintenanceCommand
 	}
 }
 
-func (sqliteEngine) readsAllResults() bool         { return false }
-func (sqliteEngine) sessionDatabaseSQL() string    { return "" }
-func (sqliteEngine) TakesEffectAtOnce(string) bool { return false }
-func (sqliteEngine) BooleanLiteral(b bool) string  { return booleanWord(b) }
+func (sqliteEngine) readsAllResults() bool              { return false }
+func (sqliteEngine) sessionDatabaseSQL() string         { return "" }
+func (sqliteEngine) ConnectionFields() ConnectionFields { return ConnectionFields{} }
+func (sqliteEngine) sessionStartSQL() []string          { return nil }
+func (sqliteEngine) messagesSQL() string                { return "" }
+func (sqliteEngine) TakesEffectAtOnce(string) bool      { return false }
+func (sqliteEngine) BooleanLiteral(b bool) string       { return booleanWord(b) }

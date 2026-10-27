@@ -289,6 +289,7 @@ when another connection in the project has it.
 | MySQL | |
 | MariaDB, TiDB | MySQL's family: connect and work as MySQL does, except where [Engine support](engines.md#engines-of-a-family) says otherwise (TiDB's read-only is the app's check alone) |
 | SQL Server | SQL Server 2019 and later, and Azure SQL; databases above schemas; password, Entra ID or Kerberos ([engines](engines.md#sql-server)) |
+| Oracle | Oracle 19c and later; a service name, as a pluggable database's, or a SID; password; TLS with an optional wallet ([engines](engines.md#oracle)) |
 | ClickHouse | native protocol or HTTP, chosen under **Protocol**; the port defaults to 9000 or 8123, 9440 or 8443 with TLS required or verified |
 | SQLite | a file, or in memory; **New…** creates an empty file |
 | DuckDB | a file, or in memory; **New…** creates an empty file |
@@ -1234,6 +1235,7 @@ in the same database or another, of any engine.
 | MySQL | `mysqldump`, in one transaction, with routines, triggers and events |
 | SQLite | a copy with `VACUUM INTO`, while the database stays in use |
 | DuckDB | a folder of Parquet files (`EXPORT DATABASE`) |
+| Oracle | Data Pump: `expdp` exports a schema (its definitions, its rows or both) into a dump file that stays on the server, which `impdp` imports ([engines](engines.md#oracle)) |
 
 - The tools reach the server as the connection does, through its tunnel or
   proxy. Their password goes in their environment or a file of their own,

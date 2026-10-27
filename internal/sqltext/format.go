@@ -155,6 +155,11 @@ func formatStatement(toks []Token, d Dialect) string {
 			if !gap && prev.Kind == Operator {
 				sep = ""
 			}
+			// A "/" alone on its line ends an Oracle statement: no line
+			// break may leave one so, but after a line comment.
+			if d == Oracle && strings.HasPrefix(sep, "\n") && (isOperator(t, "/") && !isLineComment(*prev) || isOperator(*prev, "/")) {
+				sep = " "
+			}
 		}
 		b.WriteString(sep)
 		if w != "" && upperCased(w, d) {

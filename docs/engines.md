@@ -12,86 +12,88 @@ below, except where its own section under
 
 ## Connecting
 
-| | PostgreSQL | MySQL | SQL Server | ClickHouse | SQLite | DuckDB | Redis |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| TLS (prefer, require, verify-full) | ✓ | ✓ | ✓ | ✓ | — | — | ✓ |
-| SSH tunnel | ✓ | ✓ | ✓ | ✓ | — | — | ✓ |
-| SOCKS5 or HTTP proxy | ✓ | ✓ | ✓ | ✓ | — | — | ✓ |
-| Cloud IAM (AWS, Google Cloud, Entra ID) | ✓ | ✓ | Entra ID | — | — | — | — |
-| Kerberos | ✓ | — | ✓ | — | — | — | — |
-| Clear-text password (LDAP, PAM) | — | ✓ | — | — | — | — | — |
-| Several databases on one connection | ✓ | ✓ (as schemas) | ✓ | ✓ (as schemas) | — | — | — |
-| In memory | — | — | — | — | ✓ | ✓ | — |
-| Cluster or Sentinel | — | — | — | — | — | — | ✓ |
-| Idle connections disconnect | ✓ | ✓ | ✓ | ✓ | — | — | ✓ |
+| | PostgreSQL | MySQL | SQL Server | Oracle | ClickHouse | SQLite | DuckDB | Redis |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| TLS (prefer, require, verify-full) | ✓ | ✓ | ✓ | require, verify-full | ✓ | — | — | ✓ |
+| SSH tunnel | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | ✓ |
+| SOCKS5 or HTTP proxy | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | ✓ |
+| Cloud IAM (AWS, Google Cloud, Entra ID) | ✓ | ✓ | Entra ID | — | — | — | — | — |
+| Kerberos | ✓ | — | ✓ | — | — | — | — | — |
+| Clear-text password (LDAP, PAM) | — | ✓ | — | — | — | — | — | — |
+| Several databases on one connection | ✓ | ✓ (as schemas) | ✓ | — (a service each) | ✓ (as schemas) | — | — | — |
+| In memory | — | — | — | — | — | ✓ | ✓ | — |
+| Cluster or Sentinel | — | — | — | — | — | — | — | ✓ |
+| Idle connections disconnect | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | ✓ |
 
 ## Safety and transactions
 
-| | PostgreSQL | MySQL | SQL Server | ClickHouse | SQLite | DuckDB | Redis |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Transactions and manual commit | ✓ | ✓ | ✓ | — | ✓ | ✓ | — |
-| Savepoints | ✓ | ✓ | — | — | ✓ | — | — |
-| Schema changes inside a transaction | ✓ | — | ✓ | — | ✓ | ✓ | — |
-| Read-only enforced by the server | ✓ | ✓ | — (the app's check only) | ✓ | ✓ | ✓ | — (the app's check only) |
-| Large changes held for confirmation | ✓ | ✓ | ✓ | — | ✓ (files, not in memory) | — | — |
-| Idle transactions roll back | ✓ | ✓ | ✓ | — | ✓ | ✓ | — |
-| One connection shared by all tabs | — | — | — | — | in memory | ✓ | — |
+| | PostgreSQL | MySQL | SQL Server | Oracle | ClickHouse | SQLite | DuckDB | Redis |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Transactions and manual commit | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ | — |
+| Savepoints | ✓ | ✓ | — | — | — | ✓ | — | — |
+| Schema changes inside a transaction | ✓ | — | ✓ | — | — | ✓ | ✓ | — |
+| Read-only enforced by the server | ✓ | ✓ | — (the app's check only) | from 23ai (the app's check only before) | ✓ | ✓ | ✓ | — (the app's check only) |
+| Large changes held for confirmation | ✓ | ✓ | ✓ | ✓ | — | ✓ (files, not in memory) | — | — |
+| Idle transactions roll back | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ | — |
+| One connection shared by all tabs | — | — | — | — | — | in memory | ✓ | — |
 
 DuckDB and in-memory SQLite share one connection, so all their tabs share
 one transaction; see [Safety model](safety.md#duckdb-and-in-memory-sqlite).
 
 ## Querying
 
-| | PostgreSQL | MySQL | SQL Server | ClickHouse | SQLite | DuckDB |
-| --- | --- | --- | --- | --- | --- | --- |
-| Parameters | `:name` | `:name` | `:name` | `:name`, `{name:Type}` | `:name`, `@name`, `$name` | `:name` |
-| Explain | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Explain Analyze | ✓ | ✓ | ✓ | — | — | ✓ |
-| Plan advice | ✓ | ✓ | ✓ | ✓ | ✓ | — |
-| Schema switch in the editor | `SET search_path` | `USE` | `USE` (a database) | `USE` | — | `USE` |
-| Edit rows in the grid | ✓ | ✓ | ✓ | — | ✓ | ✓ |
+| | PostgreSQL | MySQL | SQL Server | Oracle | ClickHouse | SQLite | DuckDB |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Parameters | `:name` | `:name` | `:name` | `:name`, `:1` | `:name`, `{name:Type}` | `:name`, `@name`, `$name` | `:name` |
+| Explain | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Explain Analyze | ✓ | ✓ | ✓ | ✓ | — | — | ✓ |
+| Plan advice | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| Schema switch in the editor | `SET search_path` | `USE` | `USE` (a database) | `ALTER SESSION SET CURRENT_SCHEMA` | `USE` | — | `USE` |
+| Edit rows in the grid | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ |
 
 `${var}` variables work on every SQL engine.
 
 ## Schema
 
-| | PostgreSQL | MySQL | SQL Server | ClickHouse | SQLite | DuckDB |
-| --- | --- | --- | --- | --- | --- | --- |
-| Create tables in the table form | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Change tables in the table form | ✓ | ✓ | ✓ | columns only | ✓ (rebuilt when needed) | columns only |
-| ER diagram | ✓ | ✓ | ✓ | view only (no foreign keys) | ✓ | ✓ |
-| Data models and DDL | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Partitions | ✓ | — | — | — | — | — |
-| Other objects | functions, procedures, triggers, sequences, types, extensions | functions, procedures, triggers, events | procedures, functions, triggers, sequences, synonyms, types | projections | triggers | macros, sequences, types |
+| | PostgreSQL | MySQL | SQL Server | Oracle | ClickHouse | SQLite | DuckDB |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Create tables in the table form | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Change tables in the table form | ✓ | ✓ | ✓ | ✓ | columns only | ✓ (rebuilt when needed) | columns only |
+| ER diagram | ✓ | ✓ | ✓ | ✓ | view only (no foreign keys) | ✓ | ✓ |
+| Data models and DDL | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Partitions | ✓ | — | — | — | — | — | — |
+| Other objects | functions, procedures, triggers, sequences, types, extensions | functions, procedures, triggers, events | procedures, functions, triggers, sequences, synonyms, types | packages, procedures, functions, triggers, sequences, synonyms, types | projections | triggers | macros, sequences, types |
 
 ## Data
 
-| | PostgreSQL | MySQL | SQL Server | ClickHouse | SQLite | DuckDB |
-| --- | --- | --- | --- | --- | --- | --- |
-| Import files | ✓ | ✓ | ✓ | ✓ (not in one transaction) | ✓ | ✓ |
-| Export | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Copy tables, compare rows, test data | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Backup | `pg_dump` (archive or SQL) | `mysqldump` (SQL) | BACPAC (`sqlpackage`), or a backup file on the server (`BACKUP DATABASE`) | — | a copy (`VACUUM INTO`) | Parquet folder (`EXPORT DATABASE`) |
-| Restore | ✓ | ✓ | ✓ | — | ✓ | ✓ |
+| | PostgreSQL | MySQL | SQL Server | Oracle | ClickHouse | SQLite | DuckDB |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Import files | ✓ | ✓ | ✓ | ✓ | ✓ (not in one transaction) | ✓ | ✓ |
+| Export | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Copy tables, compare rows, test data | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Backup | `pg_dump` (archive or SQL) | `mysqldump` (SQL) | BACPAC (`sqlpackage`), or a backup file on the server (`BACKUP DATABASE`) | Data Pump (`expdp`), a dump file on the server | — | a copy (`VACUUM INTO`) | Parquet folder (`EXPORT DATABASE`) |
+| Restore | ✓ | ✓ | ✓ | ✓ (`impdp`) | — | ✓ | ✓ |
 
 Redis has its own key [export and import](features.md#keys).
 
 ## Administration
 
-| | PostgreSQL | MySQL | SQL Server | ClickHouse | SQLite | DuckDB | Redis |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Sessions, with cancel | ✓ | ✓ | ✓ (ending them only) | ✓ | — | — | clients |
-| End a session | ✓ | ✓ | ✓ (`KILL`) | — | — | — | disconnect a client |
-| Locks | ✓ | ✓ | ✓ | — | — | — | — |
-| Slowest statements | ✓ (`pg_stat_statements`) | ✓ (`performance_schema`) | ✓ (`sys.dm_exec_query_stats`) | ✓ (`system.query_log`) | — | — | slow log |
-| Live metrics | — | — | — | ✓ | — | — | ✓ |
-| Users and privileges | ✓ | ✓ | ✓ (logins and users) | ✓ | — | — | — |
-| Maintenance | VACUUM, VACUUM ANALYZE, VACUUM FULL, ANALYZE, REINDEX | ANALYZE, OPTIMIZE, CHECK | UPDATE STATISTICS, index REORGANIZE and REBUILD, DBCC CHECKTABLE | OPTIMIZE, OPTIMIZE FINAL | ANALYZE, REINDEX | — | — |
+| | PostgreSQL | MySQL | SQL Server | Oracle | ClickHouse | SQLite | DuckDB | Redis |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Sessions, with cancel | ✓ | ✓ | ✓ (ending them only) | ✓ (`ALTER SYSTEM CANCEL SQL`) | ✓ | — | — | clients |
+| End a session | ✓ | ✓ | ✓ (`KILL`) | ✓ (`KILL SESSION`) | — | — | — | disconnect a client |
+| Locks | ✓ | ✓ | ✓ | ✓ | — | — | — | — |
+| Slowest statements | ✓ (`pg_stat_statements`) | ✓ (`performance_schema`) | ✓ (`sys.dm_exec_query_stats`) | ✓ (`V$SQLSTATS`) | ✓ (`system.query_log`) | — | — | slow log |
+| Live metrics | — | — | — | — | ✓ | — | — | ✓ |
+| Users and privileges | ✓ | ✓ | ✓ (logins and users) | ✓ (users and roles) | ✓ | — | — | — |
+| Maintenance | VACUUM, VACUUM ANALYZE, VACUUM FULL, ANALYZE, REINDEX | ANALYZE, OPTIMIZE, CHECK | UPDATE STATISTICS, index REORGANIZE and REBUILD, DBCC CHECKTABLE | statistics (`DBMS_STATS`), MOVE, SHRINK SPACE, VALIDATE STRUCTURE | OPTIMIZE, OPTIMIZE FINAL | ANALYZE, REINDEX | — | — |
 
 The slowest-statements page needs the server to collect them: the
 `pg_stat_statements` extension on PostgreSQL, `performance_schema` on
 MySQL, and query logging on ClickHouse; on SQL Server the activity pages
-need the `VIEW SERVER STATE` permission. The page says how to turn each on.
+need the `VIEW SERVER STATE` permission, and on Oracle
+`SELECT_CATALOG_ROLE` (see [Oracle](#oracle)). The page says how to turn
+each on.
 
 ## Engines of a family
 
@@ -383,3 +385,103 @@ SQL Server 2019 and later, and Azure SQL Database; tested on SQL Server
   restores into an empty database. A failed or stopped restore leaves the
   database restoring.
 
+## Oracle
+
+Oracle Database 19c and later; tested on Oracle AI Database 26ai Free
+(version 23.26, the release 23ai was renamed to). The driver is go-ora,
+which needs no Oracle client installed.
+
+- **Connecting**: a connection reaches one service, as a pluggable
+  database's (`FREEPDB1`), or an instance by its SID. Each pluggable
+  database is a connection of its own; its schemas are listed as the
+  schemas of the connection. TLS is disable, require or verify-full:
+  prefer is refused, as an Oracle listener speaks TCPS or plain TCP on a
+  port of its own. Verify-full checks the certificate against the host
+  the connection names, through an SSH tunnel too. A **wallet** is a
+  folder holding an auto-login wallet (`cwallet.sso`): the app trusts its
+  certificates and sends its client certificate; a wallet that only a
+  password opens (`ewallet.p12`) is not read. URLs:
+  `oracle://user@host:1521/service`, with `?SID=…` instead of a service,
+  and `SSL`, `SSL VERIFY` and `WALLET` as go-ora writes them; any other
+  parameter is refused. From URL also reads a connect descriptor,
+  `(DESCRIPTION=…)` as `tnsnames.ora` holds one, with a single address.
+- **Statements**: the editor runs one SQL statement or one PL/SQL unit at a
+  time, split at `;`, at a line holding only `/`, and around PL/SQL
+  blocks; see [SQL](sql.md#oracle-scripts). What PL/SQL prints with
+  `DBMS_OUTPUT` shows with the results, as messages, once the statement
+  ends.
+- **Read-only**: from 23ai the app sets `READ_ONLY` on each of the
+  connection's sessions, and the server refuses DML, DDL, `LOCK`,
+  `SELECT … FOR UPDATE` and what autonomous transactions write. Before
+  23ai the app's check is the only one: `SET TRANSACTION READ ONLY` would
+  let functions writing in autonomous transactions, sequences' `NEXTVAL`,
+  `LOCK` and DDL through.
+- **Transactions**: Oracle has no `BEGIN`: a transaction begins at the
+  first change, and the app's Begin sends `SET TRANSACTION READ WRITE`.
+  The app reads the open transaction from the server after each
+  statement. A schema change commits the open transaction before and
+  after it runs, even some that fail. `SET TRANSACTION`, `ALTER SESSION
+  SET ISOLATION_LEVEL` and `ALTER SESSION` `ENABLE`, `DISABLE` or `FORCE
+  PARALLEL DML` run outside a transaction, and a sequence's `NEXTVAL` is
+  not given back by a rollback. Savepoints are not used, as Oracle has no
+  `RELEASE SAVEPOINT`: grid edits ask you to end an open transaction
+  first. An `UPDATE` counts the rows it matched. Cancelling a statement
+  keeps the connection and its transaction. Closing an Oracle connection
+  commits its open transaction, so a connection the app gives up with one
+  open, as after an Explain's cleanup step failed, is rolled back first;
+  should that rollback fail, the error says the changes may have been
+  committed.
+- **Names**: an unquoted name stands for itself in upper case. The app
+  quotes a name it writes unless it is plain and upper case, so a table
+  made as `"orders"` is written so.
+- **Explain** writes the plan with `EXPLAIN PLAN` into the session's
+  `PLAN_TABLE` and reads it; its rows are rolled back, or deleted when a
+  transaction was open before. It works on a read-only connection, but
+  fails inside a transaction begun with `SET TRANSACTION READ ONLY`.
+  **Explain Analyze** runs the statement to its end with the session's
+  `STATISTICS_LEVEL` set to `ALL`, reads its plan with what each step took
+  from `V$SQL_PLAN_STATISTICS_ALL`, then sets `STATISTICS_LEVEL` to
+  `TYPICAL`, Oracle's default. Explaining a write is checked as that
+  write, so a read-only connection refuses it. Advice covers columns
+  converted to be compared, which keeps their index from being used,
+  `MERGE JOIN CARTESIAN`, and full scans that keep few rows.
+- **Values**: `NUMBER` shows exactly, every digit; intervals, `JSON` and
+  `VECTOR` as Oracle writes them. Table tabs show `XMLType` and `JSON` columns as
+  text; a query that selects an `XMLType` column must convert it, with
+  `XMLSERIALIZE(CONTENT column AS CLOB)`. See
+  [Known limitations](limitations.md) for what the driver cannot read.
+- **Table form**: a column that numbers its rows is an identity column
+  (`GENERATED BY DEFAULT AS IDENTITY`); comments are set with `COMMENT
+  ON`.
+- **Users and privileges** lists the users and roles of the pluggable
+  database, but Oracle's own. A new user logs in once granted `CONNECT`;
+  a grant on every table of a schema needs 23ai. A user that owns objects
+  is dropped only with `CASCADE`, which is left to SQL.
+- **Activity**: Sessions, Locks and Statistics. **Stop** runs `ALTER
+  SYSTEM CANCEL SQL`, which keeps the session and its transaction; **End
+  Session** runs `ALTER SYSTEM KILL SESSION … IMMEDIATE`. Statistics are
+  those of the statements still in the shared pool.
+- **Maintenance**: Gather Statistics (`DBMS_STATS`), Move and Rebuild
+  Indexes (`ALTER TABLE … MOVE UPDATE INDEXES`, which locks the table),
+  Shrink Space (which needs `ALTER TABLE … ENABLE ROW MOVEMENT` first) and
+  Validate Structure.
+- **Backup** exports a schema with Data Pump's `expdp` into a dump file in
+  a directory object of the **server**, named as `DATA_PUMP_DIR:shop.dmp`
+  or `shop.dmp` (in `DATA_PUMP_DIR`), where it stays with its log; a file
+  of that name is replaced. **Restore** imports such a file with `impdp`
+  into the schema: the dump's objects of that schema only, its tables
+  replacing the schema's. See [Known limitations](limitations.md#engines)
+  for what Data Pump needs.
+
+What each feature needs on the server, beyond the privileges its
+statements need:
+
+| Feature | Needs |
+| --- | --- |
+| Explain | nothing more: `PLAN_TABLE` is every user's |
+| Explain Analyze | `SELECT_CATALOG_ROLE` or `SELECT ANY DICTIONARY` |
+| Activity pages | `SELECT_CATALOG_ROLE` or `SELECT ANY DICTIONARY`; Stop and End Session also `ALTER SYSTEM` |
+| Users and privileges | `SELECT_CATALOG_ROLE` to list them with their privileges (without it, only the users' names); `CREATE USER`, `ALTER USER`, `DROP USER` or `CREATE ROLE` to change them |
+| Backup | `READ` and `WRITE` on the directory object; `DATAPUMP_EXP_FULL_DATABASE` for another user's schema |
+| Restore | `READ` and `WRITE` on the directory object; `DATAPUMP_IMP_FULL_DATABASE` for another user's schema |
+| Maintenance | nothing more on your own tables; on another user's, `ANALYZE ANY` (statistics, Validate Structure) or `ALTER ANY TABLE` (Move, Shrink Space) |

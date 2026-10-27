@@ -93,14 +93,22 @@ DGOPHER_IT=1 go test ./...     # run every test against them
 docker compose down            # stop and remove them
 ```
 
-Servers of the engines built on another's (MariaDB, TiDB, CockroachDB, YugabyteDB and TimescaleDB) start only
-with their profile, and their tests skip, naming the command, when they
-are not running:
+Servers of the engines built on another's (MariaDB, TiDB, CockroachDB,
+YugabyteDB and TimescaleDB), and of SQL Server and Oracle, start only with
+their profile, and their tests skip, naming the command, when they are not
+running. Their addresses are in
+`internal/testutil/optionalserver/optionalserver.go`:
 
 ```sh
 docker compose --profile compat up -d --wait       # also MariaDB, TiDB, CockroachDB, YugabyteDB and TimescaleDB
-docker compose --profile enterprise up -d --wait   # also SQL Server (x86-64 only, about 2 GB)
+docker compose --profile enterprise up -d --wait   # also SQL Server (x86-64 only, about 2 GB) and Oracle Free
 ```
+
+Oracle Free (service `oracle`, container `dgopher-oracle`) uses up to
+2 GB of memory, its edition's cap, and an image of several GB. Once the
+image is pulled it is ready in about ten seconds. Tests connect to its
+`FREEPDB1` service as `dgopher`, or as `SYSTEM` for what needs a DBA;
+backup tests run stand-ins for `expdp` and `impdp`.
 
 The Redis cluster and sentinel use the host's network, so the addresses
 the nodes announce are reachable from the tests. This needs Docker on

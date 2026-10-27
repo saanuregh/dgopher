@@ -22,12 +22,23 @@ type Parameter struct {
 
 // Params finds :name and ${name} outside strings, comments, quoted identifiers
 // and dollar quotes; also {name:Type} in ClickHouse, and @name and $name in
-// SQLite. A ':' inside [ ] is an array slice, and in MySQL and
+// SQLite; in Oracle :1 too. A ':' inside [ ] is an array slice, and in MySQL and
 // ClickHouse a ':' directly after a name (such as {id:UInt32}) is part of
-// it, as in T-SQL, where it ends a label.
+// it, as in T-SQL, where it ends a label. An Oracle CREATE has no :name
+// parameter: DDL takes no bind variables, and a trigger's :new and :old
+// name its rows.
 func Params(stmt string, d Dialect) []Parameter {
 	toks := Tokenize(stmt, d)
 	var out []Parameter
+	ddl := false
+	if d == Oracle {
+		for _, t := range toks {
+			if significant(t) {
+				ddl = isWord(t, "CREATE")
+				break
+			}
+		}
+	}
 	brackets := 0
 	skipUntil := 0
 	for i, t := range toks {
@@ -57,7 +68,7 @@ func Params(stmt string, d Dialect) []Parameter {
 			n := toks[i+1]
 			out = append(out, Parameter{Name: n.Text, Start: t.Start, End: n.End, Kind: ParamNamed, Sigil: rune(stmt[t.Start])})
 			skipUntil = n.End
-		case t.Kind == Param && stmt[t.Start] == ':' && brackets <= 0:
+		case t.Kind == Param && stmt[t.Start] == ':' && brackets <= 0 && !ddl:
 			if (d == MySQL || d == ClickHouse || d == TSQL) && i > 0 && toks[i-1].End == t.Start &&
 				(toks[i-1].Kind == Identifier || toks[i-1].Kind == Keyword || toks[i-1].Kind == QuotedIdent) {
 				continue
@@ -65,6 +76,12 @@ func Params(stmt string, d Dialect) []Parameter {
 			end := t.Start + 1
 			for end < t.End && isASCIIName(stmt[end], end > t.Start+1) {
 				end++
+			}
+			// Oracle names a bind by a number too, as :1.
+			if d == Oracle && end == t.Start+1 {
+				for end < t.End && isDigit(stmt[end]) {
+					end++
+				}
 			}
 			if end > t.Start+1 {
 				out = append(out, Parameter{Name: stmt[t.Start+1 : end], Start: t.Start, End: end, Kind: ParamNamed, Sigil: ':'})

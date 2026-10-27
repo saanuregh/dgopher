@@ -152,7 +152,7 @@ func TestIntegrationModels(t *testing.T) {
 			apply(t, d, ch)
 			unchanged(t, m, read("it_model_b"))
 
-			for _, other := range servers() {
+			for _, other := range append(servers(), oracleServers()...) {
 				if other.cfg.Engine == srv.cfg.Engine {
 					continue
 				}

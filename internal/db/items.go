@@ -27,12 +27,14 @@ const (
 	ItemPartition ItemKind = "partition"
 	// ItemSynonym is a name standing for another object, as SQL Server's.
 	ItemSynonym ItemKind = "synonym"
+	// ItemPackage is an Oracle package: its spec and its body.
+	ItemPackage ItemKind = "package"
 )
 
 // ItemKinds are the kinds a schema's navigator shows as folders, in
 // their order.
 func ItemKinds() []ItemKind {
-	return []ItemKind{ItemFunction, ItemProcedure, ItemTrigger, ItemSequence, ItemType, ItemExtension, ItemEvent, ItemProjection, ItemChunk, ItemJob, ItemSynonym}
+	return []ItemKind{ItemFunction, ItemProcedure, ItemPackage, ItemTrigger, ItemSequence, ItemType, ItemExtension, ItemEvent, ItemProjection, ItemChunk, ItemJob, ItemSynonym}
 }
 
 // Plural names a kind's folder.
@@ -74,7 +76,7 @@ func scanItems(ctx context.Context, q Querier, schema, query string, args ...any
 	return scanAll(ctx, q, query, args, func(scan func(...any) error) (Item, error) {
 		it := Item{Schema: schema}
 		var kind string
-		if err := scan(&kind, &it.Name, &it.Table, &it.Detail, &it.ID); err != nil {
+		if err := scan(&kind, &it.Name, orEmpty{&it.Table}, orEmpty{&it.Detail}, orEmpty{&it.ID}); err != nil {
 			return it, err
 		}
 		it.Kind = ItemKind(kind)

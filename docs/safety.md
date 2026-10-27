@@ -78,6 +78,7 @@ A read-only connection refuses writes in two places:
   | YugabyteDB | `default_transaction_read_only`; the app also refuses any `yb_` function but known reads, and a `SET` or `RESET` of `yb_disable_transactional_writes` or `yb_enable_upsert_mode`, which it lets through |
   | TimescaleDB | `default_transaction_read_only`; the app also refuses TimescaleDB's functions that change something, any function of its `_timescaledb_` schemas, a `SET search_path` that names one, and a `SET` or `RESET` of `timescaledb.restoring`, some of which it lets through |
   | SQL Server | none: SQL Server has no read-only session, so the app's check is the only one |
+  | Oracle | `READ_ONLY` on each session, from 23ai; before 23ai, none, so the app's check is the only one (`SET TRANSACTION READ ONLY` would let autonomous transactions, `NEXTVAL`, `LOCK` and DDL through) |
   | ClickHouse | `readonly=2` |
   | SQLite | `mode=ro` with `query_only` |
   | DuckDB | `access_mode=READ_ONLY` |

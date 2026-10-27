@@ -295,7 +295,7 @@ func (q *Tab) askRename() {
 // the new name where it needs it.
 func renameInText(text string, id identifier, name string, d sqltext.Dialect, quote func(string) string) string {
 	written := name
-	if sqltext.NeedsQuote(name) {
+	if sqltext.NeedsQuoteIn(name, d) {
 		written = quote(name)
 	}
 	occ := occurrences(text, id, d)

@@ -12,6 +12,8 @@ import (
 	"dgopher/internal/testutil/optionalserver"
 )
 
+var oracleConfig = db.Config{Name: "oracle", Engine: db.Oracle, Host: "127.0.0.1", Port: 11521, User: "dgopher", Password: "dgopher", Database: "FREEPDB1"}
+
 // serverAnswer is what a server did with one query: its column names and
 // first row, or the error it returned.
 type serverAnswer struct {
@@ -367,6 +369,67 @@ func TestIntegrationLexingConformance(t *testing.T) {
 		})
 	})
 
+	t.Run("Oracle", func(t *testing.T) {
+		optionalserver.SkipUnless(t, "oracle")
+		d := openFor(t, oracleConfig)
+		dialect := db.LexDialect(db.Oracle)
+		runLexCases(t, d, dialect, []lexCase{
+			{"SELECT q'[it's;]' FROM dual", valueIsString("it's;", "q'[it's;]'", dialect, "SELECT q'[it's;]' FROM dual")},
+			{"SELECT nq'{a}b;}' FROM dual", valueIsString("a}b;", "nq'{a}b;}'", dialect, "SELECT nq'{a}b;}' FROM dual")},
+			{"SELECT 'it''s;' FROM dual", valueIsString("it's;", "'it''s;'", dialect, "SELECT 'it''s;' FROM dual")},
+			{`SELECT 1 AS "a b" FROM dual`, columnNamed("a b", sqltext.QuotedIdent, `"a b"`)},
+			{"SELECT 1 AS a$b#c FROM dual", columnNamed("A$B#C", sqltext.Identifier, "a$b#c")},
+			// Block comments do not nest; a line comment ends at a line
+			// feed alone.
+			{"SELECT 1 /* a /* b */ , 2 FROM dual", columnsAgree(2)},
+			{"SELECT 1 -- c\r, 2 FROM dual", columnsRecorded},
+			{"SELECT 1 AS \"a\"\"b\" FROM dual", func(t *testing.T, a serverAnswer, toks []sqltext.Token) {
+				// Oracle has no escaped quote in a name: "a""b" is two names.
+				t.Logf("server: columns %q err %v", a.columns, a.err)
+				if a.err == nil && hasToken(toks, sqltext.QuotedIdent, `"a""b"`) {
+					t.Errorf("the server read two names, the lexer one: %s", describe(toks))
+				}
+			}},
+			// The server reads full-width punctuation as ASCII's, which the
+			// lexer does not: such a statement is a dangerous write.
+			{"SELECT 1，2 FROM dual", func(t *testing.T, a serverAnswer, toks []sqltext.Token) {
+				if a.err != nil || len(a.columns) != 2 {
+					t.Fatalf("server columns %q err %v, want two", a.columns, a.err)
+				}
+				if an := sqltext.Classify("SELECT 1，2 FROM dual", dialect); an.Class != sqltext.Write || !an.Dangerous {
+					t.Errorf("classified %+v, want a dangerous write", an)
+				}
+			}},
+		})
+		// A "/" line ends a statement, PL/SQL blocks too, each of which the
+		// server runs alone.
+		script := "SELECT 1 FROM dual\n/\nBEGIN\n  NULL;\nEND;\n/\nSELECT 'a;/' FROM dual"
+		stmts := sqltext.SplitWith(script, dialect, sqltext.SplitOptions{})
+		if len(stmts) != 3 {
+			t.Fatalf("split %q into %d statements", script, len(stmts))
+		}
+		for _, st := range stmts {
+			if _, err := d.SQL.ExecContext(context.Background(), st.Text); err != nil {
+				t.Errorf("%q: %v", st.Text, err)
+			}
+		}
+		// The server binds :n and :name; inside a string or a quoted name
+		// it is text. The editor asks for both (sqltext.Params).
+		for _, c := range []struct {
+			query         string
+			binds, prompt int
+		}{{"SELECT :1 || :name FROM dual", 2, 2}, {"SELECT ':1' FROM dual", 0, 0}, {`SELECT 1 AS ":x" FROM dual`, 0, 0}} {
+			if n := len(sqltext.Params(c.query, dialect)); n != c.prompt {
+				t.Errorf("%q: %d parameters, want %d", c.query, n, c.prompt)
+			}
+			args := []any{"a", "b"}[:c.binds]
+			var v string
+			if err := d.SQL.QueryRowContext(context.Background(), c.query, args...).Scan(&v); err != nil {
+				t.Errorf("%q: %v", c.query, err)
+			}
+		}
+	})
+
 	t.Run("SQLite", func(t *testing.T) {
 		d := openFor(t, db.Config{Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 		runLexCases(t, d, sqltext.SQLite, []lexCase{
@@ -434,6 +497,7 @@ func TestIntegrationLexingSpaces(t *testing.T) {
 		{"tidb", db.Config{Name: "tidb", Engine: db.TiDB, Host: "127.0.0.1", Port: 14000, User: "root", Password: "dgopher", Database: "shop"}},
 		{"", db.Config{Name: "ch", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher", Database: "default"}},
 		{"sqlserver", db.Config{Name: "sqlserver", Engine: db.SQLServer, Host: "127.0.0.1", Port: 11433, User: "sa", Password: "Dgopher-1", Database: "shop"}},
+		{"oracle", oracleConfig},
 		{"", db.Config{Name: "lite", Engine: db.SQLite, Database: ":memory:"}},
 		{"", db.Config{Name: "duck", Engine: db.DuckDB, Database: ":memory:"}},
 	}
