@@ -236,6 +236,7 @@ func (clickhouseEngine) URLTLSParameters() map[string]map[string]TLSMode {
 
 func (clickhouseEngine) CloudIdentity() bool              { return false }
 func (clickhouseEngine) ClearTextPassword() bool          { return false }
+func (clickhouseEngine) ServerEnforcesReadOnly() bool     { return true }
 func (clickhouseEngine) DatabasesNeedOwnConnection() bool { return false }
 func (clickhouseEngine) DefaultSchemaName() string        { return "default" }
 func (clickhouseEngine) FileExtensions() []string         { return nil }
@@ -514,7 +515,8 @@ func (clickhouseEngine) DropConstraintSQL(d Dialect, kind ConstraintKind, schema
 	return dropConstraintSQL(d, kind, schema, table, name)
 }
 
-func (clickhouseEngine) UniqueAsConstraint() bool { return false }
+func (clickhouseEngine) UniqueAsConstraint() bool       { return false }
+func (clickhouseEngine) ReplacesPrimaryKeyAtOnce() bool { return false }
 
 func (clickhouseEngine) TableCommentSQL(d Dialect, schema, table, comment string) string {
 	return "ALTER TABLE " + QualifiedName(d, schema, table) + " MODIFY COMMENT " + Literal(d.Engine(), comment)

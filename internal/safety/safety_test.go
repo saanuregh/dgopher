@@ -526,3 +526,87 @@ func TestIntegrationTiDBReadOnlyIsTheAppsCheck(t *testing.T) {
 	}
 	c.Close()
 }
+
+// CockroachDB refuses the writes of a read-only session, after a COMMIT
+// too, but runs some statements that change the cluster all the same,
+// which the app refuses; its Explain Analyze of a read runs.
+func TestIntegrationCockroachDBReadOnly(t *testing.T) {
+	testutil.Integration(t)
+	optionalserver.SkipUnless(t, "cockroachdb")
+	cfg := db.Config{Name: "crdb", Engine: db.CockroachDB, Host: "127.0.0.1", Port: 26257, User: "dgopher", Password: "dgopher", Database: "shop", ReadOnly: true}
+	for _, sql := range []string{
+		"INSERT INTO t VALUES (1)", "EXPLAIN ANALYZE (DEBUG) SELECT 1", "SELECT crdb_internal.reset_sql_stats()",
+		"CREATE STATISTICS s FROM t", "SET CLUSTER SETTING sql.defaults.distsql = off", "CANCEL JOB 1", "PAUSE JOB 1",
+		"SELECT * FROM [DELETE FROM t WHERE a = 1 RETURNING a]", "SET search_path = crdb_internal, public",
+		`EXPLAIN ("analyze") DELETE FROM t WHERE a = 1`, `EXPLAIN ANALYZE ("debug") SELECT 1`, "SELECT crdb_internal.inject_hint('SELECT 1', 'x')",
+	} {
+		if v := ReviewSQL(&cfg, Analyze(&cfg, []string{sql})); v.Blocked == "" {
+			t.Errorf("%q not refused on a read-only connection", sql)
+		}
+	}
+	run, ok := db.Explain(cfg.Engine, "SELECT 1", true)
+	if !ok {
+		t.Fatal("no Explain Analyze")
+	}
+	if v := ReviewSQL(&cfg, Analyze(&cfg, []string{run.Statement})); v.Blocked != "" || v.Writes {
+		t.Fatalf("%q: %+v", run.Statement, v)
+	}
+	ctx := context.Background()
+	d, err := db.Open(ctx, cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	s, err := d.Session(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	c, err := s.Query(ctx, run.Statement)
+	if err != nil {
+		t.Fatalf("%q on read-only: %v", run.Statement, err)
+	}
+	c.Close()
+	for _, sql := range []string{"BEGIN", "COMMIT", "CREATE TABLE crdb_read_only (a INT)", "BEGIN READ WRITE", "CREATE TABLE crdb_read_only (a INT)"} {
+		_, err := s.Exec(ctx, sql)
+		if strings.HasPrefix(sql, "CREATE") && err == nil {
+			t.Fatalf("the server ran %q on a read-only session", sql)
+		}
+	}
+}
+
+// A quoted EXPLAIN option is read as the server reads it: a quoted
+// ANALYZE of a write asks on production, is refused on read-only and gets
+// manual commit's BEGIN, as does a quoted DEBUG on CockroachDB.
+func TestExplainQuotedOptions(t *testing.T) {
+	for _, e := range []db.Engine{db.Postgres, db.CockroachDB} {
+		prod := &db.Config{Name: "prod", Engine: e, Env: db.Production}
+		ro := &db.Config{Name: "replica", Engine: e, ReadOnly: true}
+		for _, sql := range []string{`EXPLAIN ("analyze") DELETE FROM t WHERE id = 1`, `EXPLAIN ANALYZE ("debug") SELECT 1`, `EXPLAIN (U&"analyze") DELETE FROM t WHERE id = 1`} {
+			if v := ReviewSQL(prod, Analyze(prod, []string{sql})); !v.Confirm || !v.Writes {
+				t.Errorf("%s %q on production: %+v", e, sql, v)
+			}
+			if v := ReviewSQL(ro, Analyze(ro, []string{sql})); v.Blocked == "" {
+				t.Errorf("%s %q not refused on read-only", e, sql)
+			}
+			if !WritesInTransaction(e, Analyze(prod, []string{sql})[0]) {
+				t.Errorf("%s %q gets no BEGIN under manual commit", e, sql)
+			}
+		}
+	}
+}
+
+// Opening crdb_internal to the session is refused on read-only and asks
+// on production.
+func TestAllowUnsafeInternals(t *testing.T) {
+	prod := &db.Config{Name: "prod", Engine: db.CockroachDB, Env: db.Production}
+	ro := &db.Config{Name: "replica", Engine: db.CockroachDB, ReadOnly: true}
+	for _, sql := range []string{"SET allow_unsafe_internals = on", "RESET allow_unsafe_internals", "SET LOCAL allow_unsafe_internals = true"} {
+		if v := ReviewSQL(ro, Analyze(ro, []string{sql})); v.Blocked == "" {
+			t.Errorf("%q not refused on read-only", sql)
+		}
+		if v := ReviewSQL(prod, Analyze(prod, []string{sql})); !v.Confirm {
+			t.Errorf("%q on production: %+v", sql, v)
+		}
+	}
+}

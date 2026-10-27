@@ -63,6 +63,20 @@ func postgresTxState(c *stdlib.Conn) TxState {
 	return TxNone
 }
 
+// pgConnClosed reports whether a PostgreSQL driver's connection closed
+// with the error it gave, as CockroachDB's after CANCEL SESSION, whose
+// error is an ordinary one.
+func pgConnClosed(conn *sql.Conn) bool {
+	closed := false
+	conn.Raw(func(dc any) error {
+		if c, ok := driverConn(dc).(*stdlib.Conn); ok {
+			closed = c.Conn().PgConn().IsClosed()
+		}
+		return nil
+	})
+	return closed
+}
+
 // The packages whose unexported fields reflectedTxState reads, as of
 // go-sql-driver/mysql v1.10.1 (mysqlConn.status) and modernc.org/sqlite
 // v1.60.1 (conn.db and conn.tls).

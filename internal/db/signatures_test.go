@@ -76,9 +76,11 @@ func TestIntegrationSignatures(t *testing.T) {
 		name string
 	}{
 		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"}, "round"},
+		{cockroachdbConfig, "round"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher", Database: "default"}, "round"},
 	} {
 		t.Run(c.cfg.Name, func(t *testing.T) {
+			skipUnlessRunning(t, c.cfg)
 			d, err := Open(ctx, c.cfg, nil)
 			if err != nil {
 				t.Fatal(err)

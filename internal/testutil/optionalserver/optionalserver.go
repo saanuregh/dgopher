@@ -17,8 +17,9 @@ type server struct {
 
 // servers are the optional servers, by compose.yaml's service name.
 var servers = map[string]server{
-	"mariadb": {"127.0.0.1:13307", "docker compose --profile compat up -d --wait mariadb"},
-	"tidb":    {"127.0.0.1:14000", "docker compose --profile compat up -d --wait tidb"},
+	"mariadb":     {"127.0.0.1:13307", "docker compose --profile compat up -d --wait mariadb"},
+	"tidb":        {"127.0.0.1:14000", "docker compose --profile compat up -d --wait tidb"},
+	"cockroachdb": {"127.0.0.1:26257", "docker compose --profile compat up -d --wait cockroachdb"},
 }
 
 // SkipUnless skips the test unless the optional server service is

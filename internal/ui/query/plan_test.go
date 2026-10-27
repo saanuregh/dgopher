@@ -71,3 +71,19 @@ func TestIntegrationTiDBExplainPlan(t *testing.T) {
 		}
 	}
 }
+
+// CockroachDB's Explain and Explain Analyze, its text tree, read as
+// plans, the second as run.
+func TestIntegrationCockroachDBExplainPlan(t *testing.T) {
+	testutil.Integration(t)
+	optionalserver.SkipUnless(t, "cockroachdb")
+	cfg := db.Config{ID: "crdb", Name: "crdb", Engine: db.CockroachDB, Host: "127.0.0.1", Port: 26257, User: "dgopher", Password: "dgopher", Database: "shop"}
+	_, tt, _, q := openEditor(t, cfg, 1000, 700, "SELECT count(*) FROM information_schema.tables")
+	for _, mode := range []RunMode{RunExplain, RunExplainAnalyze} {
+		q.Run(mode)
+		testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running && q.current() != nil })
+		if r := q.current(); r.err != "" || r.plan == nil || (mode == RunExplainAnalyze) != r.plan.Analyzed {
+			t.Fatalf("mode %d, %s: error %q, plan %+v", mode, r.sql, r.err, r.plan)
+		}
+	}
+}

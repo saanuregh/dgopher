@@ -713,6 +713,7 @@ func (redisEngine) URLTLSParameters() map[string]map[string]TLSMode {
 
 func (redisEngine) CloudIdentity() bool              { return false }
 func (redisEngine) ClearTextPassword() bool          { return false }
+func (redisEngine) ServerEnforcesReadOnly() bool     { return false }
 func (redisEngine) DatabasesNeedOwnConnection() bool { return false }
 func (redisEngine) DefaultSchemaName() string        { return "" }
 func (redisEngine) FileExtensions() []string         { return nil }

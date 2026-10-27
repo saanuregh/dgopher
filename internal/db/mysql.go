@@ -295,6 +295,7 @@ func (mysqlEngine) URLTLSParameters() map[string]map[string]TLSMode {
 
 func (mysqlEngine) CloudIdentity() bool              { return true }
 func (mysqlEngine) ClearTextPassword() bool          { return true }
+func (mysqlEngine) ServerEnforcesReadOnly() bool     { return true }
 func (mysqlEngine) DatabasesNeedOwnConnection() bool { return false }
 func (mysqlEngine) DefaultSchemaName() string        { return "" }
 func (mysqlEngine) FileExtensions() []string         { return nil }
@@ -594,7 +595,8 @@ func (mysqlEngine) DropConstraintSQL(d Dialect, kind ConstraintKind, schema, tab
 	return alter + " DROP PRIMARY KEY"
 }
 
-func (mysqlEngine) UniqueAsConstraint() bool { return true }
+func (mysqlEngine) UniqueAsConstraint() bool       { return true }
+func (mysqlEngine) ReplacesPrimaryKeyAtOnce() bool { return false }
 
 func (mysqlEngine) TableCommentSQL(d Dialect, schema, table, comment string) string {
 	return "ALTER TABLE " + QualifiedName(d, schema, table) + " COMMENT = " + Literal(d.Engine(), comment)

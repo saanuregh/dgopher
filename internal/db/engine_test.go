@@ -31,7 +31,7 @@ func TestEngineFactsPinned(t *testing.T) {
 
 		// The flavors answer as their parent, but for their names, ports
 		// and users, until their own PRs.
-		CockroachDB: {"CockroachDB", 26257, "root", sqltext.Postgres, "SHOW server_version", cockroachdbDialect{}, []BackupFormat{BackupArchive, BackupSQL}},
+		CockroachDB: {"CockroachDB", 26257, "root", sqltext.Postgres, "SHOW server_version", cockroachdbDialect{}, []BackupFormat{BackupSQL}},
 		YugabyteDB:  {"YugabyteDB", 5433, "yugabyte", sqltext.Postgres, "SHOW server_version", yugabytedbDialect{}, []BackupFormat{BackupArchive, BackupSQL}},
 		TimescaleDB: {"TimescaleDB", 5432, "postgres", sqltext.Postgres, "SHOW server_version", timescaledbDialect{}, []BackupFormat{BackupArchive, BackupSQL}},
 		MariaDB:     {"MariaDB", 3306, "root", sqltext.MySQL, "SELECT VERSION()", mariadbDialect{}, []BackupFormat{BackupSQL}},
@@ -148,6 +148,25 @@ func TestOpenStoreFailsWithNoStore(t *testing.T) {
 		}
 		if s != nil {
 			t.Errorf("%s: OpenStore gave %T alongside its error, want nil", e, s)
+		}
+	}
+}
+
+// The connection form says whether the server refuses writes of a
+// read-only connection too: TiDB and Redis have no read-only mode, so
+// there the app's check is the only one.
+func TestServerEnforcesReadOnly(t *testing.T) {
+	want := map[Engine]bool{
+		Postgres: true, CockroachDB: true, YugabyteDB: true, TimescaleDB: true, MySQL: true, MariaDB: true, TiDB: false,
+		ClickHouse: true, SQLite: true, DuckDB: true, Redis: false, "unknown": false,
+	}
+	for _, e := range append(Engines(), "unknown") {
+		w, ok := want[e]
+		if !ok {
+			t.Errorf("no expectation for %q", e)
+		}
+		if got := e.ServerEnforcesReadOnly(); got != w {
+			t.Errorf("%q: %v, want %v", e, got, w)
 		}
 	}
 }

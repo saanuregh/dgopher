@@ -285,9 +285,9 @@ when another connection in the project has it.
 | Engine | Notes |
 | --- | --- |
 | PostgreSQL | browse its other databases from one connection |
-| CockroachDB, YugabyteDB, TimescaleDB | PostgreSQL's family: connect and work as PostgreSQL does |
+| CockroachDB, YugabyteDB, TimescaleDB | PostgreSQL's family: connect and work as PostgreSQL does, except where [Engine support](engines.md#engines-of-a-family) says otherwise |
 | MySQL | |
-| MariaDB, TiDB | MySQL's family: connect and work as MySQL does, except that TiDB's read-only is the app's check alone ([engines](engines.md#tidb)) |
+| MariaDB, TiDB | MySQL's family: connect and work as MySQL does, except where [Engine support](engines.md#engines-of-a-family) says otherwise (TiDB's read-only is the app's check alone) |
 | ClickHouse | native protocol or HTTP, chosen under **Protocol**; the port defaults to 9000 or 8123, 9440 or 8443 with TLS required or verified |
 | SQLite | a file, or in memory; **New…** creates an empty file |
 | DuckDB | a file, or in memory; **New…** creates an empty file |
