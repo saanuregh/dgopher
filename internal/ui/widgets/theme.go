@@ -268,7 +268,7 @@ func ConnDot(c *ui.Context, cn *connection.Conn) ui.Element {
 		}
 		// Painted from the clock: the frames it takes only paint.
 		dot.Draw(func(p *ui.Painter, r ui.Rect) {
-			p.AnimationFrame()
+			p.AnimationFrameRate(pulseFrameRate)
 			phase := float64(p.Now().UnixMilli()%connectPulse) / connectPulse
 			fill := 0.5 - 0.5*math.Cos(2*math.Pi*phase)
 			p.Fill(r, col.Alpha(float32(fill)), r.W/2)
@@ -280,3 +280,8 @@ func ConnDot(c *ui.Context, cn *connection.Conn) ui.Element {
 // connectPulse is how long, in milliseconds, a connecting dot takes to
 // fill and empty: slow enough to read as waiting, not as an alarm.
 const connectPulse = 1200
+
+// pulseFrameRate is the frames a second of the slow, soft animations, the
+// connecting dot and the skeleton's light, which look as smooth at it as
+// at the display's rate and cost less power.
+const pulseFrameRate = 30
