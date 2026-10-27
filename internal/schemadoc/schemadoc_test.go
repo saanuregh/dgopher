@@ -60,6 +60,34 @@ func TestScriptOrder(t *testing.T) {
 	}
 }
 
+// Every kind of item has its place in a script, so that none is made
+// before what it needs: a TimescaleDB job after the hypertable and the
+// continuous aggregate it acts on; a chunk, which says what it holds, last.
+func TestScriptPlacesEveryItemKind(t *testing.T) {
+	for _, k := range append(db.ItemKinds(), db.ItemPartition) {
+		if !slices.Contains(kindOrder, string(k)) {
+			t.Errorf("%s has no place in a script", k)
+		}
+	}
+	s := &Schema{Engine: db.TimescaleDB,
+		Tables: []Table{
+			{Object: db.Object{Name: "hourly", Kind: db.KindMaterializedView}, Definition: "CREATE MATERIALIZED VIEW hourly WITH (timescaledb.continuous) AS SELECT 1 WITH NO DATA"},
+			{Object: db.Object{Name: "metrics", Kind: db.KindTable}, Definition: "CREATE TABLE metrics (t timestamptz NOT NULL)"},
+		},
+		Items: []Item{
+			{Item: db.Item{Name: "_hyper_1_1_chunk", Kind: db.ItemChunk, Table: "metrics"}, Definition: "-- _hyper_1_1_chunk holds the rows of metrics."},
+			{Item: db.Item{Name: "Refresh Continuous Aggregate Policy [1000]", Kind: db.ItemJob, Table: "hourly"}, Definition: "SELECT add_continuous_aggregate_policy('hourly', start_offset => NULL, end_offset => NULL)"},
+		},
+	}
+	var firsts []string
+	for _, stmt := range strings.Split(Script(s), "\n\n") {
+		firsts = append(firsts, strings.SplitN(stmt, " ", 3)[1])
+	}
+	if want := []string{"TABLE", "MATERIALIZED", "add_continuous_aggregate_policy('hourly',", "_hyper_1_1_chunk"}; !slices.Equal(firsts, want) {
+		t.Errorf("script:\n%s", Script(s))
+	}
+}
+
 func TestMarkdownEscapes(t *testing.T) {
 	s := &Schema{Engine: db.Postgres, Tables: []Table{{
 		Object:     db.Object{Name: "a|b_c", Kind: db.KindTable, Rows: 1234567, Comment: "Holds *all*\nthe <rows>"},

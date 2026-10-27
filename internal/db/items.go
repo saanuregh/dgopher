@@ -18,6 +18,10 @@ const (
 	ItemExtension  ItemKind = "extension"
 	ItemEvent      ItemKind = "event"
 	ItemProjection ItemKind = "projection"
+	// ItemChunk is a chunk of a TimescaleDB hypertable, ItemJob a job
+	// TimescaleDB runs, a policy among them.
+	ItemChunk ItemKind = "chunk"
+	ItemJob   ItemKind = "job"
 	// ItemPartition is a partition of a PostgreSQL table, shown under the
 	// table rather than with the schema's.
 	ItemPartition ItemKind = "partition"
@@ -26,7 +30,7 @@ const (
 // ItemKinds are the kinds a schema's navigator shows as folders, in
 // their order.
 func ItemKinds() []ItemKind {
-	return []ItemKind{ItemFunction, ItemProcedure, ItemTrigger, ItemSequence, ItemType, ItemExtension, ItemEvent, ItemProjection}
+	return []ItemKind{ItemFunction, ItemProcedure, ItemTrigger, ItemSequence, ItemType, ItemExtension, ItemEvent, ItemProjection, ItemChunk, ItemJob}
 }
 
 // Plural names a kind's folder.

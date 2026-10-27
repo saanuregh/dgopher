@@ -76,6 +76,7 @@ A read-only connection refuses writes in two places:
   | TiDB | none: TiDB refuses the read-only setting (error 1235), so the app's check is the only one |
   | CockroachDB | `default_transaction_read_only`; the app also refuses `CREATE STATISTICS`, `EXPLAIN ANALYZE (DEBUG)`, any `crdb_internal` function but known reads, a `SET search_path` that names `crdb_internal`, and a `SET` or `RESET` of `allow_unsafe_internals`, which it lets through |
   | YugabyteDB | `default_transaction_read_only`; the app also refuses any `yb_` function but known reads, and a `SET` or `RESET` of `yb_disable_transactional_writes` or `yb_enable_upsert_mode`, which it lets through |
+  | TimescaleDB | `default_transaction_read_only`; the app also refuses TimescaleDB's functions that change something, any function of its `_timescaledb_` schemas, a `SET search_path` that names one, and a `SET` or `RESET` of `timescaledb.restoring`, some of which it lets through |
   | ClickHouse | `readonly=2` |
   | SQLite | `mode=ro` with `query_only` |
   | DuckDB | `access_mode=READ_ONLY` |

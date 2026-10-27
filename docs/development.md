@@ -93,12 +93,12 @@ DGOPHER_IT=1 go test ./...     # run every test against them
 docker compose down            # stop and remove them
 ```
 
-Servers of the engines built on another's (MariaDB, TiDB, CockroachDB and YugabyteDB so far) start only
+Servers of the engines built on another's (MariaDB, TiDB, CockroachDB, YugabyteDB and TimescaleDB) start only
 with their profile, and their tests skip, naming the command, when they
 are not running:
 
 ```sh
-docker compose --profile compat up -d --wait   # also MariaDB, TiDB, CockroachDB and YugabyteDB
+docker compose --profile compat up -d --wait   # also MariaDB, TiDB, CockroachDB, YugabyteDB and TimescaleDB
 ```
 
 The Redis cluster and sentinel use the host's network, so the addresses

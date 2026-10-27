@@ -172,7 +172,11 @@ func (a *App) startBackup(b *backupDialog) {
 			job = "Restoring " + filepath.Base(path) + " into " + b.what() + ": stopping it rolls it back, and nothing of the backup stays."
 		}
 		stopped := func() { b.running, b.cancel, b.err = false, nil, "It stopped on an internal error." }
-		dataview.RunJob(a, cn, job, cancel, stopped, func() func() {
+		// Stopped, the run's After steps still run, which a disconnect or a
+		// quit waits for.
+		finish := a.startJobWaiting(cn, job, cancel, db.AfterStepsWait)
+		dataview.BackgroundResetOnPanic(a, stopped, func() func() {
+			defer finish()
 			defer cancel()
 			var tool db.ToolRun
 			var err error
@@ -188,22 +192,7 @@ func (a *App) startBackup(b *backupDialog) {
 				return func() { b.running, b.cancel = false, nil }
 			}
 			if err == nil {
-				switch {
-				case tool.Import != "":
-					var d *db.DB
-					if d, err = poolOf(ctx); err == nil {
-						err = db.RestoreDuckDB(ctx, d, tool)
-					}
-				case tool.Statement != "":
-					var d *db.DB
-					if d, err = poolOf(ctx); err == nil && choices.Folder {
-						err = db.BackupDuckDB(ctx, d, tool.Statement)
-					} else if err == nil {
-						_, err = d.SQL.ExecContext(ctx, tool.Statement)
-					}
-				default:
-					err = db.RunTool(ctx, tool, func(line string) { a.Post(func() { b.addLine(line) }) })
-				}
+				err = db.RunPlanned(ctx, tool, poolOf, func(line string) { a.Post(func() { b.addLine(line) }) })
 			}
 			kind, detail := audit.KindBackup, opts.Format.Label()+" to "+path
 			if restore {

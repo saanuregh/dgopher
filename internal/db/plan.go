@@ -140,6 +140,11 @@ func parsePostgresPlan(text string) (*Plan, bool) {
 	build = func(m map[string]any) *PlanNode {
 		n := newNode()
 		n.Op = str(m, "Node Type")
+		// An extension's custom scan, named by the extension's step, as
+		// TimescaleDB's ChunkAppend or Citus's.
+		if provider := str(m, "Custom Plan Provider"); n.Op == "Custom Scan" && provider != "" {
+			n.Op += " (" + provider + ")"
+		}
 		if j := str(m, "Join Type"); j != "" && j != "Inner" {
 			n.Op += " (" + j + ")"
 		}

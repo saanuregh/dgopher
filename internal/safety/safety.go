@@ -285,10 +285,11 @@ func (v Verdict) Covers(w Verdict) bool {
 }
 
 // OutsideTransaction reports whether a statement cannot run in a
-// transaction, which manual commit must then not open for it:
-// PostgreSQL's VACUUM, CREATE and DROP of a DATABASE or a TABLESPACE,
-// ALTER SYSTEM and the CONCURRENTLY forms of index commands, and the
-// VACUUM of SQLite and DuckDB.
+// transaction, which manual commit must then not open for it, as the
+// engine's rules say: PostgreSQL's VACUUM, CREATE and DROP of a DATABASE
+// or a TABLESPACE, ALTER SYSTEM and the CONCURRENTLY forms of index
+// commands, SQLite's and DuckDB's VACUUM, and the statements of the
+// engines built on PostgreSQL that need it.
 func OutsideTransaction(e db.Engine, sql string) bool {
 	r, ok := db.SQL(e)
 	return ok && r.OutsideTransaction(sql)

@@ -101,6 +101,23 @@ services:
       interval: 2s
       retries: 90
 
+  # TimescaleDB, in the compat profile: docker compose --profile compat up
+  # -d --wait timescaledb. The image creates the extension in the database
+  # it makes, shop, and in template1. Healthy once it listens on TCP, which
+  # the server that runs the image's setup does not.
+  timescaledb:
+    image: timescale/timescaledb:latest-pg17
+    container_name: dgopher-timescaledb
+    profiles: ["compat"]
+    ports: ["127.0.0.1:15434:5432"]
+    environment:
+      POSTGRES_PASSWORD: dgopher
+      POSTGRES_DB: shop
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "postgres", "-d", "shop"]
+      interval: 2s
+      retries: 30
+
   clickhouse:
     image: clickhouse/clickhouse-server:26.3
     container_name: dgopher-ch

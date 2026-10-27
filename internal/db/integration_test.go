@@ -46,6 +46,7 @@ var mariadbConfig = Config{Name: "mariadb", Engine: MariaDB, Host: "127.0.0.1", 
 var tidbConfig = Config{Name: "tidb", Engine: TiDB, Host: "127.0.0.1", Port: 14000, User: "root", Password: "dgopher", Database: "shop"}
 var cockroachdbConfig = Config{Name: "cockroachdb", Engine: CockroachDB, Host: "127.0.0.1", Port: 26257, User: "dgopher", Password: "dgopher", Database: "shop"}
 var yugabytedbConfig = Config{Name: "yugabytedb", Engine: YugabyteDB, Host: "127.0.0.1", Port: 15433, User: "yugabyte", Password: "dgopher", Database: "shop"}
+var timescaledbConfig = Config{Name: "timescaledb", Engine: TimescaleDB, Host: "127.0.0.1", Port: 15434, User: "postgres", Password: "dgopher", Database: "shop"}
 
 type fixture struct {
 	cfg    Config
@@ -83,6 +84,12 @@ line two'), (3, 'Linus', NULL, NULL)`,
 		},
 		{
 			cfg:    yugabytedbConfig,
+			schema: "it",
+			setup:  append([]string{`DROP SCHEMA IF EXISTS it CASCADE`, `CREATE SCHEMA it`, `SET search_path = it`}, common...),
+			sleep:  `SELECT pg_sleep(10)`,
+		},
+		{
+			cfg:    timescaledbConfig,
 			schema: "it",
 			setup:  append([]string{`DROP SCHEMA IF EXISTS it CASCADE`, `CREATE SCHEMA it`, `SET search_path = it`}, common...),
 			sleep:  `SELECT pg_sleep(10)`,
@@ -659,7 +666,7 @@ func TestIntegrationLostTransactionIsReported(t *testing.T) {
 // splitter missed cannot run a hidden statement.
 func TestIntegrationPostgresRefusesMultiStatementExec(t *testing.T) {
 	integration(t)
-	for _, e := range []Engine{Postgres, CockroachDB, YugabyteDB} {
+	for _, e := range []Engine{Postgres, CockroachDB, YugabyteDB, TimescaleDB} {
 		t.Run(string(e), func(t *testing.T) { refusesMultiStatementExec(t, e) })
 	}
 }
@@ -682,7 +689,7 @@ func refusesMultiStatementExec(t *testing.T, e Engine) {
 		t.Fatal("the server ran text holding two statements")
 	}
 	// CockroachDB refuses it as a prepared statement of two.
-	want := map[Engine]string{Postgres: "42601", CockroachDB: "42P14", YugabyteDB: "42601"}[e]
+	want := map[Engine]string{Postgres: "42601", CockroachDB: "42P14", YugabyteDB: "42601", TimescaleDB: "42601"}[e]
 	if info := DescribeError(err); info.Code != want {
 		t.Errorf("refusal described as %+v, want SQLSTATE %s", info, want)
 	}
@@ -702,7 +709,7 @@ func refusesMultiStatementExec(t *testing.T, e Engine) {
 // extended protocol.
 func TestIntegrationPostgresExtendedExec(t *testing.T) {
 	integration(t)
-	for _, e := range []Engine{Postgres, CockroachDB, YugabyteDB} {
+	for _, e := range []Engine{Postgres, CockroachDB, YugabyteDB, TimescaleDB} {
 		t.Run(string(e), func(t *testing.T) { extendedExec(t, e) })
 	}
 }
@@ -829,6 +836,7 @@ func TestIntegrationTerminatedTransactionIsLost(t *testing.T) {
 		{Postgres, "SELECT pg_backend_pid()", "SELECT pg_terminate_backend($1)"},
 		{CockroachDB, "SHOW session_id", "CANCEL SESSION $1"},
 		{YugabyteDB, "SELECT pg_backend_pid()", "SELECT pg_terminate_backend($1)"},
+		{TimescaleDB, "SELECT pg_backend_pid()", "SELECT pg_terminate_backend($1)"},
 	} {
 		t.Run(string(c.e), func(t *testing.T) { terminatedTransactionIsLost(t, c.e, c.session, c.end) })
 	}
@@ -1012,6 +1020,7 @@ func TestIntegrationUsers(t *testing.T) {
 		{tidbConfig, "shop", "it_users"},
 		{cockroachdbConfig, "public", "it_users"},
 		{yugabytedbConfig, "public", "it_users"},
+		{timescaledbConfig, "public", "it_users"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default", "it_users"},
 	} {
 		t.Run(string(c.cfg.Engine), func(t *testing.T) {
@@ -1136,6 +1145,7 @@ func TestIntegrationItems(t *testing.T) {
 		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"}, "it_items",
 			postgresItems, postgresItemDrops},
 		{yugabytedbConfig, "it_items", postgresItems, postgresItemDrops},
+		{timescaledbConfig, "it_items", postgresItems, postgresItemDrops},
 		{Config{Name: "my", Engine: MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"}, "shop",
 			[]string{"DROP TABLE IF EXISTS it_items_t", "CREATE TABLE it_items_t (id int)",
 				"DROP FUNCTION IF EXISTS it_twice", "CREATE FUNCTION it_twice(a int) RETURNS int DETERMINISTIC RETURN a * 2",
@@ -1257,6 +1267,7 @@ func TestIntegrationRename(t *testing.T) {
 		{tidbConfig, "shop"},
 		{cockroachdbConfig, "public"},
 		{yugabytedbConfig, "public"},
+		{timescaledbConfig, "public"},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "r.sqlite")}, "main"},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default"},
@@ -1306,6 +1317,7 @@ func TestIntegrationSearch(t *testing.T) {
 		{tidbConfig, "shop"},
 		{cockroachdbConfig, "public"},
 		{yugabytedbConfig, "public"},
+		{timescaledbConfig, "public"},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "s.sqlite")}, "main"},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default"},
@@ -1380,6 +1392,7 @@ func TestIntegrationTableDesign(t *testing.T) {
 		{tidbConfig, "shop", "int", "bigint", "varchar(50)", true, true, true},
 		{cockroachdbConfig, "public", "int4", "bigint", "text", true, true, true},
 		{yugabytedbConfig, "public", "integer", "bigint", "text", true, true, true},
+		{timescaledbConfig, "public", "integer", "bigint", "text", true, true, true},
 		{Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, "main", "INTEGER", "BIGINT", "VARCHAR", false, true, false},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, "default", "Int32", "Int64", "String", false, false, false},
 	} {
@@ -1517,6 +1530,7 @@ func TestIntegrationPostgresEnum(t *testing.T) {
 		{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"},
 		cockroachdbConfig,
 		yugabytedbConfig,
+		timescaledbConfig,
 	} {
 		t.Run(string(cfg.Engine), func(t *testing.T) { postgresEnum(t, cfg) })
 	}
@@ -1708,6 +1722,13 @@ func TestIntegrationPlans(t *testing.T) {
 		{yugabytedbConfig, "public",
 			[]string{"CREATE TABLE it_plan AS SELECT i AS id, i % 1000 AS g FROM generate_series(1, 20000) i", "ANALYZE it_plan"},
 			"SELECT * FROM it_plan WHERE g = 5", "an index on (g)"},
+		// A hypertable of four chunks, each read in full.
+		{timescaledbConfig, "public",
+			[]string{"CREATE TABLE it_plan (t timestamptz NOT NULL, id int, g int)",
+				"SELECT create_hypertable('it_plan', by_range('t', interval '1 day'))",
+				"INSERT INTO it_plan SELECT timestamptz '2026-01-01' + i * interval '15 seconds', i, i % 1000 FROM generate_series(1, 20000) i",
+				"ANALYZE it_plan"},
+			"SELECT * FROM it_plan WHERE g = 5", "an index on (g)"},
 		{Config{Name: "lite", Engine: SQLite, Database: filepath.Join(t.TempDir(), "p.sqlite")}, "main",
 			[]string{"CREATE TABLE it_plan (id INTEGER, g INTEGER)"},
 			"SELECT * FROM it_plan WHERE g = 5 ORDER BY id", "SCAN reads every row of it_plan"},
@@ -1769,7 +1790,7 @@ func TestIntegrationPlans(t *testing.T) {
 				})
 				advice := Advise(c.cfg.Engine, p)
 				texts := lists.Map(advice, func(a Advice) string { return a.Text })
-				wantAdvice := c.advice != "" && (analyze || c.cfg.Engine != Postgres && c.cfg.Engine != YugabyteDB)
+				wantAdvice := c.advice != "" && (analyze || c.cfg.Engine != Postgres && c.cfg.Engine != YugabyteDB && c.cfg.Engine != TimescaleDB)
 				if got := strings.Join(texts, "\n"); wantAdvice && !strings.Contains(strings.ToLower(got), strings.ToLower(c.advice)) {
 					t.Errorf("%s: %d steps, advice %q, want %q", prefix, steps, got, c.advice)
 				}
@@ -1973,6 +1994,17 @@ func TestIntegrationCloseLeaksNothing(t *testing.T) {
 	}{
 		{
 			e: Postgres,
+			leak: []string{"SET search_path TO it", "SET statement_timeout = 4321", "CREATE TEMP TABLE close_leak (a int)",
+				"SELECT pg_advisory_lock(424242)", "SET ROLE pg_monitor", "BEGIN", "SELECT 1"},
+			checks: []check{
+				{"SELECT current_setting('search_path')", `"$user", public`},
+				{"SELECT current_user", "postgres"},
+				{"SELECT current_setting('statement_timeout')", "0"},
+				{"SELECT to_regclass('pg_temp.close_leak') IS NULL", "true"},
+			},
+		},
+		{
+			e: TimescaleDB,
 			leak: []string{"SET search_path TO it", "SET statement_timeout = 4321", "CREATE TEMP TABLE close_leak (a int)",
 				"SELECT pg_advisory_lock(424242)", "SET ROLE pg_monitor", "BEGIN", "SELECT 1"},
 			checks: []check{
@@ -2217,6 +2249,8 @@ func TestIntegrationReconnectRefusesOnce(t *testing.T) {
 		{e: CockroachDB, set: "SET search_path TO it", before: "it", after: "public", table: "it.customers",
 			lose: cockroachLose, sleep: "SELECT pg_sleep(10)"},
 		{e: YugabyteDB, set: "SET search_path TO it", before: "it", after: "public", table: "it.customers",
+			lose: pgLose, sleep: "SELECT pg_sleep(10)"},
+		{e: TimescaleDB, set: "SET search_path TO it", before: "it", after: "public", table: "it.customers",
 			lose: pgLose, sleep: "SELECT pg_sleep(10)"},
 		{e: MySQL, set: "USE information_schema", before: "information_schema", after: "shop", table: "shop.customers",
 			lose: mysqlLose, sleep: "SELECT SLEEP(10)"},

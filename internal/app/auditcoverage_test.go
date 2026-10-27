@@ -27,7 +27,7 @@ var recordCalls = []string{"Record", "RecordRun", "RecordTyped", "audited"}
 var notAudited = map[string]string{
 	"app/activity.go:activityTab.refresh":  "lists the server's running statements: server activity, no user rows",
 	"app/activity.go:redisActivity":        "reads INFO and CLIENT LIST: server activity, no user rows",
-	"app/app.go:App.StartJob":              "sync.Once.Do, not a server call",
+	"app/app.go:App.startJobWaiting":       "sync.Once.Do, not a server call",
 	"app/sample.go:makeSample":             "fills a new local SQLite file of sample data, which no server holds",
 	"ui/chat/chat.go:Chat.apply":           "agent.Transcript.Apply folds a chat's event into its transcript: no server call",
 	"ui/chat/tools.go:fetch":               "its caller, read, records the AI chat's read",

@@ -248,6 +248,16 @@ func TestIntegrationLexingConformance(t *testing.T) {
 		))
 	})
 
+	// TimescaleDB is PostgreSQL's server.
+	t.Run("TimescaleDB", func(t *testing.T) {
+		optionalserver.SkipUnless(t, "timescaledb")
+		d := openFor(t, db.Config{Name: "timescaledb", Engine: db.TimescaleDB, Host: "127.0.0.1", Port: 15434, User: "postgres", Password: "dgopher", Database: "shop"})
+		runLexCases(t, d, db.LexDialect(db.TimescaleDB), append(pgCases[:len(pgCases):len(pgCases)],
+			lexCase{"SELECT $$a;b$$", valueIsString("a;b", "$$a;b$$", sqltext.Postgres, "SELECT $$a;b$$")},
+			lexCase{`SELECT e'a\';b'`, valueIsString("a';b", `e'a\';b'`, sqltext.Postgres, `SELECT e'a\';b'`)},
+		))
+	})
+
 	// MariaDB and TiDB read these as MySQL does, with the same lexer.
 	mysqlCases := []lexCase{
 		{"SELECT 1--1", func(t *testing.T, a serverAnswer, toks []sqltext.Token) {

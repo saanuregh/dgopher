@@ -614,6 +614,38 @@ func TestIntegrationYugabyteDBReadOnly(t *testing.T) {
 	}
 }
 
+// TimescaleDB refuses most of its functions that write on a read-only
+// session, as add_job, but runs some (reorder_chunk, remove_all_policies,
+// internal functions; 2.31): the app refuses them all first.
+func TestIntegrationTimescaleDBReadOnly(t *testing.T) {
+	testutil.Integration(t)
+	optionalserver.SkipUnless(t, "timescaledb")
+	cfg := db.Config{Name: "ts", Engine: db.TimescaleDB, Host: "127.0.0.1", Port: 15434, User: "postgres", Password: "dgopher", Database: "shop", ReadOnly: true}
+	for _, sql := range []string{
+		"SELECT add_retention_policy('m', INTERVAL '1 day')", "SELECT timescaledb_experimental.remove_all_policies('m')",
+		"SELECT reorder_chunk('c', 'i')", "SELECT _timescaledb_functions.stop_background_workers()", "SELECT drop_chunks('m', older_than => now())",
+		"CALL refresh_continuous_aggregate('m', NULL, NULL)", "SELECT timescaledb_pre_restore()",
+	} {
+		if v := ReviewSQL(&cfg, Analyze(&cfg, []string{sql})); v.Blocked == "" {
+			t.Errorf("%q not refused on a read-only connection", sql)
+		}
+	}
+	ctx := context.Background()
+	d, err := db.Open(ctx, cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	s, err := d.Session(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, err := s.Exec(ctx, "SELECT add_job('pg_catalog.now'::regproc, INTERVAL '1 hour')"); err == nil {
+		t.Fatal("the server ran add_job on a read-only session")
+	}
+}
+
 // A quoted EXPLAIN option is read as the server reads it: a quoted
 // ANALYZE of a write asks on production, is refused on read-only and gets
 // manual commit's BEGIN, as does a quoted DEBUG on CockroachDB.
@@ -726,6 +758,22 @@ func TestYugabyteDBUnsafeSettings(t *testing.T) {
 	prod := &db.Config{Name: "prod", Engine: db.YugabyteDB, Env: db.Production}
 	ro := &db.Config{Name: "replica", Engine: db.YugabyteDB, ReadOnly: true}
 	for _, sql := range []string{"SET yb_disable_transactional_writes = true", "RESET yb_enable_upsert_mode", "SET LOCAL yb_enable_upsert_mode = on"} {
+		if v := ReviewSQL(ro, Analyze(ro, []string{sql})); v.Blocked == "" {
+			t.Errorf("%q not refused on read-only", sql)
+		}
+		if v := ReviewSQL(prod, Analyze(prod, []string{sql})); !v.Confirm {
+			t.Errorf("%q on production: %+v", sql, v)
+		}
+	}
+}
+
+// Telling TimescaleDB a restore runs, which turns its hypertables' inserts
+// and chunks off for the session, is refused on read-only and asks on
+// production.
+func TestTimescaleDBRestoringSetting(t *testing.T) {
+	prod := &db.Config{Name: "prod", Engine: db.TimescaleDB, Env: db.Production}
+	ro := &db.Config{Name: "replica", Engine: db.TimescaleDB, ReadOnly: true}
+	for _, sql := range []string{"SET timescaledb.restoring = on", "RESET timescaledb.restoring", "SET LOCAL timescaledb.restoring TO off", `SET "timescaledb.restoring" = on`} {
 		if v := ReviewSQL(ro, Analyze(ro, []string{sql})); v.Blocked == "" {
 			t.Errorf("%q not refused on read-only", sql)
 		}

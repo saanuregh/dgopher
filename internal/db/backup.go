@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/duckdb/duckdb-go/v2"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // BackupFormat is the form a backup is written in.
@@ -70,8 +71,9 @@ type BackupOptions struct {
 	Path     string // the file, or DuckDB's folder
 }
 
-// ToolRun is how a backup or a restore runs: a tool's command, a
-// statement on the connection, or a DuckDB restore (RestoreDuckDB).
+// ToolRun is how a backup or a restore runs (RunPlanned): a tool's
+// command, a statement on the connection, or a DuckDB restore
+// (RestoreDuckDB), between steps of its own.
 type ToolRun struct {
 	Argv []string
 	// Env is added to the tool's environment: passwords go there, or in
@@ -87,19 +89,46 @@ type ToolRun struct {
 	Import     string
 	Stage      string
 	Statements []string
+	// Before and After run before the run and after it, After even when
+	// Before or the run fails, unless the server refused the first Before
+	// step for want of a privilege, which changed nothing. Undo runs when
+	// an After step fails, to undo what Before did another way.
+	Before, After, Undo []RunStep
 	// Warning, when set, is asked about before the run.
 	Warning string
 }
 
+// RunStep is a statement a run runs before or after its work, on a
+// connection of its own, closed after it.
+type RunStep struct {
+	SQL string
+	// Database is the database it runs on; "" for the one the run backs
+	// up or restores into.
+	Database string
+	// Needs says what the step needs that a user may lack, told when the
+	// server refuses it for want of a privilege.
+	Needs string
+}
+
 // Shown is the run as the app shows and audits it, without its secrets.
 func (r ToolRun) Shown() string {
+	run := strings.Join(r.Argv, " ")
 	switch {
 	case len(r.Statements) > 0:
-		return strings.Join(r.Statements, ";\n")
+		run = strings.Join(r.Statements, ";\n")
 	case r.Statement != "":
-		return r.Statement
+		run = r.Statement
 	}
-	return strings.Join(r.Argv, " ")
+	return strings.Join(append(append(stepsSQL(r.Before), run), stepsSQL(r.After)...), ";\n")
+}
+
+// stepsSQL are the statements of steps.
+func stepsSQL(steps []RunStep) []string {
+	out := make([]string, len(steps))
+	for i, s := range steps {
+		out[i] = s.SQL
+	}
+	return out
 }
 
 // Address is where a tool reaches the server: the local port of its SSH
@@ -566,4 +595,118 @@ func RunTool(ctx context.Context, run ToolRun, line func(string)) error {
 		return fmt.Errorf("%s: %w: %s", run.Argv[0], err, strings.Join(last, " "))
 	}
 	return nil
+}
+
+// AfterStepsWait is how long a run's After and Undo steps may take in
+// all, which run even when the run was stopped.
+const AfterStepsWait = 30 * time.Second
+
+// RunPlanned runs a planned backup or restore: its Before steps, then the
+// DuckDB import, the statement or the tool, then its After steps, and Undo
+// should one of them fail. pool gives the database the run backs up or
+// restores into, asked for only when the run needs it; line is told each
+// line the tool writes. After the steps, no connection of the pool opened
+// before or during them is used again: they may hold what the steps set.
+func RunPlanned(ctx context.Context, run ToolRun, pool func(context.Context) (*DB, error), line func(string)) error {
+	var d *DB
+	database := func(ctx context.Context) (*DB, error) {
+		if d != nil {
+			return d, nil
+		}
+		var err error
+		d, err = pool(ctx)
+		return d, err
+	}
+	refused, err := runSteps(ctx, database, run.Before)
+	if err == nil {
+		err = runPlannedWork(ctx, run, database, line)
+	}
+	if len(run.After) > 0 && !refused {
+		actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), AfterStepsWait)
+		defer cancel()
+		_, aerr := runSteps(actx, database, run.After)
+		if aerr != nil && len(run.Undo) > 0 {
+			undo := strings.Join(stepsSQL(run.Undo), "; ")
+			if _, uerr := runSteps(actx, database, run.Undo); uerr != nil {
+				aerr = fmt.Errorf("%w; undoing what came before failed too (%w): run %s", aerr, uerr, undo)
+			} else {
+				aerr = fmt.Errorf("%w; DGopher ran %s instead", aerr, undo)
+			}
+		}
+		err = errors.Join(err, aerr)
+	}
+	if d != nil && len(run.Before)+len(run.After) > 0 {
+		d.RetireConnections()
+	}
+	return err
+}
+
+// runPlannedWork runs what a plan runs between its steps.
+func runPlannedWork(ctx context.Context, run ToolRun, database func(context.Context) (*DB, error), line func(string)) error {
+	if run.Import == "" && run.Statement == "" {
+		return RunTool(ctx, run, line)
+	}
+	d, err := database(ctx)
+	switch {
+	case err != nil:
+		return err
+	case run.Import != "":
+		return RestoreDuckDB(ctx, d, run)
+	}
+	if r, ok := SQL(d.Config.Engine); ok && r.BackupChoices().Folder {
+		return BackupDuckDB(ctx, d, run.Statement)
+	}
+	_, err = d.SQL.ExecContext(ctx, run.Statement)
+	return err
+}
+
+// runSteps runs steps in order, each on a connection of its own to its
+// database, closed after, up to the first that fails; refused reports that
+// the server refused the first for want of a privilege, which then
+// changed nothing.
+func runSteps(ctx context.Context, database func(context.Context) (*DB, error), steps []RunStep) (refused bool, err error) {
+	for i, step := range steps {
+		var d *DB
+		if d, err = database(ctx); err == nil {
+			d, err = d.Database(ctx, step.Database)
+		}
+		if err == nil {
+			err = runStep(ctx, d, step.SQL)
+		}
+		if err == nil {
+			continue
+		}
+		if !privilegeRefused(err) {
+			return false, err
+		}
+		if step.Needs != "" {
+			err = fmt.Errorf("%s (%w)", step.Needs, err)
+		}
+		return i == 0, err
+	}
+	return false, nil
+}
+
+// runStep runs a statement on a connection of d's own, closed after it
+// rather than given back to the pool, with what the statement set; on a
+// pool of one connection, on that one.
+func runStep(ctx context.Context, d *DB, statement string) error {
+	if d.single {
+		_, err := d.SQL.ExecContext(ctx, statement)
+		return err
+	}
+	conn, err := d.SQL.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer discard(conn)
+	_, err = conn.ExecContext(ctx, statement)
+	return err
+}
+
+// privilegeRefused reports whether the server refused a statement for
+// want of a privilege.
+func privilegeRefused(err error) bool {
+	var pg *pgconn.PgError
+	return errors.As(err, &pg) && pg.Code == "42501"
 }

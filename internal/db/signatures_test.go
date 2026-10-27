@@ -78,6 +78,7 @@ func TestIntegrationSignatures(t *testing.T) {
 		{Config{Name: "pg", Engine: Postgres, Host: "127.0.0.1", Port: 15432, User: "postgres", Password: "dgopher", Database: "postgres"}, "round"},
 		{cockroachdbConfig, "round"},
 		{yugabytedbConfig, "round"},
+		{timescaledbConfig, "round"},
 		{Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher", Database: "default"}, "round"},
 	} {
 		t.Run(c.cfg.Name, func(t *testing.T) {

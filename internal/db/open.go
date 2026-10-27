@@ -86,6 +86,10 @@ type DB struct {
 	// used is when the pool, or one of its other databases', last sent
 	// something to the server, since clockStart (LastUsed).
 	used *atomic.Int64
+
+	// retired counts RetireConnections, which its connections compare
+	// with (wire.retired).
+	retired *atomic.Int64
 }
 
 // route is a local port leading to the server: an SSH tunnel's or a
@@ -245,6 +249,7 @@ func openWire(ctx context.Context, cfg Config, ep endpoint, r route, w wire) (*D
 	if !ok {
 		return nil, fmt.Errorf("%s is not a SQL database", cfg.Engine.Label())
 	}
+	w.retired = new(atomic.Int64)
 	p, err := rules.open(ctx, cfg, ep, tc, w)
 	if err != nil {
 		return nil, err
@@ -255,7 +260,7 @@ func openWire(ctx context.Context, cfg Config, ep endpoint, r route, w wire) (*D
 		sqldb.SetMaxIdleConns(1)
 	} else {
 		sqldb.SetMaxOpenConns(8)
-		sqldb.SetMaxIdleConns(2)
+		sqldb.SetMaxIdleConns(pooledIdleConns)
 		sqldb.SetConnMaxIdleTime(5 * time.Minute)
 	}
 	pingCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
@@ -264,10 +269,28 @@ func openWire(ctx context.Context, cfg Config, ep endpoint, r route, w wire) (*D
 		sqldb.Close()
 		return nil, redact(err, cfg)
 	}
-	d := &DB{Config: cfg, Dialect: DialectOf(cfg.Engine), SQL: sqldb, who: w.who, route: r, single: single, mysqlConnector: p.connector, used: new(atomic.Int64)}
+	d := &DB{Config: cfg, Dialect: DialectOf(cfg.Engine), SQL: sqldb, who: w.who, route: r, single: single, mysqlConnector: p.connector, used: new(atomic.Int64),
+		retired: w.retired}
 	d.touch()
 	d.tlsState = rules.tlsState(pingCtx, sqldb, cfg, p.tls)
 	return d, nil
+}
+
+// pooledIdleConns is how many idle connections a pool of more than one
+// keeps.
+const pooledIdleConns = 2
+
+// RetireConnections closes the pool's idle connections, and those in use
+// once given back, so that none opened until now is used again: each
+// keeps the settings the server gave it as it opened, as a database's
+// own. A pool of one connection keeps it.
+func (d *DB) RetireConnections() {
+	if d.single || d.retired == nil {
+		return
+	}
+	d.retired.Add(1)
+	d.SQL.SetMaxIdleConns(0)
+	d.SQL.SetMaxIdleConns(pooledIdleConns)
 }
 
 // openedPool is what an engine's open makes.

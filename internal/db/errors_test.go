@@ -37,6 +37,7 @@ func TestDescribeError(t *testing.T) {
 			"SELECT *\nFRM x", want{code: true, position: true}},
 		{cockroachdbConfig, true, "SELECT *\nFRM x", want{code: true, position: true}},
 		{yugabytedbConfig, true, "SELECT *\nFROM missing_table_x", want{code: true, position: true}},
+		{timescaledbConfig, true, "SELECT *\nFROM missing_table_x", want{code: true, position: true}},
 		{Config{Engine: SQLite, Database: ":memory:"}, false, "SELECT * FROM missing_table_x", want{code: true}},
 		{Config{Engine: DuckDB, Database: ":memory:"}, false, "SELECT *\nFRM x", want{position: true}},
 	}

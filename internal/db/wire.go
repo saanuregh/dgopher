@@ -73,6 +73,9 @@ type wire struct {
 	who      *sendsAs
 	engine   Engine
 	database string
+	// retired counts the pool's retirements (DB.RetireConnections): a
+	// connection opened before the last is closed rather than used again.
+	retired *atomic.Int64
 }
 
 // record gives the hook a statement the driver answered. driver.ErrSkip
@@ -136,6 +139,9 @@ func (c closingConnector) Close() error { return c.inner.(io.Closer).Close() }
 // context keeps its connection: SessionResetter and Validator.
 func (w wire) wrap(dc driver.Conn) driver.Conn {
 	c := &wireConn{inner: dc, wire: w}
+	if w.retired != nil {
+		c.opened = w.retired.Load()
+	}
 	_, resets := dc.(driver.SessionResetter)
 	_, validates := dc.(driver.Validator)
 	switch {
@@ -173,9 +179,14 @@ func recordOn(dc any, text string, start time.Time, err error) {
 type wireConn struct {
 	inner driver.Conn
 	wire
+	opened int64 // the pool's retirements when it opened
 }
 
 func (c *wireConn) wired() *wireConn { return c }
+
+// isRetired reports whether the pool was retired since the connection
+// opened.
+func (c *wireConn) isRetired() bool { return c.retired != nil && c.opened < c.retired.Load() }
 
 func (c *wireConn) Close() error { return c.inner.Close() }
 
@@ -268,6 +279,9 @@ func (c *wireConn) CheckNamedValue(nv *driver.NamedValue) error {
 type pingedKey struct{}
 
 func (c *wireConn) resetSession(ctx context.Context) error {
+	if c.isRetired() {
+		return driver.ErrBadConn
+	}
 	r := c.inner.(driver.SessionResetter)
 	if rules, ok := SQL(c.engine); !ok || !rules.pingsOnReset() {
 		return r.ResetSession(ctx)
@@ -298,12 +312,14 @@ func (c resettingConn) ResetSession(ctx context.Context) error { return c.resetS
 
 type validatingConn struct{ *wireConn }
 
-func (c validatingConn) IsValid() bool { return c.inner.(driver.Validator).IsValid() }
+func (c validatingConn) IsValid() bool { return !c.isRetired() && c.inner.(driver.Validator).IsValid() }
 
 type resettingValidatingConn struct{ *wireConn }
 
 func (c resettingValidatingConn) ResetSession(ctx context.Context) error { return c.resetSession(ctx) }
-func (c resettingValidatingConn) IsValid() bool                          { return c.inner.(driver.Validator).IsValid() }
+func (c resettingValidatingConn) IsValid() bool {
+	return !c.isRetired() && c.inner.(driver.Validator).IsValid()
+}
 
 // wireStmt records each run of a prepared statement.
 type wireStmt struct {

@@ -296,6 +296,9 @@ type job struct {
 	title  string
 	cancel context.CancelFunc
 	done   chan struct{}
+	// stopWait is how much longer than jobStopWait it may take to end
+	// once stopped.
+	stopWait time.Duration
 }
 
 // jobStopWait is how long disconnecting and quitting wait for the jobs
@@ -305,7 +308,13 @@ var jobStopWait = 10 * time.Second
 
 // StartJob registers a job, as dataview.Host says.
 func (a *App) StartJob(cn *connection.Conn, title string, cancel context.CancelFunc) (finish func()) {
-	j := &job{conn: cn, title: title, cancel: cancel, done: make(chan struct{})}
+	return a.startJobWaiting(cn, title, cancel, 0)
+}
+
+// startJobWaiting is StartJob for a job that may take stopWait more than
+// jobStopWait to end once stopped, as a restore running steps after.
+func (a *App) startJobWaiting(cn *connection.Conn, title string, cancel context.CancelFunc, stopWait time.Duration) (finish func()) {
+	j := &job{conn: cn, title: title, cancel: cancel, done: make(chan struct{}), stopWait: stopWait}
 	a.jobsMu.Lock()
 	a.jobs = append(a.jobs, j)
 	a.jobsMu.Unlock()
@@ -339,12 +348,14 @@ func (a *App) jobsOf(conns ...*connection.Conn) []*job {
 }
 
 // stopJobs cancels jobs, then waits for them to end, up to jobStopWait in
-// all.
+// all, and the longest stopWait of theirs more.
 func stopJobs(jobs []*job) {
+	wait := jobStopWait
 	for _, j := range jobs {
 		j.cancel()
+		wait = max(wait, jobStopWait+j.stopWait)
 	}
-	timeout := time.After(jobStopWait)
+	timeout := time.After(wait)
 	for _, j := range jobs {
 		select {
 		case <-j.done:

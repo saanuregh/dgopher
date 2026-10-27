@@ -21,6 +21,7 @@ var servers = map[string]server{
 	"tidb":        {"127.0.0.1:14000", "docker compose --profile compat up -d --wait tidb"},
 	"cockroachdb": {"127.0.0.1:26257", "docker compose --profile compat up -d --wait cockroachdb"},
 	"yugabytedb":  {"127.0.0.1:15433", "docker compose --profile compat up -d --wait yugabytedb"},
+	"timescaledb": {"127.0.0.1:15434", "docker compose --profile compat up -d --wait timescaledb"},
 }
 
 // SkipUnless skips the test unless the optional server service is
