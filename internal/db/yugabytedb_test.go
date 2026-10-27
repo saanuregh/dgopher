@@ -284,6 +284,9 @@ func TestYugabyteDBMaintenance(t *testing.T) {
 // pg_dump's; a restore with pg_restore runs statement by statement, as
 // YugabyteDB aborts one transaction holding them all.
 func TestYugabyteDBBackup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake tools are shell scripts")
+	}
 	d := &DB{Config: Config{Name: "y", Engine: YugabyteDB, Host: "127.0.0.1", Port: 5433, User: "yugabyte", Database: "shop"}}
 	r, _ := SQL(YugabyteDB)
 	ctx := context.Background()
