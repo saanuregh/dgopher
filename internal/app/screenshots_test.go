@@ -41,6 +41,9 @@ func screenshotter(t *testing.T) func(tt *ui.Tester, name string) {
 	}
 	return func(tt *ui.Tester, name string) {
 		t.Helper()
+		// The pointer out of the window, where it hovers nothing: left
+		// where a click put it, it opens a hover card in the second below.
+		tt.Move(-1, -1)
 		// What comes in, as a tab opened or a dialog, done coming.
 		tt.Frame()
 		tt.Advance(time.Second)
