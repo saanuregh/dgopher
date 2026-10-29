@@ -38,8 +38,8 @@ merged.
    example `fix/data-view-layout` or `feat/saved-query-parameters`.
 2. Make the change, with tests. [Testing](docs/testing.md) explains how to
    write unit, UI and integration tests.
-3. Update the docs when behavior changes: [Features](docs/features.md) for
-   what users see, and [Safety model](docs/safety.md) for anything that
+3. Update the docs when behavior changes: the area's page under
+   [Features](docs/features.md) for what users see, and [Safety model](docs/safety.md) for anything that
    runs statements.
 4. Run the checks, which must all pass:
 

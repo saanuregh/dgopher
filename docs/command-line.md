@@ -48,7 +48,7 @@ where its form says:
 
 DGopher writes its own log messages, such as a theme file that could not be
 read, to standard error, and lists them, secrets hidden, in the
-[notifications](features.md#notifications) of the session. Start it from a
+[notifications](features/window.md#notifications) of the session. Start it from a
 terminal to see them all. These are separate from the
 [audit log](audit-log.md).
 
