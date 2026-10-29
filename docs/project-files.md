@@ -109,7 +109,7 @@ makes a connection less safe.
 - Query files, dashboards and data models refer to connections by ID.
   Change an ID in the app, not by hand, so those references, the saved
   password and the trust move with it (see
-  [Connection IDs](features.md#connection-ids)).
+  [Connection IDs](features/getting-started.md#connection-ids)).
 
 ### Password
 
@@ -148,7 +148,7 @@ No password, passphrase or proxy password is ever written to the file.
 | `idleTxTimeout` | seconds before an idle transaction rolls back; 0 or omitted for the environment's default, -1 for never |
 | `idleConnectionTimeout` | seconds before an unused connection disconnects; same rules |
 | `autoConnect` | `true` connects when DGopher starts |
-| `catalog` | how much of a schema to read, by `schema` or `database/schema`: `names`, `columns` or `everything`; omitted means as needed (see [Read Catalog](features.md#read-catalog)) |
+| `catalog` | how much of a schema to read, by `schema` or `database/schema`: `names`, `columns` or `everything`; omitted means as needed (see [Read Catalog](features/connections.md#read-catalog)) |
 
 ### Redis
 

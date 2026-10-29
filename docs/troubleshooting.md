@@ -8,7 +8,7 @@
 - [Starting over](#starting-over)
 
 For what DGopher does not support, see [Known limitations](limitations.md).
-The app's own messages are in the [notifications](features.md#notifications)
+The app's own messages are in the [notifications](features/window.md#notifications)
 list, and on standard error when it is started from a terminal
 ([Command line](command-line.md#logs)).
 

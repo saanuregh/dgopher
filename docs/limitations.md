@@ -33,4 +33,4 @@ the [Roadmap](roadmap.md).
 | Area | Limitation |
 | --- | --- |
 | Large results | A result keeps at most 200,000 rows (`db.MaxRows`). Export runs the query again and writes page by page, up to the limit it is given. |
-| Excel import | A workbook with more than 4,194,304 shared strings, or 128 MB of their text, is refused. [Import files](features.md#import-files) lists every import limit. |
+| Excel import | A workbook with more than 4,194,304 shared strings, or 128 MB of their text, is refused. [Import files](features/moving-data.md#import-files) lists every import limit. |

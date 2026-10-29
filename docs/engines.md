@@ -74,7 +74,7 @@ one transaction; see [Safety model](safety.md#duckdb-and-in-memory-sqlite).
 | Backup | `pg_dump` (archive or SQL) | `mysqldump` (SQL) | BACPAC (`sqlpackage`), or a backup file on the server (`BACKUP DATABASE`) | Data Pump (`expdp`), a dump file on the server | — | a copy (`VACUUM INTO`) | Parquet folder (`EXPORT DATABASE`) |
 | Restore | ✓ | ✓ | ✓ | ✓ (`impdp`) | — | ✓ | ✓ |
 
-Redis has its own key [export and import](features.md#keys).
+Redis has its own key [export and import](features/redis.md#keys).
 
 ## Administration
 

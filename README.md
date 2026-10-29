@@ -1,19 +1,65 @@
 # DGopher
 
-**Dig into your databases.** DGopher is a fast, open-source database client
-for Linux, macOS and Windows. It works with **PostgreSQL, MySQL, SQL
-Server, Oracle, ClickHouse, SQLite, DuckDB and Redis**, and with
+**Dig into your databases.** DGopher is a fast, free and open-source
+database client for Linux, macOS and Windows. One app for **PostgreSQL,
+MySQL, SQL Server, Oracle, ClickHouse, SQLite, DuckDB and Redis**, and for
 CockroachDB, YugabyteDB, TimescaleDB, MariaDB and TiDB as engines of their
 own.
 
-It is a single Go binary. Its interface is drawn natively by
-[MyGo](https://mygo.egoist.dev), with no webview, JVM or Electron. It
-starts instantly, looks the same on every system, and is careful by default
-with the databases that matter.
+[Download](https://github.com/saanuregh/dgopher/releases/latest) ·
+[Features](docs/features.md) · [Engine support](docs/engines.md) ·
+[Documentation](docs/README.md)
 
-![DGopher's main window: a project's connections, query files, dashboard
-and data model in the navigator, and an editor whose query's result shows
-below it](docs/images/main.png)
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/main-light.png">
+  <img src="docs/images/main.png" alt="DGopher's main window: a project's
+  connections, query files, dashboard and data model in the navigator, and
+  an editor whose query's result shows below it">
+</picture>
+
+## Why DGopher
+
+- **Native and light.** One Go binary, drawn by
+  [MyGo](https://mygo.egoist.dev), with no webview, JVM or Electron. It
+  starts instantly and looks the same on every system. See
+  [Footprint](#footprint).
+- **Hard to break production.** Mark a connection as production and its
+  color shows everywhere. Writes ask first, a destructive statement needs the
+  connection's name typed, transactions commit only when you say, and an
+  open transaction is never closed silently. See the
+  [Safety model](docs/safety.md).
+- **AI that works with your query.** Ask Claude Code, Codex or pi beside
+  any editor. It runs the `claude`, `codex` or `pi` command line you have
+  installed, so it uses your existing subscription and its models, with no
+  API key to give DGopher. It sees your statement and its last error, reads the
+  schema, and writes SQL you insert with a click. It runs a query on its
+  own only after you allow it, only reads, never on production, and has
+  no access to your files or shell.
+- **SQL, Redis and files in one app.** Query SQL databases, browse and
+  edit Redis on one server, a cluster or through Sentinel, and drop a CSV,
+  Parquet or JSON file on the window to query it with DuckDB.
+- **Made for teams.** Connections, query files, dashboards, data models and
+  snippets live in your Git repository, without passwords. Every statement
+  and edit goes into a tamper-evident [audit log](docs/audit-log.md).
+- **Each engine as itself.** Plans, catalog, server activity and backup
+  follow each engine's own tools, from PostgreSQL's `EXPLAIN ANALYZE` to
+  Oracle's PL/SQL and Data Pump, SQL Server's T-SQL batches and
+  TimescaleDB's hypertables. See [Engine support](docs/engines.md).
+
+DGopher is young and has not reached 1.0. [Known limitations](docs/limitations.md)
+lists what it does not do yet, and the [Roadmap](docs/roadmap.md) what is
+planned.
+
+## Screenshots
+
+| | |
+| --- | --- |
+| ![Running DELETE without WHERE on a production connection: DGopher warns that it affects every row and asks for the connection's name to be typed before it runs](docs/images/production-confirm.png) | ![A grid edit shown as SQL to review before it is applied](docs/images/edit-review.png) |
+| ![An editor with its AI chat: a question about the statement, a tool call, and SQL to insert](docs/images/ai-chat.png) | ![A Redis database: its key tree and a hash opened beside it](docs/images/redis.png) |
+| ![A dashboard of the sample shop: revenue, orders, customers and products, revenue by month, customers by country, and best sellers](docs/images/dashboard.png) | ![The plan of a join on PostgreSQL, with the rows estimated and found and each step's share of the time](docs/images/query-plan.png) |
+| ![A notebook of a Markdown cell and two SQL cells, each with its result](docs/images/notebook.png) | ![The ER diagram of the sample shop's tables and their foreign keys](docs/images/er-diagram.png) |
+| ![The audit log of a project: statements, a confirmation, and a grid edit](docs/images/audit-log.png) | ![The Sessions page of a PostgreSQL server: a statement that has run for a while, and an idle session](docs/images/server-activity.png) |
+| ![Two editor groups side by side: an editor with its result, and a dashboard](docs/images/groups.png) |  |
 
 ## Install
 
@@ -43,115 +89,86 @@ To build from source, see [Development](docs/development.md).
 2. Take the one-minute tour the start page offers.
 3. Press ⇧⌘P (Ctrl+Shift+P on Linux and Windows) for the command palette, or ⌘N
    for a new connection. You can paste a connection URL such as
-   `postgres://user@host/db` into the form.
+   `postgres://user@host/db` into the form, or choose Neon or Supabase.
 
-## Highlights
+## Features
 
-### Safe with production
+### Query
 
-- Each connection has an environment (development, staging or production),
-  and its color shows everywhere.
-- On production, writes ask first, destructive statements need the
-  connection's name typed, and manual commit is the default.
-- Read-only connections are enforced both in the app and on the server;
-  on TiDB, which refuses the server's read-only setting, by the app alone.
-- An open transaction is never closed silently. One left idle rolls back,
-  after a warning.
-- Grid edits are shown as SQL to review, then applied in one transaction,
-  one row per statement by primary key.
-
-See the [Safety model](docs/safety.md).
-
-### Secure and auditable
-
-- Passwords stay in the system keychain or a `DGOPHER_*` environment
-  variable, come from a command such as a password manager, or are asked
-  every time. Project files hold none, and secrets are redacted from
-  history and logs.
-- Log in without a password through AWS IAM, Google Cloud IAM or Microsoft
-  Entra ID, or Kerberos on PostgreSQL.
-- TLS with a custom CA and client certificates, SSH tunnels through jump
-  hosts with host keys checked, and SOCKS5 or HTTP proxies.
-- Every statement, edit, import, export and confirmation is recorded per
-  project in a tamper-evident [audit log](docs/audit-log.md) that you can
-  verify and export.
-
-### Work with SQL
-
-- **Editor:** highlighting, completion from the catalog, a ▶ on every
-  statement, `:name` parameters, folding, multiple carets, Vim keys, find
-  and replace, Go to Definition, problems underlined as you type, and a
-  session per editor.
+- **Editor:** completion from the catalog, a ▶ on every statement,
+  problems underlined as you type, hover cards that say what a name is, Go
+  to Definition, Find Usages and Rename, `:name` parameters, multiple
+  carets, Vim keys, and a session per editor.
 - **Results grid:** streams large results, chooses blocks of cells as a
-  spreadsheet does, filters (in SQL or with a builder), sorts, edits rows
-  inline, follows foreign keys both ways,
-  profiles every column, and opens values in JSON, XML, hex and image
-  viewers.
+  spreadsheet does, filters in SQL or with a builder, sorts, follows
+  foreign keys both ways, compares two results row by row, profiles every
+  column, and opens values in JSON, XML, hex and image viewers.
+- **Edit rows safely:** edits in the grid are shown as SQL to review, then
+  applied in one transaction, one row per statement by primary key.
 - **Query plans:** Explain and Explain Analyze as a tree of steps or a
   flame graph, with rows estimated and found, and advice on what makes a
   query slow.
 - **Charts and dashboards:** chart any result, and put any read query on a
   dashboard as a number, a chart or a table, with parameters and refresh.
 - **Notebooks:** show any SQL file as cells, Jupyter-style, each with its
-  own results, on one session, with Markdown between them. The file stays
-  SQL that runs as a script.
-- **Split editor groups:** put tabs side by side or one above another, in
-  as many groups as you like, with keys or by dragging a tab.
-- **Keys like Zed's:** every shortcut can be changed, in Settings or in a
-  `keymap.json` of contexts and keys in a row such as ⌘K ⌘S.
-- **AI chat:** ask Claude Code, Codex or pi about the SQL in front of you, beside
-  each editor. Each message carries the editor's connection, statement and
-  last error; it reads schemas, writes SQL you insert with a click, runs
-  only the reads you allow, and uses the model and effort you choose. It
-  has no file or shell access: DGopher's tools are all it can use.
+  own results, with Markdown between them. The file stays SQL that runs as
+  a script.
 
-### Work with data and schemas
+### Data and schemas
 
-- **Files:** drop a CSV, Parquet or JSON file on the window to query it in
-  place with DuckDB. Import CSV, JSON, Parquet, Excel and XML. Export to
-  CSV, JSON, SQL, Markdown, Excel, Parquet and more.
+- **Files:** import CSV, JSON, Parquet, Excel and XML. Export to CSV, JSON,
+  SQL, Markdown, Excel, Parquet and more.
 - **Move data:** copy tables between databases and engines, compare rows,
-  generate test data, back up and restore.
+  generate test data, back up and restore, and run SQL dumps of any size,
+  checked before they run.
 - **Schema:** ER diagrams you can edit, a table designer, data models that
-  generate migrations, a query builder, and search across objects and their
-  definitions.
+  generate migrations, a query builder, search across objects and their
+  definitions, and documentation of a schema as HTML or Markdown.
 - **Admin:** server activity with running queries to cancel, locks and the
   slowest statements; users and privileges; and VACUUM, ANALYZE, REINDEX
   or OPTIMIZE from a table's menu.
-- **Redis:** a key browser, value editors for every type including Redis 8's,
-  a console with completion, and monitor, slow log, memory and Pub/Sub
-  panels. One server, a cluster, or through Sentinel.
+- **Redis:** a key browser, value editors for every type including Redis
+  8's, a console with completion, and monitor, slow log, memory and
+  Pub/Sub panels.
 
-### Built for daily use
+### Connections and security
 
-- **Git-friendly projects:** connections, query files, snippets,
-  dashboards and data models live in your repository, without secrets.
+- Passwords stay in the system keychain or a `DGOPHER_*` environment
+  variable, come from a command such as a password manager, or are asked
+  every time. Secrets are redacted from history and logs.
+- Log in without a password through AWS IAM, Google Cloud IAM or Microsoft
+  Entra ID, or Kerberos on PostgreSQL and SQL Server.
+- TLS with a custom CA and client certificates, SSH tunnels through jump
+  hosts with host keys checked, and SOCKS5 or HTTP proxies.
+- Read-only connections are enforced in the app and on the server (on
+  TiDB, which refuses the server's setting, by the app alone).
+- Columns such as `password`, `token` or `card_number` show `••••••`, and
+  a connection can keep its rows from the AI chat.
+
+### Everyday comfort
+
 - **Keyboard first:** a command palette, quick open for tables and query
-  files, and every shortcut customizable.
-- **Tabs that stay:** pin, reorder and reopen tabs, open two side by side or
-  in another window, and get them back after a restart.
-- **Your way:** light, dark and custom themes, and every control named for
-  screen readers.
+  files, and keys like Zed's, every one of which can be changed.
+- **History and snippets:** every statement run, with its timing and
+  error, a key away; snippets with fields filled in by Tab.
+- **Tabs and groups:** pin, reorder and reopen tabs, split them side by
+  side, drag one into another window, and get them back after a restart.
+- **Errors that help:** an error says what most likely went wrong and
+  offers the fix, such as Retry or Edit Connection.
+- **Your way:** light, dark and custom themes, zoom, and every control
+  named for screen readers.
 
-See [Features](docs/features.md) for everything DGopher does.
-
-| | |
-| --- | --- |
-| ![A dashboard of the sample shop: revenue, orders, customers and products, revenue by month, customers by country, and best sellers](docs/images/dashboard.png) | ![The ER diagram of the sample shop's tables and their foreign keys](docs/images/er-diagram.png) |
-| ![The plan of a join on PostgreSQL, with the rows estimated and found and each step's share of the time](docs/images/query-plan.png) | ![The audit log of a project: statements, a confirmation, and a grid edit](docs/images/audit-log.png) |
-| ![A grid edit shown as SQL to review before it is applied](docs/images/edit-review.png) | ![A Redis database: its key tree and a hash opened beside it](docs/images/redis.png) |
-| ![An editor with its AI chat: a question about the statement, a tool call, and SQL to insert](docs/images/ai-chat.png) | ![A notebook of a Markdown cell and two SQL cells, each with its result](docs/images/notebook.png) |
-| ![Two editor groups side by side: an editor with its result, and a dashboard](docs/images/groups.png) | |
+[Features](docs/features.md) describes everything DGopher does.
 
 ## Footprint
 
-Measured on Linux (amd64, Wayland) with version 0.1.0:
+Measured on Linux (amd64, Wayland) with version 0.7.0, at the start page:
 
 | | |
 | --- | --- |
-| Download | 36 MB, as the `.deb` or the `.tar.gz` |
-| Executable | 99 MB, with every driver and DuckDB compiled in |
-| Memory at start | 164 MB resident, of which 36 MB is the app's own; the rest is the executable and the GTK and graphics libraries, mapped from disk |
+| Download | 45 MB, as the `.deb` or the `.tar.gz` |
+| Executable | 131 MB, with every driver and DuckDB compiled in |
+| Memory at start | about 180 MB resident, of which about 55 MB is the app's own; the rest is the executable and the GTK and graphics libraries, mapped from disk |
 
 ## Documentation
 
@@ -166,6 +183,12 @@ The [documentation index](docs/README.md) lists every page:
 - For contributors: [Development](docs/development.md),
   [Architecture](docs/architecture.md), [Testing](docs/testing.md),
   [How SQL is read](docs/sql.md) and [CONTRIBUTING.md](CONTRIBUTING.md)
+
+## AI disclosure
+
+Most of DGopher's code and documentation is written with AI coding
+agents, such as Claude Code and Codex. The maintainer directs, reviews and
+tests every change.
 
 ## Contributing and security
 
