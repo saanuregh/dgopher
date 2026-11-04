@@ -313,3 +313,41 @@ func TestExportSQLNamesSchema(t *testing.T) {
 		t.Fatalf("n.sql:\n%.300s\nm.sql:\n%s", n, m)
 	}
 }
+
+// An export to a folder that does not exist stops before it reads a row,
+// rather than after, when a Parquet file is written.
+func TestExportToMissingFolder(t *testing.T) {
+	a, tt, src := exportHost(t)
+	OpenExport(a, src)
+	x := a.dialogs.export
+	missing := filepath.Join(t.TempDir(), "Downloads")
+	x.format, x.all, x.folder = string(export.Parquet), true, missing
+	runExport(a, x)
+	if x.running || x.err != missing+" does not exist: choose a folder that does" {
+		t.Fatalf("running %v, err %q", x.running, x.err)
+	}
+	tt.Frame()
+	if _, err := os.Stat(missing); err == nil {
+		t.Fatal("the folder was created")
+	}
+	if got := a.Settings().Export.Folder; got == missing {
+		t.Fatal("the missing folder was kept for the next export")
+	}
+}
+
+// With no folder kept, an export goes to the user's download folder, which
+// on Linux the XDG user dirs name.
+func TestExportDefaultFolder(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("XDG user dirs are Linux's")
+	}
+	config := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", config)
+	os.WriteFile(filepath.Join(config, "user-dirs.dirs"), []byte(`XDG_DOWNLOAD_DIR="$HOME/downloads"`+"\n"), 0o600)
+	a, _, src := exportHost(t)
+	OpenExport(a, src)
+	home, _ := os.UserHomeDir()
+	if got := a.dialogs.export.folder; got != filepath.Join(home, "downloads") {
+		t.Fatalf("folder %q", got)
+	}
+}

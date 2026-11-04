@@ -140,9 +140,7 @@ func OpenExport(a Host, src ExportSource) {
 		openFolder: p.OpenFolder, header: true, guard: p.FormulaGuard, schema: src.Schema, table: src.Name, perInsert: 1, delim: delimiterIndex(','),
 		limited: p.Limit() > 0, limit: cmp.Or(float64(p.Limit()), settings.DefaultExportRowLimit)}
 	if x.folder == "" {
-		if home, err := os.UserHomeDir(); err == nil {
-			x.folder = filepath.Join(home, "Downloads")
-		}
+		x.folder, _ = mygo.App.Path(mygo.PathDownloads)
 	}
 	x.rerun = rerunReason(src)
 	x.all = x.rerun == ""
@@ -423,12 +421,6 @@ const exportPage = 5000
 // runExport writes the rows, off the main thread, and audits it: of the
 // source, or of each table chosen, one file each.
 func runExport(a Host, x *exportState) {
-	prefs := settings.ExportPrefs{Format: x.format, Folder: x.folder, Pattern: x.pattern, OpenFolder: x.openFolder, Unlimited: !x.limited, FormulaGuard: x.guard}
-	if x.limited {
-		prefs.RowLimit = int(x.limit)
-	}
-	a.Settings().Export = prefs
-	a.SaveSettings()
 	srcs := x.chosen()
 	f, toClip := export.Format(x.format), x.clipboard
 	paths := make([]string, len(srcs))
@@ -437,11 +429,22 @@ func runExport(a Host, x *exportState) {
 			continue
 		}
 		paths[i] = x.pathOf(src.Name)
+		// Parquet and DuckDB files open only once every row is read.
+		if dir := filepath.Dir(paths[i]); !folderExists(dir) {
+			x.err = dir + " does not exist: choose a folder that does"
+			return
+		}
 		if _, err := os.Stat(paths[i]); err == nil {
 			x.err = paths[i] + " exists already: change the file name"
 			return
 		}
 	}
+	prefs := settings.ExportPrefs{Format: x.format, Folder: x.folder, Pattern: x.pattern, OpenFolder: x.openFolder, Unlimited: !x.limited, FormulaGuard: x.guard}
+	if x.limited {
+		prefs.RowLimit = int(x.limit)
+	}
+	a.Settings().Export = prefs
+	a.SaveSettings()
 	cfg, all := x.src.Conn.Config, x.all
 	var sess *db.Session
 	release := func() {}
@@ -663,4 +666,9 @@ func exportRows(ctx context.Context, pool *db.DB, lent *db.Session, src ExportSo
 			sess.Close()
 		}
 	}, c.Truncated, nil
+}
+
+func folderExists(dir string) bool {
+	info, err := os.Stat(dir)
+	return err == nil && info.IsDir()
 }
