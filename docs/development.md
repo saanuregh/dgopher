@@ -228,6 +228,9 @@ does not have yet:
   the frame before asked from outside a `Draw` callback, as a text's
   `ContentTransition` does, which otherwise stays half faded beside a
   blinking caret.
+- a fix to `NumberInput` and `DecimalInput`: a `Width` sizes the whole
+  input, so its − and + buttons stay inside it instead of covering what
+  comes after.
 
 An API missing from upstream MyGo may exist there.
 
