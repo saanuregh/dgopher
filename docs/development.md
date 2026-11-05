@@ -231,6 +231,9 @@ does not have yet:
 - a fix to `NumberInput` and `DecimalInput`: a `Width` sizes the whole
   input, so its − and + buttons stay inside it instead of covering what
   comes after.
+- upstream's fix to a calendar's month paging (egoist/mygo#1157), which
+  no release has yet: from January 31, Next month shows February rather
+  than March.
 
 An API missing from upstream MyGo may exist there.
 
