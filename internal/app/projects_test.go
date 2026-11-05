@@ -766,14 +766,21 @@ func TestConnFormSteppersDoNotOverlap(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	plus, ok := tt.Find("Increase")
-	unit, ok2 := tt.Find("minutes")
-	if !ok || !ok2 {
-		t.Fatalf("no stepper or unit: %q", tt.Texts())
-	}
 	testutil.Snapshot(t, tt, "connection-form-numbers")
-	if plus.X+plus.W > unit.X {
-		t.Fatalf("the + button (x %.0f..%.0f) covers the unit (from x %.0f)", plus.X, plus.X+plus.W, unit.X)
+	stepperClearOf(t, tt, "minutes")
+}
+
+// stepperClearOf fails the test when the first number input's + button
+// reaches into the text after it.
+func stepperClearOf(t *testing.T, tt *ui.Tester, after string) {
+	t.Helper()
+	plus, ok := tt.Find("Increase")
+	next, ok2 := tt.Find(after)
+	if !ok || !ok2 {
+		t.Fatalf("no stepper or %q: %q", after, tt.Texts())
+	}
+	if plus.X+plus.W > next.X {
+		t.Fatalf("the + button (x %.0f..%.0f) covers %q (from x %.0f)", plus.X, plus.X+plus.W, after, next.X)
 	}
 }
 
