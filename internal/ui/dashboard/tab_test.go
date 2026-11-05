@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
@@ -457,4 +458,40 @@ func TestDashboardAskedRefreshAlerts(t *testing.T) {
 	}
 	tab.refreshAll(true)
 	testutil.WaitFor(t, tt, "the report", func() bool { return len(h.Reports) == 1 })
+}
+
+// A panel runs as long as its connection's statement timeout allows, a
+// minute where it sets none.
+func TestPanelTimeout(t *testing.T) {
+	if got := panelTimeout(db.Config{}); got != time.Minute {
+		t.Fatalf("no statement timeout: %v", got)
+	}
+	if got := panelTimeout(db.Config{StatementTimeout: 5}); got != 5*time.Second {
+		t.Fatalf("5 s statement timeout: %v", got)
+	}
+}
+
+// A stopped panel says what stopped it.
+func TestStoppedSays(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	cancel(errReload)
+	if got := stoppedText(ctx, context.Canceled, time.Minute); got != "Stopped: reload" {
+		t.Fatalf("reload: %q", got)
+	}
+	tctx, tcancel := context.WithTimeout(context.Background(), 0)
+	defer tcancel()
+	<-tctx.Done()
+	if got := stoppedText(tctx, context.DeadlineExceeded, time.Minute); got != "Timed out after 1m" {
+		t.Fatalf("timeout: %q", got)
+	}
+}
+
+// Run and Keep, disabled, says why.
+func TestRunAndKeepWhy(t *testing.T) {
+	if why := whyNotRunAndKeep("", nil); why == "" {
+		t.Fatal("empty query: no reason")
+	}
+	if why := whyNotRunAndKeep("SELECT 1", nil); !strings.Contains(why, "connection") {
+		t.Fatalf("no connection: %q", why)
+	}
 }

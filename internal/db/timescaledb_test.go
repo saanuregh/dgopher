@@ -259,6 +259,18 @@ func TestTimescaleDBJobDefinition(t *testing.T) {
 			`SELECT add_job('"public"."tick"'::regproc, INTERVAL '00:05:00');`},
 		{timescaleJob{"_timescaledb_functions", "policy_new", `"tsx"."metrics"`, `{"x": 1}`, "1 day"},
 			`-- TimescaleDB runs _timescaledb_functions.policy_new on "tsx"."metrics" every 1 day, with {"x": 1}; DGopher cannot write the statement that makes it.`},
+		// A key that is not a plain name, or a value that is not a
+		// string, number, truth or null, is not written into the
+		// statement: either would run as SQL.
+		{timescaleJob{"_timescaledb_functions", "policy_retention", `"tsx"."metrics"`, `{"drop_after": "1 day", "x => 1); DROP TABLE t; --": 1}`, "1 day"},
+			`-- TimescaleDB runs _timescaledb_functions.policy_retention on "tsx"."metrics" every 1 day, with {"drop_after": "1 day", "x => 1); DROP TABLE t; --": 1}; DGopher cannot write the statement that makes it.`},
+		{timescaleJob{"_timescaledb_functions", "policy_retention", `"tsx"."metrics"`, `{"drop_after": "1 day", "x": ["a'); DROP TABLE t; --"]}`, "1 day"},
+			`-- TimescaleDB runs _timescaledb_functions.policy_retention on "tsx"."metrics" every 1 day, with {"drop_after": "1 day", "x": ["a'); DROP TABLE t; --"]}; DGopher cannot write the statement that makes it.`},
+		{timescaleJob{"_timescaledb_functions", "policy_retention", `"tsx"."metrics"`, `{"drop_after": "1 day", "x": {"y": 1}}`, "1 day"},
+			`-- TimescaleDB runs _timescaledb_functions.policy_retention on "tsx"."metrics" every 1 day, with {"drop_after": "1 day", "x": {"y": 1}}; DGopher cannot write the statement that makes it.`},
+		// A newline in what the comment names cannot end it.
+		{timescaleJob{"_timescaledb_functions", "policy_new\nDROP TABLE t; --", `"tsx"."metrics"`, "{\"x\": \"a\nDROP TABLE u;\"}", "1 day"},
+			`-- TimescaleDB runs _timescaledb_functions.policy_new DROP TABLE t; -- on "tsx"."metrics" every 1 day, with {"x": "a DROP TABLE u;"}; DGopher cannot write the statement that makes it.`},
 	} {
 		if got := c.job.definition(); got != c.want {
 			t.Errorf("%+v:\n got %s\nwant %s", c.job, got, c.want)
@@ -747,5 +759,17 @@ func TestIntegrationTimescaleDBRestoreNeedsSuperuser(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "needs a superuser") || strings.Contains(err.Error(), "dgopher-no-such-tool") ||
 		strings.Contains(err.Error(), "restart_background_workers") {
 		t.Errorf("%v", err)
+	}
+}
+
+// A chunk's DDL is a comment that no newline in its name or detail ends.
+func TestTimescaleDBChunkDDLComment(t *testing.T) {
+	it := Item{Kind: ItemChunk, ID: "_hyper_1_1_chunk\nDROP TABLE t;", Schema: "tsx", Table: "metrics", Detail: "t from 1\rDROP TABLE u;"}
+	got, err := timescaledbDialect{}.ItemDDL(t.Context(), nil, it)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(got, "\n") != 1 || !strings.HasSuffix(got, "\n") || strings.ContainsRune(got, '\r') {
+		t.Fatalf("the comment ends early: %q", got)
 	}
 }

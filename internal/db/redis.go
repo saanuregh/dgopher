@@ -368,6 +368,32 @@ func RiskOf(args []string) string {
 		if len(args) > 1 && strings.EqualFold(args[1], "FLUSH") {
 			return "This removes every script or function of the server."
 		}
+		if len(args) > 1 && strings.EqualFold(args[0], "FUNCTION") && strings.EqualFold(args[1], "DELETE") {
+			return "FUNCTION DELETE removes a library of functions that clients may call."
+		}
+	case "FAILOVER":
+		return "FAILOVER hands the master's role to a replica."
+	case "CLUSTER":
+		if len(args) > 1 {
+			switch strings.ToUpper(args[1]) {
+			case "RESET":
+				return "CLUSTER RESET makes the node leave the cluster."
+			case "FAILOVER":
+				return "CLUSTER FAILOVER makes this replica take over from its master."
+			case "FORGET":
+				return "CLUSTER FORGET removes a node from this node's view of the cluster."
+			}
+		}
+	case "ACL":
+		if len(args) > 1 && strings.EqualFold(args[1], "DELUSER") {
+			return "ACL DELUSER deletes users and disconnects their clients."
+		}
+	case "MODULE":
+		if len(args) > 1 && strings.EqualFold(args[1], "UNLOAD") {
+			return "MODULE UNLOAD removes a module whose commands and keys clients may use."
+		}
+	case "SAVE":
+		return "SAVE blocks every client until the database is written to disk; BGSAVE does not."
 	case "CLIENT":
 		if len(args) > 1 && strings.EqualFold(args[1], "KILL") {
 			return "CLIENT KILL disconnects other clients."

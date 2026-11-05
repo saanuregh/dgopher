@@ -539,6 +539,8 @@ func TestCompletionAt(t *testing.T) {
 		{"describe", MySQL, "describe |", CompletionContext{PrefixStart: 9, WantTable: true}},
 		{"where clause", Generic, "select * from t where a|", CompletionContext{Prefix: "a", PrefixStart: 22, Tables: []TableRef{{Name: "t"}}}},
 		{"other statement ignored", Generic, "select * from a; select * from b where |", CompletionContext{PrefixStart: 39, Tables: []TableRef{{Name: "b"}}}},
+		{"blank line between statements", Generic, "select * from a;\n\n|\n\nselect * from b", CompletionContext{PrefixStart: 18}},
+		{"line right after a statement", Generic, "select * from a\n|\n\nselect * from b", CompletionContext{PrefixStart: 16, Tables: []TableRef{{Name: "a"}}}},
 		{"unicode before caret", Generic, "select 'héllo — 日本', x.c| from t x", CompletionContext{Prefix: "c", PrefixStart: 30, Qualifier: "x", Tables: []TableRef{{Name: "t", Alias: "x"}}}},
 		{"mysql backticks", MySQL, "select * from `my db`.`t 1` as `a b` where `a b`.|", CompletionContext{PrefixStart: 49, Qualifier: "a b",
 			Tables: []TableRef{{Schema: "my db", Name: "t 1", Alias: "a b", SchemaQuoted: true, Quoted: true}}}},

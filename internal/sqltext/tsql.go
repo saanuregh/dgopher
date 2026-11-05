@@ -16,14 +16,14 @@ import (
 var tsqlStatementWords = setOf("SELECT INSERT UPDATE DELETE MERGE TRUNCATE CREATE ALTER DROP GRANT DENY REVOKE " +
 	"EXEC EXECUTE DECLARE SET PRINT RAISERROR THROW IF ELSE WHILE BEGIN END RETURN BREAK CONTINUE GOTO WAITFOR " +
 	"USE COMMIT ROLLBACK SAVE KILL SHUTDOWN RECONFIGURE CHECKPOINT DBCC BACKUP RESTORE BULK OPEN CLOSE FETCH " +
-	"DEALLOCATE READTEXT WRITETEXT UPDATETEXT SETUSER REVERT DUMP LOAD WITH ENABLE DISABLE RECEIVE SEND MOVE GET")
+	"DEALLOCATE READTEXT WRITETEXT UPDATETEXT SETUSER REVERT DUMP LOAD WITH ENABLE DISABLE RECEIVE SEND MOVE GET ADD")
 
 // tsqlWrites and tsqlSchemaChanges are the statement words that raise a
 // batch to a write or a schema change wherever they stand.
 var (
 	tsqlWrites = setOf("INSERT UPDATE DELETE MERGE EXEC EXECUTE BULK WRITETEXT UPDATETEXT KILL SHUTDOWN " +
 		"RECONFIGURE CHECKPOINT DBCC BACKUP RESTORE RECEIVE SEND MOVE GET DUMP LOAD")
-	tsqlSchemaChanges = setOf("CREATE ALTER DROP TRUNCATE GRANT DENY REVOKE ENABLE DISABLE")
+	tsqlSchemaChanges = setOf("CREATE ALTER DROP TRUNCATE GRANT DENY REVOKE ENABLE DISABLE ADD")
 )
 
 // tsqlLockHints are the table hints whose locks stay until the
@@ -288,7 +288,8 @@ func tsqlStatements(code []Token) (stmts, nested [][]Token, raised Class) {
 
 // tsqlStatementWord reports whether code[j] is a statement's word where
 // it stands: ENABLE and DISABLE before TRIGGER, SEND before ON, MOVE and
-// GET before CONVERSATION, and MERGE and UPDATE but as the join and
+// GET before CONVERSATION, ADD before SIGNATURE, COUNTER or SENSITIVITY
+// (not ALTER TABLE's ADD), and MERGE and UPDATE but as the join and
 // union hints MERGE JOIN and MERGE UNION, ALTER PARTITION FUNCTION's
 // MERGE RANGE and a trigger's UPDATE(column).
 func tsqlStatementWord(code []Token, j int) bool {
@@ -303,6 +304,8 @@ func tsqlStatementWord(code []Token, j int) bool {
 	switch w {
 	case "ENABLE", "DISABLE":
 		return next == "TRIGGER"
+	case "ADD":
+		return next == "SIGNATURE" || next == "COUNTER" || next == "SENSITIVITY"
 	case "SEND":
 		return next == "ON"
 	case "MOVE", "GET":
@@ -442,14 +445,19 @@ func classifyTSQLVerb(toks []Token, r reading) Analysis {
 		return a
 	case "INSERT", "DELETE", "MERGE", "TRUNCATE", "DROP", "CREATE", "GRANT", "REVOKE", "COMMIT", "ROLLBACK", "USE", "FETCH":
 		return classifyVerb(toks, Generic, r)
-	case "DENY", "ENABLE", "DISABLE":
+	case "DENY", "ENABLE", "DISABLE", "ADD":
 		return Analysis{Class: DDL, Verb: verb}
 	case "KILL":
 		if hasWord(toks, "STATUSONLY") { // reports a rollback's progress
 			return read
 		}
 		return write
-	case "DECLARE", "PRINT", "THROW", "IF", "WHILE", "ELSE", "RETURN", "BREAK", "CONTINUE", "GOTO", "WAITFOR", "READTEXT", "DEALLOCATE":
+	case "DECLARE":
+		if hasWord(toks, "SCROLL_LOCKS") { // the cursor locks each row it fetches
+			return write
+		}
+		return read
+	case "PRINT", "THROW", "IF", "WHILE", "ELSE", "RETURN", "BREAK", "CONTINUE", "GOTO", "WAITFOR", "READTEXT", "DEALLOCATE":
 		return read
 	case "SET":
 		if len(toks) > 1 && toks[1].Kind == Param { // a variable, read for the calls in its value

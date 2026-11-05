@@ -411,6 +411,7 @@ func (v *Viewer) CheckPending(then, cancel func()) {
 		}
 		return
 	}
+	v.grid.commitOpenEdit(&v.src)
 	n := v.grid.edits.count()
 	if n == 0 {
 		then()
@@ -735,8 +736,9 @@ func (v *Viewer) Busy() bool { return v.loading || v.applying || v.sessionReads 
 // Applying reports changes being written.
 func (v *Viewer) Applying() bool { return v.applying }
 
-// PendingCount is the number of changes not applied yet.
-func (v *Viewer) PendingCount() int { return v.grid.edits.count() }
+// PendingCount is the number of changes not applied yet, counting a
+// value typed in a cell editor still open.
+func (v *Viewer) PendingCount() int { return v.grid.pendingCount() }
 
 // TableName names the table the rows edit, "" when none.
 func (v *Viewer) TableName() string {
@@ -776,6 +778,9 @@ func passing(reason string) bool {
 
 // ReadOnly says why the rows cannot be edited now, "" when they can.
 func (v *Viewer) ReadOnly() string { return v.grid.readOnly }
+
+// pendingHoldsRows says why scrolling reads no more rows.
+const pendingHoldsRows = "Apply or discard changes to load more rows"
 
 func (v *Viewer) fetchMore() {
 	// New rows are numbered after the rows read: no page may come between
@@ -863,7 +868,12 @@ func (v *Viewer) changeStatements() (stmts, shown []db.Statement, err error) {
 		return lists.Map(key, func(k string) any { return v.src.Rows[row][colIndex[k]] })
 	}
 	edits := v.grid.edits
+	// Deletes first, then updates, then inserts: a row deleted and added
+	// again with its key, or given a key another row gave up, applies.
 	var changes []db.Change
+	for _, r := range slices.Sorted(maps.Keys(edits.deleted)) {
+		changes = append(changes, db.Change{Kind: db.ChangeDelete, Key: keyValues(r)})
+	}
 	for _, r := range slices.Sorted(maps.Keys(edits.updates)) {
 		if edits.deleted[r] || len(edits.updates[r]) == 0 {
 			continue
@@ -887,9 +897,6 @@ func (v *Viewer) changeStatements() (stmts, shown []db.Statement, err error) {
 			}
 		}
 		changes = append(changes, db.Change{Kind: db.ChangeInsert, Values: values})
-	}
-	for _, r := range slices.Sorted(maps.Keys(edits.deleted)) {
-		changes = append(changes, db.Change{Kind: db.ChangeDelete, Key: keyValues(r)})
 	}
 	target := &db.EditTarget{Dialect: v.dialect(), Schema: v.source.Table.Schema, Table: v.source.Table.Name, Columns: v.columns, Key: key}
 	if stmts, err = target.Statements(changes); err != nil {
@@ -945,6 +952,9 @@ func (v *Viewer) Review(then func()) {
 
 // reviewChanges is Review, keeping what runs after the apply.
 func (v *Viewer) reviewChanges() {
+	if !v.applying {
+		v.grid.commitOpenEdit(&v.src)
+	}
 	if v.grid.edits.count() == 0 || v.applying {
 		return
 	}
@@ -1445,8 +1455,12 @@ func (v *Viewer) View(c *ui.Context) {
 			v.CheckPending(v.reload, restore)
 		}
 	}
+	// Rows past those read wait for the pending changes: scrolled to
+	// them, the status says so.
+	heldBack := false
 	if !v.done && !v.loading {
 		if _, last := v.grid.List.Visible(); last >= len(v.src.Rows)-50 {
+			heldBack = v.grid.pendingCount() > 0
 			v.fetchMore()
 		}
 	}
@@ -1471,6 +1485,8 @@ func (v *Viewer) View(c *ui.Context) {
 			status += ": the next statement closed this result; run it alone to read every row"
 		case v.truncated:
 			status += " (limit reached: add a LIMIT or export)"
+		case heldBack:
+			status += " loaded · " + pendingHoldsRows
 		case !v.done:
 			status += " loaded"
 		}
@@ -1566,11 +1582,34 @@ func (v *Viewer) exportSource() ExportSource {
 		name, schema = v.source.Table.Name, v.source.Table.Schema
 	}
 	src := ExportSource{Conn: v.source.Conn, Database: v.source.Database, Schema: schema, Name: name, SQL: sql, Args: v.source.Args,
-		Cols: v.src.Cols, RowsRead: func() [][]any { return v.src.Rows }, Read: len(v.src.Rows)}
+		Cols: v.src.Cols, RowsRead: v.rowsReadShown, Read: v.rowsReadShownCount()}
 	if v.source.CountOnSession {
 		src.OnSession = v.lendSession
 	}
 	return src
+}
+
+// rowsReadShown are the rows read, in the grid's order and through its
+// filters, as an export of the rows read writes them.
+func (v *Viewer) rowsReadShown() [][]any {
+	var rows [][]any
+	for _, r := range v.grid.ViewOrder(&v.src) {
+		if r < len(v.src.Rows) {
+			rows = append(rows, v.src.Rows[r])
+		}
+	}
+	return rows
+}
+
+// rowsReadShownCount counts rowsReadShown without building it.
+func (v *Viewer) rowsReadShownCount() int {
+	n := 0
+	for _, r := range v.grid.ViewOrder(&v.src) {
+		if r < len(v.src.Rows) {
+			n++
+		}
+	}
+	return n
 }
 
 // lendSession lends the session to an export, on the terms Count takes
@@ -1710,7 +1749,9 @@ func (v *Viewer) loadRefs(then func()) {
 		refs := []db.Reference{}
 		if d, err := poolOf(ctx); err == nil {
 			if found, err := d.Dialect.ReferencedBy(ctx, d.Catalog(), schema, name); err == nil {
-				refs = found
+				// Appended: none found is still read, not nil, which
+				// would read them again for ever.
+				refs = append(refs, found...)
 			}
 		}
 		return func() {

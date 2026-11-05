@@ -183,7 +183,9 @@ func (s *Session) connect(ctx context.Context) error {
 }
 
 // Close ends the session, rolling back what it left uncommitted, and
-// closes its connection rather than return it to the pool.
+// closes its connection rather than return it to the pool. On a driver
+// that commits as it closes the connection (driverCommitsStatements), a
+// rollback that failed is ErrTxMayBeCommitted, as in drop.
 func (s *Session) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -192,17 +194,16 @@ func (s *Session) Close() error {
 	if s.q == nil {
 		return nil
 	}
+	var txErr error
 	// Roll back what this session left open; on a pool of one connection,
 	// only a transaction this session began, not another editor's.
 	if s.db.single {
 		s.rollBackOwnSharedTx()
+	} else if r, ok := SQL(s.db.Config.Engine); ok && r.driverCommitsStatements() && s.conn != nil {
+		txErr = s.rollBackBeforeLogoff()
 	} else if s.txState() != TxNone {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if r, ok := SQL(s.db.Config.Engine); ok && r.driverCommitsStatements() && s.conn != nil {
-			s.endInDriver(ctx, false)
-		} else {
-			s.q.ExecContext(ctx, "ROLLBACK")
-		}
+		s.q.ExecContext(ctx, "ROLLBACK")
 		cancel()
 	}
 	var err error
@@ -210,7 +211,7 @@ func (s *Session) Close() error {
 		err = discard(s.conn)
 	}
 	s.conn, s.q = nil, nil
-	return err
+	return errors.Join(txErr, err)
 }
 
 // rollBackOwnSharedTx rolls back, as the session closes, the transaction
@@ -655,20 +656,34 @@ func (s *Session) Exec(ctx context.Context, query string, args ...any) (int64, e
 
 // ExecChange runs a change of rows the app made, as a grid edit, and
 // returns the rows it changed itself (ownRowCountSQL): not those of the
-// triggers it fired.
+// triggers it fired. The count is the batch's last result: a trigger
+// that selects rows sends its results before it.
 func (s *Session) ExecChange(ctx context.Context, query string, args ...any) (int64, error) {
 	r, ok := SQL(s.db.Config.Engine)
 	if !ok || r.ownRowCountSQL() == "" {
 		return s.exec(ctx, query, nil, false, args...)
 	}
-	counts, err := s.queryStrings(ctx, query+";\n"+r.ownRowCountSQL(), args...)
+	c, err := s.Query(ctx, query+";\n"+r.ownRowCountSQL(), args...)
 	if err != nil {
 		return 0, err
 	}
-	if len(counts) != 1 {
-		return 0, fmt.Errorf("the change's row count came as %d rows", len(counts))
+	defer c.Close()
+	following, err := c.ReadAll(1)
+	if err != nil {
+		return 0, err
 	}
-	return strconv.ParseInt(counts[0], 10, 64)
+	last := c
+	if len(following) > 0 {
+		last = following[len(following)-1]
+	}
+	counts, err := last.Fetch(2)
+	if err != nil {
+		return 0, err
+	}
+	if len(counts) != 1 || last.Truncated() || len(counts[0]) != 1 {
+		return 0, errors.New("the change's row count did not come as one value")
+	}
+	return strconv.ParseInt(Display(counts[0][0]), 10, 64)
 }
 
 // ExecTransactionControl runs a statement typed to begin or end a
@@ -1159,19 +1174,31 @@ func (s *Session) retry(ctx context.Context, err error, wasTx TxState) bool {
 // connection not gone, the error is ErrTxMayBeCommitted.
 func (s *Session) drop() error {
 	var err error
-	if r, ok := SQL(s.db.Config.Engine); ok && r.driverCommitsStatements() && s.conn != nil && s.txState() != TxNone {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		var ne net.Error
-		if rerr := s.endInDriver(ctx, false); rerr != nil && (!connectionLost(rerr) || errors.As(rerr, &ne) && ne.Timeout()) {
-			err = fmt.Errorf("%w (%w)", ErrTxMayBeCommitted, rerr)
-		}
-		cancel()
+	if r, ok := SQL(s.db.Config.Engine); ok && r.driverCommitsStatements() && s.conn != nil {
+		err = s.rollBackBeforeLogoff()
 	}
 	discard(s.conn)
 	s.conn, s.q, s.verbs, s.driverHolds = nil, nil, txByVerbs{}, false
 	s.resetPending = s.resetPending || s.ran
 	s.ran = false
 	return err
+}
+
+// rollBackBeforeLogoff rolls back an open transaction through the driver
+// before the connection of a driver that commits as it closes it
+// (driverCommitsStatements) is closed. A rollback that failed, or ran out
+// of time, on a connection not gone, is ErrTxMayBeCommitted.
+func (s *Session) rollBackBeforeLogoff() error {
+	if s.txState() == TxNone {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var ne net.Error
+	if err := s.endInDriver(ctx, false); err != nil && (!connectionLost(err) || errors.As(err, &ne) && ne.Timeout()) {
+		return fmt.Errorf("%w (%w)", ErrTxMayBeCommitted, err)
+	}
+	return nil
 }
 
 func (s *Session) closeCursor() {
@@ -1191,9 +1218,10 @@ var ErrTxLost = errors.New("the connection was lost with a transaction open: the
 
 // ErrTxMayBeCommitted is wrapped in the errors of statements whose
 // connection the session dropped with a transaction open after the
-// rollback it sent first failed (drop): closing the connection may have
-// committed the transaction. It is ErrTxLost too (errors.Is), as the
-// transaction is gone from the session either way.
+// rollback it sent first failed (drop), and in Close's error for the
+// same case: closing the connection may have committed the transaction.
+// It is ErrTxLost too (errors.Is), as the transaction is gone from the
+// session either way.
 var ErrTxMayBeCommitted error = txLostError("the connection was dropped with a transaction open, and its rollback failed: closing the connection may have committed the transaction's changes")
 
 type txLostError string

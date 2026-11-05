@@ -31,6 +31,7 @@ func LoadRelations(r Runner, cn *Conn, database, schema, name string, then func(
 	}
 	cn.Loading[relationsKey(key)] = true
 	poolOf := cn.PoolFor(database) // read on the main thread
+	live := cn.sinceReset()
 	r.Background(func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -43,6 +44,9 @@ func LoadRelations(r Runner, cn *Conn, database, schema, name string, then func(
 			rel.Refs, err = d.Dialect.ReferencedBy(ctx, d.Catalog(), schema, name)
 		}
 		return func() {
+			if !live() {
+				return
+			}
 			delete(cn.Loading, relationsKey(key))
 			if err != nil {
 				cn.LoadErr[relationsKey(key)] = err.Error()

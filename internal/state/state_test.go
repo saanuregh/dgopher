@@ -197,3 +197,35 @@ VALUES ('2026-10-01T10:00:00Z', '', '', '', 'SELECT 1', 0, 0, '')`); err != nil 
 		t.Fatalf("%+v %v", h, err)
 	}
 }
+
+// A cloned repository can carry a symlink where the state file goes: it
+// would send history and the audit log into a file git tracks.
+func TestOpenRefusesSymlink(t *testing.T) {
+	for _, name := range []string{FileName, FileName + "-wal", FileName + "-shm"} {
+		t.Run(name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), ".dgopher")
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			target := filepath.Join(t.TempDir(), "tracked.txt")
+			if err := os.WriteFile(target, []byte("tracked\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, filepath.Join(dir, name)); err != nil {
+				t.Skip(err)
+			}
+			d, err := Open(dir)
+			if err == nil {
+				d.Close()
+				t.Fatal("opened through a symlink")
+			}
+			if !strings.Contains(err.Error(), "symbolic link") {
+				t.Fatalf("error %v", err)
+			}
+			info, err := os.Stat(target)
+			if err != nil || info.Size() != int64(len("tracked\n")) || runtime.GOOS != "windows" && info.Mode().Perm() != 0o644 {
+				t.Fatalf("target changed: %v %v", info, err)
+			}
+		})
+	}
+}

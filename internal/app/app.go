@@ -1112,7 +1112,7 @@ func (a *App) closeActive() {
 	switch {
 	case t == nil:
 	case a.tabs().Pinned(t):
-		a.Toast(t.Title()+" is pinned: close it from its menu, or unpin it first", "", nil)
+		a.sayPinned(t)
 	default:
 		a.closeTabOf(t)
 	}
@@ -1128,15 +1128,7 @@ func (a *App) endTab(t widgets.Tab, title string, then func(w *window, g *panes.
 			then(w, g, i)
 		}
 	}
-	reason := t.CloseReason()
-	if reason == "" {
-		end()
-		return
-	}
-	a.closing = &closeRequest{open: true, title: title, reason: reason, onClose: end}
-	if h, ok := t.(txHolder); ok && h.OpenTx() {
-		a.closing.txs = []txHolder{h}
-	}
+	a.requestEnd(endClose, title, "", []widgets.Tab{t}, nil, end)
 }
 
 // NewQueryTab opens a SQL editor on a new query file of a connection, or
@@ -1260,6 +1252,8 @@ type pendingAsk struct {
 type closeRequest struct {
 	open          bool
 	title, reason string
+	// quit marks the quit prompt, which a second quit keeps.
+	quit bool
 	// action is the button that agrees, "Close" when empty; with txs, the
 	// buttons roll back or commit and then do it.
 	action  string
@@ -1267,78 +1261,6 @@ type closeRequest struct {
 	// txs are the open transactions closing would end: the dialog offers
 	// to commit them first, else onClose rolls them back.
 	txs []txHolder
-}
-
-// losses lists what closing the tabs of some connections would lose:
-// unsaved changes, pending edits and open transactions; and the work
-// running on them, with what stopping it loses.
-func (a *App) losses(conns ...*connection.Conn) []string {
-	return a.lossesBy(widgets.Tab.CloseReason, conns...)
-}
-
-// disconnectLosses is losses for a disconnect, which keeps the tabs:
-// editors lose what needs their session, the other tabs what closing does.
-func (a *App) disconnectLosses(conns ...*connection.Conn) []string {
-	return a.lossesBy(func(t widgets.Tab) string {
-		if q, ok := t.(*query.Tab); ok {
-			return q.DisconnectReason()
-		}
-		return t.CloseReason()
-	}, conns...)
-}
-
-// lossesBy lists what the tabs of some connections would lose, as reason
-// says of each, and the work running on them.
-func (a *App) lossesBy(reason func(widgets.Tab) string, conns ...*connection.Conn) []string {
-	var out []string
-	for _, t := range a.everyTab() {
-		if !slices.Contains(conns, t.Connection()) {
-			continue
-		}
-		if r := reason(t); r != "" {
-			out = append(out, t.Title()+": "+r)
-		}
-	}
-	for _, j := range a.jobsOf(conns...) {
-		// A job of two connections, as a copy, is listed once.
-		if !slices.Contains(out, j.title) {
-			out = append(out, j.title)
-		}
-	}
-	return out
-}
-
-// requestDisconnect runs then, which disconnects, once the user agrees to
-// lose what the tabs of the connections hold and to stop the work running
-// on them; at once when there is none.
-func (a *App) requestDisconnect(title, action string, conns []*connection.Conn, then func()) {
-	lost := a.disconnectLosses(conns...)
-	if len(lost) == 0 {
-		then()
-		return
-	}
-	a.closing = &closeRequest{open: true, title: title, reason: strings.Join(lost, "\n\n"), action: action, onClose: then, txs: a.openTxTabs(conns...)}
-}
-
-// askDisconnect disconnects cn once the user agrees to what it loses.
-func (a *App) askDisconnect(cn *connection.Conn) {
-	a.requestDisconnect("Disconnect "+cn.Config.Name+"?", "Disconnect", []*connection.Conn{cn}, func() { a.disconnect(cn) })
-}
-
-// requestQuit reports whether the app may quit now. When tabs would lose
-// work, as an open transaction, or work runs on a connection, as Run SQL
-// File, it asks first, and quit runs once the user agrees.
-func (a *App) requestQuit(quit func()) bool {
-	if a.quitting || len(a.losses(a.conns...)) == 0 {
-		return true
-	}
-	if a.closing == nil {
-		a.requestDisconnect("Quit DGopher?", "Quit", a.conns, func() {
-			a.quitting = true
-			quit()
-		})
-	}
-	return false
 }
 
 // sharedFingerprint identifies a connection by where it sends a

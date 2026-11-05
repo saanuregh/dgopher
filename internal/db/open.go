@@ -19,6 +19,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"dgopher/internal/netproxy"
 	"dgopher/internal/secretcmd"
@@ -808,15 +810,45 @@ func redact(err error, cfg Config) error {
 	return re
 }
 
+// redactText hides the connection's secrets, its cloud identity's token
+// among them. A secret shorter than three bytes is hidden only where it
+// stands as a word of its own: inside other words it would hide them.
 func redactText(s string, cfg Config) string {
 	for _, secret := range []string{cfg.Password, cfg.SSH.Password, cfg.SSH.KeyPassphrase, cfg.Redis.SentinelPassword, cfg.Proxy.Password,
-		url.QueryEscape(cfg.Password), url.PathEscape(cfg.Password)} {
-		if len(secret) >= 3 {
+		url.QueryEscape(cfg.Password), url.PathEscape(cfg.Password), cachedIdentityToken(cfg)} {
+		switch {
+		case len(secret) >= 3:
 			s = strings.ReplaceAll(s, secret, "•••")
+		case secret != "":
+			s = replaceWord(s, secret, "•••")
 		}
 	}
 	return s
 }
+
+// replaceWord replaces each occurrence of word in s that no letter or
+// digit touches on either side.
+func replaceWord(s, word, with string) string {
+	var b strings.Builder
+	for {
+		i := strings.Index(s, word)
+		if i < 0 {
+			b.WriteString(s)
+			return b.String()
+		}
+		before, _ := utf8.DecodeLastRuneInString(s[:i])
+		after, _ := utf8.DecodeRuneInString(s[i+len(word):])
+		b.WriteString(s[:i])
+		if i > 0 && isWordRune(before) || i+len(word) < len(s) && isWordRune(after) {
+			b.WriteString(word)
+		} else {
+			b.WriteString(with)
+		}
+		s = s[i+len(word):]
+	}
+}
+
+func isWordRune(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }
 
 // redactedError is an error with the connection's secrets taken out of its
 // message. It still unwraps to what callers look for in it: a command's

@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"net/url"
 	"path/filepath"
@@ -609,6 +610,17 @@ func (oracleEngine) BooleanLiteral(b bool) string {
 		return "1"
 	}
 	return "0"
+}
+
+// NonFiniteLiteral: Oracle's BINARY_DOUBLE constants.
+func (oracleEngine) NonFiniteLiteral(f float64) string {
+	switch {
+	case math.IsNaN(f):
+		return "BINARY_DOUBLE_NAN"
+	case f > 0:
+		return "BINARY_DOUBLE_INFINITY"
+	}
+	return "-BINARY_DOUBLE_INFINITY"
 }
 
 func (oracleEngine) BooleansAreNumbers() bool { return true }

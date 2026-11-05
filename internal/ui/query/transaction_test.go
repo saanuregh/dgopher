@@ -700,7 +700,7 @@ func TestManualCommitReopensAfterImplicitCommit(t *testing.T) {
 		t.Fatalf("tx %v, %d BEGINs; messages %+v", q.Tx, begins, q.messages)
 	}
 	if !slices.ContainsFunc(q.messages, func(m message) bool {
-		return strings.Contains(m.text, "CREATE committed the transaction") && strings.Contains(m.text, "A new one opens before the next write")
+		return strings.Contains(m.text, "CREATE committed the transaction") && strings.Contains(m.detail, "A new one opens before the next write")
 	}) {
 		t.Fatalf("no note of the implicit commit: %+v", q.messages)
 	}

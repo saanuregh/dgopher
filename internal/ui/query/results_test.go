@@ -502,11 +502,11 @@ func TestRunRefusedWhileReadingOnSession(t *testing.T) {
 	distinctValues(t, tt, "slept")
 	tt.Key(0, ui.KeyEscape)
 	runWith(t, tt, q, "SELECT 42", RunStatement)
-	if len(a.Errors) == 0 || !strings.Contains(a.Errors[len(a.Errors)-1], "on the editor's session: run once") {
-		t.Fatalf("errors %q", a.Errors)
+	if len(a.Errors) != 0 || len(q.messages) == 0 || !strings.Contains(q.messages[len(q.messages)-1].text, "on the editor's session: run once") {
+		t.Fatalf("not refused in Output, or in a dialog: errors %q", a.Errors)
 	}
 	testutil.WaitFor(t, tt, "the values", func() bool { return !q.Busy() })
-	if q.Tx != db.TxOpen || len(a.Errors) != 1 {
+	if q.Tx != db.TxOpen || len(a.Errors) != 0 {
 		t.Fatalf("tx %v, errors %q", q.Tx, a.Errors)
 	}
 	// Closing the tab while it reads says nothing of the cancelled read.
@@ -520,7 +520,7 @@ func TestRunRefusedWhileReadingOnSession(t *testing.T) {
 	for range 3 {
 		tt.Frame()
 	}
-	if len(a.Errors) != 1 {
+	if len(a.Errors) != 0 {
 		t.Fatalf("errors after closing %q", a.Errors)
 	}
 }

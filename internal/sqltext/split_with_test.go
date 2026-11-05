@@ -81,16 +81,58 @@ func TestStatementAtBlankLineCaret(t *testing.T) {
 		{"end of statement line", src, 8, "select 1"},
 		{"on blank line directly after", src, 9, "select 1"},
 		{"line after semicolon", src2, 10, "select 1"},
-		{"blank line between picks next", src2, 11, "select 2"},
+		{"blank line between picks none", src2, 11, ""},
+		{"spaces on a blank line between pick none", "select 1;\n\n  \t\nselect 2", 12, ""},
+		{"blank line between, semicolon only", src2, 11, ""},
+		{"blank line before the first statement", "\n\n\nselect 1", 1, "select 1"},
 		{"after last statement past blank line", "select 1\n\n\n", 11, "select 1"},
+		// Comment lines belong to the statement after them.
+		{"comment line before the next statement", "select 1;\n-- c\nselect 2", 12, "select 2"},
+		{"comment lines before the next statement", "select 1;\n-- a\n/* b */\nselect 2", 12, "select 2"},
+		{"spaces before a comment", "select 1;\n   -- c\nselect 2", 11, "select 2"},
+		{"inside a block comment of lines", "select 1;\n/* a\n b */\nselect 2", 16, "select 2"},
+		{"comment after a blank line", "select 1;\n\n-- c\nselect 2", 12, "select 2"},
+		{"comment on the statement's line", "select 1; -- c\nselect 2", 12, "select 1"},
+		{"comment line after the statement's comment", "select 1; -- c\n-- d\nselect 2", 17, "select 2"},
+		{"comment line before a blank line", "select 1;\n-- c\n\nselect 2", 12, "select 1"},
+		{"comment line after the last statement", "select 1;\n-- c", 12, "select 1"},
+		{"comment line before the first statement", "-- c\nselect 1", 2, "select 1"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := StatementAtWith(tt.src, tt.caret, Generic, SplitOptions{})
-			if !ok || got.Text != tt.want {
+			o := SplitOptions{}
+			if strings.Contains(tt.name, "semicolon only") {
+				o.Mode = SemicolonOnly
+			}
+			got, ok := StatementAtWith(tt.src, tt.caret, Generic, o)
+			if ok != (tt.want != "") || got.Text != tt.want {
 				t.Fatalf("got %q,%v want %q", got.Text, ok, tt.want)
 			}
 		})
+	}
+}
+
+// Comment lines before a statement are the statement's in every
+// dialect's splitting: after a GO or a / line too, which stay the
+// statement's before them.
+func TestStatementAtCommentLines(t *testing.T) {
+	tests := []struct {
+		d     Dialect
+		src   string
+		caret int
+		want  string
+	}{
+		{TSQL, "select 1\nGO\n-- c\nselect 2", 16, "select 2"},
+		{TSQL, "select 1\nGO\n-- c\nselect 2", 10, "select 1"},
+		{Oracle, "select 1 from dual\n/\n-- c\nselect 2 from dual", 23, "select 2 from dual"},
+		{MySQL, "select 1;\n# c\nselect 2", 11, "select 2"},
+		{MySQL, "select 1;\n/*!40101 SET x = 1 */;\nselect 2", 11, "/*!40101 SET x = 1 */"},
+	}
+	for _, tt := range tests {
+		got, ok := StatementAtWith(tt.src, tt.caret, tt.d, SplitOptions{})
+		if !ok || got.Text != tt.want {
+			t.Errorf("%q at %d: got %q,%v want %q", tt.src, tt.caret, got.Text, ok, tt.want)
+		}
 	}
 }
 
@@ -127,6 +169,11 @@ func TestParams(t *testing.T) {
 		{Postgres, "select arr[1:2], arr[lo:hi], arr[:n] from t", nil},
 		{Generic, "select '12:30', \"a:b\", :1 -- :c\n/* :d */", nil},
 		{MySQL, "select a:b, :c", []p{{"c", ParamNamed}}},
+		{Postgres, "select ARRAY[:a, :b]", []p{{"a", ParamNamed}, {"b", ParamNamed}}},
+		{Postgres, "select array[:a]", []p{{"a", ParamNamed}}},
+		{Postgres, "select [:a, :b]", []p{{"a", ParamNamed}, {"b", ParamNamed}}},
+		{Postgres, "select ARRAY[arr[:n], :a]", []p{{"a", ParamNamed}}},
+		{Postgres, "select (arr)[:n], f(x)[:n], arr[1][:n]", nil},
 		{Generic, "select ${a.b c}", []p{{"a.b c", ParamVar}}},
 	}
 	for _, tt := range tests {

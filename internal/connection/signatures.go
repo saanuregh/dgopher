@@ -28,6 +28,7 @@ func LoadSignatures(r Runner, cn *Conn, then func(map[string][]db.Signature)) {
 	cn.Loading[key] = true
 	poolOf := cn.PoolFor("") // read on the main thread
 	engine := cn.Config.Engine
+	live := cn.sinceReset()
 	r.Background(func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -48,6 +49,9 @@ func LoadSignatures(r Runner, cn *Conn, then func(map[string][]db.Signature)) {
 			byName[name] = append(byName[name], s)
 		}
 		return func() {
+			if !live() {
+				return
+			}
 			delete(cn.Loading, key)
 			cn.Signatures = byName
 			if then != nil {

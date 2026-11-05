@@ -387,8 +387,12 @@ func sameBindings(a, b []Binding) bool {
 }
 
 // reserved are keys that are no action's, in the contexts where they are
-// a widget's own: the grid's F2.
-var reserved = []reservedKey{{[]Scope{Grid}, Chord{0, ui.KeyF2}}}
+// a widget's own: the grid's F2, and Esc, which closes and forgets but in
+// an editor.
+var reserved = []reservedKey{
+	{[]Scope{Grid}, Chord{0, ui.KeyF2}},
+	{[]Scope{Global, Navigator, Grid, Chat, Dialog}, Chord{0, ui.KeyEscape}},
+}
 
 type reservedKey struct {
 	scopes []Scope
@@ -405,7 +409,7 @@ func typesOrMoves(ch Chord, first bool) error {
 	}
 	name := keyNames[ch.Key]
 	switch {
-	case ch.Key >= ui.KeyF1 && ch.Key <= ui.KeyF12, ch.Key == ui.KeyDelete, ch.Key == ui.KeyInsert:
+	case ch.Key >= ui.KeyF1 && ch.Key <= ui.KeyF12, ch.Key == ui.KeyDelete, ch.Key == ui.KeyInsert, ch.Key == ui.KeyEscape:
 	case len(name) == 1 || ch.Key == ui.KeySpace:
 		if ch.Mods&^ui.Shift == 0 {
 			return fmt.Errorf("%s types: add ⌘, Ctrl or Alt", ch.Label())

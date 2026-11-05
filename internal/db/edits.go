@@ -220,7 +220,11 @@ func (s Statement) inline(lit func(any) string) string {
 		c := rune(s.SQL[i])
 		switch {
 		case quote != 0:
-			if c == quote {
+			if c == quote && i+1 < len(s.SQL) && rune(s.SQL[i+1]) == quote {
+				// a doubled quote, or ]], stands for one inside the name
+				b.WriteByte(s.SQL[i])
+				i++
+			} else if c == quote {
 				quote = 0
 			}
 		case c == '"' || c == '`' || c == '\'':

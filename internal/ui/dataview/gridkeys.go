@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"dgopher/internal/db"
 	"dgopher/internal/keymap"
 
 	"github.com/egoist/mygo/ui"
@@ -55,16 +56,25 @@ func (g *Grid) swapHistory(from, to *[]*pendingEdits) {
 }
 
 // copyFromNeighbour sets the chosen cell to the value of the row above
-// (-1) or below (1), in the order shown.
+// (-1) or below (1), in the order shown. A default, an added row's or a
+// pending DEFAULT, is no value: an added row takes its own default, a
+// read row stays as it is.
 func (g *Grid) copyFromNeighbour(src *Source, step int) {
 	order := g.ViewOrder(src)
 	from := g.SelRow + step
 	if g.SelRow < 0 || g.SelRow >= len(order) || from < 0 || from >= len(order) {
 		return
 	}
+	row := order[g.SelRow]
 	v, _ := g.value(src, order[from], g.selCol)
+	if v == unset || v == db.Default {
+		if row < len(src.Rows) {
+			return
+		}
+		v = unset
+	}
 	g.checkpoint()
-	g.setValue(src, order[g.SelRow], g.selCol, v)
+	g.setValue(src, row, g.selCol, v)
 }
 
 // editKeys are DBeaver's keys of an editable grid.

@@ -476,6 +476,9 @@ func (c *Config) Validate() error {
 		if strings.TrimSpace(c.SSH.User) == "" {
 			errs = append(errs, "the SSH user is required")
 		}
+		if c.SSH.Port < 0 || c.SSH.Port > 65535 {
+			errs = append(errs, "the SSH port must be between 1 and 65535")
+		}
 		if _, err := c.SSH.Jumps(); err != nil {
 			errs = append(errs, err.Error())
 		}

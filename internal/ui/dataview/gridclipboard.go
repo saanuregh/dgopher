@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"dgopher/internal/db"
 	"dgopher/internal/export"
@@ -325,42 +327,97 @@ func (g *Grid) copyValuesList(src *Source) string {
 // maxCopyRows is how many rows a plain-text copy writes.
 const maxCopyRows = 100000
 
-// openWith opens the rows read in the system's app for CSV files, as a
+// openWith opens the rows in the system's app for CSV files, as a
 // spreadsheet, through a file of the user's own.
 func (g *Grid) openWith(a Host, src *Source) {
-	rows := make([][]any, 0, len(src.Rows))
-	for r := range src.Rows {
-		vals := make([]any, len(src.Cols))
-		for col := range src.Cols {
-			vals[col] = g.plainValue(src, r, col)
-		}
-		rows = append(rows, vals)
-	}
-	f, err := os.CreateTemp("", "dgopher-*.csv")
-	if err == nil {
-		f.Close()
-		ecols := make([]export.Column, len(src.Cols))
-		for i, c := range src.Cols {
-			ecols[i] = export.Column{Name: c.Name, DatabaseType: c.Type}
-		}
-		var w export.RowWriter
-		if w, err = export.NewFileWriter(f.Name(), export.CSV, ecols, export.Options{Header: true}); err == nil {
-			for _, r := range rows {
-				if err = w.Write(r); err != nil {
-					break
-				}
-			}
-			if cerr := w.Close(); err == nil {
-				err = cerr
-			}
-		}
-	}
+	path, n, err := g.spreadsheetFile(src)
 	if err != nil {
 		a.ShowError("Could not open the rows", err.Error())
 		return
 	}
 	if g.Exported != nil {
-		g.Exported("opened as CSV in the system's app: "+f.Name(), len(rows))
+		g.Exported("opened as CSV in the system's app: "+path, n)
 	}
-	mygo.Shell.OpenPath(f.Name())
+	mygo.Shell.OpenPath(path)
+}
+
+// spreadsheetDir holds the files opened in the spreadsheet app; tests
+// set it to a folder of their own.
+var spreadsheetDir = os.TempDir()
+
+// spreadsheetPrefix starts the name of each file opened in the
+// spreadsheet app.
+const spreadsheetPrefix = "dgopher-open-"
+
+// spreadsheetFileAge is how long a file opened in the spreadsheet app is
+// kept: the app may read it after DGopher hands it over, even after
+// DGopher quits.
+const spreadsheetFileAge = 24 * time.Hour
+
+// spreadsheetFile writes the rows as the grid shows them to a new CSV
+// file, with formulas guarded, and returns its path and how many rows it
+// holds. It first removes the files it wrote a day or more ago.
+func (g *Grid) spreadsheetFile(src *Source) (path string, n int, err error) {
+	removeOldSpreadsheetFiles()
+	names, rows := g.shownRows(src)
+	f, err := os.CreateTemp(spreadsheetDir, spreadsheetPrefix+"*.csv")
+	if err != nil {
+		return "", 0, err
+	}
+	path = f.Name()
+	w, err := export.NewWriter(f, export.CSV, names, export.Options{Header: true, FormulaGuard: true})
+	for _, r := range rows {
+		if err != nil {
+			break
+		}
+		err = w.Write(r)
+	}
+	if w != nil {
+		if cerr := w.Close(); err == nil {
+			err = cerr
+		}
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		os.Remove(path)
+		return "", 0, err
+	}
+	return path, len(rows), err
+}
+
+func removeOldSpreadsheetFiles() {
+	entries, err := os.ReadDir(spreadsheetDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), spreadsheetPrefix) || !strings.HasSuffix(e.Name(), ".csv") {
+			continue
+		}
+		if info, err := e.Info(); err == nil && info.Mode().IsRegular() && time.Since(info.ModTime()) >= spreadsheetFileAge {
+			os.Remove(filepath.Join(spreadsheetDir, e.Name()))
+		}
+	}
+}
+
+// shownRows are the rows as the grid shows them: in its order, through
+// its filters, with their pending changes, without the rows marked for
+// deletion; and the names of the columns shown.
+func (g *Grid) shownRows(src *Source) (names []string, rows [][]any) {
+	var cols []int
+	for col, c := range src.Cols {
+		if !g.hidden[col] {
+			cols = append(cols, col)
+			names = append(names, c.Name)
+		}
+	}
+	for _, r := range g.ViewOrder(src) {
+		if g.edits != nil && g.edits.deleted[r] {
+			continue
+		}
+		rows = append(rows, lists.Map(cols, func(col int) any { return g.plainValue(src, r, col) }))
+	}
+	return names, rows
 }

@@ -48,7 +48,7 @@ func (q *Tab) setTx(own, inside db.TxState) { q.KeepTx(own, inside, q.a.Now()) }
 // read what the run left: the transaction is read again, so that one the
 // run opened still shows, and closing and quitting still ask.
 func (q *Tab) runStopped() {
-	q.Running = false
+	q.Running, q.ongoing = false, nil
 	q.readTxAgain()
 	if q.nb != nil {
 		q.nb.queue = nil // what follows a run that broke does not run

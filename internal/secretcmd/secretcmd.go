@@ -132,6 +132,9 @@ func RunArgv(ctx context.Context, argv []string) (string, error) {
 	// A child that hands its pipes to a grandchild would otherwise keep Wait blocked after the kill.
 	cmd.WaitDelay = 2 * time.Second
 	err := cmd.Run()
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return "", errors.New("the command was cancelled")
+	}
 	if ctx.Err() != nil {
 		return "", fmt.Errorf("the command took longer than %.3g seconds", limit.Seconds())
 	}

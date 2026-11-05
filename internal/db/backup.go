@@ -619,8 +619,10 @@ func RunTool(ctx context.Context, run ToolRun, line func(string)) error {
 	}
 	err = cmd.Wait()
 	switch {
+	case ctx.Err() != nil && err != nil:
+		return fmt.Errorf("cancelled (%w); %s: %w: %s", context.Cause(ctx), run.Argv[0], err, strings.Join(last, " "))
 	case ctx.Err() != nil:
-		return errors.New("cancelled")
+		return fmt.Errorf("cancelled (%w)", context.Cause(ctx))
 	case err != nil:
 		return fmt.Errorf("%s: %w: %s", run.Argv[0], err, strings.Join(last, " "))
 	}

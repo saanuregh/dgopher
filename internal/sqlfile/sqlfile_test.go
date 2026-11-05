@@ -217,3 +217,32 @@ func TestCopyLineGrowth(t *testing.T) {
 		}
 	}
 }
+
+// Only a COPY's own FROM STDIN takes the lines after it as rows, not the
+// words in a string or a comment.
+func TestCopyStdinWords(t *testing.T) {
+	for _, src := range []string{
+		"COPY t TO STDOUT WITH (NULL 'FROM STDIN');\nSELECT 1;\nSELECT 2;\n",
+		"COPY t TO STDOUT /* FROM STDIN */;\nSELECT 1;\nSELECT 2;\n",
+		"COPY t TO STDOUT -- FROM STDIN\n;\nSELECT 1;\nSELECT 2;\n",
+		"COPY t FROM '/tmp/FROM STDIN';\nSELECT 1;\nSELECT 2;\n",
+	} {
+		got, data := all(t, src, sqltext.Postgres)
+		if len(got) != 3 || len(data) != 0 || got[0].Copy {
+			t.Errorf("%q: %d statements, rows %q, first %+v", src, len(got), data, got[0])
+		}
+	}
+	got, data := all(t, "copy t from stdin with (format text);\n1\n\\.\nSELECT 1;\n", sqltext.Postgres)
+	if len(got) != 2 || !got[0].Copy || len(data) != 1 || data[0] != "1\n" {
+		t.Fatalf("COPY FROM STDIN: %+v, rows %q", got, data)
+	}
+}
+
+// A block comment before a psql command is skipped as a -- comment is.
+func TestPsqlCommandAfterBlockComment(t *testing.T) {
+	src := "/* header */\n\\restrict abc\n/* a\n /* nested */ b */ \\unrestrict abc\nSELECT 1;\n"
+	got, _ := all(t, src, sqltext.Postgres)
+	if len(got) != 1 || got[0].SQL != "SELECT 1" || got[0].Line != 5 {
+		t.Fatalf("got %+v", got)
+	}
+}

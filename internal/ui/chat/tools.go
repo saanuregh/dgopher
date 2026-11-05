@@ -15,6 +15,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/export"
 	"dgopher/internal/lists"
+	"dgopher/internal/redact"
 	"dgopher/internal/safety"
 	"dgopher/internal/sqltext"
 	"dgopher/internal/ui/dataview"
@@ -72,7 +73,7 @@ func (t *Chat) tools() []agent.Tool {
 		tool.ReadOnly = true
 		return tool
 	}
-	return []agent.Tool{
+	tools := []agent.Tool{
 		read(agent.NewTool("list_connections", "Lists DGopher's database connections: name, engine, environment, whether connected and read-only, and the database.", noArgs, t.listConnections)),
 		read(agent.NewTool("list_tables", "Lists the tables and views of a schema of a connection, with the schemas there are.", tablesSchema, t.listTables)),
 		read(agent.NewTool("describe_table", "Describes a table's columns: name, type, nullable, default, primary key and comment.", describeSchema, t.describeTable)),
@@ -82,6 +83,28 @@ func (t *Chat) tools() []agent.Tool {
 		// as the chat asks the user itself.
 		read(t.chartTool()),
 	}
+	return lists.Map(tools, redactErrors)
+}
+
+// redactErrors hides the secrets in the errors a tool gives the agent, as
+// a server's or a driver's error may quote a password or a statement.
+func redactErrors(tool agent.Tool) agent.Tool {
+	handler := tool.Handler
+	tool.Handler = func(ctx context.Context, call agent.ToolCallRequest) (agent.ToolResult, error) {
+		res, err := handler(ctx, call)
+		if err != nil {
+			if msg := redact.Secrets(err.Error()); msg != err.Error() {
+				err = errors.New(msg) // the original quotes the secret
+			}
+		}
+		if res.IsError {
+			for i := range res.Content {
+				res.Content[i].Text = redact.Secrets(res.Content[i].Text)
+			}
+		}
+		return res, err
+	}
+	return tool
 }
 
 // connInfo is a connection as list_connections tells it.
@@ -423,29 +446,32 @@ func (t *Chat) read(ctx context.Context, c sqlPool, database, sql string) (agent
 		defer stop()
 	}
 	start := time.Now()
-	columns, rows, more, err := fetch(ctx, c.pool, database, sql)
+	columns, rows, more, err := fetch(ctx, c.pool, c.cfg, database, sql)
 	// The app's, not typed by the user: the user allowed it.
 	cfg := c.cfg
 	t.a.Record(&cfg, audit.Event{Kind: audit.KindStatement, Database: database, Statement: sql, Purpose: "a read the AI chat ran, as the user allowed",
 		Rows: int64(len(rows)), DurationMS: time.Since(start).Milliseconds(), Err: err})
 	if err != nil {
-		return agent.ErrorResult(err.Error()), nil
+		return agent.ErrorResult(redact.Error(err.Error(), sql)), nil
 	}
 	return agent.TextResult(rowsText(columns, rows, more)), nil
 }
 
-// fetch reads a statement's first rows on a session of its own.
-func fetch(ctx context.Context, pool *db.DB, database, sql string) (columns []string, rows [][]any, more bool, err error) {
-	sess, err := connection.OpenSession(ctx, pool, database)
+// fetch reads a statement's first rows on a session of its own, in a
+// read-only transaction where the engine has one.
+func fetch(ctx context.Context, pool *db.DB, cfg db.Config, database, sql string) (columns []string, rows [][]any, more bool, err error) {
+	// A pool of one connection would run the read in the user's open
+	// transaction, as part of it.
+	if pool != nil {
+		if tx, _ := pool.SharedTx(); tx != db.TxNone {
+			return nil, nil, false, errors.New("not run: the user has a transaction open on this connection, which the read would join; ask them to commit or roll it back first")
+		}
+	}
+	cur, release, err := connection.ReadQuery(ctx, pool, cfg, database, sql)
 	if err != nil {
 		return nil, nil, false, err
 	}
-	defer sess.Close()
-	cur, err := sess.Query(ctx, sql)
-	if err != nil {
-		return nil, nil, false, err
-	}
-	defer cur.Close()
+	defer release()
 	rows, err = cur.Fetch(maxRows)
 	columns = lists.Map(cur.Columns, func(c db.ColumnInfo) string { return c.Name })
 	return columns, rows, !cur.Done(), err

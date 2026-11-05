@@ -107,6 +107,9 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 				}})
 		}
 	}
+	if active != nil {
+		cmds = append(cmds, a.connectionCommands(active)...)
+	}
 	if tab := a.ActiveTab(); tab != nil {
 		g := a.window.panes.Focused()
 		for _, bulk := range bulkCloses(tab, a.tabs().ActiveIndex()) {
@@ -334,4 +337,32 @@ func (a *App) paletteList(c *ui.Context, p *paletteState, run func(int)) {
 			ui.Text(c, "Nothing matches.").TextColor(pal.Muted).Padding(8)
 		}
 	})
+}
+
+// connectionCommands are the palette's commands on a connection, as its
+// menu in the navigator has them.
+func (a *App) connectionCommands(cn *connection.Conn) []paletteItem {
+	name := cn.Config.Name
+	var cmds []paletteItem
+	if _, connecting := a.connectStarted(cn); cn.Status != connection.StatusConnected && !connecting {
+		cmds = append(cmds, paletteItem{title: "Connect", detail: name, group: "Command", icon: widgets.IconPlug, run: func() { a.Connect(cn, nil) }})
+	}
+	cmds = append(cmds,
+		paletteItem{title: "Edit Connection…", detail: name, group: "Command", icon: widgets.IconPencil, run: func() { a.openConnForm(cn) }},
+		paletteItem{title: "Duplicate Connection", detail: name, group: "Command", icon: widgets.IconCopy, run: func() { a.duplicateConn(cn) }},
+		paletteItem{title: "Delete Connection…", detail: name + ", once you agree", group: "Command", icon: widgets.IconTrash, run: func() { a.askDeleteConn(cn) }})
+	if backupSupported(cn.Config.Engine) {
+		cmds = append(cmds, paletteItem{title: "Back Up…", detail: name, group: "Command", icon: widgets.IconDownload,
+			run: func() { a.Connect(cn, func() { a.openBackup(cn, "", false) }) }})
+		if !cn.Config.ReadOnly {
+			cmds = append(cmds, paletteItem{title: "Restore…", detail: name, group: "Command", icon: widgets.IconUndo,
+				run: func() { a.Connect(cn, func() { a.openBackup(cn, "", true) }) }})
+		}
+	}
+	if cn.Config.Engine.IsSQL() && !cn.Config.ReadOnly {
+		schema := cn.Config.Engine.DefaultSchemaName()
+		cmds = append(cmds, paletteItem{title: "Import File as New Table…", detail: name, group: "Command", icon: widgets.IconTable,
+			run: func() { a.Connect(cn, func() { a.openImport(cn, "", schema, nil) }) }})
+	}
+	return cmds
 }

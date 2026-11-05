@@ -185,14 +185,14 @@ func (q *Tab) releaseConnection() {
 			closers = append(closers, r.view.CutShort())
 		}
 	}
-	sess := q.sess
+	sess, name := q.sess, q.Name
 	go func() {
 		defer dataview.RecoverBackground(q.a.Post, q.a.ShowReport, nil)
 		for _, close := range closers {
 			close()
 		}
 		if sess != nil {
-			sess.Close()
+			dataview.CloseSession(q.a, name, sess)
 		}
 	}()
 	q.sess, q.schema, q.autocommitOff, q.movedTo = nil, "", false, ""

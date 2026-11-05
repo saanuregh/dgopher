@@ -300,12 +300,14 @@ func (t *Tunnel) stop(err error) {
 		if t.agentConn != nil {
 			t.agentConn.Close()
 		}
+		// Done closes under the lock track takes, so a connection tracked
+		// after the ones closed here is refused instead of kept open.
 		t.mu.Lock()
 		for c := range t.conns {
 			c.Close()
 		}
-		t.mu.Unlock()
 		close(t.done)
+		t.mu.Unlock()
 	})
 }
 

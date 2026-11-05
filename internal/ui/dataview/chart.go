@@ -180,7 +180,7 @@ func (s *Chart) points(src *Source, series []int) (pts []chartPoint, continuous,
 			case time.Time:
 				p.x = float64(v.UnixMilli())
 			default:
-				f, ok := toFloat(v)
+				f, ok := chartFloat(v)
 				if !ok && timeAxis {
 					if tm, err := time.Parse("2006-01-02 15:04:05", db.Display(v)); err == nil {
 						f, ok = float64(tm.UnixMilli()), true
@@ -195,7 +195,7 @@ func (s *Chart) points(src *Source, series []int) (pts []chartPoint, continuous,
 			}
 		}
 		for j, col := range series {
-			p.ys[j], p.ok[j] = toFloat(row[col])
+			p.ys[j], p.ok[j] = chartFloat(row[col])
 		}
 		pts = append(pts, p)
 	}
@@ -205,12 +205,33 @@ func (s *Chart) points(src *Source, series []int) (pts []chartPoint, continuous,
 	return pts, continuous, timeAxis
 }
 
-// niceTicks returns about n round values covering [lo, hi].
+// chartFloat is a value's place on an axis: none for NaN and ±Inf, which
+// have none.
+func chartFloat(v any) (float64, bool) {
+	f, ok := toFloat(v)
+	return f, ok && !math.IsNaN(f) && !math.IsInf(f, 0)
+}
+
+// maxTicks bounds the ticks of an axis, whatever its range.
+const maxTicks = 64
+
+// niceTicks returns about n round values covering [lo, hi]: at least two,
+// at most maxTicks, for any finite range.
 func niceTicks(lo, hi float64, n int) []float64 {
+	if math.IsNaN(lo) || math.IsNaN(hi) || math.IsInf(lo, 0) || math.IsInf(hi, 0) {
+		return []float64{0, 1}
+	}
+	if lo > hi {
+		lo, hi = hi, lo
+	}
 	if hi == lo {
 		hi = lo + 1
 	}
-	raw := (hi - lo) / float64(n)
+	n = min(max(n, 1), maxTicks-3)
+	// Halving first keeps the width of the widest ranges finite; the floor
+	// keeps a step that float64 can still add to the bounds.
+	raw := (hi/2 - lo/2) * 2 / float64(n)
+	raw = max(raw, max(math.Abs(lo), math.Abs(hi))*1e-12, 1e-300)
 	mag := math.Pow(10, math.Floor(math.Log10(raw)))
 	step := mag
 	for _, m := range []float64{1, 2, 2.5, 5, 10} {
@@ -219,12 +240,21 @@ func niceTicks(lo, hi float64, n int) []float64 {
 			break
 		}
 	}
+	if hi-lo < step {
+		hi = lo + step
+	}
 	// From a tick at or under lo to one at or over hi, so that the axis
-	// holds the highest value under a line of its own.
+	// holds the highest value under a line of its own. Each tick is its
+	// index times the step, so that no sum stalls on a large value.
 	var out []float64
-	top := math.Ceil(hi/step-0.001) * step
-	for v := math.Floor(lo/step) * step; v <= top+step*0.001; v += step {
-		out = append(out, v)
+	first, last := math.Floor(lo/step), math.Ceil(hi/step-0.001)
+	for k := first; k <= last && len(out) < maxTicks; k++ {
+		if v := k * step; !math.IsInf(v, 0) {
+			out = append(out, v)
+		}
+	}
+	if len(out) < 2 {
+		return []float64{lo, hi}
 	}
 	return out
 }

@@ -811,3 +811,6 @@ func (mysqlEngine) messagesSQL() string                    { return "" }
 func (mysqlEngine) transactionStateAndMessagesSQL() string { return "" }
 func (mysqlEngine) TakesEffectAtOnce(string) bool          { return false }
 func (mysqlEngine) BooleanLiteral(b bool) string           { return booleanWord(b) }
+
+// NonFiniteLiteral: MySQL's numbers hold no NaN or infinity.
+func (mysqlEngine) NonFiniteLiteral(float64) string { return "NULL" }

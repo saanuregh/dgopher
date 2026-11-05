@@ -613,9 +613,9 @@ func (g *Grid) cell(c *ui.Context, a Host, src *Source, data, col int) {
 		case in.Shortcut(0, ui.KeyEscape):
 			g.editing = nil
 		case in.Submitted():
-			g.commitEdit(src)
+			g.commitEdit(src, true)
 		case e.focused && !in.Focused():
-			g.commitEdit(src)
+			g.commitEdit(src, false)
 		}
 		if in.Focused() {
 			e.focused = true
@@ -714,14 +714,46 @@ func editText(v any) string {
 	return db.Display(v)
 }
 
-func (g *Grid) commitEdit(src *Source) {
+// commitEdit ends the cell edit, keeping its value. Untouched, a NULL
+// stays NULL, unless submitted on a text column: Enter there sets it to
+// the empty text.
+func (g *Grid) commitEdit(src *Source, submitted bool) {
 	e := g.editing
 	g.editing = nil
-	if e == nil || g.edits == nil || e.value == e.initial {
-		return // untouched: a NULL stays NULL, not ''
+	if e == nil || g.edits == nil {
+		return
+	}
+	if e.value == e.initial {
+		if v, _ := g.value(src, e.row, e.col); !submitted || v != nil || !holdsText(src.Cols[e.col].Type) {
+			return
+		}
 	}
 	g.checkpoint()
 	g.setValue(src, e.row, e.col, db.Typed(e.value))
+}
+
+// openEditChanged says whether the cell editor open holds a value typed
+// and not yet kept.
+func (g *Grid) openEditChanged() bool {
+	return g.editing != nil && g.edits != nil && g.editing.value != g.editing.initial
+}
+
+// commitOpenEdit keeps what the cell editor open holds as a pending
+// change, before something counts, applies or drops the changes.
+func (g *Grid) commitOpenEdit(src *Source) {
+	if g.openEditChanged() {
+		g.commitEdit(src, false)
+	}
+}
+
+// pendingCount is the number of pending changes, with a value typed in
+// the cell editor open.
+func (g *Grid) pendingCount() int {
+	n := g.edits.count()
+	if g.openEditChanged() {
+		n++
+	}
+	return n
 }
 
 // columnReadOnly says why a column's cells cannot be edited, "" when they
@@ -741,6 +773,11 @@ func (g *Grid) setValue(src *Source, row, col int, v any) {
 	}
 	if row >= len(src.Rows) {
 		g.edits.inserted[row-len(src.Rows)][col] = v
+		return
+	}
+	if v == unset {
+		// An added row's default: a read row has none to take.
+		delete(g.edits.updates[row], col)
 		return
 	}
 	orig := src.Rows[row][col]
@@ -772,6 +809,14 @@ func (g *Grid) deleteSelected(src *Source) {
 	rows := g.selectedRows(src)
 	// From the last: an added row taken out moves those after it.
 	slices.SortFunc(rows, func(x, y int) int { return y - x })
+	// The read rows chosen are all marked, unless they all are already:
+	// then they are all restored.
+	restore := true
+	for _, r := range rows {
+		if r < len(src.Rows) && !g.edits.deleted[r] {
+			restore = false
+		}
+	}
 	for _, r := range rows {
 		if r >= len(src.Rows) {
 			i := r - len(src.Rows)
@@ -780,7 +825,7 @@ func (g *Grid) deleteSelected(src *Source) {
 			}
 			continue
 		}
-		if g.edits.deleted[r] {
+		if restore {
 			delete(g.edits.deleted, r)
 		} else {
 			g.edits.deleted[r] = true
@@ -956,3 +1001,12 @@ func (g *Grid) numericColumn(src *Source, col int) bool {
 
 // isMasked reports whether a column's values are hidden on screen.
 func (g *Grid) isMasked(col int) bool { return col >= 0 && col < len(g.masked) && g.masked[col] }
+
+// holdsText reports whether a column of the database's type typ holds
+// text, so the empty text is one of its values; an unknown type counts.
+func holdsText(typ string) bool {
+	typ = strings.ToLower(typ)
+	return typ == "" || slices.ContainsFunc([]string{"char", "text", "string", "clob"}, func(w string) bool {
+		return strings.Contains(typ, w)
+	})
+}

@@ -99,9 +99,10 @@ func TestExportFromQueryOnTheEditorsSession(t *testing.T) {
 	if q.exports != 1 {
 		t.Fatalf("the export does not hold the session: %d", q.exports)
 	}
+	errors := len(a.Errors)
 	q.Run(RunStatement)
-	if !strings.Contains(a.Errors[len(a.Errors)-1], "An export is reading") {
-		t.Fatalf("ran during the export: %q", a.Errors)
+	if len(a.Errors) != errors || len(q.messages) == 0 || !strings.Contains(q.messages[len(q.messages)-1].text, "export") {
+		t.Fatalf("ran during the export, or said so in a dialog: %q", a.Errors)
 	}
 	close(resume)
 	var files []string

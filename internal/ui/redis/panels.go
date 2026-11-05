@@ -129,9 +129,7 @@ func (r *Tab) runMonitor() {
 			// Shown through the redaction the console's commands go
 			// through: older servers tell CONFIG SET requirepass as sent.
 			for i := range batch {
-				if args, err := db.SplitCommand(batch[i].Command); err == nil && len(args) > 0 {
-					batch[i].Command = redact.Redis(args)
-				}
+				batch[i].Command = monitorText(batch[i].Command)
 			}
 			r.a.Post(func() { m.lines = keepLatest(m.lines, batch, monitorKeep) })
 		})
@@ -462,4 +460,20 @@ func typesBySize(rep *db.MemoryReport) []string {
 		return strings.Compare(a, b)
 	})
 	return types
+}
+
+// monitorText is a command MONITOR told, redacted. One cut at the
+// length kept does not split, so redaction cannot find its secrets: it
+// shows its name only.
+func monitorText(command string) string {
+	if args, err := db.SplitCommand(command); err == nil && len(args) > 0 {
+		return redact.Redis(args)
+	}
+	name, _, _ := strings.Cut(strings.TrimSpace(command), " ")
+	if args, err := db.SplitCommand(name); err == nil && len(args) == 1 {
+		name = args[0]
+	} else {
+		name = "?"
+	}
+	return name + " … (cut: arguments hidden)"
 }

@@ -25,6 +25,9 @@ type erTable struct {
 	cols   []db.Column
 	fks    []db.ForeignKey
 	x, y   float32
+	// unreadable says why the table's columns could not be read: it is
+	// drawn as a box saying so.
+	unreadable string
 }
 
 // ERTab draws the tables of a schema and the foreign keys between them.
@@ -41,8 +44,11 @@ type ERTab struct {
 	focus   *db.Object
 	loading bool
 	err     string
-	scroll  ui.ScrollState
-	more    int // tables left out of a large schema
+	// notes say what could not be read, as foreign keys, while the rest
+	// is drawn.
+	notes  []string
+	scroll ui.ScrollState
+	more   int // tables left out of a large schema
 	// dragged is the table being dragged by its name, which settles where
 	// it hides no other once dropped.
 	dragged *erTable
@@ -107,9 +113,10 @@ func (e *ERTab) load() {
 		defer cancel()
 		d, err := poolOf(ctx)
 		var tables []*erTable
+		var notes []string
 		more := 0
 		if err == nil && focus != nil {
-			tables, err = loadNeighbours(ctx, d, *focus)
+			tables, notes, err = loadNeighbours(ctx, d, *focus)
 		} else if err == nil {
 			var objs []db.Object
 			objs, err = d.Dialect.Objects(ctx, d.Catalog(), schema)
@@ -125,7 +132,10 @@ func (e *ERTab) load() {
 				t := &erTable{schema: schema, obj: o}
 				t.cols, err = d.Dialect.Columns(ctx, d.Catalog(), schema, o.Name)
 				if err == nil {
-					t.fks, _ = d.Dialect.ForeignKeys(ctx, d.Catalog(), schema, o.Name)
+					var fkErr error
+					if t.fks, fkErr = d.Dialect.ForeignKeys(ctx, d.Catalog(), schema, o.Name); fkErr != nil {
+						notes = append(notes, foreignKeysNote(o.Name, fkErr))
+					}
 				}
 				tables = append(tables, t)
 			}
@@ -136,7 +146,7 @@ func (e *ERTab) load() {
 				e.err = err.Error()
 				return
 			}
-			e.tables, e.more = tables, more
+			e.tables, e.more, e.notes = tables, more, notes
 			e.byName = map[string]*erTable{}
 			for _, t := range tables {
 				e.byName[erKey(t.schema, t.obj.Name)] = t
@@ -157,6 +167,9 @@ func (e *ERTab) load() {
 // with their padding, and its border.
 func (t *erTable) height() float32 {
 	n := min(len(t.cols), erMaxCols)
+	if t.unreadable != "" {
+		n = 1
+	}
 	h := float32(erHeaderH + n*erRowH + 8 + 2)
 	if len(t.cols) > erMaxCols {
 		h += erRowH
@@ -288,6 +301,9 @@ func (e *ERTab) View(c *ui.Context) {
 				ui.Text(c, widgets.Count(len(e.tables), "table")).FontSize(12).TextColor(pal.Muted)
 				if e.more > 0 {
 					ui.Text(c, fmt.Sprintf("(%d more not drawn)", e.more)).FontSize(12).TextColor(th.Warning)
+				}
+				if len(e.notes) > 0 {
+					ui.Text(c, "Some links could not be read").FontSize(12).TextColor(th.Warning).Tooltip(strings.Join(e.notes, "\n"))
 				}
 			})
 			ui.Spacer(c)
@@ -661,6 +677,10 @@ func (e *ERTab) box(c *ui.Context, a Host, t *erTable) {
 			a.OpenTable(e.conn, e.database, t.obj, PageData)
 		}
 		ui.Column(c).PaddingY(4).Children(func() {
+			if t.unreadable != "" {
+				ui.Text(c, "Its columns could not be read").FontSize(11).TextColor(th.Warning).Height(erRowH).Padding(3, 10).
+					SingleLine().Tooltip(t.unreadable)
+			}
 			for i, col := range t.cols {
 				if i == erMaxCols {
 					ui.Text(c, fmt.Sprintf("+ %d more", len(t.cols)-erMaxCols)).FontSize(11).TextColor(pal.Muted).Height(erRowH).Padding(3, 10)
@@ -751,10 +771,16 @@ func (e *ERTab) refOf(t *erTable, fk db.ForeignKey) *erTable {
 	return e.byName[erKey(schema, fk.RefTable)]
 }
 
+// foreignKeysNote says that a table's foreign keys could not be read.
+func foreignKeysNote(table string, err error) string {
+	return "The foreign keys of " + table + " could not be read: " + err.Error()
+}
+
 // loadNeighbours reads a table, the tables its foreign keys point at, and
-// those whose foreign keys point at it, with their columns and keys.
-func loadNeighbours(ctx context.Context, d *db.DB, focus db.Object) ([]*erTable, error) {
-	var tables []*erTable
+// those whose foreign keys point at it, with their columns and keys. Only
+// the table itself must be read: a neighbour whose columns cannot be is
+// drawn unreadable, and notes say which links could not be read.
+func loadNeighbours(ctx context.Context, d *db.DB, focus db.Object) (tables []*erTable, notes []string, err error) {
 	seen := map[string]bool{}
 	add := func(schema string, obj db.Object) error {
 		if seen[erKey(schema, obj.Name)] {
@@ -764,31 +790,31 @@ func loadNeighbours(ctx context.Context, d *db.DB, focus db.Object) ([]*erTable,
 		t := &erTable{schema: schema, obj: obj}
 		var err error
 		if t.cols, err = d.Dialect.Columns(ctx, d.Catalog(), schema, obj.Name); err != nil {
-			return err
+			if len(tables) == 0 {
+				return err
+			}
+			t.unreadable = err.Error()
+		} else if t.fks, err = d.Dialect.ForeignKeys(ctx, d.Catalog(), schema, obj.Name); err != nil {
+			notes = append(notes, foreignKeysNote(obj.Name, err))
 		}
-		t.fks, _ = d.Dialect.ForeignKeys(ctx, d.Catalog(), schema, obj.Name)
 		tables = append(tables, t)
 		return nil
 	}
 	if err := add(focus.Schema, focus); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, fk := range tables[0].fks {
 		schema := cmp.Or(fk.RefSchema, focus.Schema)
-		if err := add(schema, db.Object{Schema: schema, Name: fk.RefTable, Kind: db.KindTable, Rows: -1}); err != nil {
-			return nil, err
-		}
+		add(schema, db.Object{Schema: schema, Name: fk.RefTable, Kind: db.KindTable, Rows: -1})
 	}
 	refs, err := d.Dialect.ReferencedBy(ctx, d.Catalog(), focus.Schema, focus.Name)
 	if err != nil {
-		return nil, err
+		notes = append(notes, "The tables that refer to "+focus.Name+" could not be read: "+err.Error())
 	}
 	for _, r := range refs {
-		if err := add(r.Schema, db.Object{Schema: r.Schema, Name: r.Table, Kind: db.KindTable, Rows: -1}); err != nil {
-			return nil, err
-		}
+		add(r.Schema, db.Object{Schema: r.Schema, Name: r.Table, Kind: db.KindTable, Rows: -1})
 	}
-	return tables, nil
+	return tables, notes, nil
 }
 
 // layoutFocus puts the tables that point at the focus on its left, those

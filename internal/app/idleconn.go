@@ -53,14 +53,17 @@ func (a *App) checkIdleConnections(c *ui.Context) {
 }
 
 // connectionHeld reports whether something holds a connection now: a tab
-// other than an editor, or a copy or row comparison dialog, which cannot do
-// without it; an editor's work, transaction or changes not applied; a
+// other than an editor, or a copy, row comparison or import dialog, which
+// cannot do without it; an editor's work, transaction or changes not applied; a
 // dashboard's panel running; a job; or a catalog read.
 func (a *App) connectionHeld(cn *connection.Conn) bool {
 	if d := a.copying; d != nil && d.open && (d.from == cn || d.target.conn(a) == cn) {
 		return true
 	}
 	if d := a.rowCompare; d != nil && d.open && (d.from == cn || d.target.conn(a) == cn) {
+		return true
+	}
+	if d := a.importing; d != nil && (d.open || d.running) && d.conn == cn {
 		return true
 	}
 	for _, t := range a.everyTab() {

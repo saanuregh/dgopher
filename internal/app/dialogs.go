@@ -173,7 +173,9 @@ func (a *App) questions(c *ui.Context) {
 	if r := a.closing; r != nil {
 		action := cmp.Or(r.action, "Close")
 		if len(r.txs) > 0 {
-			switch ui.AlertDialog(c, &r.open, r.title, r.reason, "Cancel", "Roll Back and "+action, "Commit and "+action) {
+			// MyGo's alert is too narrow for "Commit and Quit" beside two
+			// more buttons: the title and the last line name the action.
+			switch ui.AlertDialog(c, &r.open, r.title, r.reason+"\n\n"+txChoice(len(r.txs), action), "Cancel", "Roll Back", "Commit") {
 			case 1:
 				r.onClose()
 			case 2:
@@ -207,30 +209,40 @@ func (a *App) questions(c *ui.Context) {
 	}
 }
 
-// askDeleteConn asks before deleting a saved connection.
-func (a *App) askDeleteConn(cn *connection.Conn) {
-	reason := "The connection's settings and saved passwords are removed. Its database is not touched."
-	if lost := a.losses(cn); len(lost) > 0 {
-		reason += "\n\nIts tabs close and the work running on it stops, losing:\n" + strings.Join(lost, "\n")
+// txChoice is the line a question ending open transactions closes with:
+// what its Roll Back and Commit do before action.
+func txChoice(n int, action string) string {
+	what := "the open transaction"
+	if n > 1 {
+		what = "the open transactions"
 	}
-	a.closing = &closeRequest{open: true, title: "Delete " + cn.Config.Name + "?",
-		reason: reason, action: "Delete",
-		onClose: func() {
-			if err := cn.Project.Writable(); err != nil {
-				a.ShowError("Could not delete "+cn.Config.Name, err.Error())
-				return
+	return "Roll Back or Commit " + what + ", then " + strings.ToLower(action) + "."
+}
+
+// askDeleteConn asks before deleting a saved connection, once its
+// project may be written.
+func (a *App) askDeleteConn(cn *connection.Conn) {
+	if err := cn.Project.Writable(); err != nil {
+		a.ShowError("Could not delete "+cn.Config.Name, err.Error())
+		return
+	}
+	a.requestEnd(endDelete, "Delete "+cn.Config.Name+"?", "Delete", a.tabsOf(cn), []*connection.Conn{cn}, func() {
+		// The file may have changed while the question was open.
+		if err := cn.Project.Writable(); err != nil {
+			a.ShowError("Could not delete "+cn.Config.Name, err.Error())
+			return
+		}
+		a.closeConnection(cn)
+		for i, x := range a.conns {
+			if x == cn {
+				a.conns = append(a.conns[:i], a.conns[i+1:]...)
+				break
 			}
-			a.closeConnection(cn)
-			for i, x := range a.conns {
-				if x == cn {
-					a.conns = append(a.conns[:i], a.conns[i+1:]...)
-					break
-				}
-			}
-			a.deleteSecrets(&cn.Config)
-			a.saveProject(cn.Project)
-			a.Record(&cn.Config, audit.Event{Kind: audit.KindConfig, Detail: "connection deleted"})
-		}}
+		}
+		a.deleteSecrets(&cn.Config)
+		a.saveProject(cn.Project)
+		a.Record(&cn.Config, audit.Event{Kind: audit.KindConfig, Detail: "connection deleted"})
+	})
 }
 
 func (a *App) duplicateConn(cn *connection.Conn) {

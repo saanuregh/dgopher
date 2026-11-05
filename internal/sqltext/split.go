@@ -682,7 +682,16 @@ func resumeAt(s string, toks []Token, p int, d Dialect, q quoting) []Token {
 // non-whitespace token, before any ';' or delimiter. Empty and comment-only
 // statements are dropped, but those of MySQL's executable comments.
 func SplitWith(src string, d Dialect, o SplitOptions) []Statement {
+	out, _ := splitWithComments(src, d, o)
+	return out
+}
+
+// splitWithComments is SplitWith, and where each statement's comment
+// lines start: the comments right before it, with no blank line after
+// them, which belong to it; its Start when there are none.
+func splitWithComments(src string, d Dialect, o SplitOptions) ([]Statement, []int) {
 	var out []Statement
+	var comments []int
 	for _, seg := range splitSegments(src, d, defaultQuoting(d), o) {
 		if seg.directive {
 			continue
@@ -691,15 +700,24 @@ func SplitWith(src string, d Dialect, o SplitOptions) []Statement {
 		if seg.delimited {
 			toks = toks[:len(toks)-1]
 		}
-		start := -1
+		start, lead := -1, -1
 		for _, t := range toks {
 			if t.Kind != Comment && t.Kind != Whitespace || executableComment(t, d) {
 				start = t.Start
 				break
 			}
+			switch {
+			case t.Kind == Comment && lead < 0:
+				lead = t.Start
+			case t.Kind == Whitespace && lineBreaks(t.Text) >= 2:
+				lead = -1
+			}
 		}
 		if start < 0 {
 			continue
+		}
+		if lead < 0 {
+			lead = start
 		}
 		end := start
 		for _, t := range toks {
@@ -708,8 +726,9 @@ func SplitWith(src string, d Dialect, o SplitOptions) []Statement {
 			}
 		}
 		out = append(out, Statement{Text: src[start:end], Start: start, End: end, Delimiter: seg.delim})
+		comments = append(comments, lead)
 	}
-	return out
+	return out, comments
 }
 
 // executableComment reports whether a token is MySQL's /*! … */,
@@ -726,11 +745,15 @@ func StatementAt(src string, caret int, d Dialect) (Statement, bool) {
 }
 
 // StatementAtWith returns the statement containing caret. Between statements
-// it returns the previous statement when no whole blank line lies between its
-// end and the caret's line, else the next statement, else the previous one.
+// a caret on the comment lines right before a statement is that
+// statement's, as DBeaver reads it. Else it returns the previous statement
+// when no whole blank line lies between its end and the caret's line;
+// nothing when the caret's line is blank and statements lie on both
+// sides; else the next statement, else the previous one.
 func StatementAtWith(src string, caret int, d Dialect, o SplitOptions) (Statement, bool) {
-	stmts := SplitWith(src, d, o)
+	stmts, comments := splitWithComments(src, d, o)
 	var prev, next *Statement
+	nextComments := 0
 	for i := range stmts {
 		s := &stmts[i]
 		if caret >= s.Start && caret <= s.End {
@@ -739,16 +762,39 @@ func StatementAtWith(src string, caret int, d Dialect, o SplitOptions) (Statemen
 		if s.End < caret {
 			prev = s
 		} else if next == nil && s.Start > caret {
-			next = s
+			next, nextComments = s, comments[i]
 		}
 	}
-	if prev != nil && (next == nil || !blankLineBetween(src, prev.End, caret)) {
+	line := lineStart(src, caret)
+	if next != nil && line >= lineStart(src, nextComments) && (prev == nil || line > prev.End) {
+		return *next, true
+	}
+	blankBefore := prev != nil && blankLineBetween(src, prev.End, caret)
+	if prev != nil && (next == nil || !blankBefore) {
 		return *prev, true
+	}
+	if blankBefore && blankLine(src, caret) {
+		return Statement{}, false
 	}
 	if next != nil {
 		return *next, true
 	}
 	return Statement{}, false
+}
+
+// lineStart returns where the line holding s[at] starts.
+func lineStart(s string, at int) int {
+	return strings.LastIndexAny(s[:min(at, len(s))], "\r\n") + 1
+}
+
+// blankLine reports whether the line holding s[at] holds only whitespace.
+func blankLine(s string, at int) bool {
+	at = min(at, len(s))
+	end := strings.IndexAny(s[at:], "\r\n")
+	if end < 0 {
+		end = len(s) - at
+	}
+	return strings.TrimLeft(s[lineStart(s, at):at+end], " \t\f\v") == ""
 }
 
 // blankLineBetween reports whether a whole whitespace-only line lies between

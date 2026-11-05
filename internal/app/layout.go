@@ -766,10 +766,15 @@ func tabDots(c *ui.Context, groups []connPlaces) {
 const middleButton = 2
 
 // closeOnMiddlePress closes a tab of w pressed with the middle button,
-// but a pinned one, and reports whether it took the press.
+// and reports whether it took the press; a pinned one stays, saying why,
+// as with the close key.
 func (a *App) closeOnMiddlePress(w *window, tb widgets.Tab, ev ui.InputEvent) bool {
-	if ev.Kind != ui.InputPointerDown || ev.Button != middleButton || w.pinned(tb) {
+	if ev.Kind != ui.InputPointerDown || ev.Button != middleButton {
 		return false
+	}
+	if w.pinned(tb) {
+		a.sayPinned(tb)
+		return true
 	}
 	a.Post(func() { a.closeTabOf(tb) })
 	return true
@@ -895,16 +900,6 @@ func (a *App) closeTogether(tabs []widgets.Tab) {
 	if len(tabs) == 0 {
 		return
 	}
-	var lost []string
-	var txs []txHolder
-	for _, t := range tabs {
-		if r := t.CloseReason(); r != "" {
-			lost = append(lost, t.Title()+": "+r)
-		}
-		if h, ok := t.(txHolder); ok && h.OpenTx() {
-			txs = append(txs, h)
-		}
-	}
 	end := func() {
 		for _, t := range tabs {
 			if w, g, at, ok := a.removeTab(t); ok {
@@ -913,15 +908,11 @@ func (a *App) closeTogether(tabs []widgets.Tab) {
 			}
 		}
 	}
-	if len(lost) == 0 {
-		end()
-		return
-	}
-	title, reason := "Close "+widgets.Count(len(tabs), "tab")+"?", strings.Join(lost, "\n\n")
+	title := "Close " + widgets.Count(len(tabs), "tab") + "?"
 	if len(tabs) == 1 {
-		title, reason = "Close "+tabs[0].Title()+"?", tabs[0].CloseReason()
+		title = "Close " + tabs[0].Title() + "?"
 	}
-	a.closing = &closeRequest{open: true, title: title, reason: reason, onClose: end, txs: txs}
+	a.requestEnd(endClose, title, "", tabs, nil, end)
 }
 
 func (a *App) welcome(c *ui.Context) {

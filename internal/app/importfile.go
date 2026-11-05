@@ -34,10 +34,13 @@ type importState struct {
 	columns []db.Column // obj's
 	table   string
 
-	path      string
-	opt       fileimport.Options
-	file      *fileimport.File
-	loading   bool
+	path    string
+	opt     fileimport.Options
+	file    *fileimport.File
+	loading bool
+	// reads counts the reads of the file started: only the latest one's
+	// result is kept.
+	reads     int
 	preview   [][]any
 	total     int64
 	delimiter string // as the dialog shows it
@@ -148,8 +151,9 @@ func tableNameOf(path string) string {
 // readImportFile reads the file as the dialog's options say, off the
 // main thread: its columns, first rows and count.
 func (a *App) readImportFile(x *importState) {
+	x.reads++
 	x.loading, x.err = true, ""
-	path, opt := x.path, x.opt
+	path, opt, read := x.path, x.opt, x.reads
 	dataview.BackgroundResetOnPanic(a, func() { x.loading = false }, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
@@ -163,7 +167,7 @@ func (a *App) readImportFile(x *importState) {
 			total, err = f.Count(ctx)
 		}
 		return func() {
-			if a.importing != x || !x.open {
+			if a.importing != x || !x.open || read != x.reads {
 				if f != nil {
 					f.Close()
 				}
@@ -183,17 +187,44 @@ func (a *App) readImportFile(x *importState) {
 					f.Close()
 				}
 				x.err = err.Error()
+				// Nothing read is importable: the file shown before was
+				// read with other options.
+				x.closeFile()
 				return
 			}
-			if x.file != nil {
-				x.file.Close()
-			}
+			x.closeFile()
 			x.file, x.preview, x.total = f, preview, total
 			x.header, x.xmlRows = f.HasHeader, f.Rows
 			x.delimiter = delimiterLabel(f.Delimiter)
 			x.mapColumns()
 		}
 	})
+}
+
+// closeFile drops the file read, which leaves nothing to import.
+func (x *importState) closeFile() {
+	if x.file != nil {
+		x.file.Close()
+	}
+	x.file, x.preview, x.total, x.mapping, x.newCols = nil, nil, 0, nil, nil
+}
+
+// columnsError is why the table's columns could not be read, "" while
+// they are read or when they were.
+func (x *importState) columnsError() string {
+	if x.obj == nil || x.columns != nil {
+		return ""
+	}
+	return x.conn.LoadErr[connection.ObjectKey{Database: x.database, Schema: x.obj.Schema, Name: x.obj.Name}]
+}
+
+// pool is the connection's, or an error when it was dropped, as after an
+// idle disconnect, while the dialog stayed open.
+func (x *importState) pool() (*db.DB, error) {
+	if p := x.conn.DB(); p != nil {
+		return p, nil
+	}
+	return nil, errors.New(x.conn.Config.Name + " is not connected: connect it again to import")
 }
 
 func delimiterLabel(r rune) string {
@@ -238,6 +269,12 @@ func (x *importState) plan() (cols []db.Column, idx []int, create string, err er
 		return nil, nil, "", errors.New("the file is not read yet")
 	}
 	if x.obj != nil {
+		if why := x.columnsError(); why != "" {
+			return nil, nil, "", errors.New("the table's columns could not be read: " + why)
+		}
+		if x.columns == nil {
+			return nil, nil, "", errors.New("the table's columns are not read yet")
+		}
 		seen := map[string]bool{}
 		for i, m := range x.mapping {
 			if m == skipColumn || m == "" {
@@ -283,7 +320,11 @@ func (x *importState) plan() (cols []db.Column, idx []int, create string, err er
 	if len(cols) == 0 {
 		return nil, nil, "", errors.New("keep at least one column")
 	}
-	return cols, idx, db.CreateTableSQL(x.conn.DB().Dialect, x.schema, strings.TrimSpace(x.table), defs), nil
+	pool, err := x.pool()
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return cols, idx, db.CreateTableSQL(pool.Dialect, x.schema, strings.TrimSpace(x.table), defs), nil
 }
 
 // targetName is the table the rows go into.
@@ -298,11 +339,15 @@ func (x *importState) targetName() string {
 // after a CREATE TABLE for a new table.
 func (a *App) confirmImport(x *importState) {
 	_, _, create, err := x.plan()
+	if err == nil && x.obj != nil {
+		_, err = x.pool()
+	}
 	if err != nil {
 		x.err = err.Error()
 		return
 	}
-	insert := "INSERT INTO " + db.QualifiedName(x.conn.DB().Dialect, x.schema, x.targetName()) + " …"
+	pool, _ := x.pool()
+	insert := "INSERT INTO " + db.QualifiedName(pool.Dialect, x.schema, x.targetName()) + " …"
 	stmts := []string{insert}
 	preview := insert
 	if create != "" {
@@ -326,16 +371,20 @@ func (a *App) confirmImport(x *importState) {
 // the database allows.
 func (a *App) runImport(x *importState) {
 	cols, idx, create, err := x.plan()
+	var pool *db.DB
+	if err == nil {
+		pool, err = x.pool()
+	}
 	if err != nil {
 		x.err = err.Error()
 		return
 	}
 	cn := x.conn
-	target := &db.EditTarget{Dialect: cn.DB().Dialect, Schema: x.schema, Table: x.targetName(), Columns: cols}
+	target := &db.EditTarget{Dialect: pool.Dialect, Schema: x.schema, Table: x.targetName(), Columns: cols}
 	ctx, cancel := context.WithCancel(context.Background())
 	x.running, x.cancel, x.done, x.err = true, cancel, 0, ""
 	x.dismiss.Used()
-	f, pool, cfg, database, path := x.file, cn.DB(), cn.Config, x.database, x.path
+	f, cfg, database, path := x.file, cn.Config, x.database, x.path
 	started := time.Now()
 	job := fmt.Sprintf("Importing %s into %s on %s: %s", filepath.Base(path), target.Table, cfg.Name, writeStopLoss(cfg.Engine, create != ""))
 	stopped := func() { x.running, x.err = false, "The import stopped on an internal error." }
@@ -560,6 +609,9 @@ func (a *App) importView(c *ui.Context) {
 				})
 			case x.file != nil:
 				a.importColumns(c, x)
+			}
+			if why := x.columnsError(); why != "" && x.err == "" {
+				ui.Text(c, "The table's columns could not be read: "+why).TextColor(th.Danger).Selectable()
 			}
 			if x.err != "" {
 				ui.Text(c, x.err).TextColor(th.Danger).Selectable()

@@ -201,3 +201,32 @@ func TestShowCard(t *testing.T) {
 		t.Fatal("a press outside left it open")
 	}
 }
+
+// A card of a thing near the window's bottom stays inside the window:
+// above the thing, or moved up, not cut off.
+func TestHoverCardStaysInWindow(t *testing.T) {
+	const height = 300
+	for _, place := range []widgets.CardPlace{widgets.PlaceBelow, widgets.PlaceRight} {
+		tt := ui.NewTester(func(c *ui.Context) {
+			ui.Column(c).Grow(1).Padding(8).Children(func() {
+				ui.Spacer(c)
+				row := ui.Text(c.Key("low"), "low").Padding(4)
+				widgets.HoverCard(c, row, widgets.CardSidebar, "row:low", widgets.CardOptions{Place: place}, func(c *ui.Context, card *widgets.Card) {
+					card.Header(c, widgets.IconTable, widgets.ToneTable, "card of low", "")
+					card.Columns(c, []widgets.CardColumn{{Name: "a", Type: "int"}, {Name: "b", Type: "int"}, {Name: "c", Type: "int"}, {Name: "d", Type: "int"}}, widgets.ColumnsOptions{})
+				})
+				widgets.FinishCards(c)
+			})
+		}, 800, height)
+		moveTo(t, tt, "low")
+		tt.Advance(widgets.DefaultHoverDelay)
+		tt.Frame()
+		r, ok := tt.Find("card of low")
+		if !ok {
+			t.Fatalf("place %v: no card: %q", place, tt.Texts())
+		}
+		if last, ok := tt.Find("d"); !ok || r.Y < 0 || last.Y+last.H > height {
+			t.Fatalf("place %v: the card passes the window's bottom: header %+v, last column %+v", place, r, last)
+		}
+	}
+}

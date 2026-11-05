@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"math"
 	"os"
 	"strings"
 
@@ -571,3 +572,15 @@ func (sqliteEngine) messagesSQL() string                    { return "" }
 func (sqliteEngine) transactionStateAndMessagesSQL() string { return "" }
 func (sqliteEngine) TakesEffectAtOnce(string) bool          { return false }
 func (sqliteEngine) BooleanLiteral(b bool) string           { return booleanWord(b) }
+
+// NonFiniteLiteral: SQLite reads a number too large for a double as an
+// infinity, and stores NaN as NULL.
+func (sqliteEngine) NonFiniteLiteral(f float64) string {
+	switch {
+	case math.IsNaN(f):
+		return "NULL"
+	case f > 0:
+		return "9e999"
+	}
+	return "-9e999"
+}

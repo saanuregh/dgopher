@@ -2,6 +2,56 @@
 
 The changes of each version of DGopher.
 
+## Unreleased
+
+### Changed
+
+- Ctrl+Enter on a comment line runs the statement below it; on a blank line
+  between two statements it runs nothing.
+- Prompts about an open transaction offer Cancel, Roll Back and Commit.
+  Quitting, removing or reloading a project, and deleting a connection each
+  ask in their own words; removing a project always asks.
+- Esc cancels a running query only when the editor did not use it (Vim,
+  completion, find), and Cancel Query can be bound to another key.
+  Ctrl+Shift+W closes all tabs.
+- In the navigator, F4 edits a connection and Delete deletes it. The
+  command palette can connect, edit, duplicate, delete, back up, restore
+  and import.
+- Grid changes apply deletes first, then updates, then inserts. Delete on a
+  mixed selection marks every row. Enter on a NULL cell of a text column
+  sets empty text.
+- A multi-table export needs `${table}` in its file name, and no export
+  writes over an existing file.
+- Redis: deleting a key uses `UNLINK`; removing members and replacing a hash
+  field ask first; Load All asks above 10 MiB; binary strings show as
+  read-only hex.
+
+### Fixed
+
+- Writes that passed as reads: MySQL `/*! */` hidden after a `--` comment,
+  T-SQL `ADD SIGNATURE` after a statement, `dblink_send_query` and other
+  PostgreSQL functions with side effects, side effects in a `SET`'s value,
+  and `SCROLL_LOCKS` cursors.
+- AI chat reads run in a read-only transaction, as dashboards do, and the
+  errors it sends to the agent are redacted.
+- Closing an Oracle editor whose rollback failed says the transaction may
+  have been committed.
+- Quitting no longer loses a data model's unsaved changes or an AI answer
+  without asking; removing a project closes its dashboards and models.
+- A mistyped port is refused instead of saved as the default port.
+- A project's state file that is a symbolic link is refused.
+- Crashes: the import dialog after an idle disconnect, a chart of NaN or
+  infinite values, and a chart of values close together around 1e17.
+- Exports and imports: rounding of decimals in Parquet and DuckDB files,
+  integers past 64 bits read as floats, "rows read" and Open in Spreadsheet
+  App ignoring the grid's sort and filter, and a typed cell value dropped
+  by ⌘S, refresh or close.
+- Catalog loads that finish after a reconnect no longer show the old
+  server's objects.
+- Redis: a scan that times out keeps its keys and moves on, list replace
+  checks the value, hashes show when field TTLs cannot be read, and Save
+  keeps the TTL on Redis 5.
+
 ## 0.7.0
 
 ### Added

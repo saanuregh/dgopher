@@ -574,6 +574,9 @@ func (sqlserverEngine) BooleanLiteral(b bool) string {
 	return "0"
 }
 
+// NonFiniteLiteral: SQL Server's float holds no NaN or infinity.
+func (sqlserverEngine) NonFiniteLiteral(float64) string { return "NULL" }
+
 func (sqlserverEngine) BooleansAreNumbers() bool { return true }
 func (sqlserverEngine) OffsetTimesAsUTC() bool   { return false }
 

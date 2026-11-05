@@ -574,3 +574,23 @@ func TestRunToolArgsFile(t *testing.T) {
 		}
 	}
 }
+
+// A cancelled tool's error says it was cancelled and keeps the tool's own
+// failure, and what it last wrote, as its source.
+func TestRunToolCancelledKeepsError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake tools are shell scripts")
+	}
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("no sh")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	run := ToolRun{Argv: []string{"sh", "-c", `echo "dumping table t" >&2; exec sleep 30`}}
+	err := RunTool(ctx, run, func(string) { cancel() })
+	var exit *exec.ExitError
+	if !errors.Is(err, context.Canceled) || !errors.As(err, &exit) ||
+		!strings.Contains(err.Error(), "cancelled") || !strings.Contains(err.Error(), "dumping table t") {
+		t.Fatalf("got %v", err)
+	}
+}

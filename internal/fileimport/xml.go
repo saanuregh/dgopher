@@ -451,7 +451,8 @@ func atPath(stack, path []string) bool {
 func (f *File) sniffTypes(ctx context.Context) error {
 	candidates := []struct{ typ, is string }{
 		{"BIGINT", `regexp_full_match(trim(%[1]s), '[+-]?[0-9]+') AND TRY_CAST(%[1]s AS BIGINT) IS NOT NULL`},
-		{"DOUBLE", `TRY_CAST(%[1]s AS DOUBLE) IS NOT NULL`},
+		// An integer past 64 bits is no DOUBLE: its digits stay as text.
+		{"DOUBLE", `TRY_CAST(%[1]s AS DOUBLE) IS NOT NULL AND NOT (regexp_full_match(trim(%[1]s), '[+-]?[0-9]+') AND TRY_CAST(%[1]s AS BIGINT) IS NULL)`},
 		{"BOOLEAN", `lower(trim(%[1]s)) IN ('true', 'false')`},
 		{"DATE", `regexp_full_match(trim(%[1]s), '[0-9]{4}-[0-9]{2}-[0-9]{2}') AND TRY_CAST(%[1]s AS DATE) IS NOT NULL`},
 		{"TIMESTAMP", `TRY_CAST(%[1]s AS TIMESTAMP) IS NOT NULL`},

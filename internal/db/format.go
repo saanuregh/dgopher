@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
 	"strconv"
@@ -79,7 +80,7 @@ func formatTime(t time.Time) string {
 	if t.Hour() == 0 && t.Minute() == 0 && t.Second() == 0 && t.Nanosecond() == 0 && t.Location() == time.UTC {
 		return t.Format("2006-01-02")
 	}
-	s := t.Format("2006-01-02 15:04:05.999999")
+	s := t.Format("2006-01-02 15:04:05.999999999")
 	if t.Location() != time.UTC {
 		s += t.Format(" -07:00")
 	}
@@ -166,6 +167,11 @@ func Literal(e Engine, v any) string {
 		}
 		return hexLiteral(x)
 	}
+	if f, ok := nonFinite(v); ok {
+		if r, ok := SQL(e); ok {
+			return r.NonFiniteLiteral(f)
+		}
+	}
 	if IsNumeric(v) {
 		return Display(v)
 	}
@@ -182,6 +188,32 @@ var (
 	clickHouseEscaper   = strings.NewReplacer(`\`, `\\`, `'`, `\'`, "\x00", `\0`)
 	escapeStringEscaper = strings.NewReplacer(`\`, `\\`, `'`, `''`)
 )
+
+// nonFinite reports a float that is NaN or an infinity, as a float64.
+func nonFinite(v any) (float64, bool) {
+	var f float64
+	switch x := v.(type) {
+	case float64:
+		f = x
+	case float32:
+		f = float64(x)
+	default:
+		return 0, false
+	}
+	return f, math.IsNaN(f) || math.IsInf(f, 0)
+}
+
+// nonFiniteWord is NaN or an infinity as PostgreSQL and DuckDB read it
+// in a string: NaN, Infinity or -Infinity.
+func nonFiniteWord(f float64) string {
+	switch {
+	case math.IsNaN(f):
+		return "NaN"
+	case f > 0:
+		return "Infinity"
+	}
+	return "-Infinity"
+}
 
 // booleanWord is a boolean as standard SQL writes it, TRUE or FALSE.
 func booleanWord(b bool) string {

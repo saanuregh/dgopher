@@ -144,7 +144,7 @@ func (r *Tab) deleteKeys(b *bulkDialog) {
 				r.selected = ""
 				r.rescan()
 				if err != nil {
-					b.err = fmt.Sprintf("%s, after %s keys were deleted.", err, widgets.HumanCount(gone))
+					b.err = bulkFailure(err, "deleted", gone)
 					return
 				}
 				b.result = "Deleted " + widgets.HumanCount(gone) + " keys."
@@ -273,7 +273,7 @@ func (r *Tab) importKeys(b *bulkDialog) {
 			return func() {
 				r.rescan()
 				if err != nil {
-					b.err = fmt.Sprintf("%s, after %s keys were written.", err, widgets.HumanCount(written))
+					b.err = bulkFailure(err, "written", written)
 					return
 				}
 				b.result = fmt.Sprintf("Imported %s keys.", widgets.HumanCount(written))
@@ -378,4 +378,12 @@ func (r *Tab) bulkView(c *ui.Context) {
 		}
 		r.bulk = nil
 	}
+}
+
+// bulkFailure says why bulk work ended early, after n keys were done.
+func bulkFailure(err error, done string, n int64) string {
+	if errors.Is(err, context.Canceled) {
+		return fmt.Sprintf("Stopped after %s keys %s.", widgets.HumanCount(n), done)
+	}
+	return fmt.Sprintf("%s, after %s keys were %s.", err, widgets.HumanCount(n), done)
 }
