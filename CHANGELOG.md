@@ -2,7 +2,7 @@
 
 The changes of each version of DGopher.
 
-## Unreleased
+## 0.7.1
 
 ### Changed
 
