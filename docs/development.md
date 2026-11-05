@@ -36,10 +36,11 @@ To check gofmt and `go vet` before each commit, as CI does, register
 `tools/githooks/pre-commit` as a pre-commit hook of your clone, with a
 Git that has config-based hooks (`git help hook`). It checks with the
 gofmt of `go.mod`'s Go, since a gofmt of another version may lay files
-out differently:
+out differently. The command skips the check on a branch older than the
+script, where it would otherwise stop every commit:
 
 ```sh
-git config hook.dgopher-checks.command tools/githooks/pre-commit
+git config hook.dgopher-checks.command 'test ! -e tools/githooks/pre-commit || tools/githooks/pre-commit'
 git config hook.dgopher-checks.event pre-commit
 ```
 
