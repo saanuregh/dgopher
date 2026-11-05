@@ -2,6 +2,15 @@
 
 The changes of each version of DGopher.
 
+## Unreleased
+
+### Changed
+
+- Numbers in the grids show in your region's format with thousands
+  separators by default, as in DBeaver. **View/Format** turns off
+  either one: **Numbers in Regional Format** writes `.` and `,`, and
+  **Group Thousands in Numbers** leaves out the separators.
+
 ## 0.7.1
 
 ### Changed

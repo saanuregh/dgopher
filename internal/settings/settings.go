@@ -154,14 +154,18 @@ type CopyOptions struct {
 	NullText string `json:"nullText"`
 }
 
-// ViewFormat is how the grids show values; the zero value shows them as
-// the database gives them.
+// ViewFormat is how the grids show values; the zero value is the default:
+// numbers with the regional separators and grouped, as DBeaver shows them,
+// and the rest as the database gives them. The number fields are inverted
+// so that the default is the zero value and turning one off is what gets
+// saved.
 type ViewFormat struct {
-	// GroupNumbers writes thousands separators in numbers.
-	GroupNumbers bool `json:"groupNumbers,omitempty"`
-	// Regional writes numbers with the regional decimal and grouping
-	// separators, every digit kept; it wins over GroupNumbers.
-	Regional bool `json:"regional,omitempty"`
+	// UngroupedNumbers leaves out the thousands separators in numbers.
+	UngroupedNumbers bool `json:"ungroupedNumbers,omitempty"`
+	// NonRegionalNumbers writes numbers with "." and "," rather than the
+	// regional decimal and grouping separators. Regional numbers keep
+	// every digit.
+	NonRegionalNumbers bool `json:"nonRegionalNumbers,omitempty"`
 	// Dates is "" for ISO 8601, "short" for "Oct 8, 2026 14:05", or
 	// "regional" for the style of the user's regional formats.
 	Dates string `json:"dates,omitempty"`
@@ -215,10 +219,10 @@ func (f ViewFormat) Format(v any) string {
 		}
 	}
 	s := db.Display(v)
-	if f.Regional && RegionLocale != "" && db.IsNumeric(v) {
-		return regionalNumber(s)
+	if !f.NonRegionalNumbers && RegionLocale != "" && db.IsNumeric(v) {
+		return regionalNumber(s, !f.UngroupedNumbers)
 	}
-	if f.GroupNumbers && db.IsNumeric(v) {
+	if !f.UngroupedNumbers && db.IsNumeric(v) {
 		return GroupDigits(s)
 	}
 	return s
@@ -233,21 +237,22 @@ func ReadableNumber(s string) string {
 	case whole == "" || !allDigits(whole) || !allDigits(frac):
 		return s // not a plain decimal, as Infinity or a date
 	case RegionLocale != "":
-		return regionalNumber(s)
+		return regionalNumber(s, true)
 	}
 	return GroupDigits(s)
 }
 
 // regionalNumber writes a decimal number's text with the regional
-// separators, with as many fraction digits as it has so none is rounded;
-// text that is not a plain decimal, as NaN, stays as it is.
-func regionalNumber(s string) string {
+// separators, grouped or not, with as many fraction digits as it has so
+// none is rounded; text that is not a plain decimal, as NaN, stays as it
+// is.
+func regionalNumber(s string, grouped bool) string {
 	whole, frac, _ := strings.Cut(strings.TrimPrefix(s, "-"), ".")
 	if whole == "" || !allDigits(whole) || !allDigits(frac) {
 		return s
 	}
 	n := len(frac)
-	return i18n.FormatNumber(RegionLocale, s, i18n.NumberOptions{MinFractionDigits: n, MaxFractionDigits: n})
+	return i18n.FormatNumber(RegionLocale, s, i18n.NumberOptions{MinFractionDigits: n, MaxFractionDigits: n, NoGrouping: !grouped})
 }
 
 func allDigits(s string) bool {

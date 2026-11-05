@@ -33,19 +33,31 @@ func TestRegionalNumbersKeepEveryDigit(t *testing.T) {
 	}
 	for _, c := range cases {
 		withRegion(t, c.locale)
-		if got := (ViewFormat{Regional: true}).Format(c.v); got != c.want {
+		if got := (ViewFormat{}).Format(c.v); got != c.want {
 			t.Errorf("%s %v: got %q, want %q", c.locale, c.v, got, c.want)
 		}
-		if got := (ViewFormat{Regional: true, GroupNumbers: true}).Format(c.v); got != c.want {
-			t.Errorf("%s %v with GroupNumbers: got %q, want %q", c.locale, c.v, got, c.want)
+	}
+}
+
+// The two number toggles combine: regional or not, grouped or not.
+func TestNumberToggles(t *testing.T) {
+	cases := []struct {
+		locale string
+		f      ViewFormat
+		want   string
+	}{
+		{"de-DE", ViewFormat{}, "1.234.567,89"},
+		{"de-DE", ViewFormat{UngroupedNumbers: true}, "1234567,89"},
+		{"de-DE", ViewFormat{NonRegionalNumbers: true}, "1,234,567.89"},
+		{"de-DE", ViewFormat{NonRegionalNumbers: true, UngroupedNumbers: true}, "1234567.89"},
+		{"", ViewFormat{}, "1,234,567.89"}, // no region known: grouped with "," and "."
+		{"", ViewFormat{UngroupedNumbers: true}, "1234567.89"},
+	}
+	for _, c := range cases {
+		withRegion(t, c.locale)
+		if got := c.f.Format(1234567.89); got != c.want {
+			t.Errorf("%q %+v: got %q, want %q", c.locale, c.f, got, c.want)
 		}
-	}
-	withRegion(t, "")
-	if got := (ViewFormat{Regional: true}).Format(1234567.89); got != "1234567.89" {
-		t.Errorf("no region: got %q", got)
-	}
-	if got := (ViewFormat{}).Format(1234567.89); got != "1234567.89" {
-		t.Errorf("zero format: got %q", got)
 	}
 }
 

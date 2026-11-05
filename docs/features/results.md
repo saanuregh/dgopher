@@ -16,10 +16,11 @@ One viewer shows both a query's results and a table's data.
   hide those with no data), and fit to their values or the screen, from the
   header's menu.
 - Three views: grid, record (Tab), and plain text (``⌘` `` cycles them).
-- Formats: thousands separators, dates, booleans, binary and NULL, and
-  numbers and dates in your region's format (which keeps every digit); row
-  colors by value; zoom, also with ⌘= and ⌘-, ⌘K ⌘0 for the default size,
-  ⌘ with the mouse wheel and pinching a touchpad.
+- Formats: numbers show in your region's format with thousands
+  separators by default, as in DBeaver, and either can be turned off
+  (every digit is kept); dates, booleans, binary and NULL; dates in your
+  region's format; row colors by value; zoom, also with ⌘= and ⌘-, ⌘K ⌘0
+  for the default size, ⌘ with the mouse wheel and pinching a touchpad.
 - **Refresh**, **Fetch All** (with Stop, which keeps the rows read), and on
   a table **Count** (`SELECT COUNT(*)`, with Stop). The keys: F5, ⌘⇧= and
   ⌘⌥N for the next page.

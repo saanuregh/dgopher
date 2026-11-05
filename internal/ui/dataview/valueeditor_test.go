@@ -169,7 +169,6 @@ func TestValueEditorTextKeys(t *testing.T) {
 // display format, which would be written back as the value.
 func TestValueEditorStartsWithRawValue(t *testing.T) {
 	a := NewFakeHost(t)
-	a.settings.ViewFormat.GroupNumbers = true
 	g, src := editableGrid()
 	src.Rows[0][0] = int64(1234567)
 	openValueEditor(a, g, src, 0, 0)
