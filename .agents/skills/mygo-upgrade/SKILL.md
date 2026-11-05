@@ -124,7 +124,8 @@ separate decisions. The user can approve just the upgrade.
    conflict. A conflict can come from an earlier patch that didn't apply, and a clean text merge
    can still fail to build, as when both sides add a field or method of the same name: the
    drawn-menus patch's `engine.drawMenu` met upstream's `PopoverMenu` one in v0.7.4, and was
-   renamed `handMenuToApp`. Resolve each conflict inside its own patch's commit. Never rewrite an
+   renamed `handMenuToApp`; after 0.7.4 its `engine.drawn` field meets upstream's repaint one,
+   and upstream PR #422 renames it `appMenu`. Resolve each conflict inside its own patch's commit. Never rewrite an
    old `dbgopher-v*` branch: old pins must keep working.
 2. Run `go vet ./...` and
    `go test ./ui/... -skip 'TestStrokePolylineGPU|TestOpenGL|TestDiffFrameAllocs'` there. Those GPU

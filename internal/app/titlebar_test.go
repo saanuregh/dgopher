@@ -99,6 +99,34 @@ func TestCmdAltSlashBlockCommentsInEditor(t *testing.T) {
 	}
 }
 
+// While an update is available, the title bar's menu names it where it
+// offers to check for one.
+func TestTitleMenuNamesAnUpdate(t *testing.T) {
+	own := availableUpdate
+	t.Cleanup(func() { availableUpdate = own })
+	version := "9.9.9"
+	availableUpdate = func() string { return version }
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1000, 700)
+	tt.Frame()
+	if err := tt.Click("Menu"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("Update to 9.9.9…") || tt.HasText("Check for Updates…") {
+		t.Fatalf("an update available: texts %q", tt.Texts())
+	}
+	tt.Key(0, ui.KeyEscape)
+	version = ""
+	if err := tt.Click("Menu"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if !tt.HasText("Check for Updates…") || tt.HasText("Update to") {
+		t.Fatalf("no update available: texts %q", tt.Texts())
+	}
+}
+
 // Where the app draws the window's buttons, as on Windows, they end the
 // tabs' row at the window's right edge, maximize turning to restore as
 // the window maximizes; elsewhere the system's stay.

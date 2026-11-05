@@ -35,6 +35,35 @@ func TestDateText(t *testing.T) {
 	}
 }
 
+// Paging the date form's calendar to another month only shows it: the
+// date saved changes when a day is chosen.
+func TestValueEditorCalendarBrowses(t *testing.T) {
+	a, tt, cn := designHost(t)
+	cn.DB().SQL.Exec(`CREATE TABLE things (id INTEGER PRIMARY KEY, due DATE)`)
+	cn.DB().SQL.Exec(`INSERT INTO things (due) VALUES ('2026-01-31')`)
+	a.OpenTable(cn, "", db.Object{Schema: "main", Name: "things", Kind: db.KindTable, Rows: -1}, PageData)
+	v := a.Tabs[0].(*TableTab).view
+	testutil.WaitFor(t, tt, "the rows", func() bool { return len(v.src.Rows) == 1 && v.columns != nil })
+
+	openValueEditor(a, v.grid, &v.src, 0, 1)
+	e := a.Dialogs().valueEdit
+	tt.Frame()
+	if err := tt.Click("Next month"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if e.text != "2026-01-31" {
+		t.Fatalf("paging to the next month set %q", e.text)
+	}
+	if err := tt.Click("February 15, 2026"); err != nil {
+		t.Fatalf("no day of the month paged to: %v", err)
+	}
+	tt.Frame()
+	if e.text != "2026-02-15" {
+		t.Fatalf("choosing February 15 set %q", e.text)
+	}
+}
+
 // The value editor offers the form a column's type suits, which writes
 // the text saved.
 func TestValueEditorForms(t *testing.T) {

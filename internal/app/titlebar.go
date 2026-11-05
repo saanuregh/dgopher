@@ -179,6 +179,11 @@ func windowButton(c *ui.Context, glyph windowGlyph, label string, closes bool) u
 	return b
 }
 
+// availableUpdate is the version an update check found, "" for none. Run
+// sets it once it uses the updater plugin, whose AvailableVersion panics
+// without it, as in tests.
+var availableUpdate = func() string { return "" }
+
 // titleMenu is the title bar's menu: the app's menus, then its settings,
 // updates and quitting, which macOS's menu bar has in the app's menu.
 func (a *App) titleMenu(m *widgets.Menu) {
@@ -199,7 +204,11 @@ func (a *App) titleMenu(m *widgets.Menu) {
 	if keymap.Item(m.Item("Settings…"), keymap.Settings).Chosen() {
 		a.openSettings()
 	}
-	if m.Item("Check for Updates…").Chosen() {
+	label := "Check for Updates…"
+	if v := availableUpdate(); v != "" {
+		label = "Update to " + v + "…"
+	}
+	if m.Item(label).Chosen() {
 		updater.CheckForUpdates()
 	}
 	if keymap.Item(m.Item("Quit"), keymap.Quit).Chosen() {

@@ -10,6 +10,16 @@ The changes of each version of DGopher.
   separators by default, as in DBeaver. **View/Format** turns off
   either one: **Numbers in Regional Format** writes `.` and `,`, and
   **Group Thousands in Numbers** leaves out the separators.
+- The value editor's calendar pages through months without changing the
+  date: a click, Enter or Space picks the day.
+- Windows open once drawn, without a blank first frame.
+- While an update is available, the title bar's menu reads **Update to
+  <version>…** in place of **Check for Updates…**.
+
+### Fixed
+
+- From the 29th to the 31st, the calendar's next or previous month no
+  longer skips a month, as from January 31 to March.
 
 ## 0.7.1
 
