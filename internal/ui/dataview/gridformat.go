@@ -161,8 +161,12 @@ func formatMenu(a Host, m *ui.Menu) {
 		}
 		toggle("Raw Values, as Stored", &f.Raw)
 		m.Separator()
-		toggle("Group Thousands in Numbers", &f.GroupNumbers)
-		toggle("Numbers in Regional Format", &f.Regional)
+		if m.Item("Group Thousands in Numbers").Checked(!f.UngroupedNumbers).Chosen() {
+			f.UngroupedNumbers, changed = !f.UngroupedNumbers, true
+		}
+		if m.Item("Numbers in Regional Format").Checked(!f.NonRegionalNumbers).Chosen() {
+			f.NonRegionalNumbers, changed = !f.NonRegionalNumbers, true
+		}
 		toggle("Booleans as ✓ and ✗", &f.BoolTicks)
 		m.Separator()
 		choose("Dates as ISO 8601", &f.Dates, "")

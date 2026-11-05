@@ -6,7 +6,7 @@ import (
 )
 
 func TestValueFormats(t *testing.T) {
-	f := ViewFormat{GroupNumbers: true, BoolTicks: true, Binary: "base64", NullText: "[NULL]", Dates: "short"}
+	f := ViewFormat{BoolTicks: true, Binary: "base64", NullText: "[NULL]", Dates: "short"}
 	when := time.Date(2026, 10, 8, 14, 5, 0, 0, time.UTC)
 	cases := []struct {
 		v    any
@@ -26,8 +26,8 @@ func TestValueFormats(t *testing.T) {
 			t.Errorf("%#v: %q, want %q", tc.v, got, tc.want)
 		}
 	}
-	if got := (ViewFormat{}).Format(int64(1234567)); got != "1234567" {
-		t.Errorf("default: %q", got)
+	if got := (ViewFormat{UngroupedNumbers: true}).Format(int64(1234567)); got != "1234567" {
+		t.Errorf("ungrouped: %q", got)
 	}
 	if got := (ViewFormat{Binary: "hex"}).Format([]byte("hi")); got != `\x6869` {
 		t.Errorf("hex: %q", got)
