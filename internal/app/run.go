@@ -13,6 +13,7 @@ import (
 	"dgopher/internal/settings"
 	"dgopher/internal/state"
 	"dgopher/internal/store"
+	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/updater"
@@ -222,7 +223,7 @@ func accelerator(id string) string {
 // menu bar takes the first key of each, where there is one, and the window
 // the others.
 var menuCommands = []string{keymap.Settings, keymap.NewConnection, keymap.NewEditor, keymap.OpenScript, keymap.AddFolder,
-	keymap.CloseTab, keymap.ReopenTab, keymap.Palette, keymap.OpenTable, keymap.History, keymap.AuditLog, keymap.ToggleSidebar, keymap.FullScreen, keymap.Quit, keymap.OpenKeymap, keymap.NewNotebook, keymap.ToggleChat, keymap.ShowLatestError, keymap.ToggleNotifications}
+	keymap.CloseTab, keymap.CloseAllTabs, keymap.ReopenTab, keymap.Palette, keymap.OpenTable, keymap.History, keymap.AuditLog, keymap.ToggleSidebar, keymap.FullScreen, keymap.Quit, keymap.OpenKeymap, keymap.NewNotebook, keymap.ToggleChat, keymap.ShowLatestError, keymap.ToggleNotifications}
 
 // menuAction is what a command of the menu bar does.
 func (a *App) menuAction(id string) func() {
@@ -259,6 +260,11 @@ func (a *App) menuAction(id string) func() {
 		return a.addExistingProject
 	case keymap.CloseTab:
 		return a.closeActive
+	case keymap.CloseAllTabs:
+		return func() {
+			all := func(int, widgets.Tab) bool { return true }
+			a.closeTabs(a.focusedWindow().panes.Focused(), all)
+		}
 	case keymap.ReopenTab:
 		return a.reopenTab
 	case keymap.Palette:
@@ -344,6 +350,7 @@ func (a *App) appMenus() []menuGroup {
 			cmd("Add Existing Folder…", keymap.AddFolder),
 			{},
 			cmd("Close Tab", keymap.CloseTab),
+			cmd("Close All Tabs", keymap.CloseAllTabs),
 			cmd("Reopen Closed Tab", keymap.ReopenTab),
 		}},
 		{"View", []menuEntry{

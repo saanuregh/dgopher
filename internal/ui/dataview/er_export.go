@@ -162,6 +162,9 @@ func (e *ERTab) svgTable(b *strings.Builder, t *erTable) {
 	fmt.Fprintf(b, `<path d="M%g,%g h%d a8,8 0 0 1 8,8 v%d h%d v%d a8,8 0 0 1 8,-8 z" fill="%s"/>`+"\n", x+8, y, erBoxW-16, erHeaderH-8, -erBoxW, -(erHeaderH - 8), header)
 	fmt.Fprintf(b, `<line x1="%g" y1="%g" x2="%g" y2="%g" stroke="%s"/>`+"\n", x, y+erHeaderH, x+erBoxW, y+erHeaderH, svgBorder)
 	fmt.Fprintf(b, `<text x="%g" y="%g" font-size="12.5" font-weight="700" fill="%s">%s</text>`+"\n", x+10, y+erHeaderH/2+4.5, svgInk, esc(fitText(name, 30)))
+	if t.unreadable != "" {
+		fmt.Fprintf(b, `<text x="%g" y="%g" font-size="11" fill="%s">Its columns could not be read</text>`+"\n", x+10, y+erHeaderH+4+erRowH/2+4, svgMuted)
+	}
 	for i, col := range t.cols {
 		ry := y + erHeaderH + 4 + float32(i)*erRowH + erRowH/2 + 4
 		if i == erMaxCols {

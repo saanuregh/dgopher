@@ -233,6 +233,9 @@ type queryRules interface {
 	TextLiteral(s string) string
 	BytesLiteral(b []byte) string
 	BooleanLiteral(b bool) string
+	// NonFiniteLiteral writes NaN or an infinity as the engine reads it,
+	// NULL where the engine's numbers hold neither.
+	NonFiniteLiteral(f float64) string
 	// BooleansAreNumbers: the engine's booleans are 1 and 0.
 	BooleansAreNumbers() bool
 	OffsetTimesAsUTC() bool

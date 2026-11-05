@@ -43,9 +43,10 @@ func init() {
 }
 
 // sideEffectFunctions lists, per dialect, functions whose call changes
-// state, so a SELECT that calls one is a write. DuckDB uses Postgres.
+// state, so a query, or a SET's value, that calls one is a write. DuckDB
+// uses Postgres.
 var sideEffectFunctions = map[Dialect]map[string]bool{
-	Postgres: setOf("pg_terminate_backend pg_cancel_backend setval nextval dblink_exec dblink lo_import lo_export lo_unlink lo_create lo_from_bytea lo_put lowrite pg_advisory_lock pg_advisory_xact_lock pg_try_advisory_lock pg_reload_conf pg_rotate_logfile pg_notify pg_switch_wal pg_create_restore_point pg_promote set_config pg_file_write pg_logical_emit_message " +
+	Postgres: setOf("pg_terminate_backend pg_cancel_backend setval nextval dblink_exec dblink dblink_send_query lo_import lo_export lo_unlink lo_create lo_from_bytea lo_put lowrite pg_advisory_lock pg_advisory_xact_lock pg_try_advisory_lock pg_reload_conf pg_rotate_logfile pg_notify pg_switch_wal pg_create_restore_point pg_promote set_config pg_file_write pg_logical_emit_message " +
 		"pg_advisory_lock_shared pg_advisory_xact_lock_shared pg_try_advisory_lock_shared pg_try_advisory_xact_lock pg_try_advisory_xact_lock_shared " +
 		"pg_advisory_unlock pg_advisory_unlock_shared pg_advisory_unlock_all " +
 		"pg_create_logical_replication_slot pg_create_physical_replication_slot pg_drop_replication_slot pg_copy_logical_replication_slot " +
@@ -55,7 +56,7 @@ var sideEffectFunctions = map[Dialect]map[string]bool{
 		"pg_stat_reset pg_stat_reset_shared pg_stat_reset_single_table_counters pg_stat_reset_single_function_counters pg_stat_reset_slru " +
 		"pg_stat_reset_replication_slot pg_stat_reset_subscription_stats pg_stat_statements_reset " +
 		"lo_truncate lo_truncate64 pg_wal_replay_pause pg_wal_replay_resume pg_backup_start pg_backup_stop pg_start_backup pg_stop_backup " +
-		"pg_import_system_collations"),
+		"pg_import_system_collations lo_creat pg_file_unlink pg_file_rename txid_current pg_current_xact_id"),
 	MySQL:  setOf("get_lock release_lock release_all_locks sleep benchmark nextval setval lastval"),
 	SQLite: setOf("load_extension"),
 	// SQL Server's rowset functions that reach other servers or the
@@ -798,7 +799,8 @@ func classifyTokens(toks []Token, d Dialect, r reading) Analysis {
 	if d == Postgres && word(toks[0]) != "WITH" { // WITH classified its parts
 		a = withBracketStatements(a, toks, d, r)
 	}
-	if a.Class == Read {
+	// A SET runs the calls in the values it gives variables.
+	if a.Class == Read || a.Class == Session && word(toks[0]) == "SET" {
 		if fn := sideEffectCall(toks, d); fn != "" {
 			a.Class = Write
 			a.Reason = "calls " + fn + ", which has side effects"
@@ -1015,7 +1017,8 @@ func classifyVerb(toks []Token, d Dialect, r reading) Analysis {
 			return Analysis{Class: Write, Verb: verb}
 		}
 	case "SET":
-		if setsServerState(toks, dep) || d == Postgres && (setsFile(toks) || searchesInternalSchema(toks, r.q) || changesUnsafeSetting(toks)) {
+		// SET @x = (SELECT … FOR UPDATE) locks the rows its subquery reads.
+		if setsServerState(toks, dep) || locks(toks) || d == Postgres && (setsFile(toks) || searchesInternalSchema(toks, r.q) || changesUnsafeSetting(toks)) {
 			return Analysis{Class: Write, Verb: verb}
 		}
 	case "DO":

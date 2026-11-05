@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"dgopher/internal/audit"
@@ -18,7 +19,8 @@ import (
 const (
 	// maxRows is how many rows a panel reads of its result.
 	maxRows = 5000
-	// runTimeout is how long a panel's query may run.
+	// runTimeout is how long a panel's query may run on a connection
+	// without a statement timeout.
 	runTimeout = time.Minute
 )
 
@@ -56,7 +58,7 @@ func prepare(cn *connection.Conn, sql string, values map[string]params.Input) (p
 	case v.Blocked != "":
 		return prepared{}, errors.New(v.Blocked)
 	case v.Confirm:
-		return prepared{}, errors.New("the safety policy asks before this query runs, which a dashboard cannot: run it in an editor")
+		return prepared{}, errors.New("this query needs your confirmation first, which a dashboard cannot ask: run it in an editor")
 	}
 	p := prepared{sql: bound, args: args, shown: shown}
 	if bound != stmts[0].Text {
@@ -91,39 +93,32 @@ func verbOf(a sqltext.Analysis) string {
 	return a.Verb
 }
 
+// panelTimeout is how long a panel's query may run: the connection's
+// statement timeout, else runTimeout.
+func panelTimeout(cfg db.Config) time.Duration {
+	if d := time.Duration(cfg.StatementTimeout) * time.Second; d > 0 {
+		return d
+	}
+	return runTimeout
+}
+
 // run runs a panel's statement on a session of its own, in a read-only
 // transaction where the engine has one, and reads up to maxRows of its
 // result.
-func run(ctx context.Context, pool *db.DB, cfg db.Config, database string, p prepared) (*dataview.Source, error) {
-	ctx, cancel := context.WithTimeout(ctx, runTimeout)
+func run(ctx context.Context, pool *db.DB, cfg db.Config, database string, p prepared) (src *dataview.Source, err error) {
+	ctx, cancel := context.WithTimeout(ctx, panelTimeout(cfg))
 	defer cancel()
-	sess, err := connection.OpenSession(ctx, pool, database)
-	if err != nil {
-		return nil, err
-	}
-	defer sess.Close()
-	// The server itself refuses writes: a read the app classified may
-	// still call a function that writes.
-	begin := ""
-	if r, ok := db.SQL(cfg.Engine); ok {
-		begin = r.ReadOnlyBeginSQL()
-	}
-	if begin != "" {
-		if _, err := sess.Exec(ctx, begin); err != nil {
-			return nil, err
+	defer func() {
+		// The driver's error need not say the timeout ended it.
+		if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) && !errors.Is(err, context.DeadlineExceeded) {
+			err = fmt.Errorf("%w: %w", err, context.DeadlineExceeded)
 		}
-		defer func() {
-			// Even when ctx has ended: the session goes back to the pool.
-			rctx, rcancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer rcancel()
-			sess.Rollback(rctx)
-		}()
-	}
-	cursor, err := sess.Query(ctx, p.sql, p.args...)
+	}()
+	cursor, release, err := connection.ReadQuery(ctx, pool, cfg, database, p.sql, p.args...)
 	if err != nil {
 		return nil, err
 	}
-	defer cursor.Close()
+	defer release()
 	rows, err := cursor.Fetch(maxRows)
 	if err != nil {
 		return nil, err
@@ -141,4 +136,44 @@ func audited(h Host, cfg db.Config, database string, p prepared, src *dataview.S
 		rows = int64(len(src.Rows))
 	}
 	h.RecordTyped(cfg, audit.TypedRun{Kind: audit.KindStatement, Database: database, Sent: p.sql, Typed: p.typed, Params: p.shown, Rows: rows, Took: took, Err: err})
+}
+
+// stoppedText says what stopped a panel's run that err ended, as the
+// cause its run's context was cancelled with, or its timeout; "" for a
+// run that failed by itself.
+func stoppedText(ctx context.Context, err error, timeout time.Duration) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return "Timed out after " + shortDuration(timeout)
+	case errors.Is(err, context.Canceled) || ctx.Err() != nil:
+		if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {
+			return "Stopped: " + cause.Error()
+		}
+		return "Stopped"
+	}
+	return ""
+}
+
+// shortDuration writes d as "1m" or "30s", not "1m0s".
+func shortDuration(d time.Duration) string {
+	s := d.String()
+	if strings.HasSuffix(s, "m0s") {
+		s = strings.TrimSuffix(s, "0s")
+	}
+	if strings.HasSuffix(s, "h0m") {
+		s = strings.TrimSuffix(s, "0m")
+	}
+	return s
+}
+
+// whyNotRunAndKeep says why an edited panel cannot run yet, "" when it
+// can.
+func whyNotRunAndKeep(sql string, cn *connection.Conn) string {
+	switch {
+	case strings.TrimSpace(sql) == "":
+		return "Write the panel's query first"
+	case cn == nil:
+		return "Choose the panel's connection first"
+	}
+	return ""
 }

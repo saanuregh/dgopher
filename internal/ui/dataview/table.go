@@ -92,8 +92,8 @@ func (t *TableTab) CloseReason() string {
 	switch {
 	case t.design != nil && t.design.changed():
 		return "The changes to " + t.Object.Name + "'s structure have not been applied. Closing discards them."
-	case t.view.grid.edits.count() > 0:
-		return fmt.Sprintf("%s to %s not applied. Closing discards them.", widgets.Count(t.view.grid.edits.count(), "change"), t.Object.Name)
+	case t.view.PendingCount() > 0:
+		return fmt.Sprintf("%s to %s not applied. Closing discards them.", widgets.Count(t.view.PendingCount(), "change"), t.Object.Name)
 	case t.Tx != db.TxNone:
 		return "A transaction is open on this table's session. Closing rolls it back."
 	}
@@ -104,7 +104,7 @@ func (t *TableTab) CloseReason() string {
 // block runs on another goroutine.
 func (t *TableTab) Close() {
 	t.closed = true
-	closeCursor, sess := t.view.Release(), t.sess
+	closeCursor, sess, name := t.view.Release(), t.sess, t.Title()
 	if t.design != nil && t.design.cancel != nil {
 		t.design.cancel()
 	}
@@ -115,7 +115,7 @@ func (t *TableTab) Close() {
 		defer RecoverBackground(t.a.Post, t.a.ShowReport, nil)
 		closeCursor()
 		if sess != nil {
-			sess.Close()
+			CloseSession(t.a, name, sess)
 		}
 	}()
 }

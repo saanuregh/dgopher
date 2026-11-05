@@ -118,13 +118,22 @@ func openFile(dir, file string, migrations []func(*sql.Tx) error) (*DB, error) {
 		return nil, err
 	}
 	path := filepath.Join(dir, file)
+	// A symlink here, as a cloned repository can carry, would send the
+	// state into a file it points at; SQLite follows it, and its -wal and
+	// -shm files beside it.
+	for _, p := range []string{path, path + "-wal", path + "-shm"} {
+		if err := refuseSymlink(p); err != nil {
+			return nil, err
+		}
+	}
 	// Private before SQLite writes to it; its -wal and -shm files take its mode.
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDONLY, 0o600)
 	if err != nil {
 		return nil, err
 	}
+	err = makePrivate(f, path)
 	f.Close()
-	if err := os.Chmod(path, 0o600); err != nil {
+	if err != nil {
 		return nil, err
 	}
 	q := url.Values{}
@@ -147,6 +156,42 @@ func openFile(dir, file string, migrations []func(*sql.Tx) error) (*DB, error) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return d, nil
+}
+
+// refuseSymlink fails when path is a symbolic link.
+func refuseSymlink(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s is a symbolic link; remove it so DGopher can keep its own state file there", path)
+	}
+	return nil
+}
+
+// makePrivate makes the open file f its owner's alone, after checking
+// that path still names it and not a symbolic link put there after the
+// check before opening.
+func makePrivate(f *os.File, path string) error {
+	if err := refuseSymlink(path); err != nil {
+		return err
+	}
+	opened, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	named, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(opened, named) {
+		return fmt.Errorf("%s changed while it was opened", path)
+	}
+	return f.Chmod(0o600)
 }
 
 // useWAL turns the file to write-ahead logging, which it keeps. Changing

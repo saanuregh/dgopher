@@ -997,3 +997,6 @@ func (postgresEngine) messagesSQL() string                    { return "" }
 func (postgresEngine) transactionStateAndMessagesSQL() string { return "" }
 func (postgresEngine) TakesEffectAtOnce(string) bool          { return false }
 func (postgresEngine) BooleanLiteral(b bool) string           { return booleanWord(b) }
+func (postgresEngine) NonFiniteLiteral(f float64) string {
+	return standardLiteral(nonFiniteWord(f)) + "::float8"
+}

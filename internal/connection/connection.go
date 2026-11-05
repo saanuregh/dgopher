@@ -60,6 +60,9 @@ type Conn struct {
 	Signatures    map[string][]db.Signature // by lower-case name; nil until read
 	Loading       map[any]bool
 	LoadErr       map[any]string
+	// resets counts Resets: a read begun before one belongs to a pool or
+	// catalog since dropped, and its result is too.
+	resets int
 }
 
 // DB is the connection's SQL pool, nil when it is not connected or not
@@ -120,6 +123,7 @@ type SchemaKey struct{ Database, Schema string }
 type ObjectKey struct{ Database, Schema, Name string }
 
 func (cn *Conn) Reset() {
+	cn.resets++
 	cn.Schemas = map[string][]string{}
 	cn.Objects = map[SchemaKey][]db.Object{}
 	cn.Items = map[SchemaKey][]db.Item{}
@@ -144,6 +148,13 @@ func (cn *Conn) ForgetCatalog() {
 			delete(cn.LoadErr, k)
 		}
 	}
+}
+
+// sinceReset returns whether no Reset came since it was called, for a
+// read's result to check, on the main thread, before it lands.
+func (cn *Conn) sinceReset() func() bool {
+	n := cn.resets
+	return func() bool { return cn.resets == n }
 }
 
 // PoolFor returns how to get the pool of one of the connection's
@@ -187,6 +198,7 @@ func LoadSchemas(r Runner, cn *Conn, database string, then func()) {
 	cn.Loading[key] = true
 	delete(cn.LoadErr, key)
 	poolOf := cn.PoolFor(database) // read on the main thread
+	live := cn.sinceReset()
 	r.Background(func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -201,6 +213,9 @@ func LoadSchemas(r Runner, cn *Conn, database string, then func()) {
 			}
 		}
 		return func() {
+			if !live() {
+				return
+			}
 			delete(cn.Loading, key)
 			if err != nil {
 				cn.LoadErr[key] = err.Error()
@@ -242,6 +257,7 @@ func LoadObjects(r Runner, cn *Conn, database, schema string) {
 	delete(cn.LoadErr, key)
 	depth := cn.Config.CatalogOf(database, schema)
 	poolOf := cn.PoolFor(database) // read on the main thread
+	live := cn.sinceReset()
 	r.Background(func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -255,6 +271,9 @@ func LoadObjects(r Runner, cn *Conn, database, schema string) {
 			}
 		}
 		return func() {
+			if !live() {
+				return
+			}
 			delete(cn.Loading, key)
 			if cn.Config.CatalogOf(database, schema) != depth {
 				// Read as it was set before it changed: read again.
@@ -293,6 +312,7 @@ func loadSchemaColumns(r Runner, cn *Conn, database, schema string) {
 	cn.Loading[key] = true
 	delete(cn.LoadErr, key)
 	poolOf := cn.PoolFor(database)
+	live := cn.sinceReset()
 	r.Background(func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -302,6 +322,9 @@ func loadSchemaColumns(r Runner, cn *Conn, database, schema string) {
 			cols, err = d.Dialect.SchemaColumns(ctx, d.Catalog(), schema)
 		}
 		return func() {
+			if !live() {
+				return
+			}
 			delete(cn.Loading, key)
 			if err != nil {
 				cn.LoadErr[key] = err.Error()
@@ -334,6 +357,7 @@ func LoadItems(r Runner, cn *Conn, database, schema string) {
 	cn.Loading[itemsKey(key)] = true
 	delete(cn.LoadErr, itemsKey(key))
 	poolOf := cn.PoolFor(database) // read on the main thread
+	live := cn.sinceReset()
 	r.Background(func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -343,6 +367,9 @@ func LoadItems(r Runner, cn *Conn, database, schema string) {
 			items, err = d.Dialect.Items(ctx, d.Catalog(), schema)
 		}
 		return func() {
+			if !live() {
+				return
+			}
 			delete(cn.Loading, itemsKey(key))
 			if err != nil {
 				cn.LoadErr[itemsKey(key)] = err.Error()
@@ -376,6 +403,7 @@ func LoadColumns(r Runner, cn *Conn, database, schema, name string, then func([]
 	}
 	cn.Loading[key] = true
 	poolOf := cn.PoolFor(database) // read on the main thread
+	live := cn.sinceReset()
 	r.Background(func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -385,6 +413,9 @@ func LoadColumns(r Runner, cn *Conn, database, schema, name string, then func([]
 			cols, err = d.Dialect.Columns(ctx, d.Catalog(), schema, name)
 		}
 		return func() {
+			if !live() {
+				return
+			}
 			delete(cn.Loading, key)
 			if err != nil {
 				cn.LoadErr[key] = err.Error()

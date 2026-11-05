@@ -287,7 +287,7 @@ func xlsxNumber(v any, kind duckKind) (string, bool) {
 	case float64:
 		return xlsxFloat(x, 64)
 	case string, []byte, fmt.Stringer:
-		if kind != kindBigint && kind != kindDouble && kind != kindDecimal {
+		if kind != kindBigint && kind != kindHugeint && kind != kindDouble && kind != kindDecimal {
 			return "", false
 		}
 		s = strings.TrimSpace(text(x))

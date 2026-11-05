@@ -54,6 +54,10 @@ func CompletionAt(src string, caret int, d Dialect) CompletionContext {
 	}
 
 	stmtStart, stmtEnd := 0, len(src)
+	if blankLine(src, caret) {
+		// A blank line between statements starts a new one.
+		stmtStart, stmtEnd = caret, caret
+	}
 	if s, ok := StatementAt(src, caret, d); ok {
 		stmtStart, stmtEnd = s.Start, s.End
 		if caret > stmtEnd {

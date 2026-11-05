@@ -2,6 +2,7 @@ package dataview
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -133,5 +134,16 @@ func RecoverBackground(post func(func()), show func(widgets.ErrorReport), reset 
 	})
 	if reset != nil {
 		post(reset)
+	}
+}
+
+// CloseSession closes sess, off the main thread, and tells the user when
+// its open transaction could not be rolled back first, so closing it may
+// have committed it.
+func CloseSession(a Host, name string, sess *db.Session) {
+	if err := sess.Close(); errors.Is(err, db.ErrTxMayBeCommitted) {
+		a.Post(func() {
+			a.ShowError(name+": the transaction may have been committed", redact.Secrets(err.Error()))
+		})
 	}
 }

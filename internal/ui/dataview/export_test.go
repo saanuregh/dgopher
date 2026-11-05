@@ -351,3 +351,43 @@ func TestExportDefaultFolder(t *testing.T) {
 		t.Fatalf("folder %q", got)
 	}
 }
+
+// Tables exported to one file name would write over each other: the
+// dialog says why under the file name and refuses, writing nothing, when
+// the name lacks ${table} or two tables' names clean to the same file.
+func TestExportTablesRefuseOneFileName(t *testing.T) {
+	a, tt, src := exportHost(t)
+	if _, err := src.Conn.DB().SQL.Exec(`CREATE TABLE m (x TEXT); INSERT INTO m VALUES ('a'); CREATE TABLE "a:b" (y); CREATE TABLE "a/b" (y)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		names   []string
+		pattern string
+		why     string
+	}{
+		{[]string{"n", "m"}, "dump", "needs ${table}"},
+		{[]string{"a:b", "a/b"}, "${table}", "a:b and a/b"},
+	} {
+		var srcs []ExportSource
+		for _, name := range c.names {
+			srcs = append(srcs, ExportSource{Conn: src.Conn, Name: name, SQL: `SELECT * FROM "` + name + `"`})
+		}
+		OpenExportTables(a, "Export tables", srcs, []bool{true, true})
+		x := a.dialogs.export
+		dir := t.TempDir()
+		x.format, x.folder, x.pattern = string(export.CSV), dir, c.pattern
+		tt.Frame()
+		if !testutil.HasTextContaining(tt, c.why) {
+			t.Errorf("%s: no %q in %q", c.pattern, c.why, tt.Texts())
+		}
+		runExport(a, x)
+		testutil.WaitFor(t, tt, "the export", func() bool { return !x.running })
+		if !strings.Contains(x.err, c.why) {
+			t.Errorf("%s: error %q", c.pattern, x.err)
+		}
+		if files, _ := os.ReadDir(dir); len(files) != 0 {
+			t.Errorf("%s: wrote %v", c.pattern, files)
+		}
+		a.dialogs.export = nil
+	}
+}

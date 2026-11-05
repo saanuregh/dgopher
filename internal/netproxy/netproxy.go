@@ -273,10 +273,13 @@ func (f *Forwarder) forward(local net.Conn) {
 		return // the driver sees its connection close, and says so
 	}
 	defer remote.Close()
-	if !f.track(local) || !f.track(remote) {
+	if !f.track(local) {
 		return
 	}
 	defer f.untrack(local)
+	if !f.track(remote) {
+		return
+	}
 	defer f.untrack(remote)
 	done := make(chan struct{}, 2)
 	go func() { io.Copy(remote, local); done <- struct{}{} }()

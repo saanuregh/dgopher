@@ -263,7 +263,9 @@ works as PostgreSQL does.
   `internal/db/timescaledb.go`), with each chunk's range and whether it is
   compressed, and an item saying how many more there are, which
   `timescaledb_information.chunks` lists; and **Jobs**: policies and
-  `add_job` jobs, each defined by the call that creates it. Activity adds
+  `add_job` jobs, each defined by the call that creates it, or by a
+  comment when its configuration holds a key or value the call cannot
+  take as it is. Activity adds
   a **Jobs** page with their last and next runs.
 - Plans name the `ChunkAppend` and `ColumnarScan` steps, as PostgreSQL's
   name any extension's custom scan, and show their vectorized filters.
@@ -429,10 +431,10 @@ which needs no Oracle client installed.
   `RELEASE SAVEPOINT`: grid edits ask you to end an open transaction
   first. An `UPDATE` counts the rows it matched. Cancelling a statement
   keeps the connection and its transaction. Closing an Oracle connection
-  commits its open transaction, so a connection the app gives up with one
-  open, as after an Explain's cleanup step failed, is rolled back first;
-  should that rollback fail, the error says the changes may have been
-  committed.
+  commits its open transaction, so a connection the app gives up or
+  closes with one open, as after an Explain's cleanup step failed, is
+  rolled back first; should that rollback fail, the error says the
+  changes may have been committed.
 - **Names**: an unquoted name stands for itself in upper case. The app
   quotes a name it writes unless it is plain and upper case, so a table
   made as `"orders"` is written so.

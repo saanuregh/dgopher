@@ -47,3 +47,30 @@ func TestSplitCommands(t *testing.T) {
 		t.Fatalf("unbalanced quotes: %v", err)
 	}
 }
+
+// Commands that fail over, reset or cut a cluster, delete users, modules
+// or functions, or block the server on a save ask on every environment.
+func TestRiskOfConfirmsServerChanges(t *testing.T) {
+	for _, c := range []struct {
+		args []string
+		risk bool
+	}{
+		{[]string{"FAILOVER"}, true},
+		{[]string{"cluster", "reset", "HARD"}, true},
+		{[]string{"CLUSTER", "FAILOVER"}, true},
+		{[]string{"CLUSTER", "FORGET", "abc"}, true},
+		{[]string{"CLUSTER", "INFO"}, false},
+		{[]string{"ACL", "DELUSER", "bob"}, true},
+		{[]string{"ACL", "WHOAMI"}, false},
+		{[]string{"MODULE", "UNLOAD", "search"}, true},
+		{[]string{"MODULE", "LIST"}, false},
+		{[]string{"FUNCTION", "DELETE", "lib"}, true},
+		{[]string{"FUNCTION", "LIST"}, false},
+		{[]string{"SAVE"}, true},
+		{[]string{"BGSAVE"}, false},
+	} {
+		if got := RiskOf(c.args) != ""; got != c.risk {
+			t.Errorf("%v: asks %v, want %v", c.args, got, c.risk)
+		}
+	}
+}

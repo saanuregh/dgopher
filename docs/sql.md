@@ -134,6 +134,12 @@ A statement ends at `;`, or at a line that holds only whitespace. A
 setting (Settings → Editor) can make `;` the only end. A blank line inside
 parentheses or a `CASE … END` does not end a statement.
 
+The statement at the caret, which ⌘↵ runs, is the one the caret is in, as
+in DBeaver. Comment lines right before a statement, with no blank line
+between, belong to it. On the line right after a statement, the caret
+picks that statement; on a blank line between two statements, none, and
+the editor says there is nothing to run.
+
 - **Routine bodies.** In `CREATE PROCEDURE`, `FUNCTION`, `TRIGGER` or
   `EVENT`, a `BEGIN … END` body (and PostgreSQL's `BEGIN ATOMIC`) keeps its
   `;`s. If the body never closes, the text splits at every `;` instead, so
@@ -208,7 +214,10 @@ decides from these. The rules are in
   several batches, split by `GO`, counts so.
 - **Always-true conditions** are read through casts: `TRUE::bool`,
   `1::int = 1::int` and `CAST(1 AS bool)` are always true, so an `UPDATE`
-  or `DELETE` with such a `WHERE` is destructive.
+  or `DELETE` with such a `WHERE` is destructive. So are a column compared
+  with itself, qualified on one side or not (`t.id = id`), and tests of
+  constants that hold: `1 IN (1)`, `id IN (id)`, `1 NOT IN (2)`,
+  `1 BETWEEN 0 AND 2`, `NULL IS NULL` and `1 IS NOT NULL`.
 
 ### Code the server runs
 
@@ -251,9 +260,12 @@ These count as writes:
   (`a[1]`, `ARRAY[…]`) and DuckDB lists (`[start, stop]`) are not
   statements.
 - A `WITH` (CTE) that changes data.
-- A call to a function with side effects. Examples:
+- A call to a function with side effects, in a query or in the value a
+  `SET` gives a variable, as MySQL's `SET @x = GET_LOCK(…)`. Examples:
   `pg_terminate_backend`, `pg_cancel_backend`, `setval`, `nextval`,
-  `set_config`, `pg_notify`, `dblink_exec`, `lo_import`, `lo_export`, the
+  `set_config`, `pg_notify`, `dblink_exec`, `dblink_send_query`,
+  `lo_import`, `lo_export`, `lo_creat`, `pg_file_unlink`,
+  `txid_current`, which takes a transaction ID, the
   advisory locks, replication slots and origins, `pg_stat_reset`; MySQL
   `GET_LOCK`, `RELEASE_LOCK`, `SLEEP` and `BENCHMARK`; MariaDB's sequence
   functions `NEXTVAL`, `SETVAL` and `LASTVAL`, and `NEXT VALUE FOR`; SQLite
@@ -274,7 +286,7 @@ These count as writes:
   of its internal schemas, whose names start with `_timescaledb_`. A
   PostgreSQL function of your own of one of those names counts too.
 - `SELECT … FOR UPDATE` or `FOR SHARE` (MySQL: `LOCK IN SHARE MODE`), in a
-  subquery or a `WITH` too. It locks its rows for as long as its result,
+  subquery, a `WITH` or a `SET`'s value too. It locks its rows for as long as its result,
   or its transaction, is open.
 - ClickHouse's `MOVE` (of users and roles between storages). PostgreSQL's
   `MOVE` only moves a cursor.
@@ -340,14 +352,16 @@ that starts none, as the `DELETE` of `GRANT DELETE` or
   first in a batch without `EXECUTE`, such as `sp_configure 'x', 1`;
   `SELECT … INTO`, a `#temp` table too; a table hint that holds its locks
   (`UPDLOCK`, `XLOCK`, `HOLDLOCK`, `TABLOCKX`, `SERIALIZABLE`,
-  `REPEATABLEREAD`); `OPENROWSET`, `OPENQUERY` and `OPENDATASOURCE`;
+  `REPEATABLEREAD`), and a cursor declared `SCROLL_LOCKS`, which locks
+  each row it fetches; `OPENROWSET`, `OPENQUERY` and `OPENDATASOURCE`;
   `NEXT VALUE FOR`; `BULK INSERT`, `BACKUP`, `RESTORE`, other `DBCC`
   commands, `KILL`, `RECONFIGURE`, `CHECKPOINT`, `UPDATE STATISTICS`,
   `WRITETEXT`, `UPDATETEXT`, `RAISERROR … WITH LOG`, and Service Broker's
   `RECEIVE`, `SEND`, `BEGIN DIALOG`, `END CONVERSATION`, `MOVE` and
   `GET CONVERSATION`. A column or table named `receive` counts too.
 - **Schema changes:** `CREATE`, `ALTER`, `DROP`, `TRUNCATE`, `GRANT`,
-  `DENY`, `REVOKE`, and `ENABLE` or `DISABLE TRIGGER`.
+  `DENY`, `REVOKE`, `ENABLE` or `DISABLE TRIGGER`, and `ADD SIGNATURE`,
+  `ADD COUNTER SIGNATURE` and `ADD SENSITIVITY CLASSIFICATION`.
 - **Destructive**, besides the general rules: `ALTER TABLE … SWITCH`,
   `RESTORE DATABASE` and `RESTORE LOG`, `SHUTDOWN`, `xp_cmdshell`,
   `DBCC … REPAIR_ALLOW_DATA_LOSS`, `DBCC WRITEPAGE`, and `GO n`.
@@ -469,6 +483,9 @@ Why these choices:
 | `{name:Type}` | ClickHouse | a server-side query parameter; the text is unchanged |
 | `${var}` | all | written into the text, which is then checked again |
 
+- A `:` inside a subscript's brackets is a slice, as `arr[lo:hi]` and
+  `arr[:n]`; inside `ARRAY[…]` or a list's `[…]` it starts a parameter,
+  as `ARRAY[:a, :b]`.
 - In T-SQL, `@name` is the server's variable, not a parameter, and a `:`
   right after a name, as a label's, starts none.
 - In Oracle, `:name` is the server's bind variable too, and so is a

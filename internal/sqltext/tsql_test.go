@@ -294,12 +294,18 @@ func TestTSQLClassify(t *testing.T) {
 		{"update statistics t", Write, "UPDATE", false},
 		{"raiserror('x', 16, 1) with log", Write, "RAISERROR", false},
 		{"declare c cursor for select a from t for update of a", Write, "DECLARE", false},
+		{"declare c cursor scroll_locks for select a from t", Write, "DECLARE", false},
+		{"declare c cursor local scroll scroll_locks for select a from t", Write, "DECLARE", false},
 		{"frobnicate", Write, "EXEC", false},
 
 		// Schema changes.
 		{"create table t (a int)", DDL, "CREATE", false},
 		{"create table t (a int references u(id) on delete cascade on update no action)", DDL, "CREATE", false},
 		{"alter table t add c int", DDL, "ALTER", false},
+		{"add signature to dbo.p by certificate c", DDL, "ADD", false},
+		{"select 1 add signature to dbo.p by certificate c", DDL, "ADD", false},
+		{"select 1 add counter signature to dbo.p by certificate c", DDL, "ADD", false},
+		{"select 1 add sensitivity classification to t.c with (label = 'x')", DDL, "ADD", false},
 		{"alter table t drop column c", DDL, "ALTER", true},
 		{"alter table t alter column c bigint", DDL, "ALTER", false},
 		{"alter database d set single_user with rollback immediate", DDL, "ALTER", false},

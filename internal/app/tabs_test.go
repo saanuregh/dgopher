@@ -10,6 +10,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/datamodel"
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
 	"dgopher/internal/store"
 	"dgopher/internal/testutil"
 	"dgopher/internal/ui/dashboard"
@@ -193,7 +194,8 @@ func TestReopenClosedTab(t *testing.T) {
 	}
 }
 
-// The middle button closes a tab, but a pinned one; the others go on.
+// The middle button closes a tab, but a pinned one, which stays and says
+// why (TestMiddleClickOnPinnedTabSaysWhy); the others go on.
 func TestMiddleClickClosesTab(t *testing.T) {
 	a, tt := tabsApp(t)
 	middle := ui.InputEvent{Kind: ui.InputPointerDown, Button: middleButton}
@@ -208,8 +210,10 @@ func TestMiddleClickClosesTab(t *testing.T) {
 		t.Fatalf("middle-clicked b: %s", got)
 	}
 	a.window.tabs().SetPinned(a.tabs().At(0), true)
-	if a.closeOnMiddlePress(a.window, a.tabs().At(0), middle) {
-		t.Fatal("closes a pinned tab")
+	a.closeOnMiddlePress(a.window, a.tabs().At(0), middle)
+	tt.Frame()
+	if got := order(a.window); got != "a* c d" {
+		t.Fatalf("middle-clicked pinned a: %s", got)
 	}
 }
 
@@ -565,5 +569,17 @@ func TestTabSubtitleOnlyForSharedTitles(t *testing.T) {
 	}
 	if got := count("beta") - betas; got != 1 {
 		t.Errorf("beta shows %d more times, want 1 (the second report's subtitle)", got)
+	}
+}
+
+// Close All Tabs' key closes every tab of the focused group but the pinned
+// ones.
+func TestCloseAllTabsKey(t *testing.T) {
+	a, tt := tabsApp(t)
+	a.window.tabs().SetPinned(a.tabs().At(0), true)
+	a.menuAction(keymap.CloseAllTabs)()
+	tt.Frame()
+	if got := order(a.window); got != "a*" {
+		t.Fatalf("after Close All Tabs: %s", got)
 	}
 }

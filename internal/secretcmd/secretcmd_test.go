@@ -129,3 +129,15 @@ func TestRunTooMuchOutput(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+// A command the caller cancels says it was cancelled, not that it took
+// too long.
+func TestRunCancelledByCaller(t *testing.T) {
+	skipWindows(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(100*time.Millisecond, cancel)
+	_, err := Run(ctx, "sleep 5")
+	if err == nil || err.Error() != "the command was cancelled" {
+		t.Fatalf("error %v", err)
+	}
+}

@@ -87,6 +87,18 @@ type token struct {
 	made  time.Time
 }
 
+// cachedIdentityToken is the token a connection's identity last made, for
+// errors to leave out; "" without one.
+func cachedIdentityToken(cfg Config) string {
+	if cfg.Identity == "" {
+		return ""
+	}
+	key := strings.Join(IdentityCommand(&cfg), "\x00")
+	tokens.Lock()
+	defer tokens.Unlock()
+	return tokens.byCommand[key].value
+}
+
 // identityToken is the token a connection logs in with, made again once
 // it is old: each new connection of a pool asks, long after the first.
 func identityToken(ctx context.Context, cfg Config) (string, error) {

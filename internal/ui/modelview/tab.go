@@ -4,6 +4,7 @@
 package modelview
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -140,6 +141,17 @@ func (t *Tab) conns(e db.Engine) []*connection.Conn {
 
 // source is the connection the model was built from, nil when it has
 // none, or the project no longer does.
+// whyNotUpdate says why Update cannot run, "" when it can.
+func whyNotUpdate(updating, hasSource bool) string {
+	switch {
+	case updating:
+		return "Updating the model…"
+	case !hasSource:
+		return "The model's connection is not in the project any more"
+	}
+	return ""
+}
+
 func (t *Tab) source() *connection.Conn {
 	if t.m.Source == nil {
 		return nil
@@ -214,7 +226,7 @@ func (t *Tab) View(c *ui.Context) {
 				ui.Text(c, about).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1)
 			})
 			ui.Spacer(c)
-			if t.m.Source != nil && widgets.ToolButton(c, widgets.IconRefresh, "Update", "Read the model's tables again from the schema it was built from").
+			if t.m.Source != nil && widgets.ToolButton(c, widgets.IconRefresh, "Update", cmp.Or(whyNotUpdate(t.updating, t.source() != nil), "Read the model's tables again from the schema it was built from")).
 				Disabled(t.updating || t.source() == nil).Clicked() {
 				t.confirmUpdate = true
 			}

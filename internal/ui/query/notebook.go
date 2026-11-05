@@ -259,6 +259,8 @@ type notebook struct {
 	// asked is Run All's next, which leaves the rest to run.
 	startedAt time.Time
 	fromQueue bool
+	// fromRunAll says the last run asked was Run All's.
+	fromRunAll bool
 }
 
 // Notebook reports whether the editor shows as a notebook.
@@ -398,19 +400,21 @@ func (nb *notebook) readAgain(q *Tab) {
 	q.closeLater(closers)
 }
 
-// dropCell lets a cell go: its results, and the tab's when they are its.
+// dropCell lets a cell go: its results, and the tab's when they are its,
+// with those its run going on has yet to bring.
 func (q *Tab) dropCell(cl *cell) []func() {
 	nb := q.nb
+	if nb.running == cl {
+		nb.running = nil
+	}
+	nb.queue = slices.DeleteFunc(nb.queue, func(o *cell) bool { return o == cl })
 	if nb.bound == cl {
+		q.dropRun()
 		closers := releaseResults(q.results)
 		q.results, q.resultIdx, q.messages, q.stale = nil, 0, nil, nil
 		nb.bound = nil
 		return closers
 	}
-	if nb.running == cl {
-		nb.running = nil
-	}
-	nb.queue = slices.DeleteFunc(nb.queue, func(o *cell) bool { return o == cl })
 	return releaseResults(cl.results)
 }
 
@@ -616,7 +620,8 @@ func (q *Tab) runEnded() {
 }
 
 // cellRunEnded numbers the cell whose run ended, then runs the next of
-// Run All: not after an error, unless errors are skipped.
+// Run All: not after an error, unless errors are skipped. A cell dropped
+// while it ran is not numbered, and Run All goes on.
 func (q *Tab) cellRunEnded() {
 	nb := q.nb
 	if nb == nil {
@@ -625,12 +630,12 @@ func (q *Tab) cellRunEnded() {
 	cl := nb.running
 	nb.running = nil
 	if cl == nil {
+		q.runNextCell()
 		return
 	}
 	nb.runs++
 	cl.count, cl.took = nb.runs, time.Since(nb.startedAt)
-	failed := slices.ContainsFunc(q.results, func(r *result) bool { return r.err != "" })
-	if failed && !q.a.Settings().ContinueOnError {
+	if q.lastRunFailed && !q.a.Settings().ContinueOnError {
 		nb.queue = nil
 		return
 	}
@@ -756,12 +761,7 @@ func (q *Tab) notebookBar(c *ui.Context) {
 	th := c.Theme()
 	nb := q.nb
 	if q.Running && widgets.Lasted(c, q.StartedAt) {
-		if widgets.LeadToolButton(c.Key("run"), widgets.IconStop, "Stop", "Stop the running cell (Esc); the cells after it do not run", th.Danger).Clicked() {
-			nb.queue = nil
-			if q.cancel != nil {
-				q.cancel()
-			}
-		}
+		q.stopButton(c, "Stop the running cell; the cells after it do not run")
 	} else if widgets.LeadToolButton(c.Key("run"), widgets.IconPlay, "Run Cell", keymap.Hint("Run the cell", keymap.RunCellAdvance), th.Success).Clicked() {
 		q.runCell(nb.focused)
 	}
@@ -828,9 +828,8 @@ func (q *Tab) cellView(c *ui.Context, cl *cell) {
 			if !cl.markdown {
 				ui.Text(c, label).Font(widgets.MonoFont).FontSize(11.5).TextColor(pal.Muted)
 				if running {
-					if widgets.IconButton(c.Key("stop"), widgets.IconStop, "Stop the cell").Clicked() && q.cancel != nil {
-						nb.queue = nil
-						q.cancel()
+					if widgets.IconButton(c.Key("stop"), widgets.IconStop, "Stop the cell").Disabled(q.stopping).Clicked() {
+						q.stop()
 					}
 				} else if widgets.IconButton(c.Key("run"), widgets.IconPlay, "Run the cell").Disabled(q.Running).Clicked() {
 					q.runCell(cl)

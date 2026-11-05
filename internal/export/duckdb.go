@@ -15,6 +15,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -29,7 +30,8 @@ import (
 // Column describes one result column; DatabaseType picks the Parquet or DuckDB column type.
 type Column struct{ Name, DatabaseType string }
 
-// NewFileWriter writes format f to path. On a failed Close the partial file is removed.
+// NewFileWriter writes format f to a new file at path; it refuses a file
+// that exists. On a failed Close the partial file is removed.
 func NewFileWriter(path string, f Format, cols []Column, opt Options) (RowWriter, error) {
 	switch f {
 	case XLSX:
@@ -38,7 +40,7 @@ func NewFileWriter(path string, f Format, cols []Column, opt Options) (RowWriter
 		return newDuckWriter(path, f, cols, opt)
 	}
 	// Exported rows may be private: the file is the user's alone.
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
 	if err != nil {
 		return nil, err
 	}
@@ -92,6 +94,7 @@ type duckKind int
 const (
 	kindVarchar duckKind = iota
 	kindBigint
+	kindHugeint
 	kindDouble
 	kindDecimal
 	kindBoolean
@@ -113,6 +116,8 @@ func (c duckColumn) sqlType() string {
 	switch c.kind {
 	case kindBigint:
 		return "BIGINT"
+	case kindHugeint:
+		return "HUGEINT"
 	case kindDouble:
 		return "DOUBLE"
 	case kindDecimal:
@@ -158,8 +163,10 @@ func duckType(databaseType string) duckColumn {
 	}
 	switch t {
 	case "int", "integer", "int2", "int4", "int8", "smallint", "tinyint", "mediumint", "bigint", "serial", "smallserial",
-		"bigserial", "serial4", "serial8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "hugeint", "long":
+		"bigserial", "serial4", "serial8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "long":
 		return duckColumn{kind: kindBigint}
+	case "hugeint", "int128":
+		return duckColumn{kind: kindHugeint}
 	case "real", "float", "float4", "float8", "float32", "float64", "double", "double precision":
 		return duckColumn{kind: kindDouble}
 	case "numeric", "decimal", "money":
@@ -196,8 +203,15 @@ type duckWriter struct {
 	connector *duckdb.Connector
 	appender  *duckdb.Appender
 	created   bool
-	err       error
+	// pending holds the first rows until each column has a value that is
+	// not NULL to choose its type, or maxPendingRows of them.
+	pending [][]any
+	err     error
 }
+
+// maxPendingRows bounds the rows held back before a column's type is
+// chosen; a column still all NULL keeps its declared type.
+const maxPendingRows = 1000
 
 var quoteDuckIdent = db.DialectOf(db.DuckDB).Quote
 
@@ -214,9 +228,20 @@ func newDuckWriter(path string, f Format, cols []Column, opt Options) (*duckWrit
 			return nil, err
 		}
 		dsn = path
+	} else {
+		// COPY writes the Parquet file at the end; taking the name now
+		// refuses one that exists, before a row is read.
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
+		if err != nil {
+			return nil, err
+		}
+		file.Close()
 	}
 	connector, err := duckdb.NewConnector(dsn, nil)
 	if err != nil {
+		if f == Parquet {
+			os.Remove(path)
+		}
 		return nil, err
 	}
 	conn, err := connector.Connect(context.Background())
@@ -224,6 +249,8 @@ func newDuckWriter(path string, f Format, cols []Column, opt Options) (*duckWrit
 		connector.Close()
 		if f == DuckDBFile {
 			removeDuckFile(path)
+		} else {
+			os.Remove(path)
 		}
 		return nil, err
 	}
@@ -246,10 +273,33 @@ func (w *duckWriter) exec(query string) error {
 	return err
 }
 
-// create declares the table once the first row shows whether each value fits its column type.
-func (w *duckWriter) create(first []any) error {
-	for i, v := range first {
-		if w.cols[i].kind == kindVarchar || isNil(v) {
+// typesKnown says whether each column that is not text has a value that
+// is not NULL among the rows held back.
+func (w *duckWriter) typesKnown() bool {
+	for i, c := range w.cols {
+		if c.kind != kindVarchar && w.firstValue(i) == nil {
+			return false
+		}
+	}
+	return true
+}
+
+func (w *duckWriter) firstValue(col int) any {
+	for _, r := range w.pending {
+		if !isNil(r[col]) {
+			return r[col]
+		}
+	}
+	return nil
+}
+
+// create declares the table once each column's first value that is not
+// NULL shows whether it fits its column type, then appends the rows held
+// back.
+func (w *duckWriter) create() error {
+	for i := range w.cols {
+		v := w.firstValue(i)
+		if w.cols[i].kind == kindVarchar || v == nil {
 			continue
 		}
 		if _, ok := convertDuck(w.cols[i], v); !ok {
@@ -269,6 +319,13 @@ func (w *duckWriter) create(first []any) error {
 	}
 	w.appender = app
 	w.created = true
+	pending := w.pending
+	w.pending = nil
+	for _, r := range pending {
+		if err := w.appendRow(r); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -280,10 +337,18 @@ func (w *duckWriter) Write(row []any) error {
 		return fmt.Errorf("export: row has %d values, want %d", len(row), len(w.cols))
 	}
 	if !w.created {
-		if w.err = w.create(row); w.err != nil {
-			return w.err
+		w.pending = append(w.pending, slices.Clone(row))
+		if len(w.pending) < maxPendingRows && !w.typesKnown() {
+			return nil
 		}
+		w.err = w.create()
+		return w.err
 	}
+	w.err = w.appendRow(row)
+	return w.err
+}
+
+func (w *duckWriter) appendRow(row []any) error {
 	vals := make([]driver.Value, len(row))
 	for i, v := range row {
 		if isNil(v) {
@@ -291,19 +356,17 @@ func (w *duckWriter) Write(row []any) error {
 		}
 		out, ok := convertDuck(w.cols[i], v)
 		if !ok {
-			w.err = fmt.Errorf("export: column %q: value %q does not fit %s", w.names[i], text(v), w.cols[i].sqlType())
-			return w.err
+			return fmt.Errorf("export: column %q: value %q does not fit %s", w.names[i], text(v), w.cols[i].sqlType())
 		}
 		vals[i] = out
 	}
-	w.err = w.appender.AppendRow(vals...)
-	return w.err
+	return w.appender.AppendRow(vals...)
 }
 
 func (w *duckWriter) Close() error {
 	err := w.err
 	if err == nil && !w.created {
-		err = w.create(make([]any, len(w.cols)))
+		err = w.create()
 	}
 	if w.appender != nil {
 		if cerr := w.appender.Close(); err == nil {
@@ -364,6 +427,8 @@ func convertDuck(c duckColumn, v any) (any, bool) {
 	switch c.kind {
 	case kindBigint:
 		return toInt64(v)
+	case kindHugeint:
+		return toHugeint(v)
 	case kindDouble:
 		return toFloat64(v)
 	case kindDecimal:
@@ -454,6 +519,38 @@ func toInt64(v any) (any, bool) {
 	return nil, false
 }
 
+// hugeintBound is 2^127: a HUGEINT holds -2^127 to 2^127-1.
+var hugeintBound = new(big.Int).Lsh(big.NewInt(1), 127)
+
+func toHugeint(v any) (any, bool) {
+	var i *big.Int
+	switch x := v.(type) {
+	case *big.Int:
+		i = x
+	default:
+		if n, ok := toInt64(v); ok {
+			return big.NewInt(n.(int64)), true
+		}
+		if u, ok := v.(uint64); ok {
+			return new(big.Int).SetUint64(u), true
+		}
+		s, ok := rawText(v)
+		if !ok {
+			s, ok = scalarText(v)
+		}
+		if !ok {
+			return nil, false
+		}
+		if i, ok = new(big.Int).SetString(strings.TrimSpace(s), 10); !ok {
+			return nil, false
+		}
+	}
+	if i.Cmp(hugeintBound) >= 0 || i.Cmp(new(big.Int).Neg(hugeintBound)) < 0 {
+		return nil, false
+	}
+	return i, true
+}
+
 func toFloat64(v any) (any, bool) {
 	switch x := v.(type) {
 	case bool:
@@ -488,9 +585,15 @@ func toDecimal(v any, width, scale int) (any, bool) {
 	case *big.Int:
 		r = new(big.Rat).SetInt(x)
 	case float32, float64:
+		// The float's shortest decimal, as it shows, not its binary
+		// expansion, which no DECIMAL scale holds.
 		f, _ := toFloat64(x)
 		if ff := f.(float64); !math.IsNaN(ff) && !math.IsInf(ff, 0) {
-			r = new(big.Rat).SetFloat64(ff)
+			bits := 64
+			if _, single := x.(float32); single {
+				bits = 32
+			}
+			r, _ = new(big.Rat).SetString(strconv.FormatFloat(ff, 'g', -1, bits))
 		}
 	default:
 		s, ok := rawText(v)
@@ -504,9 +607,13 @@ func toDecimal(v any, width, scale int) (any, bool) {
 	if r == nil {
 		return nil, false
 	}
-	digits := strings.Replace(r.FloatString(scale), ".", "", 1)
-	unscaled, ok := new(big.Int).SetString(digits, 10)
-	if !ok || len(strings.TrimPrefix(unscaled.String(), "-")) > width {
+	// A value with more decimals than the scale fails: it is not rounded.
+	scaled := new(big.Rat).Mul(r, new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(scale)), nil)))
+	if !scaled.IsInt() {
+		return nil, false
+	}
+	unscaled := scaled.Num()
+	if len(strings.TrimPrefix(unscaled.String(), "-")) > width {
 		return nil, false
 	}
 	return duckdb.Decimal{Width: uint8(width), Scale: uint8(scale), Value: unscaled}, true

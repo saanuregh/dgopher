@@ -624,3 +624,6 @@ func (duckdbEngine) messagesSQL() string                    { return "" }
 func (duckdbEngine) transactionStateAndMessagesSQL() string { return "" }
 func (duckdbEngine) TakesEffectAtOnce(string) bool          { return false }
 func (duckdbEngine) BooleanLiteral(b bool) string           { return booleanWord(b) }
+func (duckdbEngine) NonFiniteLiteral(f float64) string {
+	return standardLiteral(nonFiniteWord(f)) + "::DOUBLE"
+}

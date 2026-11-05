@@ -136,13 +136,20 @@ func Pressed(c *ui.Context, id string) bool {
 // PressedArg reports whether a key of the action was pressed, and the
 // argument its binding gives, 0 for none.
 func PressedArg(c *ui.Context, id string) (int, bool) {
+	b, ok := PressedWith(c, id)
+	return b.Arg, ok
+}
+
+// PressedWith reports whether a key of the action was pressed, and the
+// binding whose key it was.
+func PressedWith(c *ui.Context, id string) (Binding, bool) {
 	ask(id)
 	for _, b := range Bindings(id) {
 		if !shadowed(id, b) && pressedBinding(c, b) {
-			return b.Arg, true
+			return b, true
 		}
 	}
-	return 0, false
+	return Binding{}, false
 }
 
 // LaterPressed reports whether a key of the action but its first was

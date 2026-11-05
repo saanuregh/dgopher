@@ -747,3 +747,34 @@ func TestModelsListed(t *testing.T) {
 		t.Fatalf("error %q kept for the other chats", l.err)
 	}
 }
+
+// On a connection whose sessions share one connection, a read the chat
+// runs would join the user's open transaction: it is refused.
+func TestReadRefusedInUsersTransaction(t *testing.T) {
+	_, _, ed, _ := chatWith(t)
+	pool := ed.cn.DB()
+	sess, err := pool.Session(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	if _, err := sess.Exec(context.Background(), "BEGIN"); err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Rollback(context.Background())
+	_, _, _, err = fetch(context.Background(), pool, ed.cn.Config, "", "SELECT 1")
+	if err == nil || !strings.Contains(err.Error(), "transaction") {
+		t.Fatalf("read in the user's transaction: %v", err)
+	}
+}
+
+// Errors the agent reads hide the secrets they quote.
+func TestToolErrorsRedacted(t *testing.T) {
+	tool := redactErrors(agent.NewTool("x", "", nil, func(context.Context, struct{}) (agent.ToolResult, error) {
+		return agent.ErrorResult("failed: postgres://bob:hunter2secret@db/x"), nil
+	}))
+	res, err := tool.Handler(context.Background(), agent.ToolCallRequest{})
+	if err != nil || strings.Contains(res.Text(), "hunter2secret") {
+		t.Fatalf("not redacted: %q, %v", res.Text(), err)
+	}
+}

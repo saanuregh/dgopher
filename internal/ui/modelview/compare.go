@@ -1,6 +1,7 @@
 package modelview
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -71,6 +72,33 @@ func newCompareForm(t *Tab) *compareForm {
 	return f
 }
 
+// whyNotCompare says why Compare cannot run yet, "" when it can.
+func (f *compareForm) whyNotCompare() string {
+	switch {
+	case f.running:
+		return "Reading the schema…"
+	case f.with == withDatabase && f.chosenConn() == nil:
+		return "Choose a connection to compare with"
+	case f.with == withModel && len(f.models) == 0:
+		return "The project has no other model of this engine"
+	}
+	return ""
+}
+
+// whyNoMigration says why the migration cannot be opened or applied, ""
+// when it can.
+func whyNoMigration(differs, applying, readOnly bool) string {
+	switch {
+	case !differs:
+		return "Nothing differs: there is no migration"
+	case applying:
+		return "The migration is running"
+	case readOnly:
+		return "The connection is read-only"
+	}
+	return ""
+}
+
 func (f *compareForm) chosenConn() *connection.Conn {
 	i := slices.IndexFunc(f.conns, func(cn *connection.Conn) bool { return cn.Config.Name == f.conn })
 	if i < 0 {
@@ -136,8 +164,8 @@ func (t *Tab) compareView(c *ui.Context) {
 				if ui.Button(c, "Cancel").Clicked() {
 					f.open = false
 				}
-				ready := f.with == withDatabase && f.chosenConn() != nil || f.with == withModel && len(f.models) > 0
-				if widgets.Activated(c, ui.PrimaryButton(c, "Compare").Disabled(!ready || f.running)) {
+				why := f.whyNotCompare()
+				if widgets.Activated(c, ui.PrimaryButton(c, "Compare").Disabled(why != "").Tooltip(why)) {
 					t.runCompare(f)
 				}
 			})
@@ -371,13 +399,14 @@ func (t *Tab) migrationBar(c *ui.Context) {
 			}
 			return
 		}
-		if ui.Button(c, "Open as Script").Disabled(!differs || r.applying).Clicked() {
+		if ui.Button(c, "Open as Script").Disabled(!differs || r.applying).Tooltip(cmp.Or(whyNoMigration(differs, r.applying, false), "Open the migration in a new editor")).Clicked() {
 			if text, ok := t.migrationText(); ok {
 				t.h.NewQueryTab(r.conn, r.database, text)
 			}
 		}
-		if ui.PrimaryButton(c, "Apply…").Disabled(!differs || r.applying || r.conn.Config.ReadOnly).
-			Tooltip("Run the migration on " + r.conn.Config.Name + ", once you have reviewed it").Clicked() {
+		why := whyNoMigration(differs, r.applying, r.conn.Config.ReadOnly)
+		if ui.PrimaryButton(c, "Apply…").Disabled(why != "").
+			Tooltip(cmp.Or(why, "Run the migration on "+r.conn.Config.Name+", once you have reviewed it")).Clicked() {
 			t.applyMigration()
 		}
 	})

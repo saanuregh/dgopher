@@ -214,6 +214,27 @@ func (x *exportState) pathOf(name string) string {
 	return filepath.Join(db.ExpandPath(x.folder), expandPattern(x.pattern, name, x.src.Conn.Config.Name, time.Now())+"."+f.Extension())
 }
 
+// fileNameProblem says why the sources cannot each have a file of their
+// own, "" when they can: tables sharing a file would write over each other.
+func (x *exportState) fileNameProblem(srcs []ExportSource) string {
+	if x.clipboard || len(srcs) < 2 {
+		return ""
+	}
+	if !strings.Contains(x.pattern, "${table}") {
+		return "With more than one table, the file name needs ${table}, for each table to have a file of its own."
+	}
+	now, ext := time.Now(), "."+export.Format(x.format).Extension()
+	seen := map[string]string{}
+	for _, src := range srcs {
+		name := expandPattern(x.pattern, src.Name, x.src.Conn.Config.Name, now)
+		if other, ok := seen[name]; ok {
+			return fmt.Sprintf("%s and %s would both write %s: choose one of them only.", other, src.Name, name+ext)
+		}
+		seen[name] = src.Name
+	}
+	return ""
+}
+
 func ExportView(a Host, c *ui.Context) {
 	x := a.Dialogs().export
 	th := c.Theme()
@@ -237,6 +258,7 @@ func ExportView(a Host, c *ui.Context) {
 	if len(chosen) > 0 {
 		example = chosen[0]
 	}
+	nameProblem := x.fileNameProblem(chosen)
 	dlg := widgets.Modal(c, &x.open, func() {
 		ui.Column(c).Width(620).Gap(12).Children(func() {
 			ui.Text(c, x.title).FontSize(15).Bold().SingleLine()
@@ -320,7 +342,7 @@ func ExportView(a Host, c *ui.Context) {
 					})
 					ui.Field(c, "File name", func() {
 						ui.TextInput(c, &x.pattern).Font(widgets.MonoFont).FontSize(12.5)
-					}).Description(x.pathOf(example.Name) + "   (${table}, ${connection}, ${timestamp}, ${date})")
+					}).Description(x.pathOf(example.Name) + "   (${table}, ${connection}, ${timestamp}, ${date})").Error(nameProblem)
 					ui.Field(c, "", func() { ui.Checkbox(c, &x.openFolder, "Show the file when done") })
 				}
 			})
@@ -344,7 +366,7 @@ func ExportView(a Host, c *ui.Context) {
 						x.open = false
 					}
 				}
-				if widgets.Activated(c, ui.PrimaryButton(c, "Export").Disabled(x.running || len(chosen) == 0 || !x.all && x.src.RowsRead == nil)) {
+				if widgets.Activated(c, ui.PrimaryButton(c, "Export").Disabled(x.running || len(chosen) == 0 || nameProblem != "" || !x.all && x.src.RowsRead == nil)) {
 					runExport(a, x)
 				}
 			})
@@ -423,6 +445,10 @@ const exportPage = 5000
 func runExport(a Host, x *exportState) {
 	srcs := x.chosen()
 	f, toClip := export.Format(x.format), x.clipboard
+	if why := x.fileNameProblem(srcs); why != "" {
+		x.err = why
+		return
+	}
 	paths := make([]string, len(srcs))
 	for i, src := range srcs {
 		if toClip {

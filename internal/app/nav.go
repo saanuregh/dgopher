@@ -632,13 +632,25 @@ func (a *App) sidebar(c *ui.Context) {
 }
 
 // nodeKeys handles the keys of the node chosen in the navigator, as its
-// menu's items: a table's, or a project file's.
+// menu's items: a table's, a connection's, or a project file's.
 func (a *App) nodeKeys(c *ui.Context) {
 	l := &a.nav.tree.List
 	if a.nav.row < 0 || a.nav.row >= a.nav.tree.Rows() {
 		return
 	}
 	n := a.nav.tree.Item(a.nav.row)
+	if n.kind == nodeConn {
+		// As DBeaver: F4 edits a connection, Delete deletes it once agreed.
+		if cn := a.connByID(n.conn); cn != nil {
+			switch {
+			case keymap.ListPressed(c, l, keymap.NavigatorStructure):
+				a.openConnForm(cn)
+			case keymap.ListPressed(c, l, keymap.NavigatorDrop):
+				a.askDeleteConn(cn)
+			}
+		}
+		return
+	}
 	if p := a.projectByDir(n.projectDir); p != nil {
 		if rename, del := a.fileActions(p, n); rename != nil {
 			switch {

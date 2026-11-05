@@ -269,7 +269,7 @@ func unwrapExecutable(sql string, q quoting, s executableServer) string {
 			b.WriteString(sql[i : i+2+end+2])
 			i += 2 + end + 1
 			continue
-		case at(i, "-- ") || at(i, "--\t") || at(i, "--\n") || c == '#':
+		case startsLineComment(sql, i, MySQL):
 			for ; i < len(sql) && sql[i] != '\n'; i++ {
 				b.WriteByte(sql[i])
 			}

@@ -169,3 +169,33 @@ func TestModelKeepsFlavorsConnection(t *testing.T) {
 	}
 	testutil.WaitFor(t, tt, "the connection", func() bool { return cn.Status == connection.StatusFailed })
 }
+
+// Disabled buttons say why they are disabled.
+func TestDisabledReasons(t *testing.T) {
+	f := &compareForm{with: withDatabase}
+	if why := f.whyNotCompare(); !strings.Contains(why, "connection") {
+		t.Fatalf("Compare: %q", why)
+	}
+	f.running = true
+	if why := f.whyNotCompare(); why == "" {
+		t.Fatal("Compare while running: no reason")
+	}
+	if why := whyNoMigration(false, false, false); !strings.Contains(why, "differs") {
+		t.Fatalf("no difference: %q", why)
+	}
+	if why := whyNoMigration(true, true, false); why == "" {
+		t.Fatal("applying: no reason")
+	}
+	if why := whyNoMigration(true, false, true); !strings.Contains(why, "read-only") {
+		t.Fatalf("read-only: %q", why)
+	}
+	if why := whyNoMigration(true, false, false); why != "" {
+		t.Fatalf("enabled: %q", why)
+	}
+	if why := whyNotUpdate(true, true); why == "" {
+		t.Fatal("updating: no reason")
+	}
+	if why := whyNotUpdate(false, false); !strings.Contains(why, "connection") {
+		t.Fatalf("no source: %q", why)
+	}
+}

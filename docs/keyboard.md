@@ -28,6 +28,7 @@ action by the name keymap.json gives it, as `editor::Run`.
 | ⌘N | New connection |
 | ⌘O | Open a SQL script |
 | ⌘W | Close the tab |
+| ⇧⌘W | Close every tab of the group but the pinned ones |
 | ⇧⌘T | Reopen the tab closed last |
 | ⌘1…⌘8 | Go to tab 1 to 8 of the group |
 | ⌘9 | Go to the last tab of the group |
@@ -72,8 +73,8 @@ Keys marked *fixed* below cannot be changed.
 | ⌘R | Read the schema again |
 | ⌘C | Copy the table's name, quoted |
 | F2 | Rename the table |
-| F4 | The table's structure |
-| Delete | A `DROP` of the table, in a new editor to review and run; on a query file, dashboard or data model, delete it |
+| F4 | The table's structure; on a connection, edit it |
+| Delete | A `DROP` of the table, in a new editor to review and run; on a connection, query file, dashboard or data model, delete it once you agree |
 | ↑, ↓ (fixed) | Move; type a name's first letters to jump to it |
 | →, ← (fixed) | Open or close |
 | ↵ (fixed) | Connect, or open a table's data |
@@ -112,7 +113,7 @@ Keys marked *fixed* below cannot be changed.
 | ⌥⇧↑, ⌥⇧↓ | Duplicate the line up or down |
 | ⌘⇧K | Delete the line |
 | ⌃G | Go to a line |
-| Esc (fixed) | Cancel the running statement |
+| Esc | Cancel the running statement; while the editor has a use for Esc, as to leave Vim's insert mode or close the completions or the find bar, it goes there first |
 | ⌘S | Save now (editors also save as you type) |
 | ⌘⇧S | Save as a file |
 | ⌘K ⌘N | Show the editor as a notebook of cells, or as one script |

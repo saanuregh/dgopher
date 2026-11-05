@@ -44,8 +44,9 @@ These always ask, in every environment:
 - `DROP` and `TRUNCATE`.
 - Replacing a table, as `CREATE OR REPLACE TABLE`.
 - `UPDATE` or `DELETE` without a `WHERE`, or with one that is always true:
-  `WHERE 1=1`, `WHERE TRUE`, `id = id`, `1=1 AND 2=2`, MySQL's `&&`, and
-  casts such as `TRUE::bool` or `CAST(1 AS bool)`. This includes such a
+  `WHERE 1=1`, `WHERE TRUE`, `id = id`, `t.id = id`, `1=1 AND 2=2`,
+  MySQL's `&&`, `1 IN (1)`, `1 BETWEEN 0 AND 2`, `NULL IS NULL`, and casts
+  such as `TRUE::bool` or `CAST(1 AS bool)`. This includes such a
   statement inside a `WITH`.
 - ClickHouse `ALTER`s that lose rows: `CLEAR COLUMN`, `MODIFY TTL`,
   `MATERIALIZE TTL`, `REPLACE PARTITION`, `DETACH PARTITION` and
@@ -189,8 +190,8 @@ below), or that cannot run in a transaction.
 ### Closing, disconnecting and quitting
 
 - **An open transaction.** Closing a tab, disconnecting, removing a
-  project or quitting asks first: Commit, Roll Back, or Cancel. Commit and
-  Roll Back then do what you asked, as in Commit and Quit.
+  project or quitting asks first: Cancel, Roll Back or Commit. Roll Back
+  and Commit end the transaction, then do what you asked.
 - **Work in progress.** Disconnecting, removing a project, deleting a
   connection or quitting while work runs on the connection lists that work
   and what stopping it loses, and asks. This covers Run SQL File, imports,

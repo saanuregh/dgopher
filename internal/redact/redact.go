@@ -41,8 +41,11 @@ var passwordKey = regexp.MustCompile(`(?i)(?:password|pwd|passwd|accountkey|moth
 var bearerToken = regexp.MustCompile(`(?i)\bbearer\s+([^\s'",}]+)`)
 
 // urlPassword finds the password of a URL's user information, as in
-// postgres://user:password@host.
-var urlPassword = regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.\-]*://[^\s:/@'"]*:)([^\s@/]+)@`)
+// postgres://user:password@host. The password runs to the last @ before a
+// quote or the end of the line, as it may hold /, @ or spaces unencoded,
+// unless what follows the colon is a port: digits then / or a space, as
+// in https://host:8080/a@b.
+var urlPassword = regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.\-]*://[^\s:/@'"]*:)([^\s'"/]*[^\s'"/0-9][^'"\r\n]*|[0-9]+)@`)
 
 // credentialFunctions take credentials among their arguments: their
 // strings are redacted whole.

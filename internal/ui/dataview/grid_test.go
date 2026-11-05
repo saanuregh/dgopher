@@ -371,7 +371,7 @@ func TestRecordViewEditsAndMoves(t *testing.T) {
 	}
 	g.startEdit(src, 1, 1)
 	g.editing.value = "bee"
-	g.commitEdit(src)
+	g.commitEdit(src, true)
 	if g.edits.updates[1][1] != db.Typed("bee") {
 		t.Fatal("an edit in the record is not pending")
 	}

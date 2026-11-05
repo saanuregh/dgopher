@@ -27,7 +27,7 @@ func alwaysTrue(toks []Token) bool {
 }
 
 // allTrue reports whether every part of a term's top-level AND always
-// holds. A BETWEEN's AND splits it into parts that do not.
+// holds.
 func allTrue(toks []Token) bool {
 	for _, part := range splitTop(toks, depths(toks), "AND") {
 		if !trueTerm(part) {
@@ -38,11 +38,20 @@ func allTrue(toks []Token) bool {
 }
 
 // splitTop splits tokens at a word outside parentheses; at AND, at
-// MySQL's && as well, which no other engine reads as a condition's.
+// MySQL's && as well, which no other engine reads as a condition's, but
+// not at the AND of a BETWEEN.
 func splitTop(toks []Token, dep []int, sep string) [][]Token {
 	var out [][]Token
 	start := 0
+	between := false
 	for i := 0; i <= len(toks); i++ {
+		if i < len(toks) && dep[i] == 0 && word(toks[i]) == "BETWEEN" {
+			between = true
+		}
+		if i < len(toks) && between && dep[i] == 0 && sep == "AND" && word(toks[i]) == "AND" {
+			between = false
+			continue
+		}
 		if i == len(toks) || dep[i] == 0 && (word(toks[i]) == sep || sep == "AND" && isOperator(toks[i], "&&")) {
 			out = append(out, toks[start:i])
 			start = i + 1
@@ -52,9 +61,10 @@ func splitTop(toks []Token, dep []int, sep string) [][]Token {
 }
 
 // trueTerm reports whether a condition without a top-level OR or AND
-// always holds: a constant true, a comparison of a thing with itself, or
-// a group in parentheses always true. Casts are read through: TRUE::bool
-// and CAST(1 AS int) are constants.
+// always holds: a constant true, a comparison of a thing with itself, a
+// constant IN, BETWEEN or IS NULL test that holds, or a group in
+// parentheses always true. Casts are read through: TRUE::bool and
+// CAST(1 AS int) are constants.
 func trueTerm(toks []Token) bool {
 	if len(toks) >= 2 && isPunct(toks[0], "(") && isPunct(toks[len(toks)-1], ")") && closes(toks) {
 		return alwaysTrue(toks[1 : len(toks)-1]) // a group may hold ORs and ANDs
@@ -66,7 +76,7 @@ func trueTerm(toks []Token) bool {
 		}
 		left, _ := stripCasts(toks[:i])
 		right, _ := stripCasts(toks[i+1:])
-		if !sameTokens(left, right) {
+		if !sameTokens(left, right) && !sameColumn(left, right) {
 			return constantsCompare(left, right, toks[i].Text)
 		}
 		switch toks[i].Text {
@@ -74,6 +84,15 @@ func trueTerm(toks []Token) bool {
 			return true
 		}
 		return false
+	}
+	if i := topLevelIndex(toks, "BETWEEN"); i > 0 {
+		return trueBetween(toks[:i], toks[i+1:])
+	}
+	if i := topLevelIndex(toks, "IN"); i > 0 {
+		return trueIn(toks[:i], toks[i+1:])
+	}
+	if i := topLevelIndex(toks, "IS"); i > 0 {
+		return trueIsNull(toks[:i], toks[i+1:])
 	}
 	if len(toks) > 1 && word(toks[0]) == "NOT" {
 		v, toBool := stripCasts(toks[1:])
@@ -210,6 +229,115 @@ func number(t Token) (*big.Rat, bool) {
 		return nil, false
 	}
 	return new(big.Rat).SetString(t.Text)
+}
+
+// trueBetween reports whether "left [NOT] BETWEEN rest" holds of
+// constants: 1 BETWEEN 0 AND 2.
+func trueBetween(left, rest []Token) bool {
+	not := len(left) > 1 && word(left[len(left)-1]) == "NOT"
+	if not {
+		left = left[:len(left)-1]
+	}
+	symmetric := len(rest) > 0 && word(rest[0]) == "SYMMETRIC"
+	if len(rest) > 0 && (symmetric || word(rest[0]) == "ASYMMETRIC") {
+		rest = rest[1:]
+	}
+	and := topLevelIndex(rest, "AND")
+	if and < 0 {
+		return false
+	}
+	x, xok := constantNumber(left)
+	lo, lok := constantNumber(rest[:and])
+	hi, hok := constantNumber(rest[and+1:])
+	if !xok || !lok || !hok {
+		return false
+	}
+	if symmetric && lo.Cmp(hi) > 0 {
+		lo, hi = hi, lo
+	}
+	return (lo.Cmp(x) <= 0 && x.Cmp(hi) <= 0) != not
+}
+
+// trueIn reports whether "left [NOT] IN (list)" holds: the list holds
+// left, as 1 IN (2, 1) or id IN (id), or, for NOT IN, only constants
+// that differ from a constant left.
+func trueIn(left, list []Token) bool {
+	not := len(left) > 1 && word(left[len(left)-1]) == "NOT"
+	if not {
+		left = left[:len(left)-1]
+	}
+	if len(list) < 3 || !isPunct(list[0], "(") || !isPunct(list[len(list)-1], ")") || !closes(list) {
+		return false
+	}
+	left, _ = stripCasts(left)
+	if len(left) == 1 && word(left[0]) == "NULL" {
+		return false // NULL IN (...) is NULL, never true
+	}
+	inner := list[1 : len(list)-1]
+	dep := depths(inner)
+	start := 0
+	for i := 0; i <= len(inner); i++ {
+		if i < len(inner) && (dep[i] != 0 || !isPunct(inner[i], ",")) {
+			continue
+		}
+		item, _ := stripCasts(inner[start:i])
+		start = i + 1
+		same := sameTokens(left, item) || sameColumn(left, item) || constantsCompare(left, item, "=")
+		switch {
+		case !not && same:
+			return true
+		case not && (same || !constantsCompare(left, item, "<>")):
+			return false
+		}
+	}
+	return not
+}
+
+// trueIsNull reports whether "left IS [NOT] NULL" holds of a constant:
+// NULL IS NULL, 1 IS NOT NULL.
+func trueIsNull(left, rest []Token) bool {
+	left, _ = stripCasts(left)
+	not := len(rest) > 0 && word(rest[0]) == "NOT"
+	if not {
+		rest = rest[1:]
+	}
+	if len(left) != 1 || len(rest) != 1 || word(rest[0]) != "NULL" {
+		return false
+	}
+	if not {
+		_, isNumber := number(left[0])
+		return isNumber || word(left[0]) == "TRUE" || word(left[0]) == "FALSE"
+	}
+	return word(left[0]) == "NULL"
+}
+
+// constantNumber is the number toks hold, read through casts.
+func constantNumber(toks []Token) (*big.Rat, bool) {
+	v, _ := stripCasts(toks)
+	if len(v) != 1 {
+		return nil, false
+	}
+	return number(v[0])
+}
+
+// sameColumn reports whether one side names a column by its qualified
+// name and the other by its name alone, as t.id and id: in an UPDATE's or
+// a DELETE's WHERE the bare name is the same column, or the server
+// rejects it as ambiguous.
+func sameColumn(a, b []Token) bool {
+	if len(a) < len(b) {
+		a, b = b, a
+	}
+	if len(b) != 1 || len(a) < 3 || len(a)%2 == 0 || !sameTokens(a[len(a)-1:], b) {
+		return false
+	}
+	for i, t := range a {
+		name := t.Kind == Identifier || t.Kind == QuotedIdent || t.Kind == Keyword
+		if i%2 == 0 && !name || i%2 == 1 && !isPunct(t, ".") {
+			return false
+		}
+	}
+	return true
 }
 
 // sameTokens reports whether two runs of tokens read alike: the same

@@ -90,7 +90,7 @@ type panelState struct {
 	shown   dataview.ChartSettings // the chart's settings as applied, or last saved
 	err     string
 	running bool
-	cancel  context.CancelFunc
+	cancel  context.CancelCauseFunc // its cause says what stopped the run
 	at      time.Time
 	took    time.Duration
 	runs    int // counts the runs: an older one's result is dropped
@@ -158,14 +158,21 @@ func (t *Tab) CloseReason() string { return "" }
 func (t *Tab) Close() {
 	t.saveIfDirty()
 	t.closed = true
-	t.stop()
+	t.stop(errClosed)
 }
 
-// stop cancels the panels' runs.
-func (t *Tab) stop() {
+// What stopped a panel's run, as the panel then says.
+var (
+	errClosed       = errors.New("the dashboard closed")
+	errReload       = errors.New("reload")
+	errQueryChanged = errors.New("query changed")
+)
+
+// stop cancels the panels' runs, for why.
+func (t *Tab) stop(why error) {
 	for _, p := range t.panels {
 		if p.cancel != nil {
-			p.cancel()
+			p.cancel(why)
 		}
 	}
 }
@@ -178,7 +185,7 @@ func (t *Tab) Reload() {
 		t.err = err.Error()
 		return
 	}
-	t.stop()
+	t.stop(errReload)
 	t.d, t.disk, t.panels, t.err, t.dirty = d, disk, nil, "", false
 	t.refresh = refreshLabel(d.Refresh)
 	t.syncPanels()
@@ -427,9 +434,9 @@ func (t *Tab) runPanel(i int, asked bool) {
 		return
 	}
 	if s.cancel != nil {
-		s.cancel() // a run of the query before it changed
+		s.cancel(errQueryChanged)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancelCause(context.Background())
 	s.running, s.cancel, s.err = true, cancel, ""
 	s.runs++
 	run0, pool, cfg, database := s.runs, cn.DB(), cn.Config, p.Database
@@ -438,21 +445,24 @@ func (t *Tab) runPanel(i int, asked bool) {
 			s.running, s.cancel = false, nil
 		}
 	}, func() func() {
-		defer cancel()
+		defer cancel(nil)
 		start := time.Now()
 		src, err := run(ctx, pool, cfg, database, prep)
 		took := time.Since(start)
 		audited(t.h, cfg, database, prep, src, took, err)
+		// A stopped run says what stopped it, rather than the driver's
+		// cancellation, which the audit log keeps.
+		var shown string
+		if err != nil {
+			shown = cmp.Or(stoppedText(ctx, err, panelTimeout(cfg)), err.Error())
+		}
 		return func() {
 			if run0 != s.runs {
 				return
 			}
 			s.running, s.cancel, s.at, s.took = false, nil, time.Now(), took
 			if err != nil {
-				if errors.Is(err, context.Canceled) {
-					err = errors.New("stopped")
-				}
-				s.err, s.src = widgets.Sentence(err.Error()), nil
+				s.err, s.src = widgets.Sentence(shown), nil
 				return
 			}
 			s.src, s.applied = src, false
@@ -713,7 +723,8 @@ func (t *Tab) panelView(c *ui.Context, i int, height float32) {
 							t.later = append(t.later, func() { t.dropNew(s) })
 						}
 					}
-					if ui.PrimaryButton(c, "Run and Keep").Disabled(strings.TrimSpace(s.sql) == "" || cn == nil).Clicked() {
+					why := whyNotRunAndKeep(s.sql, cn)
+					if ui.PrimaryButton(c, "Run and Keep").Disabled(why != "").Tooltip(why).Clicked() {
 						p.SQL, s.editSQL, s.isNew = s.sql, false, false
 						p.Connection, p.Database = strings.TrimPrefix(cn.Config.ID, t.Project.Prefix), s.database
 						t.save()

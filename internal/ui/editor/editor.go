@@ -304,6 +304,31 @@ func (e *Editor) input(ev ui.InputEvent) bool {
 	return e.Vim != nil && e.vimInput(ev)
 }
 
+// Escape gives the editor an Esc the window took first, as Cancel Query's
+// key, and reports whether it had a use for it: the owner's hook, as a
+// snippet's fields; Vim, to leave insert or visual mode or forget a
+// command half typed; else the editor, to close its completions, card or
+// find bar. The carets and the selection are the user's, not something
+// Esc closes: it leaves them as they were, and the key to the window.
+func (e *Editor) Escape() bool {
+	ev := ui.InputEvent{Kind: ui.InputKeyDown, Key: ui.KeyEscape}
+	if e.KeyHook != nil && e.KeyHook(ev) {
+		return true
+	}
+	if v := e.Vim; v != nil && (v.Mode != VimNormal || len(v.pending) > 0) {
+		return e.vimInput(ev)
+	}
+	before := e.State.Selections()
+	if !e.State.Run(code.Cancel) {
+		return false
+	}
+	if !slices.Equal(e.State.Selections(), before) {
+		e.State.SetSelections(before...)
+		return false
+	}
+	return true
+}
+
 // syncRunButtons puts a ▶ on the statements' lines, while there is Run.
 func (e *Editor) syncRunButtons(fontSize float32) {
 	st := &e.State

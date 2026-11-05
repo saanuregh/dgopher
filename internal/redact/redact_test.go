@@ -102,6 +102,10 @@ func TestRedactMoreSQL(t *testing.T) {
 		{`ATTACH 'postgres://u:urlpw77@h/db' AS p (TYPE postgres)`, "urlpw77", "AS p (TYPE postgres)"},
 		{`CREATE SUBSCRIPTION s CONNECTION 'postgresql://rep:subpw99@h:5432/d' PUBLICATION p`, "subpw99", "PUBLICATION p"},
 		{`SELECT 1 -- postgres://u:barepw1@h/db`, "barepw1", "SELECT 1 -- postgres://u:"},
+		// A URL's password may hold /, @ or a space, unencoded.
+		{`SELECT 1 -- postgres://u:sl/ashpw@h/db`, "ashpw", "@h/db"},
+		{`ATTACH 'postgres://u:at@signpw@h/db' AS p`, "signpw", "@h/db' AS p"},
+		{`ATTACH 'postgres://u:two wordpw@h/db' AS p`, "wordpw", "@h/db' AS p"},
 		{`ATTACH 'host=h user=u passwd=passwd77' AS p (TYPE postgres)`, "passwd77", "AS p (TYPE postgres)"},
 		{`CREATE SECRET az (TYPE azure, CONNECTION_STRING 'DefaultEndpointsProtocol=https;AccountName=acct;AccountKey=azkey123==;')`, "azkey123", "TYPE azure"},
 		{`CREATE SECRET h (TYPE http, EXTRA_HTTP_HEADERS MAP {'Authorization': 'Bearer tok999'})`, "tok999", "TYPE http"},
@@ -125,6 +129,8 @@ func TestRedactMoreSQL(t *testing.T) {
 	for _, s := range []string{
 		`SELECT 'C:\' AS p, 'it''s' FROM t WHERE x = 'y'`,
 		`SELECT 'https://example.com:8080/a@b' AS link`,
+		`SELECT 1 -- https://example.com:8080/a@b`,
+		`SELECT 'https://example.com:8080 a@b' AS link`,
 		`SELECT "connection_string", url FROM t`,
 		`SELECT MAP {'a': 1} AS m`,
 	} {

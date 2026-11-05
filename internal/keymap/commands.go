@@ -13,6 +13,7 @@ const (
 	OpenScript          = "workspace::Open"
 	AddFolder           = "workspace::AddFolderToProject"
 	CloseTab            = "pane::CloseActiveItem"
+	CloseAllTabs        = "pane::CloseAllItems"
 	ReopenTab           = "pane::ReopenClosedItem"
 	History             = "workspace::QueryHistory"
 	AuditLog            = "workspace::AuditLog"
@@ -59,6 +60,7 @@ const (
 	NavigatorDrop      = "navigator::Drop"
 
 	Run             = "editor::Run"
+	CancelQuery     = "editor::CancelQuery"
 	RunInNewTab     = "editor::RunInNewTab"
 	RunScript       = "editor::RunScript"
 	Explain         = "editor::Explain"
@@ -188,6 +190,7 @@ var Commands = []Command{
 	command(OpenScript, Global, "Open a SQL script", "cmd-o"),
 	command(AddFolder, Global, "Add an existing folder as a project"),
 	command(CloseTab, Global, "Close the tab", "cmd-w"),
+	command(CloseAllTabs, Global, "Close every tab of the group but the pinned ones", "cmd-shift-w"),
 	command(ReopenTab, Global, "Reopen the tab closed last", "cmd-shift-t"),
 	command(History, Global, "Query history", "cmd-y"),
 	command(AuditLog, Global, "Audit log", "cmd-shift-a"),
@@ -236,6 +239,7 @@ var Commands = []Command{
 	command(Run, Editor, "Run the statement at the caret (blank lines and ; end it), or the selection", "cmd-enter", "f5"),
 	command(RunInNewTab, Editor, "Run it into a new result tab, keeping the results shown", "cmd-alt-\\"),
 	command(RunScript, Editor, "Run the whole script; in a notebook, the whole cell", "cmd-shift-enter", "alt-x"),
+	command(CancelQuery, Editor, "Cancel the running statement; Esc goes to the editor first, as to leave Vim's insert mode", "escape"),
 	command(Explain, Editor, "Explain the statement", "cmd-e"),
 	command(ExplainAnalyze, Editor, "Explain and analyze the statement, running it", "cmd-shift-e"),
 	command(Format, Editor, "Format the SQL", "cmd-shift-f"),
@@ -341,7 +345,6 @@ var Fixed = []struct {
 	{Navigator, "↑ ↓", "Move; type a name's first letters to jump to it"},
 	{Navigator, "→ ←", "Open or close"},
 	{Navigator, "↵", "Connect, or open a table's data"},
-	{Editor, "Esc", "Cancel the running statement"},
 	{Chat, "↵", "Send; ⇧↵ for a new line"},
 	{Grid, "↑ ↓ ← →", "Move between cells"},
 	{Grid, "↵  or  F2", "Edit the cell"},

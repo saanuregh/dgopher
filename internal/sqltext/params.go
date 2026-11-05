@@ -22,9 +22,10 @@ type Parameter struct {
 
 // Params finds :name and ${name} outside strings, comments, quoted identifiers
 // and dollar quotes; also {name:Type} in ClickHouse, and @name and $name in
-// SQLite; in Oracle :1 too. A ':' inside [ ] is an array slice, and in MySQL and
-// ClickHouse a ':' directly after a name (such as {id:UInt32}) is part of
-// it, as in T-SQL, where it ends a label. An Oracle CREATE has no :name
+// SQLite; in Oracle :1 too. A ':' inside a subscript's [ ] is an array
+// slice, but not inside ARRAY[ ] or a list's [ ]; in MySQL and ClickHouse
+// a ':' directly after a name (such as {id:UInt32}) is part of it, as in
+// T-SQL, where it ends a label. An Oracle CREATE has no :name
 // parameter: DDL takes no bind variables, and a trigger's :new and :old
 // name its rows.
 func Params(stmt string, d Dialect) []Parameter {
@@ -39,17 +40,25 @@ func Params(stmt string, d Dialect) []Parameter {
 			}
 		}
 	}
-	brackets := 0
+	// slices holds, per open '[', whether it is a subscript, where a ':'
+	// is a slice, not an array's or a list's elements.
+	var slices []bool
+	var prev, last Token
 	skipUntil := 0
 	for i, t := range toks {
+		if significant(t) {
+			prev, last = last, t
+		}
 		if t.Start < skipUntil {
 			continue
 		}
 		switch {
 		case isPunct(t, "["):
-			brackets++
+			slices = append(slices, subscripted(prev) && word(prev) != "ARRAY")
 		case isPunct(t, "]"):
-			brackets--
+			if len(slices) > 0 {
+				slices = slices[:len(slices)-1]
+			}
 		case t.Text == "$" && t.End < len(stmt) && stmt[t.End] == '{':
 			for j := t.End + 1; j < len(stmt); j++ {
 				if stmt[j] == '}' {
@@ -68,7 +77,7 @@ func Params(stmt string, d Dialect) []Parameter {
 			n := toks[i+1]
 			out = append(out, Parameter{Name: n.Text, Start: t.Start, End: n.End, Kind: ParamNamed, Sigil: rune(stmt[t.Start])})
 			skipUntil = n.End
-		case t.Kind == Param && stmt[t.Start] == ':' && brackets <= 0 && !ddl:
+		case t.Kind == Param && stmt[t.Start] == ':' && (len(slices) == 0 || !slices[len(slices)-1]) && !ddl:
 			if (d == MySQL || d == ClickHouse || d == TSQL) && i > 0 && toks[i-1].End == t.Start &&
 				(toks[i-1].Kind == Identifier || toks[i-1].Kind == Keyword || toks[i-1].Kind == QuotedIdent) {
 				continue

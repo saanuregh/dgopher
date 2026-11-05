@@ -79,8 +79,10 @@ type result struct {
 type message struct {
 	at   time.Time
 	text string
-	sql  string
-	err  bool
+	// detail is more of what text says, shown on hover.
+	detail string
+	sql    string
+	err    bool
 }
 
 // Tab is a SQL editor with its results, on a session of its own.
@@ -156,6 +158,13 @@ type Tab struct {
 	staleFrom int
 	cancel    context.CancelFunc
 	StartedAt time.Time
+	// ongoing is the statements' run going on, nil for none; stopping is
+	// set once Stop or Cancel Query asked it to end.
+	ongoing  *runState
+	stopping bool
+	// lastRunFailed is whether the run that ended last had an error of its
+	// own, which stops Run All.
+	lastRunFailed bool
 	// runReads is whether the run reads rows, which a skeleton stands for
 	// while it lasts.
 	runReads bool
@@ -385,7 +394,7 @@ func (q *Tab) Close() {
 		q.a.Record(&q.Conn.Config, audit.Event{Kind: audit.KindStatement, Database: q.Database, Statement: "ROLLBACK", Detail: "the tab closed with its transaction open"})
 	}
 	closers := releaseResults(q.allResults())
-	cancel, sess := q.cancel, q.sess
+	cancel, sess, name := q.cancel, q.sess, q.Name
 	go func() {
 		defer dataview.RecoverBackground(q.a.Post, q.a.ShowReport, nil)
 		for _, close := range closers {
@@ -393,7 +402,7 @@ func (q *Tab) Close() {
 		}
 		connection.CloseThenCancel(nil, cancel)
 		if sess != nil {
-			sess.Close()
+			dataview.CloseSession(q.a, name, sess)
 		}
 	}()
 }
@@ -747,6 +756,9 @@ func (q *Tab) runLine(line int) {
 // Run runs statements of the editor, through the safety policy, once
 // the results it replaces have no changes pending.
 func (q *Tab) Run(mode RunMode) {
+	if q.nb != nil {
+		q.nb.fromRunAll = q.nb.fromQueue
+	}
 	if q.Running || q.refuseWhileResultsWork() || q.refuseAnotherConnection() {
 		return // a chart's run going on stays the chart's
 	}
@@ -801,7 +813,7 @@ func (q *Tab) Run(mode RunMode) {
 func (q *Tab) refuseWhileResultsWork() bool {
 	why := q.resultsWork()
 	if why != "" {
-		q.a.ShowError("Not run", why)
+		q.refuse("Not run: " + why)
 	}
 	return why != ""
 }
@@ -840,7 +852,7 @@ func (q *Tab) run(mode RunMode) {
 		if explaining(mode) && q.Editor.SelectedText() != "" {
 			msg = "Select one statement to explain."
 		}
-		q.note(msg, "", true)
+		q.refuse(msg)
 		q.cellSkipped()
 		return
 	}
@@ -1036,7 +1048,8 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 	}
 	if q.sessionLost {
 		q.sessionLost = false
-		q.note("The connection was closed while idle and made again: USE, search_path, role, variables and temporary tables were reset. Run the statement again to run it on the new connection.", "", true)
+		q.noteDetail("The connection was closed while idle and opened again: run again to use it.",
+			"The new session has none of what the old one had set: USE, search_path, role, variables and temporary tables.", "", true)
 		return
 	}
 	// The context lives as long as the cursors of the results it reads:
@@ -1044,6 +1057,8 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 	oldCancel := q.cancel
 	ctx, cancel := context.WithCancel(context.Background())
 	q.Running, q.cancel, q.StartedAt = true, cancel, time.Now()
+	run := &runState{}
+	q.ongoing, q.stopping, q.lastRunFailed = run, false, false
 	q.runReads = slices.ContainsFunc(stmts, func(s safety.Statement) bool { return s.Analysis.Class == sqltext.Read })
 	q.showResults() // a run shows what it returns
 	// A run replaces the results, but those pinned and, run into a new
@@ -1079,8 +1094,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 		q.stale, q.staleIdx, q.staleFrom = q.results, q.resultIdx, len(kept)
 	}
 	q.results = kept
-	firstNew := len(kept)
-	q.resultIdx = firstNew
+	q.resultIdx = len(kept)
 	timeout := time.Duration(q.Conn.Config.StatementTimeout) * time.Second
 	continueOnError := q.a.Settings().ContinueOnError
 	changeLimit := q.a.Settings().ChangeLimit
@@ -1091,9 +1105,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 	dialect := q.Editor.Dialect
 	// A USE may move the session to another database; once moved, every
 	// run reads where it is.
-	readsDatabase := q.movedTo != "" || slices.ContainsFunc(stmts, func(s safety.Statement) bool {
-		return strings.Contains(strings.ToUpper(s.SQL), "USE")
-	})
+	readsDatabase := q.movedTo != "" || mayMoveDatabase(stmts, dialect)
 	purpose := ""
 	if q.chartAsk != nil {
 		purpose = chartPurpose // the chart's run, as Run drops one left over
@@ -1108,7 +1120,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 		if sess == nil {
 			if sess, err = connection.OpenSession(ctx, pool, database); err != nil {
 				q.a.Post(func() {
-					q.Running = false
+					q.Running, q.ongoing, q.lastRunFailed = false, nil, true
 					q.note(err.Error(), "", true)
 					q.runEnded()
 				})
@@ -1177,7 +1189,9 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 					break
 				}
 				if !reopens {
-					q.a.Post(func() { q.note("Manual commit: opened a transaction. Commit or roll back when done.", "", false) })
+					q.a.Post(func() {
+						q.noteDetail("Manual commit: opened a transaction.", "Commit or roll back when done.", "", false)
+					})
 				}
 				fresh, reopens = true, false
 			}
@@ -1359,12 +1373,12 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 				if res.rowsMode && cursor != nil {
 					res.view = q.newView(res, cursor, first, done, stop)
 				}
-				q.results = append(q.results, res)
+				q.addRunResults(run, res)
 				for _, f := range following {
 					more := &result{sql: res.sql, verb: res.verb, stmt: s, start: s.Start, skip: s.Skip, rowsMode: true,
 						tableWhy: batchResultReason, elapsed: res.elapsed, plan: f.plan, advice: f.advice}
 					more.view = q.newView(more, f.cursor, f.first, f.done, nil)
-					q.results = append(q.results, more)
+					q.addRunResults(run, more)
 				}
 				// The values it ran with: a run takes those kept without
 				// asking.
@@ -1398,7 +1412,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 						verb = "The statement"
 					}
 					q.a.Post(func() {
-						q.note(verb+" committed the transaction: Roll Back will not undo what ran before it. A new one opens before the next write.", s.SQL, false)
+						q.noteDetail(verb+" committed the transaction.", "Roll Back will not undo what ran before it. A new one opens before the next write.", s.SQL, false)
 					})
 					reopens = true
 				}
@@ -1411,7 +1425,8 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 			lost := errors.Is(err, db.ErrSessionReset) || errors.Is(err, db.ErrTxLost)
 			if lost && continueOnError && i < len(stmts)-1 {
 				q.a.Post(func() {
-					q.note(fmt.Sprintf("Stopped after statement %d of %d, though errors are skipped: the connection was lost, and the rest would run on a new connection without what the lost one had set or its open transaction.", i+1, len(stmts)), "", true)
+					q.noteDetail(fmt.Sprintf("Stopped after statement %d of %d: the connection was lost.", i+1, len(stmts)),
+						"Errors are skipped, but the rest would run on a new connection, without what the lost one had set or its open transaction.", "", true)
 				})
 			}
 			if err != nil && (!continueOnError || lost || errors.Is(err, errDeclined)) {
@@ -1434,51 +1449,37 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 			}
 		}
 		q.a.Post(func() {
-			q.Running = false
+			q.Running, q.ongoing, q.lastRunFailed = false, nil, run.failed()
 			if schema != "" {
 				q.schema = schema
 			}
 			q.setTx(own, inside)
 			q.autocommitOff = autocommitOff
 			if tracked {
-				q.noteMoved(sessionDB, q.results[firstNew:])
-			}
-			// A statement's cursor closes as the next one runs: those
-			// results end where they were read.
-			for i, r := range q.results {
-				if i >= firstNew && i < len(q.results)-1 && r.view != nil {
-					r.view.CutShort()
-				}
+				q.noteMoved(sessionDB, run.results)
 			}
 			q.runsShown++
-			// Show the error, else the last result with rows, else the
-			// messages.
-			q.resultIdx = len(q.results)
-			for i := len(q.results) - 1; i >= firstNew; i-- {
-				if q.results[i].rowsMode && q.results[i].err == "" {
-					q.resultIdx = i
-					break
-				}
-			}
-			// Explain's plan, after the rows of Explain Analyze.
-			for i := firstNew; explain != nil && i < len(q.results); i++ {
-				if q.results[i].plan != nil {
-					q.resultIdx = i
-					break
-				}
-			}
-			for i, r := range q.results[firstNew:] {
-				if r.err != "" {
-					i += firstNew
-					q.resultIdx = i
-					break
-				}
-			}
+			q.showRunResults(run, explain != nil)
 			refreshAfterDDL(q.Conn, stmts)
-			q.notifyRun(len(stmts), q.results[firstNew:])
+			q.notifyRun(len(stmts), run.results)
 			q.runEnded()
 		})
 	}()
+}
+
+// mayMoveDatabase reports whether a statement may move the session to
+// another database: it has the word USE, anywhere, as a T-SQL batch or a
+// procedure's body may, but in a name, a string or a comment.
+func mayMoveDatabase(stmts []safety.Statement, d sqltext.Dialect) bool {
+	return slices.ContainsFunc(stmts, func(s safety.Statement) bool {
+		// Only text holding the letters is lexed; ToUpper folds as EqualFold does.
+		if !strings.Contains(strings.ToUpper(s.SQL), "USE") {
+			return false
+		}
+		return slices.ContainsFunc(sqltext.Tokenize(s.SQL, d), func(t sqltext.Token) bool {
+			return (t.Kind == sqltext.Keyword || t.Kind == sqltext.Identifier) && strings.EqualFold(t.Text, "USE")
+		})
+	})
 }
 
 // noteMoved follows the database the session works in, read after a run:
@@ -1491,8 +1492,8 @@ func (q *Tab) noteMoved(sessionDB string, results []*result) {
 		return
 	}
 	if !strings.EqualFold(sessionDB, q.movedTo) {
-		q.note(fmt.Sprintf("The session works in %s now, not in the editor's database %s: rows read there are not edited. USE %s, or switch the editor's database, to edit them.",
-			sessionDB, database, database), "", false)
+		q.noteDetail(fmt.Sprintf("The session works in %s now: rows read there are not edited.", sessionDB),
+			fmt.Sprintf("The editor's database is %s. USE %s, or switch the editor's database, to edit them.", database, database), "", false)
 	}
 	q.movedTo = sessionDB
 	for _, r := range results {
@@ -1589,10 +1590,22 @@ func affectedLabel(n int64) string {
 	return widgets.Count(n, "row") + " affected"
 }
 
-func (q *Tab) note(text, sql string, isErr bool) {
-	q.messages = append(q.messages, message{at: time.Now(), text: text, sql: sql, err: isErr})
+func (q *Tab) note(text, sql string, isErr bool) { q.noteDetail(text, "", sql, isErr) }
+
+// noteDetail notes a short sentence, with more of it shown on hover.
+func (q *Tab) noteDetail(text, detail, sql string, isErr bool) {
+	q.messages = append(q.messages, message{at: time.Now(), text: text, detail: detail, sql: sql, err: isErr})
 	if isErr {
 		q.resultIdx = len(q.results)
+	}
+}
+
+// refuse says why nothing ran: in Output, and where the user looks, as a
+// toast; not for each cell Run All goes past.
+func (q *Tab) refuse(why string) {
+	q.note(why, "", true)
+	if q.nb == nil || !q.nb.fromRunAll {
+		q.a.Toast(why, "", nil)
 	}
 }
 
@@ -1696,6 +1709,9 @@ func (q *Tab) View(c *ui.Context) {
 		c.Announce(q.messages[len(q.messages)-1].text)
 	}
 	q.wasRunning = q.Running
+	if !q.Running {
+		q.stopping = false
+	}
 	if q.pressed(c, keymap.ToggleNotebook) {
 		q.ToggleNotebook()
 	}
@@ -1768,11 +1784,8 @@ func (q *Tab) View(c *ui.Context) {
 	if q.pressed(c, keymap.Explain) {
 		q.Run(RunExplain)
 	}
-	if q.Running && q.key(c, 0, ui.KeyEscape) && q.cancel != nil {
-		if q.nb != nil {
-			q.nb.queue = nil // the cells after it do not run
-		}
-		q.cancel()
+	if q.Running {
+		q.cancelQueryKey(c)
 	}
 	if q.pressed(c, keymap.Save) {
 		q.save()
@@ -1825,9 +1838,7 @@ func (q *Tab) body(c *ui.Context) {
 			case q.nb != nil:
 				q.notebookBar(c)
 			case q.Running && widgets.Lasted(c, q.StartedAt):
-				if widgets.LeadToolButton(c.Key("run"), widgets.IconStop, "Stop", "Stop the running statement (Esc)", c.Theme().Danger).Clicked() && q.cancel != nil {
-					q.cancel()
-				}
+				q.stopButton(c, "Stop the running statement")
 			default:
 				if widgets.LeadToolButton(c.Key("run"), widgets.IconPlay, "Run", keymap.Hint("Run statement", keymap.Run), c.Theme().Success).Clicked() {
 					q.Run(RunStatement)
@@ -2349,6 +2360,9 @@ func (q *Tab) messagesView(c *ui.Context) {
 						txt := ui.Text(c, m.text).Selectable().Grow(1).Shrink(1)
 						if m.err {
 							txt.TextColor(t.Danger)
+						}
+						if m.detail != "" {
+							txt.Tooltip(m.detail)
 						}
 					})
 					if m.sql != "" {

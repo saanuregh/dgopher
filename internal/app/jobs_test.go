@@ -447,8 +447,8 @@ func TestDisconnectCancelsJobs(t *testing.T) {
 	}
 	a.closing = nil
 	finish()
-	if len(a.losses(cn)) != 0 {
-		t.Fatalf("a finished job is still listed: %q", a.losses(cn))
+	if r := a.endPrompt(endDisconnect, "", "", a.tabsOf(cn), []*connection.Conn{cn}); r != nil {
+		t.Fatalf("a finished job is still listed: %q", r.reason)
 	}
 }
 

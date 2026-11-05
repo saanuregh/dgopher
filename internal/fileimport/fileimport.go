@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"dgopher/internal/db"
@@ -156,20 +157,33 @@ func (f *File) load(ctx context.Context, opt Options) error {
 	}
 	lit := quoteString(path)
 	var from string
+	// with is the source read with one more option, for a CSV or JSON
+	// file, whose types DuckDB guesses.
+	var with func(option string) string
 	switch f.Format {
 	case CSV:
-		from, err = f.csvSource(ctx, lit, opt)
+		args, err := f.csvArgs(ctx, lit, opt)
 		if err != nil {
 			return err
 		}
+		from = "read_csv(" + strings.Join(args, ", ") + ")"
+		with = func(option string) string {
+			return "read_csv(" + strings.Join(append(slices.Clip(args), option), ", ") + ")"
+		}
 	case JSON:
 		from = "read_json(" + lit + ", format = 'auto')"
+		with = func(option string) string { return "read_json(" + lit + ", format = 'auto', " + option + ")" }
 	case Parquet:
 		from = "read_parquet(" + lit + ")"
 	}
 	cols, err := describe(ctx, f.db, "SELECT * FROM "+from)
 	if err != nil {
 		return err
+	}
+	if with != nil && !opt.AllText {
+		if from, err = f.keepWideIntegers(ctx, f.Format, cols, from, with); err != nil {
+			return err
+		}
 	}
 	if len(cols) > export.ExcelMaxColumns {
 		return fmt.Errorf("%s has %d columns; an import takes at most %d", filepath.Base(f.Path), len(cols), export.ExcelMaxColumns)
@@ -218,14 +232,82 @@ func (f *File) readablePath() (string, error) {
 	return link, nil
 }
 
-// csvSource reads a CSV file as given, finding out what is not: its
-// delimiter and whether its first row names the columns.
-func (f *File) csvSource(ctx context.Context, lit string, opt Options) (string, error) {
+// keepWideIntegers reads as text a column DuckDB guessed DOUBLE that holds
+// an integer past 64 bits, whose digits a DOUBLE would round. It returns
+// the source to read, and sets those columns' type to VARCHAR.
+func (f *File) keepWideIntegers(ctx context.Context, format Format, cols []Column, from string, with func(string) string) (string, error) {
+	var doubles []int
+	for i, c := range cols {
+		if c.Type == "DOUBLE" || c.Type == "FLOAT" {
+			doubles = append(doubles, i)
+		}
+	}
+	if len(doubles) == 0 {
+		return from, nil
+	}
+	types := func(text func(i int) bool) string {
+		parts := make([]string, len(cols))
+		for i, c := range cols {
+			t := c.Type
+			if text(i) {
+				t = "VARCHAR"
+			}
+			parts[i] = quoteString(c.Name) + ": " + quoteString(t)
+		}
+		return "{" + strings.Join(parts, ", ") + "}"
+	}
+	textual := with("all_varchar = true")
+	if format == JSON {
+		textual = with("columns = " + types(func(int) bool { return true }))
+	}
+	sel := make([]string, len(doubles))
+	for k, i := range doubles {
+		col := quoteIdent(cols[i].Name)
+		sel[k] = "count(*) FILTER (WHERE regexp_full_match(trim(" + col + "), '[+-]?[0-9]+') AND TRY_CAST(" + col + " AS BIGINT) IS NULL)"
+	}
+	counts := make([]int64, len(sel))
+	ptrs := make([]any, len(sel))
+	for i := range counts {
+		ptrs[i] = &counts[i]
+	}
+	if err := f.db.QueryRowContext(ctx, "SELECT "+strings.Join(sel, ", ")+" FROM "+textual).Scan(ptrs...); err != nil {
+		return "", err
+	}
+	wide := map[int]bool{}
+	for k, i := range doubles {
+		if counts[k] > 0 {
+			wide[i] = true
+		}
+	}
+	if len(wide) == 0 {
+		return from, nil
+	}
+	var out string
+	if format == JSON {
+		out = with("columns = " + types(func(i int) bool { return wide[i] }))
+	} else {
+		var parts []string
+		for i := range wide {
+			parts = append(parts, quoteString(cols[i].Name)+": 'VARCHAR'")
+		}
+		slices.Sort(parts)
+		out = with("types = {" + strings.Join(parts, ", ") + "}")
+	}
+	for i := range wide {
+		cols[i].Type = "VARCHAR"
+	}
+	return out, nil
+}
+
+// csvArgs are the arguments of read_csv for a CSV file read as given,
+// finding out what is not: its delimiter and whether its first row names
+// the columns.
+func (f *File) csvArgs(ctx context.Context, lit string, opt Options) ([]string, error) {
 	var delim string
 	var header bool
 	err := f.db.QueryRowContext(ctx, "SELECT Delimiter, HasHeader FROM sniff_csv("+lit+")").Scan(&delim, &header)
 	if err != nil {
-		return "", fmt.Errorf("reading %s as CSV: %w", filepath.Base(f.Path), err)
+		return nil, fmt.Errorf("reading %s as CSV: %w", filepath.Base(f.Path), err)
 	}
 	f.Delimiter, f.HasHeader = []rune(delim + ",")[0], header
 	if opt.Delimiter != 0 {
@@ -241,7 +323,7 @@ func (f *File) csvSource(ctx context.Context, lit string, opt Options) (string, 
 	if opt.AllText {
 		args = append(args, "all_varchar = true")
 	}
-	return "read_csv(" + strings.Join(args, ", ") + ")", nil
+	return args, nil
 }
 
 // Close forgets the file.

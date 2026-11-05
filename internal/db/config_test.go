@@ -215,3 +215,16 @@ func TestClickHouseProtocol(t *testing.T) {
 		t.Errorf("a protocol on PostgreSQL: %v", err)
 	}
 }
+
+// The SSH server's port is checked as the database's is: 0 takes SSH's
+// default, anything outside 1–65535 is refused.
+func TestValidateSSHPort(t *testing.T) {
+	for port, ok := range map[int]bool{0: true, 22: true, 65535: true, -1: false, 65536: false, 222222: false} {
+		cfg := Config{Name: "x", Engine: Postgres, Host: "db", User: "u",
+			SSH: SSHConfig{Enabled: true, Host: "bastion", User: "deploy", Port: port}}
+		err := cfg.Validate()
+		if (err == nil) != ok || !ok && !strings.Contains(err.Error(), "SSH port") {
+			t.Errorf("SSH port %d: %v", port, err)
+		}
+	}
+}

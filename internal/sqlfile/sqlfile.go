@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"regexp"
 	"strings"
 
 	"dgopher/internal/sqltext"
@@ -77,8 +76,30 @@ func (r *Reader) more(n int) error {
 	return err
 }
 
-// copyStdin matches a COPY statement whose rows follow it in the file.
-var copyStdin = regexp.MustCompile(`(?is)^\s*COPY\b.*\bFROM\s+STDIN\b`)
+// copiesStdin reports whether stmt is a COPY whose rows follow it in the
+// file: its words, not those of its strings and comments, start with COPY
+// and hold FROM STDIN.
+func copiesStdin(stmt string) bool {
+	var words []string
+	for _, t := range sqltext.Tokenize(stmt, sqltext.Postgres) {
+		switch t.Kind {
+		case sqltext.Whitespace, sqltext.Comment:
+		case sqltext.Keyword, sqltext.Identifier:
+			words = append(words, strings.ToUpper(t.Text))
+		default:
+			words = append(words, "")
+		}
+	}
+	if len(words) == 0 || words[0] != "COPY" {
+		return false
+	}
+	for i := 1; i+1 < len(words); i++ {
+		if words[i] == "FROM" && words[i+1] == "STDIN" {
+			return true
+		}
+	}
+	return false
+}
 
 // Next returns the next statement, io.EOF at the end of the file. The
 // rows of a COPY statement not read by Data are skipped.
@@ -154,7 +175,7 @@ func (r *Reader) fill() error {
 		advance(s.Start)
 		st := Statement{SQL: s.Text, Line: line}
 		queued++
-		if r.dialect == sqltext.Postgres && copyStdin.MatchString(s.Text) {
+		if r.dialect == sqltext.Postgres && copiesStdin(s.Text) {
 			// Its rows start on the line after its semicolon.
 			advance(s.End)
 			rest := r.pending[at:]
@@ -188,7 +209,7 @@ func (r *Reader) fill() error {
 // run: the file stops there.
 func (r *Reader) skipPsqlCommands() error {
 	for {
-		body := stripComments(r.pending)
+		body := stripComments(r.pending, r.dialect)
 		if !strings.HasPrefix(body, `\`) {
 			return nil
 		}
@@ -222,18 +243,27 @@ func (r *Reader) moreOfLine() error {
 	return r.more(max(chunk, len(r.pending)))
 }
 
-// stripComments drops the blank lines and -- comments text starts with.
-func stripComments(text string) string {
+// stripComments drops the blank lines and comments text starts with, as
+// d reads them; one not read to its end yet stays.
+func stripComments(text string, d sqltext.Dialect) string {
 	for {
 		t := strings.TrimLeft(text, " \t\r\n")
-		if !strings.HasPrefix(t, "--") {
+		switch {
+		case strings.HasPrefix(t, "--"):
+			nl := strings.IndexByte(t, '\n')
+			if nl < 0 {
+				return t
+			}
+			text = t[nl+1:]
+		case strings.HasPrefix(t, "/*"):
+			c := sqltext.Tokenize(t, d)[0]
+			if c.Kind != sqltext.Comment || len(c.Text) < len("/**/") || !strings.HasSuffix(c.Text, "*/") {
+				return t
+			}
+			text = t[c.End:]
+		default:
 			return t
 		}
-		nl := strings.IndexByte(t, '\n')
-		if nl < 0 {
-			return t // a comment not read to its end yet
-		}
-		text = t[nl+1:]
 	}
 }
 

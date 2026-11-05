@@ -291,3 +291,35 @@ func TestPrefixAcrossContexts(t *testing.T) {
 		t.Fatalf("errors %v", errs)
 	}
 }
+
+// Cancel Query is Esc in the editor, which may be changed; Close All Tabs
+// is ⇧⌘W anywhere. Neither is another's key.
+func TestCancelQueryAndCloseAllKeys(t *testing.T) {
+	for id, want := range map[string]Binding{
+		CancelQuery:  {Keys: Of(0, ui.KeyEscape), Scope: Editor},
+		CloseAllTabs: {Keys: Of(ui.Cmd|ui.Shift, ui.KeyW), Scope: Global},
+	} {
+		cmd, ok := Lookup(id)
+		if !ok || len(cmd.Default) != 1 || cmd.Default[0] != want {
+			t.Errorf("%s: %+v", id, cmd.Default)
+		}
+		if other, ok := Conflict(id, want.Keys); ok {
+			t.Errorf("%s: the key of %s", id, other.ID)
+		}
+	}
+	if slices.ContainsFunc(Fixed, func(f struct {
+		Scope      Scope
+		Keys, Does string
+	}) bool {
+		return f.Scope == Editor && f.Keys == "Esc"
+	}) {
+		t.Error("Esc is still fixed in the editor")
+	}
+	// Esc alone is an action's in the editor alone: elsewhere it closes and
+	// forgets.
+	for _, id := range []string{Palette, NavigatorRefresh, Copy, ChatStop, ConfirmDialog} {
+		if Allowed(id, Of(0, ui.KeyEscape)) == nil {
+			t.Errorf("Esc allowed for %s", id)
+		}
+	}
+}

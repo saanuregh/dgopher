@@ -68,8 +68,12 @@ func TestProjectsLoadAndPersist(t *testing.T) {
 	if len(b.projectConns(b.projects[0])) != 1 || len(b.projectConns(b.projects[1])) != 1 {
 		t.Fatalf("connections after a restart: %d", len(b.conns))
 	}
-	// Removing one forgets it, without touching its folder.
+	// Removing one asks, then forgets it, without touching its folder.
 	b.removeProject(b.projects[0])
+	if b.closing == nil {
+		t.Fatal("removed without asking")
+	}
+	b.closing.onClose()
 	if len(b.projects) != 1 || len(b.conns) != 1 || len(b.settings.Projects) != 1 {
 		t.Fatalf("after removing: %d projects, %d conns", len(b.projects), len(b.conns))
 	}

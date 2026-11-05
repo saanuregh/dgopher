@@ -334,6 +334,11 @@ func TestRedisModules(t *testing.T) {
 	if err := tt.Click("Remove Chosen"); err != nil {
 		t.Fatal(err)
 	}
+	if a.Confirm == nil {
+		t.Fatal("Remove Chosen does not ask")
+	}
+	a.Confirm.OnConfirm()
+	a.Confirm = nil
 	testutil.WaitFor(t, tt, "the removal", func() bool { return !r.loadingKey && len(r.fields) == 2 })
 
 	r.open("vec")

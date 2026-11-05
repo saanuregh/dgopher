@@ -50,21 +50,24 @@ type Tab struct {
 	treeKey  int                 // len(keys) the tree was built for
 	treeSep  string              // the separator it was built with
 
-	selected   string
-	info       db.KeyInfo
-	value      string
-	whole      bool // value is the whole string, not its start
-	strView    decodeView
-	itemView   decodeView // the chosen item's
-	itemName   string     // the item itemView and itemRaw were made for
-	itemValue  string
-	itemRaw    string // the chosen item's value as stored, as shown
-	fields     []db.Field
-	itemsPos   db.ItemsPos
-	itemsDone  bool
-	loadingKey bool
-	keyErr     string
-	valueGen   int
+	selected  string
+	info      db.KeyInfo
+	value     string
+	whole     bool // value is the whole string, not its start
+	strView   decodeView
+	itemView  decodeView // the chosen item's
+	itemName  string     // the item itemView and itemRaw were made for
+	itemValue string
+	itemRaw   string // the chosen item's value as stored, as shown
+	binaryHex string // a string that is not UTF-8, as hex; "" for text
+	// serverVersion is Redis's version, read once a string is saved.
+	serverVersion string
+	fields        []db.Field
+	itemsPos      db.ItemsPos
+	itemsDone     bool
+	loadingKey    bool
+	keyErr        string
+	valueGen      int
 
 	editValue string
 	editDirty bool
@@ -78,6 +81,7 @@ type Tab struct {
 	newValue  string
 	newScore  string
 	ttlIn     string
+	ttlErr    string // why the TTL typed was not set
 	fieldTTL  string // seconds, for the chosen hash field
 	renameIn  string
 	renaming  bool
@@ -174,6 +178,9 @@ func (r *Tab) rescan() {
 	r.scan()
 }
 
+// scanTimeout bounds a scan's batch of keys.
+var scanTimeout = 30 * time.Second
+
 // scan reads the next keys, a thousand at a time, without blocking the
 // server as KEYS would.
 func (r *Tab) scan() {
@@ -185,7 +192,7 @@ func (r *Tab) scan() {
 	cursor, pattern := r.cursor, r.pattern
 	typ := typeOf(r.typeFilter)
 	dataview.BackgroundResetOnPanic(r.a, func() { r.scanning = false }, func() func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), scanTimeout)
 		defer cancel()
 		var found []string
 		var done bool
@@ -198,14 +205,19 @@ func (r *Tab) scan() {
 				break
 			}
 		}
-		size, _ := kv.DBSize(ctx)
+		// Counted apart: the scan may have used up its time.
+		sizeCtx, cancelSize := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelSize()
+		size, _ := kv.DBSize(sizeCtx)
 		return func() {
 			r.scanning = false
 			r.dbsize = size
+			r.scanErr = ""
 			if err != nil {
 				r.scanErr = err.Error()
-				return
 			}
+			// The keys found before an error are kept, and Scan More goes
+			// on from the last batch read.
 			for _, k := range found {
 				if !r.keySet[k] {
 					r.keySet[k] = true
@@ -213,7 +225,7 @@ func (r *Tab) scan() {
 				}
 			}
 			r.cursor = cursor
-			r.scanDone = done
+			r.scanDone = done && err == nil
 		}
 	})
 }
@@ -303,17 +315,17 @@ func (r *Tab) loadKey() {
 		return func() {
 			// Whole when shorter than asked: the length read before may
 			// be of another moment.
-			r.info, r.value, r.whole = info, value, len(value) < stringStart
+			r.info = info
+			r.setStringValue(value, len(value) < stringStart)
 			r.strView = newDecodeView(value)
 			// An element's vector and attributes, and a series' samples,
 			// are read again too.
 			r.vector, r.series.readFor = vectorState{}, ""
 			r.fields, r.itemsPos, r.itemsDone = nil, pos, done
 			r.addItems(fields)
-			r.editValue, r.editDirty = widgets.TextStart(value, stringStart), false
-			r.ttlIn = ""
+			r.ttlIn, r.ttlErr = "", ""
 			if info.TTL > 0 {
-				r.ttlIn = strconv.Itoa(int(info.TTL.Seconds()))
+				r.ttlIn = strconv.Itoa(int((info.TTL + time.Second - 1) / time.Second))
 			}
 		}, err
 	})
@@ -327,11 +339,13 @@ func readPage(ctx context.Context, kv *db.KV, key, typ string, pos db.ItemsPos) 
 		return fields, next, done, err
 	}
 	names := lists.Map(fields, func(f db.Field) string { return f.Name })
-	ttls, err := kv.FieldTTLs(ctx, key, names)
+	// Without the times to live, as a user denied HPTTL reads it, the
+	// fields still show.
+	ttls, _ := kv.FieldTTLs(ctx, key, names)
 	for i := range ttls {
 		fields[i].TTL = ttls[i]
 	}
-	return fields, next, done, err
+	return fields, next, done, nil
 }
 
 // addItems adds read items to those shown, but for those a scan gave
@@ -389,7 +403,7 @@ func (r *Tab) loadWhole() {
 	kv, key := r.conn.KV(), r.selected
 	r.loadLatest(func() bool { return gen == r.valueGen }, &r.loadingKey, &r.keyErr, 60*time.Second, func(ctx context.Context) (func(), error) {
 		value, err := kv.ReadString(ctx, key, 0)
-		return func() { r.value, r.whole, r.editValue, r.editDirty = value, true, value, false }, err
+		return func() { r.setStringValue(value, true) }, err
 	})
 }
 
@@ -419,8 +433,36 @@ func (r *Tab) loadLatest(current func() bool, loading *bool, errText *string, ti
 }
 
 // write runs a command through the safety policy, then reloads the key.
-func (r *Tab) write(args []string, then func()) {
+func (r *Tab) write(args []string, then func()) { r.review(args, nil, "", then) }
+
+// writeAsking is write, asking first on every environment, for reason.
+func (r *Tab) writeAsking(args []string, reason string, then func()) {
+	r.review(args, nil, reason, then)
+}
+
+// review runs a command through the safety policy, asking first for ask
+// when it is set, then reloads the key; fallback runs instead when the
+// server does not know the command.
+func (r *Tab) review(args, fallback []string, ask string, then func()) {
 	v := safety.ReviewRedis(&r.conn.Config, r.conn.KV(), args)
+	// The fallback is reviewed too: it runs under the same answer.
+	if fallback != nil {
+		switch fv := safety.ReviewRedis(&r.conn.Config, r.conn.KV(), fallback); {
+		case fv.Blocked != "":
+			fallback = nil
+		case fv.Confirm:
+			v.Confirm = true
+			for _, reason := range fv.Reasons {
+				if !slices.Contains(v.Reasons, reason) {
+					v.Reasons = append(v.Reasons, reason)
+				}
+			}
+		}
+	}
+	if ask != "" && v.Blocked == "" {
+		v.Confirm = true
+		v.Reasons = append([]string{ask}, v.Reasons...)
+	}
 	if v.Blocked != "" {
 		r.a.RecordBlocked(r.conn, v.Blocked, redact.Redis(args))
 		r.a.ShowError("Not allowed", v.Blocked)
@@ -434,6 +476,12 @@ func (r *Tab) write(args []string, then func()) {
 			start := time.Now()
 			out, err := kv.Do(ctx, args)
 			r.a.RecordRun(cfg, audit.KindCommand, cfg.Database, redact.Redis(args), -1, time.Since(start), err)
+			if err != nil && fallback != nil && strings.Contains(strings.ToLower(err.Error()), "unknown command") {
+				args = fallback
+				start = time.Now()
+				out, err = kv.Do(ctx, args)
+				r.a.RecordRun(cfg, audit.KindCommand, cfg.Database, redact.Redis(args), -1, time.Since(start), err)
+			}
 			if err == nil && strings.EqualFold(args[0], "RENAMENX") && out == int64(0) {
 				err = fmt.Errorf("a key named %s already exists: nothing was renamed", args[2])
 			}
@@ -584,7 +632,9 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 // askDelete deletes a key once the user agrees.
 func (r *Tab) askDelete(key string) {
 	r.a.AskDiscard("Delete "+key+"?", "The key and its value are removed from "+r.conn.Config.Name+".", "Delete", func() {
-		r.write([]string{"DEL", key}, func() {
+		// UNLINK frees the value's memory aside; servers before 4 lack it.
+		// A server before Redis 4 knows DEL alone.
+		r.review([]string{"UNLINK", key}, []string{"DEL", key}, "", func() {
 			delete(r.keySet, key)
 			if i := slices.Index(r.keys, key); i >= 0 {
 				r.keys = slices.Delete(r.keys, i, i+1)
@@ -667,13 +717,19 @@ func (r *Tab) keyView(c *ui.Context, a Host) {
 					ui.Text(c, "This key no longer exists.").FontSize(12).TextColor(th.Warning)
 				}
 				ui.Spacer(c)
+				if r.ttlErr != "" {
+					ui.Text(c, r.ttlErr).FontSize(12).TextColor(th.Danger)
+				}
 				if !r.conn.Config.ReadOnly {
 					ui.TextInput(c, &r.ttlIn).Placeholder("TTL seconds").Width(110).FontSize(12).Label("TTL in seconds")
 					if ui.Button(c, "Set TTL").Clicked() {
+						r.ttlErr = ""
 						if secs, err := strconv.Atoi(strings.TrimSpace(r.ttlIn)); err == nil && secs > 0 {
 							r.write([]string{"EXPIRE", r.selected, strconv.Itoa(secs)}, r.loadKey)
 						} else if strings.TrimSpace(r.ttlIn) == "" {
 							r.write([]string{"PERSIST", r.selected}, r.loadKey)
+						} else {
+							r.ttlErr = ttlInvalid
 						}
 					}
 				}
@@ -703,6 +759,15 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 			if r.whole && r.strView.view(c, r.value, "Value", r.a.Background) {
 				return
 			}
+			loadAll := func(c *ui.Context) {
+				if !r.whole && ui.Button(c, "Load All").Disabled(r.loadingKey).Clicked() {
+					r.askLoadWhole()
+				}
+			}
+			if r.binaryHex != "" {
+				r.binaryView(c, loadAll)
+				return
+			}
 			// A string shown in part is not saved: its rest would go.
 			area := &r.valueArea
 			area.Label, area.Language, area.ReadOnly = "Value", editor.LanguageDetected, ro || !r.whole
@@ -718,10 +783,8 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 						note += " It looks like " + string(f) + ": loaded whole, it shows decoded."
 					}
 					ui.Text(c, note).FontSize(12).TextColor(pal.Muted).Shrink(1)
-					if ui.Button(c, "Load All").Disabled(r.loadingKey).Clicked() {
-						r.loadWhole()
-					}
 				}
+				loadAll(c)
 				if pretty := dataview.PrettyValue(r.editValue); pretty != r.editValue && ui.Button(c, "Format JSON").Clicked() {
 					r.editValue = pretty
 					r.editDirty = r.editValue != r.value
@@ -732,8 +795,7 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 						r.editValue, r.editDirty = r.value, false
 					}
 					if widgets.Appear(ui.PrimaryButton(c.Key("value-save"), "Save")).Clicked() || a.KeysTo(r) && keymap.Pressed(c, keymap.Save) {
-						args := []string{"SET", key, r.editValue, "KEEPTTL"}
-						r.write(args, r.loadKey)
+						r.saveString(key, r.editValue)
 					}
 				}
 			})
@@ -823,7 +885,12 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 			ui.TextInput(c, &r.newName).Placeholder("Field").Width(160).Label("Field")
 			ui.TextInput(c, &r.newValue).Placeholder("Value").Grow(1).Label("Value")
 			if ui.Button(c, "Set").Clicked() && r.newName != "" {
-				r.write([]string{"HSET", key, r.newName, r.newValue}, func() { r.newName, r.newValue = "", ""; r.loadKey() })
+				args, then := []string{"HSET", key, r.newName, r.newValue}, func() { r.newName, r.newValue = "", ""; r.loadKey() }
+				if slices.ContainsFunc(r.fields, func(f db.Field) bool { return f.Name == r.newName }) {
+					r.writeAsking(args, "The field "+r.newName+" exists: its value is replaced.", then)
+				} else {
+					r.write(args, then)
+				}
 			}
 			if r.fieldRow >= 0 && r.fieldRow < len(r.fields) && r.conn.KV().FieldExpiry() {
 				field := r.fields[r.fieldRow].Name
@@ -843,7 +910,8 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 				r.write([]string{"RPUSH", key, r.newValue}, func() { r.newValue = ""; r.loadKey() })
 			}
 			if r.fieldRow >= 0 && r.fieldRow < len(r.fields) && ui.Button(c, "Replace Chosen").Clicked() {
-				r.write([]string{"LSET", key, r.fields[r.fieldRow].Name, r.newValue}, func() { r.newValue = ""; r.loadKey() })
+				f := r.fields[r.fieldRow]
+				r.write([]string{"EVAL", replaceListItem, "1", key, f.Name, f.Value, r.newValue}, func() { r.newValue = ""; r.loadKey() })
 			}
 		case "set":
 			ui.TextInput(c, &r.newValue).Placeholder("Member").Grow(1).Label("Member")
@@ -902,7 +970,7 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 			case "zset":
 				args = []string{"ZREM", key, f.Value}
 			}
-			r.write(args, r.loadKey)
+			r.writeAsking(args, "The chosen item is removed from "+key+".", r.loadKey)
 		}
 	})
 }
@@ -943,6 +1011,11 @@ if v ~= ARGV[2] then return redis.error_reply('the list changed: reload it') end
 local mark = '\0dgopher-removed\0'
 redis.call('LSET', KEYS[1], ARGV[1], mark)
 return redis.call('LREM', KEYS[1], 1, mark)`
+
+// replaceListItem sets the item of a list at an index, when it still
+// holds the value shown.
+const replaceListItem = `if redis.call('LINDEX', KEYS[1], ARGV[1]) ~= ARGV[2] then return redis.error_reply('the list changed: reload it') end
+return redis.call('LSET', KEYS[1], ARGV[1], ARGV[3])`
 
 // addEntry adds an entry to the stream shown: its fields typed as the
 // console takes arguments, by pairs.

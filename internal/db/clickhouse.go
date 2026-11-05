@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -689,3 +690,14 @@ func (clickhouseEngine) messagesSQL() string                    { return "" }
 func (clickhouseEngine) transactionStateAndMessagesSQL() string { return "" }
 func (clickhouseEngine) TakesEffectAtOnce(string) bool          { return false }
 func (clickhouseEngine) BooleanLiteral(b bool) string           { return booleanWord(b) }
+
+// NonFiniteLiteral: ClickHouse reads nan, inf and -inf as numbers.
+func (clickhouseEngine) NonFiniteLiteral(f float64) string {
+	switch {
+	case math.IsNaN(f):
+		return "nan"
+	case f > 0:
+		return "inf"
+	}
+	return "-inf"
+}

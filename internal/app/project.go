@@ -122,13 +122,14 @@ func (a *App) adoptProject(p *project.Project, pc project.Config, i int) {
 	a.ScanQueries(p, true)
 }
 
-// removeProject takes a project off the sidebar, once its tabs may close.
-// Its folder is not touched.
+// removeProject takes a project off the sidebar, once the user agrees to
+// close its tabs. Its folder is not touched.
 func (a *App) removeProject(p *project.Project) {
-	a.requestDisconnect("Remove "+p.Name+" from the sidebar?", "Remove", a.projectConns(p), func() { a.dropProject(p) })
+	a.requestEnd(endRemove, "Remove "+p.Name+" from the sidebar?", "Remove", a.projectTabs(p), a.projectConns(p), func() { a.dropProject(p) })
 }
 
-// dropProject forgets a project: its connections, tabs and audit log.
+// dropProject forgets a project: its connections, tabs (its dashboards
+// and data models too) and audit log.
 func (a *App) dropProject(p *project.Project) int {
 	if p.Err == "" {
 		a.saveWorkspaceOf(p)
@@ -138,6 +139,10 @@ func (a *App) dropProject(p *project.Project) int {
 			a.closeConnection(a.conns[i])
 			a.conns = slices.Delete(a.conns, i, i+1)
 		}
+	}
+	for _, t := range a.projectTabs(p) {
+		a.removeTab(t)
+		t.Close()
 	}
 	a.auditMu.Lock()
 	delete(a.recordProjects, p.Prefix)
@@ -158,9 +163,9 @@ func (a *App) dropProject(p *project.Project) int {
 }
 
 // reloadProject reads a project's folder again, as after a git pull,
-// once its tabs may close.
+// once its tabs may close: they open again on the project read anew.
 func (a *App) reloadProject(p *project.Project) {
-	a.requestDisconnect("Reload "+p.Name+"?", "Reload", a.projectConns(p), func() {
+	a.requestEnd(endReload, "Reload "+p.Name+"?", "Reload", a.projectTabs(p), a.projectConns(p), func() {
 		i := a.dropProject(p)
 		q, pc, err := project.Load(p.Dir, false)
 		if err != nil {

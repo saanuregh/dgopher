@@ -354,8 +354,8 @@ func (d timescaledbDialect) ItemDDL(ctx context.Context, q Querier, it Item) (st
 		if it.ID == "" {
 			return fmt.Sprintf("-- DGopher lists the newest %d chunks of a schema; timescaledb_information.chunks lists them all.\n", timescaleChunkItems), nil
 		}
-		return fmt.Sprintf("-- %s holds the rows of %s with %s. TimescaleDB makes chunks as rows arrive; drop_chunks, compress_chunk and decompress_chunk act on them.\n",
-			it.ID, QualifiedName(d, it.Schema, it.Table), it.Detail), nil
+		return sqltext.LineComment(fmt.Sprintf("%s holds the rows of %s with %s. TimescaleDB makes chunks as rows arrive; drop_chunks, compress_chunk and decompress_chunk act on them.",
+			it.ID, QualifiedName(d, it.Schema, it.Table), it.Detail)) + "\n", nil
 	case ItemJob:
 		var job timescaleJob
 		found := false
@@ -410,16 +410,37 @@ func (j timescaleJob) definition() string {
 		var config map[string]json.RawMessage
 		if err := json.Unmarshal([]byte(j.config), &config); err == nil {
 			args := []string{quoteString(j.relation)}
+			written := true
 			for _, key := range policyKeys(config, policy.keys) {
-				args = append(args, key+" => "+policyValue(key, config[key]))
+				value, ok := policyValue(key, config[key])
+				if !ok || !plainPolicyKey(key) {
+					written = false
+					break
+				}
+				args = append(args, key+" => "+value)
 			}
-			if policy.schedule {
-				args = append(args, "schedule_interval => "+every)
+			if written {
+				if policy.schedule {
+					args = append(args, "schedule_interval => "+every)
+				}
+				return fmt.Sprintf("SELECT %s(%s);", policy.add, strings.Join(args, ", "))
 			}
-			return fmt.Sprintf("SELECT %s(%s);", policy.add, strings.Join(args, ", "))
 		}
 	}
-	return fmt.Sprintf("-- TimescaleDB runs %s.%s on %s every %s, with %s; DGopher cannot write the statement that makes it.", j.procSchema, j.proc, j.relation, j.schedule, j.config)
+	return sqltext.LineComment(fmt.Sprintf("TimescaleDB runs %s.%s on %s every %s, with %s; DGopher cannot write the statement that makes it.", j.procSchema, j.proc, j.relation, j.schedule, j.config))
+}
+
+// plainPolicyKey reports whether a configuration key can be written as
+// the name of an argument as it is: lower-case letters, digits and
+// underscores, not starting with a digit. Any other key is not an
+// argument of the add function, and would run as SQL.
+func plainPolicyKey(key string) bool {
+	for i, r := range key {
+		if !(r >= 'a' && r <= 'z' || r == '_' || i > 0 && r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return key != ""
 }
 
 // policyKeys are the keys of a policy's configuration its add function
@@ -443,16 +464,27 @@ func policyKeys(config map[string]json.RawMessage, first []string) []string {
 
 // policyValue writes a configuration value as its add function takes it:
 // a number or a truth as it is, an index's name as a string, any other
-// string as an interval.
-func policyValue(key string, v json.RawMessage) string {
+// string as an interval; false for an object, an array, or anything else
+// that would not be a value of SQL.
+func policyValue(key string, v json.RawMessage) (string, bool) {
 	var s string
-	if len(v) == 0 || v[0] != '"' || json.Unmarshal(v, &s) != nil {
-		return strings.ToUpper(string(v)) // a number, a truth or null
+	if len(v) > 0 && v[0] == '"' {
+		if json.Unmarshal(v, &s) != nil {
+			return "", false
+		}
+		if key == "index_name" {
+			return quoteString(s), true
+		}
+		return "INTERVAL " + quoteString(s), true
 	}
-	if key == "index_name" {
-		return quoteString(s)
+	var n json.Number
+	switch text := string(v); {
+	case text == "true" || text == "false" || text == "null":
+		return strings.ToUpper(text), true
+	case json.Unmarshal(v, &n) == nil:
+		return n.String(), true
 	}
-	return "INTERVAL " + quoteString(s)
+	return "", false
 }
 
 // timescaledbEngine is TimescaleDB: PostgreSQL's rules but for its name, how it is

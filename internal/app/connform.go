@@ -376,11 +376,15 @@ func (a *App) connFormView(c *ui.Context) {
 				a.testConnection(f)
 			}
 			if !f.testing && f.testResult != "" {
+				// A failure shows in full below, to read and copy.
+				line := widgets.FirstLine(f.testResult)
 				col := t.Danger
 				if f.testOK {
 					col = t.Success
+				} else {
+					line = "Test failed"
 				}
-				ui.Text(c, widgets.FirstLine(f.testResult)).TextColor(col).SingleLine().Shrink(1).Tooltip(f.testResult)
+				ui.Text(c, line).TextColor(col).SingleLine().Shrink(1).Tooltip(f.testResult)
 			}
 			if s := f.testServer; !f.testing && s.mismatches(engineByLabel(f.engine)) && ui.Button(c, "Use "+s.engine.Label()).Clicked() {
 				setFormEngine(f, s.engine)
@@ -397,8 +401,13 @@ func (a *App) connFormView(c *ui.Context) {
 				a.saveConnForm(f, true)
 			}
 		})
+		if !f.testing && !f.testOK && f.testResult != "" {
+			ui.Scroll(c).MaxHeight(140).Shrink(0).Children(func() {
+				ui.Text(c, f.testResult).TextColor(t.Danger).Selectable().Padding(0, 20, 12, 20)
+			})
+		}
 		if f.err != "" {
-			ui.Text(c, f.err).TextColor(t.Danger).Padding(0, 20, 12, 20)
+			ui.Text(c, f.err).TextColor(t.Danger).Selectable().Padding(0, 20, 12, 20)
 		}
 	})
 	f.dismiss.Keep(c, dlg, &f.open, f.inputs(), f.testing)
@@ -540,7 +549,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 				ui.TextInput(c, &f.cfg.Host).Placeholder(f.hostPlaceholder()).Grow(1).Label(hostLabel)
 				ui.TextInput(c, &f.port).Placeholder(strconv.Itoa(port)).Width(80).Label("Port")
 			})
-		})
+		}).Error(portProblem(f.port, "port"))
 		if more != "" {
 			ui.Field(c, more, func() {
 				ui.TextInput(c, &f.cfg.Redis.Nodes).Placeholder("10.0.0.2:" + strconv.Itoa(port) + ", 10.0.0.3:" + strconv.Itoa(port)).Font(widgets.MonoFont).FontSize(12.5)
@@ -716,7 +725,7 @@ func (a *App) networkPage(c *ui.Context, f *connForm) {
 			ui.TextInput(c, &f.cfg.SSH.Host).Placeholder("bastion.example.com").Grow(1)
 			ui.TextInput(c, &f.sshPort).Placeholder("22").Width(70).Label("SSH port")
 		})
-	})
+	}).Error(portProblem(f.sshPort, "SSH port"))
 	textField(c, "SSH user", &f.cfg.SSH.User, "ubuntu")
 	ui.Field(c, "Jump hosts", func() {
 		ui.TextInput(c, &f.cfg.SSH.Jump).Placeholder("none, or user@jump.example.com, jump2:2222").Grow(1)
@@ -990,7 +999,7 @@ func (a *App) testConnection(f *connForm) {
 		cfg.ID = "test"
 	}
 	if err := a.checkConnForm(f, &cfg); err != nil {
-		f.testResult, f.testOK = err.Error(), false
+		f.testResult, f.testOK, f.page = err.Error(), false, pageOf(err)
 		return
 	}
 	if f.editing != nil && !reconnectNeeded(f.loaded, cfg) {
@@ -1058,7 +1067,10 @@ func (a *App) runTest(f *connForm, cfg db.Config) {
 
 // checkConnForm says what keeps the form's connection from being saved.
 func (a *App) checkConnForm(f *connForm, cfg *db.Config) error {
-	if err := cfg.Validate(); err != nil {
+	if err := f.portsProblem(cfg.Engine); err != nil {
+		return err
+	}
+	if err := validateForm(cfg); err != nil {
 		return err
 	}
 	if f.project == nil || f.project.Err != "" {
@@ -1090,7 +1102,7 @@ func (a *App) checkConnForm(f *connForm, cfg *db.Config) error {
 		return errors.New("no system keychain is available to keep the sentinels' password")
 	}
 	if cfg.Proxy.Password != "" && !a.st.Secrets().Available() {
-		return errors.New("no system keychain is available to keep the proxy's password")
+		return formError{pageNetwork, errors.New("no system keychain is available to keep the proxy's password")}
 	}
 	return nil
 }
@@ -1098,7 +1110,7 @@ func (a *App) checkConnForm(f *connForm, cfg *db.Config) error {
 func (a *App) saveConnForm(f *connForm, connect bool) {
 	cfg := f.config()
 	if err := a.checkConnForm(f, &cfg); err != nil {
-		f.err = err.Error()
+		f.err, f.page = err.Error(), pageOf(err)
 		return
 	}
 	if cn := f.editing; cn != nil {
@@ -1465,7 +1477,7 @@ func (a *App) proxyFields(c *ui.Context, f *connForm) {
 			ui.TextInput(c, &f.cfg.Proxy.Host).Placeholder("proxy.example.com").Grow(1).Label("Proxy host")
 			ui.TextInput(c, &f.proxyPort).Placeholder("1080").Width(70).Label("Proxy port")
 		})
-	})
+	}).Error(portProblem(f.proxyPort, "proxy port"))
 	ui.Field(c, "Proxy user", func() {
 		ui.TextInput(c, &f.cfg.Proxy.User).Placeholder("none").Label("Proxy user")
 	})
