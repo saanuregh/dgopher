@@ -1,0 +1,25 @@
+#!/bin/sh
+# Checks a commit as CI does: gofmt of the staged Go files, with the Go of
+# go.mod (a gofmt on PATH may be another version and lay files out
+# differently), then go vet. Install it with the commands in
+# docs/development.md.
+set -eu
+
+files=$(git diff --cached --name-only --diff-filter=ACMR -- '*.go')
+[ -n "$files" ] || exit 0
+
+gofmt="$(go env GOROOT)/bin/gofmt"
+bad=""
+for f in $files; do
+	# The staged version, not the working tree's.
+	if [ -n "$(git show ":$f" | "$gofmt" -l)" ]; then
+		bad="$bad $f"
+	fi
+done
+if [ -n "$bad" ]; then
+	echo "pre-commit: not gofmt-formatted (run $gofmt -w on them):" >&2
+	for f in $bad; do echo "  $f" >&2; done
+	exit 1
+fi
+
+go vet ./...

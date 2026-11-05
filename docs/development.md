@@ -32,6 +32,17 @@ With Nix on Linux, `nix develop` gives a shell with Go, the GUI libraries
 the window loads, and `CGO_ENABLED=1` (see `flake.nix`). The flake covers
 `x86_64-linux` and `aarch64-linux` only.
 
+To check gofmt and `go vet` before each commit, as CI does, register
+`tools/githooks/pre-commit` as a pre-commit hook of your clone, with a
+Git that has config-based hooks (`git help hook`). It checks with the
+gofmt of `go.mod`'s Go, since a gofmt of another version may lay files
+out differently:
+
+```sh
+git config hook.dgopher-checks.command tools/githooks/pre-commit
+git config hook.dgopher-checks.event pre-commit
+```
+
 ## Build and run
 
 ```sh
@@ -359,3 +370,4 @@ see [Architecture](architecture.md#engines).
 | `internal/testutil` | shared test helpers: snapshots, waiting for frames, the integration servers, and the open-file check; `serverlock` serializes integration tests |
 | `tools/icon` | draws `resources/icon.png` |
 | `tools/licenses` | writes `resources/THIRD_PARTY_NOTICES.txt` |
+| `tools/githooks` | the optional pre-commit check (see [Set up](#set-up)) |
