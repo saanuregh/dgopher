@@ -231,7 +231,7 @@ func valueEditorView(a Host, c *ui.Context) {
 					e.text = e.choice
 				case formCalendar:
 					ui.Row(c).Gap(16).Children(func() {
-						ui.Calendar(c, &e.when).Disabled(!e.editable)
+						ui.Calendar(c, &e.when).Browse().Disabled(!e.editable)
 						if e.date.sep != 0 {
 							ui.TimeInput(c, &e.when).Label("Time").Disabled(!e.editable)
 						}

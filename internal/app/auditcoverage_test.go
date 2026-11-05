@@ -28,6 +28,7 @@ var notAudited = map[string]string{
 	"app/activity.go:activityTab.refresh":  "lists the server's running statements: server activity, no user rows",
 	"app/activity.go:redisActivity":        "reads INFO and CLIENT LIST: server activity, no user rows",
 	"app/app.go:App.startJobWaiting":       "sync.Once.Do, not a server call",
+	"app/run.go:showWhenDrawn":             "sync.Once.Do showing a window, not a server call",
 	"connection/readsession.go:readOn":     "its callers, the AI chat's read and the dashboard's audited, record the read",
 	"app/sample.go:makeSample":             "fills a new local SQLite file of sample data, which no server holds",
 	"ui/chat/chat.go:Chat.apply":           "agent.Transcript.Apply folds a chat's event into its transcript: no server call",

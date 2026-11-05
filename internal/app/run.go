@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"time"
 
 	"dgopher/internal/keymap"
 	"dgopher/internal/settings"
@@ -25,6 +27,21 @@ import (
 // system keychain.
 const keychainService = "DGopher"
 
+// showWithin is how long a window made Hidden waits for its first frame
+// before it shows anyway.
+const showWithin = 2 * time.Second
+
+// showWhenDrawn shows a window made Hidden once its first frame is drawn,
+// so it opens drawn rather than blank, or after showWithin if that never
+// comes, so a first frame that fails does not leave the app looking as if
+// it never started.
+func showWhenDrawn(w *mygo.Window) {
+	var once sync.Once
+	show := func() { once.Do(w.Show) }
+	w.OnReadyToShow(show)
+	time.AfterFunc(showWithin, show)
+}
+
 // Run opens the app window and runs until it quits. args are the
 // command-line arguments after the program name.
 func Run(args []string) error {
@@ -33,6 +50,7 @@ func Run(args []string) error {
 		return nil // the running app comes to the front
 	}
 	mygo.Use(native.Plugin)
+	availableUpdate = updater.AvailableVersion
 	dir, err := store.DefaultDir()
 	if err != nil {
 		return err
@@ -72,6 +90,8 @@ func Run(args []string) error {
 		a.watchProjects()
 		a.setOnline(mygo.Network.Status().Online)
 		mygo.Network.OnChanged(func(s mygo.NetworkStatus) { a.Post(func() { a.setOnline(s.Online) }) })
+		// The title bar's menu names an update a check found.
+		updater.OnChange(func() { a.Post(a.invalidate) })
 		win := mygo.NewWindow(mygo.WindowOptions{
 			Title:             "DGopher",
 			TitleBarStyle:     mygo.TitleBarHidden,
@@ -83,12 +103,14 @@ func Run(args []string) error {
 			MinHeight:         480,
 			StateKey:          "main",
 			Content:           ui.View(a.windowView(a.main)),
+			Hidden:            true,
 		})
 		a.main.native = win
 		a.followMaximized(a.main)
 		a.windowFocused = a.anyFocused
 		// The dialogs move to the window gaining the focus.
 		win.OnFocus(func() { a.lastFocused = a.main; a.invalidate() })
+		showWhenDrawn(win)
 		a.makeWindow = func(w *window) {
 			w.native = mygo.NewWindow(mygo.WindowOptions{
 				Title:             "DGopher",
@@ -100,6 +122,7 @@ func Run(args []string) error {
 				MinWidth:          560,
 				MinHeight:         360,
 				Content:           ui.View(a.windowView(w)),
+				Hidden:            true,
 			})
 			w.native.OnFocus(func() { a.lastFocused = w; a.invalidate() })
 			a.followMaximized(w)
@@ -110,6 +133,7 @@ func Run(args []string) error {
 					a.closeWindow(w)
 				}
 			})
+			showWhenDrawn(w.native)
 		}
 		if mygo.NotificationsSupported() {
 			a.notify = func(title, body string, onClick func()) {
