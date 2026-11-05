@@ -251,7 +251,7 @@ func (a *App) hoverCardsSetting(c *ui.Context) {
 			}
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, "Wait")
-				if ui.NumberInput(c, &delay, 100, 2000, 100).Width(90).Label("Wait before a card shows, in milliseconds").Changed() {
+				if ui.NumberInput(c, &delay, 100, 2000, 100).Label("Wait before a card shows, in milliseconds").Changed() {
 					p.DelayMs = int(delay)
 					a.SaveSettings()
 				}

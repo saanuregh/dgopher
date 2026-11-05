@@ -5,7 +5,10 @@ import (
 	"time"
 
 	"dgopher/internal/settings"
+	"dgopher/internal/testutil"
 	"dgopher/internal/ui/widgets"
+
+	"github.com/egoist/mygo/ui"
 )
 
 // Hover cards show everywhere after the default rest unless set
@@ -22,4 +25,16 @@ func TestHoverSettings(t *testing.T) {
 	if hoverSettings(settings.HoverCardPrefs{Off: true}).Shows(widgets.CardEditor) {
 		t.Fatal("off shows")
 	}
+}
+
+// The wait's number input keeps its − and + buttons clear of the text
+// after it. The setting is drawn alone, so that its stepper is the only
+// one Find sees.
+func TestHoverDelayInputFits(t *testing.T) {
+	a := newBareApp(t)
+	tt := ui.NewTester(func(c *ui.Context) {
+		ui.Form(c, func() { a.hoverCardsSetting(c) })
+	}, 640, 200)
+	stepperClearOf(t, tt, "ms before a card shows")
+	testutil.Snapshot(t, tt, "settings-hover-cards")
 }
