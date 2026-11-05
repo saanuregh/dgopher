@@ -122,8 +122,10 @@ separate decisions. The user can approve just the upgrade.
 1. In `/tmp/mygo-NEW`, make a new branch `dbgopher-vNEW` (add `-2`, `-3` if the name is taken) and
    cherry-pick the kept patches in order, building `./ui/...` after each and stopping at the first
    conflict. A conflict can come from an earlier patch that didn't apply, and a clean text merge
-   can still fail to build, as when both sides add a field of the same name. Never rewrite an old
-   `dbgopher-v*` branch: old pins must keep working.
+   can still fail to build, as when both sides add a field or method of the same name: the
+   drawn-menus patch's `engine.drawMenu` met upstream's `PopoverMenu` one in v0.7.4, and was
+   renamed `handMenuToApp`. Resolve each conflict inside its own patch's commit. Never rewrite an
+   old `dbgopher-v*` branch: old pins must keep working.
 2. Run `go vet ./...` and
    `go test ./ui/... -skip 'TestStrokePolylineGPU|TestOpenGL|TestDiffFrameAllocs'` there. Those GPU
    tests panic without a display and stop the whole package; compare any other failure against
@@ -137,14 +139,19 @@ separate decisions. The user can approve just the upgrade.
 5. Take screenshots again into `/tmp/snaps-after` and compare them:
    `go run .agents/skills/mygo-upgrade/scripts/pngdiff.go /tmp/snaps-before /tmp/snaps-after /tmp/snaps-diff`
    prints how many pixels changed in each, and where, and writes the changes in red. Many differ
-   only by data that changes between runs: times, temporary paths, random rows. Treat every other
-   change as a bug until shown otherwise: rerun that test a few times on both versions, and take a
-   screenshot one frame later too. Then start the app (`CGO_ENABLED=1 go run .`) and click through
-   a connection, a query and a table.
+   only by data that changes between runs: times, temporary paths, random rows. To set those
+   aside, take a second set on each version (the old one with `-modfile` and a copy of the
+   committed `go.mod` and `go.sum`), diff each version against itself, and drop the screenshots
+   that change on the old version anyway. Treat every other change as a bug until shown otherwise:
+   rerun that test a few times on both versions, and take a screenshot one frame later too. Then
+   start the app (`CGO_ENABLED=1 go run .`) and click through a connection, a query and a table.
 6. Make the approved changes, each with a test, plus any `flake.nix`, Go or packaging updates from
    step 1.
 7. Push the fork branch once the user says so, then pin it:
    `go mod edit -replace=github.com/egoist/mygo=github.com/saanuregh/mygo@<commit> && go mod tidy && go mod verify`.
+   CI fetches through the default module proxy, so check that it serves the new commit too:
+   `GOMODCACHE=$(mktemp -d) GOFLAGS=-modcacherw go mod download github.com/saanuregh/mygo@<version>`,
+   with the version `go.mod` now names; remove that cache afterwards.
 8. Run `go run ./tools/licenses` to update the license notices.
 9. Update the patch list in `docs/development.md`, and anything in `docs/`, `README.md` or
    `AGENTS.md` about MyGo that's no longer true.
