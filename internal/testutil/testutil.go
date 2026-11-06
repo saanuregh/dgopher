@@ -140,17 +140,3 @@ func SetCaret(tt *ui.Tester, e *editor.Editor, at int) {
 	tt.Frame()
 	tt.Frame()
 }
-
-// ChooseMenu chooses an item of a menu the app draws (widgets.MenuOn),
-// open: a click on each label of path in turn, the submenus' and then the
-// item's.
-func ChooseMenu(tt *ui.Tester, path ...string) error {
-	for _, label := range path {
-		tt.Frame()
-		if err := tt.Click(label); err != nil {
-			return err
-		}
-	}
-	tt.Frame()
-	return nil
-}

@@ -89,4 +89,4 @@ require (
 
 tool github.com/egoist/mygo/cmd/mygo
 
-replace github.com/egoist/mygo => github.com/saanuregh/mygo v0.3.4-0.20261105205053-1a13b6ca19d6
+replace github.com/egoist/mygo => github.com/saanuregh/mygo v0.3.4-0.20261106083030-b4ea135fc8a5

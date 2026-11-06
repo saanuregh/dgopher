@@ -236,6 +236,18 @@ func DangerButton(c *ui.Context, label string, disabled bool) ui.Element {
 	return b
 }
 
+// Unavailable marks b unavailable while why is not "", with why as its
+// tooltip. Unlike Disabled, it keeps b focusable, so the keyboard reaches
+// the tooltip, and assistive technology reads b as unavailable
+// (AccessDisabled, aria-disabled); it dims as Disabled does. b still
+// reports its clicks, which the caller ignores while why is not "".
+func Unavailable(b ui.Element, why string) ui.Element {
+	if why != "" {
+		b.AccessDisabled(true).Opacity(0.5).Tooltip(why)
+	}
+	return b
+}
+
 // Activated reports whether a dialog's main button was clicked, or the
 // key that does what a dialog is for was pressed in it, the button
 // enabled.

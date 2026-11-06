@@ -57,6 +57,9 @@ func (a *App) view(c *ui.Context) {
 	a.drain()
 	a.now = c.Now()
 	widgets.ApplyTheme(c, strings.TrimSpace(a.settings.UIFontFamily))
+	// Every menu of the window, a right-click's, a table's or a text's,
+	// drawn in the app's theme rather than the desktop's.
+	c.SetMenuPresentation(ui.PopoverMenus)
 	widgets.HoverCards = hoverSettings(a.settings.HoverCards)
 	if a.clipboard == nil {
 		a.clipboard, a.readClip = c.WriteClipboard, c.ReadClipboard
@@ -91,9 +94,6 @@ func (a *App) view(c *ui.Context) {
 	if a.window == a.focusedWindow() {
 		a.overlays(c)
 	}
-	// Every menu of the window drawn in the app's theme, over the dialogs
-	// too, as a field's in one.
-	widgets.ShownMenus(c)
 	widgets.FinishCards(c)
 	a.saveWorkspace(false)
 	if a.settingsDirty && !c.Root().Dragging() {
@@ -716,7 +716,7 @@ func (a *App) tabBar(c *ui.Context, g *panes.Group) {
 		})
 	})
 	if g.TabScroll.MaxX > 0 {
-		widgets.MenuOn(c, widgets.IconButton(c, widgets.IconDropdown, "Open Tabs"), func(m *widgets.Menu) {
+		widgets.IconButton(c, widgets.IconDropdown, "Open Tabs").Menu(func(m *ui.Menu) {
 			for i, tb := range l.All() {
 				label := tb.Title()
 				if sub := tabSubtitle(tb); sub != "" {
@@ -1216,15 +1216,15 @@ func (a *App) connChips(c *ui.Context, tab widgets.Tab, groups []connPlaces) {
 				}
 			})
 		})
-		widgets.MenuOn(c, chip, func(m *widgets.Menu) { a.connMenu(m, tab, g) })
+		chip.Menu(func(m *ui.Menu) { a.connMenu(m, tab, g) })
 	}
 	if rest := groups[len(shown):]; len(rest) > 0 {
 		label := fmt.Sprintf("+%d more", len(rest))
 		more := ui.ButtonBase(c).Padding(1, 6).Radius(4).Label(label).Tooltip(placesTooltip(rest))
 		more.Children(func() { ui.Text(c, label).FontSize(12).TextColor(pal.Muted) })
-		widgets.MenuOn(c, more, func(m *widgets.Menu) {
+		more.Menu(func(m *ui.Menu) {
 			for _, g := range rest {
-				m.Submenu(g.label()+" — "+connStateText(g.conn), func(m *widgets.Menu) { a.connMenu(m, tab, g) })
+				m.Submenu(g.label()+" — "+connStateText(g.conn), func(m *ui.Menu) { a.connMenu(m, tab, g) })
 			}
 		})
 	}
@@ -1233,7 +1233,7 @@ func (a *App) connChips(c *ui.Context, tab widgets.Tab, groups []connPlaces) {
 // connMenu is a status bar chip's menu: the connection's databases the tab
 // runs on, with the dashboard's panels on each, then what connects or
 // disconnects it.
-func (a *App) connMenu(m *widgets.Menu, tab widgets.Tab, g connPlaces) {
+func (a *App) connMenu(m *ui.Menu, tab widgets.Tab, g connPlaces) {
 	cn := g.conn
 	d, _ := tab.(*dashboard.Tab) // the status bar's own tab, whichever group has the keys
 	for _, database := range g.databases {

@@ -37,7 +37,7 @@ func (a *App) sidebarBar(c *ui.Context) {
 			ui.Text(c, "Projects").FontSize(12).FontWeight(600).TextColor(widgets.PaletteOf(c).Muted).
 				SingleLine().Grow(1).Shrink(1)
 		}
-		widgets.MenuOn(c, widgets.IconButton(c, widgets.IconPlus, "New…"), a.addMenu)
+		widgets.IconButton(c, widgets.IconPlus, "New…").Menu(a.addMenu)
 		if widgets.IconButton(c, widgets.IconSidebar, "Hide Sidebar").Clicked() {
 			a.layout.SidebarHidden = true
 		}
@@ -93,7 +93,7 @@ func (a *App) workspaceBar(c *ui.Context) {
 		if search.Clicked() {
 			a.openPalette(false)
 		}
-		widgets.MenuOn(c, widgets.IconButton(c, widgets.IconMenu, "Menu"), a.titleMenu)
+		widgets.IconButton(c, widgets.IconMenu, "Menu").Menu(a.titleMenu)
 		if drawsWindowButtons {
 			ui.Box(c).Width(6)
 			a.windowButtons(c)
@@ -186,9 +186,9 @@ var availableUpdate = func() string { return "" }
 
 // titleMenu is the title bar's menu: the app's menus, then its settings,
 // updates and quitting, which macOS's menu bar has in the app's menu.
-func (a *App) titleMenu(m *widgets.Menu) {
+func (a *App) titleMenu(m *ui.Menu) {
 	for _, g := range a.appMenus() {
-		m.Submenu(g.label, func(m *widgets.Menu) {
+		m.Submenu(g.label, func(m *ui.Menu) {
 			for _, e := range g.items {
 				if e.label == "" {
 					m.Separator()

@@ -540,7 +540,7 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 				if widgets.IconButton(c, widgets.IconPlus, "New key").Clicked() {
 					r.newKey = &newKeyForm{open: true, typ: "string"}
 				}
-				widgets.MenuOn(c, widgets.IconButton(c, widgets.IconMore, "More"), func(m *widgets.Menu) {
+				widgets.IconButton(c, widgets.IconMore, "More").Menu(func(m *ui.Menu) {
 					ro := r.conn.Config.ReadOnly
 					if m.Item("Delete Keys Matching…").Disabled(ro).Chosen() {
 						r.openBulk(bulkDelete)

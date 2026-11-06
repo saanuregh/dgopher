@@ -4,9 +4,8 @@ import (
 	"log"
 	"path/filepath"
 
-	"dgopher/internal/ui/widgets"
-
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/ui"
 )
 
 // MyGo's recent documents, which tests replace: they need a running app.
@@ -25,7 +24,7 @@ func addRecent(path string) {
 
 // recentMenu is the title bar's Open Recent: the system's menu bar has
 // MyGo's own.
-func (a *App) recentMenu(m *widgets.Menu) {
+func (a *App) recentMenu(m *ui.Menu) {
 	paths := recentDocuments()
 	for _, p := range paths {
 		if m.Item(filepath.Base(p)).Chosen() {

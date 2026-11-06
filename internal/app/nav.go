@@ -1429,7 +1429,7 @@ func (a *App) projectMenu(m *ui.Menu, n navNode) {
 }
 
 // addMenu lists what the sidebar's + makes.
-func (a *App) addMenu(m *widgets.Menu) {
+func (a *App) addMenu(m *ui.Menu) {
 	if len(a.usableProjects()) > 0 && m.Item("New Connection…").Chosen() {
 		a.openConnForm(nil)
 	}

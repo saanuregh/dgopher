@@ -4,7 +4,6 @@
 package modelview
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -226,8 +225,9 @@ func (t *Tab) View(c *ui.Context) {
 				ui.Text(c, about).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1)
 			})
 			ui.Spacer(c)
-			if t.m.Source != nil && widgets.ToolButton(c, widgets.IconRefresh, "Update", cmp.Or(whyNotUpdate(t.updating, t.source() != nil), "Read the model's tables again from the schema it was built from")).
-				Disabled(t.updating || t.source() == nil).Clicked() {
+			whyNot := whyNotUpdate(t.updating, t.source() != nil)
+			if t.m.Source != nil && widgets.Unavailable(widgets.ToolButton(c, widgets.IconRefresh, "Update", "Read the model's tables again from the schema it was built from"), whyNot).
+				Clicked() && whyNot == "" {
 				t.confirmUpdate = true
 			}
 			if widgets.ToolButton(c, widgets.IconCode, "Generate DDL…", "Write the statements making the model's tables, for any engine").Clicked() {

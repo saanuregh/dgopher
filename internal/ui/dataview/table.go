@@ -377,7 +377,7 @@ func (t *TableTab) structureView(c *ui.Context, a Host) {
 	if t.Object.Kind == db.KindTable {
 		widgets.Bar(c, "Structure", func() {
 			why := t.editBlocked()
-			if widgets.ToolButton(c, widgets.IconPencil, "Edit Structure", "Change the columns, keys, indexes and checks").Disabled(why != "").Tooltip(why).Clicked() {
+			if widgets.Unavailable(widgets.ToolButton(c, widgets.IconPencil, "Edit Structure", "Change the columns, keys, indexes and checks"), why).Clicked() && why == "" {
 				t.editStructure()
 			}
 			if why != "" {

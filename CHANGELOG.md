@@ -15,11 +15,21 @@ The changes of each version of DGopher.
 - Windows open once drawn, without a blank first frame.
 - While an update is available, the title bar's menu reads **Update to
   <version>…** in place of **Check for Updates…**.
+- Every menu draws in the app's theme: right-click menus, the menus of
+  tables, text fields and the editor, and the buttons' menus now share one
+  look and keyboard model. Type an item's first letters to move to it.
+- A prompt about an open transaction names the action on its buttons, as
+  **Roll Back and Quit** and **Commit and Quit**.
+- A button that is off for a reason, as **Edit Structure**, **Compare**
+  or **Run and Keep**, can be reached with Tab, which shows the reason;
+  screen readers read it as unavailable.
 
 ### Fixed
 
 - From the 29th to the 31st, the calendar's next or previous month no
   longer skips a month, as from January 31 to March.
+- On Windows, a window reopens where it was on displays with different
+  scaling, rather than centered.
 
 ## 0.7.1
 

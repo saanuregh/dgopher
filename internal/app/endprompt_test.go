@@ -202,7 +202,7 @@ func TestDeleteConnectionOffersCommit(t *testing.T) {
 		t.Fatalf("the delete prompt: %+v", a.closing)
 	}
 	tt.Frame()
-	if texts := strings.Join(tt.Texts(), "|"); !strings.HasSuffix(texts, "Cancel|Roll Back|Commit") {
+	if texts := strings.Join(tt.Texts(), "|"); !strings.HasSuffix(texts, "Cancel|Roll Back and Delete|Commit and Delete") {
 		t.Fatalf("the dialog's buttons: %s", texts)
 	}
 }

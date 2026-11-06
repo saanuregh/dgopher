@@ -160,7 +160,7 @@ func TestModelAndEffort(t *testing.T) {
 	if err := tt.Click("default effort ▾"); err != nil {
 		t.Fatal(err)
 	}
-	if err := testutil.ChooseMenu(tt, "max"); err != nil {
+	if err := tt.ChooseMenuItem("max"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()

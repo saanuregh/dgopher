@@ -16,6 +16,13 @@ type Window struct {
 	Height     int  `json:"height"`
 	Maximized  bool `json:"maximized,omitempty"`
 	FullScreen bool `json:"fullScreen,omitempty"`
+	// PixelX, PixelY, PixelWidth and PixelHeight are the bounds in the
+	// screen's pixels, which MyGo keeps on Windows, 0 elsewhere and in
+	// rows older versions saved.
+	PixelX      int `json:"pixelX,omitzero"`
+	PixelY      int `json:"pixelY,omitzero"`
+	PixelWidth  int `json:"pixelWidth,omitzero"`
+	PixelHeight int `json:"pixelHeight,omitzero"`
 }
 
 // createWindows makes the windows table and moves into it the places
@@ -42,17 +49,31 @@ func createWindows(tx *sql.Tx) error {
 	}
 	var windows map[string]Window
 	if json.Unmarshal([]byte(data), &windows) == nil {
-		if err := insertWindows(tx, windows); err != nil {
-			return err
+		for key, w := range windows {
+			if _, err := tx.Exec("INSERT INTO windows (key, x, y, width, height, maximized, full_screen) VALUES (?, ?, ?, ?, ?, ?, ?)",
+				key, w.X, w.Y, w.Width, w.Height, w.Maximized, w.FullScreen); err != nil {
+				return err
+			}
 		}
 	}
 	_, err := tx.Exec("DELETE FROM kv WHERE name = 'windowState'")
 	return err
 }
 
+// addWindowPixels adds the columns of Window's bounds in pixels; the rows
+// saved before have none.
+func addWindowPixels(tx *sql.Tx) error {
+	for _, col := range []string{"pixel_x", "pixel_y", "pixel_width", "pixel_height"} {
+		if _, err := tx.Exec("ALTER TABLE windows ADD COLUMN " + col + " INTEGER NOT NULL DEFAULT 0"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Windows returns the windows' places by their keys.
 func (d *DB) Windows() (map[string]Window, error) {
-	rows, err := d.sql.Query("SELECT key, x, y, width, height, maximized, full_screen FROM windows")
+	rows, err := d.sql.Query("SELECT key, x, y, width, height, maximized, full_screen, pixel_x, pixel_y, pixel_width, pixel_height FROM windows")
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +82,8 @@ func (d *DB) Windows() (map[string]Window, error) {
 	for rows.Next() {
 		var key string
 		var w Window
-		if err := rows.Scan(&key, &w.X, &w.Y, &w.Width, &w.Height, &w.Maximized, &w.FullScreen); err != nil {
+		if err := rows.Scan(&key, &w.X, &w.Y, &w.Width, &w.Height, &w.Maximized, &w.FullScreen,
+			&w.PixelX, &w.PixelY, &w.PixelWidth, &w.PixelHeight); err != nil {
 			return nil, err
 		}
 		windows[key] = w
@@ -87,8 +109,9 @@ func (d *DB) SaveWindows(windows map[string]Window) error {
 
 func insertWindows(tx *sql.Tx, windows map[string]Window) error {
 	for key, w := range windows {
-		if _, err := tx.Exec("INSERT INTO windows (key, x, y, width, height, maximized, full_screen) VALUES (?, ?, ?, ?, ?, ?, ?)",
-			key, w.X, w.Y, w.Width, w.Height, w.Maximized, w.FullScreen); err != nil {
+		if _, err := tx.Exec(`INSERT INTO windows (key, x, y, width, height, maximized, full_screen, pixel_x, pixel_y, pixel_width, pixel_height)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			key, w.X, w.Y, w.Width, w.Height, w.Maximized, w.FullScreen, w.PixelX, w.PixelY, w.PixelWidth, w.PixelHeight); err != nil {
 			return err
 		}
 	}

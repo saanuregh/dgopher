@@ -27,7 +27,7 @@ func TestWindowsRoundTrip(t *testing.T) {
 		t.Fatalf("nothing saved loads %v, %v", got, err)
 	}
 	saved := map[string]Window{
-		"main":        {X: 40, Y: 50, Width: 800, Height: 600, Maximized: true},
+		"main":        {X: 40, Y: 50, Width: 800, Height: 600, Maximized: true, PixelX: 60, PixelY: 75, PixelWidth: 1200, PixelHeight: 900},
 		"preferences": {X: -1200, Y: 10, Width: 500, Height: 400, FullScreen: true},
 	}
 	if err := openUI(t, dir, uiMigrations).SaveWindows(saved); err != nil {
@@ -73,5 +73,20 @@ func TestWindowsComeOverFromJSON(t *testing.T) {
 				t.Fatalf("the kv row stays: %v", err)
 			}
 		})
+	}
+}
+
+// A row an older version saved, without the bounds in pixels, loads with
+// none after the upgrade, its other fields kept.
+func TestWindowsKeepRowsWithoutPixels(t *testing.T) {
+	dir := t.TempDir()
+	old := openUI(t, dir, uiMigrations[:2])
+	if _, err := old.sql.Exec("INSERT INTO windows (key, x, y, width, height, maximized, full_screen) VALUES ('main', 40, 50, 800, 600, 1, 0)"); err != nil {
+		t.Fatal(err)
+	}
+	old.Close()
+	want := map[string]Window{"main": {X: 40, Y: 50, Width: 800, Height: 600, Maximized: true}}
+	if got, err := openUI(t, dir, uiMigrations).Windows(); err != nil || !maps.Equal(got, want) {
+		t.Fatalf("after the upgrade %v, %v; want %v", got, err, want)
 	}
 }

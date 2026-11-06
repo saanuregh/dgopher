@@ -359,7 +359,7 @@ func Fragment(dst vec4, pos vec2) vec4 {
 // tools are the diagram's buttons: save it, a new table, read it again,
 // arrange it.
 func (e *ERTab) tools(c *ui.Context, a Host) {
-	widgets.MenuOn(c, widgets.ToolButton(c, widgets.IconDownload, "Save Image", "Save the diagram as a PNG or SVG image").Disabled(len(e.tables) == 0), func(m *widgets.Menu) {
+	widgets.ToolButton(c, widgets.IconDownload, "Save Image", "Save the diagram as a PNG or SVG image").Disabled(len(e.tables) == 0).Menu(func(m *ui.Menu) {
 		if m.Item("Save as PNG…").Chosen() {
 			e.save(exportPNG)
 		}

@@ -211,7 +211,7 @@ func (a *App) auditTab(c *ui.Context, h *historyState) {
 		}
 		// The rest, less often wanted, in a menu.
 		if l := v.log; l != nil {
-			widgets.MenuOn(c, widgets.IconButton(c, widgets.IconMore, "More"), func(m *widgets.Menu) {
+			widgets.IconButton(c, widgets.IconMore, "More").Menu(func(m *ui.Menu) {
 				if m.Item("Copy Head").Chosen() {
 					// The last entry's number and hash: kept elsewhere, as
 					// in a ticket, they show later that the log was not
