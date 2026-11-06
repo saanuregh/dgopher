@@ -11,6 +11,10 @@ import (
 // before it and while it runs, where it was, and Close once it ended; the
 // main button is disabled while the job runs, not gone.
 func TestJobDialogFooterMorphs(t *testing.T) {
+	// The title bar's window buttons, drawn on Windows, have a Close too.
+	own := drawsWindowButtons
+	t.Cleanup(func() { drawsWindowButtons = own })
+	drawsWindowButtons = false
 	a, tt, cn, _ := liteApp(t, db.Development)
 	path := writeSQL(t, "long.sql", "CREATE TABLE t (a int);\nBEGIN;\nINSERT INTO t VALUES (1);\n"+longSelect)
 	a.startSQLFileRun(cn, "", path, "")
