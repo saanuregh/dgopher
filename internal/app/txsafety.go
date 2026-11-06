@@ -288,7 +288,7 @@ func (a *App) txIndicator(c *ui.Context) {
 	}
 	b := widgets.Appear(ui.ButtonBase(c.Key("open-transactions")).Padding(1, 8).Radius(4).Background(c.Theme().Warning.Alpha(0.2)).Label(label))
 	b.Children(func() { ui.Text(c, label).FontSize(12).Bold().ContentTransition(ui.ContentTransition{}) })
-	widgets.MenuOn(c, b, func(m *widgets.Menu) {
+	b.Menu(func(m *ui.Menu) {
 		for _, h := range txs {
 			age := a.now.Sub(h.Times().Opened).Round(time.Second)
 			if m.Item(fmt.Sprintf("%s — %s — open %s", h.Title(), h.Connection().Config.Name, age)).Chosen() {

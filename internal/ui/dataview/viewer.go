@@ -1352,7 +1352,7 @@ func (v *Viewer) View(c *ui.Context) {
 		if widgets.IconButton(c, widgets.IconDownload, "Export…").Clicked() {
 			OpenExport(a, v.exportSource())
 		}
-		widgets.MenuOn(c, widgets.IconButton(c, widgets.IconCompare, "Compare with other rows"), v.compareMenu)
+		widgets.IconButton(c, widgets.IconCompare, "Compare with other rows").Menu(v.compareMenu)
 		divider()
 		// The panels open at the right: their switch is there too.
 		if widgets.ToggleIconButton(c, widgets.IconSidebar, keymap.Hint("Value viewer", keymap.ValuePanel), v.grid.ShowValue).Clicked() {
@@ -1528,9 +1528,8 @@ func (v *Viewer) View(c *ui.Context) {
 					break
 				}
 				stop := widgets.Appear(widgets.StatusButton(c.Key("count"), "Stop"))
-				if why := v.countStopRefusal(); why != "" {
-					stop.Disabled(true).Opacity(0.5).Tooltip(why)
-				} else if stop.Tooltip("Stop the count").Clicked() && v.countStop != nil {
+				why := v.countStopRefusal()
+				if widgets.Unavailable(stop.Tooltip("Stop the count"), why).Clicked() && why == "" && v.countStop != nil {
 					v.countStop()
 				}
 			default:

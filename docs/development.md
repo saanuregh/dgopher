@@ -210,7 +210,9 @@ pull request, on Linux and Windows. It does not run the integration tests.
 `go.mod` replaces MyGo with a commit of a `dbgopher-v<version>` branch of
 [saanuregh/mygo](https://github.com/saanuregh/mygo/branches/all?query=dbgopher).
 The branch is named for the MyGo release it is based on, with `-2`, `-3`
-and so on when it is rebuilt on the same release.
+and so on when it is rebuilt on the same release. A branch on upstream's
+`main` between releases, for a change no release has yet, is named
+`dbgopher-main-<date>`; `go.mod` then still requires the last release.
 
 The branch is upstream MyGo plus the changes DGopher needs that upstream
 does not have yet:
@@ -219,21 +221,10 @@ does not have yet:
   [egoist/mygo](https://github.com/egoist/mygo/pulls?q=author%3Asaanuregh),
   as they were sent;
 - frozen table columns;
-- the code editor's `GutterButtons` and `OnAcceptCompletion`;
+- the code editor's `GutterButtons`, `OnAcceptCompletion` and
+  `CompletionsOpen`;
 - the code editor's `LinkAt` and `OnLink`, which underline a name while
-  ⌘ is held and open it on a click;
-- `DragMissed`, which tells a drag's source it was let go over no target,
-  and where;
-- a fix to painting only what moves: a frame paints the window whole when
-  the frame before asked from outside a `Draw` callback, as a text's
-  `ContentTransition` does, which otherwise stays half faded beside a
-  blinking caret.
-- a fix to `NumberInput` and `DecimalInput`: a `Width` sizes the whole
-  input, so its − and + buttons stay inside it instead of covering what
-  comes after.
-- upstream's fix to a calendar's month paging (egoist/mygo#1157), which
-  no release has yet: from January 31, Next month shows February rather
-  than March.
+  ⌘ is held and open it on a click.
 
 An API missing from upstream MyGo may exist there.
 

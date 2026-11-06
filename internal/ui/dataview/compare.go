@@ -47,7 +47,7 @@ func (v *Viewer) snapshot() *rowSnapshot {
 
 // compareMenu pins the rows to compare, or compares them with those
 // pinned.
-func (v *Viewer) compareMenu(m *widgets.Menu) {
+func (v *Viewer) compareMenu(m *ui.Menu) {
 	pinned := v.a.Dialogs().pinned
 	if m.Item("Pin These Rows for Comparison").Disabled(len(v.src.Cols) == 0).Chosen() {
 		v.a.Dialogs().pinned = v.snapshot()

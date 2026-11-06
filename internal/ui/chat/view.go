@@ -83,7 +83,7 @@ func (t *Chat) pickers(c *ui.Context) {
 			ui.Text(c, label+" ▾").FontSize(11.5).TextColor(pal.Muted).SingleLine()
 		})
 	}
-	widgets.MenuOn(c, picker("provider", providerLabel(t.provider), "The agent the chat talks to; another starts over"), func(m *widgets.Menu) {
+	picker("provider", providerLabel(t.provider), "The agent the chat talks to; another starts over").Menu(func(m *ui.Menu) {
 		for _, p := range Providers {
 			if m.Item(p.Label).Checked(p.Name == t.provider).Chosen() && p.Name != t.provider {
 				t.Restart(p.Name)
@@ -99,7 +99,7 @@ func (t *Chat) pickers(c *ui.Context) {
 		if t.effort != "" {
 			label = string(t.effort) + " effort"
 		}
-		widgets.MenuOn(c, picker("effort", label, "How long the model reasons before it answers"), func(m *widgets.Menu) {
+		picker("effort", label, "How long the model reasons before it answers").Menu(func(m *ui.Menu) {
 			if m.Item("Default").Checked(t.effort == "").Chosen() {
 				t.chooseModel(t.modelID, "")
 			}

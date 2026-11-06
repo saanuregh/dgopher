@@ -190,8 +190,9 @@ below), or that cannot run in a transaction.
 ### Closing, disconnecting and quitting
 
 - **An open transaction.** Closing a tab, disconnecting, removing a
-  project or quitting asks first: Cancel, Roll Back or Commit. Roll Back
-  and Commit end the transaction, then do what you asked.
+  project or quitting asks first: Cancel, Roll Back and Quit, or Commit
+  and Quit, each button naming what you asked. Roll Back and Commit end
+  the transaction, then do it.
 - **Work in progress.** Disconnecting, removing a project, deleting a
   connection or quitting while work runs on the connection lists that work
   and what stopping it loses, and asks. This covers Run SQL File, imports,

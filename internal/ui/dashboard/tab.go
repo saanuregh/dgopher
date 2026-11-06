@@ -724,7 +724,7 @@ func (t *Tab) panelView(c *ui.Context, i int, height float32) {
 						}
 					}
 					why := whyNotRunAndKeep(s.sql, cn)
-					if ui.PrimaryButton(c, "Run and Keep").Disabled(why != "").Tooltip(why).Clicked() {
+					if widgets.Unavailable(ui.PrimaryButton(c, "Run and Keep"), why).Clicked() && why == "" {
 						p.SQL, s.editSQL, s.isNew = s.sql, false, false
 						p.Connection, p.Database = strings.TrimPrefix(cn.Config.ID, t.Project.Prefix), s.database
 						t.save()

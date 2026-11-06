@@ -1,7 +1,6 @@
 package modelview
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -165,7 +164,7 @@ func (t *Tab) compareView(c *ui.Context) {
 					f.open = false
 				}
 				why := f.whyNotCompare()
-				if widgets.Activated(c, ui.PrimaryButton(c, "Compare").Disabled(why != "").Tooltip(why)) {
+				if widgets.Activated(c, widgets.Unavailable(ui.PrimaryButton(c, "Compare"), why)) && why == "" {
 					t.runCompare(f)
 				}
 			})
@@ -399,14 +398,15 @@ func (t *Tab) migrationBar(c *ui.Context) {
 			}
 			return
 		}
-		if ui.Button(c, "Open as Script").Disabled(!differs || r.applying).Tooltip(cmp.Or(whyNoMigration(differs, r.applying, false), "Open the migration in a new editor")).Clicked() {
+		whyNot := whyNoMigration(differs, r.applying, false)
+		if widgets.Unavailable(ui.Button(c, "Open as Script").Tooltip("Open the migration in a new editor"), whyNot).Clicked() && whyNot == "" {
 			if text, ok := t.migrationText(); ok {
 				t.h.NewQueryTab(r.conn, r.database, text)
 			}
 		}
 		why := whyNoMigration(differs, r.applying, r.conn.Config.ReadOnly)
-		if ui.PrimaryButton(c, "Apply…").Disabled(why != "").
-			Tooltip(cmp.Or(why, "Run the migration on "+r.conn.Config.Name+", once you have reviewed it")).Clicked() {
+		apply := ui.PrimaryButton(c, "Apply…").Tooltip("Run the migration on " + r.conn.Config.Name + ", once you have reviewed it")
+		if widgets.Unavailable(apply, why).Clicked() && why == "" {
 			t.applyMigration()
 		}
 	})

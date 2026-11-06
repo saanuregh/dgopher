@@ -179,6 +179,9 @@ func askCard(t *testing.T, tt *ui.Tester, s string) {
 	}
 	tt.ClickAtWith(ui.Alt, r.X+r.W/2, r.Y+r.H/2)
 	tt.Frame()
+	// Past the card's fade in (cardMotion), which a snapshot would catch
+	// unpainted.
+	tt.Advance(200 * time.Millisecond)
 	tt.Frame()
 }
 

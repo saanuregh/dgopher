@@ -32,6 +32,7 @@
             libxtst
             glib
             libsecret # the system keychain, where saved passwords go
+            wayland # HiDPI repaints on Wayland, loaded when needed
           ];
         in
         {

@@ -60,7 +60,7 @@ func TestCloseAsksCommitOrRollback(t *testing.T) {
 		}
 		tt.Frame()
 		texts := strings.Join(tt.Texts(), "|")
-		if !strings.HasSuffix(texts, "Cancel|Roll Back|Commit") || !tt.HasText("Close query-1.sql?") {
+		if !strings.HasSuffix(texts, "Cancel|Roll Back and Close|Commit and Close") || !tt.HasText("Close query-1.sql?") {
 			t.Fatalf("the dialog's buttons: %s", texts)
 		}
 		// As the dialog's buttons do (the editor's bar has a Commit too).
@@ -88,7 +88,7 @@ func TestQuitAsksAboutOpenTransactions(t *testing.T) {
 	}
 	tt.Frame()
 	testutil.Snapshot(t, tt, "quit-open-transaction")
-	if texts := strings.Join(tt.Texts(), "|"); !strings.HasSuffix(texts, "Cancel|Roll Back|Commit") || !tt.HasText("Quit DGopher?") {
+	if texts := strings.Join(tt.Texts(), "|"); !strings.HasSuffix(texts, "Cancel|Roll Back and Quit|Commit and Quit") || !tt.HasText("Quit DGopher?") {
 		t.Fatalf("the dialog's buttons: %s", texts)
 	}
 	r := a.closing

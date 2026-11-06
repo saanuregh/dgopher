@@ -173,9 +173,7 @@ func (a *App) questions(c *ui.Context) {
 	if r := a.closing; r != nil {
 		action := cmp.Or(r.action, "Close")
 		if len(r.txs) > 0 {
-			// MyGo's alert is too narrow for "Commit and Quit" beside two
-			// more buttons: the title and the last line name the action.
-			switch ui.AlertDialog(c, &r.open, r.title, r.reason+"\n\n"+txChoice(len(r.txs), action), "Cancel", "Roll Back", "Commit") {
+			switch ui.AlertDialog(c, &r.open, r.title, r.reason, "Cancel", "Roll Back and "+action, "Commit and "+action) {
 			case 1:
 				r.onClose()
 			case 2:
@@ -207,16 +205,6 @@ func (a *App) questions(c *ui.Context) {
 			a.alerts = slices.DeleteFunc(a.alerts, func(x *alertRequest) bool { return x == al })
 		}
 	}
-}
-
-// txChoice is the line a question ending open transactions closes with:
-// what its Roll Back and Commit do before action.
-func txChoice(n int, action string) string {
-	what := "the open transaction"
-	if n > 1 {
-		what = "the open transactions"
-	}
-	return "Roll Back or Commit " + what + ", then " + strings.ToLower(action) + "."
 }
 
 // askDeleteConn asks before deleting a saved connection, once its

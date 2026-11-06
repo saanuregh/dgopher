@@ -82,6 +82,7 @@ var uiMigrations = []func(*sql.Tx) error{
 		return err
 	},
 	createWindows,
+	addWindowPixels,
 }
 
 // DB is a project's state file, or the app's UI state's, whose kv table

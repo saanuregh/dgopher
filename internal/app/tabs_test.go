@@ -525,7 +525,7 @@ func TestStatusBarPlaces(t *testing.T) {
 	if tt.HasText("broken — failed: " + widgets.FirstLine(broken.Err)) {
 		t.Fatal("the failed connection is behind +2 more")
 	}
-	if err := testutil.ChooseMenu(tt, "four — connected", "Disconnect"); err != nil {
+	if err := tt.ChooseMenuItem("four — connected", "Disconnect"); err != nil {
 		t.Fatalf("%v; texts %q", err, tt.Texts())
 	}
 	tt.Frame()
