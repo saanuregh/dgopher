@@ -2,6 +2,32 @@
 
 The changes of each version of DGopher.
 
+## 0.7.3
+
+### Changed
+
+- Linux releases add an `.rpm` package, for Fedora, openSUSE and other
+  RPM-based distributions. Like the `.deb`, it is updated by installing
+  the new one.
+- Long file paths in Run SQL File, Import and Redis bulk import are cut at
+  their start, so the file's name stays in view.
+- Holding Ctrl (⌘ on macOS) over a table's name in the SQL editor shows it
+  in the link color as well as underlined.
+- On macOS, queries, imports and exports keep their full speed while
+  DGopher's window is hidden.
+- When Windows logs out or shuts down with a transaction open, DGopher
+  rolls it back without asking, since it cannot stop the logout, and
+  records the rollback in the audit log.
+- A field that takes the focus scrolls into view, as the key being
+  recorded in **Customize Keyboard Shortcuts**.
+- Scroll bars are restyled, as in VS Code.
+- The Windows build leaves out WebView2, which DGopher never uses.
+
+### Fixed
+
+- In a window that is not in front, chosen rows and cells keep a light
+  gray tint rather than turning dark gray behind their text.
+
 ## 0.7.2
 
 ### Changed
