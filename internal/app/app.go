@@ -60,7 +60,15 @@ type App struct {
 	// off the main thread. Both are the system's, nil without its windows.
 	windowFocused func() bool
 	notify        func(title, body string, onClick func())
-	st            *store.Store
+	// keepRunning keeps the system from slowing the app down while its
+	// windows are out of sight, as macOS's App Nap does, until release is
+	// called: the system's, nil without its windows.
+	keepRunning func(reason string) (release func())
+	// releaseRunning ends keepRunning's hold, nil while none is held;
+	// runningMu guards it.
+	runningMu      sync.Mutex
+	releaseRunning func()
+	st             *store.Store
 
 	settings settings.Settings
 	conns    []*connection.Conn
@@ -318,14 +326,38 @@ func (a *App) startJobWaiting(cn *connection.Conn, title string, cancel context.
 	a.jobsMu.Lock()
 	a.jobs = append(a.jobs, j)
 	a.jobsMu.Unlock()
+	go a.followJobs()
 	var once sync.Once
 	return func() {
 		once.Do(func() {
 			a.jobsMu.Lock()
 			a.jobs = slices.DeleteFunc(a.jobs, func(x *job) bool { return x == j })
 			a.jobsMu.Unlock()
+			go a.followJobs()
 			close(j.done)
 		})
+	}
+}
+
+// followJobs holds keepRunning while any job runs and releases it after
+// the last one ends, so a long import runs at full speed with the window
+// hidden. It runs in its own goroutine: keepRunning waits for the main
+// thread, which may be waiting for jobsMu, and a.Post would not do, as
+// frames stop while the window is hidden. runningMu makes the calls take
+// turns, and each acts on the job list as it is then.
+func (a *App) followJobs() {
+	if a.keepRunning == nil {
+		return
+	}
+	a.runningMu.Lock()
+	defer a.runningMu.Unlock()
+	running := len(a.runningJobs()) > 0
+	switch {
+	case running && a.releaseRunning == nil:
+		a.releaseRunning = a.keepRunning("Running a job")
+	case !running && a.releaseRunning != nil:
+		a.releaseRunning()
+		a.releaseRunning = nil
 	}
 }
 

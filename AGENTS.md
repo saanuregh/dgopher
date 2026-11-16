@@ -20,7 +20,9 @@ tests.
 - **Secrets never reach project files, logs or the audit log.** Pass shown or
   logged text through `internal/redact`.
 - **An open transaction is never closed silently.** Closing a tab,
-  disconnecting or quitting asks first.
+  disconnecting or quitting asks first. Only when the system ends the
+  session and will not wait, as at logout on Windows, does it roll back
+  without asking, in the audit log.
 - **Engine behavior lives in each engine's rules**: a type per engine
   implements `engineRules`, and SQL engines `SQLRules` (both declared in
   `internal/db/engine.go`; each engine's methods are in its own file, such

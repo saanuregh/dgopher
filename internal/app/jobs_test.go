@@ -569,3 +569,29 @@ func TestBackgroundResetOnPanic(t *testing.T) {
 		t.Fatalf("reset %v, alert %v", reset, a.frontAlert())
 	}
 }
+
+// While a job runs, the app holds the system off slowing it down with its
+// windows out of sight (App Nap): one hold for the jobs together, let go
+// once the last one ends.
+func TestJobsKeepTheAppRunning(t *testing.T) {
+	a, tt, cn, _ := liteApp(t, db.Development)
+	var holds, held atomic.Int32
+	a.keepRunning = func(string) func() {
+		holds.Add(1)
+		held.Add(1)
+		return func() { held.Add(-1) }
+	}
+	first := a.StartJob(cn, "First: stopping it loses nothing.", func() {})
+	second := a.StartJob(cn, "Second: stopping it loses nothing.", func() {})
+	testutil.WaitFor(t, tt, "the hold", func() bool { return held.Load() == 1 })
+	first()
+	time.Sleep(50 * time.Millisecond)
+	if held.Load() != 1 {
+		t.Fatal("let go while a job still runs")
+	}
+	second()
+	testutil.WaitFor(t, tt, "the release", func() bool { return held.Load() == 0 })
+	if n := holds.Load(); n != 1 {
+		t.Fatalf("held %d times for two jobs together", n)
+	}
+}

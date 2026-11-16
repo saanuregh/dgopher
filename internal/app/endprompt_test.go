@@ -3,13 +3,13 @@ package app
 import (
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
 	"dgopher/internal/datamodel"
 	"dgopher/internal/db"
 	"dgopher/internal/project"
+	"dgopher/internal/testutil"
 	"dgopher/internal/ui/dashboard"
 	"dgopher/internal/ui/modelview"
 	"dgopher/internal/ui/widgets"
@@ -225,14 +225,12 @@ func TestDeleteConnectionChecksProjectFirst(t *testing.T) {
 // The middle button on a pinned tab says why it stays, as the close key
 // does.
 func TestMiddleClickOnPinnedTabSaysWhy(t *testing.T) {
-	a, _ := tabsApp(t)
+	a, tt := tabsApp(t)
 	a.window.tabs().SetPinned(a.tabs().At(0), true)
-	middle := ui.InputEvent{Kind: ui.InputPointerDown, Button: middleButton}
-	if !a.closeOnMiddlePress(a.window, a.tabs().At(0), middle) {
-		t.Fatal("the press went on")
-	}
-	if !slices.ContainsFunc(a.toasts, func(p pendingToast) bool { return strings.Contains(p.text, "a is pinned") }) {
-		t.Fatalf("toasts %+v", a.toasts)
+	tt.Frame()
+	click(t, tt, middleButton, "a")
+	if !testutil.HasTextContaining(tt, "a is pinned") {
+		t.Fatalf("no toast: %q", tt.Texts())
 	}
 	if a.tabs().Len() != 4 {
 		t.Fatalf("%d tabs", a.tabs().Len())

@@ -193,6 +193,10 @@ below), or that cannot run in a transaction.
   project or quitting asks first: Cancel, Roll Back and Quit, or Commit
   and Quit, each button naming what you asked. Roll Back and Commit end
   the transaction, then do it.
+- **The session ending.** When the system ends the session and will not
+  wait, as at logout or shutdown on Windows, DGopher asks nothing: it rolls
+  back every open transaction, as Roll Back would, and the audit log
+  records each rollback.
 - **Work in progress.** Disconnecting, removing a project, deleting a
   connection or quitting while work runs on the connection lists that work
   and what stopping it loses, and asks. This covers Run SQL File, imports,

@@ -195,26 +195,38 @@ func TestReopenClosedTab(t *testing.T) {
 }
 
 // The middle button closes a tab, but a pinned one, which stays and says
-// why (TestMiddleClickOnPinnedTabSaysWhy); the others go on.
+// why (TestMiddleClickOnPinnedTabSaysWhy); the primary button does not.
 func TestMiddleClickClosesTab(t *testing.T) {
 	a, tt := tabsApp(t)
-	middle := ui.InputEvent{Kind: ui.InputPointerDown, Button: middleButton}
-	if a.closeOnMiddlePress(a.window, a.tabs().At(1), ui.InputEvent{Kind: ui.InputPointerDown}) {
-		t.Fatal("took the primary button")
+	click(t, tt, 0, "b")
+	if got := order(a.window); got != "a b c d" {
+		t.Fatalf("clicked b: %s", got)
 	}
-	if !a.closeOnMiddlePress(a.window, a.tabs().At(1), middle) {
-		t.Fatal("did not take the middle button")
-	}
-	tt.Frame()
+	click(t, tt, middleButton, "b")
 	if got := order(a.window); got != "a c d" {
 		t.Fatalf("middle-clicked b: %s", got)
 	}
 	a.window.tabs().SetPinned(a.tabs().At(0), true)
-	a.closeOnMiddlePress(a.window, a.tabs().At(0), middle)
 	tt.Frame()
+	click(t, tt, middleButton, "a")
 	if got := order(a.window); got != "a* c d" {
 		t.Fatalf("middle-clicked pinned a: %s", got)
 	}
+}
+
+// click presses and releases the pointer's button on the text shown,
+// then draws the frames that follow.
+func click(t *testing.T, tt *ui.Tester, button int, text string) {
+	t.Helper()
+	r, ok := tt.Find(text)
+	if !ok {
+		t.Fatalf("no %q: %q", text, tt.Texts())
+	}
+	x, y := r.X+r.W/2, r.Y+r.H/2
+	tt.PressButton(button, x, y)
+	tt.ReleaseButton(button, x, y)
+	tt.Frame()
+	tt.Frame()
 }
 
 // Tabs that do not fit are listed by a button at the bar's end, which

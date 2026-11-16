@@ -25,8 +25,8 @@ The builds are not signed yet. Choose **More info → Run anyway** once.
 
 ### Linux: the window does not open
 
-DGopher draws its window with GTK 3 and OpenGL. The `.deb` package installs
-what it needs. With the `.tar.gz`, install GTK 3 (`libgtk-3-0`), Pango,
+DGopher draws its window with GTK 3 and OpenGL. The `.deb` and `.rpm`
+packages install what they need. With the `.tar.gz`, install GTK 3 (`libgtk-3-0`), Pango,
 Cairo, HarfBuzz, Fontconfig and libepoxy from your distribution.
 
 ## Passwords and the keychain
