@@ -80,6 +80,23 @@ func TestCloseAsksCommitOrRollback(t *testing.T) {
 	}
 }
 
+// When the session ends, at logout or shutdown, the system quits whatever
+// is answered: a quit it starts asks nothing, and the open transaction is
+// rolled back, as the prompt's Roll Back would. A quit it starts otherwise
+// still asks.
+func TestSessionEndRollsBackWithoutAsking(t *testing.T) {
+	a, tt, _, file := txApp(t, 0)
+	if a.quitAllowed(false) || a.closing == nil {
+		t.Fatal("a quit the system started did not ask")
+	}
+	a.closing = nil
+	if !a.quitAllowed(true) || a.closing != nil || !a.quitting {
+		t.Fatalf("the session's end asked: %+v", a.closing)
+	}
+	a.shutdown()
+	testutil.WaitFor(t, tt, "the rollback", func() bool { return rowsIn(t, file) == "0" })
+}
+
 func TestQuitAsksAboutOpenTransactions(t *testing.T) {
 	a, tt, _, file := txApp(t, 0)
 	quit := false

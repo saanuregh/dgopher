@@ -170,7 +170,7 @@ Pushing a tag `v<version>` builds and publishes a release
 
 Each platform builds on a runner of its own system, because DuckDB needs
 cgo. `go tool mygo build -upload` uploads its installers, the macOS disk
-image, the Windows installer, the Linux Debian package and archive, and
+image, the Windows installer, the Linux Debian and RPM packages and archive, and
 the install scripts, `install.sh` for macOS and Linux and `install.ps1`
 for Windows, with its signed update: an archive of the app, a manifest
 (`update-<platform>.json`) and deltas from earlier versions. The release
@@ -200,7 +200,8 @@ MYGO_UPDATER_PRIVATE_KEY="$(cat ~/.config/mygo/update-keys/mygo-update.key)" CGO
 
 The macOS app, the Windows installer's per-user install, and the Linux app
 of `install.sh` or of the extracted `.tar.gz` update themselves. The
-`.deb` installs into `/opt`, which the app cannot write, so it does not.
+`.deb` and `.rpm` install into `/opt`, which the app cannot write, so they
+do not.
 
 `.github/workflows/ci.yml` runs gofmt, vet and the tests on every push and
 pull request, on Linux and Windows. It does not run the integration tests.
@@ -223,8 +224,9 @@ does not have yet:
 - frozen table columns;
 - the code editor's `GutterButtons`, `OnAcceptCompletion` and
   `CompletionsOpen`;
-- the code editor's `LinkAt` and `OnLink`, which underline a name while
-  ⌘ is held and open it on a click.
+- the code editor's `LinkAt` and `OnLink`, which show a name as a link
+  while ⌘ is held and open it on a click; the name takes the place of the
+  word upstream's `OnDefinition` link would show.
 
 An API missing from upstream MyGo may exist there.
 

@@ -68,7 +68,7 @@ Download the build for your system from the
 
 | System | Builds |
 | --- | --- |
-| Linux | amd64, arm64 (`.deb` and `.tar.gz`) |
+| Linux | amd64, arm64 (`.deb`, `.rpm` and `.tar.gz`) |
 | macOS | Apple silicon, Intel (disk image) |
 | Windows | amd64 (installer) |
 
@@ -77,8 +77,8 @@ app once in System Settings → Privacy & Security. On Windows, SmartScreen
 warns once.
 
 The app checks for updates once a day and offers to install them, or
-choose **Check for Updates…** in the menu. The `.deb` is updated by
-installing the new one instead.
+choose **Check for Updates…** in the menu. The `.deb` and `.rpm` are
+updated by installing the new one instead.
 
 To build from source, see [Development](docs/development.md).
 

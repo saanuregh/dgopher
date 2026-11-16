@@ -24,7 +24,11 @@ gh release list -R egoist/mygo          # newest release, unless the user named 
 git -C ../mygo worktree add /tmp/mygo-NEW vNEW
 ```
 
-From `go.mod`: OLD is the release in `require`, PIN is the commit hash at the end of `replace`.
+Read `go.mod` from `origin/main`, not the local checkout, which may be behind:
+`git fetch origin && git show origin/main:go.mod`. OLD is the release in `require`, PIN is the
+commit hash at the end of `replace`. When PIN is on a `dbgopher-main-<date>` branch, the range
+starts at its base on upstream (`git -C ../mygo merge-base PIN upstream/main`), not at vOLD. Make
+DGopher's changes in a worktree from `origin/main`.
 
 Look for patch work that PIN doesn't include: commits on the fork branch after PIN, local
 `dbgopher-*` branches that were never pushed, and uncommitted changes in `../mygo`, its worktrees,
@@ -38,10 +42,13 @@ Release notes alone miss things, so read all of it:
 - `git -C ../mygo log --reverse --oneline vOLD..vNEW` and `git diff --stat` for the same range
 - the public API of each MyGo package DGopher imports, at both tags (`go doc -all`, or the diff of
   the generated `ui/api_gen.go`), and the diff of `docs/`
-- breaking changes: apply the fork patches to vNEW on a detached commit in `/tmp/mygo-NEW` (as in
-  "Do the upgrade", step 1) and build DGopher against it with a copy of `go.mod`
-  (`go build -modfile=/tmp/dg.mod ./...`), so the repo isn't touched. Plain vNEW only reports our
-  own fork APIs as missing.
+- breaking changes: build DGopher against vNEW with a copy of `go.mod`
+  (`go build -gcflags=-e -modfile=/tmp/dg.mod ./...`, then `go vet` the same way for the tests),
+  so the repo isn't touched. If the fork patches apply cleanly, apply them on a detached commit in
+  `/tmp/mygo-NEW` first. If they conflict, don't rebase yet: in a second throwaway worktree of
+  vNEW, add our fork's APIs as no-op stand-ins (fields on the structs, methods returning zero) and
+  build against that. What still fails is upstream's change. `go test ./...` on it shows changed
+  behaviour too; failures in the stubbed features are expected.
 
 Read these closely:
 
@@ -54,7 +61,13 @@ Read these closely:
   Linux docs only if DGopher uses the feature that loads it.
 - **Go version.** If MyGo's `go.mod` needs a newer Go, bump DGopher's `go.mod` and `flake.nix`.
 - **Quitting.** Check that quitting with an open transaction still asks first (DGopher's
-  `OnBeforeQuit`), since the hard rules forbid closing one silently.
+  `OnBeforeQuit`, `quitAllowed` in `internal/app/run.go`), since the hard rules forbid closing
+  one silently. Look for new quit paths that can't be cancelled, as `QuitEvent.SessionEnding`
+  (0.9.0), and for updater relaunches.
+- **Theme defaults.** A new `ui.Theme` field left zero takes MyGo's default, which may not suit
+  DGopher's own themes in `internal/ui/widgets`: `InactiveAccent` (0.8.0) turned chosen rows
+  mid-gray in windows not in front. Draw such states with `Tester` helpers, as
+  `SetWindowActive(false)`, and look.
 - **Windows and macOS.** Changes in `*_windows.go`, `*_darwin.go` and the `backend_*` files can't
   be tested here. List them so they get checked in CI or by hand.
 
@@ -144,8 +157,15 @@ separate decisions. The user can approve just the upgrade.
    aside, take a second set on each version (the old one with `-modfile` and a copy of the
    committed `go.mod` and `go.sum`), diff each version against itself, and drop the screenshots
    that change on the old version anyway. Treat every other change as a bug until shown otherwise:
-   rerun that test a few times on both versions, and take a screenshot one frame later too. Then
-   start the app (`CGO_ENABLED=1 go run .`) and click through a connection, a query and a table.
+   rerun that test a few times on both versions, and take a screenshot one frame later too. A
+   screenshot whose data changes each run (a temporary path) is dropped as noise, so check what
+   the change touches there by hand. Then start the app and click through a connection, a query,
+   a table and a context menu. To drive it from the shell, build it with a throwaway file
+   `//go:build e2e` importing `github.com/egoist/mygo/plugins/automation` (delete it afterwards),
+   run it under `Xvfb` with `DGOPHER_CONFIG_DIR` set to a scratch folder and
+   `MYGO_AUTOMATION=$XDG_RUNTIME_DIR/dg-e2e.sock` (a Unix socket path must stay under about 108
+   characters), and use `mygo-automation` from `plugins/automation/cmd`. "Try the sample" creates
+   a project in `~/dgopher-projects` by default: fill in a scratch folder instead.
 6. Make the approved changes, each with a test, plus any `flake.nix`, Go or packaging updates from
    step 1.
 7. Push the fork branch once the user says so, then pin it:
@@ -153,13 +173,18 @@ separate decisions. The user can approve just the upgrade.
    CI fetches through the default module proxy, so check that it serves the new commit too:
    `GOMODCACHE=$(mktemp -d) GOFLAGS=-modcacherw go mod download github.com/saanuregh/mygo@<version>`,
    with the version `go.mod` now names; remove that cache afterwards.
-8. Run `go run ./tools/licenses` to update the license notices.
+8. Run `go run ./tools/licenses` to update the license notices. Nix's Go has no `LICENSE` in its
+   GOROOT, so the tool stops there. Point `GOROOT` at a scratch folder of links to
+   `$(go env GOROOT)/*` plus `LICENSE` and `PATENTS` from a cached
+   `~/go/pkg/mod/golang.org/toolchain@*` of the same Go version, run it, and remove the folder.
 9. Update the patch list in `docs/development.md`, and anything in `docs/`, `README.md` or
    `AGENTS.md` about MyGo that's no longer true.
 
 Run everything once more, remove the scratch worktrees you made (`git worktree remove`), review
 the diff, show it and stop. Don't commit, push DGopher or open a
 PR unless asked.
+
+In zsh, `echo ==` fails (`=` expands a command name): quote it.
 
 ## Improve this skill
 

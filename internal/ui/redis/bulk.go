@@ -313,7 +313,7 @@ func (r *Tab) bulkView(c *ui.Context) {
 				} else {
 					ui.Field(c, "File", func() {
 						ui.Row(c).Gap(6).Children(func() {
-							ui.Text(c, b.path).Font(widgets.MonoFont).FontSize(12).SingleLine().Grow(1).Shrink(1)
+							ui.Text(c, b.path).Font(widgets.MonoFont).FontSize(12).SingleLine().TruncateStart().Grow(1).Shrink(1)
 							if ui.Button(c, "Choose…").Disabled(b.running).Clicked() {
 								r.chooseImport(b)
 							}

@@ -171,9 +171,20 @@ func TestCodeAreaTypesData(t *testing.T) {
 	if at.text != "a\r\nb\ncd" {
 		t.Fatalf("mixed line endings after an edit: %q", at.text)
 	}
+	// Enter on the last line, which has no ending, ends it as the line
+	// before it ends.
 	at.tt.Key(0, ui.KeyEnter)
 	at.frames()
-	if at.text != "a\r\nb\ncd\r\n" {
+	if at.text != "a\r\nb\ncd\n" {
+		t.Fatalf("a new line after a line ending in \\n: %q", at.text)
+	}
+
+	at = newCodeAreaTest("a\r\nb", &CodeArea{Label: "Value", AutoFocus: true})
+	at.area.state.Select(4, 4)
+	at.frames()
+	at.tt.Key(0, ui.KeyEnter)
+	at.frames()
+	if at.text != "a\r\nb\r\n" {
 		t.Fatalf("a new line in a text with \\r\\n: %q", at.text)
 	}
 }

@@ -587,7 +587,7 @@ func (a *App) importView(c *ui.Context) {
 			format, _ := fileimport.FormatOf(x.path)
 			ui.Row(c).Gap(8).Children(func() {
 				ui.Badge(c, format.Label())
-				ui.Text(c, x.path).Font(widgets.MonoFont).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1)
+				ui.Text(c, x.path).Font(widgets.MonoFont).FontSize(12).TextColor(pal.Muted).SingleLine().TruncateStart().Shrink(1)
 			})
 			a.importOptions(c, x, format)
 			if x.obj == nil {

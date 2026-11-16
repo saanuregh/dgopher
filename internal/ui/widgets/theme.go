@@ -119,6 +119,7 @@ func ChosenRows(c *ui.Context, build func()) {
 	prev := c.Theme()
 	t := *prev
 	t.Accent, t.AccentText = ChosenRow(c), prev.Text
+	t.InactiveAccent = inactiveTint(prev)
 	c.SetTheme(&t)
 	defer c.SetTheme(prev)
 	build()
@@ -130,12 +131,23 @@ func ChosenRows(c *ui.Context, build func()) {
 // show, in the tint's color.
 func ChosenCells(t ui.Theme, bg, tint ui.Color) ui.Theme {
 	t.Accent = bg.Mix(ui.RGB(tint.R, tint.G, tint.B), float32(tint.A)/255)
+	t.InactiveAccent = bg.Mix(t.Text, float32(tint.A)/255)
 	t.AccentText = t.Text
 	return t
 }
 
 // ChosenRow is the tint behind a chosen row, for rows painted by hand.
 func ChosenRow(c *ui.Context) ui.Color { return chosenTint(c.Theme()) }
+
+// inactiveTint is the chosen row's tint in a window that is not in front:
+// gray, as strong as the accent's. Left to MyGo, the accent fades to a gray
+// dark enough for text on it, much darker than the tint.
+func inactiveTint(t *ui.Theme) ui.Color {
+	if t.Dark {
+		return t.Text.Alpha(0.24)
+	}
+	return t.Text.Alpha(0.14)
+}
 
 func chosenTint(t *ui.Theme) ui.Color {
 	if t.Dark {

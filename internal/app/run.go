@@ -68,6 +68,7 @@ func Run(args []string) error {
 		log.Println("ui state:", err)
 	}
 	a := newApp(st, uiState)
+	a.keepRunning = mygo.Power.KeepRunning
 	defer a.captureLog()()
 	// The windows' places are kept with the layout, and without it last
 	// the run too: never in a file of MyGo's own.
@@ -163,14 +164,12 @@ func Run(args []string) error {
 		// transaction: the quit waits for the answer, shown in the window.
 		// Listeners run on the main thread, as the app's frames do.
 		mygo.App.OnBeforeQuit(func(e *mygo.QuitEvent) {
-			if !a.requestQuit(mygo.App.Quit) {
+			if !a.quitAllowed(e.SessionEnding) {
 				e.PreventDefault()
 				win.Show()
 				win.Focus()
 				win.Invalidate()
-				return
 			}
-			a.quitting = true
 		})
 		win.OnClose(func(e *mygo.CloseEvent) {
 			switch {
@@ -443,4 +442,16 @@ func buildMenu(a *App) *mygo.Menu {
 		{Role: mygo.RoleWindowMenu},
 		{Label: help.label, Submenu: native(help)},
 	})
+}
+
+// quitAllowed tells whether a quit the system started may go on, and
+// marks the app quitting if so. When the session ends, at logout or
+// shutdown, the system quits whatever is answered, so nothing is asked:
+// shutdown rolls back the open transactions, as the prompt's Roll Back.
+func (a *App) quitAllowed(sessionEnding bool) bool {
+	if !sessionEnding && !a.requestQuit(mygo.App.Quit) {
+		return false
+	}
+	a.quitting = true
+	return true
 }
