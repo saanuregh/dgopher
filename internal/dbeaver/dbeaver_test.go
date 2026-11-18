@@ -488,8 +488,13 @@ func TestDataDirs(t *testing.T) {
 		{"windows", `C:\Users\u`, `C:\Users\u\AppData\Roaming`, []string{filepath.Join(`C:\Users\u\AppData\Roaming`, "DBeaverData")}},
 		{"windows", "/u", "", []string{filepath.Join("/u", "AppData", "Roaming", "DBeaverData")}},
 	} {
-		if got := candidateDataDirs(c.goos, c.home, c.appData); !reflect.DeepEqual(got, c.want) {
-			t.Errorf("%s: %q", c.goos, got)
+		// The paths are joined with the separator of the system the test runs on.
+		want := make([]string, len(c.want))
+		for i, w := range c.want {
+			want[i] = filepath.FromSlash(w)
+		}
+		if got := candidateDataDirs(c.goos, filepath.FromSlash(c.home), c.appData); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: %q, want %q", c.goos, got, want)
 		}
 	}
 }
