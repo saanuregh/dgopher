@@ -2,14 +2,34 @@
 
 The changes of each version of DGopher.
 
-## Unreleased
+## 0.8.0
 
 ### Added
 
+- **Connection folders.** A project's connections group into nested
+  folders, saved in `dgopher.json` as DBeaver saves them. Create one with
+  **New Folder…**, rename it (F2) or delete it (Delete), which moves its
+  connections to the folder above. Drag connections and folders onto a
+  folder, or use **Move to Folder** or the connection form's Folder field.
 - **Import from DBeaver…** copies DBeaver Community Edition's saved
   connections into a project, each in its DBeaver folder: engine,
-  address, TLS, SSH tunnel, proxy and environment. Its saved passwords go to the keychain only when you tick
-  the box to import them.
+  address, TLS, SSH tunnel, proxy and environment. Its saved passwords go
+  to the keychain only when you tick the box to import them.
+
+### Changed
+
+- Connections at the top of a project are listed by name, after its
+  folders, rather than in file order.
+- A submenu stays open while the pointer moves diagonally toward it.
+- A triple click selects a whole paragraph in text fields and selectable
+  text, rather than one wrapped line.
+- Popups such as a combo box's list stay within the window and scroll
+  inside it.
+
+### Fixed
+
+- A new SQL editor's file is always chosen in the navigator as it opens;
+  before, the file before it sometimes stayed chosen.
 
 ## 0.7.3
 
