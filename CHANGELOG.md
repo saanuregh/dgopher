@@ -2,6 +2,15 @@
 
 The changes of each version of DGopher.
 
+## Unreleased
+
+### Added
+
+- **Import from DBeaver…** copies DBeaver Community Edition's saved
+  connections into a project, each in its DBeaver folder: engine,
+  address, TLS, SSH tunnel, proxy and environment. Its saved passwords go to the keychain only when you tick
+  the box to import them.
+
 ## 0.7.3
 
 ### Changed

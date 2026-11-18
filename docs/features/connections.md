@@ -121,6 +121,49 @@ including TLS.
   shown as an error rather than quietly taken as prefer. (The app checks
   the certificate against the URL's host.)
 
+## Import from DBeaver
+
+**Import from DBeaver…**, in the sidebar's **+** menu, a project's menu
+or the command palette, copies the connections DBeaver Community Edition
+saved into a project.
+
+- It looks in DBeaver's own folder (`DBeaverData`, including the Flatpak
+  and Snap ones on Linux); **Choose…** picks another, such as a copied
+  `workspace6` or project folder.
+- Every connection is listed and ticked, except one DGopher cannot open
+  and one the project has already (same engine, host, port, SSH server,
+  database and user, or the same file). Hover a row's status for the
+  reason, or for what did not carry over.
+- Each connection goes into its DBeaver folder, made in the project when
+  it is missing. A folder the project has already is used whatever its
+  case: DBeaver's `Prod` goes into `prod`. A folder name holding `\`
+  cannot be DGopher's, so the connection stops in the folder above it.
+- Carried over: the engine, host, port, database, user, TLS mode and
+  certificate files, the SSH tunnel and its jump hosts, a SOCKS proxy,
+  read-only, and the environment from DBeaver's connection type: `prod`
+  is Production, `test` Staging, `dev` Development. A custom type that
+  confirms every statement is Production, one that confirms data
+  changes Staging. Auto-commit is kept where it differs from the
+  environment's default.
+- DBeaver gives every new connection its `dev` type, so that type says
+  nothing of the server. A server on another machine left on it shows
+  **Choose…** in place of its environment, and is imported only once one
+  is chosen, as the connection form asks.
+- **Import saved passwords into the keychain** is off until you tick it.
+  DBeaver keeps passwords encrypted with a key written in its source, so
+  DGopher can read them; ticked, they go to the system keychain, never
+  to `dgopher.json`. Unticked, a connection whose password DBeaver saved
+  asks for it each time it connects; an SSH or proxy password is not
+  asked for, so type it in the connection's settings, as the message
+  after the import says.
+- Not imported: DBeaver's empty folders, connection colors, filters and
+  driver properties; Oracle TNS aliases; MotherDuck; a key pasted into
+  DBeaver rather than a key file; and projects locked with a DBeaver
+  project password. DBeaver before 6.1.3 kept connections in XML, which is not
+  read.
+
+Each connection imported is in the [audit log](../audit-log.md) as added.
+
 ## Passwords
 
 The password comes from the system keychain, a `DGOPHER_*` environment

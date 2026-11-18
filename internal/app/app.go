@@ -147,6 +147,8 @@ type App struct {
 	tourStop  int
 	tourParts map[string]ui.Rect
 	newModel  *newModelForm
+	// dbeaverImport is the dialog importing DBeaver's connections.
+	dbeaverImport *dbeaverImport
 	// fileLists are the projects' dashboards and models, by folder: a
 	// menu asks for them each frame it shows.
 	fileLists   map[string]namedFiles
