@@ -637,6 +637,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 			f.project = a.projectByLabel(f.projectSel)
 		}
 	}).Description("Saved in its " + project.File + ", without passwords, to commit with the project.")
+	folderField(c, f)
 }
 
 // connectionColors are the colors offered for a connection, apart from
@@ -1193,7 +1194,7 @@ func remote(cfg *db.Config) bool {
 // database, rather than only its ID, name, color or safety prompts.
 func reconnectNeeded(old, cfg db.Config) bool {
 	strip := func(c db.Config) db.Config {
-		c.ID, c.Name, c.Color, c.Env, c.Commit = "", "", "", "", ""
+		c.ID, c.Name, c.Folder, c.Color, c.Env, c.Commit = "", "", "", "", "", ""
 		c.StatementTimeout, c.IdleTxTimeout, c.IdleConnectionTimeout = 0, 0, 0
 		c.KeySeparator, c.Catalog = "", nil
 		return c

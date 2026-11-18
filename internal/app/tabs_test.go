@@ -85,18 +85,19 @@ func tabsApp(t *testing.T) (*App, *ui.Tester) {
 	return a, tt
 }
 
-// dragTo drags the tab titled from onto the one titled to.
+// dragTo drags the tab or row titled from onto the one titled to.
 func dragTo(t *testing.T, tt *ui.Tester, from, to string) {
 	t.Helper()
 	// Where the tabs rest, once those a drag before moved slid there.
 	f, g := testutil.Settled(t, tt, from), testutil.Settled(t, tt, to)
 	x, y := f.X+f.W/2, f.Y+f.H/2
+	x1, y1 := g.X+g.W/2, g.Y+g.H/2
 	tt.Press(x, y)
 	for i := 1; i <= 8; i++ {
-		tt.Move(x+(g.X+g.W/2-x)*float32(i)/8, y)
+		tt.Move(x+(x1-x)*float32(i)/8, y+(y1-y)*float32(i)/8)
 		tt.Frame()
 	}
-	tt.Release(g.X+g.W/2, y)
+	tt.Release(x1, y1)
 	tt.Frame()
 	tt.Frame()
 }

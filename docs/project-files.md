@@ -24,6 +24,7 @@ The project's root file. A new project starts as:
 | --- | --- | --- |
 | `queries` | string | the folder of query files, relative to the project; `queries` by default, and then omitted. It must stay inside the project. |
 | `connections` | array | the project's [connections](#connections) |
+| `folders` | object | the navigator's folders of connections, keyed by path such as `Prod/EU`, each `{}`; empty folders too. Written only when there are folders. |
 | `snippets` | array | the project's snippets: `name`, `sql`, and an optional `keyword` that inserts it when typed in an editor |
 | `virtualKeys` | object | key columns for tables without a primary key, by table |
 | `hiddenValues` | object | columns whose values the grid hides, by table |
@@ -87,6 +88,7 @@ except `id`, `name`, `engine`, `host`, `port`, `user`, `environment` and
 | --- | --- |
 | `id` | the connection's ID (below) |
 | `name` | the name shown; required |
+| `folder` | the navigator folder it is in, as a path such as `Prod/EU`; the top level when omitted. A folder named here but missing from `folders` is still shown. |
 | `engine` | `postgres`, `mysql`, `clickhouse`, `redis`, `sqlite` or `duckdb` |
 | `host`, `port`, `user` | the server; `host` is required except for SQLite and DuckDB |
 | `database` | the database name. For SQLite and DuckDB, the file path, stored relative to the project when the file is inside it. For Redis, the database number (only 0 in a cluster). |

@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 
 	"dgopher/internal/connection"
+	"dgopher/internal/project"
 	"dgopher/internal/ui/dashboard"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/modelview"
@@ -61,9 +62,9 @@ func (a *App) openToReveal() {
 	if target == nil {
 		return
 	}
-	dir := target.projectDir
+	dir, folder := target.projectDir, ""
 	if cn := a.connByID(target.conn); cn != nil {
-		dir = cn.Project.Dir
+		dir, folder = cn.Project.Dir, cn.Config.Folder
 	}
 	waiting := false
 	var walk func(n navNode) bool
@@ -84,14 +85,14 @@ func (a *App) openToReveal() {
 				return true
 			case ch.kind == nodeInfo:
 				waiting = true // loading, or failed: it may come
-			case leadsTo(ch, *target, dir) && walk(ch):
+			case leadsTo(ch, *target, dir, folder) && walk(ch):
 				return true
 			}
 		}
 		return false
 	}
 	for _, root := range a.navRoots() {
-		if leadsTo(root, *target, dir) && walk(root) {
+		if leadsTo(root, *target, dir, folder) && walk(root) {
 			return
 		}
 	}
@@ -119,14 +120,16 @@ func (a *App) chooseRevealed(c *ui.Context) {
 }
 
 // leadsTo reports whether a node may hold target, of the project in
-// folder dir.
-func leadsTo(n, target navNode, dir string) bool {
+// folder dir, and of a connection in the navigator's folder folder.
+func leadsTo(n, target navNode, dir, folder string) bool {
 	same := n.conn == target.conn && n.database == target.database
 	switch n.kind {
 	case nodeProject:
 		return n.projectDir == dir
 	case nodeConnections:
 		return n.projectDir == dir && target.conn != ""
+	case nodeConnFolder:
+		return n.projectDir == dir && target.conn != "" && project.UnderFolder(folder, n.name)
 	case nodeQueries:
 		return n.projectDir == dir && target.kind == nodeQueryFile
 	case nodeDashboards:

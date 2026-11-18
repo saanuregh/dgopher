@@ -35,6 +35,7 @@ const (
 	nodeDashboard  // named by its file's path
 	nodeModels     // the data models of a project
 	nodeModel      // named by its file's path
+	nodeConnFolder // a folder of a project's connections, named by its path
 	nodeConn
 	nodeDatabase
 	nodeSchema
@@ -286,14 +287,9 @@ func (a *App) projectChildren(n navNode) []navNode {
 		}
 		return []navNode{conns, {kind: nodeQueries, projectDir: p.Dir}, {kind: nodeDashboards, projectDir: p.Dir}, {kind: nodeModels, projectDir: p.Dir}}
 	case nodeConnections:
-		var out []navNode
-		for _, cn := range a.projectConns(p) {
-			out = append(out, navNode{kind: nodeConn, conn: cn.Config.ID})
-		}
-		if out == nil {
-			return note("No connections yet")
-		}
-		return out
+		return a.connFolderChildren(p, "")
+	case nodeConnFolder:
+		return a.connFolderChildren(p, n.name)
 	case nodeDashboards:
 		_, paths := a.dashboardNames(p)
 		return files(nodeDashboard, paths, "No dashboards yet")
@@ -372,7 +368,7 @@ func (a *App) schemaChildren(cn *connection.Conn, n navNode, open bool) []navNod
 // node is open and they are not known yet.
 func (a *App) navChildren(n navNode) []navNode {
 	switch n.kind {
-	case nodeProject, nodeConnections, nodeQueries, nodeDashboards, nodeModels:
+	case nodeProject, nodeConnections, nodeConnFolder, nodeQueries, nodeDashboards, nodeModels:
 		return a.projectChildren(n)
 	case nodeQueryFile, nodeDashboard, nodeModel, nodeInfo:
 		return nil
@@ -652,6 +648,10 @@ func (a *App) nodeKeys(c *ui.Context) {
 		return
 	}
 	if p := a.projectByDir(n.projectDir); p != nil {
+		if n.kind == nodeConnFolder {
+			a.connFolderKeys(c, p, n)
+			return
+		}
 		if rename, del := a.fileActions(p, n); rename != nil {
 			switch {
 			case keymap.ListPressed(c, l, keymap.NavigatorRename):
@@ -706,7 +706,7 @@ func (a *App) activate(n navNode) {
 		return
 	}
 	switch n.kind {
-	case nodeProject, nodeConnections, nodeQueries, nodeDashboards, nodeModels:
+	case nodeProject, nodeConnections, nodeConnFolder, nodeQueries, nodeDashboards, nodeModels:
 		if a.nav.tree.Open.Has(n) {
 			a.nav.tree.Open.Remove(n)
 		} else {
@@ -904,6 +904,9 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 			ui.Text(c, n.name).FontSize(12).TextColor(muted).Italic().SingleLine()
 		}
 	})
+	if n.kind == nodeConn {
+		row.Drag(connDrag{project: cn.Project.Dir, ids: []string{cn.Config.ID}})
+	}
 	row.ContextMenu(func(m *ui.Menu) { a.navMenu(m, n) })
 	if n.kind == nodeObject {
 		a.objectCard(c, row, cn, n)
@@ -1008,6 +1011,7 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		if m.Item("Duplicate").Chosen() {
 			a.duplicateConn(cn)
 		}
+		a.connFolderItems(m, cn)
 		m.Separator()
 		if m.Item("Delete Connection…").Chosen() {
 			a.askDeleteConn(cn)
@@ -1308,6 +1312,8 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 					run()
 				}
 			})
+		case nodeConnFolder:
+			a.connFolderRow(c, p, n)
 		case nodeQueryFile:
 			ui.Icon(c, widgets.IconFile).TextColor(muted).FontSize(12)
 			ui.Column(c).Shrink(1).Children(func() {
@@ -1333,6 +1339,9 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 			ui.Text(c, n.name).FontSize(12).TextColor(muted).Italic().SingleLine()
 		}
 	})
+	if n.kind == nodeConnFolder || n.kind == nodeConnections {
+		a.folderDropTarget(c, row, p, n)
+	}
 	row.ContextMenu(func(m *ui.Menu) { a.navMenu(m, n) })
 }
 
@@ -1388,12 +1397,21 @@ func (a *App) projectMenu(m *ui.Menu, n navNode) {
 	if p == nil {
 		return
 	}
+	if n.kind == nodeConnFolder {
+		if p.Err == "" {
+			a.connFolderMenu(m, p, n)
+		}
+		return
+	}
 	if p.Err == "" {
 		// The sidebar lists what is there: the menu makes more.
 		for _, kind := range []nodeKind{nodeConnections, nodeDashboards, nodeModels, nodeQueries} {
 			if label, run := a.sectionNew(p, kind); label != "" && m.Item(label).Chosen() {
 				run()
 			}
+		}
+		if (n.kind == nodeProject || n.kind == nodeConnections) && m.Item("New Folder…").Chosen() {
+			a.askNewFolder(p, "", nil)
 		}
 		if rename, del := a.fileActions(p, n); rename != nil {
 			if keymap.Item(m.Item("Rename…"), keymap.NavigatorRename).Chosen() {

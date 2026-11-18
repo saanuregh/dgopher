@@ -141,8 +141,11 @@ func (s *SSHConfig) Jumps() ([]sshtunnel.Hop, error) {
 // Config describes a saved connection. Secrets are kept out of its JSON:
 // the app stores them in the system keychain.
 type Config struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Folder is the navigator folder it is in, as a / path; "" for the
+	// top level.
+	Folder   string `json:"folder,omitempty"`
 	Engine   Engine `json:"engine"`
 	Host     string `json:"host"`
 	Port     int    `json:"port"`

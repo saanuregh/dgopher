@@ -135,19 +135,19 @@ func TestPinConnectionNodeChildrenByEngine(t *testing.T) {
 // (nav.go navMenu).
 func TestPinConnectionMenuByEngine(t *testing.T) {
 	pinValues(t, "connection menu", map[string]string{
-		"postgres menu":      "Connect | New SQL Editor | Run SQL File… | Search Objects… | Server Activity | Users and Privileges | Catalog Queries | - | Back Up… | Restore… | - | Edit Connection… | Duplicate | - | Delete Connection…",
+		"postgres menu":      "Connect | New SQL Editor | Run SQL File… | Search Objects… | Server Activity | Users and Privileges | Catalog Queries | - | Back Up… | Restore… | - | Edit Connection… | Duplicate | New Folder… | - | Delete Connection…",
 		"postgres connect":   "tabs+0 (none) waiting=1 node open=true",
-		"mysql menu":         "Connect | New SQL Editor | Run SQL File… | Search Objects… | Server Activity | Users and Privileges | Catalog Queries | - | Back Up… | Restore… | - | Edit Connection… | Duplicate | - | Delete Connection…",
+		"mysql menu":         "Connect | New SQL Editor | Run SQL File… | Search Objects… | Server Activity | Users and Privileges | Catalog Queries | - | Back Up… | Restore… | - | Edit Connection… | Duplicate | New Folder… | - | Delete Connection…",
 		"mysql connect":      "tabs+0 (none) waiting=1 node open=true",
-		"clickhouse menu":    "Connect | New SQL Editor | Run SQL File… | Search Objects… | Server Activity | Users and Privileges | Catalog Queries | - | Edit Connection… | Duplicate | - | Delete Connection…",
+		"clickhouse menu":    "Connect | New SQL Editor | Run SQL File… | Search Objects… | Server Activity | Users and Privileges | Catalog Queries | - | Edit Connection… | Duplicate | New Folder… | - | Delete Connection…",
 		"clickhouse connect": "tabs+0 (none) waiting=1 node open=true",
-		"sqlite menu":        "Connect | New SQL Editor | Run SQL File… | Search Objects… | Catalog Queries | - | Back Up… | Restore… | - | Edit Connection… | Duplicate | - | Delete Connection…",
+		"sqlite menu":        "Connect | New SQL Editor | Run SQL File… | Search Objects… | Catalog Queries | - | Back Up… | Restore… | - | Edit Connection… | Duplicate | New Folder… | - | Delete Connection…",
 		"sqlite connect":     "tabs+0 (none) waiting=1 node open=true",
-		"duckdb menu":        "Connect | New SQL Editor | Run SQL File… | Search Objects… | Catalog Queries | - | Back Up… | Restore… | - | Edit Connection… | Duplicate | - | Delete Connection…",
+		"duckdb menu":        "Connect | New SQL Editor | Run SQL File… | Search Objects… | Catalog Queries | - | Back Up… | Restore… | - | Edit Connection… | Duplicate | New Folder… | - | Delete Connection…",
 		"duckdb connect":     "tabs+0 (none) waiting=1 node open=true",
-		"redis menu":         "Connect | Open Key Browser | Server Activity | - | Edit Connection… | Duplicate | - | Delete Connection…",
+		"redis menu":         "Connect | Open Key Browser | Server Activity | - | Edit Connection… | Duplicate | New Folder… | - | Delete Connection…",
 		"redis connect":      "tabs+0 (none) waiting=1 node open=false",
-		"unknown menu":       "Connect | New SQL Editor | Run SQL File… | Search Objects… | Server Activity | Catalog Queries | - | Edit Connection… | Duplicate | - | Delete Connection…",
+		"unknown menu":       "Connect | New SQL Editor | Run SQL File… | Search Objects… | Server Activity | Catalog Queries | - | Edit Connection… | Duplicate | New Folder… | - | Delete Connection…",
 		"unknown connect":    "tabs+0 (none) waiting=1 node open=true",
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
