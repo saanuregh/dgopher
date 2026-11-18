@@ -67,6 +67,7 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 	}
 	cmds = append(cmds,
 		paletteItem{title: "New Connection…", key: keymap.NewConnection, group: "Command", icon: widgets.IconPlus, run: func() { a.openConnForm(nil) }},
+		paletteItem{title: "Import from DBeaver…", detail: "its saved connections", group: "Command", icon: widgets.IconPlug, run: func() { a.openDBeaverImport(nil) }},
 		paletteItem{title: "Query History", key: keymap.History, group: "Command", icon: widgets.IconHistory, run: func() { a.openHistory() }},
 		paletteItem{title: "Audit Log", detail: "who did what, verifiable", key: keymap.AuditLog, group: "Command", icon: widgets.IconShield, run: a.openAudit},
 		paletteItem{title: "Show Latest Error", key: keymap.ShowLatestError, group: "Command", icon: widgets.IconAlert, run: a.showLatestError},

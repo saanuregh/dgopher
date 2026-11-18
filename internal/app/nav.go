@@ -1413,6 +1413,9 @@ func (a *App) projectMenu(m *ui.Menu, n navNode) {
 		if (n.kind == nodeProject || n.kind == nodeConnections) && m.Item("New Folder…").Chosen() {
 			a.askNewFolder(p, "", nil)
 		}
+		if m.Item("Import from DBeaver…").Chosen() {
+			a.openDBeaverImport(p)
+		}
 		if rename, del := a.fileActions(p, n); rename != nil {
 			if keymap.Item(m.Item("Rename…"), keymap.NavigatorRename).Chosen() {
 				rename()
@@ -1450,6 +1453,9 @@ func (a *App) projectMenu(m *ui.Menu, n navNode) {
 func (a *App) addMenu(m *ui.Menu) {
 	if len(a.usableProjects()) > 0 && m.Item("New Connection…").Chosen() {
 		a.openConnForm(nil)
+	}
+	if len(a.usableProjects()) > 0 && m.Item("Import from DBeaver…").Chosen() {
+		a.openDBeaverImport(nil)
 	}
 	if m.Item("New Project…").Chosen() {
 		a.openNewProject(nil)

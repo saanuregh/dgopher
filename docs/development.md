@@ -343,6 +343,7 @@ see [Architecture](architecture.md#engines).
 | Path | What |
 | --- | --- |
 | `internal/export` | CSV, TSV, JSON, JSON Lines, SQL, Markdown and Excel writers, and Parquet and DuckDB files through DuckDB. Text formats are written in Go, clipboard copies too, so a copy and a file of the same rows agree. |
+| `internal/dbeaver` | reads the connections DBeaver Community Edition saved, and their passwords, as DGopher connections |
 | `internal/fileimport` | reads files to import: CSV, JSON and Parquet through DuckDB; Excel and XML loaded into it |
 | `internal/datamodel` | data models: a schema's tables kept in a project file, written as DDL for any engine, compared, and the migration between two |
 | `internal/schemadoc` | the script that creates a schema's objects in an order that runs, and its documentation as HTML or Markdown |

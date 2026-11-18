@@ -156,6 +156,9 @@ func (a *App) overlays(c *ui.Context) {
 	if a.newModel != nil {
 		a.newModelView(c)
 	}
+	if a.dbeaverImport != nil {
+		a.dbeaverImportView(c)
+	}
 	query.DialogsView(a, c)
 	dataview.DialogsView(a, c)
 	if a.idleWarn != nil {
