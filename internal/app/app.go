@@ -218,6 +218,7 @@ func newApp(st *store.Store, uiState *state.DB) *App {
 	a.recordProjects = map[string]*project.Project{}
 	db.SetOnSend(a.recordSent)
 	a.nav.init()
+	a.nav.tree.List.DragRows = a.navDragRows
 	// Before the editors are restored, which take its height above their
 	// results.
 	if uiState != nil {

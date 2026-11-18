@@ -319,12 +319,28 @@ func (a *App) connFolderKeys(c *ui.Context, p *project.Project, n navNode) {
 }
 
 // connDrag is what a drag of a connection's row, or a folder's, carries.
-// Those rows drag alone, not the list's every row: a row's button, as a
-// section's +, keeps its click when the press moves a little.
 type connDrag struct {
 	project string
 	ids     []string // the connections'
 	folders []string // the folders' paths
+}
+
+// navDragRows is what a drag of the navigator's rows carries, as its
+// list's DragRows: a connection's row or a folder's, nil for the other
+// rows, which do not drag.
+func (a *App) navDragRows(rows []int) any {
+	if len(rows) != 1 {
+		return nil
+	}
+	switch n := a.nav.tree.Item(rows[0]); n.kind {
+	case nodeConn:
+		if cn := a.connByID(n.conn); cn != nil {
+			return connDrag{project: cn.Project.Dir, ids: []string{cn.Config.ID}}
+		}
+	case nodeConnFolder:
+		return connDrag{project: n.projectDir, folders: []string{n.name}}
+	}
+	return nil
 }
 
 // folderDropTarget lets a folder's row, or the Connections section's for
@@ -333,8 +349,6 @@ func (a *App) folderDropTarget(c *ui.Context, row ui.Element, p *project.Project
 	path := n.name
 	if n.kind == nodeConnections {
 		path = ""
-	} else {
-		row.Drag(connDrag{project: p.Dir, folders: []string{n.name}})
 	}
 	if d, ok := ui.DragOver[connDrag](row); ok && a.canDrop(p, d, path) == nil {
 		row.Background(widgets.ChosenRow(c))
