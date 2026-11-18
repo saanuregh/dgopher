@@ -295,3 +295,43 @@ func TestNavigatorButtonClicksThoughRowsDrag(t *testing.T) {
 		t.Fatal("the button did not click")
 	}
 }
+
+// A double-click on a folder opens it, and another closes it, as on the
+// project's sections, and a click chooses a connection: rows that drag
+// keep their clicks.
+func TestDoubleClickFolder(t *testing.T) {
+	a, tt, p, conns := folderApp(t, "zeta")
+	a.moveConnsToFolder(p, []string{conns[0].Config.ID}, "Prod")
+	folder := navNode{kind: nodeConnFolder, projectDir: p.Dir, name: "Prod"}
+	a.nav.tree.Open.Remove(folder)
+	tt.Frame()
+	doubleClick := func() {
+		t.Helper()
+		r, ok := tt.Find("Prod")
+		if !ok {
+			t.Fatalf("no Prod row: %q", tt.Texts())
+		}
+		tt.ClickAt(r.X+r.W/2, r.Y+r.H/2)
+		tt.ClickAt(r.X+r.W/2, r.Y+r.H/2)
+		tt.Frame()
+		tt.Frame()
+	}
+	doubleClick()
+	if !a.nav.tree.Open.Has(folder) {
+		t.Fatalf("double-click did not open the folder: %q", navLabels(a))
+	}
+	// A connection's row, which drags too, is chosen by a click.
+	tt.Advance(time.Second)
+	if err := tt.Click("zeta"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if n := a.nav.tree.Item(max(a.nav.row, 0)); a.nav.row < 0 || n.kind != nodeConn {
+		t.Fatalf("a click on zeta chose row %d", a.nav.row)
+	}
+	tt.Advance(time.Second) // a click then is not the first's third
+	doubleClick()
+	if a.nav.tree.Open.Has(folder) {
+		t.Fatalf("double-click did not close the folder: %q", navLabels(a))
+	}
+}
