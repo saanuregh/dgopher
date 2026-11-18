@@ -904,9 +904,6 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 			ui.Text(c, n.name).FontSize(12).TextColor(muted).Italic().SingleLine()
 		}
 	})
-	if n.kind == nodeConn {
-		row.Drag(connDrag{project: cn.Project.Dir, ids: []string{cn.Config.ID}})
-	}
 	row.ContextMenu(func(m *ui.Menu) { a.navMenu(m, n) })
 	if n.kind == nodeObject {
 		a.objectCard(c, row, cn, n)
