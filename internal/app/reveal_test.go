@@ -1,6 +1,7 @@
 package app
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -83,4 +84,24 @@ func TestTabShowsUnsaved(t *testing.T) {
 	}
 	testutil.Snapshot(t, tt, "tab-unsaved")
 	testutil.WaitFor(t, tt, "the file saved", func() bool { return !q.Unsaved() })
+}
+
+// A new editor's file is listed and chosen as the editor opens, before
+// the scan of the queries folder finds it, which the navigator would
+// otherwise stop looking for.
+func TestNavigatorChoosesNewQueryFile(t *testing.T) {
+	a := newTestApp(t)
+	p := a.projects[0]
+	cn := addConn(a, db.Config{ID: "lite", Name: "Lite DB", Engine: db.SQLite, Database: writeSQL(t, "x.sqlite", "")})
+	tt := ui.NewTester(a.view, 1000, 700)
+	a.nav.expand(navNode{kind: nodeQueries, projectDir: p.Dir})
+	newAppEditor(t, a, tt, cn, "SELECT 1")
+	a.NewQueryTab(cn, "", "SELECT 2")
+	if !slices.Contains(p.Files, "query-2.sql") {
+		t.Fatalf("listed as the editor opens: %q", p.Files)
+	}
+	file := navNode{kind: nodeQueryFile, projectDir: p.Dir, name: "query-2.sql"}
+	testutil.WaitFor(t, tt, "the new file chosen", func() bool {
+		return a.nav.row >= 0 && a.nav.row < a.nav.tree.Rows() && a.nav.tree.Item(a.nav.row) == file
+	})
 }
