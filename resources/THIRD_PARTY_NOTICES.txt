@@ -4289,7 +4289,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-github.com/saanuregh/mygo v0.3.4-0.20261116124040-84ab6d49fe3a
+github.com/saanuregh/mygo v0.3.4-0.20261118170900-0adaddc196fc
 ==============================================================================
 
 --- LICENSE ---
