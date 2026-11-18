@@ -157,14 +157,22 @@ separate decisions. The user can approve just the upgrade.
    aside, take a second set on each version (the old one with `-modfile` and a copy of the
    committed `go.mod` and `go.sum`), diff each version against itself, and drop the screenshots
    that change on the old version anyway. Treat every other change as a bug until shown otherwise:
-   rerun that test a few times on both versions, and take a screenshot one frame later too. A
-   screenshot whose data changes each run (a temporary path) is dropped as noise, so check what
-   the change touches there by hand. Then start the app and click through a connection, a query,
+   rerun that test alone about five times on each version (`go test -count=1 ./internal/app
+   -run '^TestName$'`) and compare the PNGs' hashes, and take a screenshot one frame later too.
+   The full run's load causes differences a lone run doesn't, and some tests flake on the old
+   version too. A screenshot whose data changes each run (a temporary path) is dropped as noise,
+   so check what the change touches there by hand. Then start the app and click through a connection, a query,
    a table and a context menu. To drive it from the shell, build it with a throwaway file
    `//go:build e2e` importing `github.com/egoist/mygo/plugins/automation` (delete it afterwards),
    run it under `Xvfb` with `DGOPHER_CONFIG_DIR` set to a scratch folder and
    `MYGO_AUTOMATION=$XDG_RUNTIME_DIR/dg-e2e.sock` (a Unix socket path must stay under about 108
-   characters), and use `mygo-automation` from `plugins/automation/cmd`. "Try the sample" creates
+   characters), and use `mygo-automation` from `plugins/automation/cmd`. The dev shell has no
+   `Xvfb`: `nix build --no-link --print-out-paths nixpkgs#xvfb` gives it, then
+   `<path>/bin/Xvfb :97 -screen 0 1400x900x24 &` and `DISPLAY=:97`. `mygo-automation` takes its
+   session from `export MYGO_AUTOMATION_SESSION=<name>`; a `--session` flag goes after the
+   command, never before it. The tool's guide says context menus can't be driven, but that is
+   about the system's: DGopher draws its menus in the window, so `click <ref> --button right`
+   opens one and `pointer move <ref>` opens a submenu. "Try the sample" creates
    a project in `~/dgopher-projects` by default: fill in a scratch folder instead.
 6. Make the approved changes, each with a test, plus any `flake.nix`, Go or packaging updates from
    step 1.
@@ -173,8 +181,9 @@ separate decisions. The user can approve just the upgrade.
    CI fetches through the default module proxy, so check that it serves the new commit too:
    `GOMODCACHE=$(mktemp -d) GOFLAGS=-modcacherw go mod download github.com/saanuregh/mygo@<version>`,
    with the version `go.mod` now names; remove that cache afterwards.
-8. Run `go run ./tools/licenses` to update the license notices. Nix's Go has no `LICENSE` in its
-   GOROOT, so the tool stops there. Point `GOROOT` at a scratch folder of links to
+8. Run `go run ./tools/licenses` to update the license notices, only after step 7: with a local
+   path in `go.mod` it names MyGo as `egoist/mygo` instead of the fork's version. Nix's Go has
+   no `LICENSE` in its GOROOT, so the tool stops there. Point `GOROOT` at a scratch folder of links to
    `$(go env GOROOT)/*` plus `LICENSE` and `PATENTS` from a cached
    `~/go/pkg/mod/golang.org/toolchain@*` of the same Go version, run it, and remove the folder.
 9. Update the patch list in `docs/development.md`, and anything in `docs/`, `README.md` or
