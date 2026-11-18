@@ -554,6 +554,13 @@ func (a *App) createQueryFile(cn *connection.Conn, database, content string) *qu
 		}
 		break
 	}
+	// Listed before the scan finds it, so that the navigator can choose
+	// it as the editor opens. Files is replaced, never changed: a scan
+	// may hold the old one.
+	if rel := filepath.Base(path); !slices.Contains(p.Files, rel) {
+		i, _ := slices.BinarySearch(p.Files, rel)
+		p.Files = slices.Insert(slices.Clone(p.Files), i, rel)
+	}
 	a.ScanQueries(p, true)
 	q := a.openFileTab(cn, database, path, content)
 	q.Created = content
