@@ -590,6 +590,14 @@ func TestTestButtonAsksForAPulledCommand(t *testing.T) {
 	if a.trusted(cn) {
 		t.Fatal("a rename trusted a pulled command")
 	}
+	// So does one moved to another folder.
+	cn.Project.Folders = []string{"Prod"}
+	a.openConnForm(cn)
+	a.connForm.cfg.Folder = "Prod"
+	a.saveConnForm(a.connForm, false)
+	if cn.Config.Folder != "Prod" || a.trusted(cn) {
+		t.Fatalf("moved to %q: trusted %v", cn.Config.Folder, a.trusted(cn))
+	}
 }
 
 // A pull that weakens TLS, or swaps the CA or the key, asks again.

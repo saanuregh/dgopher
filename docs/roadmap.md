@@ -20,7 +20,7 @@ what does not work today and why, see [Known limitations](limitations.md).
 ## Connections and engines
 
 - Import saved connections from other database clients.
-- Group connections in sub-folders or by tags.
+- Group connections by tags, beside folders.
 - A PostgreSQL `LISTEN`/`NOTIFY` panel, like the Redis Pub/Sub panel.
 - SSH hosts read from `~/.ssh/config`, so a tunnel can name a host set up
   there instead of entering it again.

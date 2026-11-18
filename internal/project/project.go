@@ -11,9 +11,11 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -41,7 +43,10 @@ type Config struct {
 	// Queries is the folder of the .sql files, relative to the project.
 	Queries     string      `json:"queries,omitempty"`
 	Connections []db.Config `json:"connections"`
-	Snippets    []Snippet   `json:"snippets,omitempty"`
+	// Folders are the navigator's folders of connections, by path, the
+	// empty ones too.
+	Folders  map[string]Folder `json:"folders,omitempty"`
+	Snippets []Snippet         `json:"snippets,omitempty"`
 	// VirtualKeys are the columns that tell rows apart in tables without
 	// a key, by "connection/schema.table", as the team agreed on them.
 	VirtualKeys map[string][]string `json:"virtualKeys,omitempty"`
@@ -64,8 +69,10 @@ type Project struct {
 	// the sidebar, without connections, until it is removed or reloaded.
 	Err string
 	// ScanErr says why the queries could not all be listed.
-	ScanErr      string
-	Snippets     []Snippet
+	ScanErr  string
+	Snippets []Snippet
+	// Folders are the paths of the connections' folders, sorted.
+	Folders      []string
 	VirtualKeys  map[string][]string
 	HiddenValues map[string][]string
 	Local        *state.DB  // the .dgopher folder's state file
@@ -167,6 +174,8 @@ func Load(dir string, create bool) (*Project, Config, error) {
 		p.Audit = l
 	}
 	p.Snippets, p.VirtualKeys, p.HiddenValues = pc.Snippets, pc.VirtualKeys, pc.HiddenValues
+	cleanFolders(&pc)
+	p.Folders = MergeFolders(slices.Collect(maps.Keys(pc.Folders)), connFolders(pc.Connections)...)
 	return p, pc, nil
 }
 
@@ -248,6 +257,13 @@ func (p *Project) Save(cfgs []db.Config) error {
 		pc.Connections = append(pc.Connections, cfg)
 	}
 	sort.SliceStable(pc.Connections, func(i, j int) bool { return pc.Connections[i].ID < pc.Connections[j].ID })
+	folders := MergeFolders(p.Folders, connFolders(pc.Connections)...)
+	if len(folders) > 0 {
+		pc.Folders = make(map[string]Folder, len(folders))
+	}
+	for _, path := range folders {
+		pc.Folders[path] = Folder{}
+	}
 	sort.SliceStable(pc.Snippets, func(i, j int) bool {
 		return strings.ToLower(pc.Snippets[i].Name) < strings.ToLower(pc.Snippets[j].Name)
 	})
@@ -258,7 +274,7 @@ func (p *Project) Save(cfgs []db.Config) error {
 	if err := writeProjectFile(filepath.Join(p.Dir, File), data); err != nil {
 		return err
 	}
-	p.disk = data
+	p.disk, p.Folders = data, folders
 	return nil
 }
 

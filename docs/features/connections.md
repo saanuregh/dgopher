@@ -50,6 +50,36 @@ change the form's.
 - **Auto-connect** (off by default) opens the connection when DGopher
   starts, and connects its editors as they come into view.
 
+## Folders
+
+Connections can be grouped in folders in the navigator, as in DBeaver.
+Folders nest, and belong to one project; they are saved in its
+`dgopher.json` ([fields](../project-files.md)).
+
+- **New Folder…** is on the Connections section's menu, a folder's, and a
+  connection's. From a connection, the folder is made beside it and the
+  connection moves into it.
+- Move a connection by dragging it onto a folder, or onto **Connections**
+  for the top level; by its **Move to Folder** menu; or with **Folder** on
+  the form's General page, shown once the project has a folder. Folders
+  drag too, but not into themselves.
+- **Rename…** (F2) renames a folder, and the folders in it follow.
+- **Delete…** (Delete) asks first, then deletes the folder and the folders
+  in it. No connection is deleted: they all move to the deleted folder's
+  parent.
+- Folders come first, then connections, each by name.
+- A folder's icon is muted until a connection in it is connected.
+
+Where DGopher differs from DBeaver:
+
+- A folder's name may not be empty or hold `/` or `\`, and two folders
+  in one place may not share a name, even by case. DBeaver checks none of
+  this.
+- **Move to Folder** is not in DBeaver; it moves a connection without
+  the mouse.
+- On delete, DBeaver leaves the connections of a folder inside the deleted
+  one in a folder that is gone; DGopher moves them to the parent too.
+
 ## Environments and colors
 
 Each connection has an environment: development, staging or production.
