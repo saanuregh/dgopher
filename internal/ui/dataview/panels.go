@@ -188,7 +188,7 @@ func (g *Grid) valuePanel(c *ui.Context, a Host, src *Source, row int) {
 					err = os.WriteFile(path, data, 0o600)
 					a.Post(func() {
 						if err != nil {
-							a.ShowError("Could not save the value", err.Error())
+							a.ShowReport(widgets.ErrorReportOf("Could not save the value", err))
 						}
 					})
 				}()
@@ -207,7 +207,7 @@ func (g *Grid) valuePanel(c *ui.Context, a Host, src *Source, row int) {
 							err = errors.New("the rows were read again meanwhile: choose the cell again")
 						}
 						if err != nil {
-							a.ShowError("Could not load the value", err.Error())
+							a.ShowReport(widgets.ErrorReportOf("Could not load the value", err))
 							return
 						}
 						g.checkpoint()

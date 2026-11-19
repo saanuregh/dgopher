@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"dgopher/internal/ui/widgets"
+
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
@@ -54,7 +56,7 @@ func (e *ERTab) save(form string) {
 		}
 		e.a.Post(func() {
 			if err != nil {
-				e.a.ShowError("The diagram was not saved", err.Error())
+				e.a.ShowReport(widgets.ErrorReportOf("The diagram was not saved", err))
 				return
 			}
 			e.a.Notify(started, "Diagram saved", filepath.Base(path), nil)

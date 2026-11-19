@@ -936,7 +936,7 @@ func (a *App) newDatabaseFile(e db.Engine) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := db.CreateFile(ctx, e, path); err != nil {
-			a.Post(func() { a.ShowError("Could not create the database", err.Error()) })
+			a.Post(func() { a.ShowReport(widgets.ErrorReportOf("Could not create the database", err)) })
 			return
 		}
 		a.Post(func() {

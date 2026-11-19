@@ -21,7 +21,8 @@ func (a *App) Online() bool { return !a.offline }
 func (a *App) Disconnect(cn *connection.Conn) { a.askDisconnect(cn) }
 
 // setOnline keeps what the system says of the network; back online, the
-// Redis tabs start again what the network stopped.
+// Redis tabs start again what the network stopped, and the server
+// connections are checked (checkConnectionsBackOnline).
 func (a *App) setOnline(online bool) {
 	back := online && a.offline
 	a.offline = !online
@@ -33,6 +34,7 @@ func (a *App) setOnline(online bool) {
 			r.Online()
 		}
 	}
+	a.checkConnectionsBackOnline()
 }
 
 func (a *App) Layout() *widgets.Layout    { return &a.layout }

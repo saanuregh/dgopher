@@ -3,6 +3,7 @@ package widgets
 import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/redact"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -65,6 +66,64 @@ func ErrorCard(c *ui.Context, r ErrorReport, open *bool, copyText func(string)) 
 		r.Actions[clicked].Run()
 	}
 	return clicked >= 0
+}
+
+// ErrorBanner draws a report in a row where the failure happened: its
+// title and the first line of its hint, else of its text, with the text
+// whole on hover, the report's actions, and Details, which hands the report
+// to show. The text shown is redacted.
+func ErrorBanner(c *ui.Context, r ErrorReport, show func(ErrorReport)) {
+	t := c.Theme()
+	r, line := bannerText(r)
+	ui.Row(c).Padding(6, 12).Gap(10).Background(t.Danger.Alpha(0.12)).Children(func() {
+		ui.Icon(c, IconAlert).TextColor(t.Danger).FontSize(14)
+		ui.Text(c, line).Grow(1).Shrink(1).Selectable().Tooltip(r.Detail)
+		reportButtons(c, r, show, false)
+	})
+}
+
+// ErrorBlock draws a report as ErrorBanner does, stacked for a narrow
+// place such as a dashboard panel: the text above, the buttons under it.
+func ErrorBlock(c *ui.Context, r ErrorReport, show func(ErrorReport)) {
+	t := c.Theme()
+	r, line := bannerText(r)
+	ui.Column(c).Padding(8, 12).Gap(6).Background(t.Danger.Alpha(0.12)).Children(func() {
+		ui.Row(c).Gap(8).Children(func() {
+			ui.Icon(c, IconAlert).TextColor(t.Danger).FontSize(14)
+			ui.Text(c, line).FontSize(12.5).Grow(1).Shrink(1).Selectable().Tooltip(r.Detail)
+		})
+		ui.Row(c).Gap(8).Wrap().Children(func() { reportButtons(c, r, show, true) })
+	})
+}
+
+// bannerText redacts a report and gives the line a banner shows of it.
+func bannerText(r ErrorReport) (ErrorReport, string) {
+	r.Detail = redact.Secrets(r.Detail)
+	line := r.Hint
+	if line == "" {
+		line = r.Detail
+	}
+	return r, r.Title + ": " + FirstLine(line)
+}
+
+// reportButtons draws a report's actions and Details, which hands the
+// report to show; compact ones fit a short place.
+func reportButtons(c *ui.Context, r ErrorReport, show func(ErrorReport), compact bool) {
+	button := func(c *ui.Context, label string) ui.Element {
+		b := ui.Button(c, label)
+		if compact {
+			b.Padding(3, 10).FontSize(12)
+		}
+		return b
+	}
+	for i, a := range r.Actions {
+		if button(c.Key(i), a.Label).Clicked() && a.Run != nil {
+			a.Run()
+		}
+	}
+	if button(c, "Details").Clicked() && show != nil {
+		show(r)
+	}
 }
 
 // ErrorReportOf is a database error's report: its text, and the hint

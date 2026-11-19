@@ -262,6 +262,7 @@ func (a *App) dbeaverImportView(c *ui.Context) {
 			case len(d.entries) > 0:
 				ui.Scroll(c).MaxHeight(360).Border(1, th.Border).Radius(6).Children(func() {
 					ui.Column(c).Padding(4, 0).Children(func() {
+						dbeaverHeader(c)
 						for i := range d.entries {
 							a.dbeaverRow(c, d, i)
 						}
@@ -302,12 +303,29 @@ func (a *App) dbeaverImportView(c *ui.Context) {
 	}
 }
 
+// dbeaverHeader names dbeaverRow's columns, in the same widths.
+func dbeaverHeader(c *ui.Context) {
+	muted := widgets.PaletteOf(c).Muted
+	label := func(s string, width float32) {
+		ui.Text(c, s).FontSize(11).TextColor(muted).SingleLine().Width(width)
+	}
+	ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(3, 10).Children(func() {
+		// The checkbox and the colour bar.
+		ui.Box(c).Width(16)
+		ui.Box(c).Width(4)
+		ui.Text(c, "Name").FontSize(11).TextColor(muted).SingleLine().Grow(1).Shrink(1)
+		label("Engine", 90)
+		label("Where", 200)
+		label("Environment", 140)
+		label("Status", 100)
+	})
+}
+
 // dbeaverRow is one connection: its choice, name, engine, where it goes,
 // and why it is not chosen, with the detail on hover.
 func (a *App) dbeaverRow(c *ui.Context, d *dbeaverImport, i int) {
 	e := &d.entries[i]
 	pal := widgets.PaletteOf(c)
-	th := c.Theme()
 	dup := ""
 	if e.Skip == "" {
 		dup = a.dbeaverDuplicate(d, i)
@@ -331,7 +349,7 @@ func (a *App) dbeaverRow(c *ui.Context, d *dbeaverImport, i int) {
 		if e.Config.Engine != "" {
 			ui.Text(c, e.Config.Engine.Label()).FontSize(12).TextColor(widgets.EngineColor(e.Config.Engine)).SingleLine().Width(90)
 		} else {
-			ui.Box(c).Width(90)
+			ui.Text(c, e.Driver).FontSize(12).TextColor(pal.Muted).SingleLine().Width(90)
 		}
 		ui.Text(c, dbeaverWhere(&e.Config)).FontSize(12).TextColor(pal.Muted).SingleLine().Width(200)
 		if d.asksEnv(i) {
@@ -346,7 +364,7 @@ func (a *App) dbeaverRow(c *ui.Context, d *dbeaverImport, i int) {
 		}
 		switch {
 		case e.Skip != "":
-			ui.Text(c, "Not supported").FontSize(12).TextColor(th.Danger).SingleLine().Width(100).Tooltip(e.Skip)
+			ui.Text(c, "Not supported").FontSize(12).TextColor(pal.Muted).SingleLine().Width(100).Tooltip(e.Skip)
 		case dup != "":
 			ui.Text(c, "Already here").FontSize(12).TextColor(pal.Muted).SingleLine().Width(100).Tooltip("The project has it as " + dup)
 		case len(e.Notes) > 0:

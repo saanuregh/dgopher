@@ -157,7 +157,7 @@ func (t *usersTab) loadPrivileges() {
 func (t *usersTab) apply(title string, stmts []string) {
 	t.a.applyStatements(t.conn, "", title, stmts, "This changes who may do what on "+t.conn.Config.Name+".", func(err error) {
 		if err != nil {
-			t.a.ShowError(title+" failed", err.Error())
+			t.a.ShowReport(widgets.ErrorReportOf(title+" failed", err))
 		} else {
 			t.a.Toast("Done: "+title, "", nil)
 		}

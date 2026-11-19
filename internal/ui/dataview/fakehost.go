@@ -261,7 +261,7 @@ func (h *FakeHost) connect(cn *connection.Conn, then func(), alert bool) {
 				cn.Fail(err)
 				cn.Waiters = nil
 				if alert {
-					h.ShowError("Could not connect to "+cfg.Name, err.Error())
+					h.ShowReport(widgets.ErrorReportOf("Could not connect to "+cfg.Name, err))
 				}
 				return
 			}

@@ -132,6 +132,10 @@ func (g *Grid) moveKeys(c *ui.Context, a Host, src *Source, order []int) {
 	case pressed(keymap.DistinctValues) && g.selCol < len(src.Cols):
 		apply, _ := g.filterFuncs()
 		openDistinct(a, g, src, g.selCol, apply)
+	case pressed(keymap.FilterEquals) && g.SelRow >= 0 && g.SelRow < len(order) && g.selCol < len(src.Cols):
+		g.filterByCell(src, order[g.SelRow], g.selCol, false)
+	case pressed(keymap.FilterNotEquals) && g.SelRow >= 0 && g.SelRow < len(order) && g.selCol < len(src.Cols):
+		g.filterByCell(src, order[g.SelRow], g.selCol, true)
 	case pressed(keymap.SortColumn):
 		// Ascending, descending, none: the chosen column's order in turn.
 		id := colID(g.selCol)
@@ -145,6 +149,25 @@ func (g *Grid) moveKeys(c *ui.Context, a Host, src *Source, order []int) {
 			g.sort = nil
 		}
 	}
+}
+
+// filterByCell filters the column by the cell's value, as the Filter
+// submenu does: = or <>, IS NULL or IS NOT NULL for a NULL cell.
+func (g *Grid) filterByCell(src *Source, row, col int, not bool) {
+	apply, _ := g.filterFuncs()
+	apply(cellCond(g.plainValue(src, row, col), col, not))
+}
+
+func cellCond(v any, col int, not bool) rowCond {
+	switch {
+	case v == nil && not:
+		return rowCond{col: col, op: "notnull"}
+	case v == nil:
+		return rowCond{col: col, op: "null"}
+	case not:
+		return rowCond{col: col, op: "<>", vals: []any{v}}
+	}
+	return rowCond{col: col, op: "=", vals: []any{v}}
 }
 
 // goToForm asks for a row number, or a column name.

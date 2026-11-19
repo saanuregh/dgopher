@@ -76,7 +76,7 @@ func (a *App) tabOf(path string) widgets.Tab {
 func (a *App) askRenameDashboard(p *project.Project, path string) {
 	d, disk, err := dashboard.LoadFile(path)
 	if err != nil {
-		a.ShowError("Could not rename the dashboard", err.Error())
+		a.ShowReport(widgets.ErrorReportOf("Could not rename the dashboard", err))
 		return
 	}
 	a.renaming = &renameForm{open: true, title: "Rename " + d.Name, name: d.Name, rename: func(name string) error {
@@ -98,7 +98,7 @@ func (a *App) askRenameDashboard(p *project.Project, path string) {
 func (a *App) askRenameModel(p *project.Project, path string) {
 	m, was, err := datamodel.LoadFile(path)
 	if err != nil {
-		a.ShowError("Could not rename the data model", err.Error())
+		a.ShowReport(widgets.ErrorReportOf("Could not rename the data model", err))
 		return
 	}
 	a.renaming = &renameForm{open: true, title: "Rename " + m.Name, name: m.Name, rename: func(name string) error {
@@ -133,7 +133,7 @@ func (a *App) askDeleteFile(path, what, name string, after func()) {
 			}
 		}
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			a.ShowError("Could not delete "+name, err.Error())
+			a.ShowReport(widgets.ErrorReportOf("Could not delete "+name, err))
 			return
 		}
 		if after != nil {

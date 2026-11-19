@@ -298,7 +298,7 @@ func (a *App) backupView(c *ui.Context) {
 	if d := b.conn.DB(); !b.restore && d != nil && db.MysqldumpChecksCAOnly(d) {
 		note += " Through the tunnel or proxy, verify-full checks the server's certificate against the CA file only, not the server's name, which mysqldump cannot be told."
 	}
-	dlg := widgets.Modal(c, &b.open, func() {
+	dlg := widgets.EnvModal(c, &b.open, &b.conn.Config, func() {
 		ui.Column(c).Width(620).Gap(12).Children(func() {
 			title := "Back Up " + b.what()
 			if b.restore {

@@ -218,7 +218,7 @@ func (t *activityTab) act(row []any, terminate bool) {
 			t.a.RecordRun(cfg, audit.KindKill, "", stmt, -1, 0, err)
 			return func() {
 				if err != nil {
-					t.a.ShowError("Could not stop it", err.Error())
+					t.a.ShowReport(widgets.ErrorReportOf("Could not stop it", err))
 					return
 				}
 				t.a.Toast("Done: "+stmt, "", nil)

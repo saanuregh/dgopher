@@ -284,6 +284,18 @@ rollback, then fails the connection with a `db.TunnelClosedError` and
 offers Reconnect. A pool closed by the app ends its tunnel too, which a
 changed `Conn.Generation` makes the watcher ignore.
 
+After the computer wakes, or the network comes back, `App.checkConnections`
+(`internal/app/wake.go`) pings each connected server; local files are
+skipped. A failed ping counts only when the pool was not full (a full pool
+fails it by waiting) and the connection did not change meanwhile. A
+connection holding work (`App.connectionWork`: a transaction, changes not
+applied, a running statement or job) is pinged once more a few seconds
+later; if that ping fails too, `lostAfterWake` gives the work up as
+`routeLost` does and reports it. Any other connection is reconnected
+quietly through `App.connect`, which asks nothing: what needs the user (a
+password, a password command, trust, a host key) leaves it failed with a
+notification offering Reconnect.
+
 ### Idle limits
 
 `connection.IdleTxLimit` and `connection.IdleConnectionLimit` give each

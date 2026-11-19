@@ -418,7 +418,7 @@ func (t *Tab) migration() (db.SchemaChange, []string, bool) {
 	r := t.result
 	ch, notes, err := datamodel.Migration(t.m, r.other, r.schema, r.drop)
 	if err != nil {
-		t.h.ShowError("Could not write the migration", err.Error())
+		t.h.ShowReport(widgets.ErrorReportOf("Could not write the migration", err))
 		return db.SchemaChange{}, nil, false
 	}
 	if len(ch.Steps) == 0 {
@@ -458,7 +458,7 @@ func (t *Tab) applyMigration() {
 			r.applying, r.cancel = false, nil
 			r.conn.ForgetCatalog()
 			if err != nil {
-				t.h.ShowError("The migration failed", err.Error())
+				t.h.ShowReport(widgets.ErrorReportOf("The migration failed", err))
 			}
 			t.recompare()
 		})

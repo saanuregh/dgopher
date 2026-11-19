@@ -42,6 +42,9 @@ type Host interface {
 	ShowError(title, message string)
 	// ShowReport shows an error with its hint and actions.
 	ShowReport(r widgets.ErrorReport)
+	// ConnectionReport is a failed connection's report, whose Retry
+	// connects again.
+	ConnectionReport(cn *connection.Conn) widgets.ErrorReport
 	Toast(text, action string, run func())
 	RecordTyped(cfg db.Config, t audit.TypedRun)
 	NewQueryTab(cn *connection.Conn, database, text string)
@@ -735,8 +738,10 @@ func (t *Tab) panelView(c *ui.Context, i int, height float32) {
 			})
 		}
 		switch {
-		case failed != "" || s.err != "":
-			ui.Text(c, cmp.Or(failed, s.err)).FontSize(12.5).TextColor(th.Danger).Padding(10).Selectable()
+		case failed != "":
+			widgets.ErrorBlock(c, t.h.ConnectionReport(cn), t.h.ShowReport)
+		case s.err != "":
+			widgets.ErrorBlock(c, widgets.ErrorReport{Title: "Could not run the panel", Detail: s.err}, t.h.ShowReport)
 		case s.src == nil:
 		case p.View == ViewValue:
 			valueView(c, s)

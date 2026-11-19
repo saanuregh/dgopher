@@ -393,10 +393,29 @@ func TestRead(t *testing.T) {
 				c.check(t, got[0])
 				return
 			}
+			// The driver name is checked by TestReadKeepsDriver.
+			got[0].Driver = ""
 			if !reflect.DeepEqual(got[0], c.want) {
 				t.Errorf("got\n%+v\nwant\n%+v", got[0], c.want)
 			}
 		})
+	}
+}
+
+func TestReadKeepsDriver(t *testing.T) {
+	p := writeProject(t, t.TempDir(), "General", `{"connections":{
+		"a":{"provider":"postgresql","driver":"postgres-jdbc","name":"A","configuration":{"host":"h"}},
+		"b":{"provider":"db2","driver":"db2_iseries","name":"B","configuration":{"host":"h"}}}}`, nil)
+	got, err := Read(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	drivers := map[string]string{}
+	for _, e := range got {
+		drivers[e.Config.Name] = e.Driver
+	}
+	if drivers["A"] != "postgres-jdbc" || drivers["B"] != "db2_iseries" {
+		t.Fatalf("drivers %v", drivers)
 	}
 }
 

@@ -148,7 +148,7 @@ func (a *App) refuseKeymapWrite() bool {
 // saveKeymap writes the user's keys to keymap.json.
 func (a *App) saveKeymap(overrides []keymap.Override) {
 	if err := a.st.WriteFile(keymap.FileName, keymap.FormatFile(overrides)); err != nil {
-		a.ShowError("Could not save the keys", err.Error())
+		a.ShowReport(widgets.ErrorReportOf("Could not save the keys", err))
 	}
 	a.readKeymap()
 	setMenuBar(a)
@@ -177,7 +177,9 @@ func (a *App) openKeymapNow(c *ui.Context) {
 	u := url.URL{Scheme: "file", Path: filepath.ToSlash(abs)}
 	c.OpenURLThen(u.String(), func(err error) {
 		if err != nil {
-			a.ShowError("Could not open "+keymap.FileName, err.Error()+"\n\nIt is "+abs)
+			r := widgets.ErrorReportOf("Could not open "+keymap.FileName, err)
+			r.Detail += "\n\nIt is " + abs
+			a.ShowReport(r)
 		}
 	})
 }

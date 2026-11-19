@@ -61,7 +61,7 @@ func (a *App) snippetFormView(c *ui.Context) {
 					return
 				}
 				if err := f.project.Writable(); err != nil {
-					a.ShowError("Could not save the snippet", err.Error())
+					a.ShowReport(widgets.ErrorReportOf("Could not save the snippet", err))
 					return
 				}
 				name := strings.TrimSpace(f.name)

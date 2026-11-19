@@ -350,7 +350,7 @@ func (a *App) exportAudit(l *audit.Log) {
 		}
 		a.Post(func() {
 			if err != nil {
-				a.ShowError("Could not export the audit log", err.Error())
+				a.ShowReport(widgets.ErrorReportOf("Could not export the audit log", err))
 				return
 			}
 			a.Toast("Exported the audit log to "+filepath.Base(path), "", nil)

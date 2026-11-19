@@ -10,6 +10,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
+	"dgopher/internal/redact"
 	"dgopher/internal/ui/dashboard"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/panes"
@@ -88,6 +89,7 @@ func (a *App) view(c *ui.Context) {
 	}
 	a.noteShown(c)
 	a.titleWindow()
+	a.restartIdleClocksAfterWake()
 	a.checkIdleTransactions(c)
 	a.checkIdleConnections(c)
 	// The dialogs and toasts show in the window the user uses.
@@ -166,6 +168,9 @@ func (a *App) overlays(c *ui.Context) {
 	}
 	if a.shortcutsOpen {
 		a.shortcutsView(c)
+	}
+	if a.whatsNewOpen {
+		a.whatsNewView(c)
 	}
 	if a.touring {
 		a.tourView(c)
@@ -982,6 +987,7 @@ func (a *App) welcome(c *ui.Context) {
 					ui.Text(c, "Connections").Bold().TextColor(pal.Muted).FontSize(12)
 					ui.Grid(c).Columns(2).GapX(10).GapY(8).Children(func() {
 						for _, cn := range a.conns {
+							retry := false // its Retry was clicked, not the card
 							row := ui.ButtonBase(c.Key("welcome-"+cn.Config.ID)).Padding(10, 14).Radius(8).Border(1, t.Border).Label("Open " + cn.Config.Name)
 							if row.Hovered() {
 								row.Background(pal.Hover)
@@ -994,12 +1000,21 @@ func (a *App) welcome(c *ui.Context) {
 										ui.Text(c, cn.Config.Name).Bold().SingleLine()
 										ui.Text(c, connSummary(&cn.Config)).FontSize(12).TextColor(pal.Muted).SingleLine()
 									})
+									if cn.Status == connection.StatusFailed {
+										why := cmp.Or(cn.ErrKind.Hint(), redact.Secrets(cn.Err))
+										ui.Icon(c, widgets.IconAlert).FontSize(14).TextColor(t.Danger).Tooltip(widgets.FirstLine(why))
+										if ui.Button(c.Key("retry-"+cn.Config.ID), "Retry").Padding(3, 10).FontSize(12).Clicked() {
+											retry = true
+										}
+									}
 									if cn.Config.ReadOnly {
 										ui.Icon(c, widgets.IconLock).FontSize(12).TextColor(pal.Muted)
 									}
 								})
 							})
-							if row.Clicked() {
+							if retry {
+								a.Connect(cn, nil)
+							} else if row.Clicked() {
 								a.NewQueryTab(cn, "", "") // the key browser for a key-value engine
 							}
 						}

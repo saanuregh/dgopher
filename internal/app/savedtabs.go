@@ -1,8 +1,11 @@
 package app
 
 import (
+	"encoding/json"
+
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/redact"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/redis"
 	"dgopher/internal/ui/widgets"
@@ -21,7 +24,8 @@ const (
 )
 
 // savedTab is a tab of a connection kept from one run to the next: what
-// it showed, not its state.
+// it showed and, for a table, how it showed its rows. Every field is
+// comparable, for same.
 type savedTab struct {
 	Kind string `json:"kind"`
 	// Connection is the connection's ID; in workspace.json, without the
@@ -34,6 +38,12 @@ type savedTab struct {
 	ObjectKind string `json:"objectKind,omitempty"`
 	Page       int    `json:"page,omitempty"`
 	Pinned     bool   `json:"pinned,omitempty"`
+	// Filter, Sort, Row and Column are a table's rows as shown
+	// (dataview.TableState), Sort as the JSON of its []dataview.SortKey.
+	Filter string `json:"filter,omitempty"`
+	Sort   string `json:"sort,omitempty"`
+	Row    int    `json:"row,omitempty"`
+	Column string `json:"column,omitempty"`
 }
 
 // savedTabOf is what keeps t, false for a tab that is not a connection's.
@@ -44,8 +54,19 @@ func savedTabOf(t widgets.Tab) (savedTab, bool) {
 		s.Connection = t.conn.Config.ID // as it is now, after a change of ID
 		return s, true
 	case *dataview.TableTab:
-		return savedTab{Kind: savedTable, Connection: t.Conn.Config.ID, Database: t.Database, Schema: t.Object.Schema,
-			Name: t.Object.Name, ObjectKind: string(t.Object.Kind), Page: t.Page}, true
+		st := t.State()
+		// workspace.json is plain text: a filter that holds a secret, or
+		// may hold a hidden value, is left out.
+		if redact.Secrets(st.Filter) != st.Filter || t.FilterNamesMasked(st.Filter) {
+			st.Filter = ""
+		}
+		s := savedTab{Kind: savedTable, Connection: t.Conn.Config.ID, Database: t.Database, Schema: t.Object.Schema,
+			Name: t.Object.Name, ObjectKind: string(t.Object.Kind), Page: t.Page, Filter: st.Filter, Row: st.Row, Column: st.Column}
+		if len(st.Sort) > 0 {
+			sort, _ := json.Marshal(st.Sort) // of strings and bools: cannot fail
+			s.Sort = string(sort)
+		}
+		return s, true
 	case *dataview.ERTab:
 		database, schema := t.Where()
 		return savedTab{Kind: savedDiagram, Connection: t.Connection().Config.ID, Database: database, Schema: schema}, true
@@ -62,11 +83,29 @@ func savedTabOf(t widgets.Tab) (savedTab, bool) {
 }
 
 // same reports whether two saved tabs show the same thing, as the openers
-// tell: whatever their page, pin or the kind of table.
+// tell: whatever their page, pin, the kind of table or how it shows its
+// rows.
 func (s savedTab) same(o savedTab) bool {
+	return s.what() == o.what()
+}
+
+// what is s without how it shows what it shows.
+func (s savedTab) what() savedTab {
 	s.Page, s.Pinned, s.ObjectKind = 0, false, ""
-	o.Page, o.Pinned, o.ObjectKind = 0, false, ""
-	return s == o
+	s.Filter, s.Sort, s.Row, s.Column = "", "", 0, ""
+	return s
+}
+
+// tableState is how s shows its table's rows; a sort that does not read
+// is left out.
+func (s savedTab) tableState() dataview.TableState {
+	st := dataview.TableState{Filter: s.Filter, Row: s.Row, Column: s.Column}
+	if s.Sort != "" {
+		if err := json.Unmarshal([]byte(s.Sort), &st.Sort); err != nil {
+			st.Sort = nil
+		}
+	}
+	return st
 }
 
 // savedKind is what a kind of connection tab is: where it exists, how it
@@ -84,7 +123,7 @@ var savedKinds = map[string]savedKind{
 	savedTable: {
 		on: db.Engine.IsSQL,
 		open: func(a *App, cn *connection.Conn, s savedTab) {
-			a.OpenTable(cn, s.Database, db.Object{Schema: s.Schema, Name: s.Name, Kind: db.ObjectKind(s.ObjectKind), Rows: -1, Bytes: -1}, s.Page)
+			a.openTableWith(cn, s)
 		},
 		icon:  widgets.IconTable,
 		title: func(_ string, s savedTab) string { return s.Name },

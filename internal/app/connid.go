@@ -113,11 +113,11 @@ func (a *App) askRenameConn(cn *connection.Conn, old, id string, then func()) {
 	a.closing = &closeRequest{open: true, title: "Change the ID of " + name + " to " + id + "?", reason: reason, action: "Change ID", onClose: func() {
 		err := a.renameConn(cn, id)
 		if cn.Config.ID != p.Prefix+id {
-			a.ShowError("Could not change the ID of "+name, err.Error())
+			a.ShowReport(widgets.ErrorReportOf("Could not change the ID of "+name, err))
 			return
 		}
 		if err != nil {
-			a.ShowError("Changed the ID of "+name+" to "+id+", not everywhere", err.Error())
+			a.ShowReport(widgets.ErrorReportOf("Changed the ID of "+name+" to "+id+", not everywhere", err))
 		}
 		a.Post(then)
 	}}
@@ -165,11 +165,12 @@ func (a *App) renameConn(cn *connection.Conn, id string) error {
 		return fmt.Errorf("could not copy its secrets in the keychain: %w", err)
 	}
 	cn.Config.ID = renamed.ID
-	localErr := errors.Join(dataview.RenameConnection(p, old, id), renameIdentityDismissal(p, old, id))
+	localErr := errors.Join(dataview.RenameConnection(p, old, id), renameIdentityDismissal(p, old, id), renameRecentTables(p, old, id))
 	if err := p.Save(a.ProjectConfigs(p)); err != nil {
 		cn.Config.ID = was.ID
 		dataview.RenameConnection(p, id, old)
 		renameIdentityDismissal(p, id, old)
+		renameRecentTables(p, id, old)
 		for _, k := range copied {
 			a.st.Secrets().Delete(k)
 		}

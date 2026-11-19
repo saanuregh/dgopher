@@ -52,30 +52,69 @@ func (a *App) checkIdleConnections(c *ui.Context) {
 	}
 }
 
-// connectionHeld reports whether something holds a connection now: a tab
-// other than an editor, or a copy, row comparison or import dialog, which
-// cannot do without it; an editor's work, transaction or changes not applied; a
-// dashboard's panel running; a job; or a catalog read.
-func (a *App) connectionHeld(cn *connection.Conn) bool {
+// connectionHeld reports whether something holds a connection now
+// (connectionWork.held).
+func (a *App) connectionHeld(cn *connection.Conn) bool { return a.connectionWork(cn).held }
+
+// connectionWork is what holds a connection now, and of it what the end
+// of its sessions loses.
+type connectionWork struct {
+	// held is whether anything holds it: a tab other than an editor, or a
+	// copy, row comparison or import dialog, which cannot do without it;
+	// an editor's work, transaction or changes not applied; a dashboard's
+	// panel running; a job; or a catalog read.
+	held bool
+	// txs are the tabs with a transaction open, or rows waiting to be
+	// committed; changes the tabs other than editors, which give their
+	// session up by closing, with changes not applied; running the
+	// editors running a statement, and the jobs. A connection every
+	// session shares (db.DB.Single) lists the tab owning its transaction
+	// anyway.
+	txs, changes, running []string
+}
+
+// loses reports whether the end of the connection's sessions loses work.
+func (w connectionWork) loses() bool { return len(w.txs)+len(w.changes)+len(w.running) > 0 }
+
+// connectionWork reports what holds cn now. The dialogs' work that
+// writes runs as jobs.
+func (a *App) connectionWork(cn *connection.Conn) connectionWork {
+	var w connectionWork
 	if d := a.copying; d != nil && d.open && (d.from == cn || d.target.conn(a) == cn) {
-		return true
+		w.held = true
 	}
 	if d := a.rowCompare; d != nil && d.open && (d.from == cn || d.target.conn(a) == cn) {
-		return true
+		w.held = true
 	}
 	if d := a.importing; d != nil && (d.open || d.running) && d.conn == cn {
-		return true
+		w.held = true
 	}
 	for _, t := range a.everyTab() {
 		if h, ok := t.(widgets.ConnectionHolder); ok {
-			if h.HoldsConnection(cn) {
-				return true
-			}
+			w.held = w.held || h.HoldsConnection(cn)
 		} else if t.Connection() == cn {
-			return true
+			w.held = true
+		}
+		if t.Connection() != cn {
+			continue
+		}
+		q, editor := t.(*query.Tab)
+		h, holder := t.(txHolder)
+		switch {
+		case holder && h.OpenTx(), editor && q.Uncommitted() > 0:
+			w.txs = append(w.txs, t.Title())
+		case !editor && t.CloseReason() != "":
+			w.changes = append(w.changes, t.Title())
+		case editor && q.Busy():
+			w.running = append(w.running, t.Title())
 		}
 	}
-	return len(a.jobsOf(cn)) > 0 || len(cn.Loading) > 0
+	jobs := a.jobsOf(cn)
+	for _, j := range jobs {
+		w.running = append(w.running, j.title)
+	}
+	w.held = w.held || len(jobs) > 0 || len(cn.Loading) > 0
+	return w
 }
 
 // disconnectIdle disconnects a connection unused for idle. Its editors

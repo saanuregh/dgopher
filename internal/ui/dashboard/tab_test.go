@@ -14,7 +14,6 @@ import (
 	"dgopher/internal/params"
 	"dgopher/internal/project"
 	"dgopher/internal/testutil"
-	"dgopher/internal/ui/dataview"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -23,7 +22,7 @@ import (
 // as charts, tables and values; a panel that writes, or holds two
 // statements, is refused, and nothing it holds runs.
 func TestDashboardPanels(t *testing.T) {
-	h := dataview.NewFakeHost(t)
+	h := newTestHost(t)
 	file := filepath.Join(t.TempDir(), "x.sqlite")
 	os.WriteFile(file, nil, 0o600)
 	cn := h.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
@@ -123,7 +122,7 @@ func TestDashboardPanels(t *testing.T) {
 
 // A panel whose connection fails says why, and connects again when asked.
 func TestDashboardConnectionFails(t *testing.T) {
-	h := dataview.NewFakeHost(t)
+	h := newTestHost(t)
 	cn := h.AddConn(db.Config{ID: "pg", Name: "pg", Engine: db.Postgres, Host: "127.0.0.1", Port: 1, User: "x", Database: "x"})
 	tt := ui.NewTester(h.View, 1000, 600)
 	d := &Dashboard{Name: "Down", Panels: []Panel{{Title: "One", Connection: "pg", SQL: "SELECT 1", View: ViewValue, Width: 1}}}
@@ -151,6 +150,33 @@ func TestDashboardConnectionFails(t *testing.T) {
 	}
 }
 
+// A panel on a failed connection shows the failure in a banner whose
+// Retry connects again.
+func TestDashboardPanelRetry(t *testing.T) {
+	h := newTestHost(t)
+	cn := h.AddConn(db.Config{ID: "pg", Name: "pg", Engine: db.Postgres, Host: "127.0.0.1", Port: 1, User: "x", Database: "x"})
+	tt := ui.NewTester(h.View, 1000, 600)
+	d := &Dashboard{Name: "Down", Panels: []Panel{{Title: "One", Connection: "pg", SQL: "SELECT 1", View: ViewValue, Width: 1}}}
+	path := File(h.Project, d.Name)
+	if _, err := d.Save(path, nil); err != nil {
+		t.Fatal(err)
+	}
+	tab, err := Open(h, h.Project, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.AddTab(tab)
+	testutil.WaitFor(t, tt, "the failure", func() bool { return cn.Status == connection.StatusFailed })
+	tt.Frame()
+	testutil.Snapshot(t, tt, "dashboard-panel-failed")
+	if err := tt.Click("Retry"); err != nil {
+		t.Fatalf("no Retry in %q: %v", tt.Texts(), err)
+	}
+	if h.retries != 1 {
+		t.Fatalf("Retry connected %d times", h.retries)
+	}
+}
+
 // A file edited by hand is refused when it holds what the app cannot show.
 func TestLoadRefuses(t *testing.T) {
 	dir := t.TempDir()
@@ -173,7 +199,7 @@ func TestLoadRefuses(t *testing.T) {
 // panel's query editor moves it to another connection of the project,
 // saved with the query.
 func TestPanelConnection(t *testing.T) {
-	h := dataview.NewFakeHost(t)
+	h := newTestHost(t)
 	dir := t.TempDir()
 	lite := h.AddConn(db.Config{ID: "lite", Name: "Lite DB", Engine: db.SQLite, Database: filepath.Join(dir, "a.sqlite")})
 	other := h.AddConn(db.Config{ID: "other", Name: "Other DB", Engine: db.SQLite, Database: filepath.Join(dir, "b.sqlite")})
@@ -222,7 +248,7 @@ func TestPanelConnection(t *testing.T) {
 // Two connections of one name are told apart by their IDs: the panel runs
 // on the one chosen.
 func TestPanelSameNameConnections(t *testing.T) {
-	h := dataview.NewFakeHost(t)
+	h := newTestHost(t)
 	dir := t.TempDir()
 	first := h.AddConn(db.Config{ID: "first", Name: "DB", Engine: db.SQLite, Database: filepath.Join(dir, "a.sqlite")})
 	second := h.AddConn(db.Config{ID: "second", Name: "DB", Engine: db.SQLite, Database: filepath.Join(dir, "b.sqlite")})
@@ -268,7 +294,7 @@ func TestPanelSameNameConnections(t *testing.T) {
 // On PostgreSQL, the panel's query editor chooses its database too.
 func TestPanelDatabase(t *testing.T) {
 	testutil.Integration(t)
-	h := dataview.NewFakeHost(t)
+	h := newTestHost(t)
 	cfg := testutil.PGConfig()
 	cn := h.AddConn(cfg)
 	tt := ui.NewTester(h.View, 1280, 800)
@@ -325,7 +351,7 @@ func TestPanelDatabase(t *testing.T) {
 // A panel one column wide shows all its tools in edit mode, wrapped
 // under its title, and each takes a click.
 func TestNarrowPanelTools(t *testing.T) {
-	h := dataview.NewFakeHost(t)
+	h := newTestHost(t)
 	file := filepath.Join(t.TempDir(), "n.sqlite")
 	os.WriteFile(file, nil, 0o600)
 	h.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
@@ -370,7 +396,7 @@ func TestNarrowPanelTools(t *testing.T) {
 // Add Panel opens a panel's query editor on the project's connection; the
 // panel is kept once its query runs, and Cancel leaves none.
 func TestAddPanel(t *testing.T) {
-	h := dataview.NewFakeHost(t)
+	h := newTestHost(t)
 	file := filepath.Join(t.TempDir(), "a.sqlite")
 	os.WriteFile(file, nil, 0o600)
 	cn := h.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
@@ -438,7 +464,7 @@ func TestGroupable(t *testing.T) {
 // A refresh the user asked for raises a failed connect; an automatic one
 // leaves it to the panel.
 func TestDashboardAskedRefreshAlerts(t *testing.T) {
-	h := dataview.NewFakeHost(t)
+	h := newTestHost(t)
 	cn := h.AddConn(db.Config{ID: "pg", Name: "pg", Engine: db.Postgres, Host: "127.0.0.1", Port: 1, User: "x", Database: "x"})
 	tt := ui.NewTester(h.View, 1000, 600)
 	d := &Dashboard{Name: "Down", Panels: []Panel{{Title: "One", Connection: "pg", SQL: "SELECT 1", View: ViewValue, Width: 1}}}

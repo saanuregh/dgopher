@@ -245,6 +245,10 @@ func (q *Tab) DisconnectReason() string {
 	return ""
 }
 
+// Uncommitted counts the rows a change made that wait for the user to say
+// whether they commit, 0 for none.
+func (q *Tab) Uncommitted() int64 { return q.uncommitted }
+
 // HoldsConnection reports work that needs the editor's session on cn as
 // it is: a statement or export running, a transaction or rows to commit,
 // or grid changes not applied. An editor alone does not hold it.

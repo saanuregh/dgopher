@@ -89,10 +89,10 @@ Keys marked *fixed* below cannot be changed.
 | ⌘E | Explain the statement |
 | ⌘⇧E | Explain Analyze: run the statement and measure it |
 | ⌘⌥⇧↵ | Commit the open transaction |
-| (none) | Roll back the open transaction; set a key if you want one |
+| ⌘⌥⇧R | Roll back the open transaction |
 | ⌘J | Show or hide the results |
 | ⌘⇧J | Switch between the editor and its results |
-| (none) | Maximize the results over the editor, or restore them |
+| ⌘K ⌘⇧M | Maximize the results over the editor, or restore them |
 | ⌃Space | Complete tables, columns and keywords |
 | ⌘⇧F | Format the SQL |
 | ⌘F, ⌘⌥F | Find, and replace |
@@ -159,6 +159,8 @@ A notebook's cells are editors: the SQL editor's keys work in them too.
 | ⌘` | Next view: grid, record, text |
 | F7 | Show or hide the panels |
 | ⌘F11 | The column's distinct values, to filter by |
+| ⌘K ⌘= | Keep the rows whose value in the column is the cell's; IS NULL for a NULL cell |
+| ⌘K ⌘⇧1 | Hide the rows whose value in the column is the cell's; IS NOT NULL for a NULL cell |
 | ⌘⌥S | Order by the chosen column: ascending, descending, none |
 | ⌘G | Go to a row by number |
 | ⌘⇧G | Go to a column by name |
@@ -179,6 +181,7 @@ A notebook's cells are editors: the SQL editor's keys work in them too.
 | F5 | Read the rows again |
 | ⌘⌥N | Fetch the next page of rows |
 | ⌘⇧= | Fetch every row |
+| ⌘K ⌘X | Export the rows |
 | (none) | Show or hide the chart of the rows |
 | ⌘=, ⌘- | Make the grids' text larger or smaller; so do a pinch and ⌘ with the mouse wheel |
 | ⌘K ⌘0 | The grids' text at its default size |

@@ -9,6 +9,7 @@ import (
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -27,6 +28,32 @@ var (
 // secrets, in snake_case or camelCase.
 func looksSensitive(name string) bool {
 	return sensitiveName.MatchString(strings.ToLower(camelWord.ReplaceAllString(name, "${1}_${2}")))
+}
+
+// filterWord is a word of a filter, quoted or not, as a column's name may
+// be.
+var filterWord = regexp.MustCompile(`[\p{L}_][\p{L}\p{N}_$]*`)
+
+// FilterNamesMasked reports whether filter names a column whose values the
+// table hides: as its grid hides them, once read, and as the project and
+// the settings hide them. Any word counts, a string's too, so a filter
+// kept for a later run holds no hidden value.
+func (t *TableTab) FilterNamesMasked(filter string) bool {
+	v := t.view
+	hidden := t.Conn.Project.HiddenValues[tableHistoryKey(t.Conn, t.Object)]
+	auto := !v.a.Settings().ShowSensitive
+	for _, w := range filterWord.FindAllString(filter, -1) {
+		named := func(c string) bool { return strings.EqualFold(c, w) }
+		if auto && looksSensitive(w) || slices.ContainsFunc(hidden, named) {
+			return true
+		}
+		for i, c := range v.src.Cols {
+			if i < len(v.grid.masked) && v.grid.masked[i] && named(c.Name) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // maskColumns works out which columns of the rows hide their values: those
@@ -99,7 +126,7 @@ func (v *Viewer) chooseMask(name string, masked bool) {
 func (v *Viewer) setHiddenValues(name string, hide bool) {
 	p, key := v.source.Conn.Project, v.historyKey()
 	if err := p.Writable(); err != nil {
-		v.a.ShowError("Could not change the hidden values", err.Error())
+		v.a.ShowReport(widgets.ErrorReportOf("Could not change the hidden values", err))
 		return
 	}
 	if p.HiddenValues == nil {
@@ -115,7 +142,7 @@ func (v *Viewer) setHiddenValues(name string, hide bool) {
 		p.HiddenValues[key] = cols
 	}
 	if err := p.Save(v.a.ProjectConfigs(p)); err != nil {
-		v.a.ShowError("Could not change the hidden values", err.Error())
+		v.a.ShowReport(widgets.ErrorReportOf("Could not change the hidden values", err))
 		return
 	}
 	delete(v.maskChosen, name)

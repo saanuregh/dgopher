@@ -7,6 +7,7 @@ import (
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/ui/widgets"
 )
 
 // OpenItemDefinition opens an item's definition, as a routine's, in an
@@ -23,7 +24,7 @@ func OpenItemDefinition(a Host, cn *connection.Conn, database string, it db.Item
 		}
 		return func() {
 			if err != nil {
-				a.ShowError("Could not read the definition of "+it.Name, err.Error())
+				a.ShowReport(widgets.ErrorReportOf("Could not read the definition of "+it.Name, err))
 				return
 			}
 			a.NewQueryTab(cn, database, strings.TrimRight(def, "\n")+"\n")

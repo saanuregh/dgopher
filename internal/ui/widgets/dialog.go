@@ -3,6 +3,8 @@ package widgets
 import (
 	"time"
 
+	"dgopher/internal/db"
+
 	"github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/shader"
 )
@@ -16,6 +18,23 @@ func Modal(c *ui.Context, open *bool, fn func()) ui.Element {
 			MaxWidth(w - t.Space(10)).MaxHeight(h - t.Space(10))
 		DialogLook(c, backdrop, panel)
 		fn()
+	})
+}
+
+// EnvModal is Modal with EnvBand flush at the top of its panel, for a
+// dialog that writes to or restores into cfg's connection; with cfg nil,
+// no band shows and the content keeps its place.
+func EnvModal(c *ui.Context, open *bool, cfg *db.Config, fn func()) ui.Element {
+	t := c.Theme()
+	w, h := c.Size()
+	return ui.DialogBase(c, open, func(backdrop, panel ui.Element) {
+		panel.Radius(t.Space(2.5)).Background(t.Background).Clip().
+			MaxWidth(w - t.Space(10)).MaxHeight(h - t.Space(10))
+		DialogLook(c, backdrop, panel)
+		if cfg != nil {
+			EnvBand(c, cfg)
+		}
+		ui.Column(c).Padding(t.Space(5)).Gap(t.Space(3)).Shrink(1).Children(fn)
 	})
 }
 

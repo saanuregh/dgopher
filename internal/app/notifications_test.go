@@ -201,3 +201,17 @@ func TestShowLatestErrorCountsItOnce(t *testing.T) {
 		t.Fatalf("unread %d, want 1: only the second was shown", a.unread())
 	}
 }
+
+// A report's dialog shows its text redacted, as its notification does: a
+// raw error may carry the statement that failed, password and all.
+func TestShowReportRedactsDialog(t *testing.T) {
+	a := newBareApp(t)
+	a.ShowReport(widgets.ErrorReport{Title: "Could not run it", Detail: "ALTER USER app WITH PASSWORD 'hunter2'"})
+	al := a.frontAlert()
+	if al == nil {
+		t.Fatal("no dialog")
+	}
+	if strings.Contains(al.report.Detail, "hunter2") {
+		t.Fatalf("the dialog shows the secret: %q", al.report.Detail)
+	}
+}

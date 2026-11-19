@@ -162,13 +162,15 @@ To build from source, see [Development](docs/development.md).
 
 ## Footprint
 
-Measured on Linux (amd64, Wayland) with version 0.7.0, at the start page:
+Measured on Linux (amd64, X11 under Xvfb, drawing on the CPU) with version 0.8.0, at the start
+page, the median of three launches:
 
 | | |
 | --- | --- |
-| Download | 45 MB, as the `.deb` or the `.tar.gz` |
-| Executable | 131 MB, with every driver and DuckDB compiled in |
-| Memory at start | about 180 MB resident, of which about 55 MB is the app's own; the rest is the executable and the GTK and graphics libraries, mapped from disk |
+| Download | 46 MB, as the `.deb` or the `.tar.gz` |
+| Executable | 133 MB, with every driver and DuckDB compiled in |
+| Window shown | about 0.2 seconds after launch |
+| Memory at start | about 163 MB resident, of which about 41 MB is the app's own; the rest is the executable and the GTK and graphics libraries, mapped from disk |
 
 ## Documentation
 

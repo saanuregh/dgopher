@@ -189,7 +189,7 @@ func (a *App) checkIdleTransactions(c *ui.Context) {
 				case errors.Is(err, db.ErrNoTransaction):
 					return // another tab ended it: nothing was rolled back
 				case err != nil:
-					a.ShowError("Could not roll back the idle transaction of "+h.Title(), err.Error())
+					a.ShowReport(widgets.ErrorReportOf("Could not roll back the idle transaction of "+h.Title(), err))
 					return
 				}
 				a.Record(&cfg, audit.Event{Kind: audit.KindConfirm, Detail: "rolled back the transaction of " + h.Title() + ", idle past the connection's limit"})
@@ -268,7 +268,7 @@ func (a *App) idleWarningView(c *ui.Context) {
 		h := w.tab
 		h.FinishTx(true, func(err error) {
 			if err != nil && !errors.Is(err, db.ErrNoTransaction) {
-				a.ShowError("Could not commit", err.Error())
+				a.ShowReport(widgets.ErrorReportOf("Could not commit", err))
 			}
 		})
 	case choice == 2:

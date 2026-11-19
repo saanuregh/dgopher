@@ -111,7 +111,7 @@ func environment(conf configuration, types map[string]connectionType) (env db.En
 
 // mapConnection is the entry of one DBeaver connection.
 func mapConnection(id string, c connection, types map[string]connectionType, creds credentials) Entry {
-	e := Entry{ID: id, Folder: c.Folder}
+	e := Entry{ID: id, Folder: c.Folder, Driver: cmp.Or(c.Driver, c.Provider)}
 	cfg := &e.Config
 	conf := c.Configuration
 	cfg.Name = cmp.Or(c.Name, id)

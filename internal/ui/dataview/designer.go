@@ -201,7 +201,7 @@ func (d *designer) apply() {
 	}
 	if d.save != nil {
 		if err := d.save(d.now); err != nil {
-			d.a.ShowError("Could not save the model", err.Error())
+			d.a.ShowReport(widgets.ErrorReportOf("Could not save the model", err))
 			return
 		}
 		d.first = cloneDesign(d.now)
@@ -216,7 +216,7 @@ func (d *designer) apply() {
 		func(err error) {
 			d.applying, d.cancel = false, nil
 			if err != nil {
-				d.a.ShowError("Could not "+verb+" "+d.now.Name, err.Error())
+				d.a.ShowReport(widgets.ErrorReportOf("Could not "+verb+" "+d.now.Name, err))
 				return
 			}
 			d.conn.ForgetCatalog()
