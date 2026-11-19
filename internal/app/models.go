@@ -28,7 +28,7 @@ func (a *App) openModel(p *project.Project, path string) {
 	}
 	m, err := modelview.Open(a, p, path)
 	if err != nil {
-		a.ShowError("Could not open the data model", err.Error())
+		a.ShowReport(widgets.ErrorReportOf("Could not open the data model", err))
 		return
 	}
 	a.AddTab(m)

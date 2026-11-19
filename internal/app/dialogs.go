@@ -211,13 +211,13 @@ func (a *App) questions(c *ui.Context) {
 // project may be written.
 func (a *App) askDeleteConn(cn *connection.Conn) {
 	if err := cn.Project.Writable(); err != nil {
-		a.ShowError("Could not delete "+cn.Config.Name, err.Error())
+		a.ShowReport(widgets.ErrorReportOf("Could not delete "+cn.Config.Name, err))
 		return
 	}
 	a.requestEnd(endDelete, "Delete "+cn.Config.Name+"?", "Delete", a.tabsOf(cn), []*connection.Conn{cn}, func() {
 		// The file may have changed while the question was open.
 		if err := cn.Project.Writable(); err != nil {
-			a.ShowError("Could not delete "+cn.Config.Name, err.Error())
+			a.ShowReport(widgets.ErrorReportOf("Could not delete "+cn.Config.Name, err))
 			return
 		}
 		a.closeConnection(cn)
@@ -235,7 +235,7 @@ func (a *App) askDeleteConn(cn *connection.Conn) {
 
 func (a *App) duplicateConn(cn *connection.Conn) {
 	if err := cn.Project.Writable(); err != nil {
-		a.ShowError("Could not duplicate "+cn.Config.Name, err.Error())
+		a.ShowReport(widgets.ErrorReportOf("Could not duplicate "+cn.Config.Name, err))
 		return
 	}
 	cfg := cn.Config
@@ -252,7 +252,7 @@ func (a *App) duplicateConn(cn *connection.Conn) {
 	cfg.Name += " copy"
 	cfg.ID = a.uniqueConnID(cn.Project, cfg.Name)
 	if err := a.saveSecrets(&cfg, !cfg.AskPassword, unread); err != nil {
-		a.ShowError("Could not save the password in the keychain", err.Error())
+		a.ShowReport(widgets.ErrorReportOf("Could not save the password in the keychain", err))
 		return
 	}
 	cfg.Password, cfg.SSH.Password, cfg.SSH.KeyPassphrase = "", "", ""

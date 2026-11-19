@@ -120,6 +120,7 @@ type Entry struct {
 	Folder string    // DBeaver's folder path, "" for none (shown only)
 	Config db.Config // Name and every mapped field, secrets included; ID left empty
 	Skip   string    // why it cannot be imported; "" when it can
+	Driver string    // DBeaver's driver id, shown for an engine DGopher lacks
 	// EnvChosen is whether the user chose Config.Env in DBeaver: false
 	// for its default type, dev.
 	EnvChosen bool

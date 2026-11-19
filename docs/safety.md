@@ -308,6 +308,28 @@ connection fails with "SSH tunnel closed", each open transaction's
 rollback is audited and named in the error it shows, and the tabs wait for
 **Reconnect**.
 
+### After sleep or a network change
+
+When the computer wakes, or the network comes back, each connected server
+is pinged, with 5 seconds to answer. Local files (SQLite, DuckDB) are not
+pinged: a sleep loses them nothing. A server that answers is left alone; a
+session the server ended anyway is found at its next statement, as above.
+
+A server that does not answer while a tab holds an open transaction, rows
+waiting to be committed or changes not applied is never reconnected on its
+own. The tabs give up their sessions as at a disconnect, each rollback is
+audited, and one dialog, "Transaction lost while asleep" (or "while
+offline"), says what was lost and offers **Reconnect**. A lost transaction
+is always reported, never hidden.
+
+A server that does not answer with nothing at stake is reconnected
+quietly through the usual connect, so the trusted-destination,
+environment and password checks still run. A reconnect that would ask
+anything (a destination to trust, a password, a new SSH host key) asks
+nothing: the connection stays failed, and a notification offers
+**Reconnect**. Each editor's next statement is refused once, as after a
+lost connection.
+
 ### Idle transactions
 
 A transaction left idle rolls back. A warning appears 10 seconds before,
@@ -318,6 +340,10 @@ and you can cancel it. The limits are:
 | Production | 10 minutes |
 | Staging | 15 minutes |
 | Development | 30 minutes |
+
+The idle time of transactions, and of connections below, starts again
+when the computer wakes: sleep is not idle time. The network coming back
+does not restart it.
 
 ### Idle connections
 

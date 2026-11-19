@@ -323,7 +323,7 @@ func (a *App) openSQLFile(cn *connection.Conn) {
 		data, err := os.ReadFile(paths[0])
 		a.Post(func() {
 			if err != nil {
-				a.ShowError("Could not open the script", err.Error())
+				a.ShowReport(widgets.ErrorReportOf("Could not open the script", err))
 				return
 			}
 			a.Connect(cn, func() {
@@ -345,7 +345,7 @@ func (a *App) SaveSQLFile(q *query.Tab, saveAs bool) {
 		err := os.WriteFile(path, []byte(text), 0o600)
 		a.Post(func() {
 			if err != nil {
-				a.ShowError("Could not save the script", err.Error())
+				a.ShowReport(widgets.ErrorReportOf("Could not save the script", err))
 				return
 			}
 			q.Path, q.Saved, q.Name = path, text, filepath.Base(path)

@@ -576,6 +576,7 @@ func (a *App) importView(c *ui.Context) {
 		widgets.DialogLook(c, backdrop, panel)
 		_, winH := c.Size()
 		panel.Width(860).MaxHeight(winH-40).Radius(12).Background(th.Background).Border(1, th.Border).Clip().Label("Import")
+		widgets.EnvBand(c, &x.conn.Config)
 		ui.Column(c).Padding(16, 20).Gap(12).Children(func() {
 			title := "Import " + filepath.Base(x.path) + " into "
 			if x.obj != nil {

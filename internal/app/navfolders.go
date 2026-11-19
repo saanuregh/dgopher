@@ -162,7 +162,7 @@ func (a *App) moveConnsToFolder(p *project.Project, ids []string, path string) {
 		a.setConnsFolder(p, ids, path)
 	})
 	if err != nil {
-		a.ShowError("Could not move the connection", err.Error())
+		a.ShowReport(widgets.ErrorReportOf("Could not move the connection", err))
 		return
 	}
 	a.expandFolder(p, path)
@@ -250,7 +250,7 @@ func (a *App) askDeleteFolder(p *project.Project, path string) {
 				}
 			})
 			if err != nil {
-				a.ShowError("Could not delete the folder "+base, err.Error())
+				a.ShowReport(widgets.ErrorReportOf("Could not delete the folder "+base, err))
 			}
 		}}
 }
@@ -367,7 +367,7 @@ func (a *App) folderDropTarget(c *ui.Context, row ui.Element, p *project.Project
 		a.setConnsFolder(p, d.ids, path)
 	})
 	if err != nil {
-		a.ShowError("Could not move it there", err.Error())
+		a.ShowReport(widgets.ErrorReportOf("Could not move it there", err))
 		return
 	}
 	a.expandFolder(p, path)

@@ -216,7 +216,7 @@ func (a *App) withProject(then func(*project.Project)) {
 // file, in an order that changes only when they do.
 func (a *App) saveProject(p *project.Project) {
 	if err := p.Save(a.ProjectConfigs(p)); err != nil {
-		a.ShowError("Could not save "+project.File+" of "+p.Name, err.Error())
+		a.ShowReport(widgets.ErrorReportOf("Could not save "+project.File+" of "+p.Name, err))
 	}
 }
 
@@ -245,7 +245,7 @@ func (a *App) idFromName(p *project.Project, name string, self *connection.Conn)
 // why, when the project's file may not be written.
 func (a *App) addConn(p *project.Project, cfg db.Config) *connection.Conn {
 	if err := p.Writable(); err != nil {
-		a.ShowError("Could not save "+project.File+" of "+p.Name, err.Error())
+		a.ShowReport(widgets.ErrorReportOf("Could not save "+project.File+" of "+p.Name, err))
 		return nil
 	}
 	cfg.ID = a.uniqueConnID(p, cfg.Name)
@@ -383,7 +383,7 @@ func (a *App) openQueryFile(p *project.Project, rel string, then func(*query.Tab
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		a.ShowError("Could not open "+rel, err.Error())
+		a.ShowReport(widgets.ErrorReportOf("Could not open "+rel, err))
 		return
 	}
 	text := string(data)
@@ -470,7 +470,7 @@ func (a *App) SwitchConnection(q *query.Tab, id string) {
 			case err == nil:
 				text = string(data)
 			case !errors.Is(err, os.ErrNotExist):
-				a.ShowError("Could not open "+q.Name, err.Error())
+				a.ShowReport(widgets.ErrorReportOf("Could not open "+q.Name, err))
 				return
 			}
 		}
@@ -534,7 +534,7 @@ func (a *App) newNotebook(cn *connection.Conn) {
 func (a *App) createQueryFile(cn *connection.Conn, database, content string) *query.Tab {
 	p := cn.Project
 	if err := os.MkdirAll(p.Queries, 0o755); err != nil {
-		a.ShowError("Could not create the queries folder", err.Error())
+		a.ShowReport(widgets.ErrorReportOf("Could not create the queries folder", err))
 		return nil
 	}
 	var path string
@@ -549,7 +549,7 @@ func (a *App) createQueryFile(cn *connection.Conn, database, content string) *qu
 			err = errors.Join(err, f.Close())
 		}
 		if err != nil {
-			a.ShowError("Could not create the query file", err.Error())
+			a.ShowReport(widgets.ErrorReportOf("Could not create the query file", err))
 			return nil
 		}
 		break
@@ -588,7 +588,7 @@ func (a *App) duplicateQueryFile(p *project.Project, rel string) {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		a.ShowError("Could not duplicate "+rel, err.Error())
+		a.ShowReport(widgets.ErrorReportOf("Could not duplicate "+rel, err))
 		return
 	}
 	text := string(data)
@@ -619,7 +619,7 @@ func (a *App) addExistingProject() {
 	widgets.ChoosePath(a.Post, mygo.OpenDialogOptions{Title: "Add Existing Folder", Directory: true,
 		Message: "A folder, such as a Git repository. Its " + project.File + " is created if it has none."}, func(path string) {
 		if _, err := a.addProject(path); err != nil {
-			a.ShowError("Could not add the project", err.Error())
+			a.ShowReport(widgets.ErrorReportOf("Could not add the project", err))
 		}
 	})
 }

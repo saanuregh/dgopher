@@ -911,7 +911,7 @@ func (q *Tab) connID() string { return strings.TrimPrefix(q.Conn.Config.ID, q.Co
 // keepParam keeps a parameter's value for a connection's editors.
 func (q *Tab) keepParam(connID, key string, in params.Input) {
 	if err := dataview.SaveParamValue(q.Conn.Project, connID, key, in); err != nil {
-		q.a.ShowError("Could not keep the parameter's value", err.Error())
+		q.a.ShowReport(widgets.ErrorReportOf("Could not keep the parameter's value", err))
 	}
 }
 
@@ -930,7 +930,7 @@ func (q *Tab) runBound(stmts []string, starts []int, values map[string]params.In
 			var err error
 			if sqls[i], args[i], shown[i], err = params.Bind(s, cfg.Engine, q.Editor.Dialect, values); err != nil {
 				q.note(err.Error(), s, true)
-				q.a.ShowError("Could not bind the parameters", err.Error())
+				q.a.ShowReport(widgets.ErrorReportOf("Could not bind the parameters", err))
 				return
 			}
 		}
@@ -1048,7 +1048,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 	}
 	if q.sessionLost {
 		q.sessionLost = false
-		q.noteDetail("The connection was closed while idle and opened again: run again to use it.",
+		q.noteDetail("The connection was closed and opened again: run again to use it.",
 			"The new session has none of what the old one had set: USE, search_path, role, variables and temporary tables.", "", true)
 		return
 	}
@@ -3060,7 +3060,7 @@ func (q *Tab) exportFromQuery() {
 	q.withParams(stmts, func(values map[string]params.Input) {
 		sql, args, _, err := params.Bind(stmt, q.Conn.Config.Engine, q.Editor.Dialect, values)
 		if err != nil {
-			q.a.ShowError("Could not bind the parameters", err.Error())
+			q.a.ShowReport(widgets.ErrorReportOf("Could not bind the parameters", err))
 			return
 		}
 		dataview.OpenExport(q.a, dataview.ExportSource{Conn: q.Conn, Database: q.Database, Name: "query", SQL: sql, Args: args, OnSession: q.lendSession})

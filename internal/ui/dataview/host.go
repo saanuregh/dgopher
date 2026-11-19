@@ -143,7 +143,9 @@ func RecoverBackground(post func(func()), show func(widgets.ErrorReport), reset 
 func CloseSession(a Host, name string, sess *db.Session) {
 	if err := sess.Close(); errors.Is(err, db.ErrTxMayBeCommitted) {
 		a.Post(func() {
-			a.ShowError(name+": the transaction may have been committed", redact.Secrets(err.Error()))
+			r := widgets.ErrorReportOf(name+": the transaction may have been committed", err)
+			r.Detail = redact.Secrets(r.Detail)
+			a.ShowReport(r)
 		})
 	}
 }

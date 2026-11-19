@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"slices"
 	"sort"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
+	"dgopher/internal/lists"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/panes"
 	"dgopher/internal/ui/query"
@@ -59,6 +61,14 @@ func (a *App) openPalette(tables bool) {
 func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 	var cmds, conns, tables, files []paletteItem
 	active := a.activeConn()
+	recent := a.recentTableRanks()
+	// ranked is a table, function or procedure, with what orders it.
+	type ranked struct {
+		item  paletteItem
+		rank  int    // place among the recent tables, len for one not recent
+		title string // lower case
+	}
+	var places []ranked
 	// The tab's own commands first: they are the ones at hand.
 	if t, ok := a.ActiveTab().(widgets.Commander); ok {
 		for _, cmd := range t.Commands() {
@@ -75,6 +85,7 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 		paletteItem{title: "Settings…", key: keymap.Settings, group: "Command", icon: widgets.IconSettings, run: a.openSettings},
 		paletteItem{title: "Toggle Sidebar", key: keymap.ToggleSidebar, group: "Command", icon: widgets.IconColumns, run: func() { a.layout.SidebarHidden = !a.layout.SidebarHidden }},
 		paletteItem{title: "Keyboard Shortcuts", key: keymap.ShortcutsList, group: "Command", icon: widgets.IconCode, run: func() { a.shortcutsOpen = true }},
+		paletteItem{title: "What's New in DGopher", detail: "this version's release notes", group: "Command", icon: widgets.IconWand, run: a.openWhatsNew},
 		paletteItem{title: "New Project…", group: "Command", icon: widgets.IconFolder, run: func() { a.openNewProject(nil) }},
 		paletteItem{title: "AI Chat", detail: "Claude Code, Codex or pi, beside the editor", key: keymap.ToggleChat, group: "Command", icon: widgets.IconSparkles, run: a.toggleChat},
 		paletteItem{title: "Add Existing Folder…", detail: "list a project folder", key: keymap.AddFolder, group: "Command", icon: widgets.IconFolder, run: a.addExistingProject},
@@ -174,7 +185,15 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 				if o.Kind != db.KindTable {
 					ic = widgets.IconView
 				}
-				tables = append(tables, paletteItem{title: o.Name, detail: detail, group: "Table", icon: ic, run: func() { a.OpenTable(cn, key.Database, o, dataview.PageData) }})
+				item := paletteItem{title: o.Name, detail: detail, group: "Table", icon: ic, run: func() { a.OpenTable(cn, key.Database, o, dataview.PageData) }}
+				rank, ok := 0, false
+				if cn.Project != nil {
+					rank, ok = recent[cn.Project][recentTableKey(cn, key.Database, o.Schema, o.Name)]
+				}
+				if !ok {
+					rank = recentTablesKept
+				}
+				places = append(places, ranked{item, rank, strings.ToLower(o.Name)})
 			}
 		}
 		for key, items := range cn.Items {
@@ -186,12 +205,18 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 				if it.Kind == db.ItemProcedure {
 					group = "Procedure"
 				}
-				tables = append(tables, paletteItem{title: it.Label(), detail: cn.Config.Name + " · " + it.Schema, group: group, icon: itemIcon(it.Kind),
-					run: func() { dataview.OpenItemDefinition(a, cn, key.Database, it) }})
+				item := paletteItem{title: it.Label(), detail: cn.Config.Name + " · " + it.Schema, group: group, icon: itemIcon(it.Kind),
+					run: func() { dataview.OpenItemDefinition(a, cn, key.Database, it) }}
+				places = append(places, ranked{item, recentTablesKept, strings.ToLower(it.Label())})
 			}
 		}
 	}
-	sort.SliceStable(tables, func(i, j int) bool { return tables[i].title < tables[j].title })
+	// Recent tables first, the latest at the top; the rest, functions and
+	// procedures among them, by name.
+	slices.SortStableFunc(places, func(x, y ranked) int {
+		return cmp.Or(cmp.Compare(x.rank, y.rank), strings.Compare(x.title, y.title))
+	})
+	tables = lists.Map(places, func(r ranked) paletteItem { return r.item })
 	snippets := a.snippetItems()
 	if q, ok := a.ActiveTab().(*query.Tab); ok {
 		cmds = append(cmds, paletteItem{title: "Save as Snippet…", group: "Command", icon: widgets.IconSave, run: func() { a.AskSnippet(q) }},

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"dgopher/internal/db"
+	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -145,7 +146,7 @@ func (e *ERTab) changeTable(t *erTable, title, why string, change func(*db.Table
 		}
 		return func() {
 			if err != nil {
-				e.a.ShowError("The schema was not changed", err.Error())
+				e.a.ShowReport(widgets.ErrorReportOf("The schema was not changed", err))
 				return
 			}
 			e.apply(title, why, ch)
@@ -168,7 +169,7 @@ func (e *ERTab) dropTable(t *erTable) {
 func (e *ERTab) apply(title, why string, ch db.SchemaChange) {
 	ApplyChange(e.a, e.conn, e.database, title, ch, why, nil, func(err error) {
 		if err != nil {
-			e.a.ShowError("The schema was not changed", err.Error())
+			e.a.ShowReport(widgets.ErrorReportOf("The schema was not changed", err))
 		}
 		e.conn.ForgetCatalog()
 		e.reload()

@@ -3,6 +3,7 @@ package widgets_test
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"dgopher/internal/db"
@@ -97,5 +98,54 @@ func TestErrorReportOfDatabaseError(t *testing.T) {
 	plain := errors.New("plain")
 	if r := widgets.ErrorReportOf("x", plain); r.Hint != "" || widgets.ErrorText(plain) != "plain" {
 		t.Fatalf("report %+v, text %q", r, widgets.ErrorText(plain))
+	}
+}
+
+// A banner shows the title and the first line of the text, redacted, with
+// the report's actions and a Details button that hands the report over.
+func TestErrorBanner(t *testing.T) {
+	retries := 0
+	var shown *widgets.ErrorReport
+	r := widgets.ErrorReport{Title: "Could not count the rows", Detail: "ALTER USER app WITH PASSWORD 'hunter2'\nsecond line",
+		Actions: []widgets.ErrorAction{{Label: "Retry", Run: func() { retries++ }}}}
+	tt := ui.NewTester(func(c *ui.Context) {
+		widgets.ErrorBanner(c, r, func(r widgets.ErrorReport) { shown = &r })
+	}, 800, 200)
+	testutil.Settled(t, tt, "Retry")
+	for _, s := range tt.Texts() {
+		if strings.Contains(s, "hunter2") || strings.Contains(s, "second line") {
+			t.Fatalf("the banner shows %q", s)
+		}
+	}
+	if !tt.HasText("Details") {
+		t.Fatalf("no Details: %q", tt.Texts())
+	}
+	if err := tt.Click("Retry"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("Details"); err != nil {
+		t.Fatal(err)
+	}
+	if retries != 1 || shown == nil || shown.Title != r.Title {
+		t.Fatalf("retries %d, shown %+v", retries, shown)
+	}
+}
+
+// With a hint, the banner leads with it rather than the raw text.
+func TestErrorBannerPrefersHint(t *testing.T) {
+	r := widgets.ErrorReport{Title: "Could not connect", Hint: "The server refused the connection.", Detail: cardDetail}
+	tt := ui.NewTester(func(c *ui.Context) { widgets.ErrorBanner(c, r, nil) }, 800, 200)
+	testutil.Settled(t, tt, "Details")
+	found := false
+	for _, s := range tt.Texts() {
+		if strings.Contains(s, "refused the connection") {
+			found = true
+		}
+		if strings.Contains(s, "10.0.0.5") {
+			t.Fatalf("the raw text shows: %q", s)
+		}
+	}
+	if !found {
+		t.Fatalf("no hint: %q", tt.Texts())
 	}
 }

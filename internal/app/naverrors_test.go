@@ -2,6 +2,7 @@ package app
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
@@ -176,4 +177,31 @@ func TestFailedConnectionHasNoHintRow(t *testing.T) {
 		}
 	}
 	testutil.Snapshot(t, tt, "sidebar-failed-connection")
+}
+
+// A failed connection's card on the start page says so, with a Retry that
+// connects again; a click elsewhere on the card still opens an editor.
+func TestWelcomeCardShowsFailure(t *testing.T) {
+	a := newTestApp(t)
+	cn := addConn(a, db.Config{ID: "pg", Name: "pg", Engine: db.Postgres, Host: "127.0.0.1", Port: 1, User: "x", Database: "x"})
+	tt := ui.NewTester(a.view, 1200, 760)
+	a.ConnectInline(cn, nil)
+	testutil.WaitFor(t, tt, "the failure", func() bool { return cn.Status == connection.StatusFailed })
+	tt.Frame()
+	testutil.Snapshot(t, tt, "welcome-card-failed")
+	if err := tt.Click("Retry"); err != nil {
+		t.Fatalf("no Retry in %q: %v", tt.Texts(), err)
+	}
+	testutil.WaitFor(t, tt, "the alert", func() bool { return countAlerts(a, "Could not connect to pg") == 1 })
+	if n := a.tabs().Len(); n != 0 {
+		t.Fatalf("Retry opened %d tabs", n)
+	}
+	a.alerts = nil
+	tt.Frame()
+	if err := tt.Click("Open pg"); err != nil {
+		t.Fatal(err)
+	}
+	if got := openedOn(a, cn, 0); !strings.HasPrefix(got, "tabs+1 (editor)") {
+		t.Fatalf("a click on the card: %s", got)
+	}
 }

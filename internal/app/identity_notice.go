@@ -127,7 +127,7 @@ func (a *App) dismissIdentity(cn *connection.Conn, s identifiedServer) {
 	}
 	kept[localConnID(cn)] = s.key()
 	if err := cn.Project.Local.SaveJSON(identityDismissedFile, kept); err != nil {
-		a.ShowError("Could not keep the choice", err.Error())
+		a.ShowReport(widgets.ErrorReportOf("Could not keep the choice", err))
 	}
 }
 

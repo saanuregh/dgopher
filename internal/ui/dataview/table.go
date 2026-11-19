@@ -60,6 +60,12 @@ type TableTab struct {
 }
 
 func NewTableTab(a Host, cn *connection.Conn, database string, obj db.Object, page int) *TableTab {
+	return NewTableTabWith(a, cn, database, obj, page, TableState{})
+}
+
+// NewTableTabWith opens a table's tab showing its rows as st does, as a
+// tab restored from the last run.
+func NewTableTabWith(a Host, cn *connection.Conn, database string, obj db.Object, page int, st TableState) *TableTab {
 	t := &TableTab{a: a, Conn: cn, Database: database, Object: obj, Page: page}
 	t.view = NewViewer(a, ViewerSource{
 		Keys:         func() bool { return a.KeysTo(t) },
@@ -75,6 +81,7 @@ func NewTableTab(a Host, cn *connection.Conn, database string, obj db.Object, pa
 		Bars:         t.txBar,
 		ShowDDL:      func() { t.Page = PageDDL },
 	})
+	t.view.restore(st)
 	// The rows wait for the columns, to be ordered by the primary key.
 	t.loadMeta(t.view.reload)
 	return t
@@ -517,7 +524,7 @@ func (t *TableTab) editStructure() {
 		return func() {
 			t.readingDesign = false
 			if err != nil {
-				t.a.ShowError("Could not read the structure of "+obj.Name, err.Error())
+				t.a.ShowReport(widgets.ErrorReportOf("Could not read the structure of "+obj.Name, err))
 				return
 			}
 			t.design = newDesigner(t.a, t.Conn, t.Database, &design, design, t.structureChanged)

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"dgopher/internal/connection"
+	"dgopher/internal/db"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -47,23 +48,30 @@ type ConfirmDetail struct {
 	Changed bool
 }
 
+// EnvBand is the band across the top of a dialog that names the
+// connection it acts on, in the colors of its environment. It sits flush
+// at the top of a panel without padding that clips its corners.
+func EnvBand(c *ui.Context, cfg *db.Config) {
+	envCol := SafetyColor(cfg)
+	fill, ink := EnvironmentLabel(cfg.Env, envCol, c.Theme().Background)
+	ui.Row(c).Padding(10, 16).Gap(8).Background(fill).BorderWidth(3, 0, 0, 0).BorderColor(envCol).Children(func() {
+		ui.Icon(c, IconShield).TextColor(ink).FontSize(14)
+		ui.Text(c, cfg.Name+" · "+cfg.Env.Label()).Bold().TextColor(ink)
+		if cfg.ReadOnly {
+			ui.Text(c, "read-only").TextColor(ink)
+		}
+	})
+}
+
 // ConfirmView draws a request as a dialog, in the colors of the
 // connection's environment; its buttons answer it and close it.
 func ConfirmView(c *ui.Context, r *ConfirmRequest) {
 	t := c.Theme()
 	pal := PaletteOf(c)
-	envCol := SafetyColor(&r.Conn.Config)
 	ui.DialogBase(c, &r.Open, func(backdrop, panel ui.Element) {
 		DialogLook(c, backdrop, panel)
 		panel.Width(560).MaxHeightPercent(90).Radius(12).Background(t.Background).Border(1, t.Border).Clip().Role(ui.RoleAlertDialog).Label(r.Title)
-		fill, ink := EnvironmentLabel(r.Conn.Config.Env, envCol, t.Background)
-		ui.Row(c).Padding(10, 16).Gap(8).Background(fill).BorderWidth(3, 0, 0, 0).BorderColor(envCol).Children(func() {
-			ui.Icon(c, IconShield).TextColor(ink).FontSize(14)
-			ui.Text(c, r.Conn.Config.Name+" · "+r.Conn.Config.Env.Label()).Bold().TextColor(ink)
-			if r.Conn.Config.ReadOnly {
-				ui.Text(c, "read-only").TextColor(ink)
-			}
-		})
+		EnvBand(c, &r.Conn.Config)
 		ui.Column(c).Padding(16, 20, 20, 20).Gap(12).Children(func() {
 			ui.Text(c, r.Title).FontSize(16).Bold()
 			// What could go wrong in one callout; how the app guards

@@ -138,6 +138,9 @@ const (
 	InvertSelection  = "grid::InvertSelection"
 	SortColumn       = "grid::SortColumn"
 	DistinctValues   = "grid::DistinctValues"
+	FilterEquals     = "grid::FilterEquals"
+	FilterNotEquals  = "grid::FilterNotEquals"
+	Export           = "grid::Export"
 	NextPresentation = "grid::NextPresentation"
 	FollowKey        = "grid::FollowKey"
 	PickReference    = "grid::PickReference"
@@ -264,12 +267,13 @@ var Commands = []Command{
 	command(BlockComment, Editor, "Put the selection in a block comment, or take it out", "cmd-alt-/"),
 	command(ToggleResults, Editor, "Show or hide the results", "cmd-j"),
 	command(FocusResults, Editor, "Between the editor and its results", "cmd-shift-j"),
-	command(MaximizeResults, Editor, "Maximize the results over the editor, or restore them"),
+	command(MaximizeResults, Editor, "Maximize the results over the editor, or restore them", "cmd-k cmd-shift-m"),
 	command(Save, Editor, "Save the file now (it also saves as you type)", "cmd-s"),
 	command(SaveAs, Editor, "Save the editor as a file", "cmd-shift-s"),
 	command(Commit, Editor, "Commit the open transaction, an editor's or a table's", "cmd-alt-shift-enter"),
-	// Rolling back loses the transaction's work: no key unless one is set.
-	command(Rollback, Editor, "Roll back the open transaction, an editor's or a table's"),
+	// Rolling back loses the transaction's work: its key takes three
+	// modifiers, so it is hard to press by accident.
+	command(Rollback, Editor, "Roll back the open transaction, an editor's or a table's", "cmd-alt-shift-r"),
 	command(ToggleNotebook, Editor, "Show the editor as a notebook of cells, or as one script", "cmd-k cmd-n"),
 	command(EditorZoomIn, Editor, "Make the editors' text larger", "cmd-="),
 	command(EditorZoomOut, Editor, "Make the editors' text smaller", "cmd--"),
@@ -318,6 +322,9 @@ var Commands = []Command{
 	command(InvertSelection, Grid, "Choose the rows not chosen, and none of those that were"),
 	command(SortColumn, Grid, "Order by the chosen column: ascending, descending, none", "cmd-alt-s"),
 	command(DistinctValues, Grid, "The chosen column's distinct values, to filter by", "cmd-f11"),
+	command(FilterEquals, Grid, "Keep the rows whose value in the column is the cell's", "cmd-k cmd-="),
+	command(FilterNotEquals, Grid, "Hide the rows whose value in the column is the cell's", "cmd-k cmd-shift-1"),
+	command(Export, Grid, "Export the rows", "cmd-k cmd-x"),
 	command(NextPresentation, Grid, "Next presentation: grid, record, text", "cmd-`"),
 	command(FollowKey, Grid, "Follow the cell's foreign key", "alt-space"),
 	command(PickReference, Grid, "Choose the cell's value from the table its foreign key points at", "alt-down"),

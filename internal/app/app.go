@@ -74,6 +74,9 @@ type App struct {
 	conns    []*connection.Conn
 	// offline is set while the system says the computer is offline.
 	offline bool
+	// idleClocksAfterWake has the next frame restart the idle limits'
+	// clocks (restartIdleClocksAfterWake).
+	idleClocksAfterWake bool
 	// connecting are the connects under way, by connection, past their
 	// prompts: how far each is, and how to stop it.
 	connecting map[*connection.Conn]*connectAttempt
@@ -176,6 +179,8 @@ type App struct {
 	settingsOpen  bool
 	settingsPage  int // an index of settingsPages
 	shortcutsOpen bool
+	whatsNewOpen  bool
+	whatsNewNotes string // the open dialog's release notes
 	// shortcutsFind filters the list of keys.
 	shortcutsFind string
 	settingsDirty bool
@@ -204,9 +209,11 @@ func newApp(st *store.Store, uiState *state.DB) *App {
 	a.layoutSaved = a.layout
 	a.main = newWindow()
 	a.window, a.windows = a.main, []*window{a.main}
-	if err := st.LoadJSON("settings.json", &a.settings); err != nil && !errors.Is(err, store.ErrNotFound) {
+	err := st.LoadJSON("settings.json", &a.settings)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		log.Println("settings:", err)
 	}
+	firstInstall := errors.Is(err, store.ErrNotFound)
 	a.loadKeymap()
 	if a.settings.PageSize <= 0 {
 		a.settings.PageSize = 500
@@ -230,6 +237,8 @@ func newApp(st *store.Store, uiState *state.DB) *App {
 			a.restoreWorkspace(p)
 		}
 	}
+	// After the restore, which decides whether the start page shows.
+	a.checkWhatsNew(firstInstall)
 	for _, cn := range a.conns {
 		if cn.Config.AutoConnect && cn.Project.Err == "" {
 			// Not asked for now: a failure is marked and noted, not raised.
@@ -642,7 +651,7 @@ func (a *App) passwordLost(cfg *db.Config) bool {
 func (a *App) keepPassword(cfg *db.Config, pw string) {
 	sec := a.st.Secrets()
 	if err := sec.Set(secretKey(cfg, "password"), pw); err != nil {
-		a.ShowError("Could not save the password in the keychain", err.Error())
+		a.ShowReport(widgets.ErrorReportOf("Could not save the password in the keychain", err))
 		return
 	}
 	sec.Delete(legacySecretKey(cfg, "password"))
@@ -660,14 +669,14 @@ func (a *App) knownHosts() []string {
 // secrets, for those not known yet. It runs off the main thread: a
 // password manager may wait for a fingerprint.
 func resolveCommandSecrets(ctx context.Context, cfg *db.Config) error {
-	if cfg.PasswordCommand != "" && cfg.Password == "" {
+	if runsServerPasswordCommand(cfg) {
 		pw, err := secretcmd.Run(ctx, cfg.PasswordCommand)
 		if err != nil {
 			return fmt.Errorf("the password command failed: %w", err)
 		}
 		cfg.Password = pw
 	}
-	if cfg.SSH.Enabled && cfg.SSH.PasswordCommand != "" && cfg.SSH.Password == "" && cfg.SSH.KeyPassphrase == "" {
+	if runsSSHPasswordCommand(cfg) {
 		pw, err := secretcmd.Run(ctx, cfg.SSH.PasswordCommand)
 		if err != nil {
 			return fmt.Errorf("the SSH command failed: %w", err)
@@ -682,6 +691,21 @@ func resolveCommandSecrets(ctx context.Context, cfg *db.Config) error {
 	return nil
 }
 
+// runsPasswordCommand reports whether connecting with cfg runs a command
+// for a secret (resolveCommandSecrets), which may ask the user, as a
+// password manager does.
+func runsPasswordCommand(cfg *db.Config) bool {
+	return runsServerPasswordCommand(cfg) || runsSSHPasswordCommand(cfg)
+}
+
+func runsServerPasswordCommand(cfg *db.Config) bool {
+	return cfg.PasswordCommand != "" && cfg.Password == ""
+}
+
+func runsSSHPasswordCommand(cfg *db.Config) bool {
+	return cfg.SSH.Enabled && cfg.SSH.PasswordCommand != "" && cfg.SSH.Password == "" && cfg.SSH.KeyPassphrase == ""
+}
+
 // connectAttempt is a connect under way since started: its context,
 // which cancel ends.
 type connectAttempt struct {
@@ -691,14 +715,19 @@ type connectAttempt struct {
 	// alert has a failure raise the error alert: unset while only views
 	// that show it themselves asked (ConnectInline).
 	alert bool
+	// quiet has the attempt ask nothing, as a reconnect after a wake:
+	// what would prompt leaves the connection failed, with a notification
+	// (reconnectNeeds). Connect asking for the same attempt unsets it.
+	quiet bool
 }
 
 // startAttempt begins a connect attempt of cn, in place of any before;
-// alert is whether its failure raises its error.
-func (a *App) startAttempt(cn *connection.Conn, alert bool) *connectAttempt {
+// alert is whether its failure raises its error, quiet whether it asks
+// nothing.
+func (a *App) startAttempt(cn *connection.Conn, alert, quiet bool) *connectAttempt {
 	a.endAttempt(cn, nil)
 	ctx, cancel := context.WithCancel(context.Background())
-	at := &connectAttempt{ctx: ctx, cancel: cancel, started: time.Now(), alert: alert}
+	at := &connectAttempt{ctx: ctx, cancel: cancel, started: time.Now(), alert: alert, quiet: quiet}
 	if a.connecting == nil {
 		a.connecting = map[*connection.Conn]*connectAttempt{}
 	}
@@ -746,14 +775,16 @@ func (a *App) CancelConnect(cn *connection.Conn) {
 
 // Connect opens a connection, then runs then on the main thread; a
 // failure raises the error alert.
-func (a *App) Connect(cn *connection.Conn, then func()) { a.connect(cn, then, true) }
+func (a *App) Connect(cn *connection.Conn, then func()) { a.connect(cn, then, true, false) }
 
 // ConnectInline is Connect for a view that shows a failure itself, as a
 // dashboard's panel or a tab waiting for its connection: no alert says it
 // again, unless something else asks for the same attempt with Connect.
-func (a *App) ConnectInline(cn *connection.Conn, then func()) { a.connect(cn, then, false) }
+func (a *App) ConnectInline(cn *connection.Conn, then func()) { a.connect(cn, then, false, false) }
 
-func (a *App) connect(cn *connection.Conn, then func(), alert bool) {
+// connect connects cn, then runs then; alert is whether a failure raises
+// its error, quiet whether the connect asks nothing (connectAttempt.quiet).
+func (a *App) connect(cn *connection.Conn, then func(), alert, quiet bool) {
 	switch cn.Status {
 	case connection.StatusConnected:
 		if then != nil {
@@ -765,7 +796,7 @@ func (a *App) connect(cn *connection.Conn, then func(), alert bool) {
 			cn.Waiters = append(cn.Waiters, then)
 		}
 		if at := a.connecting[cn]; at != nil && alert {
-			at.alert = true
+			at.alert, at.quiet = true, false
 		}
 		return
 	}
@@ -777,12 +808,16 @@ func (a *App) connect(cn *connection.Conn, then func(), alert bool) {
 		// A file from a repository chose this destination: the user says
 		// whether a password may go there, once per destination.
 		cn.Waiters = nil
+		if quiet {
+			a.reconnectNeeds(cn, "its destination needs your agreement")
+			return
+		}
 		if a.asking(func(r *widgets.ConfirmRequest) bool { return r.Trust && r.Conn == cn }) {
 			return // asking already
 		}
 		r := a.askTrust(cn, &cfg, details, "Connect to "+cfg.Name+"?", "Connect", func() {
 			a.trust(cn)
-			a.connect(cn, then, alert)
+			a.connect(cn, then, alert, false)
 		})
 		r.Trust = true
 		r.OnCancel = func() {
@@ -803,7 +838,7 @@ func (a *App) connect(cn *connection.Conn, then func(), alert bool) {
 	}
 	cn.Status, cn.Err, cn.ErrKind = connection.StatusConnecting, "", db.ProblemUnknown
 	gen := cn.Generation
-	at := a.startAttempt(cn, alert)
+	at := a.startAttempt(cn, alert, quiet)
 	dataview.BackgroundResetOnPanic(a, func() {
 		a.endAttempt(cn, at)
 		if gen == cn.Generation {
@@ -844,6 +879,10 @@ func (a *App) connect(cn *connection.Conn, then func(), alert bool) {
 // error, past the prompt.
 func (a *App) askPasswordOrOpen(cn *connection.Conn, cfg db.Config, lost, alert bool) {
 	if (cfg.AskPassword || lost) && cfg.Password == "" && !cfg.Engine.IsFile() {
+		if at := a.connecting[cn]; at != nil && at.quiet {
+			a.reconnectNeeds(cn, "a password is needed")
+			return
+		}
 		// The prompt is the user's to cancel; its time is not connecting's.
 		a.endAttempt(cn, nil)
 		if a.prompt != nil && a.prompt.conn == cn || slices.ContainsFunc(a.promptQueue, func(p *passwordPrompt) bool { return p.conn == cn }) {
@@ -864,6 +903,10 @@ func (a *App) askPasswordOrOpen(cn *connection.Conn, cfg db.Config, lost, alert 
 			cn.Fail(errors.New("no password was given"))
 		}
 		a.askPassword(p)
+		return
+	}
+	if at := a.connecting[cn]; at != nil && at.quiet && runsPasswordCommand(&cfg) {
+		a.reconnectNeeds(cn, "its password command may ask you")
 		return
 	}
 	a.open(cn, cfg, alert)
@@ -887,7 +930,7 @@ func (a *App) open(cn *connection.Conn, cfg db.Config, alert bool) {
 	// Connect's, from the keychain on, unless a prompt came between.
 	at := a.connecting[cn]
 	if at == nil {
-		at = a.startAttempt(cn, alert)
+		at = a.startAttempt(cn, alert, false)
 	}
 	// What the work opened, which the reset closes, tunnel and all, when
 	// the work stops on a panic before the main thread takes it.
@@ -938,6 +981,10 @@ func (a *App) open(cn *connection.Conn, cfg db.Config, alert bool) {
 				cn.Fail(err)
 				cn.Waiters = nil
 				var hk *sshtunnel.HostKeyError
+				if errors.As(err, &hk) && at.quiet {
+					a.reconnectNeeds(cn, "its SSH server's host key needs checking")
+					return
+				}
 				if errors.As(err, &hk) {
 					a.askHostKey(cn, cfg, hk, at.alert)
 					return
@@ -980,7 +1027,7 @@ func (a *App) askHostKey(cn *connection.Conn, cfg db.Config, hk *sshtunnel.HostK
 	}
 	a.hostKey = &hostKeyRequest{open: true, host: hk.Host, fingerprint: hk.Fingerprint, onTrust: func() {
 		if err := sshtunnel.Trust(a.appKnownHosts, hk.Host, hk.Key); err != nil {
-			a.ShowError("Could not save the host key", err.Error())
+			a.ShowReport(widgets.ErrorReportOf("Could not save the host key", err))
 			return
 		}
 		a.Record(&cfg, audit.Event{Kind: audit.KindTrust, Detail: "trusted SSH host " + hk.Host + " with key " + hk.Fingerprint})
@@ -999,14 +1046,18 @@ func (a *App) disconnect(cn *connection.Conn) {
 
 // releaseTabs lets the tabs of a connection that closes give up their
 // sessions, as disconnect says; an open transaction's rollback is audited.
-func (a *App) releaseTabs(cn *connection.Conn) {
+func (a *App) releaseTabs(cn *connection.Conn) { a.releaseTabsAs(cn, (*query.Tab).Disconnected) }
+
+// releaseTabsAs is releaseTabs, whose editors give their session up with
+// editor.
+func (a *App) releaseTabsAs(cn *connection.Conn, editor func(*query.Tab)) {
 	for _, t := range a.everyTab() {
 		if t.Connection() != cn {
 			continue
 		}
 		switch t := t.(type) {
 		case *query.Tab:
-			t.Disconnected()
+			editor(t)
 		case *waitingTab:
 		default:
 			s, ok := savedTabOf(t)
@@ -1178,6 +1229,20 @@ func (a *App) NewQueryTab(cn *connection.Conn, database, text string) {
 
 // OpenTable opens a table's data, or brings its tab forward.
 func (a *App) OpenTable(cn *connection.Conn, database string, obj db.Object, page int) {
+	a.openTable(cn, database, obj, page, dataview.TableState{})
+}
+
+// openTableWith opens the table s keeps, showing its rows as s does; an
+// open tab of it comes forward as it is.
+func (a *App) openTableWith(cn *connection.Conn, s savedTab) {
+	obj := db.Object{Schema: s.Schema, Name: s.Name, Kind: db.ObjectKind(s.ObjectKind), Rows: -1, Bytes: -1}
+	a.openTable(cn, s.Database, obj, s.Page, s.tableState())
+}
+
+// openTable opens a table's data showing its rows as st does, or brings
+// its tab forward, as it is.
+func (a *App) openTable(cn *connection.Conn, database string, obj db.Object, page int, st dataview.TableState) {
+	a.recordRecentTable(cn, database, obj)
 	if t, ok := a.findTab(func(t widgets.Tab) bool {
 		tt, ok := t.(*dataview.TableTab)
 		return ok && tt.Conn == cn && tt.Database == database && tt.Object.Schema == obj.Schema && tt.Object.Name == obj.Name
@@ -1186,7 +1251,7 @@ func (a *App) OpenTable(cn *connection.Conn, database string, obj db.Object, pag
 		return
 	}
 	a.Connect(cn, func() {
-		a.AddTab(dataview.NewTableTab(a, cn, database, obj, page))
+		a.AddTab(dataview.NewTableTabWith(a, cn, database, obj, page, st))
 	})
 }
 
@@ -1216,6 +1281,7 @@ func (a *App) ShowError(title, message string) {
 // waiting with the same title and text is not shown twice. The one shown
 // does not count: its own action, as Retry, may raise it again.
 func (a *App) ShowReport(r widgets.ErrorReport) {
+	r.Detail = redact.Secrets(r.Detail)
 	if a.showAlert(r) {
 		a.noteReport(r)
 	}
@@ -1247,6 +1313,12 @@ func (a *App) connectFailed(cn *connection.Conn, alert bool) {
 		return
 	}
 	a.noteReport(r)
+}
+
+// ConnectionReport is a failed connection's report, for a view that shows
+// it itself.
+func (a *App) ConnectionReport(cn *connection.Conn) widgets.ErrorReport {
+	return a.connectionReport(cn, nil)
 }
 
 // connectionReport is a failed connection's report, whose Retry (retry,

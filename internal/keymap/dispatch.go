@@ -180,7 +180,25 @@ func ListPressed(c *ui.Context, l *ui.ListState, id string) bool {
 			}
 			continue
 		}
+		// A list's key takes its press before Dispatch sees it: while a
+		// first key waits, the list leaves the keys that can follow it.
+		if follows(b.Keys.First) {
+			continue
+		}
 		if l.Shortcut(c, b.Keys.First.Mods, b.Keys.First.Key) {
+			return true
+		}
+	}
+	return false
+}
+
+// follows reports whether a key can follow the first of two waiting.
+func follows(ch Chord) bool {
+	if !frame.waiting {
+		return false
+	}
+	for _, k := range current.sequences {
+		if k.First == frame.pending && k.Then == ch {
 			return true
 		}
 	}

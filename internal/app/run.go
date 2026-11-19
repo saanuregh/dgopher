@@ -51,6 +51,7 @@ func Run(args []string) error {
 	}
 	mygo.Use(native.Plugin)
 	availableUpdate = updater.AvailableVersion
+	appVersion = mygo.App.Version
 	dir, err := store.DefaultDir()
 	if err != nil {
 		return err
@@ -91,6 +92,8 @@ func Run(args []string) error {
 		a.watchProjects()
 		a.setOnline(mygo.Network.Status().Online)
 		mygo.Network.OnChanged(func(s mygo.NetworkStatus) { a.Post(func() { a.setOnline(s.Online) }) })
+		// Posted: the listener may run off the main thread.
+		mygo.Power.OnResume(func() { a.Post(a.checkConnectionsAfterWake) })
 		// The title bar's menu names an update a check found.
 		updater.OnChange(func() { a.Post(a.invalidate) })
 		win := mygo.NewWindow(mygo.WindowOptions{
@@ -204,7 +207,7 @@ func Run(args []string) error {
 				}
 				a.Post(func() {
 					if _, err := a.addProject(dir); err != nil {
-						a.ShowError("Could not add the project", err.Error())
+						a.ShowReport(widgets.ErrorReportOf("Could not add the project", err))
 					}
 				})
 			}
@@ -394,6 +397,7 @@ func (a *App) appMenus() []menuGroup {
 			cmd("Open keymap.json", keymap.OpenKeymap),
 			{},
 			{label: "Take the Tour", run: a.startTour},
+			{label: "What's New in DGopher", run: a.openWhatsNew},
 		}},
 	}
 }

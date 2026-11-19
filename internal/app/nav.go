@@ -15,6 +15,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
 	"dgopher/internal/project"
+	"dgopher/internal/redact"
 	"dgopher/internal/sqltext"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/query"
@@ -821,7 +822,7 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 			}
 			switch cn.Status {
 			case connection.StatusFailed:
-				ui.Icon(c, widgets.IconAlert).TextColor(t.Danger).FontSize(12).Tooltip(cn.Err)
+				ui.Icon(c, widgets.IconAlert).TextColor(t.Danger).FontSize(12).Tooltip(redact.Secrets(cn.Err))
 				if row.Clicked() {
 					a.showConnError(cn)
 				}
@@ -1203,7 +1204,7 @@ func (a *App) openExportTables(cn *connection.Conn, database, schema string) {
 		}
 		return func() {
 			if err != nil {
-				a.ShowError("Could not list the tables of "+schema, err.Error())
+				a.ShowReport(widgets.ErrorReportOf("Could not list the tables of "+schema, err))
 				return
 			}
 			if len(objs) == 0 {
@@ -1242,7 +1243,7 @@ func (a *App) askRenameInDatabase(cn *connection.Conn, database, current string,
 		a.applyStatements(cn, database, "Rename "+current, []string{sql}, "", func(err error) {
 			cn.ForgetCatalog()
 			if err != nil {
-				a.ShowError("Rename failed", err.Error())
+				a.ShowReport(widgets.ErrorReportOf("Rename failed", err))
 			}
 		})
 		return nil
@@ -1492,7 +1493,7 @@ func catalogLabel(d db.CatalogDepth) string {
 // keeps it in the project's file, and reads the schema again so.
 func (a *App) setCatalogDepth(cn *connection.Conn, database, schema string, d db.CatalogDepth) {
 	if err := cn.Project.Writable(); err != nil {
-		a.ShowError("Could not save "+project.File, err.Error())
+		a.ShowReport(widgets.ErrorReportOf("Could not save "+project.File, err))
 		return
 	}
 	cn.Config.SetCatalog(database, schema, d)

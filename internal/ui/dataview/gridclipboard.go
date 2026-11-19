@@ -210,7 +210,7 @@ func pasteInto(a Host, g *Grid, src *Source, text string, opt pasteOptions) {
 		}
 	}
 	if err != nil {
-		a.ShowError("Could not paste", err.Error())
+		a.ShowReport(widgets.ErrorReportOf("Could not paste", err))
 	}
 }
 
@@ -332,7 +332,7 @@ const maxCopyRows = 100000
 func (g *Grid) openWith(a Host, src *Source) {
 	path, n, err := g.spreadsheetFile(src)
 	if err != nil {
-		a.ShowError("Could not open the rows", err.Error())
+		a.ShowReport(widgets.ErrorReportOf("Could not open the rows", err))
 		return
 	}
 	if g.Exported != nil {

@@ -60,6 +60,9 @@ type Settings struct {
 	// TourDone is set once the user took the guided tour, or ended it,
 	// which the start page then stops offering.
 	TourDone bool `json:"tourDone,omitempty"`
+	// LastSeenVersion is the version of DGopher that last started, whose
+	// release notes a newer one shows once.
+	LastSeenVersion string `json:"lastSeenVersion,omitempty"`
 	// Keys are the keys an older DGopher kept here, by command, as
 	// "Cmd+Shift+F": the first run moves them to keymap.json
 	// (internal/keymap), and they go from here.

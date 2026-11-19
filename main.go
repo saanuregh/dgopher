@@ -10,6 +10,7 @@ import (
 )
 
 func main() {
+	app.Changelog = changelogText
 	if err := app.Run(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "dgopher:", err)
 		os.Exit(1)

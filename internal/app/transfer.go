@@ -340,7 +340,11 @@ func (a *App) copyView(c *ui.Context) {
 	x := a.copying
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	dlg := widgets.Modal(c, &x.open, func() {
+	var band *db.Config
+	if to := x.target.conn(a); to != nil {
+		band = &to.Config
+	}
+	dlg := widgets.EnvModal(c, &x.open, band, func() {
 		ui.Column(c).Width(640).Gap(12).Children(func() {
 			ui.Text(c, "Copy Tables of "+x.fromSchema+" · "+x.from.Config.Name).FontSize(15).Bold().SingleLine()
 			ui.Scroll(c).MaxHeight(200).Border(1, th.Border).Radius(6).Children(func() {

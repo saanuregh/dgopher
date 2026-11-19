@@ -487,7 +487,7 @@ func (r *Tab) review(args, fallback []string, ask string, then func()) {
 			}
 			return func() {
 				if err != nil {
-					r.a.ShowError(strings.ToUpper(args[0])+" failed", err.Error())
+					r.a.ShowReport(widgets.ErrorReportOf(strings.ToUpper(args[0])+" failed", err))
 					return
 				}
 				if then != nil {
@@ -1023,7 +1023,7 @@ func (r *Tab) addEntry() {
 	fields, err := db.SplitCommand(r.newValue)
 	switch {
 	case err != nil:
-		r.a.ShowError("Not added", err.Error())
+		r.a.ShowReport(widgets.ErrorReportOf("Not added", err))
 		return
 	case len(fields) == 0 || len(fields)%2 != 0:
 		r.a.ShowError("Not added", "An entry's fields go by pairs: a field, then its value.")

@@ -13,6 +13,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
 	"dgopher/internal/project"
+	"dgopher/internal/ui/widgets"
 )
 
 // sampleQuery is the editor the sample database opens with, naming the
@@ -167,7 +168,7 @@ func (a *App) openSampleIn(p *project.Project) {
 		return func() {
 			if err != nil {
 				os.Remove(path)
-				a.ShowError("Could not make the sample database", err.Error())
+				a.ShowReport(widgets.ErrorReportOf("Could not make the sample database", err))
 				return
 			}
 			if !slices.Contains(a.projects, p) {

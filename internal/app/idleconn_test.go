@@ -99,7 +99,7 @@ func TestIdleConnectionDisconnects(t *testing.T) {
 	// old one had set.
 	q.Editor.SetText(strings.Replace(text, "FROM t", "FROM t WHERE a = 1", 1))
 	q.Run(query.RunStatement)
-	testutil.WaitFor(t, tt, "the refusal", func() bool { return testutil.HasTextContaining(tt, "closed while idle") })
+	testutil.WaitFor(t, tt, "the refusal", func() bool { return testutil.HasTextContaining(tt, "closed and opened again") })
 	q.Run(query.RunStatement)
 	testutil.WaitFor(t, tt, "the run on the new connection", func() bool { return !q.Running && resultRows(tt, q, 1) })
 }

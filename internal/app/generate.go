@@ -222,7 +222,7 @@ func (a *App) saveDocs(schema string, format int, text string) {
 		err = os.WriteFile(path, []byte(text), 0o644)
 		a.Post(func() {
 			if err != nil {
-				a.ShowError("Could not save the documentation", err.Error())
+				a.ShowReport(widgets.ErrorReportOf("Could not save the documentation", err))
 				return
 			}
 			a.Toast("Saved the documentation to "+filepath.Base(path), "", nil)

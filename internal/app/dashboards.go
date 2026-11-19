@@ -30,7 +30,7 @@ func (a *App) openDashboard(p *project.Project, path string) {
 	}
 	d, err := dashboard.Open(a, p, path)
 	if err != nil {
-		a.ShowError("Could not open the dashboard", err.Error())
+		a.ShowReport(widgets.ErrorReportOf("Could not open the dashboard", err))
 		return
 	}
 	a.AddTab(d)
@@ -102,7 +102,7 @@ type addToDashboard struct {
 func (a *App) openAddToDashboard(q *query.Tab) {
 	sql, err := q.StatementToRun()
 	if err != nil {
-		a.ShowError("Nothing to add", err.Error())
+		a.ShowReport(widgets.ErrorReportOf("Nothing to add", err))
 		return
 	}
 	first := strings.TrimSpace(strings.SplitN(strings.TrimSpace(sql), "\n", 2)[0])

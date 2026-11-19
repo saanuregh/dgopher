@@ -173,6 +173,9 @@ type Viewer struct {
 	// afterRead runs once the read in progress ends, for what waited for
 	// the rows read again.
 	afterRead func()
+	// restoring is the sort and cell a restored table tab shows once its
+	// first rows are read, which are read in that sort; nil for none.
+	restoring *TableState
 
 	// columns and fks are the table's, nil until read.
 	columns []db.Column
@@ -533,6 +536,13 @@ func (v *Viewer) readOnlyReason() string {
 // order, a query's as run, or wrapped when filtered or sorted.
 func (v *Viewer) selectSQL() string {
 	var order []string
+	for _, k := range v.restoredSort() {
+		o := v.dialect().Quote(k.Column)
+		if k.Desc {
+			o += " DESC"
+		}
+		order = append(order, o)
+	}
 	for _, k := range sortKeys(v.grid.sort, len(v.src.Cols)) {
 		idx, _ := strconv.Atoi(k.Column)
 		if v.sharedName(idx) {
@@ -651,6 +661,7 @@ func (v *Viewer) reload() {
 			v.cursor, v.src.Cols, v.src.Rows, v.done, v.truncated = c, c.Columns, rows, c.Done(), false
 			v.bindColumns()
 			v.restoreSelection(kept)
+			v.applyRestored()
 			if v.allAfterRead {
 				v.allAfterRead = false
 				v.fetchingAll, v.fetchStarted = true, time.Now()
@@ -834,7 +845,9 @@ func (v *Viewer) countRows() {
 			err = errors.New("the count returned no value")
 		}
 		if err != nil {
-			v.a.ShowError("Could not count the rows", err.Error())
+			r := widgets.ErrorReportOf("Could not count the rows", err)
+			r.Actions = []widgets.ErrorAction{{Label: "Retry", Run: v.countRows}}
+			v.a.ShowReport(r)
 			return
 		}
 		v.count = 0
@@ -974,7 +987,7 @@ func (v *Viewer) reviewChanges() {
 	}
 	stmts, shown, err := v.changeStatements()
 	if err != nil {
-		v.a.ShowError("Could not prepare the changes", err.Error())
+		v.a.ShowReport(widgets.ErrorReportOf("Could not prepare the changes", err))
 		return
 	}
 	var previews []string
@@ -1047,7 +1060,7 @@ func (v *Viewer) apply(stmts, shown []db.Statement) {
 		var err error
 		if sess == nil {
 			if sess, err = connection.OpenSession(ctx, pool, database); err != nil {
-				v.a.Post(func() { v.applying = false; v.a.ShowError("Could not apply the changes", err.Error()) })
+				v.a.Post(func() { v.applying = false; v.a.ShowReport(v.applyFailure("Could not apply the changes", err)) })
 				return
 			}
 			v.source.AdoptSession(sess)
@@ -1170,7 +1183,7 @@ func (v *Viewer) apply(stmts, shown []db.Statement) {
 				if errors.Is(err, errApplyStopped) && undoErr == nil {
 					v.a.Toast(fmt.Sprintf("Stopped: none of the %s were applied (rolled back).", widgets.Count(len(stmts), "change")), "", nil)
 				} else {
-					v.a.ShowReport(widgets.ErrorReportOf("The changes were not applied", err))
+					v.a.ShowReport(v.applyFailure("The changes were not applied", err))
 				}
 				if v.reloadAgain {
 					v.reloadAgain = false
@@ -1185,6 +1198,14 @@ func (v *Viewer) apply(stmts, shown []db.Statement) {
 			then()
 		})
 	}()
+}
+
+// applyFailure reports a failed apply, offering to review and apply the
+// changes, still pending, again.
+func (v *Viewer) applyFailure(title string, err error) widgets.ErrorReport {
+	r := widgets.ErrorReportOf(title, err)
+	r.Actions = []widgets.ErrorAction{{Label: "Retry", Run: v.reviewChanges}}
+	return r
 }
 
 // View draws the rows with their toolbar, bars and status line.
@@ -1232,6 +1253,8 @@ func (v *Viewer) View(c *ui.Context) {
 		v.followKey()
 	case listed(keymap.PickReference):
 		v.pickRef()
+	case listed(keymap.Export):
+		OpenExport(a, v.exportSource())
 	case pressed(keymap.ToggleChart):
 		v.showChart = !v.showChart
 	}
@@ -1349,7 +1372,7 @@ func (v *Viewer) View(c *ui.Context) {
 		divider()
 		v.presentationButtons(c)
 		divider()
-		if widgets.IconButton(c, widgets.IconDownload, "Export…").Clicked() {
+		if widgets.IconButton(c, widgets.IconDownload, "Export…").Tooltip(widgets.KeyLabel(keymap.Hint("Export the rows", keymap.Export))).Clicked() {
 			OpenExport(a, v.exportSource())
 		}
 		widgets.IconButton(c, widgets.IconCompare, "Compare with other rows").Menu(v.compareMenu)
@@ -1393,7 +1416,14 @@ func (v *Viewer) View(c *ui.Context) {
 		}
 	}
 	if v.err != "" && v.src.Cols == nil {
-		ui.Text(c, v.err).TextColor(th.Danger).Padding(12).Selectable()
+		r := widgets.ErrorReport{Title: "Could not read the rows", Hint: v.errHint, Detail: v.err}
+		if v.where != "" {
+			r.Actions = []widgets.ErrorAction{
+				{Label: "Edit Filter", Run: func() { *a.FocusWant() = "filter" }},
+				{Label: "Clear Filter", Run: func() { v.clearFilters(-1) }},
+			}
+		}
+		widgets.ErrorBanner(c, r, v.a.ShowReport)
 		ui.Spacer(c)
 		noGrid()
 		return

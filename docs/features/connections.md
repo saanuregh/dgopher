@@ -199,7 +199,40 @@ asked every time. [Secrets](../safety.md#secrets) explains each.
   the SSH server restarts, fails its connection with "SSH tunnel closed"
   and the reason, in a dialog. Open transactions were lost with it: each
   one's rollback is audited and named in the error. Tabs stay open;
-  **Reconnect** connects again. The app never reconnects on its own.
+  **Reconnect** connects again. A tunnel that ends is never reconnected on
+  its own; only the check after sleep, below, reconnects, and only a
+  connection that holds no work.
+
+## After sleep or a network change
+
+When the computer wakes, or the network comes back after being offline,
+DGopher checks each connected server: it pings it in the background and
+waits up to 5 seconds. SQLite, DuckDB and other local files are left
+alone, as a sleep loses them nothing. While the system says it is
+offline, the check after a wake waits for the network to come back.
+
+- **The server answers:** nothing changes.
+- **No answer, and a tab holds work** (an open transaction, rows waiting
+  to be committed, or a tab's changes not applied): the connection fails.
+  Its tabs give up their sessions as at a disconnect, each open
+  transaction's rollback is audited, and one dialog, "Transaction lost
+  while asleep" (or "while offline"), names the connection and what was
+  lost, with **Reconnect**. A lost transaction is always reported, never
+  hidden, and the connection is never reconnected without you.
+- **No answer, and no work:** DGopher reconnects it quietly through the
+  usual connect, which still checks the trusted destination, the
+  environment and the password, and rebuilds any SSH tunnel. Editors stay;
+  their next run is refused once, as their session was reset. Other tabs
+  wait for the connection and open again. If connecting would ask you
+  something (whether to trust the destination, a password, a new SSH host
+  key), it asks nothing: the connection is marked failed and a
+  notification, "Reconnect <name>: <reason>", offers **Reconnect**, which
+  connects as usual and asks. A failed reconnect is a notification too,
+  never a dialog. A reconnect that works only adds "Reconnected <name>
+  after sleep" to the notifications.
+
+The idle limits ([safety](../safety.md#idle-transactions)) start again at
+the wake, so sleep does not count as idle time.
 
 ## Proxies
 

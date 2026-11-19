@@ -14,6 +14,10 @@ window buttons, without a row of its own:
   [notifications](#notifications) bell, the palette's search box and the
   app menu: File, View, Help, Settings and Quit.
 - Both rows drag the window. On macOS the system menu bar is kept too.
+- **What's New.** The first start after an update shows that version's
+  notes from the changelog, once; a first install and the start that
+  offers the tour do not. **What's New in DGopher**, in the Help menu or
+  the palette, shows them again.
 
 ## Command palette
 
@@ -23,6 +27,7 @@ window buttons, without a row of its own:
   editor, or refreshing, exporting, fetching, charting and applying rows.
   Each command shows its key.
 - **⌘P** opens a table, view, function, procedure or query file by name.
+  The tables opened last come first, the latest at the top.
 
 ## Tabs
 
@@ -117,15 +122,18 @@ dashboard on the right, each group with its tab bar](../images/groups.png)
 ## Restart
 
 The tabs come back in their order, with the same one in front: editors,
-dashboards and models, and a connection's tables at their page, ER
-diagrams, Redis keys, activity, users and search tabs.
+dashboards and models, and a connection's tables at their page, with
+their filter, sort and chosen cell (scrolled into view), ER diagrams, Redis
+keys, activity, users and search tabs.
 
 - A connection's tab waits, unconnected, until its connection connects: on
   its own when it comes into view if the connection auto-connects, or when
   you press Connect or ↵. If it fails, the tab's bar says why, with Retry,
   without an alert over it.
-- Opening the same table meanwhile takes the waiting tab's place.
-- Filters and sort start afresh.
+- Opening the same table meanwhile takes the waiting tab's place, without
+  the kept filter, sort and cell.
+- A kept filter the table no longer accepts stays in the WHERE box; the tab
+  says why it read no rows, with Edit Filter and Clear Filter.
 - The window's size and position are restored.
 
 ## Errors

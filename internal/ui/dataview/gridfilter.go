@@ -163,12 +163,19 @@ func (g *Grid) filterMenu(m *ui.Menu, a Host, src *Source, row, col int, apply f
 	shown := cellText(db.Display(v), 40)
 	m.Submenu("Filter", func(m *ui.Menu) {
 		if v == nil {
-			if m.Item(name + " IS NULL").Chosen() {
+			if keymap.Item(m.Item(name+" IS NULL"), keymap.FilterEquals).Chosen() {
 				apply(rowCond{col: col, op: "null"})
 			}
 		} else {
 			for _, op := range []string{"=", "<>", ">", "<"} {
-				if m.Item(fmt.Sprintf("%s %s %s", name, op, shown)).Chosen() {
+				item := m.Item(fmt.Sprintf("%s %s %s", name, op, shown))
+				switch op {
+				case "=":
+					keymap.Item(item, keymap.FilterEquals)
+				case "<>":
+					keymap.Item(item, keymap.FilterNotEquals)
+				}
+				if item.Chosen() {
 					apply(rowCond{col: col, op: op, vals: []any{v}})
 				}
 			}
@@ -176,7 +183,11 @@ func (g *Grid) filterMenu(m *ui.Menu, a Host, src *Source, row, col int, apply f
 				apply(rowCond{col: col, op: "contains", vals: []any{v}})
 			}
 		}
-		if m.Item(name + " IS NOT NULL").Chosen() {
+		notNull := m.Item(name + " IS NOT NULL")
+		if v == nil {
+			keymap.Item(notNull, keymap.FilterNotEquals)
+		}
+		if notNull.Chosen() {
 			apply(rowCond{col: col, op: "notnull"})
 		}
 		ops := []string{"=", "<>", ">", "<", "contains"}

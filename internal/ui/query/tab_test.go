@@ -750,8 +750,8 @@ func TestIntegrationLargeChangeAutocommitOff(t *testing.T) {
 	}
 }
 
-// The commit key commits the open transaction; rolling back has no key
-// until one is set.
+// The commit key commits the open transaction, and the roll back key
+// rolls it back.
 func TestTransactionKeys(t *testing.T) {
 	a := newFakeQueryHost(t)
 	path := filepath.Join(t.TempDir(), "tx.db")
@@ -771,12 +771,18 @@ func TestTransactionKeys(t *testing.T) {
 	if q.Tx != db.TxOpen {
 		t.Fatalf("tx %v after the insert", q.Tx)
 	}
-	if keymap.First(keymap.Rollback) != "" {
-		t.Fatal("rolling back has a key by default")
-	}
 	tt.Key(ui.Cmd|ui.Alt|ui.Shift, ui.KeyEnter)
 	testutil.WaitFor(t, tt, "the commit", func() bool { return !q.Running && q.Tx == db.TxNone })
 	if !slices.ContainsFunc(q.messages, func(m message) bool { return strings.Contains(m.text, "ommit") }) {
+		t.Fatalf("messages %+v", q.messages)
+	}
+	run("INSERT INTO t VALUES (2)")
+	if q.Tx != db.TxOpen {
+		t.Fatalf("tx %v after the second insert", q.Tx)
+	}
+	tt.Key(ui.Cmd|ui.Alt|ui.Shift, ui.KeyR)
+	testutil.WaitFor(t, tt, "the roll back", func() bool { return !q.Running && q.Tx == db.TxNone })
+	if !slices.ContainsFunc(q.messages, func(m message) bool { return strings.Contains(m.text, "olled back") }) {
 		t.Fatalf("messages %+v", q.messages)
 	}
 }

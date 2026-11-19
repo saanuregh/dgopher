@@ -170,7 +170,7 @@ func (a *App) appearancePage(c *ui.Context) {
 			}
 			if ui.Button(c, "Themes Folder").Tooltip("Add a theme as a JSON file there: see the documentation").Clicked() {
 				if dir, err := a.makeThemesFolder(); err != nil {
-					a.ShowError("Could not make the themes folder", err.Error())
+					a.ShowReport(widgets.ErrorReportOf("Could not make the themes folder", err))
 				} else {
 					mygo.Shell.OpenPath(dir)
 				}

@@ -75,6 +75,11 @@ func TestImportFromDBeaver(t *testing.T) {
 	d := openDBeaverFixture(t, a, tt, dir)
 	tt.Frame()
 	testutil.Snapshot(t, tt, "import-dbeaver")
+	for _, h := range []string{"Name", "Engine", "Where", "Environment", "Status"} {
+		if !tt.HasText(h) {
+			t.Fatalf("the list has no %s header", h)
+		}
+	}
 
 	names := []string{d.entries[0].Config.Name, d.entries[1].Config.Name, d.entries[2].Config.Name, d.entries[3].Config.Name}
 	if !slices.Equal(names, []string{"Analytics", "DB2 legacy", "Local", "Shop prod"}) {
@@ -120,6 +125,17 @@ func TestImportFromDBeaver(t *testing.T) {
 	file, err := os.ReadFile(filepath.Join(p.Dir, "dgopher.json"))
 	if err != nil || strings.Contains(string(file), `"pw"`) {
 		t.Fatalf("the project file holds the password, or %v", err)
+	}
+}
+
+func TestDBeaverUnsupportedShowsDriver(t *testing.T) {
+	a := newTestApp(t)
+	dir := dbeaverFixture(t, filepath.Join(t.TempDir(), "local.db"))
+	tt := ui.NewTester(a.view, 1200, 800)
+	openDBeaverFixture(t, a, tt, dir)
+	tt.Frame()
+	if !tt.HasText("db2") {
+		t.Fatal("the DB2 row does not show its driver")
 	}
 }
 
