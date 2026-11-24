@@ -189,9 +189,9 @@ func goToView(a Host, c *ui.Context) {
 	if f.column {
 		title, hint = "Go to Column", "Column name, or its start"
 	}
-	widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(360).Gap(10).Children(func() {
-			ui.Text(c, title).FontSize(widgets.TextTitle).Bold()
+	widgets.Modal(c, &f.open, widgets.DialogSmall, func() {
+		ui.Column(c).Gap(10).Children(func() {
+			widgets.DialogTitle(c, title)
 			submit := ui.TextInput(c, &f.text).Placeholder(hint).AutoFocus().Label(hint).Submitted()
 			if widgets.DialogFooter(c, &f.open, "Go", submit) {
 				f.open = false

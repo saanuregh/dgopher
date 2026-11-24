@@ -77,9 +77,9 @@ func (t *Tab) generateView(c *ui.Context) {
 	if !slices.Contains(names, f.conn) && len(names) > 0 {
 		f.conn = names[0]
 	}
-	dlg := widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(720).Height(560).Gap(12).Children(func() {
-			ui.Text(c, "Generate DDL").FontSize(widgets.TextTitle).Bold()
+	dlg := widgets.Modal(c, &f.open, widgets.DialogLarge, func() {
+		ui.Column(c).Height(560).Gap(12).Children(func() {
+			widgets.DialogTitle(c, "Generate DDL")
 			ui.Row(c).Gap(12).Children(func() {
 				ui.Field(c, "Engine", func() {
 					ui.Select(c, &f.engine, f.engines).Label("Engine").Width(180).AutoFocus()

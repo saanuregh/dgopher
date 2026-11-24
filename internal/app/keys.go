@@ -231,10 +231,10 @@ func (a *App) keysView(c *ui.Context) {
 	k := a.keys
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	widgets.Modal(c, &k.open, func() {
-		ui.Column(c).Width(760).Height(620).Gap(10).Children(func() {
+	widgets.Modal(c, &k.open, widgets.DialogLarge, func() {
+		ui.Column(c).Height(620).Gap(10).Children(func() {
 			ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, "Customize Keyboard Shortcuts").FontSize(widgets.TextTitle).Bold()
+				widgets.DialogTitle(c, "Customize Keyboard Shortcuts")
 				ui.Spacer(c)
 				if ui.Button(c, keymap.Hint("Open keymap.json", keymap.OpenKeymap)).Tooltip("The keys you set, as Zed keeps them: contexts, keys of two, actions").Clicked() {
 					a.openKeymap()

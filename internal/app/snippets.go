@@ -42,9 +42,9 @@ func (a *App) AskSnippet(q *query.Tab) {
 func (a *App) snippetFormView(c *ui.Context) {
 	f := a.snippetForm
 	pal := widgets.PaletteOf(c)
-	dlg := widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(520).Gap(10).Children(func() {
-			ui.Text(c, "Save as Snippet").FontSize(widgets.TextTitle).Bold()
+	dlg := widgets.Modal(c, &f.open, widgets.DialogMedium, func() {
+		ui.Column(c).Gap(10).Children(func() {
+			widgets.DialogTitle(c, "Save as Snippet")
 			submit := ui.TextInput(c, &f.name).AutoFocus().Label("Name").Placeholder("Name").Submitted()
 			ui.TextInput(c, &f.keyword).Label("Keyword").Placeholder("Keyword that completes to it, as recent").Font(widgets.MonoFont)
 			ui.Scroll(c).MaxHeight(200).Radius(widgets.RadiusLarge).Background(pal.EditorBg).Children(func() {

@@ -37,9 +37,9 @@ func (f *paramForm) submit() {
 func paramsView(a Host, c *ui.Context) {
 	f := a.QueryDialogs().params
 	pal := widgets.PaletteOf(c)
-	dlg := widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(520).Gap(12).Children(func() {
-			ui.Text(c, "Parameters").FontSize(widgets.TextTitle).Bold()
+	dlg := widgets.Modal(c, &f.open, widgets.DialogMedium, func() {
+		ui.Column(c).Gap(12).Children(func() {
+			widgets.DialogTitle(c, "Parameters")
 			ui.Text(c, ":name values are sent apart from the SQL, as text, numbers or NULL; ${name} values are written into it. They are kept for this connection's editors: change them in the Parameters bar.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			submit := false
 			ui.Form(c, func() {

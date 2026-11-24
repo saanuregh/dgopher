@@ -202,11 +202,11 @@ func valueEditorView(a Host, c *ui.Context) {
 	e := a.Dialogs().valueEdit
 	pal := widgets.PaletteOf(c)
 	th := c.Theme()
-	dlg := widgets.Modal(c, &e.open, func() {
-		ui.Column(c).Width(640).Gap(10).Children(func() {
+	dlg := widgets.Modal(c, &e.open, widgets.DialogMedium, func() {
+		ui.Column(c).Gap(10).Children(func() {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				ui.Row(c).Gap(8).AlignItems(ui.Baseline).Grow(1).Children(func() {
-					ui.Text(c, e.src.Cols[e.col].Name).FontSize(widgets.TextTitle).Bold()
+					widgets.DialogTitle(c, e.src.Cols[e.col].Name)
 					ui.Text(c, e.info.Type).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 				})
 				if len(e.forms) > 1 {

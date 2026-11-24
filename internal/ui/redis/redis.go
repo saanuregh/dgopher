@@ -1038,9 +1038,9 @@ func (r *Tab) newKeyView(c *ui.Context) {
 	if f == nil {
 		return
 	}
-	dlg := widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(420).Gap(10).Children(func() {
-			ui.Text(c, "New Key").FontSize(widgets.TextTitle).Bold()
+	dlg := widgets.Modal(c, &f.open, widgets.DialogSmall, func() {
+		ui.Column(c).Gap(10).Children(func() {
+			widgets.DialogTitle(c, "New Key")
 			ui.Select(c, &f.typ, newKeyTypes).Label("Type")
 			ui.TextInput(c, &f.key).Placeholder("Key name, e.g. user:42").AutoFocus().Label("Key")
 			if f.typ == "hash" {

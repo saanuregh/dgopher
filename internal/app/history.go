@@ -100,13 +100,12 @@ func (h *historyState) showAudit(a *App) {
 func (a *App) historyView(c *ui.Context) {
 	h := a.history
 	t := c.Theme()
-	ui.DialogBase(c, &h.open, func(backdrop, panel ui.Element) {
-		widgets.DialogLook(c, backdrop, panel)
-		w, wh := c.Size()
-		panel.Width(min(1100, w-60)).Height(min(760, wh-50)).Radius(widgets.RadiusLarge).Background(t.Background).Border(1, t.Border).Clip().Label("History")
-		ui.Row(c).Padding(12, 16).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
+	widgets.Dialog(c, &h.open, widgets.DialogWide, func(panel ui.Element) {
+		_, wh := c.Size()
+		panel.Height(min(760, wh-50)).Label("History")
+		widgets.DialogHeader(c, func() {
 			ui.Icon(c, widgets.IconHistory).FontSize(widgets.IconLarge).TextColor(t.Accent)
-			ui.Text(c, "History · "+h.project.Name).FontSize(widgets.TextTitle).Bold().SingleLine().Shrink(1)
+			widgets.DialogTitle(c, "History · "+h.project.Name).SingleLine().Shrink(1)
 			ui.Spacer(c)
 			if ui.Segmented(c, &h.tab, "Queries", "Audit Log").Label("Show").Changed() {
 				if h.tab == historyAudit {
@@ -137,7 +136,7 @@ func (a *App) queriesTab(c *ui.Context, h *historyState) {
 			shown = append(shown, e)
 		}
 	}
-	ui.Row(c).Padding(8, 16).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
+	ui.Row(c).Padding(8, widgets.DialogPad).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 		widgets.SearchBox(c, &h.filter, "Filter by SQL or connection", 0).AutoFocus()
 	})
 	if h.err != "" {
@@ -147,7 +146,7 @@ func (a *App) queriesTab(c *ui.Context, h *historyState) {
 	widgets.ChosenRows(c, func() {
 		list = ui.List(c, &h.list, len(shown), func(i int) {
 			e := shown[i]
-			ui.Column(c).Padding(8, 16).Gap(3).Children(func() {
+			ui.Column(c).Padding(8, widgets.DialogPad).Gap(3).Children(func() {
 				ui.Row(c).Gap(8).Children(func() {
 					ui.Text(c, e.Time.Local().Format("Jan 2 15:04:05")).FontSize(widgets.TextMeta).TextColor(pal.Muted)
 					ui.Text(c, e.Connection).FontSize(widgets.TextMeta).Bold()
@@ -164,7 +163,7 @@ func (a *App) queriesTab(c *ui.Context, h *historyState) {
 		e := shown[h.row]
 		a.openStatement(h, e.ConnectionID, e.Database, e.SQL)
 	}
-	ui.Row(c).Padding(10, 16).Gap(8).BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
+	widgets.DialogActions(c, func() {
 		ui.Text(c, "Enter opens the query in a new editor of its connection. Clearing the history leaves the audit log as it is.").FontSize(widgets.TextSmall).TextColor(pal.Muted).Grow(1).Shrink(1)
 		var seq int64
 		if h.row >= 0 && h.row < len(shown) {

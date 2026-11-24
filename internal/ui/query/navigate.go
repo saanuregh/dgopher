@@ -235,9 +235,8 @@ func usagesView(a Host, c *ui.Context) {
 		}
 		a.OpenQueryFile(u.path, u.at)
 	}
-	ui.DialogBase(c, &d.open, func(backdrop, panel ui.Element) {
-		widgets.PickerLook(c, backdrop, panel)
-		panel.Width(720).Radius(widgets.RadiusLarge).Background(th.Background).Border(1, th.Border).Clip().Label("Usages")
+	widgets.Picker(c, &d.open, func(panel ui.Element) {
+		panel.Label("Usages")
 		ui.Row(c).Padding(12, 16).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Text(c, d.name).Font(widgets.MonoFont).Bold()
 			files := map[string]bool{}
@@ -311,9 +310,9 @@ func renameView(a Host, c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	q := f.q
 	n := len(occurrences(q.Editor.Text(), f.id, q.Editor.Dialect))
-	widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(440).Gap(10).Children(func() {
-			ui.Text(c, "Rename "+f.id.name).FontSize(widgets.TextTitle).Bold()
+	widgets.Modal(c, &f.open, widgets.DialogSmall, func() {
+		ui.Column(c).Gap(10).Children(func() {
+			widgets.DialogTitle(c, "Rename "+f.id.name)
 			submit := ui.TextInput(c, &f.name).AutoFocus().Label("New name").Font(widgets.MonoFont).Submitted()
 			ui.Text(c, fmt.Sprintf("Renames its %d place%s in %s, not in the database: the navigator's Rename renames there.", n, widgets.Plural(n), q.Name)).
 				FontSize(widgets.TextSmall).TextColor(pal.Muted)

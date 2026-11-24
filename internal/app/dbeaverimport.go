@@ -232,9 +232,9 @@ func (a *App) dbeaverImportView(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	_, winH := c.Size()
 	keychain := a.st.Secrets().Available()
-	dlg := widgets.Modal(c, &d.open, func() {
-		ui.Column(c).Width(760).MaxHeight(winH - 80).Gap(12).Children(func() {
-			ui.Text(c, "Import from DBeaver").FontSize(widgets.TextTitle).Bold()
+	dlg := widgets.Modal(c, &d.open, widgets.DialogLarge, func() {
+		ui.Column(c).MaxHeight(winH - 80).Gap(12).Children(func() {
+			widgets.DialogTitle(c, "Import from DBeaver")
 			ui.Form(c, func() {
 				ui.Field(c, "DBeaver folder", func() {
 					ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {

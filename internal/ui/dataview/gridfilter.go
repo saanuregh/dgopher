@@ -362,9 +362,9 @@ type filterPrompt struct {
 
 func filterPromptView(a Host, c *ui.Context) {
 	f := a.Dialogs().filterPrompt
-	widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(420).Gap(10).Children(func() {
-			ui.Text(c, "Filter: "+f.label).FontSize(widgets.TextTitle).Bold()
+	widgets.Modal(c, &f.open, widgets.DialogSmall, func() {
+		ui.Column(c).Gap(10).Children(func() {
+			widgets.DialogTitle(c, "Filter: "+f.label)
 			submit := ui.TextInput(c, &f.value).AutoFocus().Font(widgets.MonoFont).Label("Value").Submitted()
 			ui.Text(c, "A number when it reads as one, else text.").FontSize(widgets.TextSmall).TextColor(widgets.PaletteOf(c).Muted)
 			if widgets.DialogFooter(c, &f.open, "Filter", submit) {
@@ -443,9 +443,9 @@ func distinctView(a Host, c *ui.Context) {
 			shown = append(shown, i)
 		}
 	}
-	dlg := widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(520).Height(520).Gap(10).Children(func() {
-			ui.Text(c, "Filter "+f.name+" by its values").FontSize(widgets.TextTitle).Bold()
+	dlg := widgets.Modal(c, &f.open, widgets.DialogMedium, func() {
+		ui.Column(c).Height(520).Gap(10).Children(func() {
+			widgets.DialogTitle(c, "Filter "+f.name+" by its values")
 			ui.Row(c).Children(func() { widgets.SearchBox(c, &f.search, "Find a value", 0).AutoFocus() })
 			switch {
 			case f.loading:

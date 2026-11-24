@@ -102,9 +102,8 @@ func outlineView(a Host, c *ui.Context) {
 		d.open = false
 		d.q.GoTo(shown[i].start)
 	}
-	ui.DialogBase(c, &d.open, func(backdrop, panel ui.Element) {
-		widgets.PickerLook(c, backdrop, panel)
-		panel.Width(640).Radius(widgets.RadiusLarge).Background(th.Background).Border(1, th.Border).Clip().Label("Go to statement")
+	widgets.Picker(c, &d.open, func(panel ui.Element) {
+		panel.Label("Go to statement")
 		ui.Row(c).Padding(10, 14).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Icon(c, widgets.IconSearch).TextColor(pal.Muted).FontSize(widgets.IconLarge)
 			in := ui.TextInputBase(c, &d.filter).Placeholder(fmt.Sprintf("Go to one of %d statements", len(d.entries))).

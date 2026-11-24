@@ -299,10 +299,10 @@ func (r *Tab) bulkView(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	ro := r.conn.Config.ReadOnly
-	dlg := widgets.Modal(c, &b.open, func() {
-		ui.Column(c).Width(560).Gap(12).Children(func() {
+	dlg := widgets.Modal(c, &b.open, widgets.DialogMedium, func() {
+		ui.Column(c).Gap(12).Children(func() {
 			title := map[bulkKind]string{bulkDelete: "Delete Keys", bulkExport: "Export Keys", bulkImport: "Import Keys"}[b.kind]
-			ui.Text(c, title+" · "+r.conn.Config.Name).FontSize(widgets.TextTitle).Bold()
+			widgets.DialogTitle(c, title+" · "+r.conn.Config.Name)
 			ui.Form(c, func() {
 				if b.kind != bulkImport {
 					ui.Field(c, "Matching", func() {

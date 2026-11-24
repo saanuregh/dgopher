@@ -411,9 +411,9 @@ func (a *App) fillView(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	_, winH := c.Size()
-	dlg := widgets.EnvModal(c, &x.open, &x.conn.Config, func() {
-		ui.Column(c).Width(980).MaxHeight(winH - 80).Gap(12).Children(func() {
-			ui.Text(c, "Generate Test Data for "+x.obj.Schema+"."+x.obj.Name).FontSize(widgets.TextTitle).Bold().SingleLine()
+	dlg := widgets.EnvModal(c, &x.open, &x.conn.Config, widgets.DialogWide, func() {
+		ui.Column(c).MaxHeight(winH - 80).Gap(12).Children(func() {
+			widgets.DialogTitle(c, "Generate Test Data for "+x.obj.Schema+"."+x.obj.Name).SingleLine()
 			if x.loading {
 				ui.Row(c).Gap(8).Children(func() {
 					ui.Text(c, "Reading the table…").TextColor(pal.Muted)

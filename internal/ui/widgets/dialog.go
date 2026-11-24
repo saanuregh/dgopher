@@ -9,47 +9,103 @@ import (
 	"github.com/egoist/mygo/ui/shader"
 )
 
-// Modal is ui.Modal with the look of DialogLook.
-func Modal(c *ui.Context, open *bool, fn func()) ui.Element {
+// The widths of a dialog's content: its panel is wider by its sides'
+// padding. DialogWide gives way to a window narrower than it.
+const (
+	DialogSmall  = 440
+	DialogMedium = 640
+	DialogLarge  = 900
+	DialogWide   = 1100
+)
+
+// DialogPad is the room a dialog leaves at the sides of its content, as
+// rows of its own that run edge to edge leave too, and at the least
+// between its panel and the window's edges.
+const DialogPad = 20
+
+// Dialog is the app's dialog: a panel for content width wide, with one
+// border, corner, shadow and fit to the window, which fn builds the parts
+// of, edge to edge. A height of its own, a role and a name are fn's to
+// give panel.
+func Dialog(c *ui.Context, open *bool, width float32, fn func(panel ui.Element)) ui.Element {
+	return ui.DialogBase(c, open, func(backdrop, panel ui.Element) {
+		dialogPanel(c, panel, width)
+		dialogLook(c, backdrop, panel)
+		fn(panel)
+	})
+}
+
+// Picker is a Dialog that drops from the top, as the command palette:
+// pickerLook has it there at once, the window dimmed less.
+func Picker(c *ui.Context, open *bool, fn func(panel ui.Element)) ui.Element {
+	return ui.DialogBase(c, open, func(backdrop, panel ui.Element) {
+		dialogPanel(c, panel, DialogMedium)
+		pickerLook(c, backdrop, panel)
+		fn(panel)
+	})
+}
+
+// dialogPanel gives a dialog's panel its size and its look.
+func dialogPanel(c *ui.Context, panel ui.Element, width float32) {
 	t := c.Theme()
 	w, h := c.Size()
-	return ui.DialogBase(c, open, func(backdrop, panel ui.Element) {
-		panel.Padding(t.Space(5)).Gap(t.Space(3)).Radius(t.Space(2.5)).Background(t.Background).
-			MaxWidth(w - t.Space(10)).MaxHeight(h - t.Space(10))
-		DialogLook(c, backdrop, panel)
-		fn()
-	})
+	// The border takes its room too.
+	panel.Width(min(width+2*(DialogPad+1), w-2*DialogPad)).MaxHeight(h-2*DialogPad).
+		Radius(RadiusLarge).Background(t.Background).Border(1, t.Border).Clip()
+}
+
+// Modal is a Dialog whose content is one padded column.
+func Modal(c *ui.Context, open *bool, width float32, fn func()) ui.Element {
+	return EnvModal(c, open, nil, width, fn)
 }
 
 // EnvModal is Modal with EnvBand flush at the top of its panel, for a
 // dialog that writes to or restores into cfg's connection; with cfg nil,
 // no band shows and the content keeps its place.
-func EnvModal(c *ui.Context, open *bool, cfg *db.Config, fn func()) ui.Element {
+func EnvModal(c *ui.Context, open *bool, cfg *db.Config, width float32, fn func()) ui.Element {
 	t := c.Theme()
-	w, h := c.Size()
-	return ui.DialogBase(c, open, func(backdrop, panel ui.Element) {
-		panel.Radius(t.Space(2.5)).Background(t.Background).Clip().
-			MaxWidth(w - t.Space(10)).MaxHeight(h - t.Space(10))
-		DialogLook(c, backdrop, panel)
+	return Dialog(c, open, width, func(ui.Element) {
 		if cfg != nil {
 			EnvBand(c, cfg)
 		}
-		ui.Column(c).Padding(t.Space(5)).Gap(t.Space(3)).Shrink(1).Children(fn)
+		ui.Column(c).Padding(DialogPad).Gap(t.Space(3)).Shrink(1).Children(fn)
 	})
 }
 
-// DialogLook dims the window behind a dialog and lifts its panel, which
+// DialogTitle is a dialog's title.
+func DialogTitle(c *ui.Context, title string) ui.Element {
+	return ui.Text(c, title).FontSize(TextTitle).Bold()
+}
+
+// DialogHeader is a sectioned dialog's first bar, over a line: its
+// DialogTitle, and what stands beside it.
+func DialogHeader(c *ui.Context, fn func()) ui.Element {
+	return ui.Row(c).Padding(14, DialogPad).Gap(10).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(c.Theme().Border).Children(fn)
+}
+
+// DialogBody is a sectioned dialog's padded content.
+func DialogBody(c *ui.Context, fn func()) ui.Element {
+	return ui.Column(c).Padding(16, DialogPad).Gap(c.Theme().Space(3)).Shrink(1).Children(fn)
+}
+
+// DialogActions is a sectioned dialog's last bar: its buttons, under a
+// line.
+func DialogActions(c *ui.Context, fn func()) ui.Element {
+	return ui.Row(c).Padding(12, DialogPad).Gap(8).AlignItems(ui.Center).BorderWidth(1, 0, 0, 0).BorderColor(c.Theme().Border).Children(fn)
+}
+
+// dialogLook dims the window behind a dialog and lifts its panel, which
 // comes in as comeInto has it.
-func DialogLook(c *ui.Context, backdrop, panel ui.Element) {
+func dialogLook(c *ui.Context, backdrop, panel ui.Element) {
 	frosted(c, backdrop, false)
 	dialogShadow(panel)
 	comeInto(backdrop, panel)
 }
 
-// PickerLook is DialogLook for a picker that drops from the top, as the
+// pickerLook is dialogLook for a picker that drops from the top, as the
 // command palette: dimmed less, and there at once, as the key that opens
 // it asks.
-func PickerLook(c *ui.Context, backdrop, panel ui.Element) {
+func pickerLook(c *ui.Context, backdrop, panel ui.Element) {
 	frosted(c, backdrop, true)
 	backdrop.Justify(ui.Start).PaddingY(80)
 	dialogShadow(panel)

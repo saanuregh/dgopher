@@ -2310,9 +2310,9 @@ func openKeyForm(a Host, v *Viewer) {
 func keyFormView(a Host, c *ui.Context) {
 	f := a.Dialogs().keyForm
 	pal := widgets.PaletteOf(c)
-	dlg := widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(460).Gap(10).Children(func() {
-			ui.Text(c, "Virtual Key of "+f.v.source.Table.Name).FontSize(widgets.TextTitle).Bold()
+	dlg := widgets.Modal(c, &f.open, widgets.DialogSmall, func() {
+		ui.Column(c).Gap(10).Children(func() {
+			widgets.DialogTitle(c, "Virtual Key of "+f.v.source.Table.Name)
 			ui.Text(c, "Choose the columns whose values tell each row apart. The key is kept in "+project.File+" for the team; each change must still match exactly one row.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			ui.Scroll(c).MaxHeight(300).Children(func() {
 				ui.Column(c).Gap(4).Children(func() {

@@ -44,24 +44,22 @@ func (a *App) openWhatsNew() {
 }
 
 func (a *App) whatsNewView(c *ui.Context) {
-	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	v := appVersion()
 	open := a.whatsNewOpen
-	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
-		widgets.DialogLook(c, backdrop, panel)
+	widgets.Dialog(c, &open, widgets.DialogMedium, func(panel ui.Element) {
 		_, h := c.Size()
-		panel.Width(760).MaxHeight(min(680, h-60)).Radius(widgets.RadiusLarge).Background(th.Background).Border(1, th.Border).Clip().Label("What's New in DGopher")
-		ui.Row(c).Padding(14, 20).AlignItems(ui.Baseline).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Text(c, "What's New in DGopher "+v).FontSize(widgets.TextTitle).Bold().Grow(1)
+		panel.MaxHeight(min(680, h-60)).Label("What's New in DGopher")
+		widgets.DialogHeader(c, func() {
+			widgets.DialogTitle(c, "What's New in DGopher "+v).Grow(1)
 			ui.Text(c, "Esc to close").FontSize(widgets.TextSmall).TextColor(pal.Muted)
-		})
+		}).AlignItems(ui.Baseline)
 		ui.Scroll(c).Shrink(1).Children(func() {
-			ui.Column(c).Padding(16, 20).FillWidth().Children(func() {
+			widgets.DialogBody(c, func() {
 				markdown.View(c, a.whatsNewNotes, &markdown.Options{WrapCode: true}).FillWidth()
-			})
+			}).FillWidth()
 		})
-		ui.Row(c).Padding(10, 20).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+		widgets.DialogActions(c, func() {
 			ui.Spacer(c)
 			if ui.Button(c, "Close").Clicked() {
 				open = false

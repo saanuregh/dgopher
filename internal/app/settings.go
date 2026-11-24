@@ -113,13 +113,10 @@ var settingsPages = []string{"Appearance", "Editor", "Results", "Safety", "Stora
 func (a *App) settingsView(c *ui.Context) {
 	th := c.Theme()
 	open := a.settingsOpen
-	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
-		widgets.DialogLook(c, backdrop, panel)
+	widgets.Dialog(c, &open, widgets.DialogMedium, func(panel ui.Element) {
 		_, winH := c.Size()
-		panel.Width(640).Height(min(620, winH-40)).Radius(widgets.RadiusLarge).Background(th.Background).Border(1, th.Border).Role(ui.RoleDialog).Label("Settings")
-		ui.Row(c).Padding(16, 20, 8, 20).Children(func() {
-			ui.Text(c, "Settings").FontSize(widgets.TextTitle).Bold()
-		})
+		panel.Height(min(620, winH-40)).Role(ui.RoleDialog).Label("Settings")
+		widgets.DialogHeader(c, func() { widgets.DialogTitle(c, "Settings") })
 		ui.Row(c).Padding(0, 20).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Tabs(c, &a.settingsPage, settingsPages...).Label("Settings pages")
 		})
@@ -139,7 +136,8 @@ func (a *App) settingsView(c *ui.Context) {
 				}
 			}).Padding(16, 20)
 		})
-		ui.Row(c).Padding(12, 20).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Justify(ui.End).Children(func() {
+		widgets.DialogActions(c, func() {
+			ui.Spacer(c)
 			if widgets.Activated(c, ui.PrimaryButton(c, "Done")) {
 				open = false
 			}

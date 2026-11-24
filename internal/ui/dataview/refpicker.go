@@ -151,11 +151,10 @@ func refPickerView(a Host, c *ui.Context) {
 	p := a.Dialogs().refPicker
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	ui.DialogBase(c, &p.open, func(backdrop, panel ui.Element) {
-		widgets.DialogLook(c, backdrop, panel)
-		panel.Width(720).Height(520).Radius(widgets.RadiusLarge).Background(th.Background).Border(1, th.Border).Clip().Label("Choose a value")
-		ui.Row(c).Padding(12, 16).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Text(c, p.v.src.Cols[p.col].Name+" → "+p.fk.RefTable).FontSize(widgets.TextTitle).Bold().SingleLine().Shrink(1)
+	widgets.Dialog(c, &p.open, widgets.DialogLarge, func(panel ui.Element) {
+		panel.Height(520).Label("Choose a value")
+		widgets.DialogHeader(c, func() {
+			widgets.DialogTitle(c, p.v.src.Cols[p.col].Name+" → "+p.fk.RefTable).SingleLine().Shrink(1)
 			in := widgets.SearchBox(c, &p.search, "Search the key or the text, then Enter", 0).AutoFocus().Grow(1)
 			if widgets.ListKeys(in, &p.sel, len(p.rows), &p.list, 0) {
 				if strings.TrimSpace(p.search) != p.searched {
@@ -166,9 +165,9 @@ func refPickerView(a Host, c *ui.Context) {
 			}
 		})
 		if p.err != "" {
-			ui.Text(c, p.err).TextColor(th.Danger).Padding(10, 16).Selectable()
+			ui.Text(c, p.err).TextColor(th.Danger).Padding(10, widgets.DialogPad).Selectable()
 		}
-		ui.Row(c).Padding(6, 16).Gap(12).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		ui.Row(c).Padding(6, widgets.DialogPad).Gap(12).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			for i, name := range p.cols {
 				t := ui.Text(c, name).FontSize(widgets.TextSmall).Bold().TextColor(pal.Muted).SingleLine()
 				if i == 0 {
@@ -181,7 +180,7 @@ func refPickerView(a Host, c *ui.Context) {
 		var list ui.Element
 		widgets.ChosenRows(c, func() {
 			list = ui.List(c, &p.list, len(p.rows), func(i int) {
-				ui.Row(c).Padding(5, 16).Gap(12).Children(func() {
+				ui.Row(c).Padding(5, widgets.DialogPad).Gap(12).Children(func() {
 					for j, v := range p.rows[i] {
 						text := cellText(db.Display(v), 80)
 						switch {
@@ -207,7 +206,7 @@ func refPickerView(a Host, c *ui.Context) {
 		if list.Submitted() {
 			p.choose(p.sel)
 		}
-		ui.Row(c).Padding(10, 16).Gap(8).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+		widgets.DialogActions(c, func() {
 			note := "The first " + strconv.Itoa(refPickerRows) + " rows by key are listed."
 			ui.Text(c, note).FontSize(widgets.TextSmall).TextColor(pal.Muted).Grow(1)
 			if ui.Button(c, "Cancel").Clicked() {

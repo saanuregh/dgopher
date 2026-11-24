@@ -327,9 +327,9 @@ func (a *App) rowCompareView(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	_, winH := c.Size()
-	dlg := widgets.Modal(c, &x.open, func() {
-		ui.Column(c).Width(900).MaxHeight(winH - 80).Gap(12).Children(func() {
-			ui.Text(c, "Compare the Rows of "+x.fromSchema+"."+x.fromTable+" · "+x.from.Config.Name).FontSize(widgets.TextTitle).Bold().SingleLine()
+	dlg := widgets.Modal(c, &x.open, widgets.DialogLarge, func() {
+		ui.Column(c).MaxHeight(winH - 80).Gap(12).Children(func() {
+			widgets.DialogTitle(c, "Compare the Rows of "+x.fromSchema+"."+x.fromTable+" · "+x.from.Config.Name).SingleLine()
 			ui.Form(c, func() {
 				to := x.target.fields(c, a, "With", x.running)
 				if x.result != nil && (to != x.to || x.target.database != x.toDB || x.target.schema != x.toSchema || x.table != x.toTable) {

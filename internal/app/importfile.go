@@ -572,19 +572,17 @@ func (a *App) importView(c *ui.Context) {
 	x := a.importing
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	dlg := ui.DialogBase(c, &x.open, func(backdrop, panel ui.Element) {
-		widgets.DialogLook(c, backdrop, panel)
-		_, winH := c.Size()
-		panel.Width(860).MaxHeight(winH-40).Radius(widgets.RadiusLarge).Background(th.Background).Border(1, th.Border).Clip().Label("Import")
+	dlg := widgets.Dialog(c, &x.open, widgets.DialogLarge, func(panel ui.Element) {
+		panel.Label("Import")
 		widgets.EnvBand(c, &x.conn.Config)
-		ui.Column(c).Padding(16, 20).Gap(12).Children(func() {
+		widgets.DialogBody(c, func() {
 			title := "Import " + filepath.Base(x.path) + " into "
 			if x.obj != nil {
 				title += x.schema + "." + x.obj.Name
 			} else {
 				title += "a new table"
 			}
-			ui.Text(c, title).FontSize(widgets.TextTitle).Bold()
+			widgets.DialogTitle(c, title)
 			format, _ := fileimport.FormatOf(x.path)
 			ui.Row(c).Gap(8).Children(func() {
 				ui.Badge(c, format.Label())

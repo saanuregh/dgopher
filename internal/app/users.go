@@ -307,9 +307,9 @@ func (t *usersTab) formView(c *ui.Context) {
 	titles := map[accountFormKind]string{formNewUser: "New User", formNewRole: "New Role",
 		formPassword: "Change the Password of " + f.account.Label(), formGrant: "Grant to " + f.account.Label(),
 		formJoinRole: "Add " + f.account.Label() + " to a Role"}
-	dlg := widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(520).Gap(12).Children(func() {
-			ui.Text(c, titles[f.kind]).FontSize(widgets.TextTitle).Bold()
+	dlg := widgets.Modal(c, &f.open, widgets.DialogMedium, func() {
+		ui.Column(c).Gap(12).Children(func() {
+			widgets.DialogTitle(c, titles[f.kind])
 			ui.Form(c, func() {
 				switch f.kind {
 				case formNewUser, formNewRole:

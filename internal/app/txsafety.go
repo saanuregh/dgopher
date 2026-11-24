@@ -241,9 +241,9 @@ func (a *App) idleWarningView(c *ui.Context) {
 	msg := fmt.Sprintf("The transaction of %s on %s has been idle for %s. It holds its locks until it ends, so it will be rolled back in %d seconds.",
 		w.tab.Title(), cfg.Name, idle, left)
 	choice := -1
-	widgets.Modal(c, &w.open, func() {
-		ui.Column(c).Width(460).Gap(12).Children(func() {
-			ui.Text(c, "Roll back the idle transaction?").FontSize(widgets.TextTitle).Bold()
+	widgets.Modal(c, &w.open, widgets.DialogSmall, func() {
+		ui.Column(c).Gap(12).Children(func() {
+			widgets.DialogTitle(c, "Roll back the idle transaction?")
 			ui.Text(c, msg).TextColor(widgets.PaletteOf(c).Muted)
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 				if ui.Button(c, "Keep Open").Clicked() {

@@ -105,9 +105,9 @@ func (a *App) questions(c *ui.Context) {
 		}
 	}
 	if p := a.prompt; p != nil {
-		widgets.Modal(c, &p.open, func() {
-			ui.Column(c).Width(360).Gap(12).Children(func() {
-				ui.Text(c, "Password for "+p.name).FontSize(widgets.TextTitle).Bold()
+		widgets.Modal(c, &p.open, widgets.DialogSmall, func() {
+			ui.Column(c).Gap(12).Children(func() {
+				widgets.DialogTitle(c, "Password for "+p.name)
 				ui.Text(c, p.where).TextColor(pal.Muted)
 				if p.offerKeep {
 					ui.Text(c, "Its password is kept for its server alone, without the proxy, client certificate, jump hosts or identity it now has: type it again to send it with them.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
@@ -134,9 +134,9 @@ func (a *App) questions(c *ui.Context) {
 		}
 	}
 	if h := a.hostKey; h != nil {
-		widgets.Modal(c, &h.open, func() {
-			ui.Column(c).Width(460).Gap(12).Children(func() {
-				ui.Text(c, "Trust this SSH server?").FontSize(widgets.TextTitle).Bold()
+		widgets.Modal(c, &h.open, widgets.DialogSmall, func() {
+			ui.Column(c).Gap(12).Children(func() {
+				widgets.DialogTitle(c, "Trust this SSH server?")
 				ui.Text(c, h.host+" has not been seen before. Compare its fingerprint with the one its administrator gives, then trust it to connect.")
 				ui.Text(c, h.fingerprint).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Padding(8).Radius(widgets.RadiusMedium).Background(pal.EditorBg).Selectable()
 				ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
@@ -193,8 +193,8 @@ func (a *App) questions(c *ui.Context) {
 		}
 		// OK ends the card's row of buttons, after the report's actions.
 		r.Actions = append(slices.Clip(r.Actions), widgets.ErrorAction{Label: "OK"})
-		widgets.Modal(c, &al.open, func() {
-			ui.Column(c).Width(480).Children(func() {
+		widgets.Modal(c, &al.open, widgets.DialogSmall, func() {
+			ui.Column(c).Children(func() {
 				if widgets.ErrorCard(c, r, &al.details, a.WriteClipboard) ||
 					keymap.Pressed(c, keymap.ConfirmDialog) || c.Shortcut(0, ui.KeyEnter) {
 					al.open = false

@@ -34,17 +34,15 @@ func shortcutRows(scope keymap.Scope, find string) [][2]string {
 }
 
 func (a *App) shortcutsView(c *ui.Context) {
-	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	open := a.shortcutsOpen
-	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
-		widgets.DialogLook(c, backdrop, panel)
+	widgets.Dialog(c, &open, widgets.DialogLarge, func(panel ui.Element) {
 		_, h := c.Size()
-		panel.Width(760).Height(min(680, h-60)).Radius(widgets.RadiusLarge).Background(th.Background).Border(1, th.Border).Clip().Label("Keyboard shortcuts")
-		ui.Row(c).Padding(14, 20).AlignItems(ui.Baseline).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Text(c, "Keyboard Shortcuts").FontSize(widgets.TextTitle).Bold().Grow(1)
+		panel.Height(min(680, h-60)).Label("Keyboard shortcuts")
+		widgets.DialogHeader(c, func() {
+			widgets.DialogTitle(c, "Keyboard Shortcuts").Grow(1)
 			ui.Text(c, "Change them in Settings · "+keymap.Label(keymap.ShortcutsList)+" or Esc to close").FontSize(widgets.TextSmall).TextColor(pal.Muted)
-		})
+		}).AlignItems(ui.Baseline)
 		ui.Row(c).Padding(10, 20, 0, 20).Children(func() {
 			widgets.SearchBox(c, &a.shortcutsFind, "Find a key or a command", 0).AutoFocus()
 		})

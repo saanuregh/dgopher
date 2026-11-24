@@ -81,22 +81,21 @@ func (a *App) catalogQueriesView(c *ui.Context) {
 	c.After(time.Second)
 	shown := v.shown()
 	v.sel = min(v.sel, max(0, len(shown)-1))
-	ui.DialogBase(c, &v.open, func(backdrop, panel ui.Element) {
-		widgets.DialogLook(c, backdrop, panel)
-		panel.Width(900).Height(600).Radius(widgets.RadiusLarge).Background(th.Background).Border(1, th.Border).Clip().Label("Catalog queries")
-		ui.Row(c).Padding(12, 16).Gap(10).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+	widgets.Dialog(c, &v.open, widgets.DialogLarge, func(panel ui.Element) {
+		panel.Height(600).Label("Catalog queries")
+		widgets.DialogHeader(c, func() {
 			ui.Row(c).Gap(10).AlignItems(ui.Baseline).Grow(1).Shrink(1).Children(func() {
-				ui.Text(c, "Catalog Queries · "+v.conn.Config.Name).FontSize(widgets.TextTitle).Bold().SingleLine().Shrink(1)
+				widgets.DialogTitle(c, "Catalog Queries · "+v.conn.Config.Name).SingleLine().Shrink(1)
 				ui.Text(c, fmt.Sprintf("the latest %d", len(v.entries))).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			})
 			widgets.SearchBox(c, &v.filter, "Filter by SQL", 220).AutoFocus()
 		})
 		ui.Text(c, "What the app reads on its own, as the navigator's tables and an editor's completions, beside the statements the audit log keeps.").
-			FontSize(widgets.TextSmall).TextColor(pal.Muted).Padding(8, 16)
+			FontSize(widgets.TextSmall).TextColor(pal.Muted).Padding(8, widgets.DialogPad)
 		widgets.ChosenRows(c, func() {
 			ui.List(c, &v.list, len(shown), func(i int) {
 				e := shown[i]
-				ui.Row(c).Padding(5, 16).Gap(10).Children(func() {
+				ui.Row(c).Padding(5, widgets.DialogPad).Gap(10).Children(func() {
 					ui.Text(c, e.At.Format("15:04:05.000")).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted)
 					ui.Text(c, widgets.FormatDuration(e.Took)).FontSize(widgets.TextMeta).TextColor(pal.Muted).Width(56).TextAlign(ui.End)
 					if e.Err != "" {

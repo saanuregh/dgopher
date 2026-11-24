@@ -259,9 +259,9 @@ func ExportView(a Host, c *ui.Context) {
 		example = chosen[0]
 	}
 	nameProblem := x.fileNameProblem(chosen)
-	dlg := widgets.Modal(c, &x.open, func() {
-		ui.Column(c).Width(620).Gap(12).Children(func() {
-			ui.Text(c, x.title).FontSize(widgets.TextTitle).Bold().SingleLine()
+	dlg := widgets.Modal(c, &x.open, widgets.DialogMedium, func() {
+		ui.Column(c).Gap(12).Children(func() {
+			widgets.DialogTitle(c, x.title).SingleLine()
 			if many {
 				exportTablesView(c, x, len(chosen))
 			}

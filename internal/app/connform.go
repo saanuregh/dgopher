@@ -340,17 +340,14 @@ func (a *App) connFormView(c *ui.Context) {
 	f := a.connForm
 	t := c.Theme()
 	engine := engineByLabel(f.engine)
-	dlg := ui.DialogBase(c, &f.open, func(backdrop, panel ui.Element) {
-		widgets.DialogLook(c, backdrop, panel)
+	dlg := widgets.Dialog(c, &f.open, widgets.DialogMedium, func(panel ui.Element) {
 		_, winH := c.Size()
-		panel.Width(680).Height(min(800, winH-40)).Radius(widgets.RadiusLarge).Background(t.Background).Border(1, t.Border).Role(ui.RoleDialog).Label("Connection")
+		panel.Height(min(800, winH-40)).Role(ui.RoleDialog).Label("Connection")
 		title := "New Connection"
 		if f.editing != nil {
 			title = "Edit " + f.editing.Config.Name
 		}
-		ui.Row(c).Padding(16, 20, 8, 20).Children(func() {
-			ui.Text(c, title).FontSize(widgets.TextTitle).Bold()
-		})
+		widgets.DialogHeader(c, func() { widgets.DialogTitle(c, title) })
 		pages := f.pages(engine)
 		if f.page >= len(pages) {
 			f.page = pageGeneral
@@ -371,7 +368,7 @@ func (a *App) connFormView(c *ui.Context) {
 				}
 			}).Padding(12, 20, 12, 20)
 		})
-		ui.Row(c).Padding(12, 20).Gap(8).BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
+		widgets.DialogActions(c, func() {
 			if ui.Button(c, "Test Connection").Disabled(f.testing).Clicked() {
 				a.testConnection(f)
 			}
@@ -397,7 +394,7 @@ func (a *App) connFormView(c *ui.Context) {
 			if ui.Button(c, "Save").Clicked() {
 				a.saveConnForm(f, false)
 			}
-			if ui.PrimaryButton(c, "Save and Connect").Clicked() {
+			if widgets.Activated(c, ui.PrimaryButton(c, "Save and Connect")) {
 				a.saveConnForm(f, true)
 			}
 		})

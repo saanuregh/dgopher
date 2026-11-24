@@ -505,10 +505,10 @@ func queryBuilderView(a Host, c *ui.Context) {
 	section := func(title string) {
 		ui.Text(c, title).FontSize(widgets.TextSmall).Bold().TextColor(pal.Muted).Padding(6, 0, 0, 0)
 	}
-	dlg := widgets.Modal(c, &b.open, func() {
+	dlg := widgets.Modal(c, &b.open, widgets.DialogWide, func() {
 		// A height of its own, for its sections to scroll in.
-		ui.Column(c).Width(1000).Height(min(winH-60, 860)).Gap(8).Children(func() {
-			ui.Text(c, "Build a Query · "+b.conn.Config.Name).FontSize(widgets.TextTitle).Bold()
+		ui.Column(c).Height(min(winH-60, 860)).Gap(8).Children(func() {
+			widgets.DialogTitle(c, "Build a Query · "+b.conn.Config.Name)
 			ui.Scroll(c).Grow(1).Children(func() {
 				ui.Column(c).Gap(6).Padding(0, 0, 8, 0).Children(func() {
 					section("Tables")

@@ -267,9 +267,9 @@ func (t *Tab) View(c *ui.Context) {
 
 func (t *Tab) confirmUpdateView(c *ui.Context) {
 	s := t.m.Source
-	widgets.Modal(c, &t.confirmUpdate, func() {
-		ui.Column(c).Width(440).Gap(12).Children(func() {
-			ui.Text(c, "Update the model?").FontSize(widgets.TextTitle).Bold()
+	widgets.Modal(c, &t.confirmUpdate, widgets.DialogSmall, func() {
+		ui.Column(c).Gap(12).Children(func() {
+			widgets.DialogTitle(c, "Update the model?")
 			ui.Text(c, "Its tables are read again from "+s.Connection+", "+s.Schema+", in place of those it holds.")
 			ui.Row(c).Gap(8).Children(func() {
 				ui.Spacer(c)
@@ -411,9 +411,9 @@ func (t *Tab) saveTable(design db.TableDesign) error {
 
 func (t *Tab) confirmDropView(c *ui.Context) {
 	name := t.m.Tables[t.table].Name
-	widgets.Modal(c, &t.confirmDrop, func() {
-		ui.Column(c).Width(420).Gap(12).Children(func() {
-			ui.Text(c, "Drop "+name+" from the model?").FontSize(widgets.TextTitle).Bold()
+	widgets.Modal(c, &t.confirmDrop, widgets.DialogSmall, func() {
+		ui.Column(c).Gap(12).Children(func() {
+			widgets.DialogTitle(c, "Drop "+name+" from the model?")
 			ui.Text(c, "The model's file loses the table; no database changes.")
 			ui.Row(c).Gap(8).Children(func() {
 				ui.Spacer(c)

@@ -234,9 +234,9 @@ func (a *App) generateView(c *ui.Context) {
 	g := a.generating
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	dlg := widgets.Modal(c, &g.open, func() {
-		ui.Column(c).Width(620).Gap(12).Children(func() {
-			ui.Text(c, "Generate from "+g.title()).FontSize(widgets.TextTitle).Bold().SingleLine()
+	dlg := widgets.Modal(c, &g.open, widgets.DialogMedium, func() {
+		ui.Column(c).Gap(12).Children(func() {
+			widgets.DialogTitle(c, "Generate from "+g.title()).SingleLine()
 			ui.Row(c).Gap(12).Children(func() {
 				ui.Segmented(c, &g.output, "SQL Script", "Documentation").Label("Output")
 				if g.output == generateDocs {

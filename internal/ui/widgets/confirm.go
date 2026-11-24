@@ -68,12 +68,11 @@ func EnvBand(c *ui.Context, cfg *db.Config) {
 func ConfirmView(c *ui.Context, r *ConfirmRequest) {
 	t := c.Theme()
 	pal := PaletteOf(c)
-	ui.DialogBase(c, &r.Open, func(backdrop, panel ui.Element) {
-		DialogLook(c, backdrop, panel)
-		panel.Width(560).MaxHeightPercent(90).Radius(RadiusLarge).Background(t.Background).Border(1, t.Border).Clip().Role(ui.RoleAlertDialog).Label(r.Title)
+	Dialog(c, &r.Open, DialogMedium, func(panel ui.Element) {
+		panel.MaxHeightPercent(90).Role(ui.RoleAlertDialog).Label(r.Title)
 		EnvBand(c, &r.Conn.Config)
-		ui.Column(c).Padding(16, 20, 20, 20).Gap(12).Children(func() {
-			ui.Text(c, r.Title).FontSize(TextTitle).Bold()
+		DialogBody(c, func() {
+			DialogTitle(c, r.Title)
 			// What could go wrong in one callout; how the app guards
 			// against it, a note under it, without the warning's color.
 			var risks, notes []string

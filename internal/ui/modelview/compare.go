@@ -110,9 +110,9 @@ func (t *Tab) compareView(c *ui.Context) {
 	f := t.comparing
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	dlg := widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(480).Gap(12).Children(func() {
-			ui.Text(c, "Compare "+t.m.Name).FontSize(widgets.TextTitle).Bold()
+	dlg := widgets.Modal(c, &f.open, widgets.DialogSmall, func() {
+		ui.Column(c).Gap(12).Children(func() {
+			widgets.DialogTitle(c, "Compare "+t.m.Name)
 			ui.Segmented(c, &f.with, "A Database", "Another Model").Label("Compare with").AutoFocus()
 			ui.Form(c, func() {
 				// One slot each, whichever shows, so that focus keeps its
