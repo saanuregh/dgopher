@@ -94,7 +94,13 @@ type Grid struct {
 	widths   []float32
 	colsKey  string
 
-	editing   *cellEdit
+	editing *cellEdit
+	// keysBack is set as what had the keys goes by a key, the cell editor
+	// left by Enter or Esc or the rows of a presentation another takes the
+	// place of, until the rows shown have the keys again: left alone,
+	// nothing would have them, and an arrow would scroll what the pointer
+	// is over.
+	keysBack  bool
 	edits     *pendingEdits
 	readOnly  string // why the rows cannot be edited, when edits is set
 	ShowValue bool
@@ -527,6 +533,9 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 		}).Grow(1).Label("Results").Draw(func(_ *ui.Painter, r ui.Rect) { g.viewW = r.W }).
 			FontSize(12) // the header's, a step under the cells', which set their own
 		c.SetTheme(theme)
+		if g.keysBack && g.List.Focus(c) {
+			g.keysBack = false
+		}
 		if table.Changed() {
 			g.selGen++
 		}
@@ -556,10 +565,10 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 	}
 	// Tab shows the chosen row as a record, ⌘` switches presentations.
 	if g.mode == viewGrid && g.List.Shortcut(c, 0, ui.KeyTab) {
-		g.mode = viewRecord
+		g.mode, g.keysBack = viewRecord, true
 	}
 	if g.keys && keymap.Pressed(c, keymap.NextPresentation) {
-		g.mode = (g.mode + 1) % 3
+		g.mode, g.keysBack = (g.mode+1)%3, true
 	}
 	g.moveKeys(c, a, src, order)
 	escaped := g.selectKeys(c, src, order)
@@ -612,9 +621,10 @@ func (g *Grid) cell(c *ui.Context, a Host, src *Source, data, col int) {
 		}
 		switch {
 		case in.Shortcut(0, ui.KeyEscape):
-			g.editing = nil
+			g.editing, g.keysBack = nil, true
 		case in.Submitted():
 			g.commitEdit(src, true)
+			g.keysBack = true
 		case e.focused && !in.Focused():
 			g.commitEdit(src, false)
 		}

@@ -80,11 +80,14 @@ func (g *Grid) recordView(c *ui.Context, a Host, src *Source, order []int) {
 			}
 			g.cell(c, a, src, data, field)
 		}).Grow(1).Label("Record")
+		if g.keysBack && g.recList.Focus(c) {
+			g.keysBack = false
+		}
 		if g.recRow >= 0 && g.recRow < len(fields) && fields[g.recRow] != g.selCol {
 			g.setCursorCol(fields[g.recRow])
 		}
 		if list.Valid() && g.recList.Shortcut(c, 0, ui.KeyTab) {
-			g.mode = viewGrid
+			g.mode, g.keysBack = viewGrid, true
 		}
 		if g.edits != nil && g.readOnly == "" && (g.recList.Shortcut(c, 0, ui.KeyF2) || list.Submitted()) && g.recRow >= 0 {
 			g.startEdit(src, data, fields[g.recRow])
