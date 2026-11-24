@@ -216,13 +216,13 @@ func (t *Tab) View(c *ui.Context) {
 	ui.Column(c).Grow(1).Children(func() {
 		widgets.Bar(c, "Data model", func() {
 			widgets.BarTitle(c, func() {
-				ui.Icon(c, widgets.IconSchema).TextColor(pal.Muted).FontSize(widgets.ToolIconSize)
+				ui.Icon(c, widgets.IconSchema).TextColor(pal.Muted).FontSize(widgets.IconMedium)
 				ui.Text(c, t.m.Name).Bold().SingleLine()
 				about := fmt.Sprintf("%s · %d table%s", t.m.Engine.Label(), len(t.m.Tables), widgets.Plural(len(t.m.Tables)))
 				if s := t.m.Source; s != nil {
 					about += " · from " + s.Connection + ", " + s.Schema
 				}
-				ui.Text(c, about).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1)
+				ui.Text(c, about).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Shrink(1)
 			})
 			ui.Spacer(c)
 			whyNot := whyNotUpdate(t.updating, t.source() != nil)
@@ -269,7 +269,7 @@ func (t *Tab) confirmUpdateView(c *ui.Context) {
 	s := t.m.Source
 	widgets.Modal(c, &t.confirmUpdate, func() {
 		ui.Column(c).Width(440).Gap(12).Children(func() {
-			ui.Text(c, "Update the model?").FontSize(15).Bold()
+			ui.Text(c, "Update the model?").FontSize(widgets.TextTitle).Bold()
 			ui.Text(c, "Its tables are read again from "+s.Connection+", "+s.Schema+", in place of those it holds.")
 			ui.Row(c).Gap(8).Children(func() {
 				ui.Spacer(c)
@@ -299,8 +299,8 @@ func (t *Tab) tablesView(c *ui.Context) {
 				list = ui.List(c, &t.tables, len(t.m.Tables), func(i int) {
 					tb := t.m.Tables[i]
 					ui.Row(c).Gap(6).Padding(3, 10).AlignItems(ui.Center).Children(func() {
-						ui.Icon(c, widgets.IconTable).FontSize(12).TextColor(pal.Muted)
-						ui.Text(c, tb.Name).Font(widgets.MonoFont).FontSize(12.5).SingleLine()
+						ui.Icon(c, widgets.IconTable).FontSize(widgets.IconSmall).TextColor(pal.Muted)
+						ui.Text(c, tb.Name).Font(widgets.MonoFont).FontSize(widgets.TextBody).SingleLine()
 					})
 				}).Grow(1).Label("Tables")
 			})
@@ -321,7 +321,7 @@ func (t *Tab) tablesView(c *ui.Context) {
 					if t.editing >= 0 {
 						label = "Editing " + t.m.Tables[t.editing].Name
 					}
-					ui.Text(c, label).FontSize(12.5).TextColor(pal.Muted)
+					ui.Text(c, label).FontSize(widgets.TextBody).TextColor(pal.Muted)
 					ui.Spacer(c)
 					if ui.Button(c, "Close").Tooltip("Back to the table, its unsaved changes discarded").Clicked() {
 						t.form = nil
@@ -413,7 +413,7 @@ func (t *Tab) confirmDropView(c *ui.Context) {
 	name := t.m.Tables[t.table].Name
 	widgets.Modal(c, &t.confirmDrop, func() {
 		ui.Column(c).Width(420).Gap(12).Children(func() {
-			ui.Text(c, "Drop "+name+" from the model?").FontSize(15).Bold()
+			ui.Text(c, "Drop "+name+" from the model?").FontSize(widgets.TextTitle).Bold()
 			ui.Text(c, "The model's file loses the table; no database changes.")
 			ui.Row(c).Gap(8).Children(func() {
 				ui.Spacer(c)
@@ -439,8 +439,8 @@ func (t *Tab) confirmDropView(c *ui.Context) {
 // checks, and the statement making it.
 func tableDetail(c *ui.Context, e db.Engine, tb db.TableDesign) {
 	pal := widgets.PaletteOf(c)
-	heading := func(s string) { ui.Text(c, s).Bold().FontSize(12.5).Padding(8, 0, 2, 0) }
-	mono := func(s string) ui.Element { return ui.Text(c, s).Font(widgets.MonoFont).FontSize(12.5) }
+	heading := func(s string) { ui.Text(c, s).Bold().FontSize(widgets.TextBody).Padding(8, 0, 2, 0) }
+	mono := func(s string) ui.Element { return ui.Text(c, s).Font(widgets.MonoFont).FontSize(widgets.TextBody) }
 	pair := func(name, what string) {
 		ui.Row(c).Gap(12).Children(func() {
 			mono(name).Width(200).SingleLine()
@@ -449,9 +449,9 @@ func tableDetail(c *ui.Context, e db.Engine, tb db.TableDesign) {
 	}
 	ui.Column(c).Padding(12, 16).Gap(4).Children(func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Baseline).Children(func() {
-			ui.Text(c, tb.Name).Bold().FontSize(15).Font(widgets.MonoFont)
+			ui.Text(c, tb.Name).Bold().FontSize(widgets.TextTitle).Font(widgets.MonoFont)
 			if tb.Schema != "" {
-				ui.Text(c, "in "+tb.Schema).FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, "in "+tb.Schema).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			}
 		})
 		if tb.Comment != "" {
@@ -484,7 +484,7 @@ func tableDetail(c *ui.Context, e db.Engine, tb db.TableDesign) {
 				if col.Comment != "" {
 					more = append(more, "— "+col.Comment)
 				}
-				ui.Text(c, strings.Join(more, " · ")).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1)
+				ui.Text(c, strings.Join(more, " · ")).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Shrink(1)
 			})
 		}
 		if len(tb.Indexes) > 0 {
@@ -521,6 +521,6 @@ func tableDetail(c *ui.Context, e db.Engine, tb db.TableDesign) {
 		if ch, err := db.NewTableChange(db.DialectOf(e), tb); err == nil {
 			text = ch.Text()
 		}
-		ui.Text(c, text).Font(widgets.MonoFont).FontSize(12).Selectable().Padding(8).Background(pal.EditorBg).Radius(4)
+		ui.Text(c, text).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Selectable().Padding(8).Background(pal.EditorBg).Radius(widgets.RadiusSmall)
 	})
 }

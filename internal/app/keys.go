@@ -234,7 +234,7 @@ func (a *App) keysView(c *ui.Context) {
 	widgets.Modal(c, &k.open, func() {
 		ui.Column(c).Width(760).Height(620).Gap(10).Children(func() {
 			ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, "Customize Keyboard Shortcuts").FontSize(16).Bold()
+				ui.Text(c, "Customize Keyboard Shortcuts").FontSize(widgets.TextTitle).Bold()
 				ui.Spacer(c)
 				if ui.Button(c, keymap.Hint("Open keymap.json", keymap.OpenKeymap)).Tooltip("The keys you set, as Zed keeps them: contexts, keys of two, actions").Clicked() {
 					a.openKeymap()
@@ -242,16 +242,16 @@ func (a *App) keysView(c *ui.Context) {
 				ui.TextInput(c, &k.filter).Placeholder("Search actions or keys").Width(240).Label("Search actions").AutoFocus()
 			})
 			if k.err != "" {
-				ui.Text(c, k.err).TextColor(th.Danger).FontSize(12.5)
+				ui.Text(c, k.err).TextColor(th.Danger).FontSize(widgets.TextBody)
 			}
 			for _, e := range a.keymapFile.errs {
-				ui.Text(c, keymap.FileName+": "+e).TextColor(th.Warning).FontSize(12)
+				ui.Text(c, keymap.FileName+": "+e).TextColor(th.Warning).FontSize(widgets.TextSmall)
 			}
 			filter := strings.ToLower(strings.TrimSpace(k.filter))
 			ui.Scroll(c).Grow(1).Children(func() {
 				ui.Column(c).Gap(4).PaddingX(2).Children(func() {
 					for _, scope := range keymap.Scopes {
-						ui.Text(c, scope.Label()+" · "+string(scope)).Bold().FontSize(12).TextColor(pal.Muted).Padding(8, 0, 2, 0)
+						ui.Text(c, scope.Label()+" · "+string(scope)).Bold().FontSize(widgets.TextSmall).TextColor(pal.Muted).Padding(8, 0, 2, 0)
 						for _, cmd := range keymap.Commands {
 							if cmd.Scope != scope || filter != "" && !strings.Contains(strings.ToLower(cmd.Title+" "+cmd.ID+" "+keymap.Label(cmd.ID)), filter) {
 								continue
@@ -262,7 +262,7 @@ func (a *App) keysView(c *ui.Context) {
 				})
 			})
 			ui.Text(c, "Add records the next key, then a second for two in a row, or ↵ to keep one; Esc stops. Changes are written to "+keymap.FileName+", whose comments they do not keep.").
-				FontSize(12).TextColor(pal.Muted)
+				FontSize(widgets.TextSmall).TextColor(pal.Muted)
 		})
 	})
 	if !k.open {
@@ -274,11 +274,11 @@ func (k *keysEditor) commandRow(a *App, c *ui.Context, cmd keymap.Command) {
 	pal := widgets.PaletteOf(c)
 	ui.Row(c.Key("key-"+cmd.ID)).Gap(8).AlignItems(ui.Center).Padding(3, 0).Children(func() {
 		ui.Column(c).Grow(1).Shrink(1).Children(func() {
-			title := ui.Text(c, cmd.Title).FontSize(12.5)
+			title := ui.Text(c, cmd.Title).FontSize(widgets.TextBody)
 			if keymap.Changed(cmd.ID) {
 				title.Bold()
 			}
-			ui.Text(c, cmd.ID).Font(widgets.MonoFont).FontSize(10.5).TextColor(pal.Muted)
+			ui.Text(c, cmd.ID).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted)
 		})
 		bindings := keymap.Bindings(cmd.ID)
 		for i, b := range bindings {
@@ -289,22 +289,22 @@ func (k *keysEditor) commandRow(a *App, c *ui.Context, cmd keymap.Command) {
 			if b.Scope != cmd.Scope {
 				label += " (" + b.Scope.Label() + ")"
 			}
-			ui.Row(c).Gap(2).AlignItems(ui.Center).Padding(1, 2, 1, 6).Radius(4).Background(pal.Hover).Children(func() {
-				ui.Text(c, label).Font(widgets.MonoFont).FontSize(11.5)
+			ui.Row(c).Gap(2).AlignItems(ui.Center).Padding(1, 2, 1, 6).Radius(widgets.RadiusSmall).Background(pal.Hover).Children(func() {
+				ui.Text(c, label).Font(widgets.MonoFont).FontSize(widgets.TextMeta)
 				if widgets.IconButton(c, widgets.IconX, "Remove "+label).Clicked() {
 					a.setBindings(cmd.ID, slices.Delete(slices.Clone(bindings), i, i+1))
 				}
 			})
 		}
 		if k.recording == cmd.ID {
-			box := widgets.Appear(ui.Box(c.Key("recording")).Focusable().Padding(2, 8).Radius(4).Border(1, c.Theme().Accent).Label("Press the key for " + cmd.Title)).
+			box := widgets.Appear(ui.Box(c.Key("recording")).Focusable().Padding(2, 8).Radius(widgets.RadiusSmall).Border(1, c.Theme().Accent).Label("Press the key for " + cmd.Title)).
 				HandleInput(func(ev ui.InputEvent) bool { return k.record(a, ev) })
 			box.Children(func() {
 				text := "Press a key…"
 				if k.hasFirst {
 					text = k.first.Label() + " — a second key, or ↵"
 				}
-				ui.Text(c, text).FontSize(11.5).TextColor(pal.Muted)
+				ui.Text(c, text).FontSize(widgets.TextMeta).TextColor(pal.Muted)
 			})
 			if !box.Focused() {
 				box.Focus()

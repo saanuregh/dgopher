@@ -35,7 +35,7 @@ func ConnectBar(c *ui.Context, cn *connection.Conn, s ConnectState) (asked Conne
 	// A toolbar's look, its button in one, its message beside it: in the
 	// toolbar, a long message, as why it failed, would go out of sight
 	// into its overflow menu.
-	ui.Row(c.Key("connect-bar")).Padding(4, 8).Gap(4).AlignItems(ui.Center).FontSize(ToolFontSize).
+	ui.Row(c.Key("connect-bar")).Padding(4, 8).Gap(4).AlignItems(ui.Center).FontSize(TextBody).
 		BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 		ui.Toolbar(c, func() {
 			if a := ConnectStatus(c, cn, s); a != DisconnectAsked {
@@ -122,7 +122,7 @@ func ConnectStatus(c *ui.Context, cn *connection.Conn, s ConnectState) ConnectAc
 			tip += "."
 		}
 		a := button(IconRefresh, "Retry", tip+" Connect again.", ConnectAsked)
-		ui.Text(c, FailureText(cn)).FontSize(12).TextColor(c.Theme().Danger).SingleLine().Shrink(1).MinWidth(0).Label(why).Tooltip(cn.Err)
+		ui.Text(c, FailureText(cn)).FontSize(TextSmall).TextColor(c.Theme().Danger).SingleLine().Shrink(1).MinWidth(0).Label(why).Tooltip(cn.Err)
 		if ToolButton(c.Key("details"), IconInfo, "Details", "Show why the connection failed").Clicked() {
 			a = ConnectDetails
 		}
@@ -142,17 +142,17 @@ func connectButton(c *ui.Context, ic *ui.SVG, label, tip string) ui.Element {
 	b := ui.Button(c, "").Label(label).Tooltip(tip)
 	b.Children(func() {
 		ui.Row(c).Gap(5).Invisible().Children(func() {
-			ui.Box(c).Size(ToolIconSize, ToolIconSize)
-			ui.Text(c, "Disconnect").FontSize(ToolFontSize)
+			ui.Box(c).Size(IconMedium, IconMedium)
+			ui.Text(c, "Disconnect").FontSize(TextBody)
 		})
 		ui.Row(c).Absolute().Left(0).Right(0).Top(0).Bottom(0).Gap(5).AlignItems(ui.Center).Justify(ui.Center).Children(func() {
 			if ic == nil {
 				// A spinner takes more than its font size: in the icon's room.
-				ui.Box(c).Size(ToolIconSize, ToolIconSize).Center().Children(func() { ui.Spinner(c).FontSize(9.5) })
+				ui.Box(c).Size(IconMedium, IconMedium).Center().Children(func() { ui.Spinner(c).FontSize(TextMeta) })
 			} else {
-				ui.Icon(c, ic).FontSize(ToolIconSize).ContentTransition(ui.ContentTransition{})
+				ui.Icon(c, ic).FontSize(IconMedium).ContentTransition(ui.ContentTransition{})
 			}
-			ui.Text(c, label).FontSize(ToolFontSize).ContentTransition(ui.ContentTransition{})
+			ui.Text(c, label).FontSize(TextBody).ContentTransition(ui.ContentTransition{})
 		})
 	})
 	return b

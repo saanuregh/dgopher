@@ -367,7 +367,7 @@ func (g *Grid) calcPanel(c *ui.Context, src *Source) {
 			line := func(k, v string) {
 				ui.Row(c).Gap(8).AlignItems(ui.Baseline).Children(func() {
 					ui.Text(c, k).TextColor(pal.Muted).Width(110)
-					ui.Text(c, v).Font(widgets.MonoFont).FontSize(12.5).Selectable()
+					ui.Text(c, v).Font(widgets.MonoFont).FontSize(widgets.TextBody).Selectable()
 				})
 			}
 			for _, s := range stats {
@@ -387,7 +387,7 @@ func (g *Grid) calcPanel(c *ui.Context, src *Source) {
 					line("Most frequent", fmt.Sprintf("%s (%d)", cellText(s.mode, 40), s.modeCount))
 				}
 			}
-			ui.Text(c, "Choose cells with a click or a drag: ⇧ extends, ⌘ adds rows.").FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, "Choose cells with a click or a drag: ⇧ extends, ⌘ adds rows.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 		})
 	})
 }
@@ -398,11 +398,11 @@ func (g *Grid) metadataPanel(c *ui.Context, src *Source) {
 		ui.Column(c).Padding(8, 10).Gap(4).Children(func() {
 			for i, col := range src.Cols {
 				ui.Row(c).Gap(8).Children(func() {
-					ui.Text(c, fmt.Sprint(i+1)).FontSize(11).TextColor(pal.Muted).Width(24)
+					ui.Text(c, fmt.Sprint(i+1)).FontSize(widgets.TextMeta).TextColor(pal.Muted).Width(24)
 					ui.Text(c, col.Name).Bold().SingleLine().Shrink(1)
-					ui.Text(c, col.Type).FontSize(12).TextColor(pal.Muted).SingleLine()
+					ui.Text(c, col.Type).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine()
 					if g.keyCols[i] {
-						ui.Icon(c, widgets.IconKey).FontSize(11).TextColor(c.Theme().Warning)
+						ui.Icon(c, widgets.IconKey).FontSize(widgets.IconSmall).TextColor(c.Theme().Warning)
 					}
 				})
 			}
@@ -437,7 +437,7 @@ func (g *Grid) groupingPanel(c *ui.Context, a Host, src *Source) {
 	pal := widgets.PaletteOf(c)
 	ui.Column(c).Grow(1).Children(func() {
 		ui.Row(c).Padding(6, 8).Gap(6).Wrap().BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Text(c, "Group by").FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, "Group by").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			for i, col := range src.Cols {
 				on := slices.Contains(g.groupCols, i)
 				if widgets.Pill(c, col.Name, on).Clicked() {
@@ -459,7 +459,7 @@ func (g *Grid) groupingPanel(c *ui.Context, a Host, src *Source) {
 			if g.groupServer {
 				label = "Counted on the server, over the whole table"
 			}
-			ui.Text(c, label).FontSize(12).TextColor(pal.Muted).Grow(1)
+			ui.Text(c, label).FontSize(widgets.TextSmall).TextColor(pal.Muted).Grow(1)
 			if g.groupOnServer != nil && ui.Button(c, "Group on the Server").Clicked() {
 				cols := slices.Clone(g.groupCols)
 				g.groupOnServer(cols, func(rows []groupRow, err error) {
@@ -489,7 +489,7 @@ func (g *Grid) groupingPanel(c *ui.Context, a Host, src *Source) {
 							}
 						}
 						ui.Text(c, strings.Join(parts, " · ")).SingleLine().Grow(1).Shrink(1)
-						ui.Text(c, fmt.Sprint(gr.count)).Font(widgets.MonoFont).FontSize(12).TextColor(pal.Muted)
+						ui.Text(c, fmt.Sprint(gr.count)).Font(widgets.MonoFont).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 					})
 				}
 			})
@@ -536,7 +536,7 @@ func (g *Grid) referencesPanel(c *ui.Context, a Host, row int) {
 				ui.Column(c).Gap(4).Children(func() {
 					ui.Row(c).Gap(8).Children(func() {
 						ui.Text(c, fmt.Sprintf("%s (%d rows)", r.title, len(r.rows))).Bold().Grow(1).Shrink(1).SingleLine()
-						if ui.Link(c, "Open", "").FontSize(12).Clicked() {
+						if ui.Link(c, "Open", "").FontSize(widgets.TextSmall).Clicked() {
 							r.open()
 						}
 					})
@@ -547,7 +547,7 @@ func (g *Grid) referencesPanel(c *ui.Context, a Host, row int) {
 					mini := NewGrid()
 					text := mini.plainText(a, &src, mini.ViewOrder(&src), 50)
 					ui.ScrollHorizontal(c).Children(func() {
-						ui.Text(c, text).Font(widgets.MonoFont).FontSize(11).Selectable().NoWrap()
+						ui.Text(c, text).Font(widgets.MonoFont).FontSize(widgets.TextMeta).Selectable().NoWrap()
 					})
 				})
 			}

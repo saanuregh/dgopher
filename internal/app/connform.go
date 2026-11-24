@@ -343,13 +343,13 @@ func (a *App) connFormView(c *ui.Context) {
 	dlg := ui.DialogBase(c, &f.open, func(backdrop, panel ui.Element) {
 		widgets.DialogLook(c, backdrop, panel)
 		_, winH := c.Size()
-		panel.Width(680).Height(min(800, winH-40)).Radius(12).Background(t.Background).Border(1, t.Border).Role(ui.RoleDialog).Label("Connection")
+		panel.Width(680).Height(min(800, winH-40)).Radius(widgets.RadiusLarge).Background(t.Background).Border(1, t.Border).Role(ui.RoleDialog).Label("Connection")
 		title := "New Connection"
 		if f.editing != nil {
 			title = "Edit " + f.editing.Config.Name
 		}
 		ui.Row(c).Padding(16, 20, 8, 20).Children(func() {
-			ui.Text(c, title).FontSize(16).Bold()
+			ui.Text(c, title).FontSize(widgets.TextTitle).Bold()
 		})
 		pages := f.pages(engine)
 		if f.page >= len(pages) {
@@ -464,7 +464,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
 	ui.Field(c, "From URL", func() {
-		in := ui.TextInput(c, &f.url).Font(widgets.MonoFont).FontSize(12.5).
+		in := ui.TextInput(c, &f.url).Font(widgets.MonoFont).FontSize(widgets.TextBody).
 			Placeholder("postgres://user:password@host:5432/db")
 		if f.urlFocus && in.Focus().Focused() {
 			f.urlFocus = false
@@ -552,7 +552,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 		}).Error(portProblem(f.port, "port"))
 		if more != "" {
 			ui.Field(c, more, func() {
-				ui.TextInput(c, &f.cfg.Redis.Nodes).Placeholder("10.0.0.2:" + strconv.Itoa(port) + ", 10.0.0.3:" + strconv.Itoa(port)).Font(widgets.MonoFont).FontSize(12.5)
+				ui.TextInput(c, &f.cfg.Redis.Nodes).Placeholder("10.0.0.2:" + strconv.Itoa(port) + ", 10.0.0.3:" + strconv.Itoa(port)).Font(widgets.MonoFont).FontSize(widgets.TextBody)
 			}).Description("Any one that answers is enough; more keep the connection working when one is down.")
 		}
 		if mode == db.RedisSentinel {
@@ -587,9 +587,9 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 			// with a dot of theirs; one weight, so nothing moves as the
 			// choice does.
 			seg := ui.SegmentedBase(c, &f.env, 3)
-			seg.Track.Gap(2).Padding(2).Radius(8).Background(t.Surface).Children(func() {
+			seg.Track.Gap(2).Padding(2).Radius(widgets.RadiusLarge).Background(t.Surface).Children(func() {
 				for i, e := range db.Environments() {
-					s := seg.Segment(i).Padding(4, 12).Radius(6)
+					s := seg.Segment(i).Padding(4, 12).Radius(widgets.RadiusMedium)
 					if s.Clicked() || s.Changed() {
 						f.envChosen = true
 					}
@@ -603,7 +603,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 					}
 					s.Children(func() {
 						ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-							dot := ui.Box(c).Size(8, 8).Radius(4).Background(col)
+							dot := ui.Box(c).Size(8, 8).Radius(widgets.RadiusRound).Background(col)
 							txt := ui.Text(c, e.Label()).FontWeight(500)
 							if on {
 								txt.TextColor(ink)
@@ -617,9 +617,9 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 				}
 			})
 			if f.envAsked && !f.envChosen {
-				ui.Text(c, "Choose the environment: it sets how carefully statements run on this server.").FontSize(12).TextColor(t.Danger)
+				ui.Text(c, "Choose the environment: it sets how carefully statements run on this server.").FontSize(widgets.TextSmall).TextColor(t.Danger)
 			} else {
-				ui.Text(c, envHelp(db.Environments()[f.env])).FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, envHelp(db.Environments()[f.env])).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			}
 		})
 	})
@@ -667,7 +667,7 @@ func colorField(c *ui.Context, f *connForm) {
 	env := db.Environments()[f.env]
 	swatch := func(value string, col ui.Color, name string) {
 		on := f.cfg.Color == value
-		r := ui.RadioBase(c, &f.cfg.Color, value).Size(22, 22).Radius(11).Center().Background(col).Label(name).Tooltip(name)
+		r := ui.RadioBase(c, &f.cfg.Color, value).Size(22, 22).Radius(widgets.RadiusRound).Center().Background(col).Label(name).Tooltip(name)
 		if on {
 			r.Border(2, t.Text)
 		}
@@ -1418,7 +1418,7 @@ func (a *App) passwordField(c *ui.Context, f *connForm) {
 		unreadSecretNote(c, f, "password", f.cfg.Password, "password")
 	case sourceEnv:
 		ui.Field(c, "Variable", func() {
-			ui.TextInput(c, &f.cfg.PasswordEnv).Placeholder("DGOPHER_BILLING_PASSWORD").Font(widgets.MonoFont).FontSize(12.5)
+			ui.TextInput(c, &f.cfg.PasswordEnv).Placeholder("DGOPHER_BILLING_PASSWORD").Font(widgets.MonoFont).FontSize(widgets.TextBody)
 		}).Description(note).Error(envAllowed(&cfg))
 	case sourceCommand:
 		var bad string
@@ -1428,11 +1428,11 @@ func (a *App) passwordField(c *ui.Context, f *connForm) {
 			}
 		}
 		ui.Field(c, "Command", func() {
-			ui.TextInput(c, &f.cfg.PasswordCommand).Placeholder(`op read "op://Vault/Billing DB/password"`).Font(widgets.MonoFont).FontSize(12.5)
+			ui.TextInput(c, &f.cfg.PasswordCommand).Placeholder(`op read "op://Vault/Billing DB/password"`).Font(widgets.MonoFont).FontSize(widgets.TextBody)
 		}).Description(note).Error(bad)
 	case sourceAsk:
 		ui.Field(c, "", func() {
-			ui.Text(c, note).FontSize(12).TextColor(widgets.PaletteOf(c).Muted)
+			ui.Text(c, note).FontSize(widgets.TextSmall).TextColor(widgets.PaletteOf(c).Muted)
 		})
 	case sourceIdentity:
 		labels := lists.Map(cfg.Engine.CloudIdentities(), db.Identity.Label)
@@ -1520,7 +1520,7 @@ func (a *App) sshSecretFields(c *ui.Context, f *connForm) {
 	})
 	if f.sshSource == sshSources[1] {
 		ui.Field(c, "SSH command", func() {
-			ui.TextInput(c, &f.cfg.SSH.PasswordCommand).Placeholder(`op read "op://Vault/Bastion/password"`).Font(widgets.MonoFont).FontSize(12.5)
+			ui.TextInput(c, &f.cfg.SSH.PasswordCommand).Placeholder(`op read "op://Vault/Bastion/password"`).Font(widgets.MonoFont).FontSize(widgets.TextBody)
 		}).Description("Prints the key's passphrase when a key is set, else the SSH password. Not stored: it runs each time you connect, without a shell, once you approve it on this computer.")
 		return
 	}
@@ -1548,7 +1548,7 @@ func (a *App) sshSecretFields(c *ui.Context, f *connForm) {
 		note = keychainNote(accounts...)
 	}
 	ui.Field(c, "", func() {
-		ui.Text(c, note).FontSize(12).TextColor(widgets.PaletteOf(c).Muted).Selectable()
+		ui.Text(c, note).FontSize(widgets.TextSmall).TextColor(widgets.PaletteOf(c).Muted).Selectable()
 	})
 }
 
@@ -1562,7 +1562,7 @@ func unreadSecretNote(c *ui.Context, f *connForm, name, value, what string) {
 	}
 	note := "Couldn't read the saved " + what + " from the keychain: " + why.Error() + ". Leave this empty to keep it."
 	ui.Field(c, "", func() {
-		ui.Text(c, note).FontSize(12).TextColor(c.Theme().Warning).Selectable()
+		ui.Text(c, note).FontSize(widgets.TextSmall).TextColor(c.Theme().Warning).Selectable()
 	})
 }
 

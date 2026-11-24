@@ -127,20 +127,20 @@ func (t *Chat) modelPickerView(c *ui.Context, button ui.Element) {
 					for i, e := range entries {
 						if e.group != group {
 							group = e.group
-							ui.Text(c, group).FontSize(11).Bold().TextColor(pal.Muted).Padding(8, 8, 2, 8)
+							ui.Text(c, group).FontSize(widgets.TextMeta).Bold().TextColor(pal.Muted).Padding(8, 8, 2, 8)
 						}
 						t.pickRow(c, e, i == p.hi)
 					}
 					switch {
 					case l.loading:
-						ui.Text(c, "Listing the models…").FontSize(12).TextColor(pal.Muted).Padding(6, 8)
+						ui.Text(c, "Listing the models…").FontSize(widgets.TextSmall).TextColor(pal.Muted).Padding(6, 8)
 					case l.err != "":
-						ui.Text(c, "Not listed: "+widgets.OneLine(l.err, 120)).FontSize(12).TextColor(th.Danger).Padding(6, 8).Tooltip(l.err)
+						ui.Text(c, "Not listed: "+widgets.OneLine(l.err, 120)).FontSize(widgets.TextSmall).TextColor(th.Danger).Padding(6, 8).Tooltip(l.err)
 						if ui.Button(c, "Try Again").Clicked() {
 							forgetModels(t.provider)
 						}
 					case len(entries) == 0:
-						ui.Text(c, "No model matches.").FontSize(12).TextColor(pal.Muted).Padding(6, 8)
+						ui.Text(c, "No model matches.").FontSize(widgets.TextSmall).TextColor(pal.Muted).Padding(6, 8)
 					}
 				})
 			})
@@ -157,7 +157,7 @@ func (t *Chat) modelPickerView(c *ui.Context, button ui.Element) {
 func (t *Chat) pickRow(c *ui.Context, e pickEntry, hi bool) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	row := ui.ButtonBase(c.Key("model-"+e.id)).Padding(5, 8).Radius(6).Label(e.label)
+	row := ui.ButtonBase(c.Key("model-"+e.id)).Padding(5, 8).Radius(widgets.RadiusMedium).Label(e.label)
 	if hi || row.Hovered() {
 		row.Background(th.Accent.Alpha(0.12))
 	}
@@ -167,13 +167,13 @@ func (t *Chat) pickRow(c *ui.Context, e pickEntry, hi bool) {
 	row.Children(func() {
 		ui.Row(c).Gap(8).Grow(1).AlignItems(ui.Center).Children(func() {
 			ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Children(func() {
-				ui.Text(c, e.label).FontSize(12.5).SingleLine()
+				ui.Text(c, e.label).FontSize(widgets.TextBody).SingleLine()
 				if e.detail != "" && e.detail != e.label {
-					ui.Text(c, e.detail).FontSize(11).TextColor(pal.Muted).SingleLine()
+					ui.Text(c, e.detail).FontSize(widgets.TextMeta).TextColor(pal.Muted).SingleLine()
 				}
 			})
 			if e.id == t.modelID {
-				ui.Icon(c, widgets.IconCheck).FontSize(12).TextColor(th.Accent)
+				ui.Icon(c, widgets.IconCheck).FontSize(widgets.IconSmall).TextColor(th.Accent)
 			}
 		})
 	})

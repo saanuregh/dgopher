@@ -112,7 +112,7 @@ func (t *Tab) compareView(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	dlg := widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(480).Gap(12).Children(func() {
-			ui.Text(c, "Compare "+t.m.Name).FontSize(15).Bold()
+			ui.Text(c, "Compare "+t.m.Name).FontSize(widgets.TextTitle).Bold()
 			ui.Segmented(c, &f.with, "A Database", "Another Model").Label("Compare with").AutoFocus()
 			ui.Form(c, func() {
 				// One slot each, whichever shows, so that focus keeps its
@@ -157,7 +157,7 @@ func (t *Tab) compareView(c *ui.Context) {
 			}
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				if f.running {
-					ui.Text(c, "Reading the schema…").FontSize(12.5).TextColor(pal.Muted)
+					ui.Text(c, "Reading the schema…").FontSize(widgets.TextBody).TextColor(pal.Muted)
 				}
 				ui.Spacer(c)
 				if ui.Button(c, "Cancel").Clicked() {
@@ -317,7 +317,7 @@ func (t *Tab) comparisonView(c *ui.Context) {
 			widgets.BarTitle(c, func() {
 				ui.Text(c, "Compared with "+r.label).Bold().SingleLine().Shrink(1)
 				ui.Text(c, fmt.Sprintf("%d missing · %d differ · %d not in the model · %d the same",
-					counts[datamodel.OnlyInA], counts[datamodel.Changed], counts[datamodel.OnlyInB], counts[datamodel.Same])).FontSize(12).TextColor(pal.Muted).SingleLine()
+					counts[datamodel.OnlyInA], counts[datamodel.Changed], counts[datamodel.OnlyInB], counts[datamodel.Same])).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine()
 			})
 			ui.Spacer(c)
 			ui.Checkbox(c, &r.showSame, "Show the same")
@@ -348,16 +348,16 @@ func (t *Tab) comparisonView(c *ui.Context) {
 							case datamodel.Changed:
 								color = th.Warning
 							}
-							ui.Text(c, stateLabel(d.State)).FontSize(12).TextColor(color)
+							ui.Text(c, stateLabel(d.State)).FontSize(widgets.TextSmall).TextColor(color)
 						})
 						for _, ch := range d.Changes {
 							ui.Row(c).Gap(12).PaddingX(12).Children(func() {
-								ui.Text(c, strings.TrimSpace(ch.What+" "+ch.Name)).Font(widgets.MonoFont).FontSize(12).Width(260).SingleLine()
+								ui.Text(c, strings.TrimSpace(ch.What+" "+ch.Name)).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Width(260).SingleLine()
 								side := func(s, none string) {
 									if s == "" {
-										ui.Text(c, none).FontSize(12).TextColor(pal.Muted).Width(320).SingleLine()
+										ui.Text(c, none).FontSize(widgets.TextSmall).TextColor(pal.Muted).Width(320).SingleLine()
 									} else {
-										ui.Text(c, s).Font(widgets.MonoFont).FontSize(12).Width(320).SingleLine().Tooltip(s)
+										ui.Text(c, s).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Width(320).SingleLine().Tooltip(s)
 									}
 								}
 								side(ch.A, "not in the model")
@@ -384,7 +384,7 @@ func (t *Tab) migrationBar(c *ui.Context) {
 	differs := slices.ContainsFunc(r.diffs, func(d datamodel.TableDiff) bool { return d.State != datamodel.Same })
 	ui.Row(c).Padding(8, 12).Gap(10).AlignItems(ui.Center).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 		ui.Checkbox(c, &r.drop, "Drop what the model lacks")
-		ui.Text(c, "Otherwise kept: a column renamed reads as one dropped and one added.").FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1)
+		ui.Text(c, "Otherwise kept: a column renamed reads as one dropped and one added.").FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Shrink(1)
 		ui.Spacer(c)
 		if r.applying && r.cancel != nil && widgets.Appear(ui.Button(c.Key("cancel"), "Cancel")).Clicked() {
 			r.cancel()

@@ -193,8 +193,8 @@ func (a *App) sqlFileView(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	dlg := widgets.EnvModal(c, &x.open, &x.conn.Config, func() {
 		ui.Column(c).Width(640).Gap(12).Children(func() {
-			ui.Text(c, "Run "+filepath.Base(x.path)+" on "+x.conn.Config.Name).FontSize(15).Bold()
-			ui.Text(c, x.path).Font(widgets.MonoFont).FontSize(12).TextColor(pal.Muted).SingleLine().TruncateStart()
+			ui.Text(c, "Run "+filepath.Base(x.path)+" on "+x.conn.Config.Name).FontSize(widgets.TextTitle).Bold()
+			ui.Text(c, x.path).Font(widgets.MonoFont).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().TruncateStart()
 			switch {
 			case x.reading:
 				ui.Row(c).Gap(8).Children(func() {
@@ -217,7 +217,7 @@ func (a *App) sqlFileView(c *ui.Context) {
 				})
 			}
 			for _, f := range x.failures {
-				ui.Text(c, f).FontSize(12).TextColor(th.Danger).Selectable()
+				ui.Text(c, f).FontSize(widgets.TextSmall).TextColor(th.Danger).Selectable()
 			}
 			if x.err != "" {
 				ui.Text(c, x.err).TextColor(th.Danger).Selectable()
@@ -263,15 +263,15 @@ func (a *App) sqlFileSummary(c *ui.Context, x *sqlFileRun) {
 		return x.verbs[verbs[i]] > x.verbs[verbs[j]] || x.verbs[verbs[i]] == x.verbs[verbs[j]] && verbs[i] < verbs[j]
 	})
 	parts := lists.Map(verbs, func(v string) string { return fmt.Sprintf("%d %s", x.verbs[v], v) })
-	ui.Text(c, fmt.Sprintf("%s in %s: %s.", widgets.Count(x.statements, "statement"), widgets.HumanBytes(x.size), strings.Join(parts, ", "))).FontSize(13)
+	ui.Text(c, fmt.Sprintf("%s in %s: %s.", widgets.Count(x.statements, "statement"), widgets.HumanBytes(x.size), strings.Join(parts, ", "))).FontSize(widgets.TextBody)
 	if len(x.dangerous) > 0 {
-		ui.Column(c).Gap(2).Padding(8, 10).Radius(6).Background(th.Danger.Alpha(0.1)).Children(func() {
-			ui.Text(c, "It destroys data:").Bold().FontSize(12).TextColor(th.Danger)
+		ui.Column(c).Gap(2).Padding(8, 10).Radius(widgets.RadiusMedium).Background(th.Danger.Alpha(0.1)).Children(func() {
+			ui.Text(c, "It destroys data:").Bold().FontSize(widgets.TextSmall).TextColor(th.Danger)
 			for _, d := range x.dangerous {
-				ui.Text(c, d).Font(widgets.MonoFont).FontSize(11.5).SingleLine()
+				ui.Text(c, d).Font(widgets.MonoFont).FontSize(widgets.TextMeta).SingleLine()
 			}
 			if x.more > 0 {
-				ui.Text(c, fmt.Sprintf("and %d more", x.more)).FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, fmt.Sprintf("and %d more", x.more)).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			}
 		})
 	}
@@ -286,7 +286,7 @@ func (a *App) sqlFileSummary(c *ui.Context, x *sqlFileRun) {
 		}
 		ui.Checkbox(c, &x.oneTx, "In one transaction: all or nothing").Disabled(why != "" || x.running || x.finished)
 		if why != "" {
-			ui.Text(c, why).FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, why).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 		}
 		if x.oneTx {
 			x.stopOnError = true

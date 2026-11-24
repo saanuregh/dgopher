@@ -61,7 +61,7 @@ func (a *App) connFolderRow(c *ui.Context, p *project.Project, n navNode) {
 	if a.folderConnected(p, n.name) {
 		color = c.Theme().Text
 	}
-	ui.Icon(c, widgets.IconFolder).TextColor(color).FontSize(14)
+	ui.Icon(c, widgets.IconFolder).TextColor(color).FontSize(widgets.IconMedium)
 	ui.Text(c, project.FolderBase(n.name)).SingleLine().Grow(1).Shrink(1).TextColor(color).Tooltip(n.name)
 }
 

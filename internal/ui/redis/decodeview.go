@@ -104,13 +104,13 @@ func (d *decodeView) view(c *ui.Context, value, label string, run func(work func
 		}
 		switch {
 		case d.running:
-			ui.Text(c, "Decoding…").FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, "Decoding…").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 		case d.err != "":
-			ui.Text(c, d.err).FontSize(12).TextColor(th.Danger).SingleLine().Shrink(1)
+			ui.Text(c, d.err).FontSize(widgets.TextSmall).TextColor(th.Danger).SingleLine().Shrink(1)
 		case len(d.shown.Steps) == 0:
-			ui.Text(c, "Nothing to decode: shown as stored.").FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, "Nothing to decode: shown as stored.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 		default:
-			ui.Text(c, d.steps+", read only").FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, d.steps+", read only").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 		}
 	})
 	if d.as == viewRaw || fallBack {

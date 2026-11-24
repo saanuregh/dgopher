@@ -173,7 +173,7 @@ func (a *App) auditTab(c *ui.Context, h *historyState) {
 	pal := widgets.PaletteOf(c)
 	shown := v.shown()
 	ui.Row(c).Padding(8, 16).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-		ui.Icon(c, widgets.IconShield).FontSize(16).TextColor(th.Accent).Tooltip(auditAbout)
+		ui.Icon(c, widgets.IconShield).FontSize(widgets.IconLarge).TextColor(th.Accent).Tooltip(auditAbout)
 		widgets.SearchBox(c, &v.filter, "Filter by statement, connection, user or error", 0).AutoFocus()
 		ui.Select(c, &v.kind, auditKinds).Label("Kind")
 		if ui.Checkbox(c, &v.traffic, "Traffic").Disabled(v.log == nil).
@@ -189,10 +189,10 @@ func (a *App) auditTab(c *ui.Context, h *historyState) {
 		switch {
 		case v.checking:
 		case v.verified != nil && v.verified.Intact():
-			ui.Text(c, fmt.Sprintf("✓ Chain intact: %d entries", v.verified.Entries)).FontSize(12).TextColor(th.Success).Bold().
+			ui.Text(c, fmt.Sprintf("✓ Chain intact: %d entries", v.verified.Entries)).FontSize(widgets.TextSmall).TextColor(th.Success).Bold().
 				Tooltip("No entry was changed, removed, inserted or moved, and the log starts at its first entry. A cut-off end, or a log rewritten whole, shows only against a copy of the head kept elsewhere.")
 		case v.verified != nil:
-			ui.Text(c, fmt.Sprintf("✗ Entry %d: %s", v.verified.Broken, v.verified.Reason)).FontSize(12).TextColor(th.Danger).Bold()
+			ui.Text(c, fmt.Sprintf("✗ Entry %d: %s", v.verified.Broken, v.verified.Reason)).FontSize(widgets.TextSmall).TextColor(th.Danger).Bold()
 		}
 		if v.log != nil && ui.Button(c, "Verify Integrity").Disabled(v.checking).Clicked() {
 			v.checking = true
@@ -245,30 +245,30 @@ func (a *App) auditTab(c *ui.Context, h *historyState) {
 		switch col {
 		case 0:
 			at := e.Time.Local()
-			ui.Text(c, auditTime(at, now)).FontSize(12).Font(widgets.MonoFont).SingleLine().Tooltip(at.Format(time.RFC1123))
+			ui.Text(c, auditTime(at, now)).FontSize(widgets.TextSmall).Font(widgets.MonoFont).SingleLine().Tooltip(at.Format(time.RFC1123))
 		case 1:
 			// The kinds that change or refuse something as tinted chips;
 			// the rest, most of the log, plain.
-			kind := ui.Text(c, e.Kind).FontSize(12).SingleLine()
+			kind := ui.Text(c, e.Kind).FontSize(widgets.TextSmall).SingleLine()
 			if col, ok := kindColor(th, e.Kind); ok {
-				kind.TextColor(col).FontWeight(500).Padding(0, 6).Radius(4).Background(col.Alpha(0.14))
+				kind.TextColor(col).FontWeight(500).Padding(0, 6).Radius(widgets.RadiusSmall).Background(col.Alpha(0.14))
 			} else {
 				kind.TextColor(pal.Muted)
 			}
 		case 2:
 			if e.Origin != "" {
-				ui.Text(c, e.Origin).FontSize(12).TextColor(pal.Muted).SingleLine()
+				ui.Text(c, e.Origin).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine()
 			}
 		case 3:
 			ui.Row(c).Gap(6).Children(func() {
 				if e.Environment != "" {
-					ui.Box(c).Size(7, 7).Radius(4).Background(widgets.EnvironmentColor(dbEnv(e.Environment)))
+					ui.Box(c).Size(7, 7).Radius(widgets.RadiusRound).Background(widgets.EnvironmentColor(dbEnv(e.Environment)))
 				}
-				ui.Text(c, e.Connection).FontSize(12.5).SingleLine()
+				ui.Text(c, e.Connection).FontSize(widgets.TextBody).SingleLine()
 			})
 		case 4:
 			what := cmp.Or(e.Statement, e.Detail)
-			txt := ui.Text(c, widgets.OneLine(what, 200)).FontSize(12).Font(widgets.MonoFont).SingleLine()
+			txt := ui.Text(c, widgets.OneLine(what, 200)).FontSize(widgets.TextSmall).Font(widgets.MonoFont).SingleLine()
 			switch {
 			case e.Error != "":
 				txt.TextColor(th.Danger)
@@ -277,11 +277,11 @@ func (a *App) auditTab(c *ui.Context, h *historyState) {
 			}
 		case 5:
 			if e.Rows > 0 {
-				ui.Text(c, fmt.Sprint(e.Rows)).FontSize(12).FontFeatures("tnum")
+				ui.Text(c, fmt.Sprint(e.Rows)).FontSize(widgets.TextSmall).FontFeatures("tnum")
 			}
 		case 6:
 			if e.DurationMS > 0 {
-				ui.Text(c, widgets.FormatDuration(time.Duration(e.DurationMS)*time.Millisecond)).FontSize(12).FontFeatures("tnum")
+				ui.Text(c, widgets.FormatDuration(time.Duration(e.DurationMS)*time.Millisecond)).FontSize(widgets.TextSmall).FontFeatures("tnum")
 			}
 		}
 	}).Grow(1).Label("Audit entries")
@@ -296,34 +296,34 @@ func (a *App) auditTab(c *ui.Context, h *historyState) {
 		ui.Column(c).Padding(10, 16).Gap(4).MaxHeight(220).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 			ui.Scroll(c).Children(func() {
 				ui.Column(c).Gap(4).Children(func() {
-					ui.Text(c, fmt.Sprintf("#%d · %s · %s · %s", e.Seq, e.Time.Local().Format(time.RFC3339), e.User, e.Kind)).FontSize(12).TextColor(pal.Muted).Selectable()
+					ui.Text(c, fmt.Sprintf("#%d · %s · %s · %s", e.Seq, e.Time.Local().Format(time.RFC3339), e.User, e.Kind)).FontSize(widgets.TextSmall).TextColor(pal.Muted).Selectable()
 					if e.Purpose != "" {
-						ui.Text(c, "Sent by the app "+e.Purpose).FontSize(12.5).Selectable()
+						ui.Text(c, "Sent by the app "+e.Purpose).FontSize(widgets.TextBody).Selectable()
 					}
 					if e.Typed != "" {
-						ui.Text(c, "Typed").FontSize(11).Bold().TextColor(pal.Muted)
-						ui.Text(c, e.Typed).Font(widgets.MonoFont).FontSize(12).Selectable()
-						ui.Text(c, "Sent").FontSize(11).Bold().TextColor(pal.Muted)
+						ui.Text(c, "Typed").FontSize(widgets.TextMeta).Bold().TextColor(pal.Muted)
+						ui.Text(c, e.Typed).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Selectable()
+						ui.Text(c, "Sent").FontSize(widgets.TextMeta).Bold().TextColor(pal.Muted)
 					}
 					if e.Statement != "" {
-						ui.Text(c, e.Statement).Font(widgets.MonoFont).FontSize(12).Selectable()
+						ui.Text(c, e.Statement).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Selectable()
 					}
 					if e.Params != "" {
-						ui.Text(c, "Parameters: "+e.Params).Font(widgets.MonoFont).FontSize(12).Selectable()
+						ui.Text(c, "Parameters: "+e.Params).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Selectable()
 					}
 					if e.Detail != "" {
-						ui.Text(c, e.Detail).FontSize(12.5).Selectable()
+						ui.Text(c, e.Detail).FontSize(widgets.TextBody).Selectable()
 					}
 					if e.Error != "" {
-						ui.Text(c, e.Error).FontSize(12.5).TextColor(th.Danger).Selectable()
+						ui.Text(c, e.Error).FontSize(widgets.TextBody).TextColor(th.Danger).Selectable()
 					}
-					ui.Text(c, "hash "+e.Hash+"  ←  "+e.Prev).Font(widgets.MonoFont).FontSize(10.5).TextColor(pal.Muted).Selectable()
+					ui.Text(c, "hash "+e.Hash+"  ←  "+e.Prev).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted).Selectable()
 				})
 			})
 		})
 	}
 	ui.Row(c).Padding(10, 16).Gap(8).AlignItems(ui.Center).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
-		ui.Text(c, auditCount(len(shown), len(v.events))+" · Secrets are redacted. ↵ opens a statement in a new editor.").FontSize(12).TextColor(pal.Muted).Grow(1).Shrink(1)
+		ui.Text(c, auditCount(len(shown), len(v.events))+" · Secrets are redacted. ↵ opens a statement in a new editor.").FontSize(widgets.TextSmall).TextColor(pal.Muted).Grow(1).Shrink(1)
 		actions()
 		if ui.Button(c, "Close").Clicked() {
 			h.open = false

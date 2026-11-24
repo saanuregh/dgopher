@@ -191,7 +191,7 @@ func goToView(a Host, c *ui.Context) {
 	}
 	widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(360).Gap(10).Children(func() {
-			ui.Text(c, title).FontSize(15).Bold()
+			ui.Text(c, title).FontSize(widgets.TextTitle).Bold()
 			submit := ui.TextInput(c, &f.text).Placeholder(hint).AutoFocus().Label(hint).Submitted()
 			if widgets.DialogFooter(c, &f.open, "Go", submit) {
 				f.open = false

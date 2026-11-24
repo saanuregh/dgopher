@@ -69,7 +69,7 @@ func (a *App) newModelView(c *ui.Context) {
 	}
 	dlg := widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(420).Gap(12).Children(func() {
-			ui.Text(c, "New Data Model").FontSize(15).Bold()
+			ui.Text(c, "New Data Model").FontSize(widgets.TextTitle).Bold()
 			ui.Form(c, func() {
 				ui.Field(c, "Name", func() {
 					ui.TextInput(c, &f.name).AutoFocus().Label("Model name")
@@ -204,9 +204,9 @@ func (a *App) saveModelView(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	dlg := widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(460).Gap(12).Children(func() {
-			ui.Text(c, "Save as Data Model").FontSize(15).Bold()
+			ui.Text(c, "Save as Data Model").FontSize(widgets.TextTitle).Bold()
 			ui.Text(c, "The tables of "+f.schema+", with their columns, keys, indexes and checks, in a file of the project's "+datamodel.Folder+
-				" folder, for its team.").FontSize(12.5).TextColor(pal.Muted)
+				" folder, for its team.").FontSize(widgets.TextBody).TextColor(pal.Muted)
 			ui.Form(c, func() {
 				ui.Field(c, "Name", func() {
 					ui.TextInput(c, &f.name).AutoFocus().Label("Model name")
@@ -217,7 +217,7 @@ func (a *App) saveModelView(c *ui.Context) {
 			}
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				if f.building {
-					ui.Text(c, widgets.Count(f.read, "table")+" read…").FontSize(12.5).TextColor(pal.Muted)
+					ui.Text(c, widgets.Count(f.read, "table")+" read…").FontSize(widgets.TextBody).TextColor(pal.Muted)
 					c.After(200 * time.Millisecond)
 				}
 				ui.Spacer(c)

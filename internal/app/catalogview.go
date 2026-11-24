@@ -83,26 +83,26 @@ func (a *App) catalogQueriesView(c *ui.Context) {
 	v.sel = min(v.sel, max(0, len(shown)-1))
 	ui.DialogBase(c, &v.open, func(backdrop, panel ui.Element) {
 		widgets.DialogLook(c, backdrop, panel)
-		panel.Width(900).Height(600).Radius(12).Background(th.Background).Border(1, th.Border).Clip().Label("Catalog queries")
+		panel.Width(900).Height(600).Radius(widgets.RadiusLarge).Background(th.Background).Border(1, th.Border).Clip().Label("Catalog queries")
 		ui.Row(c).Padding(12, 16).Gap(10).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Row(c).Gap(10).AlignItems(ui.Baseline).Grow(1).Shrink(1).Children(func() {
-				ui.Text(c, "Catalog Queries · "+v.conn.Config.Name).FontSize(15).Bold().SingleLine().Shrink(1)
-				ui.Text(c, fmt.Sprintf("the latest %d", len(v.entries))).FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, "Catalog Queries · "+v.conn.Config.Name).FontSize(widgets.TextTitle).Bold().SingleLine().Shrink(1)
+				ui.Text(c, fmt.Sprintf("the latest %d", len(v.entries))).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			})
 			widgets.SearchBox(c, &v.filter, "Filter by SQL", 220).AutoFocus()
 		})
 		ui.Text(c, "What the app reads on its own, as the navigator's tables and an editor's completions, beside the statements the audit log keeps.").
-			FontSize(12).TextColor(pal.Muted).Padding(8, 16)
+			FontSize(widgets.TextSmall).TextColor(pal.Muted).Padding(8, 16)
 		widgets.ChosenRows(c, func() {
 			ui.List(c, &v.list, len(shown), func(i int) {
 				e := shown[i]
 				ui.Row(c).Padding(5, 16).Gap(10).Children(func() {
-					ui.Text(c, e.At.Format("15:04:05.000")).Font(widgets.MonoFont).FontSize(11.5).TextColor(pal.Muted)
-					ui.Text(c, widgets.FormatDuration(e.Took)).FontSize(11.5).TextColor(pal.Muted).Width(56).TextAlign(ui.End)
+					ui.Text(c, e.At.Format("15:04:05.000")).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted)
+					ui.Text(c, widgets.FormatDuration(e.Took)).FontSize(widgets.TextMeta).TextColor(pal.Muted).Width(56).TextAlign(ui.End)
 					if e.Err != "" {
-						ui.Text(c, "failed").FontSize(11.5).TextColor(th.Danger).Tooltip(e.Err)
+						ui.Text(c, "failed").FontSize(widgets.TextMeta).TextColor(th.Danger).Tooltip(e.Err)
 					}
-					ui.Text(c, widgets.OneLine(v.redactedSQL(e.SQL), 200)).Font(widgets.MonoFont).FontSize(12).SingleLine().Grow(1).Shrink(1)
+					ui.Text(c, widgets.OneLine(v.redactedSQL(e.SQL), 200)).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine().Grow(1).Shrink(1)
 				})
 			}).Grow(1).Label("Catalog queries").Dividers(1, th.Border).Children(func() {
 				if len(shown) == 0 {
@@ -121,8 +121,8 @@ func (a *App) catalogQueriesView(c *ui.Context) {
 				text += "\n-- " + e.Err
 			}
 			ui.Column(c).Padding(10, 16).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
-				ui.Scroll(c).MaxHeight(150).Radius(6).Background(pal.EditorBg).Children(func() {
-					ui.Text(c, text).Font(widgets.MonoFont).FontSize(12).Padding(8, 10).Selectable()
+				ui.Scroll(c).MaxHeight(150).Radius(widgets.RadiusMedium).Background(pal.EditorBg).Children(func() {
+					ui.Text(c, text).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Padding(8, 10).Selectable()
 				})
 				ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 					if ui.Button(c, "Copy").Clicked() {

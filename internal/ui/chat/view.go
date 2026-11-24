@@ -60,10 +60,10 @@ func (t *Chat) header(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	widgets.Bar(c, "AI Chat", func() {
 		t.fx.orbView(c, 18, true)
-		ui.Text(c, "AI Chat").FontSize(13).Bold().SingleLine()
+		ui.Text(c, "AI Chat").FontSize(widgets.TextBody).Bold().SingleLine()
 		ui.Spacer(c)
 		if t.cost > 0 {
-			ui.Text(c, fmt.Sprintf("$%.2f", t.cost)).FontSize(12).TextColor(pal.Muted).Tooltip("What the replies cost so far, as the agent reports it")
+			ui.Text(c, fmt.Sprintf("$%.2f", t.cost)).FontSize(widgets.TextSmall).TextColor(pal.Muted).Tooltip("What the replies cost so far, as the agent reports it")
 		}
 		if widgets.IconButton(c.Key("new"), widgets.IconPlus, "New Chat").Tooltip("Start the conversation over").Disabled(t.sess == nil && !t.starting && t.transcriptEmpty()).Clicked() {
 			t.Restart(t.provider)
@@ -79,8 +79,8 @@ func (t *Chat) header(c *ui.Context) {
 func (t *Chat) pickers(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	picker := func(key, label, tip string) ui.Element {
-		return ui.ButtonBase(c.Key(key)).Padding(2, 6).Radius(6).Label(label).Tooltip(tip).Shrink(1).MinWidth(0).Children(func() {
-			ui.Text(c, label+" ▾").FontSize(11.5).TextColor(pal.Muted).SingleLine()
+		return ui.ButtonBase(c.Key(key)).Padding(2, 6).Radius(widgets.RadiusMedium).Label(label).Tooltip(tip).Shrink(1).MinWidth(0).Children(func() {
+			ui.Text(c, label+" ▾").FontSize(widgets.TextMeta).TextColor(pal.Muted).SingleLine()
 		})
 	}
 	picker("provider", providerLabel(t.provider), "The agent the chat talks to; another starts over").Menu(func(m *ui.Menu) {
@@ -182,14 +182,14 @@ func (t *Chat) transcriptView(c *ui.Context) {
 		if n.err {
 			col = th.Danger
 		}
-		ui.Row(c.Key(fmt.Sprintf("notice-%d", i))).Gap(8).Padding(6, 10).Radius(8).Background(col.Alpha(0.12)).Transition(entering).Children(func() {
-			ui.Icon(c, widgets.IconAlert).TextColor(col).FontSize(13)
-			ui.Text(c, n.text).FontSize(12.5).Grow(1).Shrink(1).Selectable()
+		ui.Row(c.Key(fmt.Sprintf("notice-%d", i))).Gap(8).Padding(6, 10).Radius(widgets.RadiusLarge).Background(col.Alpha(0.12)).Transition(entering).Children(func() {
+			ui.Icon(c, widgets.IconAlert).TextColor(col).FontSize(widgets.IconMedium)
+			ui.Text(c, n.text).FontSize(widgets.TextBody).Grow(1).Shrink(1).Selectable()
 		})
 	}
 	switch {
 	case t.startErr != "":
-		ui.Column(c).Gap(8).Padding(10, 12).Radius(8).Background(th.Danger.Alpha(0.10)).Children(func() {
+		ui.Column(c).Gap(8).Padding(10, 12).Radius(widgets.RadiusLarge).Background(th.Danger.Alpha(0.10)).Children(func() {
 			ui.Text(c, t.startErr).Selectable()
 			ui.Row(c).Gap(8).Children(func() {
 				if ui.Button(c, "Try Again").Clicked() {
@@ -236,16 +236,16 @@ func (t *Chat) emptyView(c *ui.Context) {
 	ui.Column(c).Gap(14).Padding(24, 4).Children(func() {
 		ui.Column(c).Gap(6).Children(func() {
 			t.fx.orbView(c, 48, true).Margin(0, 0, 6, 0)
-			ui.Text(c, "Ask about this editor").FontSize(16).Bold()
+			ui.Text(c, "Ask about this editor").FontSize(widgets.TextTitle).Bold()
 			ui.Text(c, "Each message carries the editor's connection, the statement at the caret or the selection, and the last error. "+
 				providerLabel(t.provider)+" reads the schema and runs only the reads you allow; it cannot change files or data.").
-				FontSize(12.5).TextColor(pal.Muted)
+				FontSize(widgets.TextBody).TextColor(pal.Muted)
 		})
 		ui.Column(c).Gap(6).Children(func() {
 			n := 0
 			suggest := func(icon *ui.SVG, label, prompt string, send bool) {
 				th := c.Theme()
-				b := ui.ButtonBase(c.Key("suggest-"+label)).Padding(7, 12).Radius(999).Border(1, th.Border).Background(th.Background).Label(label).AlignSelf(ui.Start)
+				b := ui.ButtonBase(c.Key("suggest-"+label)).Padding(7, 12).Radius(widgets.RadiusRound).Border(1, th.Border).Background(th.Background).Label(label).AlignSelf(ui.Start)
 				b.Transition(ui.ElementTransition{Enter: &ui.Motion{Opacity: 0, Y: 6}, Animation: &ui.Animation{Duration: 260 * time.Millisecond, Delay: time.Duration(n) * 60 * time.Millisecond}, Position: true})
 				n++
 				if b.Hovered() {
@@ -253,8 +253,8 @@ func (t *Chat) emptyView(c *ui.Context) {
 				}
 				b.Children(func() {
 					ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-						ui.Icon(c, icon).FontSize(13).TextColor(th.Accent)
-						ui.Text(c, label).FontSize(12.5).SingleLine().Shrink(1)
+						ui.Icon(c, icon).FontSize(widgets.IconMedium).TextColor(th.Accent)
+						ui.Text(c, label).FontSize(widgets.TextBody).SingleLine().Shrink(1)
 					})
 				})
 				if b.Clicked() {
@@ -284,11 +284,11 @@ func userBubble(c *ui.Context, text string) {
 	th, muted := c.Theme(), widgets.PaletteOf(c).Muted
 	text, summary := splitContext(text)
 	ui.Column(c).AlignItems(ui.End).Gap(3).Transition(ui.ElementTransition{Enter: &ui.Motion{Opacity: 0, X: 16, Scale: 0.97}, Duration: 240 * time.Millisecond, Position: true}).Children(func() {
-		ui.Text(c, text).Padding(8, 12).Radius(14).Background(th.Accent.Alpha(0.12)).MaxWidth(620).Selectable()
+		ui.Text(c, text).Padding(8, 12).Radius(widgets.RadiusLarge).Background(th.Accent.Alpha(0.12)).MaxWidth(620).Selectable()
 		if summary != "" {
 			ui.Row(c).Gap(4).AlignItems(ui.Center).Tooltip("What the message carried of the editor").Children(func() {
-				ui.Icon(c, widgets.IconCode).FontSize(10).TextColor(muted)
-				ui.Text(c, summary).FontSize(11).TextColor(muted).SingleLine()
+				ui.Icon(c, widgets.IconCode).FontSize(widgets.IconSmall).TextColor(muted)
+				ui.Text(c, summary).FontSize(widgets.TextMeta).TextColor(muted).SingleLine()
 			})
 		}
 	})
@@ -321,9 +321,9 @@ func (t *Chat) itemView(c *ui.Context, it agent.Item) {
 				if open {
 					label = "Thinking ▾"
 				}
-				ui.Text(c, label).FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, label).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 				if open {
-					ui.Text(c, it.Text).FontSize(12.5).TextColor(pal.Muted).Selectable()
+					ui.Text(c, it.Text).FontSize(widgets.TextBody).TextColor(pal.Muted).Selectable()
 				}
 			})
 		})
@@ -335,7 +335,7 @@ func (t *Chat) itemView(c *ui.Context, it agent.Item) {
 	case agent.ItemKindError:
 		ui.Text(key, it.Text).TextColor(th.Danger).Selectable()
 	case agent.ItemKindCompaction:
-		ui.Text(key, "The conversation was summarized to make room.").FontSize(12).TextColor(pal.Muted)
+		ui.Text(key, "The conversation was summarized to make room.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 	}
 }
 
@@ -349,32 +349,32 @@ func (t *Chat) toolView(key *ui.Context, c *ui.Context, it agent.Item) {
 		call = &agent.ToolCall{Name: "tool"}
 	}
 	open := t.expanded[it.ID]
-	ui.Column(key).Radius(8).Border(1, th.Border).Background(th.Background).Clip().Transition(entering).Children(func() {
+	ui.Column(key).Radius(widgets.RadiusLarge).Border(1, th.Border).Background(th.Background).Clip().Transition(entering).Children(func() {
 		head := ui.ButtonBase(c.Key("head")).Padding(5, 10).Label("Tool call " + toolName(call))
 		head.Children(func() {
 			ui.Row(c).Gap(8).Grow(1).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, toolIcon(call.Kind)).FontSize(12).TextColor(pal.Muted)
+				ui.Icon(c, toolIcon(call.Kind)).FontSize(widgets.IconSmall).TextColor(pal.Muted)
 				// Running only while the agent works: a call the agent left
 				// so, stopping, moves no more, nor asks for frames.
 				running := it.Status == agent.ItemStatusInProgress && t.Busy()
 				if running {
 					t.fx.shimmerText(c, toolName(call), 12.5)
 				} else {
-					ui.Text(c, toolName(call)).FontSize(12.5).Bold()
+					ui.Text(c, toolName(call)).FontSize(widgets.TextBody).Bold()
 				}
-				ui.Text(c, toolSummary(call)).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1).Grow(1)
+				ui.Text(c, toolSummary(call)).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Shrink(1).Grow(1)
 				switch {
 				case running:
 					t.fx.orbView(c, 12, true)
 				case it.Status == agent.ItemStatusInProgress:
-					ui.Text(c, "stopped").FontSize(11).TextColor(pal.Muted)
+					ui.Text(c, "stopped").FontSize(widgets.TextMeta).TextColor(pal.Muted)
 				case it.Status == agent.ItemStatusFailed || it.Status == agent.ItemStatusDeclined:
-					ui.Icon(c, widgets.IconX).FontSize(12).TextColor(th.Danger)
+					ui.Icon(c, widgets.IconX).FontSize(widgets.IconSmall).TextColor(th.Danger)
 				case it.Status == agent.ItemStatusCompleted:
 					if call.IsError {
-						ui.Icon(c, widgets.IconAlert).FontSize(12).TextColor(th.Warning)
+						ui.Icon(c, widgets.IconAlert).FontSize(widgets.IconSmall).TextColor(th.Warning)
 					} else {
-						ui.Icon(c, widgets.IconCheck).FontSize(12).TextColor(th.Success)
+						ui.Icon(c, widgets.IconCheck).FontSize(widgets.IconSmall).TextColor(th.Success)
 					}
 				}
 			})
@@ -387,16 +387,16 @@ func (t *Chat) toolView(key *ui.Context, c *ui.Context, it agent.Item) {
 		}
 		ui.Column(c).Gap(6).Padding(6, 10, 8, 10).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 			if len(call.Input) > 0 && string(call.Input) != "{}" {
-				ui.Text(c, widgets.OneLine(string(call.Input), 2000)).Font(widgets.MonoFont).FontSize(11.5).Selectable()
+				ui.Text(c, widgets.OneLine(string(call.Input), 2000)).Font(widgets.MonoFont).FontSize(widgets.TextMeta).Selectable()
 			}
 			for _, ch := range call.Changes {
-				ui.Text(c, string(ch.Kind)+" "+ch.Path).FontSize(12).Selectable()
+				ui.Text(c, string(ch.Kind)+" "+ch.Path).FontSize(widgets.TextSmall).Selectable()
 				if ch.Diff != "" {
-					ui.Text(c, clip(ch.Diff)).Font(widgets.MonoFont).FontSize(11.5).Selectable()
+					ui.Text(c, clip(ch.Diff)).Font(widgets.MonoFont).FontSize(widgets.TextMeta).Selectable()
 				}
 			}
 			if call.Output != "" {
-				ui.Text(c, clip(call.Output)).Font(widgets.MonoFont).FontSize(11.5).TextColor(pal.Muted).Selectable()
+				ui.Text(c, clip(call.Output)).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted).Selectable()
 			}
 		})
 	})
@@ -515,14 +515,14 @@ func (t *Chat) codeBlock(c *ui.Context, b *markdown.CodeBlockView) {
 // smallButton is a button of a reply, of an icon and a label.
 func smallButton(c *ui.Context, icon *ui.SVG, label string) ui.Element {
 	th := c.Theme()
-	b := ui.ButtonBase(c.Key("small-"+label)).Padding(3, 8).Radius(6).Border(1, th.Border).Background(th.Background).Label(label)
+	b := ui.ButtonBase(c.Key("small-"+label)).Padding(3, 8).Radius(widgets.RadiusMedium).Border(1, th.Border).Background(th.Background).Label(label)
 	if b.Hovered() {
 		b.Background(widgets.PaletteOf(c).Hover)
 	}
 	return b.Children(func() {
 		ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
-			ui.Icon(c, icon).FontSize(11.5).TextColor(th.Accent)
-			ui.Text(c, label).FontSize(12)
+			ui.Icon(c, icon).FontSize(widgets.IconSmall).TextColor(th.Accent)
+			ui.Text(c, label).FontSize(widgets.TextSmall)
 		})
 	})
 }
@@ -532,9 +532,9 @@ func smallButton(c *ui.Context, icon *ui.SVG, label string) ui.Element {
 func (t *Chat) requestCard(c *ui.Context, r *request) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	widgets.Appear(ui.Column(c.Key("request-"+r.id)).Gap(8).Padding(10, 12).Radius(10).Border(1, th.Warning).Background(th.Warning.Alpha(0.08))).Children(func() {
+	widgets.Appear(ui.Column(c.Key("request-"+r.id)).Gap(8).Padding(10, 12).Radius(widgets.RadiusLarge).Border(1, th.Warning).Background(th.Warning.Alpha(0.08))).Children(func() {
 		ui.Row(c).Gap(8).Children(func() {
-			ui.Icon(c, widgets.IconShield).TextColor(th.Warning).FontSize(14)
+			ui.Icon(c, widgets.IconShield).TextColor(th.Warning).FontSize(widgets.IconMedium)
 			ui.Text(c, r.title).Bold().Grow(1).Shrink(1)
 		})
 		if r.sql != "" {
@@ -544,7 +544,7 @@ func (t *Chat) requestCard(c *ui.Context, r *request) {
 			})
 		}
 		if r.detail != "" {
-			ui.Text(c, clip(r.detail)).FontSize(12).TextColor(pal.Muted).Selectable()
+			ui.Text(c, clip(r.detail)).FontSize(widgets.TextSmall).TextColor(pal.Muted).Selectable()
 		}
 		if q := r.question; q != nil {
 			for _, question := range q.Questions {
@@ -599,8 +599,8 @@ func (t *Chat) inputView(c *ui.Context) {
 		box.Children(func() {
 			if summary := t.contextSummary(); summary != "" {
 				ui.Row(c).Gap(5).Padding(1, 4).AlignItems(ui.Center).Tooltip("What the next message carries of the editor").Children(func() {
-					ui.Icon(c, widgets.IconCode).FontSize(11).TextColor(th.Accent)
-					ui.Text(c, summary).FontSize(11.5).TextColor(pal.Muted).SingleLine().Shrink(1)
+					ui.Icon(c, widgets.IconCode).FontSize(widgets.IconSmall).TextColor(th.Accent)
+					ui.Text(c, summary).FontSize(widgets.TextMeta).TextColor(pal.Muted).SingleLine().Shrink(1)
 				})
 			}
 			area := ui.TextArea(c.Key(fmt.Sprintf("input-%d", t.inputKey)), &t.input).Label("Message").
@@ -638,7 +638,7 @@ func (t *Chat) sendButton(c *ui.Context) {
 	if t.running {
 		label, tip = "Stop", keymap.Hint("Stop the reply", keymap.ChatStop)
 	}
-	b := ui.ButtonBase(c.Key("send")).Size(28, 28).Radius(14).Label(label).Tooltip(tip).Center().Disabled(!t.running && !ready)
+	b := ui.ButtonBase(c.Key("send")).Size(28, 28).Radius(widgets.RadiusRound).Label(label).Tooltip(tip).Center().Disabled(!t.running && !ready)
 	fill, ink := th.Border.Alpha(0.6), widgets.PaletteOf(c).Muted
 	if t.running || ready {
 		fill, ink = th.Accent, ui.RGBA(255, 255, 255, 1)
@@ -654,7 +654,7 @@ func (t *Chat) sendButton(c *ui.Context) {
 		if t.running {
 			icon = widgets.IconStop
 		}
-		ui.Icon(c, icon).FontSize(13).TextColor(ink)
+		ui.Icon(c, icon).FontSize(widgets.IconMedium).TextColor(ink)
 	})
 	if b.Clicked() {
 		if t.running {

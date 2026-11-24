@@ -200,7 +200,7 @@ func (v *Viewer) builderView(c *ui.Context) {
 				// A filter typed: its SQL, which only its removal changes.
 				ui.Row(c.Key(b.keys.key("cond-", i))).Gap(6).AlignItems(ui.Center).Children(func() {
 					builderConnector(c, b, i, pal, compact.Space(3.5)+1, connectorWidth)
-					ui.Text(c, bc.sql).Font(widgets.MonoFont).FontSize(12.5).SingleLine().Shrink(1).Grow(1).
+					ui.Text(c, bc.sql).Font(widgets.MonoFont).FontSize(widgets.TextBody).SingleLine().Shrink(1).Grow(1).
 						Padding(compact.Space(1.5), compact.Space(2.5)).Radius(compact.Radius).Border(1, th.Border).Selectable().
 						Tooltip("Typed in the filter bar: as SQL, it is kept as typed")
 					if widgets.IconButton(c, widgets.IconX, "Remove the condition").Clicked() {
@@ -219,11 +219,11 @@ func (v *Viewer) builderView(c *ui.Context) {
 					if op.op == "in" {
 						placeholder = "a, b, c"
 					}
-					submitted = ui.TextInput(c, &bc.value).Placeholder(placeholder).Font(widgets.MonoFont).FontSize(12.5).Grow(1).Label("Value").Submitted() || submitted
+					submitted = ui.TextInput(c, &bc.value).Placeholder(placeholder).Font(widgets.MonoFont).FontSize(widgets.TextBody).Grow(1).Label("Value").Submitted() || submitted
 				}
 				if op.values == 2 {
 					ui.Text(c, "and").TextColor(pal.Muted)
-					submitted = ui.TextInput(c, &bc.to).Placeholder("value").Font(widgets.MonoFont).FontSize(12.5).Grow(1).Label("Second value").Submitted() || submitted
+					submitted = ui.TextInput(c, &bc.to).Placeholder("value").Font(widgets.MonoFont).FontSize(widgets.TextBody).Grow(1).Label("Second value").Submitted() || submitted
 				}
 				if (len(b.conds) > 1 || bc.sql != "") && widgets.IconButton(c, widgets.IconX, "Remove the condition").Clicked() {
 					remove = i

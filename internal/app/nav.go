@@ -147,7 +147,7 @@ func (a *App) showNavError(e navError) { a.ShowReport(navReport(e)) }
 // (one Refresh reads again) is raised, the user's opening of its place
 // having asked for it; the others, read at startup, are only noted.
 func (a *App) errorNoteText(c *ui.Context, row ui.Element, n navNode, e navError) {
-	ui.Text(c, n.name).FontSize(12).TextColor(c.Theme().Danger).Italic().SingleLine().Tooltip(e.full)
+	ui.Text(c, n.name).FontSize(widgets.TextSmall).TextColor(c.Theme().Danger).Italic().SingleLine().Tooltip(e.full)
 	if a.nav.raised[n] != e.full {
 		if a.nav.raised == nil {
 			a.nav.raised = map[navNode]string{}
@@ -201,13 +201,9 @@ func (a *App) showConnError(cn *connection.Conn) {
 // name is what the row is chosen by.
 const fileConnectionShrink = 1000
 
-// navFontSize and navSpacing are the size of the navigator's text and the
-// unit of the room its rows leave around it (ui.Theme's Spacing), which
-// make a row about 24 high.
-const (
-	navFontSize = 13
-	navSpacing  = 3
-)
+// navSpacing is the unit of the room the navigator's rows leave around
+// their text (ui.Theme's Spacing), which makes a row about 24 high.
+const navSpacing = 3
 
 func (n *navState) init() {
 	n.row, n.chose = -1, -1
@@ -605,8 +601,8 @@ func (a *App) sidebar(c *ui.Context) {
 		a.openToReveal()
 		var tree ui.Element
 		widgets.ChosenRows(c, func() {
-			// Rows as dense as DBeaver's navigator: the theme's text
-			// and spacing size them, on every system alike.
+			// Rows as dense as DBeaver's navigator: the theme's
+			// spacing sizes them.
 			chosen := c.Theme()
 			dense := *chosen
 			dense.Spacing = navSpacing
@@ -614,7 +610,7 @@ func (a *App) sidebar(c *ui.Context) {
 			defer c.SetTheme(chosen)
 			tree = ui.Outline(c, &a.nav.tree, a.navRoots(), a.navChildren, func(n navNode) {
 				a.navRow(c, n)
-			}).Grow(1).PaddingX(6).FontSize(navFontSize).Label("Navigator")
+			}).Grow(1).PaddingX(6).Label("Navigator")
 		})
 		a.forgetGoneErrors()
 		a.chooseRevealed(c)
@@ -830,35 +826,35 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 			if !connected {
 				icon = widgets.PaletteOf(c).Muted
 			}
-			ui.Icon(c, widgets.IconDatabase).TextColor(icon).FontSize(14)
+			ui.Icon(c, widgets.IconDatabase).TextColor(icon).FontSize(widgets.IconMedium)
 			name := ui.Text(c, cn.Config.Name).SingleLine().Shrink(1)
 			if !connected {
 				name.TextColor(muted)
 			}
 			if sn, ok := schemaOf(cn, n); ok {
-				ui.Text(c, sn.schema).FontSize(12).TextColor(muted).SingleLine().Grow(1).Shrink(1).Tooltip("Its schema")
+				ui.Text(c, sn.schema).FontSize(widgets.TextSmall).TextColor(muted).SingleLine().Grow(1).Shrink(1).Tooltip("Its schema")
 			} else {
 				name.Grow(1)
 			}
 			switch cn.Status {
 			case connection.StatusFailed:
-				ui.Icon(c, widgets.IconAlert).TextColor(t.Danger).FontSize(12).Tooltip(redact.Secrets(cn.Err))
+				ui.Icon(c, widgets.IconAlert).TextColor(t.Danger).FontSize(widgets.IconSmall).Tooltip(redact.Secrets(cn.Err))
 				if row.Clicked() {
 					a.showConnError(cn)
 				}
 			}
 			if cn.Config.ReadOnly {
-				ui.Icon(c, widgets.IconLock).TextColor(muted).FontSize(12).Tooltip("Read-only")
+				ui.Icon(c, widgets.IconLock).TextColor(muted).FontSize(widgets.IconSmall).Tooltip("Read-only")
 			}
 		case nodeDatabase:
 			name := cmp.Or(n.database, cn.Config.Database)
-			ui.Icon(c, widgets.IconDatabase).TextColor(muted).FontSize(13)
+			ui.Icon(c, widgets.IconDatabase).TextColor(muted).FontSize(widgets.IconMedium)
 			ui.Text(c, name).SingleLine().Shrink(1)
 			if sn, ok := schemaOf(cn, n); ok {
-				ui.Text(c, sn.schema).FontSize(12).TextColor(muted).SingleLine().Shrink(1).Tooltip("Its schema")
+				ui.Text(c, sn.schema).FontSize(widgets.TextSmall).TextColor(muted).SingleLine().Shrink(1).Tooltip("Its schema")
 			}
 		case nodeSchema:
-			ui.Icon(c, widgets.IconSchema).TextColor(muted).FontSize(13)
+			ui.Icon(c, widgets.IconSchema).TextColor(muted).FontSize(widgets.IconMedium)
 			ui.Text(c, n.schema).SingleLine()
 		case nodeFolder:
 			key := connection.SchemaKey{Database: n.database, Schema: n.schema}
@@ -879,17 +875,17 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 				}
 			}
 			ui.Text(c, label).SingleLine().Grow(1)
-			ui.Text(c, fmt.Sprint(count)).FontSize(11).FontFeatures("tnum").TextColor(muted)
+			ui.Text(c, fmt.Sprint(count)).FontSize(widgets.TextMeta).FontFeatures("tnum").TextColor(muted)
 		case nodeObject:
 			_, obj, _ := a.object(n)
 			ic := widgets.IconTable
 			if obj.Kind == db.KindView || obj.Kind == db.KindMaterializedView {
 				ic = widgets.IconView
 			}
-			ui.Icon(c, ic).TextColor(muted).FontSize(13)
+			ui.Icon(c, ic).TextColor(muted).FontSize(widgets.IconMedium)
 			ui.Text(c, n.name).SingleLine().Grow(1).Shrink(1)
 			if obj.Rows >= 0 && obj.Kind == db.KindTable {
-				ui.Text(c, widgets.HumanCount(obj.Rows)).FontSize(11).TextColor(muted)
+				ui.Text(c, widgets.HumanCount(obj.Rows)).FontSize(widgets.TextMeta).TextColor(muted)
 			}
 		case nodeColumn:
 			table, col, _ := strings.Cut(n.name, "\x00")
@@ -900,29 +896,29 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 				}
 			}
 			if column.PrimaryKey {
-				ui.Icon(c, widgets.IconKey).TextColor(t.Warning).FontSize(12)
+				ui.Icon(c, widgets.IconKey).TextColor(t.Warning).FontSize(widgets.IconSmall)
 			} else {
-				ui.Icon(c, widgets.IconColumns).TextColor(muted).FontSize(12)
+				ui.Icon(c, widgets.IconColumns).TextColor(muted).FontSize(widgets.IconSmall)
 			}
 			ui.Text(c, col).SingleLine()
-			ui.Text(c, column.Type).FontSize(11).TextColor(muted).SingleLine().Shrink(1)
+			ui.Text(c, column.Type).FontSize(widgets.TextMeta).TextColor(muted).SingleLine().Shrink(1)
 		case nodeItem:
 			_, it, _ := a.item(n)
-			ui.Icon(c, itemIcon(it.Kind)).TextColor(muted).FontSize(12)
+			ui.Icon(c, itemIcon(it.Kind)).TextColor(muted).FontSize(widgets.IconSmall)
 			label := it.Label()
 			if it.Kind == db.ItemPartition {
 				label = it.Name
 			}
 			ui.Text(c, label).SingleLine().Grow(1).Shrink(1).Tooltip(label)
 			if it.Kind != db.ItemFunction && it.Kind != db.ItemProcedure && it.Detail != "" {
-				ui.Text(c, it.Detail).FontSize(11).TextColor(muted).SingleLine().Shrink(1)
+				ui.Text(c, it.Detail).FontSize(widgets.TextMeta).TextColor(muted).SingleLine().Shrink(1)
 			}
 		case nodeInfo:
 			if e, ok := a.nav.errors[n]; ok {
 				a.errorNoteText(c, row, n, e)
 				break
 			}
-			ui.Text(c, n.name).FontSize(12).TextColor(muted).Italic().SingleLine()
+			ui.Text(c, n.name).FontSize(widgets.TextSmall).TextColor(muted).Italic().SingleLine()
 		}
 	})
 	row.ContextMenu(func(m *ui.Menu) { a.navMenu(m, n) })
@@ -1306,8 +1302,8 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 		case nodeConnections, nodeQueries, nodeDashboards, nodeModels:
 			ic, label, count := a.section(p, n.kind)
 			// A heading over its items: smaller and quieter than they are.
-			ui.Icon(c, ic).TextColor(muted).FontSize(12)
-			ui.Text(c, label).SingleLine().Grow(1).FontSize(12).FontWeight(600).TextColor(muted)
+			ui.Icon(c, ic).TextColor(muted).FontSize(widgets.IconSmall)
+			ui.Text(c, label).SingleLine().Grow(1).FontSize(widgets.TextSmall).FontWeight(600).TextColor(muted)
 			// Another made from the row, over the count as the row is
 			// pointed at: one slot, so the counts line up with the
 			// folders', and the button is there for the keys all along.
@@ -1318,7 +1314,7 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 			}
 			hovered := run != nil && row.Hovered()
 			ui.Row(c).MinWidth(16).Justify(ui.End).AlignItems(ui.Center).Children(func() {
-				num := ui.Text(c, fmt.Sprint(count)).FontSize(11).FontFeatures("tnum").TextColor(muted)
+				num := ui.Text(c, fmt.Sprint(count)).FontSize(widgets.TextMeta).FontFeatures("tnum").TextColor(muted)
 				add := widgets.IconButton(c, widgets.IconPlus, newLabel).Padding(1).Disabled(run == nil).
 					Absolute().Right(-1)
 				if hovered {
@@ -1347,15 +1343,15 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 			if runsOn != nil {
 				dot.Background(widgets.EnvColor(&runsOn.Config))
 			}
-			ui.Icon(c, widgets.IconFile).TextColor(muted).FontSize(12)
+			ui.Icon(c, widgets.IconFile).TextColor(muted).FontSize(widgets.IconSmall)
 			ui.Text(c, n.name).SingleLine().Shrink(1).Tooltip(filepath.Join(p.Queries, filepath.FromSlash(n.name)))
 			ui.Spacer(c)
 			switch {
 			case id == "":
 			case runsOn == nil:
-				ui.Text(c, id).SingleLine().Shrink(fileConnectionShrink).FontSize(11).TextColor(c.Theme().Warning).Tooltip("No connection of " + p.Name + " has this ID")
+				ui.Text(c, id).SingleLine().Shrink(fileConnectionShrink).FontSize(widgets.TextMeta).TextColor(c.Theme().Warning).Tooltip("No connection of " + p.Name + " has this ID")
 			default:
-				ui.Text(c, runsOn.Config.Name).SingleLine().Shrink(fileConnectionShrink).FontSize(11).TextColor(muted).Tooltip("Runs on " + runsOn.Config.Name)
+				ui.Text(c, runsOn.Config.Name).SingleLine().Shrink(fileConnectionShrink).FontSize(widgets.TextMeta).TextColor(muted).Tooltip("Runs on " + runsOn.Config.Name)
 			}
 		case nodeDashboard, nodeModel:
 			ic, names, paths := widgets.IconLayers, []string(nil), []string(nil)
@@ -1366,14 +1362,14 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 				names, paths = a.modelNames(p)
 			}
 			name := nameOf(names, paths, n.name)
-			ui.Icon(c, ic).TextColor(muted).FontSize(12)
+			ui.Icon(c, ic).TextColor(muted).FontSize(widgets.IconSmall)
 			ui.Text(c, name).SingleLine().Shrink(1).Tooltip(n.name)
 		case nodeInfo:
 			if e, ok := a.nav.errors[n]; ok {
 				a.errorNoteText(c, row, n, e)
 				break
 			}
-			ui.Text(c, n.name).FontSize(12).TextColor(muted).Italic().SingleLine()
+			ui.Text(c, n.name).FontSize(widgets.TextSmall).TextColor(muted).Italic().SingleLine()
 		}
 	})
 	if n.kind == nodeConnFolder || n.kind == nodeConnections {

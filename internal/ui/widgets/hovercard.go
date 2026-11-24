@@ -310,7 +310,7 @@ func CardContent(c *ui.Context, key string, close func(), build func(c *ui.Conte
 func CardPanel(c *ui.Context, panel ui.Element, wide bool) {
 	t := c.Theme()
 	panel.Width(cardWidth(wide)).Radius(t.Radius+2).Background(t.Background).Border(1, t.Border).
-		Shadow(0, 8, 28, 0, ui.RGBA(0, 0, 0, 0.22)).Role(ui.RoleDialog).FontSize(ToolFontSize).
+		Shadow(0, 8, 28, 0, ui.RGBA(0, 0, 0, 0.22)).Role(ui.RoleDialog).FontSize(TextBody).
 		Transition(cardMotion)
 }
 
@@ -410,8 +410,8 @@ func (k *Card) Header(c *ui.Context, icon *ui.SVG, tone Tone, name, where string
 	t := c.Theme()
 	col := toneColor(c, tone)
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(10, cardPadX, 4, cardPadX).Children(func() {
-		ui.Box(c).Size(20, 20).Radius(5).Background(col.Alpha(0.14)).AlignItems(ui.Center).Justify(ui.Center).Shrink(0).Children(func() {
-			ui.Icon(c, icon).FontSize(12).TextColor(col)
+		ui.Box(c).Size(20, 20).Radius(RadiusMedium).Background(col.Alpha(0.14)).AlignItems(ui.Center).Justify(ui.Center).Shrink(0).Children(func() {
+			ui.Icon(c, icon).FontSize(IconSmall).TextColor(col)
 		})
 		ui.Text(c, name).FontWeight(600).FontSize(t.FontSize).SingleLine().Shrink(1)
 		if where != "" {
@@ -453,7 +453,7 @@ func (k *Card) close(c *ui.Context) {
 
 // Mono adds a line in the monospaced font, as a function's signature.
 func (k *Card) Mono(c *ui.Context, s string) {
-	ui.Text(c, s).Font(MonoFont).FontSize(12.5).Padding(2, cardPadX, 8, cardIndent+cardPadX-12).Selectable()
+	ui.Text(c, s).Font(MonoFont).FontSize(TextBody).Padding(2, cardPadX, 8, cardIndent+cardPadX-12).Selectable()
 }
 
 // Meta adds a muted line of facts, joined by dots; empty ones are left
@@ -513,7 +513,7 @@ func (k *Card) LabeledPills(c *ui.Context, label string, pills ...CardPill) {
 	pal := PaletteOf(c)
 	ui.Row(c).Wrap().Gap(5).AlignItems(ui.Center).Padding(0, cardPadX, 10, cardIndent+cardPadX-12).Children(func() {
 		if label != "" {
-			ui.Text(c, label).FontSize(11.5).TextColor(pal.Muted).Margin(0, 3, 0, 0)
+			ui.Text(c, label).FontSize(TextMeta).TextColor(pal.Muted).Margin(0, 3, 0, 0)
 		}
 		for i, p := range pills {
 			ink, line := pal.Muted, t.Border
@@ -532,13 +532,13 @@ func (k *Card) LabeledPills(c *ui.Context, label string, pills ...CardPill) {
 			} else {
 				el = ui.Box(c.Key(i))
 			}
-			el.Padding(1, 7).Radius(9).Border(1, line)
+			el.Padding(1, 7).Radius(RadiusLarge).Border(1, line)
 			if p.Mono {
 				el.Background(t.Text.Alpha(0.05))
 				ink = t.Text
 			}
 			el.Children(func() {
-				txt := ui.Text(c, p.Text).FontSize(11).TextColor(ink).SingleLine()
+				txt := ui.Text(c, p.Text).FontSize(TextMeta).TextColor(ink).SingleLine()
 				if p.Mono {
 					txt.Font(MonoFont)
 				}
@@ -559,7 +559,7 @@ func (k *Card) Placeholder(c *ui.Context, lines int) {
 	k.Section(c, func() {
 		for i := range lines {
 			w := float32(220 - 50*(i%3))
-			ui.Box(c.Key(i)).Height(9).Width(w).Radius(4).Background(c.Theme().Text.Alpha(0.08)).Margin(3, 0)
+			ui.Box(c.Key(i)).Height(9).Width(w).Radius(RadiusSmall).Background(c.Theme().Text.Alpha(0.08)).Margin(3, 0)
 		}
 	})
 }
@@ -622,7 +622,7 @@ func (k *Card) Columns(c *ui.Context, cols []CardColumn, o ColumnsOptions) {
 				f = new(string)
 				k.st.filters[k.key] = f
 			}
-			ui.SearchField(c, f).Placeholder("Filter columns").FontSize(12).Margin(0, 0, 4, 0)
+			ui.SearchField(c, f).Placeholder("Filter columns").FontSize(TextSmall).Margin(0, 0, 4, 0)
 			if *f != "" {
 				var kept []CardColumn
 				for _, col := range cols {
@@ -652,13 +652,13 @@ func (k *Card) Columns(c *ui.Context, cols []CardColumn, o ColumnsOptions) {
 			} else {
 				row = ui.Row(c.Key(col.Name))
 			}
-			row.Gap(8).AlignItems(ui.Center).Padding(1, 4).Margin(0, -4).Radius(4)
+			row.Gap(8).AlignItems(ui.Center).Padding(1, 4).Margin(0, -4).Radius(RadiusSmall)
 			row.Children(func() {
 				mark := ui.Box(c).Width(12).Shrink(0).AlignItems(ui.Center)
 				mark.Children(func() {
 					switch {
 					case col.Key:
-						ui.Icon(c, IconKey).FontSize(10).TextColor(t.Warning)
+						ui.Icon(c, IconKey).FontSize(IconSmall).TextColor(t.Warning)
 					case col.Used:
 						ui.Box(c).Size(5, 5).Radius(3).Background(t.Accent)
 					}
@@ -668,15 +668,15 @@ func (k *Card) Columns(c *ui.Context, cols []CardColumn, o ColumnsOptions) {
 					name.FontWeight(600)
 				}
 				if col.Ref != "" {
-					ui.Text(c, "→ "+col.Ref).FontSize(11).TextColor(t.Accent).SingleLine().Shrink(1)
+					ui.Text(c, "→ "+col.Ref).FontSize(TextMeta).TextColor(t.Accent).SingleLine().Shrink(1)
 				}
 				ui.Box(c).Grow(1)
-				ui.Text(c, col.Type).Font(MonoFont).FontSize(11.5).TextColor(pal.Muted).SingleLine().Shrink(0)
+				ui.Text(c, col.Type).Font(MonoFont).FontSize(TextMeta).TextColor(pal.Muted).SingleLine().Shrink(0)
 			})
 		}
 		if more := len(cols) - len(shown); more > 0 {
 			if ui.ButtonBase(c.Key("more")).Label("Show every column").Cursor(ui.CursorPointer).Children(func() {
-				ui.Text(c, "+ "+Count(more, "more column")).FontSize(11.5).TextColor(pal.Muted)
+				ui.Text(c, "+ "+Count(more, "more column")).FontSize(TextMeta).TextColor(pal.Muted)
 			}).Clicked() {
 				k.st.expanded[k.key] = true
 			}
@@ -697,8 +697,8 @@ func (k *Card) Rows(c *ui.Context, rows [][2]string) {
 	k.Section(c, func() {
 		for i, r := range rows {
 			ui.Row(c.Key(i)).Gap(12).Children(func() {
-				ui.Text(c, r[0]).FontSize(12).TextColor(pal.Muted).Width(width).TextAlign(ui.End).SingleLine().Shrink(0)
-				ui.Text(c, r[1]).Font(MonoFont).FontSize(11.5).SingleLine().Shrink(1).Selectable()
+				ui.Text(c, r[0]).FontSize(TextSmall).TextColor(pal.Muted).Width(width).TextAlign(ui.End).SingleLine().Shrink(0)
+				ui.Text(c, r[1]).Font(MonoFont).FontSize(TextMeta).SingleLine().Shrink(1).Selectable()
 			})
 		}
 	})
@@ -716,7 +716,7 @@ func (k *Card) Pages(c *ui.Context, n int) int {
 		if IconButton(c, IconPrev, "The one before").Disabled(page == 0).Clicked() {
 			page--
 		}
-		ui.Text(c, strconv.Itoa(page+1)+" of "+strconv.Itoa(n)).FontSize(11.5).TextColor(pal.Muted)
+		ui.Text(c, strconv.Itoa(page+1)+" of "+strconv.Itoa(n)).FontSize(TextMeta).TextColor(pal.Muted)
 		if IconButton(c, IconNext, "The next one").Disabled(page == n-1).Clicked() {
 			page++
 		}
@@ -763,7 +763,7 @@ func (a *CardActions) KeepOpen(c *ui.Context, label string) bool { return a.butt
 func (a *CardActions) button(c *ui.Context, label, keys string) bool {
 	b := a.actionButton(c, label)
 	b.Gap(6).Children(func() {
-		ui.Text(c, label).FontSize(12)
+		ui.Text(c, label).FontSize(TextSmall)
 		if keys != "" {
 			Keycap(c, keys)
 		}
@@ -774,7 +774,7 @@ func (a *CardActions) button(c *ui.Context, label, keys string) bool {
 // actionButton is an action's button, without its content.
 func (a *CardActions) actionButton(c *ui.Context, label string) ui.Element {
 	a.n++
-	b := ui.ButtonBase(c.Key(actionKey{a.n})).Label(label).Padding(4, 8).Radius(5).Cursor(ui.CursorPointer)
+	b := ui.ButtonBase(c.Key(actionKey{a.n})).Label(label).Padding(4, 8).Radius(RadiusMedium).Cursor(ui.CursorPointer)
 	if b.Hovered() {
 		b.Background(PaletteOf(c).Hover)
 	}
@@ -795,10 +795,10 @@ func (a *CardActions) CopyFunc(c *ui.Context, label string, text func() string) 
 	b := a.actionButton(c, label)
 	b.Gap(5).Children(func() {
 		if copied {
-			ui.Icon(c, IconCheck).FontSize(11).TextColor(c.Theme().Success)
-			ui.Text(c, "Copied").FontSize(12)
+			ui.Icon(c, IconCheck).FontSize(IconSmall).TextColor(c.Theme().Success)
+			ui.Text(c, "Copied").FontSize(TextSmall)
 		} else {
-			ui.Text(c, label).FontSize(12)
+			ui.Text(c, label).FontSize(TextSmall)
 		}
 	})
 	if copied {

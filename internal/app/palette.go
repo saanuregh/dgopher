@@ -312,14 +312,14 @@ func (a *App) paletteView(c *ui.Context) {
 	}
 	ui.DialogBase(c, &p.open, func(backdrop, panel ui.Element) {
 		widgets.PickerLook(c, backdrop, panel)
-		panel.Width(600).Radius(12).Background(t.Background).Border(1, t.Border).Clip().Label("Command palette")
+		panel.Width(600).Radius(widgets.RadiusLarge).Background(t.Background).Border(1, t.Border).Clip().Label("Command palette")
 		ui.Row(c).Padding(10, 14).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
-			ui.Icon(c, widgets.IconSearch).TextColor(pal.Muted).FontSize(15)
+			ui.Icon(c, widgets.IconSearch).TextColor(pal.Muted).FontSize(widgets.IconLarge)
 			placeholder := "Search commands, connections and tables"
 			if p.tables {
 				placeholder = "Open a table, a routine or a query file"
 			}
-			in := ui.TextInputBase(c, &p.query).Placeholder(placeholder).AutoFocus().Grow(1).FontSize(15).Label("Search")
+			in := ui.TextInputBase(c, &p.query).Placeholder(placeholder).AutoFocus().Grow(1).FontSize(widgets.TextTitle).Label("Search")
 			if widgets.ListKeys(in, &p.index, len(p.shown), &p.list, paletteRows) {
 				run(p.index)
 			}
@@ -342,17 +342,17 @@ func (a *App) paletteList(c *ui.Context, p *paletteState, run func(int)) {
 		row.Children(func() {
 			col := pal.Muted
 			if it.icon != nil {
-				ui.Icon(c, it.icon).FontSize(14).TextColor(col)
+				ui.Icon(c, it.icon).FontSize(widgets.IconMedium).TextColor(col)
 			}
 			ui.Text(c, it.title).SingleLine().Shrink(1)
-			ui.Text(c, it.detail).FontSize(12).TextColor(col).SingleLine().Grow(1).Shrink(1)
+			ui.Text(c, it.detail).FontSize(widgets.TextSmall).TextColor(col).SingleLine().Grow(1).Shrink(1)
 			if k := keymap.First(it.key); k != "" {
 				widgets.Keycap(c, k)
 			}
 			// Commands are most of the list: only the other kinds say
 			// what they are.
 			if it.group != "Command" {
-				ui.Text(c, it.group).FontSize(11).TextColor(col)
+				ui.Text(c, it.group).FontSize(widgets.TextMeta).TextColor(col)
 			}
 		})
 		if row.Clicked() {

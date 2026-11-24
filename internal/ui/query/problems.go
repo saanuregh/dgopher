@@ -425,8 +425,8 @@ func (q *Tab) problemBar(c *ui.Context) {
 	}
 	th := c.Theme()
 	ui.Row(c).Padding(4, 12).Gap(8).AlignItems(ui.Center).Background(th.Danger.Alpha(0.10)).Children(func() {
-		ui.Icon(c, widgets.IconAlert).TextColor(th.Danger).FontSize(13)
-		ui.Text(c, p.Message).FontSize(12.5).Grow(1).Shrink(1).SingleLine()
+		ui.Icon(c, widgets.IconAlert).TextColor(th.Danger).FontSize(widgets.IconMedium)
+		ui.Text(c, p.Message).FontSize(widgets.TextBody).Grow(1).Shrink(1).SingleLine()
 		if p.Fix != "" && ui.Button(c, keymap.Hint("Fix", keymap.QuickFix)).Clicked() {
 			q.fixProblem()
 		}

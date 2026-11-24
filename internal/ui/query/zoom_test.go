@@ -58,8 +58,8 @@ func TestZoomKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Key(ui.Cmd, ui.KeyMinus)
-	if s.GridFont != 11.5 || s.EditorFont != 13 {
-		t.Fatalf("⌘- in the grid: grid font %v, editor font %v; want 11.5 and 13", s.GridFont, s.EditorFont)
+	if s.GridFont != 12 || s.EditorFont != 13 {
+		t.Fatalf("⌘- in the grid: grid font %v, editor font %v; want 12 and 13", s.GridFont, s.EditorFont)
 	}
 	tt.Key(ui.Cmd, ui.KeyK)
 	tt.Key(ui.Cmd, ui.Key0)

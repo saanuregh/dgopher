@@ -261,7 +261,7 @@ func ExportView(a Host, c *ui.Context) {
 	nameProblem := x.fileNameProblem(chosen)
 	dlg := widgets.Modal(c, &x.open, func() {
 		ui.Column(c).Width(620).Gap(12).Children(func() {
-			ui.Text(c, x.title).FontSize(15).Bold().SingleLine()
+			ui.Text(c, x.title).FontSize(widgets.TextTitle).Bold().SingleLine()
 			if many {
 				exportTablesView(c, x, len(chosen))
 			}
@@ -333,7 +333,7 @@ func ExportView(a Host, c *ui.Context) {
 				if !x.clipboard {
 					ui.Field(c, "Folder", func() {
 						ui.Row(c).Gap(6).Children(func() {
-							ui.TextInput(c, &x.folder).Grow(1).Font(widgets.MonoFont).FontSize(12.5)
+							ui.TextInput(c, &x.folder).Grow(1).Font(widgets.MonoFont).FontSize(widgets.TextBody)
 							if ui.Button(c, "Choose…").Clicked() {
 								opts := mygo.OpenDialogOptions{Title: "Export to", Directory: true, CreateDirectories: true}
 								widgets.ChoosePath(a.Post, opts, func(path string) { x.folder = path })
@@ -341,7 +341,7 @@ func ExportView(a Host, c *ui.Context) {
 						})
 					})
 					ui.Field(c, "File name", func() {
-						ui.TextInput(c, &x.pattern).Font(widgets.MonoFont).FontSize(12.5)
+						ui.TextInput(c, &x.pattern).Font(widgets.MonoFont).FontSize(widgets.TextBody)
 					}).Description(x.pathOf(example.Name) + "   (${table}, ${connection}, ${timestamp}, ${date})").Error(nameProblem)
 					ui.Field(c, "", func() { ui.Checkbox(c, &x.openFolder, "Show the file when done") })
 				}
@@ -355,7 +355,7 @@ func ExportView(a Host, c *ui.Context) {
 					if many {
 						progress = fmt.Sprintf("Table %d of %d · ", x.current.Load()+1, len(chosen)) + progress
 					}
-					ui.Text(c, progress).FontSize(12).TextColor(pal.Muted)
+					ui.Text(c, progress).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 					c.After(200 * time.Millisecond)
 				}
 				ui.Spacer(c)
@@ -405,7 +405,7 @@ func exportTablesView(c *ui.Context, x *exportState, chosen int) {
 			}
 		}
 	})
-	ui.Scroll(c).Height(180).Border(1, th.Border).Radius(6).Children(func() {
+	ui.Scroll(c).Height(180).Border(1, th.Border).Radius(widgets.RadiusMedium).Children(func() {
 		ui.Column(c).Padding(4).Children(func() {
 			for _, i := range shown {
 				t := &x.tables[i]
@@ -413,7 +413,7 @@ func exportTablesView(c *ui.Context, x *exportState, chosen int) {
 			}
 		})
 	})
-	ui.Text(c, fmt.Sprintf("%d of %d chosen, each to a file of its own", chosen, len(x.tables))).FontSize(12).TextColor(pal.Muted)
+	ui.Text(c, fmt.Sprintf("%d of %d chosen, each to a file of its own", chosen, len(x.tables))).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 }
 
 // exportRowsField chooses between running the statement again and the
@@ -431,7 +431,7 @@ func exportRowsField(c *ui.Context, x *exportState) {
 				ui.Radio(c, &x.all, false, fmt.Sprintf("The %d rows read", x.src.Read))
 			}
 			if x.rerun != "" {
-				ui.Text(c, x.rerun).FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, x.rerun).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			}
 		})
 	})

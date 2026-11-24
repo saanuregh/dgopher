@@ -55,3 +55,14 @@ func TestReadableNumber(t *testing.T) {
 		}
 	}
 }
+
+// The grids' text, until a size is set, is the size of what is read
+// everywhere else; a size set is kept.
+func TestGridTextDefaultsToThirteen(t *testing.T) {
+	if got := (Settings{}).GridFontSize(); got != 13 {
+		t.Errorf("the grids' text is %v by default, want 13", got)
+	}
+	if got := (Settings{GridFont: 12.5}).GridFontSize(); got != 12.5 {
+		t.Errorf("a size set to 12.5 reads %v", got)
+	}
+}

@@ -304,7 +304,7 @@ func (a *App) backupView(c *ui.Context) {
 			if b.restore {
 				title = "Restore into " + b.what()
 			}
-			ui.Text(c, title).FontSize(15).Bold()
+			ui.Text(c, title).FontSize(widgets.TextTitle).Bold()
 			ui.Form(c, func() {
 				if !b.restore {
 					if len(formats) > 1 {
@@ -331,7 +331,7 @@ func (a *App) backupView(c *ui.Context) {
 				}
 				ui.Field(c, label, func() {
 					ui.Row(c).Gap(6).Children(func() {
-						ui.TextInput(c, &b.path).Font(widgets.MonoFont).FontSize(12.5).Grow(1).Label(label).Disabled(b.running).AutoFocus()
+						ui.TextInput(c, &b.path).Font(widgets.MonoFont).FontSize(widgets.TextBody).Grow(1).Label(label).Disabled(b.running).AutoFocus()
 						if !onServer && ui.Button(c, "Choose…").Disabled(b.running).Clicked() {
 							a.choosePath(b)
 						}
@@ -339,8 +339,8 @@ func (a *App) backupView(c *ui.Context) {
 				}).Description(note)
 			})
 			if len(b.lines) > 0 {
-				ui.Scroll(c).MaxHeight(160).Radius(6).Background(pal.EditorBg).Children(func() {
-					ui.Text(c, strings.Join(b.lines, "\n")).Font(widgets.MonoFont).FontSize(11.5).Padding(8, 10).Selectable()
+				ui.Scroll(c).MaxHeight(160).Radius(widgets.RadiusMedium).Background(pal.EditorBg).Children(func() {
+					ui.Text(c, strings.Join(b.lines, "\n")).Font(widgets.MonoFont).FontSize(widgets.TextMeta).Padding(8, 10).Selectable()
 				})
 			}
 			if b.err != "" {

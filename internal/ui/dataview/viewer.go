@@ -1293,7 +1293,7 @@ func (v *Viewer) View(c *ui.Context) {
 			whereFocused := false
 			box := ui.Row(c).Gap(6).Grow(1).Padding(0, 6).Radius(th.Radius).Background(th.Surface).Border(1, th.Border)
 			box.Children(func() {
-				ui.Icon(c, widgets.IconFilter).TextColor(pal.Muted).FontSize(13)
+				ui.Icon(c, widgets.IconFilter).TextColor(pal.Muted).FontSize(widgets.IconMedium)
 				placeholder := writesNotReread
 				if v.source.Reads {
 					// The keyword the filter goes after, as the statement would
@@ -1304,11 +1304,11 @@ func (v *Viewer) View(c *ui.Context) {
 					if v.whereIn != "" || v.where != "" {
 						kw = kw.Alpha(0.8)
 					}
-					ui.Text(c, "WHERE").Font(widgets.MonoFont).FontSize(12.5).TextColor(kw)
+					ui.Text(c, "WHERE").Font(widgets.MonoFont).FontSize(widgets.TextBody).TextColor(kw)
 					placeholder = "e.g. status = 'active'"
 				}
 				cb := ui.ComboboxBase(c, &v.whereIn)
-				in := cb.Input.Font(widgets.MonoFont).FontSize(12.5).Placeholder(placeholder).Grow(1).Padding(4, 2).Label("Filter")
+				in := cb.Input.Font(widgets.MonoFont).FontSize(widgets.TextBody).Placeholder(placeholder).Grow(1).Padding(4, 2).Label("Filter")
 				if !v.source.Reads {
 					in.Disabled(true).Tooltip(writesNotReread)
 					refresh()
@@ -1316,13 +1316,13 @@ func (v *Viewer) View(c *ui.Context) {
 				}
 				suggestions := filterSuggestions(v.whereIn, v.src.Cols, filterHistory(v.source.Conn.Project, v.historyKey()))
 				cb.Popup(func(panel ui.Element) {
-					panel.Padding(4).Background(th.Background).Border(1, th.Border).Radius(6).MaxHeight(260)
+					panel.Padding(4).Background(th.Background).Border(1, th.Border).Radius(widgets.RadiusMedium).MaxHeight(260)
 					for _, s := range suggestions {
-						item := cb.Item(s).Padding(4, 8).Radius(4)
+						item := cb.Item(s).Padding(4, 8).Radius(widgets.RadiusSmall)
 						if item.Highlighted() {
 							item.Background(widgets.ChosenRow(c))
 						}
-						item.Children(func() { ui.Text(c, s).Font(widgets.MonoFont).FontSize(12.5).SingleLine() })
+						item.Children(func() { ui.Text(c, s).Font(widgets.MonoFont).FontSize(widgets.TextBody).SingleLine() })
 					}
 				})
 				if s, ok := cb.Chosen(); ok {
@@ -1359,7 +1359,7 @@ func (v *Viewer) View(c *ui.Context) {
 				}
 				refresh()
 			})
-			quick := widgets.SearchBox(c, &v.grid.Filter, "Filter rows", 170)
+			quick := widgets.SearchBox(c, &v.grid.Filter, "Filter rows", 150)
 			quick.Tooltip("Filter the rows already read, without asking the server")
 			if want := a.FocusWant(); *want == "filter" && keys && (!v.source.Reads || whereFocused) && quick.Focus().Focused() {
 				*want = ""
@@ -1411,7 +1411,7 @@ func (v *Viewer) View(c *ui.Context) {
 		// The rows below are those of before: the read that failed, as
 		// with a mistyped filter, changed nothing.
 		ui.Row(c).Padding(6, 12).Gap(10).Background(th.Danger.Alpha(0.12)).Children(func() {
-			ui.Icon(c, widgets.IconAlert).TextColor(th.Danger).FontSize(14)
+			ui.Icon(c, widgets.IconAlert).TextColor(th.Danger).FontSize(widgets.IconMedium)
 			ui.Text(c, "Could not read the rows: "+widgets.FirstLine(v.err)+". The rows shown are those read before.").Grow(1).Shrink(1).Selectable().Tooltip(v.err)
 			if ui.Button(c, "Details").Clicked() {
 				v.a.ShowReport(widgets.ErrorReport{Title: "Could not read the rows", Hint: v.errHint, Detail: v.err})
@@ -1489,16 +1489,16 @@ func (v *Viewer) View(c *ui.Context) {
 			v.pendingButtons(c, pending)
 		case readOnly != "" && !passing(readOnly):
 			ui.Row(c).Gap(4).Shrink(1).MinWidth(0).Children(func() {
-				ui.Icon(c, widgets.IconLock).TextColor(pal.Muted).FontSize(12)
-				ui.Text(c, widgets.FirstLine(readOnly)).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1).Tooltip(readOnly)
-				if strings.Contains(readOnly, "virtual key") && ui.Link(c, "Define a Virtual Key…", "").FontSize(12).Clicked() {
+				ui.Icon(c, widgets.IconLock).TextColor(pal.Muted).FontSize(widgets.IconSmall)
+				ui.Text(c, widgets.FirstLine(readOnly)).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Shrink(1).Tooltip(readOnly)
+				if strings.Contains(readOnly, "virtual key") && ui.Link(c, "Define a Virtual Key…", "").FontSize(widgets.TextSmall).Clicked() {
 					openKeyForm(a, v)
 				}
 			})
 		}
 		ui.Spacer(c)
 		if stats := v.grid.SelectionStats(&v.src); stats != "" {
-			ui.Text(c, stats).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1).Selectable()
+			ui.Text(c, stats).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Shrink(1).Selectable()
 		}
 		// One phrase: "500 of ≈2.5k rows loaded", the count or the
 		// estimate of the table's rows its total.
@@ -1530,7 +1530,7 @@ func (v *Viewer) View(c *ui.Context) {
 		}
 		// The phrase, then what more there is to do with the rows.
 		ui.Row(c).Gap(6).Children(func() {
-			muted := func(s string) ui.Element { return ui.Text(c, s).FontSize(12).TextColor(pal.Muted) }
+			muted := func(s string) ui.Element { return ui.Text(c, s).FontSize(widgets.TextSmall).TextColor(pal.Muted) }
 			// The time ends the phrase, a word's space after it.
 			ui.Row(c).Gap(4).Children(func() {
 				muted(status)
@@ -1606,7 +1606,7 @@ func (v *Viewer) editButtons(c *ui.Context, readOnly string) {
 // what is done with them. The keys are in the tooltips: labels short
 // enough to scan.
 func (v *Viewer) pendingButtons(c *ui.Context, n int) {
-	ui.Text(c, fmt.Sprintf("%d pending change%s", n, widgets.Plural(n))).Bold().FontSize(12).SingleLine().Shrink(0).
+	ui.Text(c, fmt.Sprintf("%d pending change%s", n, widgets.Plural(n))).Bold().FontSize(widgets.TextSmall).SingleLine().Shrink(0).
 		Tooltip("Nothing is written until you review and apply.")
 	undoWhy := ""
 	if len(v.grid.undoStack) == 0 {
@@ -2312,8 +2312,8 @@ func keyFormView(a Host, c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	dlg := widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(460).Gap(10).Children(func() {
-			ui.Text(c, "Virtual Key of "+f.v.source.Table.Name).FontSize(15).Bold()
-			ui.Text(c, "Choose the columns whose values tell each row apart. The key is kept in "+project.File+" for the team; each change must still match exactly one row.").FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, "Virtual Key of "+f.v.source.Table.Name).FontSize(widgets.TextTitle).Bold()
+			ui.Text(c, "Choose the columns whose values tell each row apart. The key is kept in "+project.File+" for the team; each change must still match exactly one row.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			ui.Scroll(c).MaxHeight(300).Children(func() {
 				ui.Column(c).Gap(4).Children(func() {
 					for i, col := range f.v.columns {
@@ -2322,7 +2322,7 @@ func keyFormView(a Host, c *ui.Context) {
 				})
 			})
 			if f.err != "" {
-				ui.Text(c, f.err).FontSize(12).TextColor(c.Theme().Danger)
+				ui.Text(c, f.err).FontSize(widgets.TextSmall).TextColor(c.Theme().Danger)
 			}
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 				if ui.Button(c, "Remove the Key").Clicked() {

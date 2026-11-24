@@ -51,10 +51,10 @@ func (a *App) whatsNewView(c *ui.Context) {
 	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
 		widgets.DialogLook(c, backdrop, panel)
 		_, h := c.Size()
-		panel.Width(760).MaxHeight(min(680, h-60)).Radius(12).Background(th.Background).Border(1, th.Border).Clip().Label("What's New in DGopher")
+		panel.Width(760).MaxHeight(min(680, h-60)).Radius(widgets.RadiusLarge).Background(th.Background).Border(1, th.Border).Clip().Label("What's New in DGopher")
 		ui.Row(c).Padding(14, 20).AlignItems(ui.Baseline).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Text(c, "What's New in DGopher "+v).FontSize(16).Bold().Grow(1)
-			ui.Text(c, "Esc to close").FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, "What's New in DGopher "+v).FontSize(widgets.TextTitle).Bold().Grow(1)
+			ui.Text(c, "Esc to close").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 		})
 		ui.Scroll(c).Shrink(1).Children(func() {
 			ui.Column(c).Padding(16, 20).FillWidth().Children(func() {

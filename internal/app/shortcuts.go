@@ -40,10 +40,10 @@ func (a *App) shortcutsView(c *ui.Context) {
 	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
 		widgets.DialogLook(c, backdrop, panel)
 		_, h := c.Size()
-		panel.Width(760).Height(min(680, h-60)).Radius(12).Background(th.Background).Border(1, th.Border).Clip().Label("Keyboard shortcuts")
+		panel.Width(760).Height(min(680, h-60)).Radius(widgets.RadiusLarge).Background(th.Background).Border(1, th.Border).Clip().Label("Keyboard shortcuts")
 		ui.Row(c).Padding(14, 20).AlignItems(ui.Baseline).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Text(c, "Keyboard Shortcuts").FontSize(16).Bold().Grow(1)
-			ui.Text(c, "Change them in Settings · "+keymap.Label(keymap.ShortcutsList)+" or Esc to close").FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, "Keyboard Shortcuts").FontSize(widgets.TextTitle).Bold().Grow(1)
+			ui.Text(c, "Change them in Settings · "+keymap.Label(keymap.ShortcutsList)+" or Esc to close").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 		})
 		ui.Row(c).Padding(10, 20, 0, 20).Children(func() {
 			widgets.SearchBox(c, &a.shortcutsFind, "Find a key or a command", 0).AutoFocus()
@@ -56,11 +56,11 @@ func (a *App) shortcutsView(c *ui.Context) {
 						continue
 					}
 					ui.Column(c).Gap(6).Children(func() {
-						ui.Text(c, scope.Label()).Bold().TextColor(pal.Muted).FontSize(12)
+						ui.Text(c, scope.Label()).Bold().TextColor(pal.Muted).FontSize(widgets.TextSmall)
 						for _, k := range rows {
 							ui.Row(c).Gap(10).AlignItems(ui.Start).Children(func() {
-								ui.Text(c, k[0]).Font(widgets.MonoFont).FontSize(11.5).Padding(2, 6).Radius(4).Background(pal.Hover).MinWidth(64)
-								ui.Text(c, widgets.KeyLabel(k[1])).FontSize(12.5).Grow(1).Shrink(1)
+								ui.Text(c, k[0]).Font(widgets.MonoFont).FontSize(widgets.TextMeta).Padding(2, 6).Radius(widgets.RadiusSmall).Background(pal.Hover).MinWidth(64)
+								ui.Text(c, widgets.KeyLabel(k[1])).FontSize(widgets.TextBody).Grow(1).Shrink(1)
 							})
 						}
 					})

@@ -302,7 +302,7 @@ func (r *Tab) bulkView(c *ui.Context) {
 	dlg := widgets.Modal(c, &b.open, func() {
 		ui.Column(c).Width(560).Gap(12).Children(func() {
 			title := map[bulkKind]string{bulkDelete: "Delete Keys", bulkExport: "Export Keys", bulkImport: "Import Keys"}[b.kind]
-			ui.Text(c, title+" · "+r.conn.Config.Name).FontSize(15).Bold()
+			ui.Text(c, title+" · "+r.conn.Config.Name).FontSize(widgets.TextTitle).Bold()
 			ui.Form(c, func() {
 				if b.kind != bulkImport {
 					ui.Field(c, "Matching", func() {
@@ -313,7 +313,7 @@ func (r *Tab) bulkView(c *ui.Context) {
 				} else {
 					ui.Field(c, "File", func() {
 						ui.Row(c).Gap(6).Children(func() {
-							ui.Text(c, b.path).Font(widgets.MonoFont).FontSize(12).SingleLine().TruncateStart().Grow(1).Shrink(1)
+							ui.Text(c, b.path).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine().TruncateStart().Grow(1).Shrink(1)
 							if ui.Button(c, "Choose…").Disabled(b.running).Clicked() {
 								r.chooseImport(b)
 							}
@@ -330,9 +330,9 @@ func (r *Tab) bulkView(c *ui.Context) {
 				if len(b.sample) > 0 {
 					text += ", as " + strings.Join(b.sample, ", ")
 				}
-				ui.Text(c, text+".").FontSize(12.5).SingleLine()
+				ui.Text(c, text+".").FontSize(widgets.TextBody).SingleLine()
 			case b.kind == bulkImport && b.dumps != nil:
-				ui.Text(c, fmt.Sprintf("%s keys in the file.", widgets.HumanCount(int64(len(b.dumps))))).FontSize(12.5)
+				ui.Text(c, fmt.Sprintf("%s keys in the file.", widgets.HumanCount(int64(len(b.dumps))))).FontSize(widgets.TextBody)
 			}
 			if b.err != "" {
 				ui.Text(c, b.err).TextColor(th.Danger).Selectable()
@@ -342,7 +342,7 @@ func (r *Tab) bulkView(c *ui.Context) {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				if b.running {
 					if b.done > 0 {
-						ui.Text(c, widgets.HumanCount(b.done)+" keys…").FontSize(12).TextColor(pal.Muted)
+						ui.Text(c, widgets.HumanCount(b.done)+" keys…").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 					}
 				}
 				ui.Spacer(c)

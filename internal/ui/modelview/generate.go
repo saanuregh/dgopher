@@ -79,7 +79,7 @@ func (t *Tab) generateView(c *ui.Context) {
 	}
 	dlg := widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(720).Height(560).Gap(12).Children(func() {
-			ui.Text(c, "Generate DDL").FontSize(15).Bold()
+			ui.Text(c, "Generate DDL").FontSize(widgets.TextTitle).Bold()
 			ui.Row(c).Gap(12).Children(func() {
 				ui.Field(c, "Engine", func() {
 					ui.Select(c, &f.engine, f.engines).Label("Engine").Width(180).AutoFocus()
@@ -89,14 +89,14 @@ func (t *Tab) generateView(c *ui.Context) {
 				}).Description("The tables are made in it, and their keys point into it.")
 			})
 			if f.notes {
-				ui.Text(c, "The script leaves out what "+to.Label()+" cannot have of the model; its first lines say what.").FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, "The script leaves out what "+to.Label()+" cannot have of the model; its first lines say what.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			}
-			ui.Scroll(c).Grow(1).Background(pal.EditorBg).Radius(4).Children(func() {
-				ui.Text(c, widgets.TextStart(text, previewBytes)).Font(widgets.MonoFont).FontSize(12).Selectable().Padding(8)
+			ui.Scroll(c).Grow(1).Background(pal.EditorBg).Radius(widgets.RadiusSmall).Children(func() {
+				ui.Text(c, widgets.TextStart(text, previewBytes)).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Selectable().Padding(8)
 			})
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				if len(conns) > 0 {
-					ui.Text(c, "Open in an editor of").FontSize(12.5).TextColor(pal.Muted)
+					ui.Text(c, "Open in an editor of").FontSize(widgets.TextBody).TextColor(pal.Muted)
 					ui.Select(c, &f.conn, names).Label("Connection").Width(200)
 				}
 				ui.Spacer(c)

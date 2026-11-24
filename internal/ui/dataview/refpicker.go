@@ -153,9 +153,9 @@ func refPickerView(a Host, c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	ui.DialogBase(c, &p.open, func(backdrop, panel ui.Element) {
 		widgets.DialogLook(c, backdrop, panel)
-		panel.Width(720).Height(520).Radius(12).Background(th.Background).Border(1, th.Border).Clip().Label("Choose a value")
+		panel.Width(720).Height(520).Radius(widgets.RadiusLarge).Background(th.Background).Border(1, th.Border).Clip().Label("Choose a value")
 		ui.Row(c).Padding(12, 16).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Text(c, p.v.src.Cols[p.col].Name+" → "+p.fk.RefTable).FontSize(15).Bold().SingleLine().Shrink(1)
+			ui.Text(c, p.v.src.Cols[p.col].Name+" → "+p.fk.RefTable).FontSize(widgets.TextTitle).Bold().SingleLine().Shrink(1)
 			in := widgets.SearchBox(c, &p.search, "Search the key or the text, then Enter", 0).AutoFocus().Grow(1)
 			if widgets.ListKeys(in, &p.sel, len(p.rows), &p.list, 0) {
 				if strings.TrimSpace(p.search) != p.searched {
@@ -170,7 +170,7 @@ func refPickerView(a Host, c *ui.Context) {
 		}
 		ui.Row(c).Padding(6, 16).Gap(12).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			for i, name := range p.cols {
-				t := ui.Text(c, name).FontSize(12).Bold().TextColor(pal.Muted).SingleLine()
+				t := ui.Text(c, name).FontSize(widgets.TextSmall).Bold().TextColor(pal.Muted).SingleLine()
 				if i == 0 {
 					t.Width(140)
 				} else {
@@ -209,7 +209,7 @@ func refPickerView(a Host, c *ui.Context) {
 		}
 		ui.Row(c).Padding(10, 16).Gap(8).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 			note := "The first " + strconv.Itoa(refPickerRows) + " rows by key are listed."
-			ui.Text(c, note).FontSize(12).TextColor(pal.Muted).Grow(1)
+			ui.Text(c, note).FontSize(widgets.TextSmall).TextColor(pal.Muted).Grow(1)
 			if ui.Button(c, "Cancel").Clicked() {
 				p.open = false
 			}

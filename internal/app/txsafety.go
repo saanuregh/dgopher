@@ -243,7 +243,7 @@ func (a *App) idleWarningView(c *ui.Context) {
 	choice := -1
 	widgets.Modal(c, &w.open, func() {
 		ui.Column(c).Width(460).Gap(12).Children(func() {
-			ui.Text(c, "Roll back the idle transaction?").FontSize(15).Bold()
+			ui.Text(c, "Roll back the idle transaction?").FontSize(widgets.TextTitle).Bold()
 			ui.Text(c, msg).TextColor(widgets.PaletteOf(c).Muted)
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 				if ui.Button(c, "Keep Open").Clicked() {
@@ -286,8 +286,8 @@ func (a *App) txIndicator(c *ui.Context) {
 	if len(txs) > 1 {
 		label = fmt.Sprintf("%d open transactions", len(txs))
 	}
-	b := widgets.Appear(ui.ButtonBase(c.Key("open-transactions")).Padding(1, 8).Radius(4).Background(c.Theme().Warning.Alpha(0.2)).Label(label))
-	b.Children(func() { ui.Text(c, label).FontSize(12).Bold().ContentTransition(ui.ContentTransition{}) })
+	b := widgets.Appear(ui.ButtonBase(c.Key("open-transactions")).Padding(1, 8).Radius(widgets.RadiusSmall).Background(c.Theme().Warning.Alpha(0.2)).Label(label))
+	b.Children(func() { ui.Text(c, label).FontSize(widgets.TextSmall).Bold().ContentTransition(ui.ContentTransition{}) })
 	b.Menu(func(m *ui.Menu) {
 		for _, h := range txs {
 			age := a.now.Sub(h.Times().Opened).Round(time.Second)

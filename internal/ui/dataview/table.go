@@ -314,7 +314,7 @@ func (t *TableTab) txBar(c *ui.Context) {
 	}
 	if t.InTx() {
 		ui.Row(c).Padding(6, 12).Gap(10).Background(th.Warning.Alpha(0.16)).Children(func() {
-			ui.Icon(c, widgets.IconAlert).TextColor(th.Warning).FontSize(14)
+			ui.Icon(c, widgets.IconAlert).TextColor(th.Warning).FontSize(widgets.IconMedium)
 			ui.Text(c, label).Grow(1)
 			if ui.PrimaryButton(c, "Commit").Disabled(t.view.applying).Tooltip(keymap.Hint("Commit the transaction", keymap.Commit)).Clicked() {
 				t.endOpenTx(true)
@@ -345,14 +345,14 @@ func (t *TableTab) View(c *ui.Context) {
 				if t.Object.Kind != db.KindTable {
 					ic = widgets.IconView
 				}
-				ui.Icon(c, ic).TextColor(pal.Muted).FontSize(widgets.ToolIconSize)
+				ui.Icon(c, ic).TextColor(pal.Muted).FontSize(widgets.IconMedium)
 				ui.Text(c, t.Object.Schema+"."+t.Object.Name).Bold().SingleLine().Shrink(1)
 				if t.Object.Engine != "" {
 					ui.Badge(c, t.Object.Engine)
 				}
 			})
 			ui.Spacer(c)
-			ui.Segmented(c, &t.Page, "Data", "Structure", "DDL", "Diagram").Label("Table page").FontSize(widgets.ToolFontSize)
+			ui.Segmented(c, &t.Page, "Data", "Structure", "DDL", "Diagram").Label("Table page").FontSize(widgets.TextBody)
 		})
 		switch t.Page {
 		case PageData:
@@ -388,7 +388,7 @@ func (t *TableTab) structureView(c *ui.Context, a Host) {
 				t.editStructure()
 			}
 			if why != "" {
-				ui.Text(c, why).FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, why).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			}
 		})
 	}
@@ -413,21 +413,21 @@ func (t *TableTab) structureView(c *ui.Context, a Host) {
 				switch col {
 				case 0:
 					if cl.PrimaryKey {
-						ui.Icon(c, widgets.IconKey).TextColor(c.Theme().Warning).FontSize(12)
+						ui.Icon(c, widgets.IconKey).TextColor(c.Theme().Warning).FontSize(widgets.IconSmall)
 					}
 				case 1:
 					ui.Text(c, cl.Name).Bold().SingleLine()
 				case 2:
-					ui.Text(c, cl.Type).Font(widgets.MonoFont).FontSize(12).SingleLine()
+					ui.Text(c, cl.Type).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine()
 				case 3:
 					if cl.Nullable {
 						ui.Text(c, "yes").TextColor(pal.Muted)
 					} else {
-						ui.Text(c, "NOT NULL").FontSize(11).SingleLine()
+						ui.Text(c, "NOT NULL").FontSize(widgets.TextMeta).SingleLine()
 					}
 				case 4:
 					if cl.HasDefault {
-						ui.Text(c, cl.Default).Font(widgets.MonoFont).FontSize(12).SingleLine()
+						ui.Text(c, cl.Default).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine()
 					}
 				case 5:
 					ui.Text(c, cl.Comment).TextColor(pal.Muted).SingleLine()
@@ -450,7 +450,7 @@ func (t *TableTab) structureView(c *ui.Context, a Host) {
 					ui.Text(c, strings.Join(ix.Columns, ", ")).TextColor(pal.Muted)
 				})
 				if ix.Definition != "" {
-					ui.Text(c, ix.Definition).Font(widgets.MonoFont).FontSize(11.5).TextColor(pal.Muted).Selectable()
+					ui.Text(c, ix.Definition).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted).Selectable()
 				}
 			}
 			if t.fkErr != "" {

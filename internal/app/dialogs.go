@@ -107,10 +107,10 @@ func (a *App) questions(c *ui.Context) {
 	if p := a.prompt; p != nil {
 		widgets.Modal(c, &p.open, func() {
 			ui.Column(c).Width(360).Gap(12).Children(func() {
-				ui.Text(c, "Password for "+p.name).FontSize(15).Bold()
+				ui.Text(c, "Password for "+p.name).FontSize(widgets.TextTitle).Bold()
 				ui.Text(c, p.where).TextColor(pal.Muted)
 				if p.offerKeep {
-					ui.Text(c, "Its password is kept for its server alone, without the proxy, client certificate, jump hosts or identity it now has: type it again to send it with them.").FontSize(12).TextColor(pal.Muted)
+					ui.Text(c, "Its password is kept for its server alone, without the proxy, client certificate, jump hosts or identity it now has: type it again to send it with them.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 				}
 				submit := ui.TextInput(c, &p.password).Password().AutoFocus().Label("Password").Submitted()
 				if p.offerKeep {
@@ -136,9 +136,9 @@ func (a *App) questions(c *ui.Context) {
 	if h := a.hostKey; h != nil {
 		widgets.Modal(c, &h.open, func() {
 			ui.Column(c).Width(460).Gap(12).Children(func() {
-				ui.Text(c, "Trust this SSH server?").FontSize(15).Bold()
+				ui.Text(c, "Trust this SSH server?").FontSize(widgets.TextTitle).Bold()
 				ui.Text(c, h.host+" has not been seen before. Compare its fingerprint with the one its administrator gives, then trust it to connect.")
-				ui.Text(c, h.fingerprint).Font(widgets.MonoFont).FontSize(12).Padding(8).Radius(6).Background(pal.EditorBg).Selectable()
+				ui.Text(c, h.fingerprint).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Padding(8).Radius(widgets.RadiusMedium).Background(pal.EditorBg).Selectable()
 				ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 					if ui.Button(c, "Cancel").Clicked() {
 						h.open = false

@@ -162,7 +162,7 @@ func (a *App) addToDashboardView(c *ui.Context) {
 	th := c.Theme()
 	dlg := widgets.Modal(c, &x.open, func() {
 		ui.Column(c).Width(520).Gap(12).Children(func() {
-			ui.Text(c, "Add to Dashboard").FontSize(15).Bold()
+			ui.Text(c, "Add to Dashboard").FontSize(widgets.TextTitle).Bold()
 			ui.Form(c, func() {
 				ui.Field(c, "Dashboard", func() {
 					ui.Select(c, &x.target, x.choices).Label("Dashboard")
@@ -179,7 +179,7 @@ func (a *App) addToDashboardView(c *ui.Context) {
 					ui.Segmented(c, &x.view, "Chart", "Table", "Value").Label("Shown as")
 				}).Description("A panel runs reads only, and on PostgreSQL and MySQL in a read-only transaction.")
 			})
-			ui.Text(c, widgets.OneLine(x.sql, 200)).Font(widgets.MonoFont).FontSize(12).TextColor(widgets.PaletteOf(c).Muted).SingleLine()
+			ui.Text(c, widgets.OneLine(x.sql, 200)).Font(widgets.MonoFont).FontSize(widgets.TextSmall).TextColor(widgets.PaletteOf(c).Muted).SingleLine()
 			if x.err != "" {
 				ui.Text(c, x.err).TextColor(th.Danger)
 			}

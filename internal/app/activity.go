@@ -243,14 +243,14 @@ func (t *activityTab) View(c *ui.Context) {
 		widgets.Bar(c, "Server activity", func() {
 			if len(t.pages) > 1 {
 				names := lists.Map(t.pages, func(p db.ActivityPage) string { return p.Name })
-				if ui.Segmented(c, &t.page, names...).Label("Page").FontSize(widgets.ToolFontSize).Changed() {
+				if ui.Segmented(c, &t.page, names...).Label("Page").FontSize(widgets.TextBody).Changed() {
 					t.showPage(t.page)
 				}
 			} else {
 				ui.Text(c, "Server activity").Bold()
 			}
 			if !page.Metrics {
-				ui.Text(c, widgets.Count(len(t.src.Rows), "row")).FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, widgets.Count(len(t.src.Rows), "row")).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			}
 			ui.Spacer(c)
 			if page.Live {
@@ -364,9 +364,9 @@ func tilesView(c *ui.Context, tiles [][2]string) {
 	pal := widgets.PaletteOf(c)
 	ui.Row(c).Padding(12).Gap(10).Wrap().Children(func() {
 		for _, tl := range tiles {
-			ui.Column(c).Width(170).Padding(10, 12).Gap(4).Radius(8).Border(1, th.Border).Label(tl[0]).Children(func() {
-				ui.Text(c, tl[0]).FontSize(11).TextColor(pal.Muted)
-				ui.Text(c, tl[1]).FontSize(18).Bold().SingleLine()
+			ui.Column(c).Width(170).Padding(10, 12).Gap(4).Radius(widgets.RadiusLarge).Border(1, th.Border).Label(tl[0]).Children(func() {
+				ui.Text(c, tl[0]).FontSize(widgets.TextMeta).TextColor(pal.Muted)
+				ui.Text(c, tl[1]).FontSize(widgets.TextHeading).Bold().SingleLine()
 			})
 		}
 	})
@@ -376,7 +376,7 @@ func tilesView(c *ui.Context, tiles [][2]string) {
 func (t *activityTab) redisMetrics(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	if t.conn.Config.Redis.Mode == db.RedisCluster {
-		ui.Text(c, "These are the figures, and the clients, of one node of the cluster.").FontSize(12).TextColor(pal.Muted).Padding(12, 12, 0, 12)
+		ui.Text(c, "These are the figures, and the clients, of one node of the cluster.").FontSize(widgets.TextSmall).TextColor(pal.Muted).Padding(12, 12, 0, 12)
 	}
 	tilesView(c, [][2]string{
 		{"Version", t.info["redis_version"]},
@@ -396,7 +396,7 @@ func (t *activityTab) redisMetrics(c *ui.Context) {
 	}
 	sort.Strings(spaces)
 	if len(spaces) > 0 {
-		ui.Text(c, strings.Join(spaces, "\n")).Font(widgets.MonoFont).FontSize(12).TextColor(pal.Muted).Padding(0, 12, 8, 12)
+		ui.Text(c, strings.Join(spaces, "\n")).Font(widgets.MonoFont).FontSize(widgets.TextSmall).TextColor(pal.Muted).Padding(0, 12, 8, 12)
 	}
 }
 

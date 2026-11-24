@@ -264,11 +264,11 @@ func (d *designer) View(c *ui.Context) {
 			case d.applying:
 				widgets.Appear(ui.Text(c.Key("applying"), "Applying…").TextColor(pal.Muted))
 			case err != nil && d.changed():
-				ui.Icon(c, widgets.IconAlert).TextColor(th.Danger).FontSize(13)
-				ui.Text(c, widgets.Sentence(err.Error())).TextColor(th.Danger).FontSize(12.5).Shrink(1)
+				ui.Icon(c, widgets.IconAlert).TextColor(th.Danger).FontSize(widgets.IconMedium)
+				ui.Text(c, widgets.Sentence(err.Error())).TextColor(th.Danger).FontSize(widgets.TextBody).Shrink(1)
 			case len(ch.Steps) > 0 && d.save == nil:
 				ui.Text(c, fmt.Sprintf("%d statement%s to run", len(ch.Statements()), widgets.Plural(len(ch.Statements())))).
-					FontSize(12.5).TextColor(pal.Muted)
+					FontSize(widgets.TextBody).TextColor(pal.Muted)
 			}
 			ui.Spacer(c)
 			if d.applying {
@@ -299,7 +299,7 @@ func (d *designer) columnsView(c *ui.Context) {
 	r, ok := db.SQL(d.engine)
 	autoAllowed, keepsComments := ok && r.HasAutoNumbering(), !ok || r.HasComments()
 	header := func(text string, width float32) {
-		t := ui.Text(c, text).FontSize(11.5).Bold().TextColor(pal.Muted)
+		t := ui.Text(c, text).FontSize(widgets.TextMeta).Bold().TextColor(pal.Muted)
 		if width > 0 {
 			t.Width(width)
 		} else {
@@ -388,7 +388,7 @@ func droppedRow[T any](c *ui.Context, title string, was []T, list *[]T, keys *ro
 	}
 	pal := widgets.PaletteOf(c)
 	ui.Row(c).Gap(8).PaddingY(6).Wrap().Children(func() {
-		ui.Text(c, title+":").FontSize(12).TextColor(pal.Muted)
+		ui.Text(c, title+":").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 		for _, row := range dropped {
 			if ui.Link(c, "Restore "+name(row), "").Clicked() {
 				appendRow(list, keys, row)
@@ -479,7 +479,7 @@ func (d *designer) keysView(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	fixed := d.fixed()
 	if fixed != "" {
-		ui.Text(c, fixed).FontSize(12).TextColor(pal.Muted)
+		ui.Text(c, fixed).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 	}
 	tables := d.tables()
 	remove := -1
@@ -488,7 +488,7 @@ func (d *designer) keysView(c *ui.Context) {
 		ui.Row(c.Key(d.fks.key("fk-", i))).Gap(8).AlignItems(ui.Center).Wrap().Children(func() {
 			if fk.Read {
 				ui.Text(c, fk.Name).Bold().Font(widgets.MonoFont).SingleLine()
-				ui.Text(c, fk.Definition).Font(widgets.MonoFont).FontSize(12).TextColor(pal.Muted).SingleLine().Grow(1).Shrink(1)
+				ui.Text(c, fk.Definition).Font(widgets.MonoFont).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Grow(1).Shrink(1)
 			} else {
 				ui.TextInput(c, &fk.Name).Placeholder("name").Font(widgets.MonoFont).Width(170).Label("Foreign key name")
 				ui.TokenField(c, &fk.Columns, d.columnNames()).Width(180).Label("Columns")
@@ -500,9 +500,9 @@ func (d *designer) keysView(c *ui.Context) {
 					labels = &[2]string{actionLabel(fk.OnDelete), actionLabel(fk.OnUpdate)}
 					d.actions[d.fks.keys[i]] = labels
 				}
-				ui.Text(c, "on delete").FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, "on delete").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 				ui.Select(c, &labels[0], actionLabels).Label("On delete")
-				ui.Text(c, "on update").FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, "on update").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 				ui.Select(c, &labels[1], actionLabels).Label("On update")
 				fk.OnDelete, fk.OnUpdate = actionOf(labels[0]), actionOf(labels[1])
 			}
@@ -530,7 +530,7 @@ func (d *designer) checksView(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	fixed := d.fixed()
 	if fixed != "" {
-		ui.Text(c, fixed).FontSize(12).TextColor(pal.Muted)
+		ui.Text(c, fixed).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 	}
 	remove := -1
 	for i := range d.now.Checks {
@@ -539,7 +539,7 @@ func (d *designer) checksView(c *ui.Context) {
 			if ch.Read {
 				name := cmp.Or(ch.Name, "unnamed")
 				ui.Text(c, name).Bold().Font(widgets.MonoFont).SingleLine()
-				ui.Text(c, ch.Expression).Font(widgets.MonoFont).FontSize(12).TextColor(pal.Muted).SingleLine().Grow(1).Shrink(1)
+				ui.Text(c, ch.Expression).Font(widgets.MonoFont).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Grow(1).Shrink(1)
 			} else {
 				ui.TextInput(c, &ch.Name).Placeholder("name").Font(widgets.MonoFont).Width(200).Label("Check name")
 				ui.TextInput(c, &ch.Expression).Placeholder("price > 0").Font(widgets.MonoFont).Grow(1).Label("Check expression")

@@ -518,7 +518,7 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 				if g.List.CellSelected(r, col) {
 					numColor = theme.Text
 				}
-				num := ui.Text(c, strconv.Itoa(r+1)).FontSize(11).FontFeatures("tnum").TextColor(numColor).SingleLine()
+				num := ui.Text(c, strconv.Itoa(r+1)).FontSize(widgets.TextMeta).FontFeatures("tnum").TextColor(numColor).SingleLine()
 				if g.edits != nil {
 					switch {
 					case data >= len(src.Rows):
@@ -531,7 +531,7 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 			}
 			g.cell(c, a, src, data, visible[col-1])
 		}).Grow(1).Label("Results").Draw(func(_ *ui.Painter, r ui.Rect) { g.viewW = r.W }).
-			FontSize(12) // the header's, a step under the cells', which set their own
+			FontSize(widgets.TextSmall) // the header's, a step under the cells', which set their own
 		c.SetTheme(theme)
 		if g.keysBack && g.List.Focus(c) {
 			g.keysBack = false
@@ -614,7 +614,7 @@ func (g *Grid) cell(c *ui.Context, a Host, src *Source, data, col int) {
 	pal := widgets.PaletteOf(c)
 	t := c.Theme()
 	if e := g.editing; e != nil && e.row == data && e.col == col {
-		in := ui.TextInputBase(c, &e.value).Font(widgets.MonoFont).FontSize(12).FillWidth().Padding(1, 4).
+		in := ui.TextInputBase(c, &e.value).Font(widgets.MonoFont).FontSize(widgets.TextSmall).FillWidth().Padding(1, 4).
 			Background(t.Background).Border(1, t.Focus).Radius(3).Label("Cell value")
 		if !e.focused {
 			in.AutoFocus().Focus()

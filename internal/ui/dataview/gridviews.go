@@ -60,7 +60,7 @@ func (g *Grid) recordView(c *ui.Context, a Host, src *Source, order []int) {
 			if widgets.IconButton(c, widgets.IconPrev, "Previous row").Disabled(g.SelRow == 0).Clicked() {
 				g.SelRow--
 			}
-			ui.Text(c, "Row "+strconv.Itoa(g.SelRow+1)+" of "+strconv.Itoa(len(order))).FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, "Row "+strconv.Itoa(g.SelRow+1)+" of "+strconv.Itoa(len(order))).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			if widgets.IconButton(c, widgets.IconNext, "Next row").Disabled(g.SelRow >= len(order)-1).Clicked() {
 				g.SelRow++
 			}
@@ -75,7 +75,7 @@ func (g *Grid) recordView(c *ui.Context, a Host, src *Source, order []int) {
 		list := ui.Table(c, &g.recList, cols, len(fields), func(r, col int) {
 			field := fields[r]
 			if col == 0 {
-				ui.Text(c, src.Cols[field].Name).FontSize(12.5).Bold().SingleLine()
+				ui.Text(c, src.Cols[field].Name).FontSize(widgets.TextBody).Bold().SingleLine()
 				return
 			}
 			g.cell(c, a, src, data, field)
@@ -103,7 +103,7 @@ func (g *Grid) textView(c *ui.Context, a Host, src *Source, order []int) {
 		g.textKey, g.text = key, g.plainText(a, src, order, 5000)
 	}
 	ui.ScrollBoth(c).Grow(1).Background(pal.EditorBg).Children(func() {
-		ui.Text(c, g.text).Font(widgets.MonoFont).FontSize(12).Padding(10, 12).Selectable().NoWrap()
+		ui.Text(c, g.text).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Padding(10, 12).Selectable().NoWrap()
 	})
 }
 

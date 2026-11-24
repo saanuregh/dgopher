@@ -30,8 +30,8 @@ func ErrorCard(c *ui.Context, r ErrorReport, open *bool, copyText func(string)) 
 	clicked := -1
 	ui.Column(c).Gap(12).Children(func() {
 		ui.Row(c).Gap(8).Children(func() {
-			ui.Icon(c, IconAlert).TextColor(t.Danger).FontSize(16)
-			ui.Text(c, r.Title).FontSize(15).Bold()
+			ui.Icon(c, IconAlert).TextColor(t.Danger).FontSize(IconLarge)
+			ui.Text(c, r.Title).FontSize(TextTitle).Bold()
 		})
 		details := func() {
 			ui.Scroll(c).MaxHeight(300).Children(func() {
@@ -76,7 +76,7 @@ func ErrorBanner(c *ui.Context, r ErrorReport, show func(ErrorReport)) {
 	t := c.Theme()
 	r, line := bannerText(r)
 	ui.Row(c).Padding(6, 12).Gap(10).Background(t.Danger.Alpha(0.12)).Children(func() {
-		ui.Icon(c, IconAlert).TextColor(t.Danger).FontSize(14)
+		ui.Icon(c, IconAlert).TextColor(t.Danger).FontSize(IconMedium)
 		ui.Text(c, line).Grow(1).Shrink(1).Selectable().Tooltip(r.Detail)
 		reportButtons(c, r, show, false)
 	})
@@ -89,8 +89,8 @@ func ErrorBlock(c *ui.Context, r ErrorReport, show func(ErrorReport)) {
 	r, line := bannerText(r)
 	ui.Column(c).Padding(8, 12).Gap(6).Background(t.Danger.Alpha(0.12)).Children(func() {
 		ui.Row(c).Gap(8).Children(func() {
-			ui.Icon(c, IconAlert).TextColor(t.Danger).FontSize(14)
-			ui.Text(c, line).FontSize(12.5).Grow(1).Shrink(1).Selectable().Tooltip(r.Detail)
+			ui.Icon(c, IconAlert).TextColor(t.Danger).FontSize(IconMedium)
+			ui.Text(c, line).FontSize(TextBody).Grow(1).Shrink(1).Selectable().Tooltip(r.Detail)
 		})
 		ui.Row(c).Gap(8).Wrap().Children(func() { reportButtons(c, r, show, true) })
 	})
@@ -112,7 +112,7 @@ func reportButtons(c *ui.Context, r ErrorReport, show func(ErrorReport), compact
 	button := func(c *ui.Context, label string) ui.Element {
 		b := ui.Button(c, label)
 		if compact {
-			b.Padding(3, 10).FontSize(12)
+			b.Padding(3, 10).FontSize(TextSmall)
 		}
 		return b
 	}

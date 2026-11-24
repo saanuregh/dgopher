@@ -171,9 +171,9 @@ func (t *usersTab) View(c *ui.Context) {
 	ui.Column(c).Grow(1).Children(func() {
 		widgets.Bar(c, "Users", func() {
 			widgets.BarTitle(c, func() {
-				ui.Icon(c, widgets.IconUsers).TextColor(pal.Muted).FontSize(widgets.ToolIconSize)
+				ui.Icon(c, widgets.IconUsers).TextColor(pal.Muted).FontSize(widgets.IconMedium)
 				ui.Text(c, "Users and roles").Bold()
-				ui.Text(c, fmt.Sprintf("%d", len(t.accounts))).FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, fmt.Sprintf("%d", len(t.accounts))).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			})
 			ui.Spacer(c)
 			if ui.Button(c, "New User…").Clicked() {
@@ -214,7 +214,7 @@ func (t *usersTab) View(c *ui.Context) {
 func (t *usersTab) accountRow(c *ui.Context, i int, acc db.Account) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	row := ui.ButtonBase(c.Key("account-"+acc.Label())).Padding(6, 8).Radius(6).Label(acc.Label())
+	row := ui.ButtonBase(c.Key("account-"+acc.Label())).Padding(6, 8).Radius(widgets.RadiusMedium).Label(acc.Label())
 	if i == t.sel {
 		row.Background(th.Accent.Alpha(0.15))
 	} else if row.Hovered() {
@@ -225,10 +225,10 @@ func (t *usersTab) accountRow(c *ui.Context, i int, acc db.Account) {
 		if acc.Role {
 			icon = widgets.IconUsers
 		}
-		ui.Icon(c, icon).FontSize(13).TextColor(pal.Muted)
+		ui.Icon(c, icon).FontSize(widgets.IconMedium).TextColor(pal.Muted)
 		ui.Text(c, acc.Label()).SingleLine().Grow(1).Shrink(1)
 		if acc.Role {
-			ui.Text(c, "role").FontSize(11).TextColor(pal.Muted)
+			ui.Text(c, "role").FontSize(widgets.TextMeta).TextColor(pal.Muted)
 		}
 	})
 	if row.Clicked() && i != t.sel {
@@ -244,7 +244,7 @@ func (t *usersTab) accountView(c *ui.Context, acc db.Account) {
 	pal := widgets.PaletteOf(c)
 	d := t.conn.DB().Dialect
 	ui.Row(c).Padding(10, 16).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-		ui.Text(c, acc.Label()).FontSize(16).Bold().Grow(1).Shrink(1)
+		ui.Text(c, acc.Label()).FontSize(widgets.TextTitle).Bold().Grow(1).Shrink(1)
 		if !acc.Role && ui.Button(c, "Change Password…").Clicked() {
 			t.openForm(formPassword)
 		}
@@ -268,14 +268,14 @@ func (t *usersTab) accountView(c *ui.Context, acc db.Account) {
 			}
 			ui.Text(c, "Privileges").Bold()
 			if r, ok := db.SQL(t.conn.Config.Engine); ok && r.AccountForm().PrivilegesNote != "" {
-				ui.Text(c, r.AccountForm().PrivilegesNote).FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, r.AccountForm().PrivilegesNote).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			}
 			if len(t.privs) == 0 {
 				ui.Text(c, "None.").TextColor(pal.Muted)
 			}
 			for i, p := range t.privs {
 				ui.Row(c.Key(fmt.Sprint("priv-", i))).Gap(8).Children(func() {
-					ui.Text(c, p.Text).Font(widgets.MonoFont).FontSize(12).Grow(1).Shrink(1).Selectable()
+					ui.Text(c, p.Text).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Grow(1).Shrink(1).Selectable()
 					if p.Revoke != "" && ui.Button(c, "Revoke").Label("Revoke "+p.Text).Clicked() {
 						t.apply("Revoke from "+acc.Label(), []string{p.Revoke})
 					}
@@ -309,7 +309,7 @@ func (t *usersTab) formView(c *ui.Context) {
 		formJoinRole: "Add " + f.account.Label() + " to a Role"}
 	dlg := widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(520).Gap(12).Children(func() {
-			ui.Text(c, titles[f.kind]).FontSize(15).Bold()
+			ui.Text(c, titles[f.kind]).FontSize(widgets.TextTitle).Bold()
 			ui.Form(c, func() {
 				switch f.kind {
 				case formNewUser, formNewRole:

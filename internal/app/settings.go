@@ -116,9 +116,9 @@ func (a *App) settingsView(c *ui.Context) {
 	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
 		widgets.DialogLook(c, backdrop, panel)
 		_, winH := c.Size()
-		panel.Width(640).Height(min(620, winH-40)).Radius(12).Background(th.Background).Border(1, th.Border).Role(ui.RoleDialog).Label("Settings")
+		panel.Width(640).Height(min(620, winH-40)).Radius(widgets.RadiusLarge).Background(th.Background).Border(1, th.Border).Role(ui.RoleDialog).Label("Settings")
 		ui.Row(c).Padding(16, 20, 8, 20).Children(func() {
-			ui.Text(c, "Settings").FontSize(16).Bold()
+			ui.Text(c, "Settings").FontSize(widgets.TextTitle).Bold()
 		})
 		ui.Row(c).Padding(0, 20).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Tabs(c, &a.settingsPage, settingsPages...).Label("Settings pages")
@@ -345,8 +345,8 @@ func (a *App) storagePage(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	ui.Field(c, "Folder", func() {
 		ui.Column(c).Gap(6).Children(func() {
-			ui.Text(c, a.st.Dir()).Font(widgets.MonoFont).FontSize(12).Selectable()
-			ui.Text(c, "App settings, the destinations you trusted, and SSH host keys. Everything else is in each project's folder: "+project.File+" and queries to share, and "+project.LocalDir+"/ (ignored by Git) for history, open files and the audit log.").FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, a.st.Dir()).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Selectable()
+			ui.Text(c, "App settings, the destinations you trusted, and SSH host keys. Everything else is in each project's folder: "+project.File+" and queries to share, and "+project.LocalDir+"/ (ignored by Git) for history, open files and the audit log.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			ui.Row(c).Children(func() {
 				if ui.Button(c, "Show in Folder").Clicked() {
 					mygo.Shell.OpenPath(a.st.Dir())
@@ -359,6 +359,6 @@ func (a *App) storagePage(c *ui.Context) {
 		keychain = "No system keychain is available: passwords are never saved, and asked on connect."
 	}
 	ui.Field(c, "Passwords", func() {
-		ui.Text(c, keychain).FontSize(12.5)
+		ui.Text(c, keychain).FontSize(widgets.TextBody)
 	})
 }

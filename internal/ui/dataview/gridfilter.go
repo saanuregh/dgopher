@@ -364,9 +364,9 @@ func filterPromptView(a Host, c *ui.Context) {
 	f := a.Dialogs().filterPrompt
 	widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(420).Gap(10).Children(func() {
-			ui.Text(c, "Filter: "+f.label).FontSize(15).Bold()
+			ui.Text(c, "Filter: "+f.label).FontSize(widgets.TextTitle).Bold()
 			submit := ui.TextInput(c, &f.value).AutoFocus().Font(widgets.MonoFont).Label("Value").Submitted()
-			ui.Text(c, "A number when it reads as one, else text.").FontSize(12).TextColor(widgets.PaletteOf(c).Muted)
+			ui.Text(c, "A number when it reads as one, else text.").FontSize(widgets.TextSmall).TextColor(widgets.PaletteOf(c).Muted)
 			if widgets.DialogFooter(c, &f.open, "Filter", submit) {
 				f.open = false
 				f.apply(f.value)
@@ -445,7 +445,7 @@ func distinctView(a Host, c *ui.Context) {
 	}
 	dlg := widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(520).Height(520).Gap(10).Children(func() {
-			ui.Text(c, "Filter "+f.name+" by its values").FontSize(15).Bold()
+			ui.Text(c, "Filter "+f.name+" by its values").FontSize(widgets.TextTitle).Bold()
 			ui.Row(c).Children(func() { widgets.SearchBox(c, &f.search, "Find a value", 0).AutoFocus() })
 			switch {
 			case f.loading:
@@ -460,11 +460,11 @@ func distinctView(a Host, c *ui.Context) {
 						if v.v == nil {
 							text.TextColor(pal.Null).Italic()
 						}
-						ui.Text(c, fmt.Sprint(v.count)).FontSize(12).TextColor(pal.Muted)
+						ui.Text(c, fmt.Sprint(v.count)).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 					})
-				}).Grow(1).Border(1, th.Border).Radius(6)
+				}).Grow(1).Border(1, th.Border).Radius(widgets.RadiusMedium)
 				if len(f.values) == maxDistinct {
-					ui.Text(c, fmt.Sprintf("The %d most frequent values.", maxDistinct)).FontSize(12).TextColor(pal.Muted)
+					ui.Text(c, fmt.Sprintf("The %d most frequent values.", maxDistinct)).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 				}
 			}
 			ui.Row(c).Gap(8).Children(func() {

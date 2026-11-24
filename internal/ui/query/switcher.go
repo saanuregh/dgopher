@@ -42,7 +42,7 @@ func (q *Tab) switcherView(c *ui.Context) {
 		// a copy, which shows the database switched to only once it is.
 		database := q.currentDatabase()
 		if ui.Select(c, &database, cn.Databases).Label("Database").Tooltip("The database the editor works in").
-			FontSize(widgets.ToolFontSize).Changed() { // as the toolbar's buttons, as tall
+			FontSize(widgets.TextBody).Changed() { // as the toolbar's buttons, as tall
 			q.switchDatabase(database)
 		}
 	}
@@ -55,7 +55,7 @@ func (q *Tab) switcherView(c *ui.Context) {
 	}
 	current := q.currentSchema()
 	if ui.Select(c, &current, schemas).Label("Schema").Tooltip("The schema unqualified names are found in").
-		FontSize(widgets.ToolFontSize).Changed() {
+		FontSize(widgets.TextBody).Changed() {
 		q.switchSchema(current)
 	}
 }

@@ -197,7 +197,8 @@ func UseTheme(t *Theme) {
 // ApplyTheme sets the window's theme for the frame: the theme in use,
 // whatever the window's darkness, which a system's dark appearance may
 // keep though a light one was asked for, as on Linux; with the interface
-// font, "" for the system's.
+// font, "" for the system's, and text of the body's size, which the
+// toolkit has differ from one system to the next.
 func ApplyTheme(c *ui.Context, font string) {
 	root = *c.Theme()
 	if look != nil {
@@ -205,7 +206,7 @@ func ApplyTheme(c *ui.Context, font string) {
 	} else {
 		warmNeutrals(&root, c.Preferences().HighContrast)
 	}
-	root.Font = font
+	root.Font, root.FontSize = font, TextBody
 	c.SetTheme(&root)
 }
 

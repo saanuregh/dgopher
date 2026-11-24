@@ -2014,7 +2014,7 @@ func (q *Tab) txBar(c *ui.Context) {
 		col = t.Danger
 	}
 	widgets.AppearBar(ui.Row(c.Key("tx-bar")).Padding(6, 12).Gap(10).Background(col.Alpha(0.16)).BorderWidth(0, 0, 1, 0).BorderColor(col)).Children(func() {
-		ui.Icon(c, widgets.IconAlert).TextColor(col).FontSize(14)
+		ui.Icon(c, widgets.IconAlert).TextColor(col).FontSize(widgets.IconMedium)
 		ui.Text(c, label).Grow(1).Shrink(1)
 		if (q.Tx == db.TxOpen || q.InsideTx == db.TxOpen) && widgets.Appear(ui.PrimaryButton(c.Key("commit"), "Commit")).Disabled(q.Busy()).Tooltip(keymap.Hint("Commit the transaction", keymap.Commit)).Clicked() {
 			q.endOpenTx(true)
@@ -2030,7 +2030,7 @@ func (q *Tab) txBar(c *ui.Context) {
 func (q *Tab) autocommitBar(c *ui.Context) {
 	t := c.Theme()
 	widgets.AppearBar(ui.Row(c.Key("autocommit-bar")).Padding(6, 12).Gap(10).Background(t.Surface).BorderWidth(0, 0, 1, 0).BorderColor(t.Border)).Children(func() {
-		ui.Icon(c, widgets.IconClock).TextColor(widgets.PaletteOf(c).Muted).FontSize(14)
+		ui.Icon(c, widgets.IconClock).TextColor(widgets.PaletteOf(c).Muted).FontSize(widgets.IconMedium)
 		ui.Text(c, "Autocommit is off: the next statement that reads or writes a table begins a transaction.").Grow(1).Shrink(1)
 	})
 }
@@ -2414,7 +2414,7 @@ func (q *Tab) messagesView(c *ui.Context) {
 		ui.Column(c).Grow(1).Center().Gap(8).Children(func() {
 			for _, k := range []struct{ what, id string }{{"Run a statement", keymap.Run}, {"Run the script", keymap.RunScript}} {
 				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, k.what).FontSize(13).TextColor(pal.Muted)
+					ui.Text(c, k.what).FontSize(widgets.TextBody).TextColor(pal.Muted)
 					if key := keymap.First(k.id); key != "" {
 						widgets.Keycap(c, key)
 					}
@@ -2429,7 +2429,7 @@ func (q *Tab) messagesView(c *ui.Context) {
 				m := q.messages[i]
 				ui.Column(c).Gap(2).Children(func() {
 					ui.Row(c).Gap(8).Children(func() {
-						ui.Text(c, m.at.Format("15:04:05")).FontSize(11).TextColor(pal.Muted).Font(widgets.MonoFont)
+						ui.Text(c, m.at.Format("15:04:05")).FontSize(widgets.TextMeta).TextColor(pal.Muted).Font(widgets.MonoFont)
 						txt := ui.Text(c, m.text).Selectable().Grow(1).Shrink(1)
 						if m.err {
 							txt.TextColor(t.Danger)
@@ -2439,7 +2439,7 @@ func (q *Tab) messagesView(c *ui.Context) {
 						}
 					})
 					if m.sql != "" {
-						ui.Text(c, widgets.OneLine(m.sql, 160)).Font(widgets.MonoFont).FontSize(11).TextColor(pal.Muted).SingleLine()
+						ui.Text(c, widgets.OneLine(m.sql, 160)).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted).SingleLine()
 					}
 				})
 			}
@@ -2491,7 +2491,7 @@ func (q *Tab) Flush(force bool) {
 func (q *Tab) conflictBar(c *ui.Context) {
 	t := c.Theme()
 	widgets.AppearBar(ui.Row(c.Key("conflict-bar")).Padding(6, 12).Gap(10).Background(t.Warning.Alpha(0.16))).Children(func() {
-		ui.Icon(c, widgets.IconAlert).TextColor(t.Warning).FontSize(14)
+		ui.Icon(c, widgets.IconAlert).TextColor(t.Warning).FontSize(widgets.IconMedium)
 		ui.Text(c, filepath.Base(q.Path)+" "+q.DiskConflict+": the editor's text is not saved.").Grow(1).Shrink(1).SingleLine().Tooltip(q.Path)
 		if disk, err := os.ReadFile(q.Path); err == nil {
 			if ui.Button(c, "Reload").Tooltip("Replace the editor's text with the file's").Clicked() {
@@ -2531,7 +2531,7 @@ func (q *Tab) headerBar(c *ui.Context, id string, exists bool) {
 		msg = fmt.Sprintf("This file names the connection %s, which is not a SQL connection of %s: fix its first lines to run it.", id, q.Conn.Project.Name)
 	}
 	widgets.AppearBar(ui.Row(c.Key("header-bar")).Padding(6, 12).Gap(10).Background(col.Alpha(0.16))).Children(func() {
-		ui.Icon(c, widgets.IconAlert).TextColor(col).FontSize(14)
+		ui.Icon(c, widgets.IconAlert).TextColor(col).FontSize(widgets.IconMedium)
 		ui.Text(c, msg).Grow(1).Shrink(1)
 		if exists && ui.Button(c, "Switch to "+id).Disabled(q.Busy()).Clicked() {
 			q.a.SwitchConnection(q, id)
@@ -2641,22 +2641,22 @@ func (q *Tab) errorPanel(c *ui.Context, r *result) {
 	ui.Scroll(c).Grow(1).Children(func() {
 		ui.Column(c).Padding(16, 20).Gap(12).MaxWidth(900).Children(func() {
 			ui.Row(c).Gap(10).Children(func() {
-				ui.Icon(c, widgets.IconAlert).TextColor(t.Danger).FontSize(18)
-				ui.Text(c, info.Message).FontSize(15).Bold().Selectable().Grow(1).Shrink(1)
+				ui.Icon(c, widgets.IconAlert).TextColor(t.Danger).FontSize(widgets.IconLarge)
+				ui.Text(c, info.Message).FontSize(widgets.TextTitle).Bold().Selectable().Grow(1).Shrink(1)
 			})
 			if r.errHint != "" {
-				ui.Text(c, r.errHint).FontSize(13).TextColor(pal.Muted).Selectable()
+				ui.Text(c, r.errHint).FontSize(widgets.TextBody).TextColor(pal.Muted).Selectable()
 			}
 			field := func(label, value string) {
 				if value == "" {
 					return
 				}
 				ui.Row(c).Gap(12).Children(func() {
-					ui.Text(c, label).FontSize(12).TextColor(pal.Muted).Width(70)
-					v := ui.Text(c, value).FontSize(13).Selectable().Grow(1).Shrink(1)
+					ui.Text(c, label).FontSize(widgets.TextSmall).TextColor(pal.Muted).Width(70)
+					v := ui.Text(c, value).FontSize(widgets.TextBody).Selectable().Grow(1).Shrink(1)
 					// A detail that points with a caret needs its columns.
 					if strings.Contains(value, "\n") {
-						v.Font(widgets.MonoFont).FontSize(12)
+						v.Font(widgets.MonoFont).FontSize(widgets.TextSmall)
 					}
 				})
 			}
@@ -2669,7 +2669,7 @@ func (q *Tab) errorPanel(c *ui.Context, r *result) {
 				where = fmt.Sprintf("line %d, column %d", line+1, col+1)
 			}
 			field("Where", where)
-			ui.Text(c, r.sql).Font(widgets.MonoFont).FontSize(12).Padding(10).Radius(6).Background(pal.EditorBg).Selectable()
+			ui.Text(c, r.sql).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Padding(10).Radius(widgets.RadiusMedium).Background(pal.EditorBg).Selectable()
 			ui.Row(c).Gap(8).Children(func() {
 				if where != "" && ui.PrimaryButton(c, "Go to Error").Clicked() {
 					q.goToError(r)

@@ -563,7 +563,7 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 					r.rescan()
 				}
 				ui.Spacer(c)
-				ui.Text(c, fmt.Sprintf("%d of %d keys", len(r.keys), r.dbsize)).FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, fmt.Sprintf("%d of %d keys", len(r.keys), r.dbsize)).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			})
 		})
 		if r.scanErr != "" {
@@ -585,16 +585,16 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 						if i := strings.LastIndex(parent, sep); i >= 0 {
 							parent = parent[i+len(sep):]
 						}
-						ui.Icon(c, widgets.IconSchema).TextColor(pal.Muted).FontSize(12)
+						ui.Icon(c, widgets.IconSchema).TextColor(pal.Muted).FontSize(widgets.IconSmall)
 						ui.Text(c, parent).SingleLine().Grow(1).Shrink(1)
-						ui.Text(c, strconv.Itoa(r.countUnder(n))).FontSize(11).TextColor(pal.Muted)
+						ui.Text(c, strconv.Itoa(r.countUnder(n))).FontSize(widgets.TextMeta).TextColor(pal.Muted)
 						return
 					}
 					name := n
 					if i := strings.LastIndex(strings.TrimSuffix(n, sep), sep); i >= 0 {
 						name = n[i+len(sep):]
 					}
-					ui.Icon(c, widgets.IconKey).TextColor(pal.Muted).FontSize(12)
+					ui.Icon(c, widgets.IconKey).TextColor(pal.Muted).FontSize(widgets.IconSmall)
 					ui.Text(c, name).SingleLine().Grow(1).Shrink(1).Tooltip(n)
 				})
 			}).Grow(1).Label("Keys")
@@ -612,7 +612,7 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 		}
 		ui.Row(c).Padding(6, 8).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 			if r.scanDone && !r.scanning {
-				widgets.Appear(ui.Text(c.Key("scan-complete"), "Scan complete").FontSize(12).TextColor(pal.Muted))
+				widgets.Appear(ui.Text(c.Key("scan-complete"), "Scan complete").FontSize(widgets.TextSmall).TextColor(pal.Muted))
 				return
 			}
 			// One button, so its label eases from Scan More to Scanning….
@@ -650,7 +650,7 @@ func (r *Tab) keyView(c *ui.Context, a Host) {
 	pal := widgets.PaletteOf(c)
 	if r.selected == "" {
 		ui.Column(c).Fill().Center().Gap(6).Children(func() {
-			ui.Icon(c, widgets.IconKey).FontSize(28).TextColor(pal.Muted)
+			ui.Icon(c, widgets.IconKey).FontSize(widgets.IconDisplay).TextColor(pal.Muted)
 			ui.Text(c, "Choose a key").TextColor(pal.Muted)
 		})
 		return
@@ -696,8 +696,8 @@ func (r *Tab) keyView(c *ui.Context, a Host) {
 			ui.Row(c).Gap(14).Children(func() {
 				meta := func(label, value string) {
 					ui.Row(c).Gap(4).Children(func() {
-						ui.Text(c, label).FontSize(12).TextColor(pal.Muted)
-						ui.Text(c, value).FontSize(12)
+						ui.Text(c, label).FontSize(widgets.TextSmall).TextColor(pal.Muted)
+						ui.Text(c, value).FontSize(widgets.TextSmall)
 					})
 				}
 				unit := "items"
@@ -714,14 +714,14 @@ func (r *Tab) keyView(c *ui.Context, a Host) {
 				}
 				meta("TTL", ttl)
 				if r.info.Type == "none" {
-					ui.Text(c, "This key no longer exists.").FontSize(12).TextColor(th.Warning)
+					ui.Text(c, "This key no longer exists.").FontSize(widgets.TextSmall).TextColor(th.Warning)
 				}
 				ui.Spacer(c)
 				if r.ttlErr != "" {
-					ui.Text(c, r.ttlErr).FontSize(12).TextColor(th.Danger)
+					ui.Text(c, r.ttlErr).FontSize(widgets.TextSmall).TextColor(th.Danger)
 				}
 				if !r.conn.Config.ReadOnly {
-					ui.TextInput(c, &r.ttlIn).Placeholder("TTL seconds").Width(110).FontSize(12).Label("TTL in seconds")
+					ui.TextInput(c, &r.ttlIn).Placeholder("TTL seconds").Width(110).FontSize(widgets.TextSmall).Label("TTL in seconds")
 					if ui.Button(c, "Set TTL").Clicked() {
 						r.ttlErr = ""
 						if secs, err := strconv.Atoi(strings.TrimSpace(r.ttlIn)); err == nil && secs > 0 {
@@ -782,7 +782,7 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 					if f := decode.Detect([]byte(r.value)); f != "" {
 						note += " It looks like " + string(f) + ": loaded whole, it shows decoded."
 					}
-					ui.Text(c, note).FontSize(12).TextColor(pal.Muted).Shrink(1)
+					ui.Text(c, note).FontSize(widgets.TextSmall).TextColor(pal.Muted).Shrink(1)
 				}
 				loadAll(c)
 				if pretty := dataview.PrettyValue(r.editValue); pretty != r.editValue && ui.Button(c, "Format JSON").Clicked() {
@@ -812,7 +812,7 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 	}
 	if !slices.Contains(itemTypes, r.info.Type) {
 		ui.Text(c, "The browser has no viewer for a "+typeLabel(r.info.Type)+": read and change it with its commands in the console.").
-			FontSize(12.5).TextColor(pal.Muted).Padding(12, 14)
+			FontSize(widgets.TextBody).TextColor(pal.Muted).Padding(12, 14)
 		return
 	}
 	if r.info.Type == "stream" {
@@ -864,11 +864,11 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 		default:
 			text = f.Value
 		}
-		ui.Text(c, widgets.OneLine(text, 300)).Font(widgets.MonoFont).FontSize(12).SingleLine()
+		ui.Text(c, widgets.OneLine(text, 300)).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine()
 	}).Grow(1).Label("Items")
 	if !r.itemsDone {
 		ui.Row(c).Padding(4, 14).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, fmt.Sprintf("Showing %d of %d items.", len(r.fields), r.info.Length)).FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, fmt.Sprintf("Showing %d of %d items.", len(r.fields), r.info.Length)).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			if ui.Button(c, "Load More").Disabled(r.loadingKey).Clicked() {
 				r.loadMore()
 			}
@@ -1040,7 +1040,7 @@ func (r *Tab) newKeyView(c *ui.Context) {
 	}
 	dlg := widgets.Modal(c, &f.open, func() {
 		ui.Column(c).Width(420).Gap(10).Children(func() {
-			ui.Text(c, "New Key").FontSize(15).Bold()
+			ui.Text(c, "New Key").FontSize(widgets.TextTitle).Bold()
 			ui.Select(c, &f.typ, newKeyTypes).Label("Type")
 			ui.TextInput(c, &f.key).Placeholder("Key name, e.g. user:42").AutoFocus().Label("Key")
 			if f.typ == "hash" {

@@ -134,9 +134,9 @@ func (r *Tab) pubSubActions(c *ui.Context) {
 	p := &r.pubsub
 	pal := widgets.PaletteOf(c)
 	if p.cancel != nil {
-		ui.Text(c, widgets.Count(len(p.messages), "message")).FontSize(12).TextColor(pal.Muted)
+		ui.Text(c, widgets.Count(len(p.messages), "message")).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 	}
-	if ui.Link(c, "Clear", "").FontSize(12).Clicked() {
+	if ui.Link(c, "Clear", "").FontSize(widgets.TextSmall).Clicked() {
 		p.messages = nil
 	}
 }
@@ -152,13 +152,13 @@ func (r *Tab) pubSubView(c *ui.Context) {
 		ui.Column(c).Grow(1).Children(func() {
 			ui.Row(c).Padding(6, 10).Gap(6).AlignItems(ui.Center).Children(func() {
 				if p.cancel != nil {
-					ui.Text(c, "Listening to "+p.listening).FontSize(12.5).SingleLine().Grow(1).Shrink(1)
+					ui.Text(c, "Listening to "+p.listening).FontSize(widgets.TextBody).SingleLine().Grow(1).Shrink(1)
 					if widgets.MorphButton(c.Key("listen-run"), "Stop").Clicked() {
 						p.cancel()
 					}
 					return
 				}
-				in := ui.TextInput(c, &p.listenIn).Placeholder("Channels or patterns, e.g. news orders.*").Font(widgets.MonoFont).FontSize(12.5).Grow(1).Label("Channels to listen to")
+				in := ui.TextInput(c, &p.listenIn).Placeholder("Channels or patterns, e.g. news orders.*").Font(widgets.MonoFont).FontSize(widgets.TextBody).Grow(1).Label("Channels to listen to")
 				if widgets.MorphButton(c.Key("listen-run"), "Listen").Disabled(strings.TrimSpace(p.listenIn) == "").Clicked() || in.Submitted() {
 					r.listen()
 				}
@@ -170,21 +170,21 @@ func (r *Tab) pubSubView(c *ui.Context) {
 			ui.List(c, &p.list, len(p.messages), func(i int) {
 				m := p.messages[i]
 				ui.Row(c).Padding(1, 12).Gap(10).Children(func() {
-					ui.Text(c, m.At.Format("15:04:05.000")).Font(widgets.MonoFont).FontSize(11.5).TextColor(pal.Muted)
+					ui.Text(c, m.At.Format("15:04:05.000")).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted)
 					channel := m.Channel
 					if m.Pattern != "" {
 						channel += " (" + m.Pattern + ")"
 					}
-					ui.Text(c, channel).Font(widgets.MonoFont).FontSize(12).TextColor(th.Accent).Width(200).SingleLine()
-					ui.Text(c, widgets.OneLine(m.Message, 500)).Font(widgets.MonoFont).FontSize(12).SingleLine().Grow(1).Shrink(1).Selectable()
+					ui.Text(c, channel).Font(widgets.MonoFont).FontSize(widgets.TextSmall).TextColor(th.Accent).Width(200).SingleLine()
+					ui.Text(c, widgets.OneLine(m.Message, 500)).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine().Grow(1).Shrink(1).Selectable()
 				})
 			}).Grow(1).Label("Messages")
 			if r.conn.Config.ReadOnly {
 				return
 			}
 			ui.Row(c).Padding(6, 10).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
-				ui.TextInput(c, &p.channel).Placeholder("Channel").Font(widgets.MonoFont).FontSize(12.5).Width(180).Label("Channel to publish to")
-				in := ui.TextInput(c, &p.message).Placeholder("Message").Font(widgets.MonoFont).FontSize(12.5).Grow(1).Label("Message to publish")
+				ui.TextInput(c, &p.channel).Placeholder("Channel").Font(widgets.MonoFont).FontSize(widgets.TextBody).Width(180).Label("Channel to publish to")
+				in := ui.TextInput(c, &p.message).Placeholder("Message").Font(widgets.MonoFont).FontSize(widgets.TextBody).Grow(1).Label("Message to publish")
 				if ui.Button(c, "Publish").Disabled(strings.TrimSpace(p.channel) == "").Clicked() || in.Submitted() {
 					r.publish()
 				}
@@ -192,8 +192,8 @@ func (r *Tab) pubSubView(c *ui.Context) {
 		})
 		ui.Column(c).Width(240).BorderWidth(0, 0, 0, 1).BorderColor(th.Border).Children(func() {
 			ui.Row(c).Padding(6, 10).Gap(6).Children(func() {
-				ui.Text(c, "Channels listened to").FontSize(12).Bold().Grow(1)
-				if ui.Link(c, "Refresh", "").FontSize(12).Clicked() {
+				ui.Text(c, "Channels listened to").FontSize(widgets.TextSmall).Bold().Grow(1)
+				if ui.Link(c, "Refresh", "").FontSize(widgets.TextSmall).Clicked() {
 					r.loadChannels()
 				}
 			})
@@ -202,8 +202,8 @@ func (r *Tab) pubSubView(c *ui.Context) {
 				row := ui.ButtonBase(c).Padding(2, 10).Label(ch.Name)
 				row.Children(func() {
 					ui.Row(c).Gap(6).FillWidth().Children(func() {
-						ui.Text(c, ch.Name).Font(widgets.MonoFont).FontSize(12).SingleLine().Grow(1).Shrink(1)
-						ui.Text(c, fmt.Sprint(ch.Subscribers)).FontSize(11.5).TextColor(pal.Muted)
+						ui.Text(c, ch.Name).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine().Grow(1).Shrink(1)
+						ui.Text(c, fmt.Sprint(ch.Subscribers)).FontSize(widgets.TextMeta).TextColor(pal.Muted)
 					})
 				})
 				if row.Clicked() {

@@ -575,7 +575,7 @@ func (a *App) importView(c *ui.Context) {
 	dlg := ui.DialogBase(c, &x.open, func(backdrop, panel ui.Element) {
 		widgets.DialogLook(c, backdrop, panel)
 		_, winH := c.Size()
-		panel.Width(860).MaxHeight(winH-40).Radius(12).Background(th.Background).Border(1, th.Border).Clip().Label("Import")
+		panel.Width(860).MaxHeight(winH-40).Radius(widgets.RadiusLarge).Background(th.Background).Border(1, th.Border).Clip().Label("Import")
 		widgets.EnvBand(c, &x.conn.Config)
 		ui.Column(c).Padding(16, 20).Gap(12).Children(func() {
 			title := "Import " + filepath.Base(x.path) + " into "
@@ -584,11 +584,11 @@ func (a *App) importView(c *ui.Context) {
 			} else {
 				title += "a new table"
 			}
-			ui.Text(c, title).FontSize(15).Bold()
+			ui.Text(c, title).FontSize(widgets.TextTitle).Bold()
 			format, _ := fileimport.FormatOf(x.path)
 			ui.Row(c).Gap(8).Children(func() {
 				ui.Badge(c, format.Label())
-				ui.Text(c, x.path).Font(widgets.MonoFont).FontSize(12).TextColor(pal.Muted).SingleLine().TruncateStart().Shrink(1)
+				ui.Text(c, x.path).Font(widgets.MonoFont).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().TruncateStart().Shrink(1)
 			})
 			a.importOptions(c, x, format)
 			if x.obj == nil {
@@ -706,28 +706,28 @@ func (a *App) importColumns(c *ui.Context, x *importState) {
 	if x.obj == nil {
 		what = "Each of the file's columns kept becomes a column of the new table, with the name and type below it."
 	}
-	ui.Text(c, what).FontSize(12).TextColor(pal.Muted)
+	ui.Text(c, what).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 	ui.ScrollHorizontal(c).FillWidth().Children(func() {
 		ui.Row(c).Gap(10).AlignItems(ui.Start).Padding(0, 0, 6, 0).Children(func() {
 			for i, fc := range x.file.Columns {
 				ui.Column(c).Width(170).Gap(4).Children(func() {
-					ui.Text(c, fc.Name).Bold().FontSize(12).SingleLine().Tooltip(fc.Name)
-					ui.Text(c, fc.Type).FontSize(11).TextColor(pal.Muted).SingleLine()
+					ui.Text(c, fc.Name).Bold().FontSize(widgets.TextSmall).SingleLine().Tooltip(fc.Name)
+					ui.Text(c, fc.Type).FontSize(widgets.TextMeta).TextColor(pal.Muted).SingleLine()
 					switch {
 					case x.obj != nil && i < len(x.mapping):
 						ui.Select(c, &x.mapping[i], options).Label("Column for " + fc.Name)
 					case x.obj == nil && i < len(x.newCols):
 						nc := &x.newCols[i]
 						ui.Checkbox(c, &nc.keep, "Keep").Label("Keep " + fc.Name)
-						ui.TextInput(c, &nc.name).Font(widgets.MonoFont).FontSize(12).Disabled(!nc.keep).Label("Name of " + fc.Name)
-						ui.TextInput(c, &nc.typ).Font(widgets.MonoFont).FontSize(12).Disabled(!nc.keep).Label("Type of " + fc.Name)
+						ui.TextInput(c, &nc.name).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Disabled(!nc.keep).Label("Name of " + fc.Name)
+						ui.TextInput(c, &nc.typ).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Disabled(!nc.keep).Label("Type of " + fc.Name)
 					}
 					for _, row := range x.preview {
 						v := "NULL"
 						if row[i] != nil {
 							v = fmt.Sprint(db.ValueText(row[i], fc.Type))
 						}
-						ui.Text(c, widgets.OneLine(v, 40)).Font(widgets.MonoFont).FontSize(11).TextColor(pal.Muted).SingleLine()
+						ui.Text(c, widgets.OneLine(v, 40)).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted).SingleLine()
 					}
 				})
 			}
@@ -735,7 +735,7 @@ func (a *App) importColumns(c *ui.Context, x *importState) {
 	})
 	if x.obj == nil {
 		if _, _, create, err := x.plan(); err == nil {
-			ui.Text(c, create+";").Font(widgets.MonoFont).FontSize(11.5).Padding(8, 10).Radius(6).Background(pal.Hover).Selectable().MaxHeight(160)
+			ui.Text(c, create+";").Font(widgets.MonoFont).FontSize(widgets.TextMeta).Padding(8, 10).Radius(widgets.RadiusMedium).Background(pal.Hover).Selectable().MaxHeight(160)
 		}
 	}
 }

@@ -85,7 +85,7 @@ func (r *Tab) jsonView(c *ui.Context, ro bool) {
 	ui.Column(c).Grow(1).Padding(10, 14).Gap(8).Children(func() {
 		if !r.whole {
 			// A document longer than the editor shows is not saved from it.
-			ui.Text(c, fmt.Sprintf("The document is longer than %s: shown in part, and edited with JSON.SET in the console.", widgets.HumanBytes(stringStart))).FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, fmt.Sprintf("The document is longer than %s: shown in part, and edited with JSON.SET in the console.", widgets.HumanBytes(stringStart))).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 		}
 		area := &r.jsonArea
 		area.Label, area.Language, area.ReadOnly = "Document", editor.LanguageJSON, ro || !r.whole
@@ -97,7 +97,7 @@ func (r *Tab) jsonView(c *ui.Context, ro bool) {
 		valid := json.Valid([]byte(r.editValue))
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			if !valid {
-				widgets.Appear(ui.Text(c.Key("json-invalid"), "Not JSON.").FontSize(12).TextColor(th.Danger))
+				widgets.Appear(ui.Text(c.Key("json-invalid"), "Not JSON.").FontSize(widgets.TextSmall).TextColor(th.Danger))
 			} else if pretty := dataview.PrettyValue(r.editValue); pretty != r.editValue && widgets.Appear(ui.Button(c.Key("json-format"), "Format")).Clicked() {
 				r.editValue = pretty
 				r.editDirty = r.editValue != r.value
@@ -165,7 +165,7 @@ func (r *Tab) vectorDetail(c *ui.Context, f db.Field) {
 	ro := r.conn.Config.ReadOnly
 	ui.Row(c).Height(220).Padding(8, 14).Gap(12).AlignItems(ui.Stretch).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 		ui.Column(c).Grow(1).Gap(6).Children(func() {
-			ui.Text(c, "Attributes of "+f.Name).FontSize(12).Bold()
+			ui.Text(c, "Attributes of "+f.Name).FontSize(widgets.TextSmall).Bold()
 			v.area.Label, v.area.Language, v.area.ReadOnly = "Element attributes", editor.LanguageJSON, ro
 			v.area.NoLineNumbers, v.area.NoFolding = true, true
 			el, _ := v.area.View(c, &v.attrs)
@@ -174,7 +174,7 @@ func (r *Tab) vectorDetail(c *ui.Context, f db.Field) {
 				valid := strings.TrimSpace(v.attrs) == "" || json.Valid([]byte(v.attrs))
 				ui.Row(c).Gap(8).Children(func() {
 					if !valid {
-						ui.Text(c, "Not JSON.").FontSize(12).TextColor(th.Danger)
+						ui.Text(c, "Not JSON.").FontSize(widgets.TextSmall).TextColor(th.Danger)
 					}
 					ui.Spacer(c)
 					// Empty, they are removed, as VSETATTR does.
@@ -189,20 +189,20 @@ func (r *Tab) vectorDetail(c *ui.Context, f db.Field) {
 			case v.loading:
 				return
 			case v.err != "":
-				ui.Text(c, v.err).FontSize(12).TextColor(th.Danger).Selectable()
+				ui.Text(c, v.err).FontSize(widgets.TextSmall).TextColor(th.Danger).Selectable()
 				return
 			}
 			parts := lists.Map(v.vector, func(x float64) string { return strconv.FormatFloat(x, 'g', 4, 64) })
-			ui.Text(c, fmt.Sprintf("Vector, %d dimensions", len(v.vector))).FontSize(12).Bold()
-			ui.Text(c, "["+widgets.OneLine(strings.Join(parts, ", "), 400)+"]").Font(widgets.MonoFont).FontSize(11.5).TextColor(pal.Muted).Selectable()
-			ui.Text(c, "Most like it").FontSize(12).Bold()
+			ui.Text(c, fmt.Sprintf("Vector, %d dimensions", len(v.vector))).FontSize(widgets.TextSmall).Bold()
+			ui.Text(c, "["+widgets.OneLine(strings.Join(parts, ", "), 400)+"]").Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted).Selectable()
+			ui.Text(c, "Most like it").FontSize(widgets.TextSmall).Bold()
 			ui.List(c, &v.list, len(v.similar), func(i int) {
 				s := v.similar[i]
 				row := ui.ButtonBase(c).Padding(2, 4).Label(s.Name)
 				row.Children(func() {
 					ui.Row(c).Gap(8).FillWidth().Children(func() {
-						ui.Text(c, s.Name).Font(widgets.MonoFont).FontSize(12).SingleLine().Grow(1).Shrink(1)
-						ui.Text(c, strconv.FormatFloat(s.Score, 'f', 3, 64)).FontSize(11.5).TextColor(pal.Muted)
+						ui.Text(c, s.Name).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine().Grow(1).Shrink(1)
+						ui.Text(c, strconv.FormatFloat(s.Score, 'f', 3, 64)).FontSize(widgets.TextMeta).TextColor(pal.Muted)
 					})
 				})
 				if row.Clicked() {

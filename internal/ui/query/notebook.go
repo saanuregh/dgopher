@@ -797,7 +797,7 @@ func (q *Tab) notebookView(c *ui.Context) {
 					q.addCell(len(nb.cells), true, "")
 				}
 				ui.Spacer(c)
-				ui.Text(c, keymap.Hint("Run a cell and go on", keymap.RunCellAdvance)).FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, keymap.Hint("Run a cell and go on", keymap.RunCellAdvance)).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			})
 		})
 	})
@@ -826,7 +826,7 @@ func (q *Tab) cellView(c *ui.Context, cl *cell) {
 				label = fmt.Sprintf("[%d]", cl.count)
 			}
 			if !cl.markdown {
-				ui.Text(c, label).Font(widgets.MonoFont).FontSize(11.5).TextColor(pal.Muted)
+				ui.Text(c, label).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted)
 				if running {
 					if widgets.IconButton(c.Key("stop"), widgets.IconStop, "Stop the cell").Disabled(q.stopping).Clicked() {
 						q.stop()
@@ -836,7 +836,7 @@ func (q *Tab) cellView(c *ui.Context, cl *cell) {
 				}
 			}
 		})
-		body := ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Radius(8).Border(1, th.Border).Clip()
+		body := ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Radius(widgets.RadiusLarge).Border(1, th.Border).Clip()
 		if focused {
 			body.Border(1, th.Accent)
 		}
@@ -867,7 +867,7 @@ func (q *Tab) cellView(c *ui.Context, cl *cell) {
 // or pointed at.
 func (q *Tab) cellActions(c *ui.Context, cl *cell) {
 	th := c.Theme()
-	ui.Row(c.Key("actions")).Absolute().Top(3).Right(6).Gap(1).Padding(1, 2).Radius(6).Background(th.Background).Border(1, th.Border).Children(func() {
+	ui.Row(c.Key("actions")).Absolute().Top(3).Right(6).Gap(1).Padding(1, 2).Radius(widgets.RadiusMedium).Background(th.Background).Border(1, th.Border).Children(func() {
 		if widgets.IconButton(c.Key("up"), widgets.IconArrowUp, "Move Cell Up").Tooltip(keymap.Hint("Move up", keymap.MoveCellUp)).Clicked() {
 			q.focusCell(cl)
 			q.moveCell(-1)
@@ -976,7 +976,7 @@ func (q *Tab) cellResultsView(c *ui.Context, cl *cell) {
 				continue
 			}
 			ui.Text(c, verbLabel(r.verb)+" · "+affectedLabel(r.affected)+" · "+widgets.FormatDuration(r.elapsed)).
-				FontSize(12).TextColor(pal.Muted).Padding(4, 10)
+				FontSize(widgets.TextSmall).TextColor(pal.Muted).Padding(4, 10)
 		}
 		r := resultAt(results, idx)
 		switch {
@@ -989,7 +989,7 @@ func (q *Tab) cellResultsView(c *ui.Context, cl *cell) {
 				if m.err {
 					col = th.Danger
 				}
-				ui.Text(c, m.text).FontSize(12).TextColor(col).Padding(4, 10)
+				ui.Text(c, m.text).FontSize(widgets.TextSmall).TextColor(col).Padding(4, 10)
 			}
 		case r.view == nil:
 			q.errorPanel(c, r)
@@ -999,7 +999,7 @@ func (q *Tab) cellResultsView(c *ui.Context, cl *cell) {
 			ui.Column(c).Height(q.resultHeight(r)).Children(func() { r.view.View(c) })
 		}
 		if cl.count > 0 && !running {
-			ui.Text(c, "took "+widgets.FormatDuration(cl.took)).FontSize(11).TextColor(pal.Muted).Padding(0, 10, 4, 10)
+			ui.Text(c, "took "+widgets.FormatDuration(cl.took)).FontSize(widgets.TextMeta).TextColor(pal.Muted).Padding(0, 10, 4, 10)
 		}
 	})
 }
@@ -1027,7 +1027,7 @@ func (q *Tab) markdownCell(c *ui.Context, cl *cell) {
 			}
 			cl.hadFocus = area.Focused()
 			ui.Row(c).Gap(8).Children(func() {
-				ui.Text(c, "Markdown").FontSize(11.5).TextColor(pal.Muted)
+				ui.Text(c, "Markdown").FontSize(widgets.TextMeta).TextColor(pal.Muted)
 				ui.Spacer(c)
 				if ui.Button(c, "Done").Tooltip("Show it as it reads").Clicked() {
 					cl.editing = false
@@ -1040,7 +1040,7 @@ func (q *Tab) markdownCell(c *ui.Context, cl *cell) {
 	view.Children(func() {
 		ui.Column(c).Grow(1).AlignItems(ui.Start).Children(func() {
 			if strings.TrimSpace(cl.md) == "" {
-				ui.Text(c, "Empty Markdown cell: click to write").TextColor(pal.Muted).FontSize(12.5)
+				ui.Text(c, "Empty Markdown cell: click to write").TextColor(pal.Muted).FontSize(widgets.TextBody)
 				return
 			}
 			markdown.View(c, cl.md, nil).FillWidth()

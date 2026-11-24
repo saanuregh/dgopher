@@ -22,8 +22,8 @@ func SearchBox(c *ui.Context, query *string, placeholder string, width float32) 
 		box.Grow(1)
 	}
 	box.Children(func() {
-		ui.Icon(c, IconSearch).FontSize(12).TextColor(pal.Muted)
-		in = ui.TextInputBase(c, query).Placeholder(placeholder).Grow(1).FontSize(12.5).Label(placeholder)
+		ui.Icon(c, IconSearch).FontSize(IconSmall).TextColor(pal.Muted)
+		in = ui.TextInputBase(c, query).Placeholder(placeholder).Grow(1).FontSize(TextBody).Label(placeholder)
 		if *query != "" && in.Shortcut(0, ui.KeyEscape) {
 			*query = ""
 		}
@@ -66,7 +66,7 @@ func Pill(c *ui.Context, label string, on bool) ui.Element {
 // IconPill is a Pill with an icon after its label, none for nil.
 func IconPill(c *ui.Context, ic *ui.SVG, label string, on bool) ui.Element {
 	t := c.Theme()
-	b := ui.ButtonBase(c).Padding(3, 10).Radius(6).Label(label)
+	b := ui.ButtonBase(c).Padding(3, 10).Radius(RadiusMedium).Label(label)
 	if on {
 		b.Background(t.Surface)
 	} else if b.Hovered() {
@@ -75,24 +75,17 @@ func IconPill(c *ui.Context, ic *ui.SVG, label string, on bool) ui.Element {
 	b.Children(func() {
 		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
 			// The weight stays as another comes in front, so no pill moves.
-			txt := ui.Text(c, label).FontSize(12).FontWeight(500)
+			txt := ui.Text(c, label).FontSize(TextSmall).FontWeight(500)
 			if !on {
 				txt.TextColor(PaletteOf(c).Muted)
 			}
 			if ic != nil {
-				ui.Icon(c, ic).FontSize(11).TextColor(PaletteOf(c).Muted)
+				ui.Icon(c, ic).FontSize(IconSmall).TextColor(PaletteOf(c).Muted)
 			}
 		})
 	})
 	return b
 }
-
-// ToolFontSize is the size of the labels of a toolbar's buttons, which
-// other controls there take to be as tall; ToolIconSize their icons'.
-const (
-	ToolFontSize = 12.5
-	ToolIconSize = 13
-)
 
 // ToolButton is a button of a toolbar with an icon and a label.
 // A button whose label changes, as Run to Stop, changes in place: the
@@ -112,8 +105,8 @@ func toolButton(c *ui.Context, ic *ui.SVG, label, tip string, tint *ui.Color) ui
 	b := ui.Button(c, "").Label(label).Tooltip(tip).Transition(morph)
 	b.Children(func() {
 		ui.Row(c).Gap(5).Children(func() {
-			icon := ui.Icon(c, ic).FontSize(ToolIconSize).ContentTransition(ui.ContentTransition{})
-			txt := ui.Text(c, label).FontSize(ToolFontSize).ContentTransition(ui.ContentTransition{})
+			icon := ui.Icon(c, ic).FontSize(IconMedium).ContentTransition(ui.ContentTransition{})
+			txt := ui.Text(c, label).FontSize(TextBody).ContentTransition(ui.ContentTransition{})
 			if tint != nil {
 				icon.TextColor(*tint)
 				txt.FontWeight(600)
@@ -199,7 +192,7 @@ func ToggleIconButton(c *ui.Context, ic *ui.SVG, label string, on bool) ui.Eleme
 
 func iconButton(c *ui.Context, ic *ui.SVG, label string, on bool) ui.Element {
 	t := c.Theme()
-	b := ui.ButtonBase(c).Label(label).Tooltip(label).Padding(4).Radius(6)
+	b := ui.ButtonBase(c).Label(label).Tooltip(label).Padding(4).Radius(RadiusMedium)
 	col := PaletteOf(c).Muted
 	switch {
 	case on:
@@ -209,7 +202,7 @@ func iconButton(c *ui.Context, ic *ui.SVG, label string, on bool) ui.Element {
 		b.Background(PaletteOf(c).Hover)
 		col = t.Text
 	}
-	b.Children(func() { ui.Icon(c, ic).FontSize(14).TextColor(col) })
+	b.Children(func() { ui.Icon(c, ic).FontSize(IconMedium).TextColor(col) })
 	return b
 }
 
@@ -221,7 +214,7 @@ func StatusButton(c *ui.Context, label string) ui.Element {
 	if b.Hovered() {
 		b.Background(PaletteOf(c).Hover)
 	}
-	b.Children(func() { ui.Text(c, label).FontSize(12).ContentTransition(ui.ContentTransition{}) })
+	b.Children(func() { ui.Text(c, label).FontSize(TextSmall).ContentTransition(ui.ContentTransition{}) })
 	return b
 }
 
@@ -233,7 +226,7 @@ func StatusPrimaryButton(c *ui.Context, label string) ui.Element {
 	if b.Hovered() {
 		b.Background(t.AccentHover).Border(1, t.AccentHover)
 	}
-	b.Children(func() { ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(t.AccentText) })
+	b.Children(func() { ui.Text(c, label).FontSize(TextSmall).FontWeight(500).TextColor(t.AccentText) })
 	return b
 }
 
@@ -296,8 +289,8 @@ func ChoosePath(post func(func()), opts mygo.OpenDialogOptions, then func(path s
 // Keycap shows a shortcut as the keys it is pressed with, as a key's cap.
 func Keycap(c *ui.Context, keys string) ui.Element {
 	pal := PaletteOf(c)
-	return ui.Text(c, KeyLabel(keys)).Font(MonoFont).FontSize(11).TextColor(pal.Muted).SingleLine().Shrink(0).
-		Padding(1, 5).Radius(4).Background(pal.Hover).Border(1, c.Theme().Border)
+	return ui.Text(c, KeyLabel(keys)).Font(MonoFont).FontSize(TextMeta).TextColor(pal.Muted).SingleLine().Shrink(0).
+		Padding(1, 5).Radius(RadiusSmall).Background(pal.Hover).Border(1, c.Theme().Border)
 }
 
 // Bar is the row of a view's tools, as the editor's along its top: tools
@@ -305,7 +298,7 @@ func Keycap(c *ui.Context, keys string) ui.Element {
 // line under it, so that every view's bar is as tall and reads alike.
 // Titles and notes in it take its size unless they set their own.
 func Bar(c *ui.Context, label string, fn func()) ui.Element {
-	return ui.Toolbar(c, fn).Label(label).Padding(4, 8).FontSize(ToolFontSize).
+	return ui.Toolbar(c, fn).Label(label).Padding(4, 8).FontSize(TextBody).
 		BorderWidth(0, 0, 1, 0).BorderColor(c.Theme().Border)
 }
 

@@ -118,7 +118,7 @@ func (r *Tab) groupsView(c *ui.Context) {
 					text = fmt.Sprint(g.Lag)
 				}
 			}
-			ui.Text(c, text).Font(widgets.MonoFont).FontSize(12).SingleLine()
+			ui.Text(c, text).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine()
 		}).Height(140).Label("Consumer groups")
 		if t.Changed() {
 			// The rows below are the last group's until the new one's come.
@@ -149,12 +149,12 @@ func (r *Tab) groupsView(c *ui.Context) {
 		}
 		group := s.chosenGroup()
 		if group == "" {
-			ui.Text(c, "Choose a group to see its consumers and the entries pending with them.").FontSize(12.5).TextColor(pal.Muted)
+			ui.Text(c, "Choose a group to see its consumers and the entries pending with them.").FontSize(widgets.TextBody).TextColor(pal.Muted)
 			return
 		}
 		ui.Row(c).Grow(1).Gap(12).AlignItems(ui.Stretch).Children(func() {
 			ui.Column(c).Width(300).Gap(4).Children(func() {
-				ui.Text(c, "Consumers of "+group).FontSize(12).Bold()
+				ui.Text(c, "Consumers of "+group).FontSize(widgets.TextSmall).Bold()
 				s.consList.Selected = &s.consumer
 				cols := []ui.TableColumn{{Title: "Consumer"}, {Title: "Pending", Width: 70, Align: ui.End}, {Title: "Idle", Width: 80, Align: ui.End}}
 				ui.Table(c, &s.consList, cols, len(s.consumers), func(row, col int) {
@@ -166,7 +166,7 @@ func (r *Tab) groupsView(c *ui.Context) {
 					case 2:
 						text = cs.Idle.Round(time.Second).String()
 					}
-					ui.Text(c, text).Font(widgets.MonoFont).FontSize(12).SingleLine()
+					ui.Text(c, text).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine()
 				}).Grow(1).Label("Consumers")
 				if !ro && s.consumer >= 0 && s.consumer < len(s.consumers) && ui.Button(c, "Delete Consumer").Clicked() {
 					name := s.consumers[s.consumer].Name
@@ -176,7 +176,7 @@ func (r *Tab) groupsView(c *ui.Context) {
 				}
 			})
 			ui.Column(c).Grow(1).Gap(4).Children(func() {
-				ui.Text(c, "Pending entries").FontSize(12).Bold()
+				ui.Text(c, "Pending entries").FontSize(widgets.TextSmall).Bold()
 				s.pendList.Selected = &s.entry
 				cols := []ui.TableColumn{{Title: "ID", Width: 170}, {Title: "Consumer"}, {Title: "Idle", Width: 80, Align: ui.End}, {Title: "Deliveries", Width: 80, Align: ui.End}}
 				ui.Table(c, &s.pendList, cols, len(s.pending), func(row, col int) {
@@ -190,7 +190,7 @@ func (r *Tab) groupsView(c *ui.Context) {
 					case 3:
 						text = fmt.Sprint(p.Deliveries)
 					}
-					ui.Text(c, text).Font(widgets.MonoFont).FontSize(12).SingleLine()
+					ui.Text(c, text).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine()
 				}).Grow(1).Label("Pending entries")
 				if ro || s.entry < 0 || s.entry >= len(s.pending) {
 					return

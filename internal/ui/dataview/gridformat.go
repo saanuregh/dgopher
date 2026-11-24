@@ -197,9 +197,9 @@ func formatMenu(a Host, m *ui.Menu) {
 }
 
 // RowHeight is how tall a grid's rows are with text of a size: a row of
-// DBeaver's at the default one.
+// DBeaver's, 22 high, at the default one.
 func RowHeight(fontSize float32) float32 {
-	return float32(math.Round(float64(fontSize) * 1.76))
+	return float32(math.Round(float64(fontSize) * 1.7))
 }
 
 // stepGridFont makes the grids' text, of every tab, a size larger, or

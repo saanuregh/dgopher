@@ -261,7 +261,7 @@ func BackdropOf(c *ui.Context, picker bool) ui.Color {
 func ConnState(c *ui.Context, cn *connection.Conn) {
 	ConnDot(c, cn)
 	if cn.Status == connection.StatusFailed {
-		ui.Icon(c, IconAlert).FontSize(10).TextColor(c.Theme().Danger)
+		ui.Icon(c, IconAlert).FontSize(IconSmall).TextColor(c.Theme().Danger)
 	}
 }
 
@@ -270,7 +270,7 @@ func ConnState(c *ui.Context, cn *connection.Conn) {
 // emptying while it connects, the work going on where its result shows.
 func ConnDot(c *ui.Context, cn *connection.Conn) ui.Element {
 	col := EnvColor(&cn.Config)
-	dot := ui.Box(c).Size(7, 7).Radius(4)
+	dot := ui.Box(c).Size(7, 7).Radius(RadiusRound)
 	switch cn.Status {
 	case connection.StatusConnected:
 		return dot.Background(col)

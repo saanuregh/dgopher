@@ -236,7 +236,7 @@ func (a *App) generateView(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	dlg := widgets.Modal(c, &g.open, func() {
 		ui.Column(c).Width(620).Gap(12).Children(func() {
-			ui.Text(c, "Generate from "+g.title()).FontSize(15).Bold().SingleLine()
+			ui.Text(c, "Generate from "+g.title()).FontSize(widgets.TextTitle).Bold().SingleLine()
 			ui.Row(c).Gap(12).Children(func() {
 				ui.Segmented(c, &g.output, "SQL Script", "Documentation").Label("Output")
 				if g.output == generateDocs {
@@ -263,13 +263,13 @@ func (a *App) generateView(c *ui.Context) {
 					}
 				}
 			})
-			ui.Scroll(c).Height(320).Border(1, th.Border).Radius(6).Children(func() {
+			ui.Scroll(c).Height(320).Border(1, th.Border).Radius(widgets.RadiusMedium).Children(func() {
 				ui.Column(c).Padding(4).Children(func() {
 					for _, i := range shown {
 						ch := &g.choices[i]
 						ui.Row(c.Key(fmt.Sprint("choice-", i))).Padding(3, 6).Gap(8).Children(func() {
 							ui.Checkbox(c, &ch.chosen, ch.label()).Disabled(g.running).Grow(1).Shrink(1)
-							ui.Text(c, ch.kind()).FontSize(11).TextColor(pal.Muted)
+							ui.Text(c, ch.kind()).FontSize(widgets.TextMeta).TextColor(pal.Muted)
 						})
 					}
 					if !g.loading && len(shown) == 0 {
@@ -282,7 +282,7 @@ func (a *App) generateView(c *ui.Context) {
 				status = fmt.Sprintf("Reading %d of %d objects…", g.done.Load(), g.total.Load())
 				c.After(200 * time.Millisecond)
 			}
-			ui.Text(c, status).FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, status).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			if g.err != "" {
 				ui.Text(c, g.err).TextColor(th.Danger).Selectable()
 			}

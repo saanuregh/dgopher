@@ -234,7 +234,7 @@ func (a *App) dbeaverImportView(c *ui.Context) {
 	keychain := a.st.Secrets().Available()
 	dlg := widgets.Modal(c, &d.open, func() {
 		ui.Column(c).Width(760).MaxHeight(winH - 80).Gap(12).Children(func() {
-			ui.Text(c, "Import from DBeaver").FontSize(15).Bold()
+			ui.Text(c, "Import from DBeaver").FontSize(widgets.TextTitle).Bold()
 			ui.Form(c, func() {
 				ui.Field(c, "DBeaver folder", func() {
 					ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
@@ -260,7 +260,7 @@ func (a *App) dbeaverImportView(c *ui.Context) {
 			case d.loading:
 				ui.Text(c, "Reading DBeaver's connections…").TextColor(pal.Muted)
 			case len(d.entries) > 0:
-				ui.Scroll(c).MaxHeight(360).Border(1, th.Border).Radius(6).Children(func() {
+				ui.Scroll(c).MaxHeight(360).Border(1, th.Border).Radius(widgets.RadiusMedium).Children(func() {
 					ui.Column(c).Padding(4, 0).Children(func() {
 						dbeaverHeader(c)
 						for i := range d.entries {
@@ -307,13 +307,13 @@ func (a *App) dbeaverImportView(c *ui.Context) {
 func dbeaverHeader(c *ui.Context) {
 	muted := widgets.PaletteOf(c).Muted
 	label := func(s string, width float32) {
-		ui.Text(c, s).FontSize(11).TextColor(muted).SingleLine().Width(width)
+		ui.Text(c, s).FontSize(widgets.TextMeta).TextColor(muted).SingleLine().Width(width)
 	}
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(3, 10).Children(func() {
 		// The checkbox and the colour bar.
 		ui.Box(c).Width(16)
 		ui.Box(c).Width(4)
-		ui.Text(c, "Name").FontSize(11).TextColor(muted).SingleLine().Grow(1).Shrink(1)
+		ui.Text(c, "Name").FontSize(widgets.TextMeta).TextColor(muted).SingleLine().Grow(1).Shrink(1)
 		label("Engine", 90)
 		label("Where", 200)
 		label("Environment", 140)
@@ -347,28 +347,28 @@ func (a *App) dbeaverRow(c *ui.Context, d *dbeaverImport, i int) {
 		}
 		ui.Text(c, name).SingleLine().Grow(1).Shrink(1)
 		if e.Config.Engine != "" {
-			ui.Text(c, e.Config.Engine.Label()).FontSize(12).TextColor(widgets.EngineColor(e.Config.Engine)).SingleLine().Width(90)
+			ui.Text(c, e.Config.Engine.Label()).FontSize(widgets.TextSmall).TextColor(widgets.EngineColor(e.Config.Engine)).SingleLine().Width(90)
 		} else {
-			ui.Text(c, e.Driver).FontSize(12).TextColor(pal.Muted).SingleLine().Width(90)
+			ui.Text(c, e.Driver).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Width(90)
 		}
-		ui.Text(c, dbeaverWhere(&e.Config)).FontSize(12).TextColor(pal.Muted).SingleLine().Width(200)
+		ui.Text(c, dbeaverWhere(&e.Config)).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Width(200)
 		if d.asksEnv(i) {
 			// DBeaver's default type says nothing of the server: chosen here.
 			env := cmp.Or(d.envs[i], chooseEnv)
 			if ui.Select(c.Key("env"), &env, dbeaverEnvLabels).Label("Environment of "+e.Config.Name).
-				FontSize(12).Width(140).Height(22).Padding(0, 8).Changed() {
+				FontSize(widgets.TextSmall).Width(140).Height(22).Padding(0, 8).Changed() {
 				d.chooseDBeaverEnv(i, env)
 			}
 		} else {
-			ui.Text(c, e.Config.Env.Label()).FontSize(12).TextColor(pal.Muted).SingleLine().Width(140)
+			ui.Text(c, e.Config.Env.Label()).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Width(140)
 		}
 		switch {
 		case e.Skip != "":
-			ui.Text(c, "Not supported").FontSize(12).TextColor(pal.Muted).SingleLine().Width(100).Tooltip(e.Skip)
+			ui.Text(c, "Not supported").FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Width(100).Tooltip(e.Skip)
 		case dup != "":
-			ui.Text(c, "Already here").FontSize(12).TextColor(pal.Muted).SingleLine().Width(100).Tooltip("The project has it as " + dup)
+			ui.Text(c, "Already here").FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Width(100).Tooltip("The project has it as " + dup)
 		case len(e.Notes) > 0:
-			ui.Text(c, "Partly").FontSize(12).TextColor(pal.Muted).SingleLine().Width(100).Tooltip(strings.Join(e.Notes, "\n"))
+			ui.Text(c, "Partly").FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Width(100).Tooltip(strings.Join(e.Notes, "\n"))
 		default:
 			ui.Box(c).Width(100)
 		}

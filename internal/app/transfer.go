@@ -346,14 +346,14 @@ func (a *App) copyView(c *ui.Context) {
 	}
 	dlg := widgets.EnvModal(c, &x.open, band, func() {
 		ui.Column(c).Width(640).Gap(12).Children(func() {
-			ui.Text(c, "Copy Tables of "+x.fromSchema+" · "+x.from.Config.Name).FontSize(15).Bold().SingleLine()
-			ui.Scroll(c).MaxHeight(200).Border(1, th.Border).Radius(6).Children(func() {
+			ui.Text(c, "Copy Tables of "+x.fromSchema+" · "+x.from.Config.Name).FontSize(widgets.TextTitle).Bold().SingleLine()
+			ui.Scroll(c).MaxHeight(200).Border(1, th.Border).Radius(widgets.RadiusMedium).Children(func() {
 				ui.Column(c).Padding(4).Children(func() {
 					for i := range x.tables {
 						t := &x.tables[i]
 						ui.Row(c.Key("copy-"+t.name)).Gap(8).Padding(2, 6).Children(func() {
 							ui.Checkbox(c, &t.chosen, t.name).Disabled(x.running).Grow(1).Shrink(1)
-							ui.Text(c, t.status).FontSize(12).TextColor(pal.Muted)
+							ui.Text(c, t.status).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 						})
 					}
 				})

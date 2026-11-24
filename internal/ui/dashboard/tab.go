@@ -510,7 +510,7 @@ func (t *Tab) View(c *ui.Context) {
 	ui.Column(c).Grow(1).Children(func() {
 		widgets.Bar(c, "Dashboard", func() {
 			widgets.BarTitle(c, func() {
-				ui.Icon(c, widgets.IconLayers).TextColor(pal.Muted).FontSize(widgets.ToolIconSize)
+				ui.Icon(c, widgets.IconLayers).TextColor(pal.Muted).FontSize(widgets.IconMedium)
 				ui.Text(c, t.d.Name).Bold().SingleLine()
 				// Where every panel runs, once, when that is one place: the
 				// panels then leave it out.
@@ -519,16 +519,16 @@ func (t *Tab) View(c *ui.Context) {
 						if cn := t.conn(t.d.Panels[0]); cn != nil {
 							widgets.ConnState(c, cn)
 						}
-						ui.Text(c, t.where(t.d.Panels[0])).FontSize(12).TextColor(pal.Muted).SingleLine()
+						ui.Text(c, t.where(t.d.Panels[0])).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine()
 					})
 				}
 				if !t.lastRun.IsZero() {
-					ui.Text(c, "Read at "+t.lastRun.Format(time.TimeOnly)).FontSize(12).TextColor(pal.Muted)
+					ui.Text(c, "Read at "+t.lastRun.Format(time.TimeOnly)).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 				}
 			})
 			ui.Spacer(c)
 			labels := lists.Map(Refreshes, refreshLabel)
-			if ui.Select(c, &t.refresh, labels).Label("Refresh").FontSize(widgets.ToolFontSize).Changed() {
+			if ui.Select(c, &t.refresh, labels).Label("Refresh").FontSize(widgets.TextBody).Changed() {
 				t.d.Refresh = Refreshes[max(slices.Index(labels, t.refresh), 0)]
 				t.save()
 			}
@@ -626,8 +626,8 @@ func (t *Tab) paramsBar(c *ui.Context) {
 		for i := range t.fields {
 			f := &t.fields[i]
 			ui.Row(c.Key("param-" + f.key)).Gap(4).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, f.key).Font(widgets.MonoFont).FontSize(12).TextColor(pal.Muted)
-				if ui.TextInput(c, &f.value).Width(140).FontSize(12.5).Label("Parameter " + f.key).Submitted() {
+				ui.Text(c, f.key).Font(widgets.MonoFont).FontSize(widgets.TextSmall).TextColor(pal.Muted)
+				if ui.TextInput(c, &f.value).Width(140).FontSize(widgets.TextBody).Label("Parameter " + f.key).Submitted() {
 					submitted = true
 				}
 				ui.Select(c, &f.kind, params.Kinds).Width(90).Label("Kind of " + f.key)
@@ -663,7 +663,7 @@ func (t *Tab) panelView(c *ui.Context, i int, height float32) {
 	// Where a panel runs, when the panels run in more than one place or it
 	// is not connected: otherwise the same line on every panel.
 	showWhere := t.editing || !t.oneWhere() || cn == nil || cn.Status != connection.StatusConnected
-	panel := ui.Column(c.Key(s.key)).Grow(float32(p.Width)).Basis(0).Height(height).Radius(10).Background(th.Background).Border(1, th.Border).Clip()
+	panel := ui.Column(c.Key(s.key)).Grow(float32(p.Width)).Basis(0).Height(height).Radius(widgets.RadiusLarge).Background(th.Background).Border(1, th.Border).Clip()
 	panel.Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.08))
 	panel.Children(func() {
 		head := ui.Column(c).Padding(8, 12, 4, 12).Gap(6)
@@ -674,18 +674,18 @@ func (t *Tab) panelView(c *ui.Context, i int, height float32) {
 			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 				ui.Column(c).Grow(1).Shrink(1).Children(func() {
 					if t.editing {
-						if ui.TextInput(c, &s.title).FontSize(12.5).Label("Panel title").Changed() {
+						if ui.TextInput(c, &s.title).FontSize(widgets.TextBody).Label("Panel title").Changed() {
 							p.Title, t.dirty = strings.TrimSpace(s.title), true
 						}
 					} else {
-						ui.Text(c, p.Title).FontWeight(600).FontSize(13).SingleLine()
+						ui.Text(c, p.Title).FontWeight(600).FontSize(widgets.TextBody).SingleLine()
 					}
 					if showWhere {
 						ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
 							if cn != nil {
 								widgets.ConnState(c, cn)
 							}
-							ui.Text(c, t.where(*p)).FontSize(10.5).TextColor(pal.Muted).SingleLine().Shrink(1)
+							ui.Text(c, t.where(*p)).FontSize(widgets.TextMeta).TextColor(pal.Muted).SingleLine().Shrink(1)
 						})
 					}
 				})
@@ -693,7 +693,7 @@ func (t *Tab) panelView(c *ui.Context, i int, height float32) {
 				case s.src != nil:
 					// How much and how fast, on every panel: there when
 					// pointed at, as a detail.
-					stats := ui.Text(c, widgets.Count(len(s.src.Rows), "row")+" · "+s.took.Round(time.Millisecond).String()).FontSize(11).FontFeatures("tnum").TextColor(pal.Muted).Tooltip("Read at " + s.at.Format(time.TimeOnly))
+					stats := ui.Text(c, widgets.Count(len(s.src.Rows), "row")+" · "+s.took.Round(time.Millisecond).String()).FontSize(widgets.TextMeta).FontFeatures("tnum").TextColor(pal.Muted).Tooltip("Read at " + s.at.Format(time.TimeOnly))
 					shown := float32(0)
 					if panel.Hovered() || t.editing {
 						shown = 1
@@ -794,7 +794,7 @@ func (t *Tab) whereView(c *ui.Context, s *panelState) *connection.Conn {
 		chosen, label = conns[i], labels[i]
 	}
 	ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, "Runs on").FontSize(12).TextColor(widgets.PaletteOf(c).Muted)
+		ui.Text(c, "Runs on").FontSize(widgets.TextSmall).TextColor(widgets.PaletteOf(c).Muted)
 		if ui.Select(c, &label, labels).Width(220).Label("Panel connection").Changed() {
 			if i := slices.Index(labels, label); i >= 0 {
 				s.connID = conns[i].Config.ID
@@ -921,7 +921,7 @@ func (t *Tab) chartView(c *ui.Context, p *Panel, s *panelState) {
 		s.applied, s.shown = true, s.chart.Settings(s.src)
 	}
 	if len(s.src.Rows) == 0 {
-		ui.Text(c, "No rows.").FontSize(12.5).TextColor(widgets.PaletteOf(c).Muted).Padding(10)
+		ui.Text(c, "No rows.").FontSize(widgets.TextBody).TextColor(widgets.PaletteOf(c).Muted).Padding(10)
 		return
 	}
 	if !t.editing {
@@ -963,17 +963,17 @@ func tableView(c *ui.Context, s *panelState) {
 		v := s.src.Rows[row][col]
 		switch {
 		case v == nil:
-			ui.Text(c, "NULL").FontSize(12.5).Italic().TextColor(pal.Null).SingleLine()
+			ui.Text(c, "NULL").FontSize(widgets.TextBody).Italic().TextColor(pal.Null).SingleLine()
 		case numeric[col] && db.IsNumeric(v):
 			text := db.Display(v)
 			if groupable(s.src.Cols[col].Name) {
 				text = settings.ReadableNumber(text)
 			}
-			ui.Text(c, text).FontSize(12.5).FontFeatures("tnum").SingleLine()
+			ui.Text(c, text).FontSize(widgets.TextBody).FontFeatures("tnum").SingleLine()
 		default:
-			ui.Text(c, widgets.OneLine(db.Display(v), 200)).FontSize(12.5).SingleLine()
+			ui.Text(c, widgets.OneLine(db.Display(v), 200)).FontSize(widgets.TextBody).SingleLine()
 		}
-	}).Grow(1).Label("Panel rows").FontSize(12)
+	}).Grow(1).Label("Panel rows").FontSize(widgets.TextSmall)
 }
 
 // groupable reports whether a column's numbers read better grouped by
@@ -1011,8 +1011,8 @@ func valueView(c *ui.Context, s *panelState) {
 			}
 		}
 		// A refresh rolls the digits that changed, which says what moved.
-		ui.Text(c, widgets.OneLine(text, 40)).FontSize(32).FontWeight(600).LetterSpacing(-0.5).FontFeatures("tnum").SingleLine().
+		ui.Text(c, widgets.OneLine(text, 40)).FontSize(widgets.TextDisplay).FontWeight(600).LetterSpacing(-0.5).FontFeatures("tnum").SingleLine().
 			ContentTransition(ui.ContentTransition{Numeric: true})
-		ui.Text(c, s.src.Cols[0].Name).FontSize(12).TextColor(pal.Muted)
+		ui.Text(c, s.src.Cols[0].Name).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 	})
 }

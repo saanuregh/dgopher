@@ -298,10 +298,11 @@ const (
 	MaxGridFont   = 22
 )
 
-// GridFontSize is the size of the grids' text.
+// GridFontSize is the size of the grids' text: until one is set, that of
+// what is read in the rest of the window.
 func (s Settings) GridFontSize() float32 {
 	if s.GridFont <= 0 {
-		return 12.5
+		return 13
 	}
 	return s.GridFont
 }

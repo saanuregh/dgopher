@@ -295,7 +295,7 @@ func (g *Grid) valueCard(c *ui.Context, card *widgets.Card, a Host, src *Source,
 			ui.Text(c, "NULL").TextColor(widgets.PaletteOf(c).Null).Italic()
 			return
 		}
-		ui.Text(c, text).Font(widgets.MonoFont).FontSize(12.5).Selectable()
+		ui.Text(c, text).Font(widgets.MonoFont).FontSize(widgets.TextBody).Selectable()
 	})
 	card.Actions(c, func(ac *widgets.CardActions) {
 		if v != nil {
@@ -312,7 +312,7 @@ func (g *Grid) textCard(c *ui.Context, card *widgets.Card, a Host, src *Source, 
 	card.Header(c, widgets.IconFile, widgets.ToneValue, src.Cols[col].Name,
 		widgets.Count(utf8.RuneCountInString(text), "character")+lineCount(text))
 	shown := text[:min(len(text), jsonCardMax)]
-	card.Section(c, func() { ui.Text(c, shown).Selectable().FontSize(12.5) })
+	card.Section(c, func() { ui.Text(c, shown).Selectable().FontSize(widgets.TextBody) })
 	if len(shown) < len(text) {
 		card.Note(c, "The value goes on: the value editor shows it whole.")
 	}
@@ -356,7 +356,7 @@ func (g *Grid) jsonCard(c *ui.Context, card *widgets.Card, a Host, src *Source, 
 	card.Meta(c, tree.hint(c))
 	if tree.node == nil {
 		card.Section(c, func() {
-			ui.Text(c, text[:min(len(text), 4096)]).Font(widgets.MonoFont).FontSize(12).Selectable()
+			ui.Text(c, text[:min(len(text), 4096)]).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Selectable()
 		})
 		card.Note(c, "Too long to show here: the value editor shows it whole.")
 	} else {

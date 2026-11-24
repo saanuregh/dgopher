@@ -92,12 +92,12 @@ func (r *Tab) seriesView(c *ui.Context, ro bool) {
 			switch {
 			case s.loading:
 			case s.err != "":
-				ui.Text(c, s.err).FontSize(12).TextColor(th.Danger).SingleLine().Shrink(1)
+				ui.Text(c, s.err).FontSize(widgets.TextSmall).TextColor(th.Danger).SingleLine().Shrink(1)
 			case s.last.IsZero():
-				ui.Text(c, "No samples yet.").FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, "No samples yet.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			default:
 				ui.Text(c, fmt.Sprintf("From %s to %s, averaged by %s", s.first.Format(time.DateTime), s.last.Format(time.DateTime), s.bucket)).
-					FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1)
+					FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Shrink(1)
 			}
 		})
 		ui.Row(c).Grow(1).AlignItems(ui.Stretch).Children(func() {
@@ -110,8 +110,8 @@ func (r *Tab) seriesView(c *ui.Context, ro bool) {
 				ui.List(c, &s.propsList, len(s.props), func(i int) {
 					p := s.props[i]
 					ui.Column(c).Padding(3, 10).Children(func() {
-						ui.Text(c, p.Name).FontSize(11).TextColor(pal.Muted)
-						ui.Text(c, p.Value).Font(widgets.MonoFont).FontSize(12).Selectable()
+						ui.Text(c, p.Name).FontSize(widgets.TextMeta).TextColor(pal.Muted)
+						ui.Text(c, p.Value).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Selectable()
 					})
 				}).Grow(1).Label("Series properties")
 			})
