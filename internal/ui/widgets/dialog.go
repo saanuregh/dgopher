@@ -72,6 +72,58 @@ func EnvModal(c *ui.Context, open *bool, cfg *db.Config, width float32, fn func(
 	})
 }
 
+// PromptDismissed is what Prompt returns in the frame Escape closes it,
+// choosing no button.
+const PromptDismissed = -2
+
+// Prompt asks a question over the window while *open is true, in a small
+// Dialog: title, message, and buttons, the last of which is the main one,
+// with the focus, which Enter clicks. Escape closes it choosing no
+// button; a click outside it does nothing, as it must be answered. It
+// returns the index of the button clicked, in the frame it is, which
+// closes the prompt, PromptDismissed in the frame Escape closes it, and
+// -1 otherwise.
+func Prompt(c *ui.Context, open *bool, title, message string, buttons ...string) int {
+	if !*open {
+		return -1
+	}
+	chosen, outside := -1, false
+	dlg := ui.DialogBase(c, open, func(backdrop, panel ui.Element) {
+		dialogPanel(c, panel, DialogSmall)
+		dialogLook(c, backdrop, panel)
+		outside = backdrop.Clicked()
+		panel.Role(ui.RoleAlertDialog).Label(title)
+		ui.Column(c).Padding(DialogPad).Gap(c.Theme().Space(3)).Children(func() {
+			DialogTitle(c, title)
+			if message != "" {
+				ui.Text(c, message).TextColor(PaletteOf(c).Muted)
+			}
+			ui.Row(c).Wrap().Gap(8).Justify(ui.End).Children(func() {
+				for i, label := range buttons {
+					var b ui.Element
+					if i == len(buttons)-1 {
+						b = ui.PrimaryButton(c, label).AutoFocus()
+					} else {
+						b = ui.Button(c, label)
+					}
+					if b.Clicked() {
+						chosen = i
+					}
+				}
+			})
+		})
+	})
+	switch {
+	case chosen >= 0:
+		*open = false
+	case dlg.Dismissed() && outside:
+		*open = true
+	case dlg.Dismissed():
+		chosen = PromptDismissed
+	}
+	return chosen
+}
+
 // DialogTitle is a dialog's title.
 func DialogTitle(c *ui.Context, title string) ui.Element {
 	return ui.Text(c, title).FontSize(TextTitle).Bold()

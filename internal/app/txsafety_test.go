@@ -104,6 +104,9 @@ func TestQuitAsksAboutOpenTransactions(t *testing.T) {
 		t.Fatal("quit without asking")
 	}
 	tt.Frame()
+	// The question come in: a dialog fades into its place.
+	tt.Advance(time.Second)
+	tt.Frame()
 	testutil.Snapshot(t, tt, "quit-open-transaction")
 	if texts := strings.Join(tt.Texts(), "|"); !strings.HasSuffix(texts, "Cancel|Roll Back and Quit|Commit and Quit") || !tt.HasText("Quit DGopher?") {
 		t.Fatalf("the dialog's buttons: %s", texts)

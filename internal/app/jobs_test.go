@@ -377,6 +377,9 @@ func TestQuitListsRunningJobs(t *testing.T) {
 		t.Fatalf("the reason: %q", r)
 	}
 	tt.Frame()
+	// The question come in: a dialog fades into its place.
+	tt.Advance(time.Second)
+	tt.Frame()
 	testutil.Snapshot(t, tt, "quit-running-job")
 	r := a.closing
 	r.open = false

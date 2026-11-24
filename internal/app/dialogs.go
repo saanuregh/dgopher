@@ -156,8 +156,8 @@ func (a *App) questions(c *ui.Context) {
 	}
 	if p := a.pending; p != nil {
 		title := "Apply " + widgets.Count(p.n, "pending change") + " first?"
-		switch ui.AlertDialog(c, &p.open, title, "Reading the rows again shows them as the database has them: the changes not applied yet are written first, or dropped.", "Cancel", "Discard", "Apply…") {
-		case 0, ui.AlertDismissed:
+		switch widgets.Prompt(c, &p.open, title, "Reading the rows again shows them as the database has them: the changes not applied yet are written first, or dropped.", "Cancel", "Discard", "Apply…") {
+		case 0, widgets.PromptDismissed:
 			p.cancel()
 		case 1:
 			p.discard()
@@ -173,13 +173,13 @@ func (a *App) questions(c *ui.Context) {
 	if r := a.closing; r != nil {
 		action := cmp.Or(r.action, "Close")
 		if len(r.txs) > 0 {
-			switch ui.AlertDialog(c, &r.open, r.title, r.reason, "Cancel", "Roll Back and "+action, "Commit and "+action) {
+			switch widgets.Prompt(c, &r.open, r.title, r.reason, "Cancel", "Roll Back and "+action, "Commit and "+action) {
 			case 1:
 				r.onClose()
 			case 2:
 				a.commitThen(r.txs, r.onClose)
 			}
-		} else if ui.AlertDialog(c, &r.open, r.title, r.reason, "Cancel", action) == 1 {
+		} else if widgets.Prompt(c, &r.open, r.title, r.reason, "Cancel", action) == 1 {
 			r.onClose()
 		}
 		if !r.open {

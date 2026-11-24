@@ -1270,6 +1270,9 @@ func TestPendingChangesDialog(t *testing.T) {
 	if !tt.HasText("Apply 1 pending change first?") {
 		t.Fatalf("no question: %q", tt.Texts())
 	}
+	// The question come in: a dialog fades into its place.
+	tt.Advance(time.Second)
+	tt.Frame()
 	testutil.Snapshot(t, tt, "pending-changes-dialog")
 	if err := tt.Click("Discard"); err != nil {
 		t.Fatal(err)

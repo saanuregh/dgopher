@@ -45,7 +45,7 @@ func (g *DismissGuard) Keep(c *ui.Context, dialog ui.Element, open *bool, inputs
 			*open, g.asking = true, true
 		}
 	}
-	if g.asking && ui.AlertDialog(c, &g.asking, "Discard your changes?", "What you entered here is lost.", "Discard", "Keep Editing") == 0 {
+	if g.asking && Prompt(c, &g.asking, "Discard your changes?", "What you entered here is lost.", "Discard", "Keep Editing") == 0 {
 		*open = false
 	}
 }

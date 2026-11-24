@@ -40,13 +40,13 @@ func TestDialogWidths(t *testing.T) {
 	}
 }
 
-// Every dialog's panel is built here, by Dialog or Picker: one built
-// elsewhere would have a border, a corner and a fit to the window of its
-// own.
+// Every dialog's panel is built here, by Dialog, Picker or Prompt: one
+// built elsewhere, or the toolkit's own alert, would have a border, a
+// corner and a fit to the window of its own.
 func TestDialogsShareOneShell(t *testing.T) {
 	root := filepath.Join("..", "..")
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || filepath.Dir(path) == filepath.Join(root, "ui", "widgets") {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return err
 		}
 		src, err := os.ReadFile(path)
@@ -54,9 +54,13 @@ func TestDialogsShareOneShell(t *testing.T) {
 			return err
 		}
 		rel, _ := filepath.Rel(root, path)
+		here := filepath.Dir(path) == filepath.Join(root, "ui", "widgets")
 		for i, line := range strings.Split(string(src), "\n") {
-			if strings.Contains(line, "ui.DialogBase(") {
+			if !here && strings.Contains(line, "ui.DialogBase(") {
 				t.Errorf("%s:%d: a dialog's panel built outside widgets: %s", filepath.ToSlash(rel), i+1, strings.TrimSpace(line))
+			}
+			if strings.Contains(line, "ui.AlertDialog(") {
+				t.Errorf("%s:%d: the toolkit's alert, in place of Prompt: %s", filepath.ToSlash(rel), i+1, strings.TrimSpace(line))
 			}
 		}
 		return nil
