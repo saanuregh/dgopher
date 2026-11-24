@@ -196,6 +196,19 @@ func (a *App) showConnError(cn *connection.Conn) {
 	a.ShowReport(r)
 }
 
+// fileConnectionShrink is how much sooner than a query file's name the
+// name of its connection gives way where the row is narrow: the file's
+// name is what the row is chosen by.
+const fileConnectionShrink = 1000
+
+// navFontSize and navSpacing are the size of the navigator's text and the
+// unit of the room its rows leave around it (ui.Theme's Spacing), which
+// make a row about 24 high.
+const (
+	navFontSize = 13
+	navSpacing  = 3
+)
+
 func (n *navState) init() {
 	n.row, n.chose = -1, -1
 	n.openConnsNow = map[string]bool{}
@@ -592,9 +605,16 @@ func (a *App) sidebar(c *ui.Context) {
 		a.openToReveal()
 		var tree ui.Element
 		widgets.ChosenRows(c, func() {
+			// Rows as dense as DBeaver's navigator: the theme's text
+			// and spacing size them, on every system alike.
+			chosen := c.Theme()
+			dense := *chosen
+			dense.Spacing = navSpacing
+			c.SetTheme(&dense)
+			defer c.SetTheme(chosen)
 			tree = ui.Outline(c, &a.nav.tree, a.navRoots(), a.navChildren, func(n navNode) {
 				a.navRow(c, n)
-			}).Grow(1).PaddingX(6).Label("Navigator")
+			}).Grow(1).PaddingX(6).FontSize(navFontSize).Label("Navigator")
 		})
 		a.forgetGoneErrors()
 		a.chooseRevealed(c)
@@ -792,7 +812,7 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 		return
 	}
 	muted := widgets.PaletteOf(c).Muted
-	row := ui.Row(c).Gap(6).Grow(1).PaddingY(1)
+	row := ui.Row(c).Gap(6).Grow(1)
 	row.Children(func() {
 		switch n.kind {
 		case nodeConn:
@@ -1278,7 +1298,7 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 		return
 	}
 	muted := widgets.PaletteOf(c).Muted
-	row := ui.Row(c).Gap(6).Grow(1).PaddingY(1)
+	row := ui.Row(c).Gap(6).Grow(1)
 	row.Children(func() {
 		switch n.kind {
 		case nodeProject:
@@ -1313,11 +1333,30 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 		case nodeConnFolder:
 			a.connFolderRow(c, p, n)
 		case nodeQueryFile:
+			// The connection the file's header names: its color before
+			// the file, as a connection's row has its own, and its name
+			// after it, which gives way first where the row is narrow.
+			// An ID no connection of the project has shows as it is, in
+			// the warning color, and none shows nothing.
+			id := p.FileConnections[n.name].ID
+			var runsOn *connection.Conn
+			if id != "" {
+				runsOn = a.connByID(p.Prefix + id)
+			}
+			dot := ui.Box(c).Size(6, 6).Radius(3).Shrink(0)
+			if runsOn != nil {
+				dot.Background(widgets.EnvColor(&runsOn.Config))
+			}
 			ui.Icon(c, widgets.IconFile).TextColor(muted).FontSize(12)
-			ui.Column(c).Shrink(1).Children(func() {
-				ui.Text(c, n.name).SingleLine().Tooltip(filepath.Join(p.Queries, filepath.FromSlash(n.name)))
-				a.fileConnectionLine(c, p, p.FileConnections[n.name].ID)
-			})
+			ui.Text(c, n.name).SingleLine().Shrink(1).Tooltip(filepath.Join(p.Queries, filepath.FromSlash(n.name)))
+			ui.Spacer(c)
+			switch {
+			case id == "":
+			case runsOn == nil:
+				ui.Text(c, id).SingleLine().Shrink(fileConnectionShrink).FontSize(11).TextColor(c.Theme().Warning).Tooltip("No connection of " + p.Name + " has this ID")
+			default:
+				ui.Text(c, runsOn.Config.Name).SingleLine().Shrink(fileConnectionShrink).FontSize(11).TextColor(muted).Tooltip("Runs on " + runsOn.Config.Name)
+			}
 		case nodeDashboard, nodeModel:
 			ic, names, paths := widgets.IconLayers, []string(nil), []string(nil)
 			if n.kind == nodeDashboard {
@@ -1503,22 +1542,4 @@ func (a *App) setCatalogDepth(cn *connection.Conn, database, schema string, d db
 	delete(cn.Items, key)
 	maps.DeleteFunc(cn.Columns, func(k connection.ObjectKey, _ []db.Column) bool { return k.Database == database && k.Schema == schema })
 	connection.LoadObjects(a, cn, database, schema)
-}
-
-// fileConnectionLine shows under a query file the connection its header
-// names, with its environment's color; an ID no connection of the project
-// has shows as it is, in the warning color, and none shows nothing.
-func (a *App) fileConnectionLine(c *ui.Context, p *project.Project, id string) {
-	if id == "" {
-		return
-	}
-	cn := a.connByID(p.Prefix + id)
-	ui.Row(c).Gap(5).AlignItems(ui.Center).Children(func() {
-		if cn == nil {
-			ui.Text(c, id).SingleLine().FontSize(10.5).TextColor(c.Theme().Warning).Tooltip("No connection of " + p.Name + " has this ID")
-			return
-		}
-		ui.Box(c).Size(6, 6).Radius(3).Background(widgets.EnvColor(&cn.Config))
-		ui.Text(c, cn.Config.Name).SingleLine().FontSize(10.5).TextColor(widgets.PaletteOf(c).Muted)
-	})
 }

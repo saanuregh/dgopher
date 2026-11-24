@@ -156,6 +156,9 @@ type Tab struct {
 	stale     []*result
 	staleIdx  int
 	staleFrom int
+	// dockW is how wide the results showed in the last frame, 0 before
+	// the first.
+	dockW     float32
 	cancel    context.CancelFunc
 	StartedAt time.Time
 	// ongoing is the statements' run going on, nil for none; stopping is
@@ -2037,14 +2040,11 @@ func (q *Tab) resultsView(c *ui.Context, a Host) {
 	if q.stale != nil && (!q.Running || len(q.results) > q.staleFrom) {
 		q.stale = nil
 	}
-	results, idx := q.results, q.resultIdx
+	results, idx := q.shownResults()
 	stale := q.stale != nil
-	if stale {
-		results, idx = q.stale, q.staleIdx
-	}
 	l := a.Layout()
 	hidden := l.Results == widgets.ResultsHidden
-	panel := ui.Column(c).Disabled(stale)
+	panel := ui.Column(c).Disabled(stale).Draw(func(_ *ui.Painter, r ui.Rect) { q.dockW = r.W })
 	if !hidden {
 		panel.Fill()
 	}
@@ -2054,59 +2054,12 @@ func (q *Tab) resultsView(c *ui.Context, a Host) {
 		panel.Opacity(0.55)
 	}
 	panel.Children(func() {
-		ui.Row(c).Padding(4, 8).Gap(4).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
-			ui.Row(c).Gap(2).Grow(1).Shrink(1).ClipX().Children(func() {
-				names := resultNames(results)
-				for i, r := range results {
-					if !r.rowsMode && r.err == "" {
-						continue
-					}
-					label := names[i]
-					switch {
-					case r.err != "" && r.view == nil:
-						label = "Error"
-					case r.err != "":
-						label += " ⚠"
-					}
-					var pin *ui.SVG
-					named := label
-					if r.pinned {
-						pin, named = widgets.IconPin, label+", pinned"
-					}
-					p := widgets.IconPill(c, pin, label, idx == i).Label(named).Tooltip(resultTip(r))
-					if p.Clicked() {
-						q.resultIdx = i
-						q.showResults()
-					}
-					p.ContextMenu(func(m *ui.Menu) {
-						title := "Pin"
-						if r.pinned {
-							title = "Unpin"
-						}
-						if m.Item(title).Chosen() {
-							r.pinned = !r.pinned
-						}
-						if m.Item("Close Result").Disabled(q.Running || r.view != nil && (r.view.Applying() || r.view.Counting())).Chosen() {
-							q.a.Post(func() { q.settlePending([]*result{r}, func() { q.closeResult(r) }) })
-						}
-					})
-				}
+		if !q.stripMerged() {
+			ui.Row(c).Padding(4, 8).Gap(4).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
+				ui.Row(c).Gap(2).Grow(1).Shrink(1).ClipX().Children(func() { q.resultTabs(c, results, idx) })
+				q.dockButtons(c, results, idx)
 			})
-			if widgets.ToggleIconButton(c, widgets.IconTerminal, "Output", idx >= len(results)).Clicked() {
-				q.resultIdx = len(q.results)
-				q.showResults()
-			}
-			if !hidden {
-				icon, label := maximizeResultsAction(l)
-				if widgets.IconButton(c, icon, label).Tooltip(keymap.Hint(label, keymap.MaximizeResults)).Clicked() {
-					q.maximizeResults()
-				}
-			}
-			icon, label := hideResultsAction(l)
-			if widgets.IconButton(c, icon, label).Tooltip(keymap.Hint(label, keymap.ToggleResults)).Clicked() {
-				q.toggleResults()
-			}
-		})
+		}
 		if hidden {
 			return
 		}
@@ -2135,6 +2088,124 @@ func (q *Tab) resultsView(c *ui.Context, a Host) {
 				r.view.View(c)
 			}
 		})
+	})
+}
+
+// shownResults are the results the dock shows and the one in front: those
+// of the run before while a run replaces them.
+func (q *Tab) shownResults() ([]*result, int) {
+	if q.stale != nil {
+		return q.stale, q.staleIdx
+	}
+	return q.results, q.resultIdx
+}
+
+// mergedStripWidth is the least width of the results at which one
+// result's tab shares its grid's toolbar: narrower, as in a split or
+// beside the chat, the tab would leave the WHERE box and the quick filter
+// no room there.
+const mergedStripWidth = 820
+
+// stripMerged reports whether the one result's tab and the dock's buttons
+// show in its grid's toolbar, in place of a row of their own: the rows
+// take the room. Several results, one that shows no grid, as an error or a
+// plan, and results too narrow keep the row, which hidden results are
+// left with.
+func (q *Tab) stripMerged() bool {
+	if q.nb != nil || q.a.Layout().Results == widgets.ResultsHidden || q.dockW > 0 && q.dockW < mergedStripWidth {
+		return false
+	}
+	results, idx := q.shownResults()
+	tabs := 0
+	for _, r := range results {
+		if r.rowsMode || r.err != "" {
+			tabs++
+		}
+	}
+	r := resultAt(results, idx)
+	return tabs == 1 && r != nil && r.view != nil && r.plan == nil
+}
+
+// resultTabs draws a tab for each result that shows rows or an error.
+func (q *Tab) resultTabs(c *ui.Context, results []*result, idx int) {
+	names := resultNames(results)
+	for i, r := range results {
+		if !r.rowsMode && r.err == "" {
+			continue
+		}
+		label := names[i]
+		switch {
+		case r.err != "" && r.view == nil:
+			label = "Error"
+		case r.err != "":
+			label += " ⚠"
+		}
+		var pin *ui.SVG
+		named := label
+		if r.pinned {
+			pin, named = widgets.IconPin, label+", pinned"
+		}
+		p := widgets.IconPill(c, pin, label, idx == i).Label(named).Tooltip(resultTip(r))
+		if p.Clicked() {
+			q.resultIdx = i
+			q.showResults()
+		}
+		p.ContextMenu(func(m *ui.Menu) {
+			title := "Pin"
+			if r.pinned {
+				title = "Unpin"
+			}
+			if m.Item(title).Chosen() {
+				r.pinned = !r.pinned
+			}
+			if m.Item("Close Result").Disabled(q.Running || r.view != nil && (r.view.Applying() || r.view.Counting())).Chosen() {
+				q.a.Post(func() { q.settlePending([]*result{r}, func() { q.closeResult(r) }) })
+			}
+		})
+	}
+}
+
+// dockButtons draws the dock's buttons: the output, and the results
+// maximized over the editor or hidden under it.
+func (q *Tab) dockButtons(c *ui.Context, results []*result, idx int) {
+	l := q.a.Layout()
+	hidden := l.Results == widgets.ResultsHidden
+	if widgets.ToggleIconButton(c, widgets.IconTerminal, "Output", idx >= len(results)).Clicked() {
+		q.resultIdx = len(q.results)
+		q.showResults()
+	}
+	if !hidden {
+		icon, label := maximizeResultsAction(l)
+		if widgets.IconButton(c, icon, label).Tooltip(keymap.Hint(label, keymap.MaximizeResults)).Clicked() {
+			q.maximizeResults()
+		}
+	}
+	icon, label := hideResultsAction(l)
+	if widgets.IconButton(c, icon, label).Tooltip(keymap.Hint(label, keymap.ToggleResults)).Clicked() {
+		q.toggleResults()
+	}
+}
+
+// toolbarTabs starts a result's toolbar with its tab, while it is the one
+// result (stripMerged).
+func (q *Tab) toolbarTabs(c *ui.Context) {
+	if !q.stripMerged() {
+		return
+	}
+	results, idx := q.shownResults()
+	ui.Row(c).Gap(2).Shrink(0).Padding(0, 0, 0, 8).Children(func() { q.resultTabs(c, results, idx) })
+}
+
+// toolbarDock ends it with the dock's buttons.
+func (q *Tab) toolbarDock(c *ui.Context) {
+	if !q.stripMerged() {
+		return
+	}
+	results, idx := q.shownResults()
+	ui.Row(c).Gap(4).Shrink(0).Padding(0, 8, 0, 0).Children(func() {
+		// Apart from the grid's own: these are the dock's.
+		ui.Divider(c).Margin(8, 4, 8, 0)
+		q.dockButtons(c, results, idx)
 	})
 }
 
@@ -2172,6 +2243,8 @@ func (q *Tab) newView(res *result, c *db.Cursor, rows [][]any, done bool, stop c
 		why = dataview.ReadingColumns
 	}
 	v := dataview.NewViewer(q.a, dataview.ViewerSource{
+		Lead:           q.toolbarTabs,
+		Trail:          q.toolbarDock,
 		Keys:           func() bool { return q.a.KeysTo(q) },
 		Conn:           q.Conn,
 		Database:       q.Database,

@@ -274,9 +274,10 @@ Dashboards and Data Models. Each shows a count and, when pointed at, a +
 that makes another. With only one project, its name is in the sidebar's
 top row and its sections at the top.
 
-- A query file shows, under its name, the connection its
-  `-- connection:` line names, in its environment's color, or in the
-  warning color if no connection has that ID.
+- A query file shows, on its line, the connection its `-- connection:`
+  line names: a dot in its environment's color before the file's name, and
+  the connection's name after it, or the ID in the warning color if no
+  connection has it.
 - A connection is a tree of databases, schemas, tables, views and columns,
   read as you open it, with row estimates. A database with one schema shows
   that schema's folders directly.

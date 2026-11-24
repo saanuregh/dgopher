@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"math/big"
 	"slices"
 	"strconv"
@@ -193,6 +194,12 @@ func formatMenu(a Host, m *ui.Menu) {
 			a.SaveSettings()
 		}
 	})
+}
+
+// RowHeight is how tall a grid's rows are with text of a size: a row of
+// DBeaver's at the default one.
+func RowHeight(fontSize float32) float32 {
+	return float32(math.Round(float64(fontSize) * 1.76))
 }
 
 // stepGridFont makes the grids' text, of every tab, a size larger, or

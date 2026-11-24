@@ -225,6 +225,18 @@ func StatusButton(c *ui.Context, label string) ui.Element {
 	return b
 }
 
+// StatusPrimaryButton is StatusButton filled with the accent: a status
+// bar's main action.
+func StatusPrimaryButton(c *ui.Context, label string) ui.Element {
+	t := c.Theme()
+	b := ui.ButtonBase(c).Label(label).Padding(1, 8).Radius(t.Radius).Border(1, t.Accent).Background(t.Accent)
+	if b.Hovered() {
+		b.Background(t.AccentHover).Border(1, t.AccentHover)
+	}
+	b.Children(func() { ui.Text(c, label).FontSize(12).FontWeight(500).TextColor(t.AccentText) })
+	return b
+}
+
 // DangerButton is the main button of what destroys data or trusts a
 // server: red, its label bold.
 func DangerButton(c *ui.Context, label string, disabled bool) ui.Element {

@@ -996,7 +996,7 @@ func (q *Tab) cellResultsView(c *ui.Context, cl *cell) {
 		case r.plan != nil:
 			ui.Column(c).Height(360).Children(func() { q.planView(c, r) })
 		default:
-			ui.Column(c).Height(resultHeight(r)).Children(func() { r.view.View(c) })
+			ui.Column(c).Height(q.resultHeight(r)).Children(func() { r.view.View(c) })
 		}
 		if cl.count > 0 && !running {
 			ui.Text(c, "took "+widgets.FormatDuration(cl.took)).FontSize(11).TextColor(pal.Muted).Padding(0, 10, 4, 10)
@@ -1006,9 +1006,9 @@ func (q *Tab) cellResultsView(c *ui.Context, cl *cell) {
 
 // resultHeight is how tall a cell's rows show: as many as there are, up
 // to a screenful, under the viewer's bars.
-func resultHeight(r *result) float32 {
+func (q *Tab) resultHeight(r *result) float32 {
 	rows := len(r.view.Rows())
-	return float32(min(max(rows, 3), 12))*26 + 96
+	return float32(min(max(rows, 3), 12))*dataview.RowHeight(q.a.Settings().GridFontSize()) + dataview.BarsHeight
 }
 
 // markdownCell shows a Markdown cell as it reads; focused and clicked, or

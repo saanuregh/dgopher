@@ -115,6 +115,12 @@ count in one statement.
   the column has one), revert a row, and undo and redo (⌘Z, ⌘⇧Z), with
   DBeaver's keys. Set to NULL, Set to DEFAULT and Revert act on every chosen
   cell, as one change to undo. ⌘D and ⌘⌥D copy the value from the row above or below.
+- **The bar under the rows** holds what edits them: the buttons that add,
+  duplicate and delete rows, and, once a change is pending, their count
+  with **Undo**, **Discard All** and **Review and Apply**. It turns the
+  color of a changed cell while changes wait, and no row moves as the
+  first one is made. At its right are the rows read, **Fetch All** and
+  **Count**.
 - ⌘S shows the changes as SQL to review, then applies them in one
   transaction, one row per statement by primary key. See
   [Grid edits](../safety.md#grid-edits).
@@ -143,8 +149,9 @@ A query's result can be edited when:
   `FROM`;
 - its columns include the table's key.
 
-Computed and renamed columns stay read-only. The status line says why a
-result cannot be edited.
+Computed and renamed columns stay read-only. The bar under the rows says
+why a result cannot be edited, beside its buttons that would edit it, which
+say it too.
 
 Its edits apply on the editor's session. So with manual commit, or MySQL's
 autocommit off, they join the editor's open transaction, or open one and

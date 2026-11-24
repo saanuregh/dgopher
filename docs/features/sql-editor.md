@@ -83,10 +83,14 @@ Keys are written as on macOS; on Linux and Windows, ⌘ is Ctrl and ⌥ is Alt.
   statement, and the ▶ of the statement whose result shows is marked in the
   accent color, until that statement is edited.
 - **The results** sit under the editor and keep their share of its height as
-  the window resizes. ⌘J hides them down to their row of result tabs and
-  shows them again, as VS Code's panel; a run shows them. The buttons at the
-  right of that row hide them and maximize them over the editor. Every
-  editor shares the choice, and it is kept for the next start.
+  the window resizes. One result takes no row for its tab: the tab starts
+  the grid's toolbar, and the buttons that show the output, maximize the
+  results over the editor and hide them end it. Several results, an error,
+  a query plan, and one result too narrow for that, as in a split or
+  beside the chat, have a row of result tabs above them, with those
+  buttons at its right. ⌘J hides the results down to that row and shows
+  them again, as VS Code's panel; a run shows them. Every editor shares the
+  choice, and it is kept for the next start.
 - **A ▶ in the gutter**, on the first line of each statement, runs that
   statement. It is faint but on the statement a run would send, green, and
   on the one pointed at.

@@ -468,6 +468,7 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 	// colors: NULL stays NULL-colored, a number a number's.
 	dense := widgets.ChosenCells(*theme, theme.Background, pal.CellSelected)
 	dense.Spacing = 2.5
+	g.List.RowHeight = RowHeight(a.Settings().GridFontSize())
 	ui.Row(c).Grow(1).AlignItems(ui.Stretch).HandleInput(func(ev ui.InputEvent) bool {
 		switch step, wheel := g.wheelZoom.Step(ev); {
 		case ev.Kind == ui.InputZoom:
