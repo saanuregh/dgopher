@@ -4,6 +4,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
+	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -134,4 +135,22 @@ func (q *Tab) runTools(c *ui.Context) {
 // end by hand.
 func cfgManual(cn *connection.Conn) bool {
 	return cn.Config.Engine.Transactions() && cn.Config.ManualCommit()
+}
+
+// takeName lets an editor take a name dragged onto it, as a table's or a
+// column's from the navigator: written over the selection, at the caret,
+// and the editor takes the keys to go on typing. The caret, not the
+// pointer, says where: the editor has no way from a point to a place in
+// its text.
+func (q *Tab) takeName(c *ui.Context, el ui.Element, ed *editor.Editor) {
+	if _, over := ui.DragOver[widgets.NameDrag](el); over {
+		el.Border(1, c.Theme().Accent)
+	}
+	d, ok := ui.Drop[widgets.NameDrag](el)
+	if !ok || d.Text == "" {
+		return
+	}
+	start, end := ed.Selection()
+	ed.Replace(start, end, d.Text)
+	ed.WantFocus = true
 }

@@ -57,11 +57,11 @@ Connections can be grouped in folders in the navigator, as in DBeaver.
 Folders nest, and belong to one project; they are saved in its
 `dgopher.json` ([fields](../project-files.md)).
 
-- **New Folder…** is on the Connections section's menu, a folder's, and a
-  connection's. From a connection, the folder is made beside it and the
+- **New Folder…** is in the sidebar's **+**, on the project's menu, a
+  folder's, and a connection's. From a connection, the folder is made beside it and the
   connection moves into it.
-- Move a connection by dragging it onto a folder, or onto **Connections**
-  for the top level; by its **Move to Folder** menu; or with **Folder** on
+- Move a connection by dragging it onto a folder, or onto the project's
+  name for the top level; by its **Move to Folder** menu; or with **Folder** on
   the form's General page, shown once the project has a folder. Folders
   drag too, but not into themselves.
 - **Rename…** (F2) renames a folder, and the folders in it follow.

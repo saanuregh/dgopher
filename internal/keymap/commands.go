@@ -193,7 +193,7 @@ func mustKeys(id, s string) Keystroke {
 var Commands = []Command{
 	command(Palette, Global, "Command palette: every command, connection, table and snippet", "cmd-shift-p"),
 	command(OpenTable, Global, "Open a table or a query file by name", "cmd-p"),
-	command(NewEditor, Global, "New SQL editor on the current connection", "cmd-t"),
+	command(NewEditor, Global, "New SQL editor, on the connection and database you choose", "cmd-t"),
 	command(NewNotebook, Global, "New SQL notebook on the current connection", "cmd-k cmd-t"),
 	command(NewConnection, Global, "New connection", "cmd-n"),
 	command(OpenScript, Global, "Open a SQL script", "cmd-o"),
@@ -239,7 +239,7 @@ var Commands = []Command{
 	command(ConfirmDialog, Dialog, "Do what a dialog is for: its main button, from any of its fields", "cmd-enter"),
 
 	command(NavigatorSelect, Navigator, "New editor with SELECT * of the table", "cmd-enter"),
-	command(NavigatorRefresh, Navigator, "Read the schema again", "cmd-r"),
+	command(NavigatorRefresh, Navigator, "Read the schema again", "cmd-r", "f5"),
 	command(NavigatorCopyName, Navigator, "Copy the table's name, quoted", "cmd-c"),
 	command(NavigatorRename, Navigator, "Rename the table", "f2"),
 	command(NavigatorStructure, Navigator, "The table's structure", "f4"),

@@ -129,6 +129,7 @@ type App struct {
 	// it could not be: a folder too big to watch is not walked at each poll.
 	queryWatchAt map[*project.Project]time.Time
 	newProject   *newProjectForm
+	schemaPicker *schemaPicker
 	renaming     *renameForm
 	generating   *generateState
 	// closedTabs are the tabs the user closed, the latest last (rememberClosed).

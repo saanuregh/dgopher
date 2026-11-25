@@ -228,6 +228,7 @@ func (a *App) askDeleteConn(cn *connection.Conn) {
 			}
 		}
 		a.deleteSecrets(&cn.Config)
+		a.forgetConn(cn)
 		a.saveProject(cn.Project)
 		a.Record(&cn.Config, audit.Event{Kind: audit.KindConfig, Detail: "connection deleted"})
 	})

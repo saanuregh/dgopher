@@ -220,7 +220,11 @@ func (a *App) titleMenu(m *ui.Menu) {
 func (a *App) projectHeader(c *ui.Context, p *project.Project) {
 	head := ui.Row(c).Gap(6).Grow(1).Shrink(1)
 	head.Children(func() { a.projectName(c, p) })
-	head.ContextMenu(func(m *ui.Menu) { a.navMenu(m, navNode{kind: nodeProject, projectDir: p.Dir}) })
+	node := navNode{kind: nodeProject, projectDir: p.Dir}
+	head.ContextMenu(func(m *ui.Menu) { a.navMenu(m, node) })
+	// Its name takes what is dragged out of a folder, to the top level:
+	// the one project has no row of its own in the tree.
+	a.folderDropTarget(c, head, p, node)
 }
 
 // projectName shows a project's folder and name, muted with why when it

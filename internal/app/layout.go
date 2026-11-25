@@ -36,6 +36,28 @@ func (a *App) activeConn() *connection.Conn {
 	return nil
 }
 
+// activePlace is the place at hand, which a new editor's picker has
+// first: the connection of the tab in front with the database that tab
+// works in; without a tab, the database of the database tree's chosen
+// row; else the active connection's own.
+func (a *App) activePlace() (connection.Place, bool) {
+	if t, ok := a.ActiveTab().(widgets.Placed); ok {
+		if places := t.Places(); len(places) == 1 && places[0].Conn != nil {
+			return places[0], true
+		}
+	}
+	cn := a.activeConn()
+	if cn == nil {
+		return connection.Place{}, false
+	}
+	if a.ActiveTab() == nil && a.nav.row >= 0 && a.nav.row < a.nav.tree.Rows() {
+		if n := a.nav.tree.Item(a.nav.row); n.conn == cn.Config.ID {
+			return cn.PlaceOf(n.database), true
+		}
+	}
+	return cn.PlaceOf(""), true
+}
+
 func (a *App) WriteClipboard(s string) {
 	if a.clipboard != nil {
 		a.clipboard(s)
@@ -131,6 +153,9 @@ func (a *App) overlays(c *ui.Context) {
 	}
 	if a.renaming != nil {
 		a.renameView(c)
+	}
+	if a.schemaPicker != nil {
+		a.schemaPickerView(c)
 	}
 	if a.generating != nil {
 		a.generateView(c)
@@ -240,8 +265,14 @@ func (a *App) shortcuts(c *ui.Context) {
 	case keymap.Pressed(c, keymap.FocusNavigator):
 		a.layout.SidebarHidden = false
 		a.focusWant = "nav"
-	case keymap.Pressed(c, keymap.FocusFilter) && a.ActiveTab() != nil:
+	case (a.ActiveTab() != nil || !a.layout.SidebarHidden) && keymap.Pressed(c, keymap.FocusFilter):
+		// The filter of the view with the keys: the navigator's own
+		// while it has them, or no tab is open. Asked once: the key is
+		// taken as it is asked for.
 		a.focusWant = "filter"
+		if !a.layout.SidebarHidden && (a.nav.hasKeys || a.ActiveTab() == nil) {
+			a.focusWant = "nav-filter"
+		}
 	case keymap.Pressed(c, keymap.ShortcutsList):
 		a.shortcutsOpen = !a.shortcutsOpen
 	case keymap.Pressed(c, keymap.NextTab):
@@ -1094,8 +1125,12 @@ func (a *App) connectionCards(c *ui.Context) {
 				}
 				row.Children(func() {
 					ui.Row(c).Gap(10).Grow(1).Children(func() {
+						// The environment's color down the card's side, which
+						// tells production at a glance, then the connection's
+						// mark as the navigator has it: its engine, gray until
+						// it is open, and its dot.
 						ui.Box(c).Size(4, 32).Radius(2).Background(widgets.EnvColor(&cn.Config))
-						ui.Icon(c, widgets.IconDatabase).TextColor(widgets.EngineColor(cn.Config.Engine)).FontSize(widgets.IconLarge)
+						widgets.ConnBadge(c, cn, t.Background)
 						ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
 							ui.Text(c, cn.Config.Name).Bold().SingleLine()
 							ui.Text(c, connSummary(&cn.Config)).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine()

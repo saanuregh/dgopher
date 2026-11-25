@@ -127,6 +127,22 @@ func ChosenRows(c *ui.Context, build func()) {
 	build()
 }
 
+// ChosenRowsElsewhere is ChosenRows for a list beside the one worked in,
+// as one of a sidebar's two: its chosen row keeps a faint tint, so that
+// of two rows chosen, one reads as the current one.
+func ChosenRowsElsewhere(c *ui.Context, build func()) {
+	prev := c.Theme()
+	t := *prev
+	faint := prev.Text.Alpha(0.07)
+	if !prev.Dark {
+		faint = prev.Text.Alpha(0.05)
+	}
+	t.Accent, t.AccentText, t.InactiveAccent = faint, prev.Text, faint
+	c.SetTheme(&t)
+	defer c.SetTheme(prev)
+	build()
+}
+
 // ChosenCells is a table's theme with chosen cells in tint over bg, the
 // table's background, as ChosenRows has rows: opaque, so the
 // lines the table draws in its accent, as a column's resize edge, still
@@ -256,6 +272,41 @@ func BackdropOf(c *ui.Context, picker bool) ui.Color {
 		return ui.RGBA(0, 0, 0, 0.10)
 	}
 	return ui.RGBA(0, 0, 0, 0.18)
+}
+
+// EngineBadge is an engine's mark: its two letters on its color, which
+// tell a PostgreSQL connection from a ClickHouse one at a glance, where a
+// tinted icon of one shape for all did not. Not lit, as for a connection
+// that is not open, it is gray.
+func EngineBadge(c *ui.Context, e db.Engine, lit bool) ui.Element {
+	fill := EngineColor(e)
+	ink := legibleOn(fill)
+	if !lit {
+		fill, ink = c.Theme().Text.Alpha(0.10), PaletteOf(c).Muted
+	}
+	b := ui.Box(c).Size(20, 15).Radius(RadiusSmall).Background(fill).Center().Shrink(0).Label(e.Label())
+	b.Children(func() {
+		ui.Text(c, e.Mark()).FontSize(TextMark).FontWeight(700).LetterSpacing(0.2).TextColor(ink)
+	})
+	return b
+}
+
+// ConnBadge is a connection's engine badge with the connection's dot on
+// its corner, as a person's picture carries their presence: one mark
+// before the name says what the connection is and how it stands, where a
+// dot and an icon side by side took the room of two. The dot is on the
+// corner, past the letters: over them, PG read as PC. under is the color
+// the badge is on, as the sidebar's.
+func ConnBadge(c *ui.Context, cn *connection.Conn, under ui.Color) ui.Element {
+	box := ui.Box(c).Size(26, 20).Shrink(0)
+	box.Children(func() {
+		EngineBadge(c, cn.Config.Engine, cn.Status == connection.StatusConnected).Absolute().Left(0).Top(1)
+		// A ring of the color under it sets the dot apart from the badge.
+		ui.Box(c).Absolute().Right(0).Bottom(0).Size(10, 10).Radius(RadiusRound).Background(under).Center().Children(func() {
+			ConnDot(c, cn)
+		})
+	})
+	return box
 }
 
 // ConnState shows how a connection stands: its dot, with a warning when

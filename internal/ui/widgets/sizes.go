@@ -2,6 +2,7 @@ package widgets
 
 // The sizes of text: every text in the app has one of them.
 const (
+	TextMark    = 9  // the two letters of an engine's badge
 	TextMeta    = 11 // counts, times, badges, types
 	TextSmall   = 12 // secondary text, labels, status, help
 	TextBody    = 13 // what is read and pressed: toolbars, rows, code in boxes

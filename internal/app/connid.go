@@ -165,12 +165,13 @@ func (a *App) renameConn(cn *connection.Conn, id string) error {
 		return fmt.Errorf("could not copy its secrets in the keychain: %w", err)
 	}
 	cn.Config.ID = renamed.ID
-	localErr := errors.Join(dataview.RenameConnection(p, old, id), renameIdentityDismissal(p, old, id), renameRecentTables(p, old, id))
+	localErr := errors.Join(dataview.RenameConnection(p, old, id), renameIdentityDismissal(p, old, id), renameRecentTables(p, old, id), renameKnownDatabases(p, old, id))
 	if err := p.Save(a.ProjectConfigs(p)); err != nil {
 		cn.Config.ID = was.ID
 		dataview.RenameConnection(p, id, old)
 		renameIdentityDismissal(p, id, old)
 		renameRecentTables(p, id, old)
+		renameKnownDatabases(p, id, old)
 		for _, k := range copied {
 			a.st.Secrets().Delete(k)
 		}
@@ -237,6 +238,33 @@ func (a *App) copySecrets(from, to *db.Config) ([]string, error) {
 		}
 	}
 	return wrote, nil
+}
+
+// forgetConn drops what is kept by a deleted connection's ID, which
+// renameConn moves when the ID changes: its tables' settings, filters,
+// colors and parameter values, its recent tables, the databases read of
+// its server, a dismissed notice, and the user's agreement to where it
+// connects. Left, they would be a new connection's that is given the ID.
+// The project's file, which holds some, is the caller's to save.
+func (a *App) forgetConn(cn *connection.Conn) {
+	p, id := cn.Project, localConnID(cn)
+	err := errors.Join(dataview.ForgetConnection(p, id), forgetIdentityDismissal(p, id), forgetRecentTables(p, id), forgetKnownDatabases(p, id))
+	if err != nil {
+		a.noteReport(widgets.ErrorReportOf("Could not forget what was kept of "+cn.Config.Name, err)) // the connection is deleted all the same
+	}
+	delete(a.nav.databasesKept, cn.Config.ID)
+	changed := false
+	if i := slices.Index(a.settings.TrustedShared, sharedFingerprint(&cn.Config, p.Dir)); i >= 0 {
+		a.settings.TrustedShared = slices.Delete(a.settings.TrustedShared, i, i+1)
+		changed = true
+	}
+	if _, ok := a.settings.TrustedDetails[trustKey(cn)]; ok {
+		delete(a.settings.TrustedDetails, trustKey(cn))
+		changed = true
+	}
+	if changed {
+		a.SaveSettings()
+	}
 }
 
 // moveTrust carries the trust the user gave a connection over to its new

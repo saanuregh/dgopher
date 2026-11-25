@@ -187,9 +187,16 @@ func (a *App) currentProject() *project.Project {
 	if cn := a.activeConn(); cn != nil {
 		return cn.Project
 	}
-	if a.nav.row >= 0 && a.nav.row < a.nav.tree.Rows() {
-		if p := a.projectByDir(a.nav.tree.Item(a.nav.row).projectDir); p != nil {
-			return p
+	// The row chosen in the pane that had the keys last, then the other's.
+	panes := a.nav.panes()
+	if a.nav.inFiles {
+		panes[0], panes[1] = panes[1], panes[0]
+	}
+	for _, pane := range panes {
+		if n, ok := pane.chosen(); ok {
+			if p := a.projectByDir(n.projectDir); p != nil {
+				return p
+			}
 		}
 	}
 	if len(a.projects) == 1 {

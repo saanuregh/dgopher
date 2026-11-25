@@ -9,6 +9,7 @@ import (
 
 	"dgopher/internal/audit"
 	"dgopher/internal/connection"
+	"dgopher/internal/db"
 	"dgopher/internal/keymap"
 	"dgopher/internal/project"
 	"dgopher/internal/ui/widgets"
@@ -62,7 +63,7 @@ func (a *App) connFolderRow(c *ui.Context, p *project.Project, n navNode) {
 		color = c.Theme().Text
 	}
 	ui.Icon(c, widgets.IconFolder).TextColor(color).FontSize(widgets.IconMedium)
-	ui.Text(c, project.FolderBase(n.name)).SingleLine().Grow(1).Shrink(1).TextColor(color).Tooltip(n.name)
+	a.navNameText(c, project.FolderBase(n.name)).SingleLine().Grow(1).Shrink(1).TextColor(color).Tooltip(n.name)
 }
 
 // folderConnected reports whether a connection in a folder, at any
@@ -213,7 +214,7 @@ func (a *App) carryOpen(p *project.Project, before []string, from, to string) {
 	a.expandFolder(p, to)
 	for _, f := range before {
 		moved, ok := project.MovedFolder(f, from, to)
-		if ok && a.nav.tree.Open.Has(navNode{kind: nodeConnFolder, projectDir: p.Dir, name: f}) {
+		if ok && a.nav.isOpen(navNode{kind: nodeConnFolder, projectDir: p.Dir, name: f}) {
 			a.nav.expand(navNode{kind: nodeConnFolder, projectDir: p.Dir, name: moved})
 		}
 	}
@@ -308,8 +309,7 @@ func (a *App) connFolderItems(m *ui.Menu, cn *connection.Conn) {
 
 // connFolderKeys handles the keys of a folder chosen in the navigator,
 // as its menu's items.
-func (a *App) connFolderKeys(c *ui.Context, p *project.Project, n navNode) {
-	l := &a.nav.tree.List
+func (a *App) connFolderKeys(c *ui.Context, l *ui.ListState, p *project.Project, n navNode) {
 	switch {
 	case keymap.ListPressed(c, l, keymap.NavigatorRename):
 		a.askRenameFolder(p, n.name)
@@ -326,8 +326,9 @@ type connDrag struct {
 }
 
 // navDragRows is what a drag of the navigator's rows carries, as its
-// list's DragRows: a connection's row or a folder's, nil for the other
-// rows, which do not drag.
+// list's DragRows: a connection's row or a folder's, to a folder; a
+// table's, a view's or a column's, its name to an editor, written as Copy
+// Name writes it; nil for the other rows, which do not drag.
 func (a *App) navDragRows(rows []int) any {
 	if len(rows) != 1 {
 		return nil
@@ -339,16 +340,25 @@ func (a *App) navDragRows(rows []int) any {
 		}
 	case nodeConnFolder:
 		return connDrag{project: n.projectDir, folders: []string{n.name}}
+	case nodeObject:
+		if cn, obj, ok := a.object(n); ok && cn.DB() != nil {
+			return widgets.NameDrag{Text: db.QualifiedName(cn.DB().Dialect, obj.Schema, obj.Name)}
+		}
+	case nodeColumn:
+		if cn := a.connByID(n.conn); cn != nil && cn.DB() != nil {
+			_, column, _ := strings.Cut(n.name, "\x00")
+			return widgets.NameDrag{Text: cn.DB().Dialect.Quote(column)}
+		}
 	}
 	return nil
 }
 
-// folderDropTarget lets a folder's row, or the Connections section's for
-// the top level, take connections and folders dragged onto it.
+// folderDropTarget lets a folder's row, or for the top level a project's
+// row or name, take connections and folders dragged onto it.
 func (a *App) folderDropTarget(c *ui.Context, row ui.Element, p *project.Project, n navNode) {
-	path := n.name
-	if n.kind == nodeConnections {
-		path = ""
+	path := ""
+	if n.kind == nodeConnFolder {
+		path = n.name
 	}
 	if d, ok := ui.DragOver[connDrag](row); ok && a.canDrop(p, d, path) == nil {
 		row.Background(widgets.ChosenRow(c))

@@ -919,7 +919,7 @@ func (q *Tab) sqlCell(c *ui.Context, cl *cell) {
 		}
 		waits := ed.WantFocus && !a.KeysTo(q)
 		ed.WantFocus = ed.WantFocus && !waits
-		ed.View(c, font)
+		q.takeName(c, ed.View(c, font), ed)
 		ed.WantFocus = ed.WantFocus || waits
 	})
 	if ed.HasFocus() && !cl.hadFocus && nb.focused != cl {

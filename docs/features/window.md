@@ -10,6 +10,68 @@ window buttons, without a row of its own:
 
 - The sidebar's top row adds a project or a connection, and hides the
   sidebar.
+- **The navigator is two panes.** The upper one lists the project's
+  files: query files, dashboards and data models. The lower one is the
+  tree of the connections and what their databases hold: schemas, tables,
+  views, columns. The files come first because the tree is the pane that
+  grows as you open tables: the files keep their place, and the tree grows
+  into the room below. Each scrolls on its own, and the line between them
+  drags. The files are as tall as their rows, so the tree follows them at
+  once; when both are long, the files take two fifths of the sidebar
+  until you drag the line. CONNECTIONS, the heading over the tree, closes
+  all of it, and a heading you leave closed is closed the next time you
+  start. With several projects, each pane lists the projects, each with
+  its own headings under its row: CONNECTIONS in the tree, QUERIES among
+  the files. Dashboards and data models get a heading with the first of
+  each, which the sidebar's + and any heading's menu make: a new project
+  starts with QUERIES alone. Of the two panes' chosen rows, the one in the
+  pane you work in has the full tint and the other a faint one. A
+  heading's count is left out when it is zero. A column's type shows by
+  its short name, as `varchar` for `character varying`, the whole on
+  hover. Unlike DBeaver, whose navigator shows the database tree first and
+  keeps scripts in another tab.
+- **New SQL Editor asks where.** ⌘T, the palette's command and the + on
+  QUERIES open a picker of the connections and the databases known of
+  them; the place you are at, the tab in front's connection and database,
+  is first and chosen, so ↵ opens another editor there, and typing finds
+  any other by name. A server that is not connected lists the databases
+  read of it the last time it was; one whose databases were never read
+  has a row that connects it to list them, and the picker stays open for
+  them. With one place there is nothing to ask. Unlike DBeaver, whose key opens the editor on the current
+  connection at once.
+- **A database's row has a +**, shown as you point at it or choose it: a
+  new SQL editor on that database at once, as its menu's New SQL Editor.
+- **A heading does not indent what it holds.** In the tree, CONNECTIONS,
+  a connection, and a group of a schema's objects, as TABLES or VIEWS, are
+  headings: a connection has its badge and a heavier name, the others are
+  in small capitals. The rows under a heading start where it does, so a table's
+  name starts two levels sooner. Databases, schemas and tables indent what
+  they hold, with a faint line under each one's arrow. Unlike DBeaver,
+  whose tree indents every level.
+- **The navigator's filter**, under the top row, leaves in both panes the
+  connections, tables, files, dashboards and data models whose names hold
+  what you type, in any case, opened down to them. A connection or a
+  schema that matches shows all it holds. Only what has been read is
+  searched: a connection never opened is not connected to be searched. A
+  pane without a match gives its room to the other, and when nothing
+  matches the navigator says how many connections were not searched. The
+  letters that matched are underlined in each name, and a heading counts what
+  shows of what it holds, as 2/4. ↵
+  opens the match chosen, the first as the panes show them, a file before
+  a table, ↓ goes on to its pane, or with nothing typed to the files' under
+  the box, Esc clears the filter,
+  and the panes are then as open as they were, with the row you chose in
+  view. ⌘L focuses it from the navigator.
+- **Schemas shown.** A connection with several schemas has **Schemas…** in
+  its menu: tick the ones the navigator shows. Its row then says how many,
+  as "3 of 12", which opens the same list. The choice is yours alone, kept
+  on this computer, not in the project's shared file.
+- **Drag a table, a view or a column** from the navigator into an editor
+  to write its name there, quoted, at the caret.
+- F5, or ⌘R, reads the chosen connection's schema again.
+- **New Folder…** for connections is in the sidebar's **+**, in the
+  project's own menu and in a connection's. Dragging a connection onto
+  the project's name takes it out of its folder.
 - The tab row shows the sidebar again, and holds the
   [notifications](#notifications) bell, the palette's search box and the
   app menu: File, View, Help, Settings and Quit.

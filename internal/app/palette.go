@@ -27,6 +27,12 @@ type paletteItem struct {
 	key   string
 	group string
 	icon  *ui.SVG
+	// conn is the connection a row is of, which then shows its badge in
+	// place of the icon, as the navigator has it.
+	conn *connection.Conn
+	// stay leaves the palette open once the row is chosen: what it starts
+	// shows there, as a server's databases once it has connected.
+	stay  bool
 	run   func()
 	score int
 }
@@ -45,6 +51,10 @@ type paletteState struct {
 	row    int
 	list   ui.ListState
 	tables bool // opened with ⌘P: tables first
+	places bool // opened to choose where a new editor opens (newEditor)
+	// placesOf is what the places listed were made of, to list them again
+	// when it changes, as a server connects (listPlaces).
+	placesOf string
 }
 
 func (a *App) openPalette(tables bool) {
@@ -90,8 +100,19 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 		paletteItem{title: "AI Chat", detail: "Claude Code, Codex or pi, beside the editor", key: keymap.ToggleChat, group: "Command", icon: widgets.IconSparkles, run: a.toggleChat},
 		paletteItem{title: "Add Existing Folder…", detail: "list a project folder", key: keymap.AddFolder, group: "Command", icon: widgets.IconFolder, run: a.addExistingProject},
 	)
+	// A dashboard's and a data model's headings show once there is one:
+	// the first is made from here, or from the sidebar's +.
+	if p := a.currentProject(); p != nil && p.Err == "" {
+		for _, kind := range []nodeKind{nodeDashboards, nodeModels} {
+			if label, run := a.sectionNew(p, kind); label != "" {
+				cmds = append(cmds, paletteItem{title: label, detail: p.Name, group: "Command", icon: widgets.IconPlus, run: run})
+			}
+		}
+	}
+	if len(a.conns) > 0 {
+		cmds = append(cmds, paletteItem{title: "New SQL Editor", detail: "on a connection and database you choose", key: keymap.NewEditor, group: "Command", icon: widgets.IconCode, run: a.newEditor})
+	}
 	if active != nil {
-		cmds = append(cmds, paletteItem{title: "New SQL Editor", detail: active.Config.Name, key: keymap.NewEditor, group: "Command", icon: widgets.IconCode, run: func() { a.NewQueryTab(active, "", "") }})
 		if active.Config.Engine.IsSQL() {
 			cmds = append(cmds, paletteItem{title: "New SQL Notebook", detail: active.Config.Name + ", cells with their own results", key: keymap.NewNotebook, group: "Command", icon: widgets.IconNotebook,
 				run: func() { a.newNotebook(active) }})
@@ -286,6 +307,9 @@ func (a *App) paletteView(c *ui.Context) {
 	p := a.palette
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
+	if p.places {
+		a.listPlaces(p)
+	}
 	if p.query != p.shownQ {
 		p.shownQ = p.query
 		p.shown = p.shown[:0]
@@ -306,18 +330,21 @@ func (a *App) paletteView(c *ui.Context) {
 	}
 	run := func(i int) {
 		if i >= 0 && i < len(p.shown) {
-			p.open = false
+			p.open = p.shown[i].stay
 			a.instant = true // a picker's choice shows at once, as a key's
 			p.shown[i].run()
 		}
 	}
 	widgets.Picker(c, &p.open, func(panel ui.Element) {
-		panel.Label("Command palette")
+		panel.Label(map[bool]string{false: "Command palette", true: "New SQL editor"}[p.places])
 		ui.Row(c).Padding(widgets.PadSectionY, widgets.PadSectionX).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 			ui.Icon(c, widgets.IconSearch).TextColor(pal.Muted).FontSize(widgets.IconLarge)
 			placeholder := "Search commands, connections and tables"
-			if p.tables {
+			switch {
+			case p.tables:
 				placeholder = "Open a table, a routine or a query file"
+			case p.places:
+				placeholder = "New SQL editor on…"
 			}
 			in := ui.TextInputBase(c, &p.query).Placeholder(placeholder).AutoFocus().Grow(1).FontSize(widgets.TextTitle).Label("Search")
 			if widgets.ListKeys(in, &p.index, len(p.shown), &p.list, paletteRows) {
@@ -328,7 +355,8 @@ func (a *App) paletteView(c *ui.Context) {
 		p.list.Selected = &p.row
 		widgets.ChosenRows(c, func() { a.paletteList(c, p, run) })
 	})
-	if !p.open {
+	// Unless the row chosen opened another, as New SQL Editor's picker.
+	if !p.open && a.palette == p {
 		a.palette = nil
 	}
 }
@@ -341,7 +369,10 @@ func (a *App) paletteList(c *ui.Context, p *paletteState, run func(int)) {
 		row := ui.Row(c).Padding(7, 14).Gap(10)
 		row.Children(func() {
 			col := pal.Muted
-			if it.icon != nil {
+			switch {
+			case it.conn != nil:
+				widgets.ConnBadge(c, it.conn, c.Theme().Background)
+			case it.icon != nil:
 				ui.Icon(c, it.icon).FontSize(widgets.IconMedium).TextColor(col)
 			}
 			ui.Text(c, it.title).SingleLine().Shrink(1)

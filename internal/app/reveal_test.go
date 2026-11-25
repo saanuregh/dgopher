@@ -23,14 +23,13 @@ func TestNavigatorFollowsTab(t *testing.T) {
 	a.openSample()
 	testutil.WaitFor(t, tt, "sample editor", func() bool { return a.tabs().Len() == 1 })
 	cn := a.tabs().At(0).(*query.Tab).Conn
-	chosen := func() navNode {
-		if a.nav.row < 0 || a.nav.row >= a.nav.tree.Rows() {
-			return navNode{}
-		}
-		return a.nav.tree.Item(a.nav.row)
+	// Chosen in its own pane: a file among the files, a table in the tree.
+	chosen := func(n navNode) bool {
+		got, ok := a.nav.paneOf(n).chosen()
+		return ok && got == n
 	}
 	file := navNode{kind: nodeQueryFile, projectDir: cn.Project.Dir, name: "query-1.sql"}
-	testutil.WaitFor(t, tt, "the editor's file chosen", func() bool { return chosen() == file })
+	testutil.WaitFor(t, tt, "the editor's file chosen", func() bool { return chosen(file) })
 
 	key := connection.SchemaKey{Database: "", Schema: "main"}
 	testutil.WaitFor(t, tt, "objects", func() bool { return cn.Objects[key] != nil })
@@ -40,11 +39,11 @@ func TestNavigatorFollowsTab(t *testing.T) {
 		}
 	}
 	orders := navNode{kind: nodeObject, conn: cn.Config.ID, schema: "main", name: "orders"}
-	testutil.WaitFor(t, tt, "the table chosen", func() bool { return chosen() == orders })
+	testutil.WaitFor(t, tt, "the table chosen", func() bool { return chosen(orders) })
 
 	// Back to the editor, its file is chosen again.
 	tt.Key(ui.Cmd, ui.Key1)
-	testutil.WaitFor(t, tt, "the file chosen again", func() bool { return chosen() == file })
+	testutil.WaitFor(t, tt, "the file chosen again", func() bool { return chosen(file) })
 
 	p := cn.Project
 	d := &dashboard.Dashboard{Name: "Sales", Panels: []dashboard.Panel{
@@ -56,7 +55,7 @@ func TestNavigatorFollowsTab(t *testing.T) {
 	}
 	a.openDashboard(p, path)
 	testutil.WaitFor(t, tt, "the dashboard chosen", func() bool {
-		return chosen() == navNode{kind: nodeDashboard, projectDir: p.Dir, name: path}
+		return chosen(navNode{kind: nodeDashboard, projectDir: p.Dir, name: path})
 	})
 	if cn.Config.Env != db.Development || tt.HasText("No connection") || !tt.HasText(cn.Config.Env.Label()) {
 		t.Fatalf("the status bar does not name the panels' connection: %q", tt.Texts())
@@ -102,6 +101,7 @@ func TestNavigatorChoosesNewQueryFile(t *testing.T) {
 	}
 	file := navNode{kind: nodeQueryFile, projectDir: p.Dir, name: "query-2.sql"}
 	testutil.WaitFor(t, tt, "the new file chosen", func() bool {
-		return a.nav.row >= 0 && a.nav.row < a.nav.tree.Rows() && a.nav.tree.Item(a.nav.row) == file
+		got, ok := a.nav.paneOf(file).chosen()
+		return ok && got == file
 	})
 }

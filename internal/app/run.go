@@ -267,13 +267,7 @@ func (a *App) menuAction(id string) func() {
 	case keymap.NewConnection:
 		return func() { a.openConnForm(nil) }
 	case keymap.NewEditor:
-		return func() {
-			if cn := a.activeConn(); cn != nil {
-				a.NewQueryTab(cn, "", "")
-			} else {
-				a.openPalette(false)
-			}
-		}
+		return a.newEditor
 	case keymap.OpenScript:
 		return func() {
 			if cn := a.activeConn(); cn != nil && cn.Config.Engine.IsSQL() {

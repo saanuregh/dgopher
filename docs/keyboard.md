@@ -22,7 +22,7 @@ action by the name keymap.json gives it, as `editor::Run`.
 | --- | --- |
 | ⇧⌘P | Command palette: every command, connection, table and snippet |
 | ⌘P | Open a table or a query file by name |
-| ⌘T | New SQL editor on the current connection |
+| ⌘T | New SQL editor: asks on which connection and database, where you are chosen first, so ↵ opens another there |
 | ⌘K ⌘T | New SQL notebook on the current connection |
 | ⌘K ⌘I | The editor's AI chat: show it, or hide it |
 | ⌘N | New connection |
@@ -42,7 +42,7 @@ action by the name keymap.json gives it, as `editor::Run`.
 | ⌘B | Show or hide the sidebar |
 | F11 | Enter or leave full screen |
 | ⌘0 | Focus the navigator |
-| ⌘L | Focus the filter of the current view: a table's `WHERE`, then its quick filter |
+| ⌘L | Focus the filter of the current view: a table's `WHERE`, then its quick filter; the navigator's filter while the navigator has the keys, or no tab is open |
 | F1 | The list of keys |
 | ⇧F10, Menu key | Open the context menu of what has focus |
 | ⌘Q | Quit, asking first about anything it would lose |
@@ -70,7 +70,7 @@ Keys marked *fixed* below cannot be changed.
 | Key | Does |
 | --- | --- |
 | ⌘↵ | New editor with `SELECT *` of the table |
-| ⌘R | Read the schema again |
+| ⌘R, F5 | Read the schema again |
 | ⌘C | Copy the table's name, quoted |
 | F2 | Rename the table |
 | F4 | The table's structure; on a connection, edit it |

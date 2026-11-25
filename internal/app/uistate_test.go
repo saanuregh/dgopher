@@ -49,13 +49,24 @@ func TestLayoutPersists(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.layout.EditorPercent, a.layout.RedisPanelHeight = 60, 300 // as dragged
+	// Values that start empty are kept as the others are.
+	a.layout.ChatWidth, a.layout.NavFilesHeight, a.layout.NavClosed = 420, 180, "connections:/p"
 	tt.Frame()
 
-	a, _ = run()
+	a, tt = run()
 	want := widgets.DefaultLayout()
 	want.SidebarWidth, want.SidebarHidden, want.EditorPercent, want.RedisPanelHeight = 333, true, 60, 300
+	want.ChatWidth, want.NavFilesHeight, want.NavClosed = 420, 180, "connections:/p"
 	if a.layout != want {
 		t.Fatalf("the next run's layout %+v, want %+v", a.layout, want)
+	}
+	// And one set back to empty is empty in the run after.
+	a.layout.ChatWidth, a.layout.NavClosed = 0, ""
+	tt.Frame()
+	a, _ = run()
+	want.ChatWidth, want.NavClosed = 0, ""
+	if a.layout != want {
+		t.Fatalf("after two values were emptied, the next run's layout %+v, want %+v", a.layout, want)
 	}
 }
 

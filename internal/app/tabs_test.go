@@ -89,9 +89,16 @@ func tabsApp(t *testing.T) (*App, *ui.Tester) {
 func dragTo(t *testing.T, tt *ui.Tester, from, to string) {
 	t.Helper()
 	// Where the tabs rest, once those a drag before moved slid there.
-	f, g := testutil.Settled(t, tt, from), testutil.Settled(t, tt, to)
+	g := testutil.Settled(t, tt, to)
+	dragToPoint(t, tt, from, g.X+g.W/2, g.Y+g.H/2)
+}
+
+// dragToPoint drags what shows from to a point: for a target whose text
+// shows twice, as a project's name in each of the navigator's panes.
+func dragToPoint(t *testing.T, tt *ui.Tester, from string, x1, y1 float32) {
+	t.Helper()
+	f := testutil.Settled(t, tt, from)
 	x, y := f.X+f.W/2, f.Y+f.H/2
-	x1, y1 := g.X+g.W/2, g.Y+g.H/2
 	tt.Press(x, y)
 	for i := 1; i <= 8; i++ {
 		tt.Move(x+(x1-x)*float32(i)/8, y+(y1-y)*float32(i)/8)

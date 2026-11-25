@@ -76,7 +76,7 @@ func (a *App) openToReveal() {
 			a.nav.opened[n] = true
 			a.nav.expand(n)
 		}
-		if !a.nav.tree.Open.Has(n) {
+		if !a.nav.isOpen(n) {
 			return false // closed by the user
 		}
 		for _, ch := range a.navChildren(n) {
@@ -91,8 +91,10 @@ func (a *App) openToReveal() {
 		}
 		return false
 	}
-	for _, root := range a.navRoots() {
-		if leadsTo(root, *target, dir, folder) && walk(root) {
+	// Its pane's roots: one project's are its first rows, which may be
+	// the node itself.
+	for _, root := range a.paneRoots(inFilesPane(*target)) {
+		if root == *target || leadsTo(root, *target, dir, folder) && walk(root) {
 			return
 		}
 	}
@@ -108,10 +110,13 @@ func (a *App) chooseRevealed(c *ui.Context) {
 	if target == nil {
 		return
 	}
-	for i := range a.nav.tree.Rows() {
-		if a.nav.tree.Item(i) == *target {
-			a.nav.row = i
-			a.nav.tree.List.ScrollIntoView(i)
+	pane := a.nav.paneOf(*target)
+	for i := range pane.tree.Rows() {
+		if pane.tree.Item(i) == *target {
+			*pane.row = i
+			pane.tree.List.ScrollIntoView(i)
+			// Its pane is the one worked in, unless the other has the keys.
+			a.nav.inFiles = inFilesPane(*target)
 			a.nav.reveal = nil
 			c.Invalidate()
 			return

@@ -1872,7 +1872,7 @@ func (q *Tab) body(c *ui.Context) {
 				// the tab in front.
 				waits := q.Editor.WantFocus && !a.KeysTo(q)
 				q.Editor.WantFocus = q.Editor.WantFocus && !waits
-				q.Editor.View(c, a.Settings().EditorFont)
+				q.takeName(c, q.Editor.View(c, a.Settings().EditorFont), q.Editor)
 				q.Editor.WantFocus = q.Editor.WantFocus || waits
 				q.trackSnippet()
 				q.completionKeys(c)

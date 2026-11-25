@@ -263,6 +263,11 @@ func Unavailable(b ui.Element, why string) ui.Element {
 	return b
 }
 
+// NameDrag is what a drag of a named thing carries to where text is
+// written, as a table's row of the navigator dragged into an editor:
+// its name as SQL writes it.
+type NameDrag struct{ Text string }
+
 // When is why while cond holds, and "" otherwise: a reason a control is
 // unavailable, for Unavailable and Clicked. Several are tried in turn
 // with cmp.Or, the first that holds given.

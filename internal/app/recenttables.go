@@ -82,3 +82,14 @@ func renameRecentTables(p *project.Project, old, id string) error {
 	}
 	return p.Local.SaveJSON(recentTablesFile, kept)
 }
+
+// forgetRecentTables drops the recent tables of a connection deleted, as
+// forgetConn does the connection's other state.
+func forgetRecentTables(p *project.Project, id string) error {
+	all := loadRecentTables(p)
+	kept := slices.DeleteFunc(slices.Clone(all), func(r recentTable) bool { return strings.HasPrefix(r.Key, id+"/") })
+	if len(kept) == len(all) {
+		return nil
+	}
+	return p.Local.SaveJSON(recentTablesFile, kept)
+}

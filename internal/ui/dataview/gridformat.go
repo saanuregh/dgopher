@@ -335,3 +335,30 @@ func RenameConnection(p *project.Project, old, new string) error {
 	}
 	return errors.Join(errs...)
 }
+
+// ForgetConnection drops a project's settings of a deleted connection's
+// tables, which RenameConnection moves: left, they would be those of a new
+// connection given its ID. The project's file is the caller's to save.
+func ForgetConnection(p *project.Project, id string) error {
+	gone := func(key string) bool { return strings.HasPrefix(key, id+"/") }
+	for _, m := range []map[string][]string{p.VirtualKeys, p.HiddenValues} {
+		maps.DeleteFunc(m, func(key string, _ []string) bool { return gone(key) })
+	}
+	if p.Local == nil {
+		return nil
+	}
+	defer paramsVersion.Add(1)
+	var errs []error
+	for _, name := range []string{filterHistoryFile, rowColorsFile, queryParamsFile} {
+		var all map[string]json.RawMessage
+		if err := p.Local.LoadJSON(name, &all); err != nil || all == nil {
+			continue
+		}
+		before := len(all)
+		maps.DeleteFunc(all, func(key string, _ json.RawMessage) bool { return gone(key) })
+		if len(all) != before {
+			errs = append(errs, p.Local.SaveJSON(name, all))
+		}
+	}
+	return errors.Join(errs...)
+}

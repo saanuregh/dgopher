@@ -79,7 +79,8 @@ func TestConnectionFolders(t *testing.T) {
 		t.Fatalf("top level by name: %q", got)
 	}
 
-	chooseOn(t, tt, "Connections", "New Folder…")
+	// From the project's name: its connections have no heading of their own.
+	chooseOn(t, tt, a.projectLabel(p), "New Folder…")
 	if a.renaming == nil || a.renaming.action != "Create" {
 		t.Fatalf("no new folder form: %+v", a.renaming)
 	}
@@ -228,11 +229,16 @@ func TestDragConnectionToFolder(t *testing.T) {
 	if !slices.Equal(p.Folders, []string{"Live", "Live/EU", "Live/EU/Mine"}) {
 		t.Fatalf("moved into itself: %q", p.Folders)
 	}
-	// The section takes it to the top level: the first Connections is
-	// shop's, listed first.
-	dragTo(t, tt, "orders", "Connections")
+	// The project's name takes it to the top level: its row in the
+	// database tree, under the files' pane, which shows the name too.
+	tree, _ := tt.Access("Navigator")
+	for i := range a.nav.tree.Rows() {
+		if a.nav.tree.Item(i) == (navNode{kind: nodeProject, projectDir: p.Dir}) {
+			dragToPoint(t, tt, "orders", tree.Bounds.X+tree.Bounds.W/2, tree.Bounds.Y+(float32(i)+0.5)*navRowHeight)
+		}
+	}
 	if cn.Config.Folder != "" {
-		t.Fatalf("dropped on the section: %q", cn.Config.Folder)
+		t.Fatalf("dropped on the project's name: %q", cn.Config.Folder)
 	}
 }
 

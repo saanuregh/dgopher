@@ -149,6 +149,17 @@ func renameIdentityDismissal(p *project.Project, old, id string) error {
 	return p.Local.SaveJSON(identityDismissedFile, kept)
 }
 
+// forgetIdentityDismissal drops the dismissal kept for a connection
+// deleted, as forgetConn does the connection's other state.
+func forgetIdentityDismissal(p *project.Project, id string) error {
+	var kept map[string]string
+	if p.Local == nil || p.Local.LoadJSON(identityDismissedFile, &kept) != nil || kept[id] == "" {
+		return nil
+	}
+	delete(kept, id)
+	return p.Local.SaveJSON(identityDismissedFile, kept)
+}
+
 // useIdentifiedEngine sets cn to the engine its server is, saved as an
 // edit in the connection form is: an open connection connects again,
 // once the user agrees to what that loses. A form open already is left
