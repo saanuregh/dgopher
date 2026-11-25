@@ -29,7 +29,8 @@ You need:
 - **On Linux,** GTK 3 and OpenGL for the window. WebKitGTK is not needed.
 
 With Nix on Linux, `nix develop` gives a shell with Go, the GUI libraries
-the window loads, and `CGO_ENABLED=1` (see `flake.nix`). The flake covers
+the window loads, PostgreSQL's client tools for the backup tests, and
+`CGO_ENABLED=1` (see `flake.nix`). The flake covers
 `x86_64-linux` and `aarch64-linux` only.
 
 To check gofmt and `go vet` before each commit, as CI does, register

@@ -37,8 +37,13 @@
         in
         {
           default = pkgs.mkShell {
-            # The Go of go.mod's go line; pkgs.go trails a minor release.
-            packages = [ pkgs.go_1_27 ];
+            packages = [
+              # The Go of go.mod's go line; pkgs.go trails a minor release.
+              pkgs.go_1_27
+              # pg_dump for the backup tests, as new as compose.yaml's postgres:
+              # it refuses a newer server.
+              (pkgs.lib.getBin pkgs.postgresql_19)
+            ];
             LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath guiLibraries;
             # DuckDB's driver is a cgo package; mygo keeps CGO_ENABLED when set.
             CGO_ENABLED = "1";

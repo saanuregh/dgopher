@@ -42,8 +42,8 @@ tests.
 
 ## Commands
 
-cgo is required (DuckDB). `nix develop` provides Go, the GUI libraries and
-`CGO_ENABLED=1`.
+cgo is required (DuckDB). `nix develop` provides Go, the GUI libraries,
+`pg_dump` for the backup tests and `CGO_ENABLED=1`.
 
 ```sh
 CGO_ENABLED=1 go run .                        # run the app
