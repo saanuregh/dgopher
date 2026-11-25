@@ -9,15 +9,15 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// dockAndFilter are where the dock's Output button and the grid's WHERE
-// box show.
-func dockAndFilter(t *testing.T, tt *ui.Tester) (output, filter ui.Rect) {
+// dockAndFilter are where the dock's button that hides the results and
+// the grid's WHERE box show.
+func dockAndFilter(t *testing.T, tt *ui.Tester) (dock, filter ui.Rect) {
 	t.Helper()
 	tt.Frame()
-	o, okO := tt.Access("Output")
+	o, okO := tt.Access("Hide Results")
 	f, okF := tt.Access("Filter")
 	if !okO || !okF {
-		t.Fatalf("Output shows %v, the WHERE box %v", okO, okF)
+		t.Fatalf("Hide Results shows %v, the WHERE box %v", okO, okF)
 	}
 	return o.Bounds, f.Bounds
 }
@@ -30,10 +30,10 @@ func TestOneResultSharesTheGridToolbar(t *testing.T) {
 	testutil.WaitFor(t, tt, "the result", func() bool { return !q.Running && len(q.results) == 1 })
 	output, filter := dockAndFilter(t, tt)
 	if mid := output.Y + output.H/2; mid < filter.Y || mid > filter.Y+filter.H {
-		t.Errorf("Output at %v is not in the row of the WHERE box at %v", output, filter)
+		t.Errorf("the dock's buttons at %v are not in the row of the WHERE box at %v", output, filter)
 	}
 	if output.X < filter.X+filter.W {
-		t.Errorf("Output at %v does not end the toolbar the WHERE box at %v is in", output, filter)
+		t.Errorf("the dock's buttons at %v do not end the toolbar the WHERE box at %v is in", output, filter)
 	}
 }
 
@@ -43,7 +43,7 @@ func TestTwoResultsKeepTheirStrip(t *testing.T) {
 	runWith(t, tt, q, "select 1", RunScript)
 	output, filter := dockAndFilter(t, tt)
 	if output.Y+output.H > filter.Y {
-		t.Errorf("Output at %v is not in a row over the WHERE box at %v", output, filter)
+		t.Errorf("the dock's buttons at %v are not in a row over the WHERE box at %v", output, filter)
 	}
 }
 
@@ -56,6 +56,32 @@ func TestNarrowPaneKeepsTheStrip(t *testing.T) {
 	tt.Frame()
 	output, filter := dockAndFilter(t, tt)
 	if output.Y+output.H > filter.Y {
-		t.Errorf("Output at %v is not in a row over the WHERE box at %v", output, filter)
+		t.Errorf("the dock's buttons at %v are not in a row over the WHERE box at %v", output, filter)
+	}
+}
+
+// Output is a tab after the results', not a button at the far end: one
+// more view of the same pane. Beside one result it follows that result's
+// tab; with several it ends their row, by name.
+func TestOutputFollowsTheResultTabs(t *testing.T) {
+	_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "select 1 as a where 1 = 1;\nselect 2 as b where 2 = 2;")
+	runWith(t, tt, q, "select 1", RunStatement)
+	tt.Frame()
+	output, filter := named(t, tt, "Output"), named(t, tt, "Filter")
+	if output.X > filter.X {
+		t.Errorf("beside one result, Output at %v is not before the WHERE box at %v", output, filter)
+	}
+	runWith(t, tt, q, "select 1", RunScript)
+	tt.Frame()
+	output = named(t, tt, "Output")
+	if !tt.HasText("Output") || output.Y+output.H > named(t, tt, "Filter").Y {
+		t.Errorf("with two results, Output at %v is not a named tab of their row: %q", output, tt.Texts())
+	}
+	if err := tt.Click("Output"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if q.current() != nil {
+		t.Error("Output did not come in front")
 	}
 }

@@ -1827,75 +1827,12 @@ func (q *Tab) View(c *ui.Context) {
 func (q *Tab) body(c *ui.Context) {
 	a := q.a
 	ui.Column(c).Grow(1).Children(func() {
-		widgets.Bar(c, "Editor", func() {
-			// First, set apart: its label changes in place, Connect to
-			// Disconnect, in a button as wide whichever it shows. The
-			// buttons have keys of their own: one coming or going would else
-			// pass the others' labels along, each sliding to its neighbor's.
-			state := widgets.ConnectState{Connecting: q.Conn.Status == connection.StatusConnecting, Offline: !a.Online()}
-			switch widgets.ConnectStatus(c, q.Conn, state) {
-			case widgets.ConnectAsked:
-				a.Connect(q.Conn, nil)
-			case widgets.DisconnectAsked:
-				a.Disconnect(q.Conn)
-			case widgets.ConnectDetails:
-				a.ShowReport(widgets.ConnectionReport(q.Conn, func() { a.Connect(q.Conn, nil) }, nil))
-			}
-			ui.Divider(c).Margin(0, 4)
-			// One button: Run turns to Stop, in place, once a run lasts; a
-			// quick one leaves it as it is. A notebook has its own.
-			switch {
-			case q.nb != nil:
-				q.notebookBar(c)
-			case q.Running && widgets.Lasted(c, q.StartedAt):
-				q.stopButton(c, "Stop the running statement")
-			default:
-				if widgets.LeadToolButton(c.Key("run"), widgets.IconPlay, "Run", keymap.Hint("Run statement", keymap.Run), c.Theme().Success).Clicked() {
-					q.Run(RunStatement)
-				}
-			}
-			if q.nb == nil && widgets.ToolButton(c.Key("run-script"), widgets.IconLayers, "Run Script", keymap.Hint("Run all statements", keymap.RunScript)).Clicked() {
-				q.Run(RunScript)
-			}
-			if widgets.ToolButton(c.Key("explain"), widgets.IconCode, "Explain", keymap.Hint("Explain plan", keymap.Explain)).Clicked() {
-				q.Run(RunExplain)
-			}
-			if widgets.ToolButton(c.Key("analyze"), widgets.IconClock, "Analyze", keymap.Hint("Run the statement to measure its plan", keymap.ExplainAnalyze)).Clicked() {
-				q.Run(RunExplainAnalyze)
-			}
-			if widgets.ToolButton(c.Key("format"), widgets.IconWand, "Format", keymap.Hint("Format SQL", keymap.Format)).Clicked() {
-				q.format()
-			}
-			if widgets.ToolButton(c.Key("save-as"), widgets.IconSave, "Save As", keymap.Hint("Save a copy under another name", keymap.SaveAs)).Clicked() {
-				a.SaveSQLFile(q, true)
-			}
-			view, viewTip := "Notebook", "Show the editor as a notebook of cells, each with its results"
-			if q.nb != nil {
-				view, viewTip = "Script", "Show the editor as one script"
-			}
-			if widgets.ToolButton(c.Key("view"), widgets.IconNotebook, view, keymap.Hint(viewTip, keymap.ToggleNotebook)).Clicked() {
-				q.ToggleNotebook()
-			}
-			chatTip := "Ask an AI agent about this editor"
-			if q.ChatOpen() {
-				chatTip = "Hide the AI chat"
-			}
-			if widgets.ToolButton(c.Key("chat"), widgets.IconSparkles, "AI Chat", keymap.Hint(chatTip, keymap.ToggleChat)).Clicked() {
-				if q.ChatOpen() {
-					q.hideChat()
-				} else {
-					q.ToggleChat()
-				}
-			}
-			ui.Spacer(c)
-			q.switcherView(c)
-		})
+		q.toolbar(c)
 		// The bars come and go, as one while a header is typed: in a
 		// column always there, the editor keeps its place, and the focus.
 		ui.Column(c).Children(func() {
-			if q.InTx() {
-				q.txBar(c)
-			} else if q.autocommitOff && q.sess != nil {
+			q.Notice(c, q.Conn.Config.Name)
+			if !q.InTx() && q.autocommitOff && q.sess != nil {
 				q.autocommitBar(c)
 			}
 			if q.DiskConflict != "" {
@@ -2008,30 +1945,6 @@ func (q *Tab) maximizeResults() {
 	}
 }
 
-func (q *Tab) txBar(c *ui.Context) {
-	t := c.Theme()
-	label := "Transaction open: changes are not visible to others until you commit."
-	col := t.Warning
-	switch {
-	case q.InsideTx != db.TxNone:
-		owner, _ := q.TxOwner()
-		label = dataview.InsideTxLabel(owner, q.Conn.Config.Name, q.InsideTx)
-	case q.Tx == db.TxFailed:
-		label = "The transaction failed: roll it back to go on."
-		col = t.Danger
-	}
-	widgets.AppearBar(ui.Row(c.Key("tx-bar")).Padding(6, 12).Gap(10).Background(col.Alpha(0.16)).BorderWidth(0, 0, 1, 0).BorderColor(col)).Children(func() {
-		ui.Icon(c, widgets.IconAlert).TextColor(col).FontSize(widgets.IconMedium)
-		ui.Text(c, label).Grow(1).Shrink(1)
-		if (q.Tx == db.TxOpen || q.InsideTx == db.TxOpen) && widgets.Clicked(widgets.Appear(ui.PrimaryButton(c.Key("commit"), "Commit")).Tooltip(keymap.Hint("Commit the transaction", keymap.Commit)), q.busyWhy()) {
-			q.endOpenTx(true)
-		}
-		if widgets.Clicked(ui.Button(c.Key("roll-back"), "Roll Back").Tooltip(keymap.Hint("Roll back the transaction", keymap.Rollback)), q.busyWhy()) {
-			q.endOpenTx(false)
-		}
-	})
-}
-
 // autocommitBar says that MySQL's autocommit is off with no transaction
 // open: nothing waits to be committed yet, so it offers nothing to end.
 func (q *Tab) autocommitBar(c *ui.Context) {
@@ -2063,8 +1976,11 @@ func (q *Tab) resultsView(c *ui.Context, a Host) {
 	panel.Children(func() {
 		if !q.stripMerged() {
 			ui.Row(c).Padding(4, 8).Gap(4).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
-				ui.Row(c).Gap(2).Grow(1).Shrink(1).ClipX().Children(func() { q.resultTabs(c, results, idx) })
-				q.dockButtons(c, results, idx)
+				ui.Row(c).Gap(2).Grow(1).Shrink(1).ClipX().Children(func() {
+					q.resultTabs(c, results, idx)
+					q.outputTab(c, results, idx, false)
+				})
+				q.dockButtons(c)
 			})
 		}
 		if hidden {
@@ -2172,15 +2088,29 @@ func (q *Tab) resultTabs(c *ui.Context, results []*result, idx int) {
 	}
 }
 
-// dockButtons draws the dock's buttons: the output, and the results
-// maximized over the editor or hidden under it.
-func (q *Tab) dockButtons(c *ui.Context, results []*result, idx int) {
-	l := q.a.Layout()
-	hidden := l.Results == widgets.ResultsHidden
-	if widgets.ToggleIconButton(c, widgets.IconTerminal, "Output", idx >= len(results)).Clicked() {
+// outputTab is the Output's tab, after the results': one more view of
+// the same pane, as they are. Beside one result in its grid's toolbar it
+// is its icon alone, where a label would take the tools' room.
+func (q *Tab) outputTab(c *ui.Context, results []*result, idx int, compact bool) {
+	on := idx >= len(results) || resultAt(results, idx) == nil
+	tip := "What ran, and what it did: every statement's outcome and the server's messages"
+	var tab ui.Element
+	if compact {
+		tab = widgets.ToggleIconButton(c.Key("output"), widgets.IconTerminal, "Output", on).Tooltip(tip)
+	} else {
+		tab = widgets.Pill(c.Key("output"), "Output", on).Tooltip(tip)
+	}
+	if tab.Clicked() {
 		q.resultIdx = len(q.results)
 		q.showResults()
 	}
+}
+
+// dockButtons draws the dock's buttons: the results maximized over the
+// editor or hidden under it.
+func (q *Tab) dockButtons(c *ui.Context) {
+	l := q.a.Layout()
+	hidden := l.Results == widgets.ResultsHidden
 	if !hidden {
 		icon, label := maximizeResultsAction(l)
 		if widgets.IconButton(c, icon, label).Tooltip(keymap.Hint(label, keymap.MaximizeResults)).Clicked() {
@@ -2200,7 +2130,10 @@ func (q *Tab) toolbarTabs(c *ui.Context) {
 		return
 	}
 	results, idx := q.shownResults()
-	ui.Row(c).Gap(2).Shrink(0).Padding(0, 0, 0, 8).Children(func() { q.resultTabs(c, results, idx) })
+	ui.Row(c).Gap(2).Shrink(0).Padding(0, 0, 0, 8).AlignItems(ui.Center).Children(func() {
+		q.resultTabs(c, results, idx)
+		q.outputTab(c, results, idx, true)
+	})
 }
 
 // toolbarDock ends it with the dock's buttons.
@@ -2208,11 +2141,10 @@ func (q *Tab) toolbarDock(c *ui.Context) {
 	if !q.stripMerged() {
 		return
 	}
-	results, idx := q.shownResults()
 	ui.Row(c).Gap(4).Shrink(0).Padding(0, 8, 0, 0).Children(func() {
 		// Apart from the grid's own: these are the dock's.
 		ui.Divider(c).Margin(0, 4, 0, 0)
-		q.dockButtons(c, results, idx)
+		q.dockButtons(c)
 	})
 }
 
@@ -3116,6 +3048,9 @@ func (q *Tab) editorMenu(m *ui.Menu) {
 		q.askRename()
 	}
 	m.Separator()
+	if keymap.Item(m.Item("Save As…"), keymap.SaveAs).Chosen() {
+		q.a.SaveSQLFile(q, true)
+	}
 	m.Submenu("Format", func(m *ui.Menu) {
 		if keymap.Item(m.Item("Format SQL"), keymap.Format).Chosen() {
 			q.format()

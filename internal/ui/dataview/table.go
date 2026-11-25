@@ -304,27 +304,9 @@ func tableHistoryKey(cn *connection.Conn, obj db.Object) string {
 	return strings.TrimPrefix(cn.Config.ID, cn.Project.Prefix) + "/" + obj.Schema + "." + obj.Name
 }
 
-// txBar offers to end the transaction the session holds open, or says
-// whose transaction its statements run inside.
-func (t *TableTab) txBar(c *ui.Context) {
-	th := c.Theme()
-	label := "Changes applied in an open transaction (manual commit)."
-	if t.InsideTx != db.TxNone {
-		label = InsideTxLabel(t.owner, t.Conn.Config.Name, t.InsideTx)
-	}
-	if t.InTx() {
-		ui.Row(c).Padding(6, 12).Gap(10).Background(th.Warning.Alpha(0.16)).Children(func() {
-			ui.Icon(c, widgets.IconAlert).TextColor(th.Warning).FontSize(widgets.IconMedium)
-			ui.Text(c, label).Grow(1)
-			if widgets.Clicked(ui.PrimaryButton(c, "Commit").Tooltip(keymap.Hint("Commit the transaction", keymap.Commit)), widgets.When(t.view.applying, "The changes are being written")) {
-				t.endOpenTx(true)
-			}
-			if widgets.Clicked(ui.Button(c, "Roll Back").Tooltip(keymap.Hint("Roll back the transaction", keymap.Rollback)), widgets.When(t.view.applying, "The changes are being written")) {
-				t.endOpenTx(false)
-			}
-		})
-	}
-}
+// txBar says what the bar's Commit and Roll Back cannot of the session's
+// transaction (SessionTxState.Notice).
+func (t *TableTab) txBar(c *ui.Context) { t.Notice(c, t.Conn.Config.Name) }
 
 func (t *TableTab) View(c *ui.Context) {
 	a := t.a
@@ -340,19 +322,26 @@ func (t *TableTab) View(c *ui.Context) {
 	}
 	ui.Column(c).Grow(1).Children(func() {
 		widgets.Bar(c, "Table", func() {
+			// First, where the eye lands and nearest the navigator the
+			// pointer came from: what the tab shows of the table. Its name,
+			// which the tab's title says already, ends the bar.
+			ui.Segmented(c, &t.Page, "Data", "Structure", "DDL", "Diagram").Label("Table page").FontSize(widgets.TextBody)
+			ui.Spacer(c)
 			widgets.BarTitle(c, func() {
 				ic := widgets.IconTable
 				if t.Object.Kind != db.KindTable {
 					ic = widgets.IconView
 				}
 				ui.Icon(c, ic).TextColor(pal.Muted).FontSize(widgets.IconMedium)
-				ui.Text(c, t.Object.Schema+"."+t.Object.Name).Bold().SingleLine().Shrink(1)
+				ui.Text(c, t.Object.Schema+"."+t.Object.Name).TextColor(pal.Muted).SingleLine().Shrink(1)
 				if t.Object.Engine != "" {
 					ui.Badge(c, t.Object.Engine)
 				}
 			})
-			ui.Spacer(c)
-			ui.Segmented(c, &t.Page, "Data", "Structure", "DDL", "Diagram").Label("Table page").FontSize(widgets.TextBody)
+			if t.InTx() || t.Conn.Config.Engine.Transactions() && t.Conn.Config.ManualCommit() {
+				ui.Divider(c).Margin(0, 4)
+				t.EndButtons(c, &t.Conn.Config, widgets.When(t.view.applying, "The changes are being written"), t.endOpenTx)
+			}
 		})
 		switch t.Page {
 		case PageData:

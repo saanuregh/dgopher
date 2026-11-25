@@ -23,18 +23,26 @@ const (
 // presentationButtons switches between the presentations, the chart
 // among them.
 func (v *Viewer) presentationButtons(c *ui.Context) {
-	for _, p := range []struct {
-		mode  int
-		icon  *ui.SVG
-		label string
-	}{{viewGrid, widgets.IconTable, "Grid"}, {viewRecord, widgets.IconFile, "Record: the chosen row as fields (Tab)"}, {viewText, widgets.IconCode, keymap.Hint("Text: the rows as plain text", keymap.NextPresentation)}} {
-		if widgets.ToggleIconButton(c, p.icon, p.label, !v.showChart && v.grid.mode == p.mode).Clicked() {
-			v.grid.mode, v.showChart = p.mode, false
+	// One control of four choices, on a track as a segmented control's:
+	// apart, they read as four unrelated tools.
+	ui.Row(c.Key("presentation")).Gap(1).Padding(1).Radius(widgets.RadiusMedium).Background(c.Theme().Surface).AlignItems(ui.Center).Label("Show the rows as").Children(func() {
+		for _, p := range []struct {
+			mode       int
+			icon       *ui.SVG
+			label, tip string
+		}{
+			{viewGrid, widgets.IconTable, "Grid", "Grid: the rows as a table"},
+			{viewRecord, widgets.IconFile, "Record", "Record: the chosen row as fields (Tab)"},
+			{viewText, widgets.IconCode, "Text", keymap.Hint("Text: the rows as plain text", keymap.NextPresentation)},
+		} {
+			if widgets.ToggleIconButton(c, p.icon, p.label, !v.showChart && v.grid.mode == p.mode).Tooltip(p.tip).Clicked() {
+				v.grid.mode, v.showChart = p.mode, false
+			}
 		}
-	}
-	if widgets.ToggleIconButton(c, widgets.IconChart, "Chart", v.showChart).Tooltip(keymap.Hint("Chart: the rows drawn", keymap.ToggleChart)).Clicked() {
-		v.showChart = !v.showChart
-	}
+		if widgets.ToggleIconButton(c, widgets.IconChart, "Chart", v.showChart).Tooltip(keymap.Hint("Chart: the rows drawn", keymap.ToggleChart)).Clicked() {
+			v.showChart = !v.showChart
+		}
+	})
 }
 
 // recordView shows the chosen row as a list of its fields, editable as the

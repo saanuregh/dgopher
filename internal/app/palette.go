@@ -219,7 +219,8 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 	tables = lists.Map(places, func(r ranked) paletteItem { return r.item })
 	snippets := a.snippetItems()
 	if q, ok := a.ActiveTab().(*query.Tab); ok {
-		cmds = append(cmds, paletteItem{title: "Save as Snippet…", group: "Command", icon: widgets.IconSave, run: func() { a.AskSnippet(q) }},
+		cmds = append(cmds, paletteItem{title: "Save As…", detail: "a copy of the editor under another name", key: keymap.SaveAs, group: "Command", icon: widgets.IconSave, run: func() { a.SaveSQLFile(q, true) }},
+			paletteItem{title: "Save as Snippet…", group: "Command", icon: widgets.IconSave, run: func() { a.AskSnippet(q) }},
 			paletteItem{title: "Add to Dashboard…", detail: "the statement at the caret, as a panel", group: "Command", icon: widgets.IconLayers, run: func() { a.openAddToDashboard(q) }})
 	}
 	cmds = append(cmds, paletteItem{title: "Take the Tour", detail: "a minute on how DGopher works", group: "Command", icon: widgets.IconWand, run: a.startTour})

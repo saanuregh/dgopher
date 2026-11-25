@@ -15,7 +15,11 @@ One viewer shows both a query's results and a table's data.
 - Columns resize, move, sort by several at once, pin to the left, hide (or
   hide those with no data), and fit to their values or the screen, from the
   header's menu.
-- Three views: grid, record (Tab), and plain text (``⌘` `` cycles them).
+- Three views: grid, record (Tab), and plain text (``⌘` `` cycles them),
+  chosen with the chart from one control in the grid's toolbar.
+- A table's tab starts with what it shows of the table: Data, Structure,
+  DDL or Diagram. In manual commit, Commit and Roll Back end its bar, as
+  they end an editor's.
 - Formats: numbers show in your region's format with thousands
   separators by default, as in DBeaver, and either can be turned off
   (every digit is kept); dates, booleans, binary and NULL; dates in your

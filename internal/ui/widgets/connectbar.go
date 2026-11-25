@@ -23,6 +23,10 @@ type ConnectState struct {
 	// Offline is set while the system says the computer is offline;
 	// Connect stays, as the system may be wrong.
 	Offline bool
+	// Compact shows the button as an icon, as wide whatever it shows:
+	// beside the connection's name, as in an editor's toolbar, where the
+	// name says what the button's label would.
+	Compact bool
 }
 
 // ConnectBar is the bar of a view waiting for cn, as a toolbar: the
@@ -97,7 +101,12 @@ func ConnectStatus(c *ui.Context, cn *connection.Conn, s ConnectState) ConnectAc
 		if a == CancelAsked {
 			key = "cancel"
 		}
-		b := connectButton(c.Key(key), ic, label, tip)
+		var b ui.Element
+		if s.Compact {
+			b = IconButton(c.Key(key), ic, label).Tooltip(tip)
+		} else {
+			b = connectButton(c.Key(key), ic, label, tip)
+		}
 		if s.Default && a == ConnectAsked {
 			b.AutoFocus()
 		}
@@ -111,6 +120,14 @@ func ConnectStatus(c *ui.Context, cn *connection.Conn, s ConnectState) ConnectAc
 		return button(IconUnplug, "Disconnect", "Disconnect from "+cn.Config.Name, DisconnectAsked)
 	case s.Connecting && s.Cancellable && Lasted(c, s.Since):
 		return button(IconX, "Cancel", "Stop connecting to "+cn.Config.Name, CancelAsked)
+	case s.Connecting && s.Compact:
+		// A spinner in the icon's room, the button as wide as the others.
+		b := ui.ButtonBase(c.Key("connect")).Padding(4).Radius(RadiusMedium).Label("Connect")
+		b.Children(func() {
+			ui.Box(c).Size(IconMedium, IconMedium).Center().Children(func() { ui.Spinner(c).FontSize(TextMeta) })
+		})
+		b.AccessDisabled(true).Tooltip("Connecting to " + cn.Config.Name + "…")
+		return NoConnectAction
 	case s.Connecting:
 		Unavailable(connectButton(c.Key("connect"), nil, "Connect", ""), "Connecting to "+cn.Config.Name+"…")
 		return NoConnectAction
@@ -123,7 +140,13 @@ func ConnectStatus(c *ui.Context, cn *connection.Conn, s ConnectState) ConnectAc
 		}
 		a := button(IconRefresh, "Retry", tip+" Connect again.", ConnectAsked)
 		ui.Text(c, FailureText(cn)).FontSize(TextSmall).TextColor(c.Theme().Danger).SingleLine().Shrink(1).MinWidth(0).Label(why).Tooltip(cn.Err)
-		if ToolButton(c.Key("details"), IconInfo, "Details", "Show why the connection failed").Clicked() {
+		var details ui.Element
+		if s.Compact {
+			details = IconButton(c.Key("details"), IconInfo, "Details").Tooltip("Show why the connection failed")
+		} else {
+			details = ToolButton(c.Key("details"), IconInfo, "Details", "Show why the connection failed")
+		}
+		if details.Clicked() {
 			a = ConnectDetails
 		}
 		return a

@@ -1363,10 +1363,10 @@ func (v *Viewer) View(c *ui.Context) {
 			if widgets.IconButton(c, widgets.IconDownload, "Export…").Tooltip(widgets.KeyLabel(keymap.Hint("Export the rows", keymap.Export))).Clicked() {
 				OpenExport(a, v.exportSource())
 			}
-			widgets.IconButton(c, widgets.IconCompare, "Compare with other rows").Menu(v.compareMenu)
+			widgets.IconButton(c, widgets.IconCompare, "Compare").Tooltip("Compare these rows with another result's or another table's").Menu(v.compareMenu)
 			divider()
 			// The panels open at the right: their switch is there too.
-			if widgets.ToggleIconButton(c, widgets.IconSidebar, keymap.Hint("Value viewer", keymap.ValuePanel), v.grid.ShowValue).Clicked() {
+			if widgets.ToggleIconButton(c, widgets.IconSidebar, "Value Panel", v.grid.ShowValue).Tooltip(keymap.Hint("Show the chosen value, and more of the rows, in a panel at the right", keymap.ValuePanel)).Clicked() {
 				v.grid.ShowValue = !v.grid.ShowValue
 			}
 		}).Grow(1).BorderWidth(0, 0, 0, 0)

@@ -1,11 +1,16 @@
 package dataview
 
 import (
+	"cmp"
 	"errors"
 	"time"
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/keymap"
+	"dgopher/internal/ui/widgets"
+
+	"github.com/egoist/mygo/ui"
 )
 
 func (t *TableTab) Busy() bool { return t.view.applying || t.view.loading || t.ending }
@@ -194,4 +199,59 @@ func endTitle(commit bool) string {
 		return "Not committed"
 	}
 	return "Not rolled back"
+}
+
+// EndButtons are Commit and Roll Back of a tab's bar, in their place
+// whenever cfg leaves a transaction to end by hand, or one is open:
+// unavailable while there is none, so that one opening moves nothing.
+// Commit is filled once there is something to commit. busy says why
+// neither can be pressed now, "" when they can; end is told which was.
+func (s *SessionTxState) EndButtons(c *ui.Context, cfg *db.Config, busy string, end func(commit bool)) {
+	if !s.InTx() && !(cfg.Engine.Transactions() && cfg.ManualCommit()) {
+		return
+	}
+	commits := s.Tx == db.TxOpen || s.InsideTx == db.TxOpen
+	none := widgets.When(!s.InTx(), "No transaction is open")
+	// One button, filled or not: a primary button's heavier label would
+	// make it wider, and move it as the transaction opens.
+	commit := ui.Button(c.Key("commit"), "Commit")
+	if commits {
+		t := c.Theme()
+		fill := t.Accent
+		if commit.Hovered() {
+			fill = t.AccentHover
+		}
+		commit.Background(fill).TextColor(t.AccentText)
+	}
+	commit.Tooltip(keymap.Hint("Commit the transaction: until then, others do not see its changes", keymap.Commit))
+	if widgets.Clicked(commit, cmp.Or(none, widgets.When(!commits, "The transaction failed: roll it back to go on"), busy)) {
+		end(true)
+	}
+	back := ui.Button(c.Key("roll-back"), "Roll Back").Tooltip(keymap.Hint("Roll back the transaction", keymap.Rollback))
+	if widgets.Clicked(back, cmp.Or(none, busy)) {
+		end(false)
+	}
+}
+
+// Notice is the bar that says of a transaction what EndButtons cannot:
+// that it failed, or that the session is inside one another tab of conn
+// began. One that is open and the tab's own shows in those buttons
+// alone: a bar coming in on every first write would move the work under
+// the pointer.
+func (s *SessionTxState) Notice(c *ui.Context, conn string) {
+	t := c.Theme()
+	var label string
+	col := t.Warning
+	switch {
+	case s.InsideTx != db.TxNone:
+		label = InsideTxLabel(s.owner, conn, s.InsideTx)
+	case s.Tx == db.TxFailed:
+		label, col = "The transaction failed: roll it back to go on.", t.Danger
+	default:
+		return
+	}
+	widgets.AppearBar(ui.Row(c.Key("tx-bar")).Padding(6, 12).Gap(10).Background(col.Alpha(0.16)).BorderWidth(0, 0, 1, 0).BorderColor(col)).Children(func() {
+		ui.Icon(c, widgets.IconAlert).TextColor(col).FontSize(widgets.IconMedium)
+		ui.Text(c, label).Grow(1).Shrink(1)
+	})
 }
