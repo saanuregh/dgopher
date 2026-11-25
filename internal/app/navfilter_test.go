@@ -86,12 +86,12 @@ func TestNavigatorFilterShowsMatchesAndWhatHoldsThem(t *testing.T) {
 	tt.Frame()
 	tt.Frame()
 	got := navNames(a)
-	for _, want := range []string{"shop", "orders", "order_items", "orders-by-day.sql"} {
+	for _, want := range []string{"shop", "orders", "order_items", "orders-by-day"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("%s does not show for the filter: %q", want, got)
 		}
 	}
-	for _, hidden := range []string{"customers", "cleanup.sql", "archive"} {
+	for _, hidden := range []string{"customers", "cleanup", "archive"} {
 		if slices.Contains(got, hidden) {
 			t.Errorf("%s shows though it does not match: %q", hidden, got)
 		}
@@ -100,7 +100,7 @@ func TestNavigatorFilterShowsMatchesAndWhatHoldsThem(t *testing.T) {
 		t.Errorf("the filter connected archive to search it: %v", cn.Status)
 	}
 	// The first match as the panes show them, the files' above the tree's.
-	if n, _ := a.nav.panes()[1].chosen(); a.navName(n) != "orders-by-day.sql" || !a.nav.inFiles {
+	if n, _ := a.nav.panes()[1].chosen(); a.navName(n) != "orders-by-day" || !a.nav.inFiles {
 		t.Errorf("the row chosen is %q, not the first match, the query file", a.navName(n))
 	}
 	testutil.Snapshot(t, tt, "navigator-filter")
@@ -261,7 +261,7 @@ func TestNavigatorFilterKeys(t *testing.T) {
 	tt.Type("orders-by")
 	tt.Frame()
 	tt.Frame()
-	if got := navNames(a); !slices.Contains(got, "orders-by-day.sql") || slices.Contains(got, "shop") {
+	if got := navNames(a); !slices.Contains(got, "orders-by-day") || slices.Contains(got, "shop") {
 		t.Fatalf("typing filtered to %q", got)
 	}
 	tt.Key(0, ui.KeyEnter)

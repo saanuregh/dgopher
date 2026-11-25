@@ -25,17 +25,6 @@ func (a *App) projectChildren(n navNode) []navNode {
 		}
 		return a.errorNote(navNode{projectDir: p.Dir, name: widgets.FirstLine(p.Err)}, navError{title: "Could not read the project", full: p.Err})
 	}
-	note := func(text string) []navNode { return []navNode{{kind: nodeInfo, projectDir: p.Dir, name: text}} }
-	files := func(kind nodeKind, paths []string, none string) []navNode {
-		if len(paths) == 0 {
-			return note(none)
-		}
-		out := make([]navNode, len(paths))
-		for i, path := range paths {
-			out[i] = navNode{kind: kind, projectDir: p.Dir, name: path}
-		}
-		return out
-	}
 	switch n.kind {
 	case nodeProject:
 		if !n.files {
@@ -48,42 +37,51 @@ func (a *App) projectChildren(n navNode) []navNode {
 		}
 		queries := navNode{kind: nodeQueries, projectDir: p.Dir}
 		a.openHeading(queries) // what the pane is opened for, first
-		// Dashboards and data models have a heading once there is one: a
-		// new project starts with Queries alone over its connections. The
-		// menu of any heading, and the sidebar's +, make the first.
-		out := []navNode{queries}
-		if names, _ := a.dashboardNames(p); len(names) > 0 {
-			out = append(out, navNode{kind: nodeDashboards, projectDir: p.Dir})
+		var out []navNode
+		// Bookmarks have their heading over the files, once there is one.
+		if len(a.bookmarks(p).list) > 0 {
+			bookmarks := navNode{kind: nodeBookmarks, projectDir: p.Dir}
+			a.openHeading(bookmarks)
+			out = append(out, bookmarks)
 		}
-		if names, _ := a.modelNames(p); len(names) > 0 {
-			out = append(out, navNode{kind: nodeModels, projectDir: p.Dir})
+		// Dashboards and data models have a heading once there is one, or
+		// a folder for them: a new project starts with Queries alone over
+		// its connections. The menu of any heading, and the sidebar's +,
+		// make the first.
+		out = append(out, queries)
+		for _, s := range []fileSection{dashboardsSection, modelsSection} {
+			if l := a.sectionFiles(p, s); len(l.Files)+len(l.Folders) > 0 {
+				out = append(out, s.folderNode(p, ""))
+			}
 		}
 		return out
+	case nodeBookmarks:
+		return a.bookmarkChildren(p)
 	case nodeConnections:
 		return a.connFolderChildren(p, "")
 	case nodeConnFolder:
 		return a.connFolderChildren(p, n.name)
-	case nodeDashboards:
-		_, paths := a.dashboardNames(p)
-		return files(nodeDashboard, paths, "No dashboards yet")
-	case nodeModels:
-		_, paths := a.modelNames(p)
-		return files(nodeModel, paths, "No data models yet")
+	case nodeFileFolder:
+		s, _ := sectionOf(n)
+		return a.fileFolderChildren(p, s, n.name)
 	case nodeQueries:
 		if a.nav.isOpen(n) {
 			a.ScanQueries(p, false)
 		}
-		var out []navNode
-		for _, f := range p.Files {
-			out = append(out, navNode{kind: nodeQueryFile, projectDir: p.Dir, name: f})
-		}
+		out := a.fileFolderChildren(p, queriesSection, "")
 		if p.ScanErr != "" {
 			out = append(out, a.errorNote(navNode{projectDir: p.Dir, name: widgets.FirstLine(p.ScanErr)}, navError{title: "Could not list the .sql files", full: p.ScanErr})...)
 		}
 		if out == nil {
-			return note("No .sql files yet")
+			return []navNode{{kind: nodeInfo, projectDir: p.Dir, name: "No .sql files yet"}}
 		}
 		return out
+	case nodeDashboards, nodeModels:
+		s, _ := sectionOf(n)
+		if out := a.fileFolderChildren(p, s, ""); out != nil {
+			return out
+		}
+		return []navNode{{kind: nodeInfo, projectDir: p.Dir, name: "No " + s.plural + " yet"}}
 	}
 	return nil
 }
@@ -96,7 +94,7 @@ func info(under navNode, text string) []navNode {
 // noteUnder names the node a note is under: a note is a row as any
 // other, and two rows of one name would be one to the tree.
 func noteUnder(n navNode) string {
-	return fmt.Sprintf("%d\x00%s\x00%s\x00%s\x00%s", n.kind, n.database, n.schema, n.folder, n.name)
+	return fmt.Sprintf("%d\x00%d\x00%s\x00%s\x00%s\x00%s", n.kind, n.section, n.database, n.schema, n.folder, n.name)
 }
 
 // schemaChildren are the folders of a schema, which start to be read
@@ -148,9 +146,9 @@ func (a *App) schemaChildren(cn *connection.Conn, n navNode, open bool) []navNod
 // node is open and they are not known yet.
 func (a *App) navChildren(n navNode) []navNode {
 	switch n.kind {
-	case nodeProject, nodeConnections, nodeConnFolder, nodeQueries, nodeDashboards, nodeModels:
+	case nodeProject, nodeConnections, nodeConnFolder, nodeQueries, nodeDashboards, nodeModels, nodeFileFolder, nodeBookmarks:
 		return a.projectChildren(n)
-	case nodeQueryFile, nodeDashboard, nodeModel, nodeInfo:
+	case nodeQueryFile, nodeDashboard, nodeModel, nodeBookmark, nodeInfo:
 		return nil
 	}
 	cn := a.connByID(n.conn)

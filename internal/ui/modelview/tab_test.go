@@ -44,7 +44,7 @@ func TestModelTab(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := &datamodel.Model{Name: "Shop", Engine: db.SQLite, Tables: tables, Source: &datamodel.Source{Connection: "lite", Schema: "main"}}
-	path := datamodel.File(h.Project, m.Name)
+	path := datamodel.File(h.Project, "", m.Name)
 	if _, err := m.Save(path, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestModelKeepsFlavorsConnection(t *testing.T) {
 	cn := h.AddConn(db.Config{ID: "maria", Name: "maria", Engine: db.MariaDB, Host: "127.0.0.1", Port: 1})
 	tt := ui.NewTester(h.View, 1280, 800)
 	m := &datamodel.Model{Name: "Shop", Engine: db.MySQL, Source: &datamodel.Source{Connection: "maria", Database: "shop", Schema: "shop"}}
-	path := datamodel.File(h.Project, m.Name)
+	path := datamodel.File(h.Project, "", m.Name)
 	if _, err := m.Save(path, nil); err != nil {
 		t.Fatal(err)
 	}

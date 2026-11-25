@@ -2,7 +2,6 @@ package app
 
 import (
 	"cmp"
-	"path/filepath"
 	"strings"
 
 	"dgopher/internal/connection"
@@ -268,7 +267,7 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 		switch n.kind {
 		case nodeProject:
 			a.projectName(c, p)
-		case nodeConnections, nodeQueries, nodeDashboards, nodeModels:
+		case nodeConnections, nodeQueries, nodeDashboards, nodeModels, nodeBookmarks:
 			_, label, count := a.section(p, n.kind)
 			at, ok := a.nav.paneOf(n).chosen()
 			chosen := ok && at == n
@@ -304,15 +303,17 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 			if id != "" {
 				runsOn = a.connByID(p.Prefix + id)
 			}
-			dot := ui.Box(c).Size(6, 6).Radius(3).Shrink(0)
-			if runsOn != nil {
-				dot.Background(widgets.EnvColor(&runsOn.Config))
-			}
+			a.fileMark(c, n, func() {
+				dot := ui.Box(c).Size(6, 6).Radius(3).Shrink(0)
+				if runsOn != nil {
+					dot.Background(widgets.EnvColor(&runsOn.Config))
+				}
+			})
 			// Its name without ".sql", which every file of the list ends
 			// in, and no icon, which every row would share: the room goes
 			// to the name and the connection.
 			// Named whole to a screen reader, and to what looks it up.
-			a.navNameText(c, strings.TrimSuffix(n.name, filepath.Ext(n.name))).Label(n.name).SingleLine().Shrink(1).Tooltip(filepath.Join(p.Queries, filepath.FromSlash(n.name)))
+			a.navNameText(c, a.fileName(p, queriesSection, n.name)).Label(n.name).SingleLine().Shrink(1).Tooltip(a.filePath(p, n))
 			ui.Spacer(c)
 			switch {
 			case id == "":
@@ -322,11 +323,13 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 				ui.Text(c, runsOn.Config.Name).SingleLine().Shrink(fileConnectionShrink).FontSize(widgets.TextMeta).TextColor(muted).Tooltip("Runs on " + runsOn.Config.Name)
 			}
 		case nodeDashboard, nodeModel:
-			names, paths := a.dashboardNames(p)
-			if n.kind == nodeModel {
-				names, paths = a.modelNames(p)
-			}
-			a.navNameText(c, nameOf(names, paths, n.name)).SingleLine().Shrink(1).Tooltip(n.name)
+			s, _ := sectionOf(n)
+			a.fileMark(c, n, nil)
+			a.navNameText(c, a.fileName(p, s, n.name)).SingleLine().Shrink(1).Tooltip(a.filePath(p, n))
+		case nodeFileFolder:
+			a.fileFolderRow(c, p, n)
+		case nodeBookmark:
+			a.bookmarkRow(c, p, n)
 		case nodeInfo:
 			if e, ok := a.nav.errors[n]; ok {
 				a.errorNoteText(c, row, n, e)
@@ -336,11 +339,30 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 		}
 	})
 	// A folder takes what is dragged onto it; a project's row in the
-	// database tree, for its top level.
-	if n.kind == nodeConnFolder || n.kind == nodeProject && !n.files {
+	// database tree, or a section's heading, for its top level.
+	switch s, ok := sectionOf(n); {
+	case n.kind == nodeConnFolder || n.kind == nodeProject && !n.files:
 		a.folderDropTarget(c, row, p, n)
+	case ok && (n.kind == nodeFileFolder || n.kind == s.heading):
+		a.fileDropTarget(c, row, p, n)
 	}
 	row.ContextMenu(func(m *ui.Menu) { a.navMenu(m, n) })
+}
+
+// fileMark draws what a file's row has before its name, mark, which may
+// be nil: among folders, in the room of their icons, for the names to
+// line up.
+func (a *App) fileMark(c *ui.Context, n navNode, mark func()) {
+	if !a.besideFolders(n) {
+		if mark != nil {
+			mark()
+		}
+		return
+	}
+	room := ui.Row(c).Width(widgets.IconMedium).Shrink(0).Center()
+	if mark != nil {
+		room.Children(mark)
+	}
 }
 
 // section is how a project's section shows: its icon, name and count.
@@ -349,11 +371,11 @@ func (a *App) section(p *project.Project, kind nodeKind) (*ui.SVG, string, int) 
 	case nodeConnections:
 		return widgets.IconPlug, "Connections", len(a.projectConns(p))
 	case nodeDashboards:
-		names, _ := a.dashboardNames(p)
-		return widgets.IconLayers, "Dashboards", len(names)
+		return widgets.IconLayers, "Dashboards", len(a.sectionFiles(p, dashboardsSection).Files)
 	case nodeModels:
-		names, _ := a.modelNames(p)
-		return widgets.IconSchema, "Data Models", len(names)
+		return widgets.IconSchema, "Data Models", len(a.sectionFiles(p, modelsSection).Files)
+	case nodeBookmarks:
+		return widgets.IconPin, "Bookmarks", len(a.bookmarks(p).list)
 	}
 	return widgets.IconCode, "Queries", len(p.Files)
 }
@@ -371,20 +393,23 @@ func (a *App) sectionNew(p *project.Project, kind nodeKind) (string, func()) {
 			}
 		}
 	case nodeQueries:
-		cn := a.activeConn()
-		if cn == nil || cn.Project != p || !cn.Config.Engine.IsSQL() {
-			cn = a.firstSQLConn(p)
-		}
-		if cn == nil {
+		if a.queryConn(p) == nil {
 			return "", nil
 		}
 		return "New SQL Editor", a.newEditor
-	case nodeDashboards:
-		return "New Dashboard…", func() { a.newDashboard(p) }
-	case nodeModels:
-		return "New Data Model…", func() {
-			a.newModel = &newModelForm{open: true, project: p, engine: db.Postgres.Label()}
-		}
+	case nodeDashboards, nodeModels:
+		s, _ := sectionOf(navNode{kind: kind})
+		return a.newFileIn(p, s, "")
 	}
 	return "", nil
+}
+
+// queryConn is the connection a new editor of a project opens on: the
+// one worked with, when it is the project's and runs SQL, else its first
+// that does; nil for none.
+func (a *App) queryConn(p *project.Project) *connection.Conn {
+	if cn := a.activeConn(); cn != nil && cn.Project == p && cn.Config.Engine.IsSQL() {
+		return cn
+	}
+	return a.firstSQLConn(p)
 }

@@ -74,9 +74,10 @@ Keys marked *fixed* below cannot be changed.
 | ⌘↵ | New editor with `SELECT *` of the table |
 | ⌘R, F5 | Read the schema again |
 | ⌘C | Copy the table's name, quoted |
-| F2 | Rename the table |
+| F2 | Rename the table, folder, file or bookmark |
 | F4 | The table's structure; on a connection, edit it |
-| Delete | A `DROP` of the table, in a new editor to review and run; on a connection, query file, dashboard or data model, delete it once you agree |
+| Delete | A `DROP` of the table, in a new editor to review and run; on a connection, folder, query file, dashboard or data model, delete it once you agree; on a bookmark, remove it |
+| ⌘⌥⇧D | Add a bookmark of the table, view, routine or file, or remove it, as DBeaver's Ctrl+Alt+Shift+D |
 | ↑, ↓ (fixed) | Move; type a name's first letters to jump to it |
 | →, ← (fixed) | Open or close |
 | ↵ (fixed) | Connect, or open a table's data |

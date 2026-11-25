@@ -4,7 +4,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"path/filepath"
+	"slices"
 	"strings"
 
 	"dgopher/internal/datamodel"
@@ -18,36 +18,25 @@ import (
 // fileActions rename and delete the file of a project a node names: a
 // query file, a dashboard or a data model; nil for other nodes.
 func (a *App) fileActions(p *project.Project, n navNode) (rename, del func()) {
-	switch n.kind {
-	case nodeQueryFile:
-		path := filepath.Join(p.Queries, filepath.FromSlash(n.name))
-		return func() { a.askRename(p, path) },
-			func() { a.askDeleteFile(path, "query file", n.name, func() { a.ScanQueries(p, true) }) }
-	case nodeDashboard:
-		return func() { a.askRenameDashboard(p, n.name) },
-			func() {
-				names, paths := a.dashboardNames(p)
-				a.askDeleteFile(n.name, "dashboard", nameOf(names, paths, n.name), nil)
-			}
-	case nodeModel:
-		return func() { a.askRenameModel(p, n.name) },
-			func() {
-				names, paths := a.modelNames(p)
-				a.askDeleteFile(n.name, "data model", nameOf(names, paths, n.name), nil)
-			}
+	s, ok := sectionOf(n)
+	if !ok || n.kind != s.file {
+		return nil, nil
 	}
-	return nil, nil
-}
-
-// nameOf is the name a dashboard or a data model holds, by its path
-// among those listed, else its file's.
-func nameOf(names, paths []string, path string) string {
-	for i, p := range paths {
-		if p == path {
-			return names[i]
+	path, name := a.filePath(p, n), a.fileName(p, s, n.name)
+	deleted := func() {
+		a.filesChanged(p, s)
+		if err := a.dropBookmarks(p, path); err != nil {
+			a.ShowReport(widgets.ErrorReportOf("Could not remove the bookmark of "+name, err))
 		}
 	}
-	return filepath.Base(path)
+	del = func() { a.askDeleteFile(path, s.noun, name, deleted) }
+	switch n.kind {
+	case nodeDashboard:
+		return func() { a.askRenameDashboard(p, path) }, del
+	case nodeModel:
+		return func() { a.askRenameModel(p, path) }, del
+	}
+	return func() { a.askRename(p, path) }, del
 }
 
 // tabOf is the open tab of a project's file, nil for none.
@@ -71,27 +60,23 @@ func (a *App) tabOf(path string) widgets.Tab {
 	return nil
 }
 
-// askRenameDashboard renames a dashboard: the name it holds, and its file,
-// named after it; an open tab's with what it has not saved.
+// askRenameDashboard renames a dashboard, as askRenameNamed: an open tab
+// with what it has not saved.
 func (a *App) askRenameDashboard(p *project.Project, path string) {
 	d, disk, err := dashboard.LoadFile(path)
 	if err != nil {
 		a.ShowReport(widgets.ErrorReportOf("Could not rename the dashboard", err))
 		return
 	}
-	a.renaming = &renameForm{open: true, title: "Rename " + d.Name, name: d.Name, rename: func(name string) error {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			return errors.New("Name the dashboard.")
-		}
-		to := dashboard.File(p, name)
+	a.askRenameNamed(p, dashboardsSection, path, d.Name, func(name string) (string, error) {
+		to := dashboard.File(p, dashboardsSection.parent(p, path), name)
 		if t, ok := a.tabOf(path).(*dashboard.Tab); ok {
-			return t.Rename(name, to)
+			return to, t.Rename(name, to)
 		}
 		d.Name = name
 		_, err := d.Move(path, to, disk)
-		return err
-	}}
+		return to, err
+	})
 }
 
 // askRenameModel renames a data model, as askRenameDashboard a dashboard.
@@ -101,18 +86,39 @@ func (a *App) askRenameModel(p *project.Project, path string) {
 		a.ShowReport(widgets.ErrorReportOf("Could not rename the data model", err))
 		return
 	}
-	a.renaming = &renameForm{open: true, title: "Rename " + m.Name, name: m.Name, rename: func(name string) error {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			return errors.New("Name the data model.")
-		}
-		to := datamodel.File(p, name)
+	a.askRenameNamed(p, modelsSection, path, m.Name, func(name string) (string, error) {
+		to := datamodel.File(p, modelsSection.parent(p, path), name)
 		if t, ok := a.tabOf(path).(*modelview.Tab); ok {
-			return t.Rename(name, to)
+			return to, t.Rename(name, to)
 		}
 		m.Name = name
 		_, err := m.Move(path, to, was)
-		return err
+		return to, err
+	})
+}
+
+// askRenameNamed asks for a new name of a dashboard or a data model,
+// which names its file too, in the folder it is in: rename writes it
+// there and says where. A name stays unique across the section's folders,
+// as Add to Dashboard picks one by its name, and the bookmarks of the
+// file follow it.
+func (a *App) askRenameNamed(p *project.Project, s fileSection, path, was string, rename func(name string) (string, error)) {
+	a.renaming = &renameForm{open: true, title: "Rename " + was, name: was, rename: func(name string) error {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return errors.New("Name the " + s.noun + ".")
+		}
+		names, paths := a.fileNamesAndPaths(p, s)
+		if i := slices.Index(names, name); i >= 0 && paths[i] != path {
+			return errors.New("A " + s.noun + " of that name exists.")
+		}
+		to, err := rename(name)
+		if err != nil {
+			return err
+		}
+		a.filesChanged(p, s)
+		a.bookmarksFollow(p, path, to)
+		return nil
 	}}
 }
 

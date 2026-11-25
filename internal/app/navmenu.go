@@ -130,6 +130,7 @@ func (a *App) navObjectMenu(m *ui.Menu, n navNode) {
 	if m.Item("View DDL").Chosen() {
 		a.OpenTable(cn, n.database, obj, dataview.PageDDL)
 	}
+	a.bookmarkItem(m, n)
 	m.Separator()
 	quoted := db.QualifiedName(cn.DB().Dialect, obj.Schema, obj.Name)
 	if m.Item("New SQL: SELECT").Chosen() {
@@ -224,6 +225,7 @@ func (a *App) navItemMenu(m *ui.Menu, n navNode) {
 	if m.Item("Copy Name").Chosen() {
 		a.WriteClipboard(db.QualifiedName(cn.DB().Dialect, it.Schema, it.Name))
 	}
+	a.bookmarkItem(m, n)
 }
 
 // navSchemaMenu is the menu of a database's, a schema's or a group's row: what

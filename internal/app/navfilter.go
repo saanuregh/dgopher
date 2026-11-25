@@ -27,21 +27,17 @@ func (a *App) navName(n navNode) string {
 		if cn := a.connByID(n.conn); cn != nil {
 			return cn.Config.Name
 		}
-	case nodeConnFolder:
+	case nodeConnFolder, nodeFileFolder:
 		return path.Base(n.name)
-	case nodeQueryFile:
-		return n.name
-	case nodeDashboard, nodeModel:
-		p := a.projectByDir(n.projectDir)
-		if p == nil {
-			return ""
+	case nodeQueryFile, nodeDashboard, nodeModel:
+		if p := a.projectByDir(n.projectDir); p != nil {
+			s, _ := sectionOf(n)
+			return a.fileName(p, s, n.name)
 		}
-		names, paths := a.dashboardNames(p)
-		if n.kind == nodeModel {
-			names, paths = a.modelNames(p)
-		}
-		if i := slices.Index(paths, n.name); i >= 0 {
-			return names[i]
+	case nodeBookmark:
+		if p := a.projectByDir(n.projectDir); p != nil {
+			b, _ := a.bookmark(p, n)
+			return b.Name
 		}
 	case nodeDatabase:
 		return n.database
@@ -62,7 +58,7 @@ func (a *App) navName(n navNode) string {
 func (a *App) navMatches(n navNode) bool {
 	has := func(s string) bool { return s != "" && strings.Contains(strings.ToLower(s), a.nav.needle) }
 	if n.conn == "" {
-		if n.kind == nodeConnFolder {
+		if n.kind == nodeConnFolder || n.kind == nodeFileFolder {
 			return has(n.name) // its own name and its folders'
 		}
 		return has(a.navName(n))
@@ -92,7 +88,7 @@ func (a *App) navMatches(n navNode) bool {
 // down to the tables and the files, not into a table's columns.
 func (a *App) navHolds(n navNode) bool {
 	switch n.kind {
-	case nodeObject, nodeItem, nodeColumn, nodeInfo, nodeQueryFile, nodeDashboard, nodeModel:
+	case nodeObject, nodeItem, nodeColumn, nodeInfo, nodeQueryFile, nodeDashboard, nodeModel, nodeBookmark:
 		return false
 	}
 	// Asked of a node by each row above it: answered once a frame.
@@ -175,7 +171,7 @@ func (a *App) navFilterSync() {
 	if needle == "" {
 		a.nav.openBefore = nil
 		if chosen != nil {
-			a.nav.reveal, a.nav.opened = chosen, map[navNode]bool{}
+			a.nav.revealNode(chosen)
 		}
 		return
 	}
@@ -194,7 +190,8 @@ func (a *App) navFilterSync() {
 			down(root)
 		}
 	}
-	a.nav.reveal, a.nav.pickMatch = nil, true
+	a.nav.revealNode(nil)
+	a.nav.pickMatch = true
 }
 
 func b2i(b bool) int {

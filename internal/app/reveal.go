@@ -1,7 +1,7 @@
 package app
 
 import (
-	"path/filepath"
+	"strings"
 
 	"dgopher/internal/connection"
 	"dgopher/internal/project"
@@ -21,9 +21,20 @@ func (a *App) followTab() {
 	if t == a.nav.shown {
 		return
 	}
-	a.nav.shown, a.nav.reveal, a.nav.opened = t, nil, nil
+	a.nav.shown = t
+	a.nav.revealNode(nil)
 	if n, ok := a.tabNode(t); ok {
-		a.nav.reveal, a.nav.opened = &n, map[navNode]bool{}
+		a.nav.revealNode(&n)
+	}
+}
+
+// revealNode has the navigator show a node, opening what is above it,
+// and choose it; nil for none. It opens nothing once shown: a bookmark
+// asks for that after (openRevealed).
+func (n *navState) revealNode(target *navNode) {
+	n.reveal, n.opened, n.openRevealed = target, nil, nil
+	if target != nil {
+		n.opened = map[navNode]bool{}
 	}
 }
 
@@ -35,16 +46,20 @@ func (a *App) tabNode(t widgets.Tab) (navNode, bool) {
 		return navNode{}, false
 	case *query.Tab:
 		for _, p := range a.projects {
-			if rel, err := filepath.Rel(p.Queries, t.Path); t.Path != "" && err == nil && filepath.IsLocal(rel) {
-				return navNode{kind: nodeQueryFile, projectDir: p.Dir, name: filepath.ToSlash(rel)}, true
+			if rel, ok := queriesSection.rel(p, t.Path); t.Path != "" && ok {
+				return queriesSection.fileNode(p, rel), true
 			}
 		}
 	case *dataview.TableTab:
 		return navNode{kind: nodeObject, conn: t.Conn.Config.ID, database: t.Database, schema: t.Object.Schema, name: t.Object.Name}, true
 	case *dashboard.Tab:
-		return navNode{kind: nodeDashboard, projectDir: t.Project.Dir, name: t.Path}, true
+		if rel, ok := dashboardsSection.rel(t.Project, t.Path); ok {
+			return dashboardsSection.fileNode(t.Project, rel), true
+		}
 	case *modelview.Tab:
-		return navNode{kind: nodeModel, projectDir: t.Project.Dir, name: t.Path}, true
+		if rel, ok := modelsSection.rel(t.Project, t.Path); ok {
+			return modelsSection.fileNode(t.Project, rel), true
+		}
 	}
 	if cn := t.Connection(); cn != nil {
 		return navNode{kind: nodeConn, conn: cn.Config.ID}, true
@@ -99,6 +114,10 @@ func (a *App) openToReveal() {
 		}
 	}
 	if !waiting {
+		if open := a.nav.openRevealed; open != nil && *open == *target {
+			a.nav.openRevealed = nil
+			a.ShowError("Could not find "+a.navName(*target), "It is not in the navigator: it may be gone from the database, or its schema hidden (Schemas… on its connection).")
+		}
 		a.nav.reveal = nil
 	}
 }
@@ -118,6 +137,10 @@ func (a *App) chooseRevealed(c *ui.Context) {
 			// Its pane is the one worked in, unless the other has the keys.
 			a.nav.inFiles = inFilesPane(*target)
 			a.nav.reveal = nil
+			if open := a.nav.openRevealed; open != nil && *open == *target {
+				a.nav.openRevealed = nil
+				a.activate(*target)
+			}
 			c.Invalidate()
 			return
 		}
@@ -135,12 +158,9 @@ func leadsTo(n, target navNode, dir, folder string) bool {
 		return n.projectDir == dir && target.conn != ""
 	case nodeConnFolder:
 		return n.projectDir == dir && target.conn != "" && project.UnderFolder(folder, n.name)
-	case nodeQueries:
-		return n.projectDir == dir && target.kind == nodeQueryFile
-	case nodeDashboards:
-		return n.projectDir == dir && target.kind == nodeDashboard
-	case nodeModels:
-		return n.projectDir == dir && target.kind == nodeModel
+	case nodeQueries, nodeDashboards, nodeModels, nodeFileFolder:
+		s, _ := sectionOf(n)
+		return n.projectDir == dir && target.kind == s.file && project.UnderFolder(folderOf(target), folderOf(n))
 	case nodeConn:
 		return n.conn == target.conn && target.kind != nodeConn
 	case nodeDatabase:
@@ -148,6 +168,10 @@ func leadsTo(n, target navNode, dir, folder string) bool {
 	case nodeSchema:
 		return same && n.schema == target.schema
 	case nodeFolder:
+		if target.kind == nodeItem {
+			kind, _, _ := strings.Cut(target.name, "\x00")
+			return same && n.schema == target.schema && n.folder == kind
+		}
 		return same && n.schema == target.schema && (n.folder == folderTables || n.folder == folderViews)
 	}
 	return false

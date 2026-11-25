@@ -37,14 +37,7 @@ func (a *App) openModel(p *project.Project, path string) {
 // modelNames are a project's data models, by their names, with their
 // paths.
 func (a *App) modelNames(p *project.Project) (names, paths []string) {
-	return a.fileNames(filepath.Join(p.Dir, datamodel.Folder), func() ([]string, error) { return datamodel.List(p) },
-		func(path string) (string, error) {
-			m, err := datamodel.Load(path)
-			if err != nil {
-				return "", err
-			}
-			return m.Name, nil
-		})
+	return a.fileNamesAndPaths(p, modelsSection)
 }
 
 // newModelForm asks the name and engine of a data model to design from
@@ -52,10 +45,17 @@ func (a *App) modelNames(p *project.Project) (names, paths []string) {
 type newModelForm struct {
 	open    bool
 	project *project.Project
+	folder  string // of the project's models, "" for their top
 	name    string
 	engine  string // its label
 	err     string
 	dismiss widgets.DismissGuard
+}
+
+// askNewModel asks the name and engine of a data model to make in a
+// folder of the project's models, "" for their top.
+func (a *App) askNewModel(p *project.Project, folder string) {
+	a.newModel = &newModelForm{open: true, project: p, folder: folder, engine: db.Postgres.Label()}
 }
 
 func (a *App) newModelView(c *ui.Context) {
@@ -88,7 +88,7 @@ func (a *App) newModelView(c *ui.Context) {
 				}
 				if widgets.Activated(c, ui.PrimaryButton(c, "Create")) {
 					name := strings.TrimSpace(f.name)
-					path := datamodel.File(f.project, name)
+					path := datamodel.File(f.project, f.folder, name)
 					names, _ := a.modelNames(f.project)
 					m := &datamodel.Model{Name: name, Engine: engines[max(slices.Index(labels, f.engine), 0)], Tables: []db.TableDesign{}}
 					switch _, statErr := os.Stat(path); {
@@ -155,7 +155,7 @@ func (a *App) buildModel(f *saveModelForm) {
 		f.err = "Name the model."
 		return
 	}
-	path := datamodel.File(p, name)
+	path := datamodel.File(p, "", name)
 	names, _ := a.modelNames(p)
 	if _, err := os.Stat(path); err == nil || slices.Contains(names, name) {
 		f.err = "A model of that name exists: choose another name, or open it and update it from the database."

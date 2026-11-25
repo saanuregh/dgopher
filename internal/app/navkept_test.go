@@ -21,10 +21,10 @@ import (
 func filesOfEveryKind(t *testing.T, a *App) {
 	t.Helper()
 	p := a.projects[0]
-	if _, err := (&dashboard.Dashboard{Name: "Sales"}).Save(dashboard.File(p, "Sales"), nil); err != nil {
+	if _, err := (&dashboard.Dashboard{Name: "Sales"}).Save(dashboard.File(p, "", "Sales"), nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := (&datamodel.Model{Name: "Shop", Engine: db.SQLite}).Save(datamodel.File(p, "Shop"), nil); err != nil {
+	if _, err := (&datamodel.Model{Name: "Shop", Engine: db.SQLite}).Save(datamodel.File(p, "", "Shop"), nil); err != nil {
 		t.Fatal(err)
 	}
 }

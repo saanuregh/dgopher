@@ -34,7 +34,7 @@ func (a *App) toggleChat() {
 		a.ShowError("No SQL editor", "The AI chat works beside a SQL editor: open one on a SQL connection, then ask.")
 		return
 	}
-	if q := a.createQueryFile(cn, "", connection.HeaderLine(cn)); q != nil {
+	if q := a.createQueryFile(cn, "", "", connection.HeaderLine(cn)); q != nil {
 		a.Connect(cn, nil)
 		q.ToggleChat()
 	}

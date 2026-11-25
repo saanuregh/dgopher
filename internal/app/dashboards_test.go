@@ -85,7 +85,7 @@ func TestRenameAndDeleteProjectFiles(t *testing.T) {
 	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1000, 700)
 	p := a.projects[0]
-	path := dashboard.File(p, "Sales")
+	path := dashboard.File(p, "", "Sales")
 	if _, err := (&dashboard.Dashboard{Name: "Sales", Panels: []dashboard.Panel{}}).Save(path, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestRenameAndDeleteProjectFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.renaming = nil
-	renamed := dashboard.File(p, "Revenue")
+	renamed := dashboard.File(p, "", "Revenue")
 	d, ok := a.ActiveTab().(*dashboard.Tab)
 	if saved, err := dashboard.Load(renamed); !ok || d.Path != renamed || err != nil || saved.Name != "Revenue" {
 		t.Fatalf("the tab is on %s, the file %+v %v", d.Path, saved, err)
@@ -123,7 +123,7 @@ func TestRenameAndDeleteProjectFiles(t *testing.T) {
 		t.Fatalf("the file stayed (%v), or its tab: %d", err, a.tabs().Len())
 	}
 
-	model := datamodel.File(p, "Shop")
+	model := datamodel.File(p, "", "Shop")
 	if _, err := (&datamodel.Model{Name: "Shop", Engine: db.Postgres}).Save(model, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestRenameAndDeleteProjectFiles(t *testing.T) {
 	if err := a.renaming.rename("Store"); err != nil {
 		t.Fatal(err)
 	}
-	if m, err := datamodel.Load(datamodel.File(p, "Store")); err != nil || m.Name != "Store" {
+	if m, err := datamodel.Load(datamodel.File(p, "", "Store")); err != nil || m.Name != "Store" {
 		t.Fatalf("model %+v %v", m, err)
 	}
 }

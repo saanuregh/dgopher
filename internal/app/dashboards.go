@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
 	"dgopher/internal/connection"
 	"dgopher/internal/project"
@@ -36,48 +35,10 @@ func (a *App) openDashboard(p *project.Project, path string) {
 	a.AddTab(d)
 }
 
-// namedFiles are the files of a project's folder as last read, by the
-// names they hold, with when the folder last changed.
-type namedFiles struct {
-	changed      time.Time
-	names, paths []string
-}
-
-// fileNames are the files of a folder, as dashboards, by the names they
-// hold, with their paths; read again once the folder changes, as a file
-// comes or goes. A file that does not read is left out.
-func (a *App) fileNames(dir string, list func() ([]string, error), name func(path string) (string, error)) (names, paths []string) {
-	info, err := os.Stat(dir)
-	if err != nil {
-		return nil, nil
-	}
-	if l, ok := a.fileLists[dir]; ok && l.changed.Equal(info.ModTime()) {
-		return l.names, l.paths
-	}
-	files, _ := list()
-	for _, f := range files {
-		if n, err := name(f); err == nil {
-			names, paths = append(names, n), append(paths, f)
-		}
-	}
-	if a.fileLists == nil {
-		a.fileLists = map[string]namedFiles{}
-	}
-	a.fileLists[dir] = namedFiles{changed: info.ModTime(), names: names, paths: paths}
-	return names, paths
-}
-
 // dashboardNames are a project's dashboards, by their names, with their
 // paths.
 func (a *App) dashboardNames(p *project.Project) (names, paths []string) {
-	return a.fileNames(filepath.Join(p.Dir, dashboard.Folder), func() ([]string, error) { return dashboard.List(p) },
-		func(path string) (string, error) {
-			d, err := dashboard.Load(path)
-			if err != nil {
-				return "", err
-			}
-			return d.Name, nil
-		})
+	return a.fileNamesAndPaths(p, dashboardsSection)
 }
 
 // newDashboardChoice is the choice of a dashboard not made yet.
@@ -92,6 +53,7 @@ type addToDashboard struct {
 	sql      string
 	target   string   // a dashboard's name, or newDashboardChoice
 	choices  []string // the project's dashboards, then newDashboardChoice
+	paths    []string // the dashboards' files, by choice
 	newName  string
 	title    string
 	view     int // an index of dashboard.Views
@@ -107,8 +69,16 @@ func (a *App) openAddToDashboard(q *query.Tab) {
 	}
 	first := strings.TrimSpace(strings.SplitN(strings.TrimSpace(sql), "\n", 2)[0])
 	x := &addToDashboard{open: true, conn: q.Conn, database: q.Database, sql: sql, title: widgets.OneLine(first, 40), target: newDashboardChoice}
-	names, _ := a.dashboardNames(q.Conn.Project)
-	x.choices = append(names, newDashboardChoice)
+	// A dashboard in a folder says which, after its name.
+	p := q.Conn.Project
+	names, paths := a.dashboardNames(p)
+	for i, name := range names {
+		if folder := dashboardsSection.parent(p, paths[i]); folder != "" {
+			name += " · " + folder
+		}
+		x.choices = append(x.choices, name)
+	}
+	x.choices, x.paths = append(x.choices, newDashboardChoice), paths
 	x.target = x.choices[0]
 	a.addingPanel = x
 }
@@ -118,7 +88,7 @@ func (a *App) openAddToDashboard(q *query.Tab) {
 func (a *App) addPanel(x *addToDashboard) {
 	x.err = ""
 	p := x.conn.Project
-	names, paths := a.dashboardNames(p)
+	names, _ := a.dashboardNames(p)
 	if err := dashboard.CheckRead(x.conn, x.sql); err != nil {
 		x.err = "This statement cannot be a panel: " + err.Error() + "."
 		return
@@ -126,8 +96,8 @@ func (a *App) addPanel(x *addToDashboard) {
 	var path string
 	var d *dashboard.Dashboard
 	var was []byte
-	if i := slices.Index(names, x.target); i >= 0 && x.target != newDashboardChoice {
-		path = paths[i]
+	if i := slices.Index(x.choices, x.target); i >= 0 && i < len(x.paths) {
+		path = x.paths[i]
 		var err error
 		if d, was, err = dashboard.LoadFile(path); err != nil {
 			x.err = err.Error()
@@ -139,7 +109,7 @@ func (a *App) addPanel(x *addToDashboard) {
 			x.err = "Name the new dashboard."
 			return
 		}
-		path = dashboard.File(p, name)
+		path = dashboard.File(p, "", name)
 		if _, err := os.Stat(path); err == nil || slices.Contains(names, name) {
 			x.err = "A dashboard of that name exists: choose it, or another name."
 			return
@@ -203,15 +173,18 @@ func (a *App) addToDashboardView(c *ui.Context) {
 	}
 }
 
-// newDashboard asks a dashboard's name, makes it empty, and opens it.
-func (a *App) newDashboard(p *project.Project) {
+// newDashboard asks a dashboard's name, makes it empty in a folder of the
+// project's dashboards, "" for their top, and opens it. Names are unique
+// across the folders, as Add to Dashboard picks one by its name.
+func (a *App) newDashboard(p *project.Project, folder string) {
 	a.renaming = &renameForm{open: true, title: "New Dashboard", action: "Create", rename: func(name string) error {
 		name = strings.TrimSpace(name)
 		if name == "" {
 			return errors.New("Name the dashboard.")
 		}
-		path := dashboard.File(p, name)
-		if _, err := os.Stat(path); err == nil {
+		path := dashboard.File(p, folder, name)
+		names, _ := a.dashboardNames(p)
+		if _, err := os.Stat(path); err == nil || slices.Contains(names, name) {
 			return errors.New("A dashboard of that name exists.")
 		}
 		if _, err := (&dashboard.Dashboard{Name: name, Panels: []dashboard.Panel{}}).Save(path, nil); err != nil {

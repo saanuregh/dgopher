@@ -19,8 +19,6 @@ what does not work today and why, see [Known limitations](limitations.md).
   statements go through the same safety checks as the app's own.
 - A pending transactions view: every open transaction of every tab and
   connection in one list, with commit and rollback.
-- Bookmarks: tables, routines and query files pinned to a short list in
-  the navigator, as DBeaver's bookmarks.
 - A local history of each query file: every version as it was typed,
   saved or not, to compare with and bring back.
 - Git in the navigator: query files marked as changed or new since the last
