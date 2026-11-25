@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"dgopher/internal/sqltext"
@@ -22,7 +23,7 @@ func TestLiteral(t *testing.T) {
 		{Postgres, `a\'b`, `E'a\\''b'`},
 		{Postgres, `\' OR TRUE --`, `E'\\'' OR TRUE --'`},
 		{DuckDB, "it's", "'it''s'"},
-		{DuckDB, `C:\dir\`, `E'C:\\dir\\'`},
+		{DuckDB, `C:\dir\`, `'C:\dir\'`},
 		{SQLite, "x'); DROP TABLE t; --", "'x''); DROP TABLE t; --'"},
 		{SQLite, `a\'b`, `'a\''b'`},
 		{MySQL, `a\'b`, `'a\\''b'`},
@@ -31,7 +32,7 @@ func TestLiteral(t *testing.T) {
 		{DuckDB, true, "TRUE"},
 		{DuckDB, "a\x00b", `('a' || chr(0) || 'b')`},
 		{DuckDB, "\x00", `(chr(0))`},
-		{DuckDB, `\` + "\x00\x00'", `(E'\\' || chr(0) || chr(0) || '''')`},
+		{DuckDB, `\` + "\x00\x00'", `('\' || chr(0) || chr(0) || '''')`},
 		{Postgres, "a\x00b", `('a' || chr(0) || 'b')`},
 		{ClickHouse, "a\x00b", `'a\0b'`},
 	}
@@ -136,6 +137,30 @@ func TestLiteralRoundTrip(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// DuckDB reads a file named by its literal, after FROM, whatever the
+// name holds: DuckDB 2.0 takes no escape string, E'…', there, which a
+// Windows path's backslashes once made.
+func TestDuckDBReadsAFileByItsLiteral(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), `back\slash it's`)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "people.csv")
+	if err := os.WriteFile(path, []byte("x\n1\n2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	d, err := Open(ctx, Config{Name: "duck", Engine: DuckDB, Database: ":memory:"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	var n int
+	if err := d.SQL.QueryRowContext(ctx, "SELECT count(*) FROM "+Literal(DuckDB, path)+" LIMIT 1000").Scan(&n); err != nil || n != 2 {
+		t.Fatalf("%s: %d rows, %v", Literal(DuckDB, path), n, err)
 	}
 }
 

@@ -398,8 +398,11 @@ func (duckdbEngine) EnumValues(_ context.Context, _ *DB, typ string) ([]string, 
 
 func (duckdbEngine) ParameterAsText() bool { return false }
 
+// DuckDB reads a backslash in a string as itself, having no
+// standard_conforming_strings to turn off, and takes no escape string,
+// E'…', after FROM.
 func (duckdbEngine) TextLiteral(s string) string {
-	return textLiteral(s, "chr(0)", escapeStringLiteral)
+	return textLiteral(s, "chr(0)", standardLiteral)
 }
 
 func (duckdbEngine) BytesLiteral(b []byte) string {

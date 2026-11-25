@@ -249,8 +249,7 @@ func standardLiteral(s string) string { return "'" + strings.ReplaceAll(s, "'", 
 
 // escapeStringLiteral is PostgreSQL's. It reads a backslash as itself
 // only while standard_conforming_strings is on, which any statement may
-// turn off. An escape string, E'…', reads the same either way, and DuckDB
-// reads it as PostgreSQL does.
+// turn off. An escape string, E'…', reads the same either way.
 func escapeStringLiteral(s string) string {
 	if strings.Contains(s, `\`) {
 		return "E'" + escapeStringEscaper.Replace(s) + "'"

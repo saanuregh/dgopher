@@ -528,7 +528,7 @@ func TestPinLiterals(t *testing.T) {
 		"\"sqlite\" number":        "42",
 		"\"sqlite\" nil":           "NULL",
 		"\"duckdb\" quote":         "'it''s'",
-		"\"duckdb\" backslash":     "E'a\\\\b'",
+		"\"duckdb\" backslash":     "'a\\b'",
 		"\"duckdb\" nul":           "('a' || chr(0) || 'b')",
 		"\"duckdb\" newline":       "'a\nb'",
 		"\"duckdb\" bytes":         "'\\xDE\\xAD\\xBE\\xEF'::BLOB",
