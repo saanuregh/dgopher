@@ -605,7 +605,9 @@ func TestIntegrationLiteralWithoutStandardStrings(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	if _, err := conn.ExecContext(ctx, "SET standard_conforming_strings = off"); err != nil {
+	if _, err := conn.ExecContext(ctx, "SET standard_conforming_strings = off"); testutil.PostgresFeatureNotSupported(err) {
+		t.Skip("the server no longer turns standard_conforming_strings off")
+	} else if err != nil {
 		t.Fatal(err)
 	}
 	for _, s := range []string{`it's`, `back\slash`, `\' OR TRUE --`, `trailing\`, `\\`, `''`, `\x41`, "new\nline"} {

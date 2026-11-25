@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
@@ -137,9 +138,26 @@ func TestConnectMismatchDismissRemembered(t *testing.T) {
 		t.Fatalf("the engine changed: %q", cn.Config.Engine)
 	}
 	// Kept in the project's state, for the next start.
-	if v := dismissedVersion(t, cn); !strings.HasPrefix(v, "17.") {
-		t.Fatalf("dismissed for version %q", v)
+	if v, want := dismissedVersion(t, cn), serverVersion(t); v != want {
+		t.Fatalf("dismissed for version %q, want the server's %q", v, want)
 	}
+}
+
+// serverVersion is the version the test server reports, as the notice
+// reads it.
+func serverVersion(t *testing.T) string {
+	t.Helper()
+	ctx := context.Background()
+	d, err := db.Open(ctx, testutil.PGConfig(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	_, v, err := d.Identify(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
 }
 
 // dismissedVersion is the version of the server the notice was dismissed

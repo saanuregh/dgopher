@@ -4,6 +4,7 @@ package testutil
 
 import (
 	"context"
+	"errors"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -16,7 +17,16 @@ import (
 	"dgopher/internal/ui/editor"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+// PostgresFeatureNotSupported reports whether err is PostgreSQL's feature_not_supported
+// (SQLSTATE 0A000), as PostgreSQL 19 answers SET standard_conforming_strings
+// = off.
+func PostgresFeatureNotSupported(err error) bool {
+	var pe *pgconn.PgError
+	return errors.As(err, &pe) && pe.Code == "0A000"
+}
 
 // WaitFor draws frames until cond holds, then lets the motion that came
 // with it end. The tester's clock, which stands

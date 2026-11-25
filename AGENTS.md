@@ -52,7 +52,7 @@ go vet ./... && gofmt -l .                    # both clean today; any output is 
 go test ./...                                 # unit and headless UI tests
 go test ./internal/sqltext -run TestSplit     # one test
 docker compose up -d --wait                  # start the integration servers (compose.yaml)
-DGOPHER_IT=1 go test ./...                   # also against the integration servers
+DGOPHER_IT=1 go test -timeout 30m ./...      # also against the integration servers
 DGOPHER_SNAPSHOTS=/tmp/snaps go test ./...   # write PNGs of the UI under test
 DGOPHER_LIVE_CHAT=claude go test ./internal/ui/chat -run TestLiveChat   # the AI chat against a real CLI; spends tokens
 ```
