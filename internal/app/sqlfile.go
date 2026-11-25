@@ -227,15 +227,16 @@ func (a *App) sqlFileView(c *ui.Context) {
 				busy := x.running || x.reading
 				widgets.DismissButton(c, busy, x.finished, x.cancel, func() { x.open = false })
 				if !x.finished {
-					disabled := busy || x.statements == 0 || x.err != ""
+					why := cmp.Or(widgets.When(x.reading, "The file is being read"), widgets.When(x.running, "The file is running"),
+						widgets.When(x.err != "", "The file could not be read"), widgets.When(x.statements == 0, "The file has no statement"))
 					var run ui.Element
 					if len(x.dangerous) > 0 {
-						run = widgets.DangerButton(c.Key("run"), "Run", disabled)
+						run = widgets.DangerButton(c.Key("run"), "Run", why)
 					} else {
-						run = ui.PrimaryButton(c.Key("run"), "Run").Disabled(disabled)
+						run = widgets.Unavailable(ui.PrimaryButton(c.Key("run"), "Run"), why)
 					}
 					widgets.Appear(run)
-					if run.Clicked() && !disabled {
+					if run.Clicked() && why == "" {
 						a.confirmSQLFile(x)
 					}
 				}

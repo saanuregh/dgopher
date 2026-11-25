@@ -77,6 +77,17 @@ func FormatDuration(d time.Duration) string {
 	return d.Round(time.Second).String()
 }
 
+// Clock writes how long something has run as a clock does, in minutes and
+// seconds, with hours once there are any: as wide from one second to the
+// next, so that what is beside it keeps its place.
+func Clock(d time.Duration) string {
+	s := int(d / time.Second)
+	if s >= 3600 {
+		return fmt.Sprintf("%d:%02d:%02d", s/3600, s/60%60, s%60)
+	}
+	return fmt.Sprintf("%d:%02d", s/60, s%60)
+}
+
 func OneLine(s string, n int) string {
 	s = strings.Join(strings.Fields(s), " ")
 	if r := []rune(s); len(r) > n {

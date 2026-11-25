@@ -173,7 +173,7 @@ func (g *Grid) valuePanel(c *ui.Context, a Host, src *Source, row int) {
 			if widgets.IconButton(c, widgets.IconCopy, "Copy the value").Clicked() {
 				a.WriteClipboard(text)
 			}
-			if widgets.IconButton(c, widgets.IconDownload, "Save the value to a file…").Disabled(v == nil).Clicked() {
+			if widgets.Clicked(widgets.IconButton(c, widgets.IconDownload, "Save the value to a file…"), widgets.When(v == nil, "The value is NULL")) {
 				data := raw
 				if data == nil {
 					data = []byte(db.Display(v))

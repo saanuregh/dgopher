@@ -620,7 +620,7 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 			if r.scanning {
 				label = "Scanning…"
 			}
-			if widgets.MorphButton(c.Key("scan-more"), label).Disabled(r.scanning).Clicked() {
+			if widgets.Clicked(widgets.MorphButton(c.Key("scan-more"), label), widgets.When(r.scanning, "The scan is running")) {
 				r.scan()
 			}
 		})
@@ -760,7 +760,7 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 				return
 			}
 			loadAll := func(c *ui.Context) {
-				if !r.whole && ui.Button(c, "Load All").Disabled(r.loadingKey).Clicked() {
+				if !r.whole && widgets.Clicked(ui.Button(c, "Load All"), widgets.When(r.loadingKey, "The key is being read")) {
 					r.askLoadWhole()
 				}
 			}
@@ -869,7 +869,7 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 	if !r.itemsDone {
 		ui.Row(c).Padding(4, 14).Gap(8).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, fmt.Sprintf("Showing %d of %d items.", len(r.fields), r.info.Length)).FontSize(widgets.TextSmall).TextColor(pal.Muted)
-			if ui.Button(c, "Load More").Disabled(r.loadingKey).Clicked() {
+			if widgets.Clicked(ui.Button(c, "Load More"), widgets.When(r.loadingKey, "The key is being read")) {
 				r.loadMore()
 			}
 		})
@@ -929,7 +929,7 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 		case "array":
 			ui.TextInput(c, &r.newName).Placeholder("Index").Width(100).Font(widgets.MonoFont).Label("Index")
 			ui.TextInput(c, &r.newValue).Placeholder("Value").Grow(1).Label("Value")
-			if ui.Button(c, "Set").Disabled(strings.TrimSpace(r.newName) == "").Clicked() {
+			if widgets.Clicked(ui.Button(c, "Set"), widgets.When(strings.TrimSpace(r.newName) == "", "Type an index first")) {
 				r.write([]string{"ARSET", key, strings.TrimSpace(r.newName), r.newValue}, func() { r.newName, r.newValue = "", ""; r.loadKey() })
 			}
 			if ui.Button(c, "Insert").Tooltip("At the array's next index").Clicked() {

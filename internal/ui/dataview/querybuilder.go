@@ -533,10 +533,10 @@ func queryBuilderView(a Host, c *ui.Context) {
 				if ui.Button(c, "Cancel").Clicked() {
 					b.open = false
 				}
-				if ui.Button(c, "Copy SQL").Disabled(err != nil).Clicked() {
+				if widgets.Clicked(ui.Button(c, "Copy SQL"), widgets.WhyNot(err)) {
 					a.WriteClipboard(sql)
 				}
-				if widgets.Activated(c, ui.PrimaryButton(c, "Open in Editor").Disabled(err != nil)) {
+				if widgets.ActivatedUnless(c, ui.PrimaryButton(c, "Open in Editor"), widgets.WhyNot(err)) {
 					a.NewQueryTab(b.conn, b.database, sql+";\n")
 					b.open = false
 				}
@@ -591,7 +591,7 @@ func (b *queryBuilder) tablesView(a Host, c *ui.Context) {
 					ui.Select(c, &on.column, names).Width(180).Label("Column of " + t.alias)
 					ui.Text(c, "=").TextColor(pal.Muted)
 					ui.Select(c, &on.other, others).Width(240).Label("Column it equals")
-					if widgets.IconButton(c, widgets.IconX, "Remove the condition").Disabled(len(t.on) == 1).Clicked() {
+					if widgets.Clicked(widgets.IconButton(c, widgets.IconX, "Remove the condition"), widgets.When(len(t.on) == 1, "A join keeps one condition")) {
 						remove = k
 					}
 				})

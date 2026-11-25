@@ -366,7 +366,9 @@ func ExportView(a Host, c *ui.Context) {
 						x.open = false
 					}
 				}
-				if widgets.Activated(c, ui.PrimaryButton(c, "Export").Disabled(x.running || len(chosen) == 0 || nameProblem != "" || !x.all && x.src.RowsRead == nil)) {
+				why := cmp.Or(widgets.When(x.running, "The export is running"), widgets.When(len(chosen) == 0, "Choose what to export first"), nameProblem,
+					widgets.When(!x.all && x.src.RowsRead == nil, "The rows read are no longer kept: export every row"))
+				if widgets.ActivatedUnless(c, ui.PrimaryButton(c, "Export"), why) {
 					runExport(a, x)
 				}
 			})
@@ -394,12 +396,12 @@ func exportTablesView(c *ui.Context, x *exportState, chosen int) {
 	}
 	ui.Row(c).Gap(8).Children(func() {
 		widgets.SearchBox(c, &x.filter, "Filter tables", 0).Grow(1)
-		if ui.Button(c, "All").Disabled(x.running).Clicked() {
+		if widgets.Clicked(ui.Button(c, "All"), widgets.When(x.running, "The export is running")) {
 			for _, i := range shown {
 				x.tables[i].chosen = true
 			}
 		}
-		if ui.Button(c, "None").Disabled(x.running).Clicked() {
+		if widgets.Clicked(ui.Button(c, "None"), widgets.When(x.running, "The export is running")) {
 			for _, i := range shown {
 				x.tables[i].chosen = false
 			}

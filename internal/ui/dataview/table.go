@@ -316,10 +316,10 @@ func (t *TableTab) txBar(c *ui.Context) {
 		ui.Row(c).Padding(6, 12).Gap(10).Background(th.Warning.Alpha(0.16)).Children(func() {
 			ui.Icon(c, widgets.IconAlert).TextColor(th.Warning).FontSize(widgets.IconMedium)
 			ui.Text(c, label).Grow(1)
-			if ui.PrimaryButton(c, "Commit").Disabled(t.view.applying).Tooltip(keymap.Hint("Commit the transaction", keymap.Commit)).Clicked() {
+			if widgets.Clicked(ui.PrimaryButton(c, "Commit").Tooltip(keymap.Hint("Commit the transaction", keymap.Commit)), widgets.When(t.view.applying, "The changes are being written")) {
 				t.endOpenTx(true)
 			}
-			if ui.Button(c, "Roll Back").Disabled(t.view.applying).Tooltip(keymap.Hint("Roll back the transaction", keymap.Rollback)).Clicked() {
+			if widgets.Clicked(ui.Button(c, "Roll Back").Tooltip(keymap.Hint("Roll back the transaction", keymap.Rollback)), widgets.When(t.view.applying, "The changes are being written")) {
 				t.endOpenTx(false)
 			}
 		})

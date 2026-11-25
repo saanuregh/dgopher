@@ -116,6 +116,12 @@ type Grid struct {
 	// a table does, to filter on the server.
 	filterSQL func(rowCond)
 	clearSQL  func(col int)
+	// sqlFilter, set with filterSQL, is the filter the server ran that is
+	// on a column, or all of it for -1; "" for none.
+	sqlFilter func(col int) string
+	// reading is set while the rows are being read: none yet is then not
+	// none at all.
+	reading bool
 	// masked are the columns whose values show as MaskedText, and
 	// valuesMenu offers to hide or show a column's.
 	masked     []bool
@@ -454,9 +460,12 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 		}
 		cols = append(cols, ui.TableColumn{Title: col.Name, ID: colID(i), Width: widths[i], MinWidth: 40, Align: align, Sortable: true, Frozen: g.pinned[i]})
 	}
+	// The theme's accent: the table's own is the tint of its chosen cells.
+	accent := c.Theme().Accent
 	g.List.HeaderCell = func(cell ui.Element, col int) {
 		if col > 0 {
 			g.headerCard(c, src, cell, visible[col-1])
+			g.filterMark(c, src, visible[col-1], accent)
 		}
 	}
 	g.List.HeaderMenu = func(m *ui.Menu, col int) {
@@ -533,6 +542,9 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 		}).Grow(1).Label("Results").Draw(func(_ *ui.Painter, r ui.Rect) { g.viewW = r.W }).
 			FontSize(widgets.TextSmall) // the header's, a step under the cells', which set their own
 		c.SetTheme(theme)
+		if len(order) == 0 && !g.reading {
+			g.emptyView(c)
+		}
 		if g.keysBack && g.List.Focus(c) {
 			g.keysBack = false
 		}

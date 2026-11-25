@@ -83,6 +83,10 @@ type message struct {
 	detail string
 	sql    string
 	err    bool
+	// head is what a statement did, as "3 rows affected", and meta its
+	// verb and time: the Output's headline while it is the last to have
+	// ended; "" for what is not a statement's outcome.
+	head, meta string
 }
 
 // Tab is a SQL editor with its results, on a session of its own.
@@ -1393,17 +1397,20 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 					q.note(res.err+with, res.sql, true)
 					return
 				}
-				var text string
+				var head string
 				if res.rowsMode {
 					more := ""
 					if !done {
 						more = "+"
 					}
-					text = fmt.Sprintf("%s · %d%s rows · %s", verbLabel(res.verb), len(first), more, widgets.FormatDuration(res.elapsed))
+					head = fmt.Sprintf("%d%s rows", len(first), more)
 				} else {
-					text = fmt.Sprintf("%s · %s · %s", verbLabel(res.verb), affectedLabel(res.affected), widgets.FormatDuration(res.elapsed))
+					head = affectedLabel(res.affected)
 				}
-				q.note(text+with, res.sql, false)
+				took := widgets.FormatDuration(res.elapsed)
+				q.note(fmt.Sprintf("%s · %s · %s", verbLabel(res.verb), head, took)+with, res.sql, false)
+				m := &q.messages[len(q.messages)-1]
+				m.head, m.meta = strings.ToUpper(head[:1])+head[1:], verbLabel(res.verb)+" · "+took+with
 			})
 			if manual {
 				// A statement that ran in the session's transaction and left
@@ -2016,10 +2023,10 @@ func (q *Tab) txBar(c *ui.Context) {
 	widgets.AppearBar(ui.Row(c.Key("tx-bar")).Padding(6, 12).Gap(10).Background(col.Alpha(0.16)).BorderWidth(0, 0, 1, 0).BorderColor(col)).Children(func() {
 		ui.Icon(c, widgets.IconAlert).TextColor(col).FontSize(widgets.IconMedium)
 		ui.Text(c, label).Grow(1).Shrink(1)
-		if (q.Tx == db.TxOpen || q.InsideTx == db.TxOpen) && widgets.Appear(ui.PrimaryButton(c.Key("commit"), "Commit")).Disabled(q.Busy()).Tooltip(keymap.Hint("Commit the transaction", keymap.Commit)).Clicked() {
+		if (q.Tx == db.TxOpen || q.InsideTx == db.TxOpen) && widgets.Clicked(widgets.Appear(ui.PrimaryButton(c.Key("commit"), "Commit")).Tooltip(keymap.Hint("Commit the transaction", keymap.Commit)), q.busyWhy()) {
 			q.endOpenTx(true)
 		}
-		if ui.Button(c.Key("roll-back"), "Roll Back").Disabled(q.Busy()).Tooltip(keymap.Hint("Roll back the transaction", keymap.Rollback)).Clicked() {
+		if widgets.Clicked(ui.Button(c.Key("roll-back"), "Roll Back").Tooltip(keymap.Hint("Roll back the transaction", keymap.Rollback)), q.busyWhy()) {
 			q.endOpenTx(false)
 		}
 	})
@@ -2204,7 +2211,7 @@ func (q *Tab) toolbarDock(c *ui.Context) {
 	results, idx := q.shownResults()
 	ui.Row(c).Gap(4).Shrink(0).Padding(0, 8, 0, 0).Children(func() {
 		// Apart from the grid's own: these are the dock's.
-		ui.Divider(c).Margin(8, 4, 8, 0)
+		ui.Divider(c).Margin(0, 4, 0, 0)
 		q.dockButtons(c, results, idx)
 	})
 }
@@ -2423,9 +2430,16 @@ func (q *Tab) messagesView(c *ui.Context) {
 		})
 		return
 	}
+	lead := q.outcome()
 	ui.Scroll(c).Grow(1).Children(func() {
 		ui.Column(c).Padding(8, 12).Gap(8).Children(func() {
+			if lead >= 0 {
+				q.outcomeView(c, q.messages[lead])
+			}
 			for i := len(q.messages) - 1; i >= 0; i-- {
+				if i == lead {
+					continue
+				}
 				m := q.messages[i]
 				ui.Column(c).Gap(2).Children(func() {
 					ui.Row(c).Gap(8).Children(func() {
@@ -2442,6 +2456,38 @@ func (q *Tab) messagesView(c *ui.Context) {
 						ui.Text(c, widgets.OneLine(m.sql, 160)).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted).SingleLine()
 					}
 				})
+			}
+		})
+	})
+}
+
+// outcome is the message the Output leads with: what the last statement
+// to end did, unless an error came after it, which is then the news; -1
+// for none.
+func (q *Tab) outcome() int {
+	for i := len(q.messages) - 1; i >= 0; i-- {
+		switch m := q.messages[i]; {
+		case m.err:
+			return -1
+		case m.head != "":
+			return i
+		}
+	}
+	return -1
+}
+
+// outcomeView is the Output's headline: what a statement did, to read at
+// a glance, as a statement that returns no rows shows nothing else.
+func (q *Tab) outcomeView(c *ui.Context, m message) {
+	t := c.Theme()
+	pal := widgets.PaletteOf(c)
+	ui.Row(c).Gap(10).Padding(6, 0, 10, 0).AlignItems(ui.Start).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
+		ui.Icon(c, widgets.IconCheck).FontSize(widgets.IconLarge).TextColor(t.Success).Margin(3, 0, 0, 0)
+		ui.Column(c).Gap(2).Grow(1).Shrink(1).Children(func() {
+			ui.Text(c, m.head).FontSize(widgets.TextTitle).Bold().Selectable()
+			ui.Text(c, m.meta+" · "+m.at.Format("15:04:05")).FontSize(widgets.TextSmall).TextColor(pal.Muted).Selectable()
+			if m.sql != "" {
+				ui.Text(c, widgets.OneLine(m.sql, 160)).Font(widgets.MonoFont).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine()
 			}
 		})
 	})
@@ -2533,7 +2579,7 @@ func (q *Tab) headerBar(c *ui.Context, id string, exists bool) {
 	widgets.AppearBar(ui.Row(c.Key("header-bar")).Padding(6, 12).Gap(10).Background(col.Alpha(0.16))).Children(func() {
 		ui.Icon(c, widgets.IconAlert).TextColor(col).FontSize(widgets.IconMedium)
 		ui.Text(c, msg).Grow(1).Shrink(1)
-		if exists && ui.Button(c, "Switch to "+id).Disabled(q.Busy()).Clicked() {
+		if exists && widgets.Clicked(ui.Button(c, "Switch to "+id), q.busyWhy()) {
 			q.a.SwitchConnection(q, id)
 		}
 	})

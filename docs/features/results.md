@@ -67,6 +67,11 @@ One viewer shows both a query's results and a table's data.
   then shows the SQL.
 - **The quick filter** narrows the rows already read without running
   anything.
+- **A filtered column** carries a filter mark in its header; hovering it
+  shows the filter on that column.
+- **No rows** shows as words under the header, not as a blank grid. When a
+  filter is why, it says so, with **Clear Filter**: the quick filter
+  first, then the `WHERE` filter.
 - **Sorting** runs on the server while rows remain to be read, and in memory
   once all are read. ⌘2 cycles the chosen column's order.
 - A statement that writes is never filtered, and refreshing its result asks

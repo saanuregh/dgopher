@@ -828,10 +828,10 @@ func (q *Tab) cellView(c *ui.Context, cl *cell) {
 			if !cl.markdown {
 				ui.Text(c, label).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted)
 				if running {
-					if widgets.IconButton(c.Key("stop"), widgets.IconStop, "Stop the cell").Disabled(q.stopping).Clicked() {
+					if widgets.Clicked(widgets.IconButton(c.Key("stop"), widgets.IconStop, "Stop the cell"), widgets.When(q.stopping, "Asked to stop: the run ends once the server stops it")) {
 						q.stop()
 					}
-				} else if widgets.IconButton(c.Key("run"), widgets.IconPlay, "Run the cell").Disabled(q.Running).Clicked() {
+				} else if widgets.Clicked(widgets.IconButton(c.Key("run"), widgets.IconPlay, "Run the cell"), widgets.When(q.Running, "Another cell is running")) {
 					q.runCell(cl)
 				}
 			}

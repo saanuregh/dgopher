@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -252,12 +253,12 @@ func (a *App) generateView(c *ui.Context) {
 			}
 			ui.Row(c).Gap(8).Children(func() {
 				widgets.SearchBox(c, &g.filter, "Filter objects", 0).Grow(1)
-				if ui.Button(c, "All").Disabled(g.running).Clicked() {
+				if widgets.Clicked(ui.Button(c, "All"), widgets.When(g.running, "The script is being written")) {
 					for _, i := range shown {
 						g.choices[i].chosen = true
 					}
 				}
-				if ui.Button(c, "None").Disabled(g.running).Clicked() {
+				if widgets.Clicked(ui.Button(c, "None"), widgets.When(g.running, "The script is being written")) {
 					for _, i := range shown {
 						g.choices[i].chosen = false
 					}
@@ -299,7 +300,7 @@ func (a *App) generateView(c *ui.Context) {
 				if g.output == generateDocs {
 					action = "Save…"
 				}
-				if widgets.Activated(c, ui.PrimaryButton(c, action).Disabled(g.running || g.loading || chosen == 0)) {
+				if widgets.ActivatedUnless(c, ui.PrimaryButton(c, action), cmp.Or(widgets.When(g.running, "The script is being written"), widgets.When(g.loading, "The schema is being read"), widgets.When(chosen == 0, "Choose a table first"))) {
 					a.generate(g)
 				}
 			})

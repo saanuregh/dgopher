@@ -277,16 +277,16 @@ func (d *designer) View(c *ui.Context) {
 				}
 				return
 			}
-			if (d.was != nil || d.save != nil) && widgets.Appear(ui.Button(c.Key("discard"), "Discard Changes")).Disabled(!d.changed()).Clicked() {
+			if (d.was != nil || d.save != nil) && widgets.Clicked(widgets.Appear(ui.Button(c.Key("discard"), "Discard Changes")), widgets.When(!d.changed(), "Nothing has changed")) {
 				d.discard()
 			}
 			if d.save != nil {
-				if widgets.Appear(ui.PrimaryButton(c.Key("main"), "Save to Model")).Disabled(err != nil || !d.changed()).Clicked() {
+				if widgets.Clicked(widgets.Appear(ui.PrimaryButton(c.Key("main"), "Save to Model")), cmp.Or(widgets.WhyNot(err), widgets.When(!d.changed(), "Nothing has changed"))) {
 					d.apply()
 				}
 				return
 			}
-			if widgets.Appear(ui.PrimaryButton(c.Key("main"), "Review SQL…")).Disabled(err != nil || len(ch.Steps) == 0).Tooltip("See the statements, then apply them").Clicked() {
+			if widgets.Clicked(widgets.Appear(ui.PrimaryButton(c.Key("main"), "Review SQL…")).Tooltip("See the statements, then apply them"), cmp.Or(widgets.WhyNot(err), widgets.When(len(ch.Steps) == 0, "Nothing has changed"))) {
 				d.apply()
 			}
 		})
@@ -506,7 +506,7 @@ func (d *designer) keysView(c *ui.Context) {
 				ui.Select(c, &labels[1], actionLabels).Label("On update")
 				fk.OnDelete, fk.OnUpdate = actionOf(labels[0]), actionOf(labels[1])
 			}
-			if widgets.IconButton(c, widgets.IconTrash, "Drop "+fk.Name).Disabled(fixed != "" && fk.Read).Clicked() {
+			if widgets.Clicked(widgets.IconButton(c, widgets.IconTrash, "Drop "+fk.Name), widgets.When(fk.Read, fixed)) {
 				remove = i
 			}
 		})
@@ -544,7 +544,7 @@ func (d *designer) checksView(c *ui.Context) {
 				ui.TextInput(c, &ch.Name).Placeholder("name").Font(widgets.MonoFont).Width(200).Label("Check name")
 				ui.TextInput(c, &ch.Expression).Placeholder("price > 0").Font(widgets.MonoFont).Grow(1).Label("Check expression")
 			}
-			if widgets.IconButton(c, widgets.IconTrash, "Drop the check").Disabled(fixed != "" && ch.Read).Clicked() {
+			if widgets.Clicked(widgets.IconButton(c, widgets.IconTrash, "Drop the check"), widgets.When(ch.Read, fixed)) {
 				remove = i
 			}
 		})

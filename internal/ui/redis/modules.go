@@ -107,7 +107,7 @@ func (r *Tab) jsonView(c *ui.Context, ro bool) {
 				if widgets.Appear(ui.Button(c.Key("json-revert"), "Revert")).Clicked() {
 					r.editValue, r.editDirty = r.value, false
 				}
-				if widgets.Appear(ui.PrimaryButton(c.Key("json-save"), "Save").Disabled(!valid)).Clicked() || valid && r.a.KeysTo(r) && keymap.Pressed(c, keymap.Save) {
+				if widgets.Clicked(widgets.Appear(ui.PrimaryButton(c.Key("json-save"), "Save")), widgets.When(!valid, "The text is not valid JSON")) || valid && r.a.KeysTo(r) && keymap.Pressed(c, keymap.Save) {
 					var compact bytes.Buffer
 					json.Compact(&compact, []byte(r.editValue))
 					r.write([]string{"JSON.SET", key, "$", compact.String()}, r.loadKey)
@@ -178,7 +178,7 @@ func (r *Tab) vectorDetail(c *ui.Context, f db.Field) {
 					}
 					ui.Spacer(c)
 					// Empty, they are removed, as VSETATTR does.
-					if ui.Button(c, "Save Attributes").Disabled(!valid).Clicked() {
+					if widgets.Clicked(ui.Button(c, "Save Attributes"), widgets.When(!valid, "The text is not valid JSON")) {
 						r.write([]string{"VSETATTR", r.selected, f.Name, strings.TrimSpace(v.attrs)}, r.loadKey)
 					}
 				})

@@ -204,7 +204,7 @@ func NewViewer(a Host, src ViewerSource) *Viewer {
 	// The rows of a statement that writes are not read again: the
 	// grid filters and counts those read.
 	if src.Reads {
-		v.grid.filterSQL, v.grid.clearSQL = v.addFilter, v.clearFilters
+		v.grid.filterSQL, v.grid.clearSQL, v.grid.sqlFilter = v.addFilter, v.clearFilters, v.filterOn
 		v.grid.valuesMenu = v.valuesMenu
 		v.grid.columnInfo, v.grid.enumValues = v.columnInfo, v.enumValues
 		v.grid.distinctOf = v.distinctValues
@@ -1272,13 +1272,6 @@ func (v *Viewer) View(c *ui.Context) {
 		}
 		widgets.Bar(c, "Data", func() {
 			divider := func() { ui.Divider(c).Margin(0, 4) }
-			// A ButtonBase looks the same disabled: dimmed, it shows it.
-			disable := func(b ui.Element, d bool) ui.Element {
-				if d {
-					b.Opacity(0.4)
-				}
-				return b.Disabled(d)
-			}
 			refreshTip := keymap.Hint("Read the rows again", keymap.Discard)
 			if !v.source.Reads {
 				refreshTip = keymap.Hint("Run the statement again, once confirmed", keymap.Discard)
@@ -1350,7 +1343,7 @@ func (v *Viewer) View(c *ui.Context) {
 					v.clearFilters(-1)
 				}
 				build := widgets.ToggleIconButton(c, widgets.IconListFilter, "Build a filter from conditions", v.builder != nil)
-				if disable(build, len(v.src.Cols) == 0).Clicked() {
+				if widgets.Clicked(build, widgets.When(len(v.src.Cols) == 0, "The columns are not read yet")) {
 					if v.builder == nil {
 						v.builder = v.newFilterBuilder()
 					} else {
@@ -1439,6 +1432,7 @@ func (v *Viewer) View(c *ui.Context) {
 		ChartView(c, &v.chart, &v.src)
 		noGrid()
 	} else {
+		v.grid.reading = v.loading
 		v.grid.View(c, a, &v.src)
 		if *a.FocusWant() == "results" && keys {
 			if v.grid.SelRow < 0 && len(v.src.Rows) > 0 {
@@ -1547,9 +1541,7 @@ func (v *Viewer) View(c *ui.Context) {
 				}
 			case !v.done || v.fetchingAll:
 				fetch := widgets.Appear(widgets.StatusButton(c.Key("fetch-all"), "Fetch All")).Tooltip(keymap.Hint("Fetch every row", keymap.FetchAll))
-				if v.loading || v.fetchingAll {
-					fetch.Disabled(true)
-				} else if fetch.Clicked() {
+				if widgets.Clicked(fetch, widgets.When(v.loading || v.fetchingAll, "The rows are being read")) {
 					v.FetchAll()
 				}
 			}
@@ -1559,7 +1551,7 @@ func (v *Viewer) View(c *ui.Context) {
 			case v.counting:
 				// Count turns to Stop, in place, once the count lasts.
 				if !widgets.Lasted(c, v.countStarted) {
-					widgets.Appear(widgets.StatusButton(c.Key("count"), "Count")).Disabled(true)
+					widgets.Unavailable(widgets.Appear(widgets.StatusButton(c.Key("count"), "Count")), "The rows are being counted")
 					break
 				}
 				stop := widgets.Appear(widgets.StatusButton(c.Key("count"), "Stop"))
@@ -1931,6 +1923,44 @@ func (v *Viewer) clearFilters(col int) {
 		}
 		v.joinFilters()
 	})
+}
+
+// filterOn is the filter the server ran that is on a column: the Filter
+// menu's conditions on it, and the filter typed when it names the column;
+// all of the filter for -1.
+func (v *Viewer) filterOn(col int) string {
+	if col < 0 {
+		return strings.TrimSpace(v.where)
+	}
+	var parts []string
+	if typed := strings.TrimSpace(v.typedWhere); typed != "" && v.where != "" && namesColumn(typed, v.src.Cols[col].Name) {
+		parts = append(parts, typed)
+	}
+	for _, f := range v.menuFilters {
+		if f.col == col {
+			parts = append(parts, f.sql)
+		}
+	}
+	return strings.Join(parts, " AND ")
+}
+
+// namesColumn reports whether a filter typed names a column: as a word
+// of its own, in any case, quoted or not.
+func namesColumn(filter, column string) bool {
+	filter, column = strings.ToLower(filter), strings.ToLower(column)
+	word := func(r byte) bool { return r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 0x80 }
+	for at := 0; column != ""; {
+		i := strings.Index(filter[at:], column)
+		if i < 0 {
+			return false
+		}
+		start, end := at+i, at+i+len(column)
+		if (start == 0 || !word(filter[start-1])) && (end == len(filter) || !word(filter[end])) {
+			return true
+		}
+		at = start + 1
+	}
+	return false
 }
 
 // setFilter changes the filter by change, then reads the rows under it;

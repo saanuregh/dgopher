@@ -152,10 +152,11 @@ func ConfirmView(c *ui.Context, r *ConfirmRequest) {
 					r.OnRunAll()
 				}
 				var confirm ui.Element
+				why := When(!ready, "Type the connection's name first")
 				if r.Harmless {
-					confirm = ui.PrimaryButton(c, r.Action).Disabled(!ready)
+					confirm = Unavailable(ui.PrimaryButton(c, r.Action), why)
 				} else {
-					confirm = DangerButton(c, r.Action, !ready)
+					confirm = DangerButton(c, r.Action, why)
 				}
 				if confirm.Clicked() && ready {
 					r.Open, r.Answered = false, true

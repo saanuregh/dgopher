@@ -112,10 +112,10 @@ func (q *Tab) stop() {
 func (q *Tab) stopButton(c *ui.Context, tip string) {
 	danger := c.Theme().Danger
 	if q.stopping {
-		widgets.LeadToolButton(c.Key("run"), widgets.IconStop, "Stopping…", "Asked to stop: the run ends once the server stops it", danger).Disabled(true)
+		widgets.Unavailable(widgets.LeadToolButton(c.Key("run"), widgets.IconStop, "Stopping…", "", danger), "Asked to stop: the run ends once the server stops it")
 		return
 	}
-	if widgets.LeadToolButton(c.Key("run"), widgets.IconStop, "Stop", keymap.Hint(tip, keymap.CancelQuery), danger).Clicked() {
+	if widgets.TimedToolButton(c.Key("run"), widgets.IconStop, "Stop", keymap.Hint(tip, keymap.CancelQuery), danger, q.StartedAt).Clicked() {
 		q.stop()
 	}
 }

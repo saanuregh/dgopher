@@ -224,7 +224,7 @@ func (a *App) saveModelView(c *ui.Context) {
 				if ui.Button(c, "Cancel").Clicked() {
 					f.open = false
 				}
-				if widgets.Activated(c, ui.PrimaryButton(c, "Save").Disabled(f.building)) {
+				if widgets.ActivatedUnless(c, ui.PrimaryButton(c, "Save"), widgets.When(f.building, "The model is being built")) {
 					a.buildModel(f)
 				}
 			})

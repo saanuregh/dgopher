@@ -194,7 +194,7 @@ func (a *App) auditTab(c *ui.Context, h *historyState) {
 		case v.verified != nil:
 			ui.Text(c, fmt.Sprintf("✗ Entry %d: %s", v.verified.Broken, v.verified.Reason)).FontSize(widgets.TextSmall).TextColor(th.Danger).Bold()
 		}
-		if v.log != nil && ui.Button(c, "Verify Integrity").Disabled(v.checking).Clicked() {
+		if v.log != nil && widgets.Clicked(ui.Button(c, "Verify Integrity"), widgets.When(v.checking, "The log is being checked")) {
 			v.checking = true
 			l := v.log
 			dataview.BackgroundResetOnPanic(a, func() { v.checking = false }, func() func() {

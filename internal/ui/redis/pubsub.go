@@ -159,7 +159,7 @@ func (r *Tab) pubSubView(c *ui.Context) {
 					return
 				}
 				in := ui.TextInput(c, &p.listenIn).Placeholder("Channels or patterns, e.g. news orders.*").Font(widgets.MonoFont).FontSize(widgets.TextBody).Grow(1).Label("Channels to listen to")
-				if widgets.MorphButton(c.Key("listen-run"), "Listen").Disabled(strings.TrimSpace(p.listenIn) == "").Clicked() || in.Submitted() {
+				if widgets.Clicked(widgets.MorphButton(c.Key("listen-run"), "Listen"), widgets.When(strings.TrimSpace(p.listenIn) == "", "Type a channel or a pattern first")) || in.Submitted() {
 					r.listen()
 				}
 			})
@@ -185,7 +185,7 @@ func (r *Tab) pubSubView(c *ui.Context) {
 			ui.Row(c).Padding(6, 10).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 				ui.TextInput(c, &p.channel).Placeholder("Channel").Font(widgets.MonoFont).FontSize(widgets.TextBody).Width(180).Label("Channel to publish to")
 				in := ui.TextInput(c, &p.message).Placeholder("Message").Font(widgets.MonoFont).FontSize(widgets.TextBody).Grow(1).Label("Message to publish")
-				if ui.Button(c, "Publish").Disabled(strings.TrimSpace(p.channel) == "").Clicked() || in.Submitted() {
+				if widgets.Clicked(ui.Button(c, "Publish"), widgets.When(strings.TrimSpace(p.channel) == "", "Type a channel first")) || in.Submitted() {
 					r.publish()
 				}
 			})

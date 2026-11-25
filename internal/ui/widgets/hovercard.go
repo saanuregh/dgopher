@@ -713,11 +713,11 @@ func (k *Card) Pages(c *ui.Context, n int) int {
 	}
 	pal := PaletteOf(c)
 	ui.Row(c).Gap(4).AlignItems(ui.Center).Padding(0, cardPadX, 6, cardIndent+cardPadX-12).Children(func() {
-		if IconButton(c, IconPrev, "The one before").Disabled(page == 0).Clicked() {
+		if Clicked(IconButton(c, IconPrev, "The one before"), When(page == 0, "This is the first")) {
 			page--
 		}
 		ui.Text(c, strconv.Itoa(page+1)+" of "+strconv.Itoa(n)).FontSize(TextMeta).TextColor(pal.Muted)
-		if IconButton(c, IconNext, "The next one").Disabled(page == n-1).Clicked() {
+		if Clicked(IconButton(c, IconNext, "The next one"), When(page == n-1, "This is the last")) {
 			page++
 		}
 	})

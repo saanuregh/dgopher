@@ -249,7 +249,7 @@ func valueEditorView(a Host, c *ui.Context) {
 				}
 			})
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				if ui.Button(c, "Copy").Disabled(e.text == MaskedText).Clicked() {
+				if widgets.Clicked(ui.Button(c, "Copy"), widgets.When(e.text == MaskedText, "The value is hidden: show the column's values to copy it")) {
 					a.WriteClipboard(e.text)
 				}
 				if e.editable && ui.Button(c, "Set to NULL").Clicked() {

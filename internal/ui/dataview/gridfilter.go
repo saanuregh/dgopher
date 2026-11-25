@@ -488,7 +488,7 @@ func distinctView(a Host, c *ui.Context) {
 						chosen = append(chosen, v.v)
 					}
 				}
-				if widgets.Activated(c, ui.PrimaryButton(c, "Filter").Disabled(len(chosen) == 0)) {
+				if widgets.ActivatedUnless(c, ui.PrimaryButton(c, "Filter"), widgets.When(len(chosen) == 0, "Choose a value first")) {
 					f.open = false
 					f.apply(rowCond{col: f.col, op: "in", vals: chosen})
 				}
@@ -528,4 +528,70 @@ func (g *Grid) chosenValues(src *Source, rows []int, col int) []any {
 		}
 	}
 	return vals
+}
+
+// filterOn is the filter on a column, as its header's mark says it: the
+// conditions on the rows read, and the one the server ran; "" for none.
+func (g *Grid) filterOn(src *Source, col int) string {
+	var parts []string
+	for _, c := range g.conds {
+		if c.col == col {
+			parts = append(parts, condExprSQL(db.Engine(""), src.Cols[col].Name, c))
+		}
+	}
+	if g.sqlFilter != nil {
+		if f := g.sqlFilter(col); f != "" {
+			parts = append(parts, f)
+		}
+	}
+	return strings.Join(parts, " AND ")
+}
+
+// filterMark marks the header of a column the filter is on, which rows
+// are missing because of: the filter itself shows far from the column,
+// in the box over the grid.
+func (g *Grid) filterMark(c *ui.Context, src *Source, col int, accent ui.Color) {
+	on := g.filterOn(src, col)
+	if on == "" {
+		return
+	}
+	ui.Icon(c, widgets.IconFilter).FontSize(widgets.IconSmall).TextColor(accent).Margin(0, 0, 0, 4).
+		Label(src.Cols[col].Name + " is filtered").Tooltip("Filtered: " + widgets.OneLine(on, 200) + "\nRight-click the header to clear it.")
+}
+
+// filtered reports which filter leaves no row to show: the quick filter
+// or the conditions on the rows read, which hide them here, or the one
+// the server ran.
+func (g *Grid) filtered() (here, onServer bool) {
+	return g.Filter != "" || len(g.conds) > 0, g.sqlFilter != nil && g.sqlFilter(-1) != ""
+}
+
+// emptyView says that there are no rows, under the header, where a blank
+// grid would read as rows not read yet; with a filter on, that it is the
+// filter, and the button that clears it: the one that hides rows here
+// first, as the nearer cause.
+func (g *Grid) emptyView(c *ui.Context) {
+	here, onServer := g.filtered()
+	pal := widgets.PaletteOf(c)
+	box := ui.Column(c.Key("no-rows")).Absolute().Left(0).Top(g.List.RowHeight + 28).Gap(8).AlignItems(ui.Center)
+	if g.viewW > 0 {
+		box.Width(g.viewW)
+	} else {
+		box.Right(0)
+	}
+	box.Children(func() {
+		if !here && !onServer {
+			ui.Text(c, "No rows").TextColor(pal.Muted)
+			return
+		}
+		ui.Text(c, "No rows match the filter").TextColor(pal.Muted)
+		if ui.Button(c, "Clear Filter").Clicked() {
+			if here {
+				g.Filter = ""
+				g.clearConds(-1)
+			} else {
+				g.clearSQL(-1)
+			}
+		}
+	})
 }

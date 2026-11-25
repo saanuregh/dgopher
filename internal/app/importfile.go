@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -624,7 +625,7 @@ func (a *App) importView(c *ui.Context) {
 				}
 				ui.Spacer(c)
 				widgets.DismissButton(c, x.running, false, x.cancel, func() { x.open = false })
-				if ui.PrimaryButton(c.Key("import"), "Import").Disabled(x.running || x.file == nil || x.loading).Clicked() {
+				if widgets.Clicked(ui.PrimaryButton(c.Key("import"), "Import"), cmp.Or(widgets.When(x.running, "The import is running"), widgets.When(x.loading, "The file is being read"), widgets.When(x.file == nil, "Choose a file first"))) {
 					a.confirmImport(x)
 				}
 			})

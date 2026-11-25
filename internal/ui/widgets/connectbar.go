@@ -112,7 +112,7 @@ func ConnectStatus(c *ui.Context, cn *connection.Conn, s ConnectState) ConnectAc
 	case s.Connecting && s.Cancellable && Lasted(c, s.Since):
 		return button(IconX, "Cancel", "Stop connecting to "+cn.Config.Name, CancelAsked)
 	case s.Connecting:
-		connectButton(c.Key("connect"), nil, "Connect", "Connecting to "+cn.Config.Name+"…").Disabled(true)
+		Unavailable(connectButton(c.Key("connect"), nil, "Connect", ""), "Connecting to "+cn.Config.Name+"…")
 		return NoConnectAction
 	case cn.Status == connection.StatusFailed:
 		// The warning after the button, which stays where Connect was.

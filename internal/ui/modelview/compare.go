@@ -321,7 +321,7 @@ func (t *Tab) comparisonView(c *ui.Context) {
 			})
 			ui.Spacer(c)
 			ui.Checkbox(c, &r.showSame, "Show the same")
-			if r.conn != nil && widgets.ToolButton(c, widgets.IconRefresh, "Compare Again", "Read the schema again").Disabled(r.applying).Clicked() {
+			if r.conn != nil && widgets.Clicked(widgets.ToolButton(c, widgets.IconRefresh, "Compare Again", "Read the schema again"), widgets.When(r.applying, "The changes are being applied")) {
 				t.recompare()
 			}
 			if widgets.ToolButton(c, widgets.IconX, "Close", "Back to the model's tables").Clicked() {
@@ -390,7 +390,7 @@ func (t *Tab) migrationBar(c *ui.Context) {
 			r.cancel()
 		}
 		if r.conn == nil {
-			if ui.Button(c, "Copy Migration Script").Disabled(!differs).Tooltip("The statements making the other model's schema like this one").Clicked() {
+			if widgets.Clicked(ui.Button(c, "Copy Migration Script").Tooltip("The statements making the other model's schema like this one"), widgets.When(!differs, "The two schemas are the same")) {
 				if text, ok := t.migrationText(); ok {
 					t.h.WriteClipboard(text)
 					t.h.Toast("The migration script is copied.", "", nil)

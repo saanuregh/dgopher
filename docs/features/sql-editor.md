@@ -94,6 +94,11 @@ Keys are written as on macOS; on Linux and Windows, ⌘ is Ctrl and ⌥ is Alt.
 - **A ▶ in the gutter**, on the first line of each statement, runs that
   statement. It is faint but on the statement a run would send, green, and
   on the one pointed at.
+- **A statement that returns no rows,** as an `UPDATE` or DDL, shows what
+  it did as a headline in **Output**, as "3 rows affected", over the log
+  of what ran before.
+- **While a statement runs,** Run turns to Stop, which shows how long the
+  run has gone on.
 - **On an error,** a script stops or continues, as a setting says. A failed
   statement shows the database's message, code, detail, hint, and where it
   went wrong; **Go to Error** puts the caret there.

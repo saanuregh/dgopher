@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -368,12 +369,23 @@ func (a *App) connFormView(c *ui.Context) {
 				}
 			}).Padding(12, 20, 12, 20)
 		})
+		// What went wrong, over the buttons: under them it would read as
+		// outside the dialog, and push them up as it came.
+		if why := cmp.Or(widgets.When(!f.testing && !f.testOK, f.testResult), f.err); why != "" {
+			ui.Scroll(c).MaxHeight(140).Shrink(0).Background(t.Danger.Alpha(0.10)).Children(func() {
+				ui.Row(c).Padding(10, widgets.DialogPad).Gap(8).AlignItems(ui.Start).Children(func() {
+					ui.Icon(c, widgets.IconAlert).TextColor(t.Danger).FontSize(widgets.IconMedium).Margin(2, 0, 0, 0)
+					ui.Text(c, why).Selectable().Grow(1).Shrink(1)
+				})
+			})
+		}
 		widgets.DialogActions(c, func() {
-			if ui.Button(c, "Test Connection").Disabled(f.testing).Clicked() {
+			test := widgets.BusyButton(c.Key("test"), "Test Connection", "Testing…", f.testing)
+			if widgets.Clicked(test, widgets.When(f.testing, "The test is running")) {
 				a.testConnection(f)
 			}
 			if !f.testing && f.testResult != "" {
-				// A failure shows in full below, to read and copy.
+				// A failure shows in full above, to read and copy.
 				line := widgets.FirstLine(f.testResult)
 				col := t.Danger
 				if f.testOK {
@@ -398,14 +410,6 @@ func (a *App) connFormView(c *ui.Context) {
 				a.saveConnForm(f, true)
 			}
 		})
-		if !f.testing && !f.testOK && f.testResult != "" {
-			ui.Scroll(c).MaxHeight(140).Shrink(0).Children(func() {
-				ui.Text(c, f.testResult).TextColor(t.Danger).Selectable().Padding(0, 20, 12, 20)
-			})
-		}
-		if f.err != "" {
-			ui.Text(c, f.err).TextColor(t.Danger).Selectable().Padding(0, 20, 12, 20)
-		}
 	})
 	f.dismiss.Keep(c, dlg, &f.open, f.inputs(), f.testing)
 }
@@ -493,9 +497,8 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 			ui.Row(c).Gap(6).Children(func() {
 				ui.TextInput(c, &f.id).Font(widgets.MonoFont).Label("ID").Grow(1)
 				fromName := a.idFromName(f.editing.Project, f.cfg.Name, f.editing)
-				b := widgets.IconButton(c, widgets.IconRefresh, "ID from the name").Disabled(fromName == strings.TrimSpace(f.id))
-				b.Tooltip("Make the ID from the name: " + fromName)
-				if b.Clicked() {
+				b := widgets.IconButton(c, widgets.IconRefresh, "ID from the name").Tooltip("Make the ID from the name: " + fromName)
+				if widgets.Clicked(b, widgets.When(fromName == strings.TrimSpace(f.id), "The ID is already the one made from the name")) {
 					f.id = fromName
 				}
 			})

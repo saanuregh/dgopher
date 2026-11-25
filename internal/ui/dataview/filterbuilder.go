@@ -253,7 +253,7 @@ func (v *Viewer) builderView(c *ui.Context) {
 			if ui.Button(c, "Close").Tooltip("Close the conditions; the filter applied stays").Clicked() {
 				v.builder = nil
 			}
-			if ui.PrimaryButton(c, "Apply").Disabled(err != nil).Clicked() || submitted && err == nil {
+			if widgets.Clicked(ui.PrimaryButton(c, "Apply"), widgets.WhyNot(err)) || submitted && err == nil {
 				apply()
 			}
 		})

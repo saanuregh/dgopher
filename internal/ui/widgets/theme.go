@@ -13,7 +13,9 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Palette is the colors the app adds to the theme's.
+// Palette is the colors the app adds to the theme's. Text in them reads
+// at 4.5 to 1 on what it is drawn on, line numbers at 3 to 1, which
+// TestBuiltInThemesMeetContrast holds them to.
 type Palette struct {
 	Sidebar  ui.Color
 	EditorBg ui.Color
@@ -36,21 +38,21 @@ var lightPalette = Palette{
 	Sidebar:          ui.Hex("#f5f5f4"),
 	EditorBg:         ui.Hex("#ffffff"),
 	CurrentStatement: ui.Hex("#f4f7fd"),
-	LineNumber:       ui.Hex("#a8a29e"),
+	LineNumber:       ui.Hex("#948e8a"),
 	GridHeader:       ui.Hex("#f5f5f4"),
 	GridLine:         ui.RGBA(0, 0, 0, 0.07),
 	CellSelected:     ui.RGBA(37, 99, 235, 0.16),
-	Null:             ui.Hex("#a8a29e"),
+	Null:             ui.Hex("#736c67"),
 	Modified:         ui.RGBA(234, 179, 8, 0.25),
 	Inserted:         ui.RGBA(34, 197, 94, 0.18),
 	Deleted:          ui.RGBA(239, 68, 68, 0.16),
-	Muted:            ui.Hex("#78716c"),
+	Muted:            ui.Hex("#6f6863"),
 	Hover:            ui.RGBA(0, 0, 0, 0.05),
 	Syntax: map[sqltext.Kind]ui.Color{
 		sqltext.Keyword:     ui.Hex("#7c3aed"),
 		sqltext.String:      ui.Hex("#15803d"),
 		sqltext.Number:      ui.Hex("#c2410c"),
-		sqltext.Comment:     ui.Hex("#a8a29e"),
+		sqltext.Comment:     ui.Hex("#736c67"),
 		sqltext.QuotedIdent: ui.Hex("#0e7490"),
 		sqltext.Param:       ui.Hex("#be185d"),
 		sqltext.Operator:    ui.Hex("#57534e"),
@@ -62,11 +64,11 @@ var darkPalette = Palette{
 	Sidebar:          ui.Hex("#141312"),
 	EditorBg:         ui.Hex("#1a1918"),
 	CurrentStatement: ui.Hex("#1f2229"),
-	LineNumber:       ui.Hex("#57534e"),
+	LineNumber:       ui.Hex("#706b66"),
 	GridHeader:       ui.Hex("#1f1d1b"),
 	GridLine:         ui.RGBA(255, 255, 255, 0.07),
 	CellSelected:     ui.RGBA(96, 165, 250, 0.22),
-	Null:             ui.Hex("#78716c"),
+	Null:             ui.Hex("#948e89"),
 	Modified:         ui.RGBA(234, 179, 8, 0.22),
 	Inserted:         ui.RGBA(34, 197, 94, 0.20),
 	Deleted:          ui.RGBA(239, 68, 68, 0.22),
@@ -76,7 +78,7 @@ var darkPalette = Palette{
 		sqltext.Keyword:     ui.Hex("#c4b5fd"),
 		sqltext.String:      ui.Hex("#86efac"),
 		sqltext.Number:      ui.Hex("#fdba74"),
-		sqltext.Comment:     ui.Hex("#78716c"),
+		sqltext.Comment:     ui.Hex("#948e89"),
 		sqltext.QuotedIdent: ui.Hex("#67e8f9"),
 		sqltext.Param:       ui.Hex("#f9a8d4"),
 		sqltext.Operator:    ui.Hex("#d6d3d1"),
@@ -297,3 +299,18 @@ const connectPulse = 1200
 // connecting dot and the skeleton's light, which look as smooth at it as
 // at the display's rate and cost less power.
 const pulseFrameRate = 30
+
+// OnDanger is the color of text on a fill of the theme's Danger, as a
+// button that destroys.
+func OnDanger(t *ui.Theme) ui.Color { return legibleOn(t.Danger) }
+
+// legibleOn is the color of text on a fill: white, or the dark of a dark
+// window, whichever reads better on it. A light fill, as the dark
+// theme's accent, takes dark text.
+func legibleOn(fill ui.Color) ui.Color {
+	white, dark := ui.RGB(255, 255, 255), ui.Hex("#1a1918")
+	if contrast(dark, fill) > contrast(white, fill) {
+		return dark
+	}
+	return white
+}

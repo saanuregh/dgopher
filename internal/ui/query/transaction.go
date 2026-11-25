@@ -16,6 +16,20 @@ import (
 // applying on the session.
 func (q *Tab) Busy() bool { return q.Running || q.exports > 0 || q.resultsBusy() }
 
+// busyWhy says why what needs the editor's session waits, "" while it
+// does not: a button's reason while the editor is Busy.
+func (q *Tab) busyWhy() string {
+	switch {
+	case q.Running:
+		return "A statement is running"
+	case q.exports > 0:
+		return "An export is reading the editor's rows"
+	case q.resultsBusy():
+		return "A result is reading or writing its rows"
+	}
+	return ""
+}
+
 func (q *Tab) FinishTx(commit bool, then func(error)) {
 	switch {
 	case q.sess == nil || q.Tx == db.TxNone:

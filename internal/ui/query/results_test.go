@@ -738,3 +738,27 @@ func TestRunTurnsToStop(t *testing.T) {
 		t.Fatalf("Run did not come back: %q", tt.Texts())
 	}
 }
+
+// Stop shows how long the run has gone on, which tells a slow statement
+// from one that hangs; its name stays Stop.
+func TestStopShowsElapsedTime(t *testing.T) {
+	_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1200, 760,
+		"WITH RECURSIVE g(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM g WHERE x < 3000000) SELECT count(*) FROM g")
+	tt.Frame()
+	q.Run(RunStatement)
+	q.StartedAt = time.Now().Add(-67200 * time.Millisecond)
+	tt.Frame()
+	if !q.Running {
+		t.Skip("the run ended before a frame showed it")
+	}
+	if !tt.HasText("1:07") {
+		t.Errorf("Stop shows no 1:07: %q", tt.Texts())
+	}
+	if _, ok := tt.Access("Stop"); !ok {
+		t.Error("the button's name is not Stop")
+	}
+	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running })
+	if tt.HasText("1:07") {
+		t.Error("the time stayed once the run ended")
+	}
+}

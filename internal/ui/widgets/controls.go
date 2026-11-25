@@ -92,16 +92,25 @@ func IconPill(c *ui.Context, ic *ui.SVG, label string, on bool) ui.Element {
 // label and icon slide to the new ones, and the button eases to its new
 // width, rather than one button popping in for another.
 func ToolButton(c *ui.Context, ic *ui.SVG, label, tip string) ui.Element {
-	return toolButton(c, ic, label, tip, nil)
+	return toolButton(c, ic, label, "", tip, nil)
 }
 
 // LeadToolButton is the ToolButton of the toolbar's main action, as Run:
 // its icon in tint, its label a little heavier, the first the eye finds.
 func LeadToolButton(c *ui.Context, ic *ui.SVG, label, tip string, tint ui.Color) ui.Element {
-	return toolButton(c, ic, label, tip, &tint)
+	return toolButton(c, ic, label, "", tip, &tint)
 }
 
-func toolButton(c *ui.Context, ic *ui.SVG, label, tip string, tint *ui.Color) ui.Element {
+// TimedToolButton is LeadToolButton with how long its work has run since
+// since after its label, as a clock: Stop, of a run. The time is not part
+// of its name, which a screen reader would else hear change each second.
+func TimedToolButton(c *ui.Context, ic *ui.SVG, label, tip string, tint ui.Color, since time.Time) ui.Element {
+	ran := time.Since(since)
+	c.After(time.Second - ran%time.Second)
+	return toolButton(c, ic, label, Clock(ran), tip, &tint)
+}
+
+func toolButton(c *ui.Context, ic *ui.SVG, label, note, tip string, tint *ui.Color) ui.Element {
 	b := ui.Button(c, "").Label(label).Tooltip(tip).Transition(morph)
 	b.Children(func() {
 		ui.Row(c).Gap(5).Children(func() {
@@ -110,6 +119,9 @@ func toolButton(c *ui.Context, ic *ui.SVG, label, tip string, tint *ui.Color) ui
 			if tint != nil {
 				icon.TextColor(*tint)
 				txt.FontWeight(600)
+			}
+			if note != "" {
+				ui.Text(c, note).FontSize(TextSmall).FontFeatures("tnum").TextColor(PaletteOf(c).Muted)
 			}
 		})
 	})
@@ -231,14 +243,12 @@ func StatusPrimaryButton(c *ui.Context, label string) ui.Element {
 }
 
 // DangerButton is the main button of what destroys data or trusts a
-// server: red, its label bold.
-func DangerButton(c *ui.Context, label string, disabled bool) ui.Element {
-	b := ui.ButtonBase(c).Padding(6, 14).Radius(c.Theme().Radius).Disabled(disabled).Label(label).Background(c.Theme().Danger)
-	if disabled {
-		b.Opacity(0.5)
-	}
-	b.Children(func() { ui.Text(c, label).TextColor(ui.RGB(255, 255, 255)).Bold() })
-	return b
+// server: red, its label bold; unavailable while why is not "", as
+// Unavailable has it, and its clicks then for the caller to ignore.
+func DangerButton(c *ui.Context, label, why string) ui.Element {
+	b := ui.ButtonBase(c).Padding(6, 14).Radius(c.Theme().Radius).Label(label).Background(c.Theme().Danger)
+	b.Children(func() { ui.Text(c, label).TextColor(OnDanger(c.Theme())).Bold() })
+	return Unavailable(b, why)
 }
 
 // Unavailable marks b unavailable while why is not "", with why as its
@@ -250,6 +260,61 @@ func Unavailable(b ui.Element, why string) ui.Element {
 	if why != "" {
 		b.AccessDisabled(true).Opacity(0.5).Tooltip(why)
 	}
+	return b
+}
+
+// When is why while cond holds, and "" otherwise: a reason a control is
+// unavailable, for Unavailable and Clicked. Several are tried in turn
+// with cmp.Or, the first that holds given.
+func When(cond bool, why string) string {
+	if cond {
+		return why
+	}
+	return ""
+}
+
+// WhyNot is what keeps something from being done, as a reason a control
+// is unavailable: the first line of err, "" for none.
+func WhyNot(err error) string {
+	if err == nil {
+		return ""
+	}
+	return FirstLine(err.Error())
+}
+
+// Clicked reports a click on b while it is available: why says why it
+// is not, as Unavailable shows it, and is "" while it is.
+func Clicked(b ui.Element, why string) bool {
+	return Unavailable(b, why).Clicked() && why == ""
+}
+
+// ActivatedUnless is Activated of a dialog's main button that is
+// unavailable while why is not "", with why as its tooltip.
+func ActivatedUnless(c *ui.Context, b ui.Element, why string) bool {
+	return Activated(c, Unavailable(b, why)) && why == ""
+}
+
+// BusyButton is a button that shows its work going on in place: a
+// spinner and busy, as "Testing…", while working, over the room its
+// label takes, so that what is beside it keeps its place. Its name stays
+// its label.
+func BusyButton(c *ui.Context, label, busy string, working bool) ui.Element {
+	b := ui.Button(c, "").Label(label)
+	b.Children(func() {
+		ui.Row(c).Gap(6).Invisible().Children(func() {
+			ui.Box(c).Size(IconMedium, IconMedium)
+			ui.Text(c, label)
+		})
+		ui.Row(c).Absolute().Left(0).Right(0).Top(0).Bottom(0).Gap(6).AlignItems(ui.Center).Justify(ui.Center).Children(func() {
+			if !working {
+				ui.Text(c, label)
+				return
+			}
+			// A spinner takes more than its font size: in an icon's room.
+			ui.Box(c).Size(IconMedium, IconMedium).Center().Children(func() { ui.Spinner(c).FontSize(TextMeta) })
+			ui.Text(c, busy)
+		})
+	})
 	return b
 }
 

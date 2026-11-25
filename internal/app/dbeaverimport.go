@@ -286,11 +286,8 @@ func (a *App) dbeaverImportView(c *ui.Context) {
 					d.open = false
 				}
 				n := d.count()
-				b := ui.PrimaryButton(c.Key("import"), fmt.Sprintf("Import %d", n)).Disabled(n == 0 || d.loading)
-				if n == 0 {
-					b.Tooltip("Choose the connections to import")
-				}
-				if widgets.Activated(c, b) {
+				why := cmp.Or(widgets.When(d.loading, "DBeaver's connections are being read"), widgets.When(n == 0, "Choose the connections to import"))
+				if widgets.ActivatedUnless(c, ui.PrimaryButton(c.Key("import"), fmt.Sprintf("Import %d", n)), why) {
 					a.importDBeaver(d)
 				}
 			})

@@ -332,7 +332,7 @@ func (a *App) backupView(c *ui.Context) {
 				ui.Field(c, label, func() {
 					ui.Row(c).Gap(6).Children(func() {
 						ui.TextInput(c, &b.path).Font(widgets.MonoFont).FontSize(widgets.TextBody).Grow(1).Label(label).Disabled(b.running).AutoFocus()
-						if !onServer && ui.Button(c, "Choose…").Disabled(b.running).Clicked() {
+						if !onServer && widgets.Clicked(ui.Button(c, "Choose…"), widgets.When(b.running, "The work is running")) {
 							a.choosePath(b)
 						}
 					})
@@ -354,10 +354,8 @@ func (a *App) backupView(c *ui.Context) {
 					action = "Restore…"
 				}
 				if !b.done {
-					disabled := b.running || strings.TrimSpace(b.path) == ""
-					start := ui.PrimaryButton(c.Key("start"), action).Disabled(disabled)
-					widgets.Appear(start)
-					if start.Clicked() && !disabled {
+					why := cmp.Or(widgets.When(b.running, "The work is running"), widgets.When(strings.TrimSpace(b.path) == "", "Choose a file first"))
+					if widgets.Clicked(widgets.Appear(ui.PrimaryButton(c.Key("start"), action)), why) {
 						a.startBackup(b)
 					}
 				}

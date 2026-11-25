@@ -845,33 +845,33 @@ func (t *Tab) panelTools(c *ui.Context, i int) {
 		p.View = s.view
 		t.save()
 	}
-	button := func(label, tip string, disabled bool) bool {
-		return ui.Button(c, label).Disabled(disabled).Tooltip(tip).Clicked()
+	button := func(label, tip, why string) bool {
+		return widgets.Clicked(ui.Button(c, label).Tooltip(tip), why)
 	}
-	if button("−", "Narrower", p.Width <= 1) {
+	if button("−", "Narrower", widgets.When(p.Width <= 1, "The panel is as narrow as it gets")) {
 		p.Width--
 		t.save()
 	}
-	if button("+", "Wider", p.Width >= Columns) {
+	if button("+", "Wider", widgets.When(p.Width >= Columns, "The panel is as wide as the dashboard")) {
 		p.Width++
 		t.save()
 	}
-	if button("←", "Earlier", i == 0) {
+	if button("←", "Earlier", widgets.When(i == 0, "The panel is the first")) {
 		t.later = append(t.later, func() { t.swap(s, -1) })
 	}
-	if button("→", "Later", i == len(t.d.Panels)-1) {
+	if button("→", "Later", widgets.When(i == len(t.d.Panels)-1, "The panel is the last")) {
 		t.later = append(t.later, func() { t.swap(s, 1) })
 	}
-	if button("SQL", "Change the panel's query, and where it runs", false) {
+	if button("SQL", "Change the panel's query, and where it runs", "") {
 		s.editSQL, s.sql, s.connID, s.database, s.picked = !s.editSQL, p.SQL, "", p.Database, nil
 		if cn := t.conn(*p); cn != nil {
 			s.connID = cn.Config.ID
 		}
 	}
-	if cn := t.conn(*p); cn != nil && button("Editor", "Open the panel's query in an editor", false) {
+	if cn := t.conn(*p); cn != nil && button("Editor", "Open the panel's query in an editor", "") {
 		t.h.NewQueryTab(cn, p.Database, p.SQL)
 	}
-	if button("Remove", "Remove the panel", false) {
+	if button("Remove", "Remove the panel", "") {
 		t.later = append(t.later, func() { t.remove(s) })
 	}
 }

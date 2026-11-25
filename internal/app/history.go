@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"strings"
 
 	"dgopher/internal/project"
@@ -169,12 +170,12 @@ func (a *App) queriesTab(c *ui.Context, h *historyState) {
 		if h.row >= 0 && h.row < len(shown) {
 			seq = shown[h.row].AuditSeq
 		}
-		if ui.Button(c, "Show in Audit Log").Disabled(seq == 0 || h.project.Audit == nil).
-			Tooltip("The audit log's entry of this run: who ran it, where, and what was sent").Clicked() {
+		show := ui.Button(c, "Show in Audit Log").Tooltip("The audit log's entry of this run: who ran it, where, and what was sent")
+		if widgets.Clicked(show, cmp.Or(widgets.When(h.project.Audit == nil, "The project keeps no audit log"), widgets.When(seq == 0, "The audit log has no entry of this run"))) {
 			h.showAudit(a)
 			h.audit.choose(seq)
 		}
-		if ui.Button(c, "Clear History…").Disabled(h.project.Local == nil).Clicked() {
+		if widgets.Clicked(ui.Button(c, "Clear History…"), widgets.When(h.project.Local == nil, "The project keeps no history")) {
 			a.closing = &closeRequest{open: true, title: "Clear the query history?", reason: "Every saved query is forgotten. The audit log keeps them.", action: "Clear", onClose: func() {
 				h.project.Local.ClearHistory()
 				h.entries = nil

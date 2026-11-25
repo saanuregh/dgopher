@@ -1315,14 +1315,16 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 			hovered := run != nil && row.Hovered()
 			ui.Row(c).MinWidth(16).Justify(ui.End).AlignItems(ui.Center).Children(func() {
 				num := ui.Text(c, fmt.Sprint(count)).FontSize(widgets.TextMeta).FontFeatures("tnum").TextColor(muted)
-				add := widgets.IconButton(c, widgets.IconPlus, newLabel).Padding(1).Disabled(run == nil).
-					Absolute().Right(-1)
+				if run == nil {
+					return
+				}
+				add := widgets.IconButton(c, widgets.IconPlus, newLabel).Padding(1).Absolute().Right(-1)
 				if hovered {
 					num.Opacity(0)
 				} else {
 					add.Opacity(0)
 				}
-				if run != nil && add.Clicked() {
+				if add.Clicked() {
 					run()
 				}
 			})

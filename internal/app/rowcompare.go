@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -372,25 +373,20 @@ func (a *App) rowCompareView(c *ui.Context) {
 				ui.Spacer(c)
 				widgets.DismissButton(c, x.running, true, x.cancel, func() { x.open = false })
 				if x.result == nil {
-					compare := ui.PrimaryButton(c.Key("compare"), "Compare").Disabled(x.running)
-					widgets.Appear(compare)
-					if widgets.Activated(c, compare) {
+					compare := widgets.Appear(ui.PrimaryButton(c.Key("compare"), "Compare"))
+					if widgets.ActivatedUnless(c, compare, widgets.When(x.running, "The comparison is running")) {
 						a.startCompare(x)
 					}
 					return
 				}
-				if ui.Button(c.Key("again"), "Compare Again").Disabled(x.running).Clicked() {
+				if widgets.Clicked(ui.Button(c.Key("again"), "Compare Again"), widgets.When(x.running, "The comparison is running")) {
 					a.startCompare(x)
 				}
 				blocked := x.syncBlocked()
-				if ui.Button(c.Key("sql"), "Open as SQL").Disabled(x.running || blocked != "").Clicked() {
+				if widgets.Clicked(ui.Button(c.Key("sql"), "Open as SQL"), cmp.Or(widgets.When(x.running, "The comparison is running"), blocked)) {
 					a.openSyncSQL(x)
 				}
-				apply := ui.PrimaryButton(c.Key("apply"), "Apply to "+x.toTable+"…").Disabled(x.running || blocked != "")
-				if blocked != "" {
-					apply.Tooltip(blocked)
-				}
-				if apply.Clicked() {
+				if widgets.Clicked(ui.PrimaryButton(c.Key("apply"), "Apply to "+x.toTable+"…"), cmp.Or(widgets.When(x.running, "The comparison is running"), blocked)) {
 					a.startSync(x)
 				}
 			})

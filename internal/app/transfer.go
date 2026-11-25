@@ -371,9 +371,7 @@ func (a *App) copyView(c *ui.Context) {
 				ui.Spacer(c)
 				widgets.DismissButton(c, x.running, x.done, x.cancel, func() { x.open = false })
 				if !x.done {
-					copyButton := ui.PrimaryButton(c.Key("copy"), "Copy").Disabled(x.running)
-					widgets.Appear(copyButton)
-					if copyButton.Clicked() && !x.running {
+					if widgets.Clicked(widgets.Appear(ui.PrimaryButton(c.Key("copy"), "Copy")), widgets.When(x.running, "The copy is running")) {
 						a.startCopy(x)
 					}
 				}

@@ -57,11 +57,11 @@ func (g *Grid) recordView(c *ui.Context, a Host, src *Source, order []int) {
 	}
 	ui.Column(c).Grow(1).Children(func() {
 		widgets.Bar(c, "Record", func() {
-			if widgets.IconButton(c, widgets.IconPrev, "Previous row").Disabled(g.SelRow == 0).Clicked() {
+			if widgets.Clicked(widgets.IconButton(c, widgets.IconPrev, "Previous row"), widgets.When(g.SelRow == 0, "This is the first row")) {
 				g.SelRow--
 			}
 			ui.Text(c, "Row "+strconv.Itoa(g.SelRow+1)+" of "+strconv.Itoa(len(order))).FontSize(widgets.TextSmall).TextColor(pal.Muted)
-			if widgets.IconButton(c, widgets.IconNext, "Next row").Disabled(g.SelRow >= len(order)-1).Clicked() {
+			if widgets.Clicked(widgets.IconButton(c, widgets.IconNext, "Next row"), widgets.When(g.SelRow >= len(order)-1, "This is the last row")) {
 				g.SelRow++
 			}
 		})

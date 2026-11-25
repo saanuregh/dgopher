@@ -308,7 +308,7 @@ func (t *Tab) tablesView(c *ui.Context) {
 				t.form = nil
 			}
 			ui.Row(c).Padding(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
-				if widgets.ToolButton(c, widgets.IconPlus, "New Table", "Design a table of the model").Disabled(t.form != nil && t.form.Changed()).Clicked() {
+				if widgets.Clicked(widgets.ToolButton(c, widgets.IconPlus, "New Table", "Design a table of the model"), widgets.When(t.form != nil && t.form.Changed(), "Save or discard the table being designed first")) {
 					t.edit(-1)
 				}
 			})

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strings"
@@ -130,7 +131,7 @@ func (t *searchTab) View(c *ui.Context) {
 			}
 			ui.Checkbox(c, &t.definitions, "In definitions").
 				Tooltip("Search the queries of views and the bodies of routines and triggers too")
-			if ui.PrimaryButton(c, "Search").Disabled(strings.TrimSpace(t.query) == "" || t.searching).Clicked() {
+			if widgets.Clicked(ui.PrimaryButton(c, "Search"), cmp.Or(widgets.When(t.searching, "The search is running"), widgets.When(strings.TrimSpace(t.query) == "", "Type what to search for first"))) {
 				t.search()
 			}
 		})

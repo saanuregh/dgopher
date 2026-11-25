@@ -65,7 +65,7 @@ func (t *Chat) header(c *ui.Context) {
 		if t.cost > 0 {
 			ui.Text(c, fmt.Sprintf("$%.2f", t.cost)).FontSize(widgets.TextSmall).TextColor(pal.Muted).Tooltip("What the replies cost so far, as the agent reports it")
 		}
-		if widgets.IconButton(c.Key("new"), widgets.IconPlus, "New Chat").Tooltip("Start the conversation over").Disabled(t.sess == nil && !t.starting && t.transcriptEmpty()).Clicked() {
+		if widgets.Clicked(widgets.IconButton(c.Key("new"), widgets.IconPlus, "New Chat").Tooltip("Start the conversation over"), widgets.When(t.sess == nil && !t.starting && t.transcriptEmpty(), "The conversation has not begun")) {
 			t.Restart(t.provider)
 		}
 		if t.OnHide != nil && widgets.IconButton(c.Key("hide"), widgets.IconX, "Hide Chat").Tooltip(keymap.Hint("Hide the chat, which keeps the conversation", keymap.ToggleChat)).Clicked() {
@@ -638,14 +638,18 @@ func (t *Chat) sendButton(c *ui.Context) {
 	if t.running {
 		label, tip = "Stop", keymap.Hint("Stop the reply", keymap.ChatStop)
 	}
-	b := ui.ButtonBase(c.Key("send")).Size(28, 28).Radius(widgets.RadiusRound).Label(label).Tooltip(tip).Center().Disabled(!t.running && !ready)
+	b := ui.ButtonBase(c.Key("send")).Size(28, 28).Radius(widgets.RadiusRound).Label(label).Tooltip(tip).Center()
 	fill, ink := th.Border.Alpha(0.6), widgets.PaletteOf(c).Muted
 	if t.running || ready {
-		fill, ink = th.Accent, ui.RGBA(255, 255, 255, 1)
+		fill, ink = th.Accent, th.AccentText
+	} else {
+		// Unavailable in its own gray, which dimming further would lose;
+		// sendInput sends nothing of nothing typed.
+		b.AccessDisabled(true).Tooltip("Type a message first")
 	}
 	b.Background(fill).Transition(ui.ElementTransition{Colors: true, Duration: 150 * time.Millisecond})
 	scale := b.Animate("press", map[bool]float32{true: 0.92, false: 1}[b.Pressed()], 90*time.Millisecond)
-	if b.Hovered() && !b.Pressed() {
+	if b.Hovered() && !b.Pressed() && (t.running || ready) {
 		scale = b.Animate("hover", 1.06, 120*time.Millisecond)
 	}
 	b.Scale(scale, scale)

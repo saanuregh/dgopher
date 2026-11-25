@@ -314,7 +314,7 @@ func (r *Tab) bulkView(c *ui.Context) {
 					ui.Field(c, "File", func() {
 						ui.Row(c).Gap(6).Children(func() {
 							ui.Text(c, b.path).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine().TruncateStart().Grow(1).Shrink(1)
-							if ui.Button(c, "Choose…").Disabled(b.running).Clicked() {
+							if widgets.Clicked(ui.Button(c, "Choose…"), widgets.When(b.running, "Wait for the work on the keys to end")) {
 								r.chooseImport(b)
 							}
 						})
@@ -353,18 +353,18 @@ func (r *Tab) bulkView(c *ui.Context) {
 				switch b.kind {
 				case bulkDelete:
 					if b.counted != b.pattern || b.counted == "" {
-						if widgets.Activated(c, ui.PrimaryButton(c, "Count Keys").Disabled(b.running || strings.TrimSpace(b.pattern) == "")) {
+						if widgets.ActivatedUnless(c, ui.PrimaryButton(c, "Count Keys"), cmp.Or(widgets.When(b.running, "Wait for the work on the keys to end"), widgets.When(strings.TrimSpace(b.pattern) == "", "Type a pattern first"))) {
 							r.countKeys(b)
 						}
-					} else if ui.PrimaryButton(c, "Delete "+widgets.HumanCount(b.count)+" Keys…").Disabled(b.running || ro || b.count == 0).Clicked() {
+					} else if widgets.Clicked(ui.PrimaryButton(c, "Delete "+widgets.HumanCount(b.count)+" Keys…"), cmp.Or(widgets.When(b.running, "Wait for the work on the keys to end"), widgets.When(ro, "The connection is read-only"), widgets.When(b.count == 0, "No key matches the pattern"))) {
 						r.deleteKeys(b)
 					}
 				case bulkExport:
-					if widgets.Activated(c, ui.PrimaryButton(c, "Export…").Disabled(b.running || strings.TrimSpace(b.pattern) == "")) {
+					if widgets.ActivatedUnless(c, ui.PrimaryButton(c, "Export…"), cmp.Or(widgets.When(b.running, "Wait for the work on the keys to end"), widgets.When(strings.TrimSpace(b.pattern) == "", "Type a pattern first"))) {
 						r.chooseExport(b)
 					}
 				case bulkImport:
-					if ui.PrimaryButton(c, "Import").Disabled(b.running || ro || len(b.dumps) == 0).Clicked() {
+					if widgets.Clicked(ui.PrimaryButton(c, "Import"), cmp.Or(widgets.When(b.running, "Wait for the work on the keys to end"), widgets.When(ro, "The connection is read-only"), widgets.When(len(b.dumps) == 0, "Choose a file of keys first"))) {
 						r.importKeys(b)
 					}
 				}

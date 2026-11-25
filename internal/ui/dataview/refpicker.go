@@ -212,7 +212,7 @@ func refPickerView(a Host, c *ui.Context) {
 			if ui.Button(c, "Cancel").Clicked() {
 				p.open = false
 			}
-			if ui.PrimaryButton(c, "Choose").Disabled(p.sel < 0 || p.sel >= len(p.rows)).Clicked() {
+			if widgets.Clicked(ui.PrimaryButton(c, "Choose"), widgets.When(p.sel < 0 || p.sel >= len(p.rows), "Choose a row first")) {
 				p.choose(p.sel)
 			}
 		})

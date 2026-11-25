@@ -180,6 +180,7 @@ func UseTheme(t *Theme) {
 		pal, th = darkPalette, *ui.DarkTheme()
 	}
 	warmNeutrals(&th, false)
+	legibleColors(&th)
 	pal.Syntax = maps.Clone(pal.Syntax)
 	for name, value := range t.Colors {
 		themeColors[name](&th, &pal, ui.Hex(value))
@@ -187,6 +188,11 @@ func UseTheme(t *Theme) {
 	// Hovered and pressed, as the accent the theme gave.
 	if _, ok := t.Colors["accent"]; ok {
 		th.AccentHover, th.AccentPressed = th.Accent.Mix(th.Text, 0.12), th.Accent.Mix(th.Text, 0.24)
+		// A theme that gives an accent and no text for it gets the text
+		// that reads on it, not the base's, made for the base's accent.
+		if _, ok := t.Colors["accentText"]; !ok {
+			th.AccentText = legibleOn(th.Accent)
+		}
 	}
 	look = &struct {
 		theme ui.Theme
@@ -205,6 +211,7 @@ func ApplyTheme(c *ui.Context, font string) {
 		root = look.theme
 	} else {
 		warmNeutrals(&root, c.Preferences().HighContrast)
+		legibleColors(&root)
 	}
 	root.Font, root.FontSize = font, TextBody
 	c.SetTheme(&root)
@@ -226,6 +233,21 @@ func warmNeutrals(t *ui.Theme, highContrast bool) {
 	t.Surface, t.SurfaceHover, t.SurfacePressed = ui.Hex("#f5f5f4"), ui.Hex("#ebe9e7"), ui.Hex("#dedad7")
 	t.Text = ui.Hex("#1c1917")
 	if !highContrast {
-		t.Border, t.TextMuted = ui.Hex("#e2dfdc"), ui.Hex("#78716c")
+		t.Border, t.TextMuted = ui.Hex("#e2dfdc"), ui.Hex("#6f6863")
 	}
+}
+
+// legibleColors gives a base theme colors that read as text, at 4.5 to 1
+// on the window, a panel and the editor, where MyGo's are made for fills.
+// The dark theme's accent is a light blue with dark text on it: no blue
+// both carries white text and reads as text on a dark window. Its danger
+// is as light, under text of OnDanger.
+func legibleColors(t *ui.Theme) {
+	if t.Dark {
+		t.Accent, t.AccentHover, t.AccentPressed = ui.Hex("#60a5fa"), ui.Hex("#93c5fd"), ui.Hex("#3b82f6")
+		t.AccentText = legibleOn(t.Accent)
+		t.Danger = ui.Hex("#f87171")
+		return
+	}
+	t.Danger, t.Success, t.Warning = ui.Hex("#d11f1f"), ui.Hex("#15803d"), ui.Hex("#b45309")
 }

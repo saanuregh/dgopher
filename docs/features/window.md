@@ -217,7 +217,9 @@ every shortcut as currently set, and finds one by its key or what it does.
 
 Appearance follows the system, or is light, dark, or a named theme. A named
 theme shows as chosen even if the system stays dark, as on Linux. Nord,
-Dracula and Solarized Light come with the app.
+Dracula and Solarized Light come with the app. The light and dark
+appearances keep text at 4.5 to 1 against its background (WCAG AA); the
+named themes keep their published colors.
 
 ![The main window in the light appearance](../images/main-light.png)
 

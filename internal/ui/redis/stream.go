@@ -131,7 +131,7 @@ func (r *Tab) groupsView(c *ui.Context) {
 			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
 				ui.TextInput(c, &s.newGroup).Placeholder("New group").Font(widgets.MonoFont).Width(180).Label("New group's name")
 				ui.Checkbox(c, &s.fromAll, "Reads the entries there already")
-				if ui.Button(c, "Create Group").Disabled(strings.TrimSpace(s.newGroup) == "").Clicked() {
+				if widgets.Clicked(ui.Button(c, "Create Group"), widgets.When(strings.TrimSpace(s.newGroup) == "", "Type the group's name first")) {
 					from := "$"
 					if s.fromAll {
 						from = "0"
@@ -201,7 +201,7 @@ func (r *Tab) groupsView(c *ui.Context) {
 						r.groupWrite("XACK", key, group, id)
 					}
 					ui.TextInput(c, &s.claimTo).Placeholder("Consumer").Font(widgets.MonoFont).Width(150).Label("Consumer to claim for")
-					if ui.Button(c, "Claim").Disabled(strings.TrimSpace(s.claimTo) == "").Clicked() {
+					if widgets.Clicked(ui.Button(c, "Claim"), widgets.When(strings.TrimSpace(s.claimTo) == "", "Type the consumer that claims them first")) {
 						r.groupWrite("XCLAIM", key, group, strings.TrimSpace(s.claimTo), "0", id)
 					}
 				})

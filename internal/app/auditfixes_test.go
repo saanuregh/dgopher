@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
@@ -184,6 +185,42 @@ func TestConnFormTestErrorInFull(t *testing.T) {
 	if !tt.HasText("the second line says why") && !strings.Contains(strings.Join(tt.Texts(), "\n"), "the second line says why") {
 		t.Fatalf("the full error is not shown: %q", tt.Texts())
 	}
+}
+
+// Test Connection shows its work on the button, which keeps its place and
+// its name, and a failure over the buttons, inside the dialog.
+func TestConnectionTestShowsProgressAndFailure(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1000, 900)
+	f := formWith(t, a)
+	tt.Frame()
+	tt.Advance(time.Second) // the dialog has come in
+	tt.Frame()
+	before, _ := tt.Access("Test Connection")
+	cancel, _ := tt.Find("Cancel")
+	f.testing = true
+	tt.Frame()
+	during, ok := tt.Access("Test Connection")
+	if !ok || !tt.HasText("Testing…") {
+		t.Fatalf("a running test shows %q", tt.Texts())
+	}
+	if during.Bounds != before.Bounds {
+		t.Errorf("the button moved from %v to %v as the test began", before.Bounds, during.Bounds)
+	}
+	if !during.Disabled || !during.Focusable {
+		t.Errorf("while testing the button is disabled %v, focusable %v", during.Disabled, during.Focusable)
+	}
+	f.testing, f.testResult, f.testOK = false, "dial tcp: refused", false
+	tt.Frame()
+	why, ok := tt.Find("dial tcp: refused")
+	after, _ := tt.Find("Cancel")
+	if !ok || why.Y > after.Y {
+		t.Errorf("the failure at %v (found %v) is not over the buttons at %v", why, ok, after)
+	}
+	if after.Y != cancel.Y {
+		t.Errorf("the buttons moved from %v to %v as the failure came", cancel.Y, after.Y)
+	}
+	testutil.Snapshot(t, tt, "connection-test-failed")
 }
 
 // The palette acts on the current connection: connect, edit, duplicate,

@@ -45,8 +45,9 @@ change the form's.
   idle-connection limits, and the statement timeout.
 - **Network** holds TLS, the proxy and SSH. It is marked when SSH, a proxy
   or a client certificate is set.
-- **Test Connection** reports the server's version and how long connecting
-  took.
+- **Test Connection** shows that it is testing, then reports the server's
+  version and how long connecting took. A failure shows in full above the
+  dialog's buttons, to read and copy.
 - **Auto-connect** (off by default) opens the connection when DGopher
   starts, and connects its editors as they come into view.
 

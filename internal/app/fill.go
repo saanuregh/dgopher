@@ -444,10 +444,10 @@ func (a *App) fillView(c *ui.Context) {
 				}
 				ui.Spacer(c)
 				widgets.DismissButton(c, x.running, false, x.cancel, func() { x.open = false })
-				if ui.Button(c.Key("sample"), "New Sample").Disabled(x.running || len(x.cols) == 0).Clicked() {
+				if widgets.Clicked(ui.Button(c.Key("sample"), "New Sample"), cmp.Or(widgets.When(x.running, "The rows are being added"), widgets.When(len(x.cols) == 0, "The table's columns are not read yet"))) {
 					x.seed = rand.Uint64()
 				}
-				if ui.PrimaryButton(c.Key("add"), "Add Rows").Disabled(x.running || len(x.cols) == 0).Clicked() {
+				if widgets.Clicked(ui.PrimaryButton(c.Key("add"), "Add Rows"), cmp.Or(widgets.When(x.running, "The rows are being added"), widgets.When(len(x.cols) == 0, "The table's columns are not read yet"))) {
 					a.startFill(x)
 				}
 			})
