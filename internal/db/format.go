@@ -143,7 +143,7 @@ func IsNumericType(t string) bool {
 var numericTypeWords = map[string]bool{
 	"INT": true, "INTEGER": true, "BIGINT": true, "SMALLINT": true, "TINYINT": true, "MEDIUMINT": true,
 	"UINT": true, "UINTEGER": true, "UBIGINT": true, "USMALLINT": true, "UTINYINT": true,
-	"HUGEINT": true, "UHUGEINT": true, "VARINT": true,
+	"HUGEINT": true, "UHUGEINT": true, "VARINT": true, "BIGNUM": true,
 	"SERIAL": true, "BIGSERIAL": true, "SMALLSERIAL": true,
 	"DECIMAL": true, "DEC": true, "NUMERIC": true, "NUMBER": true, "MONEY": true, "SMALLMONEY": true,
 	"FLOAT": true, "BFLOAT": true, "DOUBLE": true, "REAL": true, "BINARY_FLOAT": true, "BINARY_DOUBLE": true,
@@ -249,8 +249,7 @@ func standardLiteral(s string) string { return "'" + strings.ReplaceAll(s, "'", 
 
 // escapeStringLiteral is PostgreSQL's. It reads a backslash as itself
 // only while standard_conforming_strings is on, which any statement may
-// turn off. An escape string, E'…', reads the same either way, and DuckDB
-// reads it as PostgreSQL does.
+// turn off. An escape string, E'…', reads the same either way.
 func escapeStringLiteral(s string) string {
 	if strings.Contains(s, `\`) {
 		return "E'" + escapeStringEscaper.Replace(s) + "'"

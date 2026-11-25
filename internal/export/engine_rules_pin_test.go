@@ -50,7 +50,7 @@ func TestPinSQLExportLiterals(t *testing.T) {
 		"\"mysql\"":      "INSERT INTO \"t\" (\"a\", \"b\", \"c\", \"d\", \"e\", \"f\", \"g\", \"h\") VALUES ('it''s', 'a\\\\b', 'a\\0b', X'dead', TRUE, 42, 1.5, NULL);\n <nil>",
 		"\"clickhouse\"": "INSERT INTO \"t\" (\"a\", \"b\", \"c\", \"d\", \"e\", \"f\", \"g\", \"h\") VALUES ('it\\'s', 'a\\\\b', 'a\\0b', unhex('dead'), TRUE, 42, 1.5, NULL);\n <nil>",
 		"\"sqlite\"":     "INSERT INTO \"t\" (\"a\", \"b\", \"c\", \"d\", \"e\", \"f\", \"g\", \"h\") VALUES ('it''s', 'a\\b', ('a' || char(0) || 'b'), X'dead', TRUE, 42, 1.5, NULL);\n <nil>",
-		"\"duckdb\"":     "INSERT INTO \"t\" (\"a\", \"b\", \"c\", \"d\", \"e\", \"f\", \"g\", \"h\") VALUES ('it''s', E'a\\\\b', ('a' || chr(0) || 'b'), '\\xDE\\xAD'::BLOB, TRUE, 42, 1.5, NULL);\n <nil>",
+		"\"duckdb\"":     "INSERT INTO \"t\" (\"a\", \"b\", \"c\", \"d\", \"e\", \"f\", \"g\", \"h\") VALUES ('it''s', 'a\\b', ('a' || chr(0) || 'b'), '\\xDE\\xAD'::BLOB, TRUE, 42, 1.5, NULL);\n <nil>",
 		"\"redis\"":      "INSERT INTO \"t\" (\"a\", \"b\", \"c\", \"d\", \"e\", \"f\", \"g\", \"h\") VALUES ('it''s', 'a\\b', ('a' || char(0) || 'b'), X'dead', TRUE, 42, 1.5, NULL);\n <nil>",
 		"\"unknown\"":    "INSERT INTO \"t\" (\"a\", \"b\", \"c\", \"d\", \"e\", \"f\", \"g\", \"h\") VALUES ('it''s', 'a\\b', ('a' || char(0) || 'b'), X'dead', TRUE, 42, 1.5, NULL);\n <nil>",
 		"\"\"":           "INSERT INTO \"t\" (\"a\", \"b\", \"c\", \"d\", \"e\", \"f\", \"g\", \"h\") VALUES ('it''s', 'a\\b', ('a' || char(0) || 'b'), X'dead', TRUE, 42, 1.5, NULL);\n <nil>",

@@ -432,9 +432,9 @@ func nested(t string) bool {
 }
 
 // exact reports whether a DuckDB type holds numbers a float64 would
-// round: decimals, and integers past 64 bits.
+// round: decimals, and integers past 64 bits (BIGNUM past 128, in a CSV).
 func exact(t string) bool {
-	return strings.HasPrefix(t, "DECIMAL") || t == "HUGEINT" || t == "UHUGEINT" || t == "UBIGINT"
+	return strings.HasPrefix(t, "DECIMAL") || t == "HUGEINT" || t == "UHUGEINT" || t == "UBIGINT" || t == "BIGNUM"
 }
 
 func quoteString(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }

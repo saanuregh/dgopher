@@ -73,7 +73,12 @@ func TestIntegrationPostgresByteaRoundTrip(t *testing.T) {
 	defer conn.Close()
 	script := render(t, SQL, []string{"id", "b"}, byteRows(), Options{Table: "zz_bytes", Engine: db.Postgres})
 	for _, standard := range []string{"on", "off"} {
-		for _, q := range []string{`SET standard_conforming_strings = ` + standard, `DROP TABLE IF EXISTS zz_bytes`, `CREATE TABLE zz_bytes (id integer, b bytea)`, script} {
+		if _, err := conn.ExecContext(ctx, `SET standard_conforming_strings = `+standard); standard == "off" && testutil.PostgresFeatureNotSupported(err) {
+			continue // PostgreSQL 19 and later keep it on
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		for _, q := range []string{`DROP TABLE IF EXISTS zz_bytes`, `CREATE TABLE zz_bytes (id integer, b bytea)`, script} {
 			if _, err := conn.ExecContext(ctx, q); err != nil {
 				t.Fatalf("%s: %v", q, err)
 			}

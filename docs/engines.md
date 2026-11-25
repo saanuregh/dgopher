@@ -99,7 +99,7 @@ each on.
 
 ### MariaDB
 
-Tested against MariaDB 11.4; supported from 10.11, the oldest MariaDB
+Tested against MariaDB 12.3; supported from 10.11, the oldest MariaDB
 release still maintained.
 
 - **Explain** uses `EXPLAIN FORMAT=JSON`, and **Explain Analyze**
@@ -244,7 +244,7 @@ Supported from 2024.2, the oldest YugabyteDB release still maintained.
 
 ### TimescaleDB
 
-TimescaleDB 2, tested on 2.31 and checked from 2.13; Timescale publishes
+TimescaleDB 2, tested on 2.32 and checked from 2.13; Timescale publishes
 no end of life for its 2.x releases. A database without the extension
 works as PostgreSQL does.
 

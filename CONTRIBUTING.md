@@ -46,7 +46,7 @@ merged.
    ```sh
    go vet ./... && gofmt -l .                   # both print nothing on a clean tree
    go test ./...
-   DGOPHER_IT=1 go test ./...                   # when the change touches internal/db
+   DGOPHER_IT=1 go test -timeout 30m ./...      # when the change touches internal/db
    ```
 
    CI runs gofmt, vet and `go test ./...` on Linux and Windows, but not the

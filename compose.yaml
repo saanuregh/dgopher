@@ -6,7 +6,7 @@ name: dgopher-test
 
 services:
   postgres:
-    image: postgres:17
+    image: postgres:19
     container_name: dgopher-pg
     ports: ["127.0.0.1:15432:5432"]
     environment:
@@ -17,7 +17,7 @@ services:
       retries: 30
 
   mysql:
-    image: mysql:8.4
+    image: mysql:9.7
     container_name: dgopher-mysql
     ports: ["127.0.0.1:13306:3306"]
     environment:
@@ -31,7 +31,7 @@ services:
   # MariaDB, in the compat profile: docker compose --profile compat up -d
   # --wait mariadb. Its tests skip when it is not running.
   mariadb:
-    image: mariadb:11.4
+    image: mariadb:12.3
     container_name: dgopher-mariadb
     profiles: ["compat"]
     ports: ["127.0.0.1:13307:3306"]
@@ -49,7 +49,7 @@ services:
   # UPDATE of mysql.user sets it), keeps CHECK constraints, which TiDB
   # ignores by default, and makes the database.
   tidb:
-    image: pingcap/tidb:v8.5.1
+    image: pingcap/tidb:v8.5.8
     container_name: dgopher-tidb
     profiles: ["compat"]
     ports: ["127.0.0.1:14000:4000"]
@@ -69,7 +69,7 @@ services:
   # them without TLS; the image makes the database, and the user dgopher
   # (an admin) with its password. Healthy once both exist.
   cockroachdb:
-    image: cockroachdb/cockroach:latest-v26.3
+    image: cockroachdb/cockroach:latest-v26.4
     container_name: dgopher-cockroachdb
     profiles: ["compat"]
     ports: ["127.0.0.1:26257:26257"]
@@ -88,7 +88,7 @@ services:
   # first start turns on passwords, sets yugabyte's and makes the database.
   # Healthy once it logs in there.
   yugabytedb:
-    image: yugabytedb/yugabyte:2025.2.8.0-b60
+    image: yugabytedb/yugabyte:2025.2.9.0-b87
     container_name: dgopher-yugabytedb
     profiles: ["compat"]
     ports: ["127.0.0.1:15433:5433"]
@@ -106,7 +106,7 @@ services:
   # it makes, shop, and in template1. Healthy once it listens on TCP, which
   # the server that runs the image's setup does not.
   timescaledb:
-    image: timescale/timescaledb:latest-pg17
+    image: timescale/timescaledb:latest-pg18
     container_name: dgopher-timescaledb
     profiles: ["compat"]
     ports: ["127.0.0.1:15434:5432"]
@@ -155,7 +155,7 @@ services:
       retries: 60
 
   clickhouse:
-    image: clickhouse/clickhouse-server:26.3
+    image: clickhouse/clickhouse-server:26.8
     container_name: dgopher-ch
     ports: ["127.0.0.1:19000:9000", "127.0.0.1:18123:8123"]
     environment:

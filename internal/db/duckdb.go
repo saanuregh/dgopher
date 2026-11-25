@@ -10,8 +10,6 @@ import (
 	"strings"
 
 	"dgopher/internal/sqltext"
-
-	"github.com/duckdb/duckdb-go/v2"
 )
 
 type duckdbDialect struct{}
@@ -239,7 +237,7 @@ WHERE database_name = current_database() AND schema_name = ? AND function_name =
 WHERE database_name = current_database() AND schema_name = ? AND sequence_name = ?`, it.Schema, it.Name)
 		return def + "\n", err
 	case ItemType:
-		labels, err := queryString(ctx, q, `SELECT array_to_string(list_transform(labels, x -> '''' || replace(x, '''', '''''') || ''''), ', ')
+		labels, err := queryString(ctx, q, `SELECT array_to_string(list_transform(labels, lambda x: '''' || replace(x, '''', '''''') || ''''), ', ')
 FROM duckdb_types() WHERE database_name = current_database() AND schema_name = ? AND type_name = ?`, it.Schema, it.Name)
 		if err != nil {
 			return "", err
@@ -342,13 +340,10 @@ func (duckdbEngine) identify(context.Context, *sql.DB) (Engine, string, error) {
 	return DuckDB, "", nil
 }
 
-// Any error but a parse error aborts DuckDB's transaction.
-func (duckdbEngine) afterFailedStatement(v txByVerbs, err error, _ bool, _ func() bool) txByVerbs {
+// Any error aborts DuckDB's transaction, a parse error too.
+func (duckdbEngine) afterFailedStatement(v txByVerbs, _ error, _ bool, _ func() bool) txByVerbs {
 	if v.tx == TxOpen {
-		var de *duckdb.Error
-		if !errors.As(err, &de) || de.Type != duckdb.ErrorTypeParser {
-			v.tx = TxFailed
-		}
+		v.tx = TxFailed
 	}
 	return v
 }
@@ -403,8 +398,11 @@ func (duckdbEngine) EnumValues(_ context.Context, _ *DB, typ string) ([]string, 
 
 func (duckdbEngine) ParameterAsText() bool { return false }
 
+// DuckDB reads a backslash in a string as itself, having no
+// standard_conforming_strings to turn off, and takes no escape string,
+// E'…', after FROM.
 func (duckdbEngine) TextLiteral(s string) string {
-	return textLiteral(s, "chr(0)", escapeStringLiteral)
+	return textLiteral(s, "chr(0)", standardLiteral)
 }
 
 func (duckdbEngine) BytesLiteral(b []byte) string {

@@ -29,7 +29,8 @@ You need:
 - **On Linux,** GTK 3 and OpenGL for the window. WebKitGTK is not needed.
 
 With Nix on Linux, `nix develop` gives a shell with Go, the GUI libraries
-the window loads, and `CGO_ENABLED=1` (see `flake.nix`). The flake covers
+the window loads, PostgreSQL's client tools for the backup tests, and
+`CGO_ENABLED=1` (see `flake.nix`). The flake covers
 `x86_64-linux` and `aarch64-linux` only.
 
 To check gofmt and `go vet` before each commit, as CI does, register
@@ -77,7 +78,7 @@ go vet ./... && gofmt -l .                   # both print nothing on a clean tre
 go test ./...                                # unit tests and headless UI tests
 go test ./internal/sqltext -run TestSplit    # one test
 docker compose up -d --wait                  # start the integration servers (below)
-DGOPHER_IT=1 go test ./...                   # also against those servers
+DGOPHER_IT=1 go test -timeout 30m ./...      # also against those servers
 DGOPHER_SNAPSHOTS=/tmp/snaps go test ./...   # write PNGs of the UI as the tests see it
 ```
 
@@ -100,9 +101,9 @@ for Redis 8, `internal/db/redismodules_test.go` and
 `internal/ui/redis/redis_test.go`.
 
 ```sh
-docker compose up -d --wait    # start them, and wait until they are ready
-DGOPHER_IT=1 go test ./...     # run every test against them
-docker compose down            # stop and remove them
+docker compose up -d --wait              # start them, and wait until they are ready
+DGOPHER_IT=1 go test -timeout 30m ./...  # run every test against them
+docker compose down                      # stop and remove them
 ```
 
 Servers of the engines built on another's (MariaDB, TiDB, CockroachDB,

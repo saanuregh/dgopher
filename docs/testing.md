@@ -111,7 +111,7 @@ Start the servers once, then run the tests against them:
 
 ```sh
 docker compose up -d --wait
-DGOPHER_IT=1 go test ./...                                  # everything
+DGOPHER_IT=1 go test -timeout 30m ./...                     # everything
 DGOPHER_IT=1 go test ./internal/db -run TestIntegration     # one package's
 docker compose down                                         # when done
 ```

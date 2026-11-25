@@ -3,6 +3,7 @@ package db
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strconv"
@@ -333,7 +334,11 @@ func parseSQLitePlan(cols []string, rows [][]any) (*Plan, bool) {
 }
 
 // parseDuckDBPlan reads EXPLAIN (FORMAT JSON), a list of operators, or
-// EXPLAIN (ANALYZE, FORMAT JSON), the query's profile around them.
+// EXPLAIN (ANALYZE, FORMAT JSON), the query's profile around them. DuckDB
+// 2.0's profile holds them under "operator", wrapped in its own result
+// collector and execute steps, and names their time "timing" and their
+// rows "intermediate_rows" (DuckDB 1.x: operator_timing and
+// operator_cardinality).
 func parseDuckDBPlan(text string) (*Plan, bool) {
 	text = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), "physical_plan"))
 	text = strings.TrimSpace(strings.TrimPrefix(text, "analyzed_plan"))
@@ -362,10 +367,14 @@ func parseDuckDBPlan(text string) (*Plan, bool) {
 			}
 			n.Rows = jsonNumber(strings.TrimPrefix(str(extra, "Estimated Cardinality"), "~"))
 		}
-		if t := jsonNumber(m["operator_timing"]); t >= 0 {
+		timing, rows := m["operator_timing"], m["operator_cardinality"]
+		if timing == nil {
+			timing, rows = m["timing"], m["intermediate_rows"]
+		}
+		if t := jsonNumber(timing); t >= 0 {
 			p.Analyzed = true
 			n.Time = t * 1000
-			n.ActualRows = jsonNumber(m["operator_cardinality"])
+			n.ActualRows = jsonNumber(rows)
 		}
 		n.Props = props(m, "children")
 		n.Children = childNodes(m, "children", build)
@@ -382,6 +391,9 @@ func parseDuckDBPlan(text string) (*Plan, bool) {
 		}
 		p.Root = build(m)
 	case map[string]any:
+		if ops, ok := doc["operator"].([]any); ok {
+			doc = duckdbProfile(doc, ops)
+		}
 		p.Root = build(doc)
 		if p.Root.Op == "" {
 			p.Root.Op = "QUERY"
@@ -414,6 +426,31 @@ func parseDuckDBPlan(text string) (*Plan, bool) {
 		inclusive(p.Root)
 	}
 	return p, true
+}
+
+// duckdbProfile lays DuckDB 2.0's profile out as 1.x's: the query's own
+// fields, its time as latency, and its operators as children, below the
+// result collector and execute steps that wrap them. The operators keep
+// their 2.0 field names, which build reads.
+func duckdbProfile(doc map[string]any, ops []any) map[string]any {
+	out := map[string]any{}
+	if q, ok := doc["query"].(map[string]any); ok {
+		maps.Copy(out, q)
+		out["latency"] = q["total_time"]
+		delete(out, "total_time")
+	}
+	for len(ops) == 1 {
+		m, ok := ops[0].(map[string]any)
+		if !ok {
+			break
+		}
+		if op := str(m, "name"); op != "RESULT_COLLECTOR" && op != "EXECUTE" {
+			break
+		}
+		ops, _ = m["children"].([]any)
+	}
+	out["children"] = ops
+	return out
 }
 
 // parseClickHousePlan reads EXPLAIN json = 1: a list holding the plan,
