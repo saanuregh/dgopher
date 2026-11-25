@@ -19,6 +19,9 @@ type Layout struct {
 	RedisPanelHeight float32 `json:"redisPanelHeight"`
 	// ChatWidth is the width of the editors' AI chat, 0 for its default.
 	ChatWidth float32 `json:"chatWidth,omitempty"`
+	// GridPanelWidth is the width of the panel at a grid's right, as
+	// dragged, 0 for its default.
+	GridPanelWidth float32 `json:"gridPanelWidth,omitempty"`
 }
 
 // ResultsState is how the editors' results show: under the editor,

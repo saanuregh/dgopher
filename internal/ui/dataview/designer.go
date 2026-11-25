@@ -293,81 +293,129 @@ func (d *designer) View(c *ui.Context) {
 	})
 }
 
+// The widths of the grid's narrow columns, of a box to tick or a button;
+// those of text share the rest of the window by their weights.
+const (
+	designTickWidth = 52
+	designDropWidth = 30
+)
+
+// columnsView is the table's columns as a grid, a row each, dense as the
+// data grid's: a cell is typed in where it is, and the cells of text take
+// the window's width between them.
 func (d *designer) columnsView(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
+	th := c.Theme()
 	keyFixed := d.fixed() != ""
 	r, ok := db.SQL(d.engine)
 	autoAllowed, keepsComments := ok && r.HasAutoNumbering(), !ok || r.HasComments()
-	header := func(text string, width float32) {
-		t := ui.Text(c, text).FontSize(widgets.TextMeta).Bold().TextColor(pal.Muted)
+	rowH := RowHeight(d.a.Settings().GridFontSize())
+	// A cell of the grid: of text, sharing the width by weight, or of a
+	// fixed width; a line at its right, as the data grid's cells have.
+	cell := func(weight, width float32, fn func()) {
+		box := ui.Row(c).Height(rowH).AlignItems(ui.Center).BorderWidth(0, 1, 0, 0).BorderColor(pal.GridLine)
 		if width > 0 {
-			t.Width(width)
+			box.Width(width).Justify(ui.Center).Shrink(0)
 		} else {
-			t.Grow(1)
+			box.Grow(weight).Shrink(1).Basis(0).MinWidth(60)
 		}
+		box.Children(fn)
 	}
-	ui.Row(c).Gap(8).PaddingX(4).Children(func() {
-		header("Name", 170)
-		header("Type", 190)
-		header("Null", 44)
-		header("Default", 160)
-		header("Key", 40)
-		if autoAllowed {
-			header("Auto", 44)
-		}
-		if keepsComments {
-			header("Comment", 0)
-		} else {
-			ui.Spacer(c)
-		}
-		ui.Box(c).Width(26)
-	})
-	var types []string
-	if ok {
-		types = r.CommonTypes()
-	}
-	remove := -1
-	for i := range d.now.Columns {
-		col := &d.now.Columns[i]
-		ui.Row(c.Key(d.cols.key("column-", i))).Gap(8).PaddingX(4).AlignItems(ui.Center).Children(func() {
-			name := ui.TextInput(c, &col.Name).Font(widgets.MonoFont).Width(170).Label("Column name")
-			if col.Was != "" && col.Was != col.Name {
-				name.Tooltip("Renamed from " + col.Was)
-			}
-			ui.Autocomplete(c, &col.Type, types).Font(widgets.MonoFont).Width(190).Label("Type of " + col.Name).Disabled(col.Generated)
-			ui.Box(c).Width(44).Children(func() {
-				ui.Checkbox(c, &col.Nullable, "").Label("Null").Disabled(col.PrimaryKey || col.Generated)
-			})
-			ui.TextInput(c, &col.Default).Placeholder("none").Font(widgets.MonoFont).Width(160).Label("Default of " + col.Name)
-			ui.Box(c).Width(40).Children(func() {
-				if ui.Checkbox(c, &col.PrimaryKey, "").Label("Primary key").Disabled(keyFixed).Changed() && col.PrimaryKey {
-					col.Nullable = false // a key holds no NULL
-				}
-			})
-			if autoAllowed {
-				ui.Box(c).Width(44).Children(func() {
-					// Whether an existing column numbers its rows changes in SQL.
-					ui.Checkbox(c, &col.AutoIncrement, "").Label("Numbers its rows").Disabled(col.Was != "")
-				})
-			}
-			if keepsComments {
-				ui.TextInput(c, &col.Comment).Placeholder("comment").Grow(1).Label("Comment of " + col.Name)
-			} else {
-				ui.Spacer(c)
-			}
-			if widgets.IconButton(c, widgets.IconTrash, "Drop "+col.Name).Clicked() {
-				remove = i
-			}
+	header := func(text string, weight, width float32) {
+		cell(weight, width, func() {
+			ui.Text(c, text).FontSize(widgets.TextSmall).FontWeight(600).TextColor(pal.Muted).SingleLine().Padding(0, 8)
 		})
 	}
-	if remove >= 0 {
-		deleteRow(&d.now.Columns, &d.cols, remove)
+	// Text typed in a cell: the grid's own look, no box of its own; the
+	// cell it is in shows the focus.
+	text := func(value *string, placeholder, label string, mono bool) ui.Element {
+		in := ui.TextInputBase(c, value).Placeholder(placeholder).FontSize(widgets.TextBody).FillWidth().Padding(2, 8).Label(label)
+		if mono {
+			in.Font(widgets.MonoFont)
+		}
+		if in.Focused() {
+			in.Border(1, th.Focus).Radius(3)
+		} else {
+			in.Border(1, ui.Transparent)
+		}
+		return in
 	}
+	ui.Column(c).Border(1, th.Border).Radius(widgets.RadiusMedium).Clip().Children(func() {
+		ui.Row(c).Background(pal.GridHeader).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+			header("Name", 3, 0)
+			header("Type", 3, 0)
+			header("Null", 0, designTickWidth)
+			header("Default", 3, 0)
+			header("Key", 0, designTickWidth)
+			if autoAllowed {
+				header("Auto", 0, designTickWidth)
+			}
+			if keepsComments {
+				header("Comment", 4, 0)
+			}
+			ui.Box(c).Width(designDropWidth)
+		})
+		var types []string
+		if ok {
+			types = r.CommonTypes()
+		}
+		remove := -1
+		for i := range d.now.Columns {
+			col := &d.now.Columns[i]
+			row := ui.Row(c.Key(d.cols.key("column-", i))).BorderWidth(0, 0, 1, 0).BorderColor(pal.GridLine)
+			if row.Hovered() {
+				row.Background(pal.Hover)
+			}
+			row.Children(func() {
+				cell(3, 0, func() {
+					name := text(&col.Name, "name", "Column name", true)
+					if col.Was != "" && col.Was != col.Name {
+						name.Tooltip("Renamed from " + col.Was)
+					}
+				})
+				cell(3, 0, func() {
+					typ := ui.Autocomplete(c, &col.Type, types).Font(widgets.MonoFont).FontSize(widgets.TextBody).FillWidth().Padding(2, 8).
+						Background(ui.Transparent).Border(1, ui.Transparent).Radius(3).Label("Type of " + col.Name).Disabled(col.Generated)
+					if typ.Focused() {
+						typ.Border(1, th.Focus)
+					}
+				})
+				cell(0, designTickWidth, func() {
+					ui.Checkbox(c, &col.Nullable, "").Label("Null").Disabled(col.PrimaryKey || col.Generated)
+				})
+				cell(3, 0, func() { text(&col.Default, "none", "Default of "+col.Name, true) })
+				cell(0, designTickWidth, func() {
+					if ui.Checkbox(c, &col.PrimaryKey, "").Label("Primary key").Disabled(keyFixed).Changed() && col.PrimaryKey {
+						col.Nullable = false // a key holds no NULL
+					}
+				})
+				if autoAllowed {
+					cell(0, designTickWidth, func() {
+						// Whether an existing column numbers its rows changes in SQL.
+						ui.Checkbox(c, &col.AutoIncrement, "").Label("Numbers its rows").Disabled(col.Was != "")
+					})
+				}
+				if keepsComments {
+					cell(4, 0, func() { text(&col.Comment, "comment", "Comment of "+col.Name, false) })
+				}
+				ui.Row(c).Width(designDropWidth).Height(rowH).Center().Children(func() {
+					if widgets.SmallIconButton(c, widgets.IconTrash, "Drop "+col.Name).Clicked() {
+						remove = i
+					}
+				})
+			})
+		}
+		if remove >= 0 {
+			deleteRow(&d.now.Columns, &d.cols, remove)
+		}
+	})
 	ui.Row(c).Gap(8).PaddingY(4).Children(func() {
 		if widgets.ToolButton(c, widgets.IconPlus, "Add Column", "Add a column at the end").Clicked() {
 			typ := ""
-			if len(types) > 0 {
-				typ = types[0]
+			if r, ok := db.SQL(d.engine); ok {
+				if types := r.CommonTypes(); len(types) > 0 {
+					typ = types[0]
+				}
 			}
 			appendRow(&d.now.Columns, &d.cols, db.ColumnDesign{Name: fmt.Sprint("column", len(d.now.Columns)+1), Type: typ, Nullable: true})
 		}

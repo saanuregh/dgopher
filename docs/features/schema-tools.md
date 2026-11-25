@@ -6,7 +6,7 @@
 table's Structure page changes one.
 
 - Columns: rename, retype, make nullable, set defaults and comments, add
-  and drop.
+  and drop. They show as a grid, a row each, typed in where they are.
 - The primary key; indexes, foreign keys (with their actions) and checks,
   added or dropped.
 - **Review SQL** shows every statement before it runs. They run in one

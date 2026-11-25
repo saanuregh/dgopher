@@ -234,10 +234,10 @@ func (g *Grid) profilePanel(c *ui.Context, a Host, src *Source) {
 	profiles := g.profiles
 	ui.Column(c).Grow(1).Children(func() {
 		widgets.Bar(c, "Profile", func() {
-			label := fmt.Sprintf("Of the %d rows read", len(src.Rows))
+			label := fmt.Sprintf("Profile of the %d rows read", len(src.Rows))
 			if g.profileServer != nil {
 				profiles = g.profileServer
-				label = "Of every row, on the server"
+				label = "Profile of every row, made on the server"
 			}
 			ui.Text(c, label).FontSize(widgets.TextSmall).TextColor(pal.Muted).Grow(1).Shrink(1)
 			if g.profileOnServer != nil && widgets.Clicked(ui.Button(c, "Profile Every Row"), widgets.When(g.profiling, "The rows are being profiled")) {

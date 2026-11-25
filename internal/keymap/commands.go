@@ -51,6 +51,8 @@ const (
 
 	ToggleChat = "chat::Toggle"
 	ChatStop   = "chat::Stop"
+	ChatAllow  = "chat::Allow"
+	ChatDeny   = "chat::Deny"
 
 	NavigatorSelect    = "navigator::NewSelect"
 	NavigatorRefresh   = "navigator::Refresh"
@@ -88,6 +90,9 @@ const (
 	ToggleResults   = "editor::ToggleResults"
 	FocusResults    = "editor::FocusResults"
 	MaximizeResults = "editor::MaximizeResults"
+	NextResult      = "editor::NextResult"
+	PreviousResult  = "editor::PreviousResult"
+	GoToError       = "editor::GoToError"
 	Save            = "editor::Save"
 	SaveAs          = "editor::SaveAs"
 	Commit          = "editor::Commit"
@@ -113,6 +118,7 @@ const (
 	PreviousCell   = "notebook::SelectPreviousCell"
 	NextCell       = "notebook::SelectNextCell"
 
+	ShowCellCard     = "grid::ShowCard"
 	Copy             = "grid::Copy"
 	AdvancedCopy     = "grid::AdvancedCopy"
 	Paste            = "grid::Paste"
@@ -268,6 +274,9 @@ var Commands = []Command{
 	command(ToggleResults, Editor, "Show or hide the results", "cmd-j"),
 	command(FocusResults, Editor, "Between the editor and its results", "cmd-shift-j"),
 	command(MaximizeResults, Editor, "Maximize the results over the editor, or restore them", "cmd-k cmd-shift-m"),
+	command(NextResult, Editor, "Show the next result, Output after the last", "cmd-alt-pagedown"),
+	command(PreviousResult, Editor, "Show the result before", "cmd-alt-pageup"),
+	command(GoToError, Editor, "Put the caret where the statement failed", "f8"),
 	command(Save, Editor, "Save the file now (it also saves as you type)", "cmd-s"),
 	command(SaveAs, Editor, "Save the editor as a file", "cmd-shift-s"),
 	command(Commit, Editor, "Commit the open transaction, an editor's or a table's", "cmd-alt-shift-enter"),
@@ -296,8 +305,11 @@ var Commands = []Command{
 	command(NextCell, Notebook, "Go to the cell below", "alt-pagedown"),
 
 	command(ChatStop, Chat, "Stop the reply", "cmd-."),
+	command(ChatAllow, Chat, "Allow what the agent asks to do", "cmd-enter"),
+	command(ChatDeny, Chat, "Deny what the agent asks to do", "cmd-backspace"),
 
 	command(Copy, Grid, "Copy the cell, or the rows chosen", "cmd-c"),
+	command(ShowCellCard, Grid, "Show the card of the chosen cell", "cmd-i"),
 	command(AdvancedCopy, Grid, "Advanced Copy: delimiter, column names, quoting, row numbers", "cmd-shift-c"),
 	command(Paste, Grid, "Paste cells over the chosen one, as pending changes", "cmd-v"),
 	command(AdvancedPaste, Grid, "Advanced Paste: delimiter, header row, as new rows", "cmd-shift-v"),

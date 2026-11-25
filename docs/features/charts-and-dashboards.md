@@ -26,7 +26,10 @@ charts, and best sellers as a table](../images/dashboard.png)
   the first panel, or the project's first connection.
 - **Layout:** a grid of four columns; each panel is one to four columns
   wide. **Edit** arranges, resizes and retitles panels, and changes their
-  queries, charts and connection (and on PostgreSQL, the database).
+  queries, charts and connection (and on PostgreSQL, the database). Each
+  panel then has icons to make it narrower or wider, move it earlier or
+  later, change its query, open it in an editor, and remove it. **Save
+  and Run** keeps a changed query and runs it.
 - **Any connection:** panels can use any of the project's connections.
   Where they all run in one place, the dashboard's header names it once;
   otherwise each panel shows its connection under its title, and the

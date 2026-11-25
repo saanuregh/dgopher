@@ -1312,7 +1312,10 @@ func (a *App) projectRow(c *ui.Context, n navNode) {
 			if p.Err == "" {
 				newLabel, run = a.sectionNew(p, n.kind)
 			}
-			hovered := run != nil && row.Hovered()
+			// Shown for the row pointed at and for the one the keys are on:
+			// pointing is not the only way to it.
+			chosen := a.nav.row >= 0 && a.nav.row < a.nav.tree.Rows() && a.nav.tree.Item(a.nav.row) == n
+			hovered := run != nil && (row.Hovered() || chosen)
 			ui.Row(c).MinWidth(16).Justify(ui.End).AlignItems(ui.Center).Children(func() {
 				num := ui.Text(c, fmt.Sprint(count)).FontSize(widgets.TextMeta).FontFeatures("tnum").TextColor(muted)
 				if run == nil {

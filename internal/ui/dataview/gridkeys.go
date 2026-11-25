@@ -119,6 +119,9 @@ func (g *Grid) moveKeys(c *ui.Context, a Host, src *Source, order []int) {
 	switch {
 	case pressed(keymap.EditValue) && g.SelRow >= 0 && g.SelRow < len(order):
 		openValueEditor(a, g, src, order[g.SelRow], g.selCol)
+	case pressed(keymap.ShowCellCard) && g.SelRow >= 0 && g.SelRow < len(order) && g.selCol >= 0 && g.selCol < len(src.Cols) && g.hasCard(src, order[g.SelRow], g.selCol):
+		// As an Alt+click on the cell asks, for the hands on the keys.
+		g.cardCell, g.cardAsked = gridCell{order[g.SelRow], g.selCol}, true
 	case pressed(keymap.GoToRow):
 		openGoTo(a, g, src, false)
 	case pressed(keymap.GoToColumn):

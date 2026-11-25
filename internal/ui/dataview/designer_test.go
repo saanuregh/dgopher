@@ -179,3 +179,47 @@ func TestReferentialActions(t *testing.T) {
 		}
 	}
 }
+
+// The columns of a table's design are a grid: rows as dense as the data
+// grid's, and cells that take the window's width, where a form of boxes
+// took a row and a half each and left half the window empty.
+func TestDesignColumnsAreAGrid(t *testing.T) {
+	a, tt, cn := designHost(t)
+	a.OpenTable(cn, "", db.Object{Schema: "main", Name: "items", Kind: db.KindTable, Rows: -1}, PageStructure)
+	tb := a.Tabs[0].(*TableTab)
+	testutil.WaitFor(t, tt, "the structure", func() bool { return tb.columns != nil })
+	if err := tt.Click("Edit Structure"); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WaitFor(t, tt, "the form", func() bool { return tb.design != nil })
+	tt.Frame()
+	var names, defaults []ui.Rect
+	for _, n := range tt.AccessAll() {
+		switch {
+		case n.Name == "Column name":
+			names = append(names, n.Bounds)
+		case strings.HasPrefix(n.Name, "Default of "):
+			defaults = append(defaults, n.Bounds)
+		}
+	}
+	if len(names) < 3 || len(defaults) != len(names) {
+		t.Fatalf("%d names and %d defaults show", len(names), len(defaults))
+	}
+	row := RowHeight(a.Settings().GridFontSize()) + 2
+	if pitch := names[1].Y - names[0].Y; pitch > row {
+		t.Errorf("a column takes %v px, more than a grid's row and its line (%v)", pitch, row)
+	}
+	// SQLite keeps no comments: the default's is the last cell of text.
+	if last := defaults[0]; last.X+last.W < 1300*0.8 {
+		t.Errorf("the default's cell ends at %v of a 1300 px window: the grid leaves the rest empty", last.X+last.W)
+	}
+	// A cell is typed in as a grid's is.
+	if err := tt.Click("Default of id"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Type("7")
+	tt.Frame()
+	if got := tb.design.now.Columns[0].Default; got != "7" {
+		t.Errorf("typing in the default's cell left %q", got)
+	}
+}

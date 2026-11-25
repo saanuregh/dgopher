@@ -85,3 +85,42 @@ func TestOutputFollowsTheResultTabs(t *testing.T) {
 		t.Error("Output did not come in front")
 	}
 }
+
+// The results answer to the keys: the next and the one before, around
+// past the Output, and every one is in a list by name, where the row of
+// tabs has no room for some.
+func TestResultsStepByKey(t *testing.T) {
+	_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "select 1 as a where 1 = 1;\nselect 2 as b where 2 = 2;")
+	runWith(t, tt, q, "select 1", RunScript)
+	q.resultIdx = 0
+	tt.Frame()
+	for _, want := range []int{1, 2, 0} { // the second, the Output, the first again
+		tt.Key(ui.Cmd|ui.Alt, ui.KeyPageDown)
+		tt.Frame()
+		if q.resultIdx != want {
+			t.Fatalf("after the key, result %d is in front, want %d", q.resultIdx, want)
+		}
+	}
+	tt.Key(ui.Cmd|ui.Alt, ui.KeyPageUp)
+	tt.Frame()
+	if q.current() != nil {
+		t.Errorf("the key back from the first result shows %d, not the Output", q.resultIdx)
+	}
+	if _, ok := tt.Access("All Results"); !ok {
+		t.Error("several results have no list of them all")
+	}
+}
+
+// F8 puts the caret where the statement failed, as Go to Error does.
+func TestGoToErrorByKey(t *testing.T) {
+	text := "select 1;\nselect * from missing_table;"
+	_, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, text)
+	runWith(t, tt, q, "select *", RunStatement)
+	tt.Frame()
+	testutil.SetCaret(tt, q.Editor, 0)
+	tt.Key(0, ui.KeyF8)
+	tt.Frame()
+	if at := q.Editor.Caret(); at < len("select 1;\n") {
+		t.Errorf("the caret is at %d, not in the statement that failed", at)
+	}
+}

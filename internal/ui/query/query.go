@@ -1752,6 +1752,14 @@ func (q *Tab) View(c *ui.Context) {
 	if q.pressed(c, keymap.MaximizeResults) {
 		q.maximizeResults()
 	}
+	switch {
+	case q.pressed(c, keymap.NextResult):
+		q.stepResult(1)
+	case q.pressed(c, keymap.PreviousResult):
+		q.stepResult(-1)
+	case q.pressed(c, keymap.GoToError):
+		q.goToLatestError()
+	}
 	if q.pressed(c, keymap.FocusResults) {
 		// Between the editor and its results, without the pointer, showing
 		// the one it goes to.
@@ -1980,6 +1988,11 @@ func (q *Tab) resultsView(c *ui.Context, a Host) {
 					q.resultTabs(c, results, idx)
 					q.outputTab(c, results, idx, false)
 				})
+				// Every result by name, those the row has no room for too.
+				if len(results) > 1 {
+					widgets.IconButton(c.Key("all-results"), widgets.IconDropdown, "All Results").
+						Tooltip(keymap.Hint("Every result, by name", keymap.NextResult)).Menu(q.resultsMenu)
+				}
 				q.dockButtons(c)
 			})
 		}
@@ -2085,6 +2098,94 @@ func (q *Tab) resultTabs(c *ui.Context, results []*result, idx int) {
 				q.a.Post(func() { q.settlePending([]*result{r}, func() { q.closeResult(r) }) })
 			}
 		})
+	}
+}
+
+// resultTabIndexes are the places of the results that show as tabs, in
+// their order, then the Output's, which is past the last result.
+func resultTabIndexes(results []*result) []int {
+	var tabs []int
+	for i := range results {
+		if resultAt(results, i) != nil {
+			tabs = append(tabs, i)
+		}
+	}
+	return append(tabs, len(results))
+}
+
+// stepResult shows the result by places after the one in front, around
+// past the Output to the first.
+func (q *Tab) stepResult(by int) {
+	tabs := resultTabIndexes(q.results)
+	at := len(tabs) - 1 // the Output, which shows when no result does
+	if i := slices.Index(tabs, q.resultIdx); i >= 0 {
+		at = i
+	}
+	q.resultIdx = tabs[((at+by)%len(tabs)+len(tabs))%len(tabs)]
+	q.showResults()
+}
+
+// goToLatestError puts the caret where the statement of the error in
+// front failed, else that of the last result that failed.
+func (q *Tab) goToLatestError() {
+	if r := q.current(); r != nil && r.err != "" {
+		q.goToFailed(r)
+		return
+	}
+	for i := len(q.results) - 1; i >= 0; i-- {
+		if r := q.results[i]; r.err != "" {
+			q.resultIdx = i
+			q.showResults()
+			q.goToFailed(r)
+			return
+		}
+	}
+}
+
+// goToFailed puts the caret where r's statement failed, or at its start
+// when the server did not say where, as SQLite does not.
+func (q *Tab) goToFailed(r *result) {
+	if errorOffset(r.sql, r.start, r.skip, r.errInfo) >= 0 || q.nb != nil {
+		q.goToError(r)
+		return
+	}
+	q.Editor.Select(r.start, r.start)
+	q.Editor.WantFocus = true
+}
+
+// resultsMenu lists every result by name, and the Output, to bring in
+// front: those the row of tabs has no room for are reached here. Then
+// what a tab's own menu offers of the one in front.
+func (q *Tab) resultsMenu(m *ui.Menu) {
+	names := resultNames(q.results)
+	for _, i := range resultTabIndexes(q.results) {
+		name := "Output"
+		if i < len(q.results) {
+			name = names[i]
+			if q.results[i].err != "" && q.results[i].view == nil {
+				name = "Error: " + widgets.OneLine(q.results[i].sql, 40)
+			}
+		}
+		on := i == q.resultIdx || i == len(q.results) && q.current() == nil
+		if m.Item(name).Radio(on).Chosen() {
+			q.resultIdx = i
+			q.showResults()
+		}
+	}
+	r := q.current()
+	if r == nil {
+		return
+	}
+	m.Separator()
+	title := "Pin"
+	if r.pinned {
+		title = "Unpin"
+	}
+	if m.Item(title).Chosen() {
+		r.pinned = !r.pinned
+	}
+	if m.Item("Close Result").Disabled(q.Running || r.view != nil && (r.view.Applying() || r.view.Counting())).Chosen() {
+		q.a.Post(func() { q.settlePending([]*result{r}, func() { q.closeResult(r) }) })
 	}
 }
 
@@ -2647,7 +2748,7 @@ func (q *Tab) errorPanel(c *ui.Context, r *result) {
 			field("Where", where)
 			ui.Text(c, r.sql).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Padding(10).Radius(widgets.RadiusMedium).Background(pal.EditorBg).Selectable()
 			ui.Row(c).Gap(8).Children(func() {
-				if where != "" && ui.PrimaryButton(c, "Go to Error").Clicked() {
+				if where != "" && ui.PrimaryButton(c, "Go to Error").Tooltip(keymap.Hint("Put the caret where the statement failed", keymap.GoToError)).Clicked() {
 					q.goToError(r)
 				}
 				if ui.Button(c, "Copy Error").Clicked() {

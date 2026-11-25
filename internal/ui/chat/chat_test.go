@@ -258,9 +258,8 @@ func TestReadQueryTool(t *testing.T) {
 	// The statement checked is the one run and audited, not the text around it.
 	got = call("SELECT 7 AS seven;\n-- a note")
 	testutil.WaitFor(t, tt, "the second request", func() bool { return len(tab.requests) == 1 && tt.HasText("Run a read on lite") })
-	if err := tt.Click("Allow"); err != nil {
-		t.Fatal(err)
-	}
+	// Allowed from the keys this time, as its button's tooltip says.
+	tt.Key(ui.Cmd, ui.KeyEnter)
 	testutil.WaitFor(t, tt, "the second rows", func() bool {
 		select {
 		case a = <-got:

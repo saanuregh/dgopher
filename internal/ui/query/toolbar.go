@@ -100,11 +100,19 @@ func (q *Tab) runTools(c *ui.Context) {
 	if q.nb == nil && widgets.ToolButton(c.Key("run-script"), widgets.IconLayers, "Run Script", keymap.Hint("Run all statements", keymap.RunScript)).Clicked() {
 		q.Run(RunScript)
 	}
-	if widgets.ToolButton(c.Key("explain"), widgets.IconCode, "Explain", keymap.Hint("Explain plan", keymap.Explain)).Clicked() {
+	// One control: Explain, and beside it its other way, the plan measured
+	// by a run.
+	explain := ui.SplitButton(c.Key("explain"), "") // its label is built below, with its icon
+	explain.Button.Label("Explain").Tooltip(keymap.Hint("Explain plan", keymap.Explain)).Children(func() {
+		ui.Row(c).Gap(5).Children(func() {
+			ui.Icon(c, widgets.IconCode).FontSize(widgets.IconMedium)
+			ui.Text(c, "Explain").FontSize(widgets.TextBody)
+		})
+	})
+	if explain.Button.Clicked() {
 		q.Run(RunExplain)
 	}
-	// Beside Explain, as its other way: the plan measured by a run.
-	widgets.IconButton(c.Key("explain-more"), widgets.IconDropdown, "More ways to explain").Menu(func(m *ui.Menu) {
+	explain.Arrow.Label("More ways to explain").Tooltip("More ways to explain").Menu(func(m *ui.Menu) {
 		if keymap.Item(m.Item("Explain Plan"), keymap.Explain).Chosen() {
 			q.Run(RunExplain)
 		}

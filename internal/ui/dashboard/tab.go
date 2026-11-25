@@ -726,8 +726,8 @@ func (t *Tab) panelView(c *ui.Context, i int, height float32) {
 							t.later = append(t.later, func() { t.dropNew(s) })
 						}
 					}
-					why := whyNotRunAndKeep(s.sql, cn)
-					if widgets.Unavailable(ui.PrimaryButton(c, "Run and Keep"), why).Clicked() && why == "" {
+					why := whyNotSaveAndRun(s.sql, cn)
+					if widgets.Unavailable(ui.PrimaryButton(c, "Save and Run"), why).Clicked() && why == "" {
 						p.SQL, s.editSQL, s.isNew = s.sql, false, false
 						p.Connection, p.Database = strings.TrimPrefix(cn.Config.ID, t.Project.Prefix), s.database
 						t.save()
@@ -845,33 +845,41 @@ func (t *Tab) panelTools(c *ui.Context, i int) {
 		p.View = s.view
 		t.save()
 	}
-	button := func(label, tip, why string) bool {
-		return widgets.Clicked(ui.Button(c, label).Tooltip(tip), why)
+	// Icons, each named by its tooltip, in three groups: the panel's
+	// size, its place, and its query and removal. As bare signs ("−",
+	// "+", "←", "→") they said nothing, and with the words beside them
+	// they wrapped in a narrow panel.
+	tool := func(ic *ui.SVG, label, tip, why string) bool {
+		return widgets.Clicked(widgets.IconButton(c, ic, label).Tooltip(tip), why)
 	}
-	if button("−", "Narrower", widgets.When(p.Width <= 1, "The panel is as narrow as it gets")) {
+	divider := func() { ui.Divider(c).Margin(4, 2) }
+	divider()
+	if tool(widgets.IconMinus, "Narrower", "Make the panel narrower", widgets.When(p.Width <= 1, "The panel is as narrow as it gets")) {
 		p.Width--
 		t.save()
 	}
-	if button("+", "Wider", widgets.When(p.Width >= Columns, "The panel is as wide as the dashboard")) {
+	if tool(widgets.IconPlus, "Wider", "Make the panel wider", widgets.When(p.Width >= Columns, "The panel is as wide as the dashboard")) {
 		p.Width++
 		t.save()
 	}
-	if button("←", "Earlier", widgets.When(i == 0, "The panel is the first")) {
+	divider()
+	if tool(widgets.IconArrowLeft, "Earlier", "Move the panel earlier", widgets.When(i == 0, "The panel is the first")) {
 		t.later = append(t.later, func() { t.swap(s, -1) })
 	}
-	if button("→", "Later", widgets.When(i == len(t.d.Panels)-1, "The panel is the last")) {
+	if tool(widgets.IconArrowRight, "Later", "Move the panel later", widgets.When(i == len(t.d.Panels)-1, "The panel is the last")) {
 		t.later = append(t.later, func() { t.swap(s, 1) })
 	}
-	if button("SQL", "Change the panel's query, and where it runs", "") {
+	divider()
+	if widgets.ToggleIconButton(c, widgets.IconPencil, "SQL", s.editSQL).Tooltip("Change the panel's query, and where it runs").Clicked() {
 		s.editSQL, s.sql, s.connID, s.database, s.picked = !s.editSQL, p.SQL, "", p.Database, nil
 		if cn := t.conn(*p); cn != nil {
 			s.connID = cn.Config.ID
 		}
 	}
-	if cn := t.conn(*p); cn != nil && button("Editor", "Open the panel's query in an editor", "") {
+	if cn := t.conn(*p); cn != nil && tool(widgets.IconCode, "Editor", "Open the panel's query in an editor", "") {
 		t.h.NewQueryTab(cn, p.Database, p.SQL)
 	}
-	if button("Remove", "Remove the panel", "") {
+	if tool(widgets.IconTrash, "Remove", "Remove the panel from the dashboard", "") {
 		t.later = append(t.later, func() { t.remove(s) })
 	}
 }

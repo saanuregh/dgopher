@@ -2,6 +2,7 @@ package dataview
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/hex"
 	"encoding/xml"
 	"errors"
@@ -44,11 +45,13 @@ type refRows struct {
 // takes the grid's place.
 func (g *Grid) panelsView(c *ui.Context, a Host, src *Source, order []int) {
 	th := c.Theme()
-	col := ui.Column(c).BorderWidth(0, 0, 0, 1).BorderColor(th.Border)
+	// The edge comes before the panel it sizes, between it and the grid.
+	var col ui.Element
 	if g.panelMax {
-		col.Grow(1)
+		col = ui.Column(c).Grow(1).BorderWidth(0, 0, 0, 1).BorderColor(th.Border)
 	} else {
-		col.Width(360)
+		w := g.panelEdge(c, a)
+		col = ui.Column(c).Width(w)
 	}
 	col.Children(func() {
 		ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(4).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
@@ -86,6 +89,38 @@ func (g *Grid) panelsView(c *ui.Context, a Host, src *Source, order []int) {
 			g.referencesPanel(c, a, row)
 		}
 	})
+}
+
+// The panel's width: as it starts, and the least and the most a drag
+// gives it, the most leaving the grid this much.
+const (
+	panelWidth    = 360
+	panelMinWidth = 260
+	gridMinWidth  = 240
+)
+
+// panelEdge is the line between the grid and its panel, dragged to make
+// the panel wider or narrower, every grid's alike; it returns the panel's
+// width. A long value, a JSON document or a column's profile needs more
+// than the width it starts with, a narrow window less.
+func (g *Grid) panelEdge(c *ui.Context, a Host) float32 {
+	th := c.Theme()
+	l := a.Layout()
+	w := cmp.Or(l.GridPanelWidth, panelWidth)
+	edge := ui.Box(c.Key("panel-edge")).Width(5).Cursor(ui.CursorResizeEW).Label("Panel width").Tooltip("Drag to resize the panel")
+	if dx, _, ok := edge.Dragged(); ok && dx != 0 {
+		// The grid's width as last drawn, and the panel's, are what there
+		// is to share.
+		most := max(panelMinWidth, g.viewW+w-gridMinWidth)
+		w = min(max(w-dx, panelMinWidth), most)
+		l.GridPanelWidth = w
+	}
+	line := th.Border
+	if edge.Hovered() || edge.Pressed() {
+		line = th.Accent
+	}
+	edge.Draw(func(p *ui.Painter, r ui.Rect) { p.Fill(ui.Rect{X: r.X + 2, Y: r.Y, W: 1, H: r.H}, line, 0) })
+	return w
 }
 
 // valuePanel shows the whole value of the chosen cell, in the viewer its

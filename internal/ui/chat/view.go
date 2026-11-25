@@ -27,6 +27,16 @@ func (t *Chat) View(c *ui.Context, keys bool) {
 	if keys && keymap.Pressed(c, keymap.ChatStop) {
 		t.Stop()
 	}
+	// The first request that asks to allow or deny answers to the keys,
+	// as to its buttons; a question's choices are pressed.
+	if i := slices.IndexFunc(t.requests, func(r *request) bool { return r.question == nil }); keys && i >= 0 {
+		switch {
+		case keymap.Pressed(c, keymap.ChatAllow):
+			t.answer(t.requests[i], allow, "")
+		case keymap.Pressed(c, keymap.ChatDeny):
+			t.answer(t.requests[i], deny, "")
+		}
+	}
 	if t.running || t.starting {
 		c.After(time.Second) // the time it has taken, as it goes
 	}
@@ -572,13 +582,13 @@ func (t *Chat) requestCard(c *ui.Context, r *request) {
 				}
 				return
 			}
-			if ui.PrimaryButton(c, "Allow").Clicked() {
+			if ui.PrimaryButton(c, "Allow").Tooltip(keymap.Hint("Allow it this once", keymap.ChatAllow)).Clicked() {
 				t.answer(r, allow, "")
 			}
 			if r.always && ui.Button(c, "Allow for This Chat").Tooltip("Allow its reads of "+r.connName+" without asking again, until the chat starts over").Clicked() {
 				t.answer(r, allowAlways, "")
 			}
-			if ui.Button(c, "Deny").Clicked() {
+			if ui.Button(c, "Deny").Tooltip(keymap.Hint("Refuse it; the agent is told", keymap.ChatDeny)).Clicked() {
 				t.answer(r, deny, "")
 			}
 		})

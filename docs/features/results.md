@@ -86,7 +86,9 @@ One viewer shows both a query's results and a table's data.
 
 ## Panels
 
-F7 shows the panels. Each can be maximized.
+F7 shows the panels. Each can be maximized, and the line between the
+panel and the grid drags to make it wider or narrower; every grid takes
+the width.
 
 | Panel | Shows |
 | --- | --- |

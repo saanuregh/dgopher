@@ -360,9 +360,9 @@ func (a *App) copyView(c *ui.Context) {
 			})
 			ui.Form(c, func() {
 				x.target.fields(c, a, "Into", x.running)
-				ui.Field(c, "A table there", func() {
-					ui.Segmented(c, &x.mode, "Stops the Copy", "Gets the Rows Added", "Has Its Rows Replaced").Label("A table there").Disabled(x.running)
-				}).Description("A table not there is made, its columns typed as the target holds their values. Each table copies in one transaction where the target has them.")
+				ui.Field(c, "If the table exists", func() {
+					ui.Segmented(c, &x.mode, "Stop", "Add the Rows", "Replace the Rows").Label("If the table exists").Disabled(x.running)
+				}).Description("A table that does not exist is made, its columns typed as the target holds their values. Each table copies in one transaction where the target has them.")
 			})
 			if x.err != "" {
 				ui.Text(c, x.err).TextColor(th.Danger).Selectable()

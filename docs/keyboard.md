@@ -93,6 +93,8 @@ Keys marked *fixed* below cannot be changed.
 | ⌘J | Show or hide the results |
 | ⌘⇧J | Switch between the editor and its results |
 | ⌘K ⌘⇧M | Maximize the results over the editor, or restore them |
+| ⌘⌥PageDown, ⌘⌥PageUp | Show the next result, Output after the last, or the one before |
+| F8 | Put the caret where the statement failed (**Go to Error**) |
 | ⌃Space | Complete tables, columns and keywords |
 | ⌘⇧F | Format the SQL |
 | ⌘F, ⌘⌥F | Find, and replace |
@@ -142,12 +144,14 @@ A notebook's cells are editors: the SQL editor's keys work in them too.
 | --- | --- |
 | ↵ (fixed) | Send the message; ⇧↵ starts a new line |
 | ⌘. | Stop the reply |
+| ⌘↵, ⌘⌫ | Allow, or deny, what the agent asks to do |
 
 ## Results grid
 
 | Key | Does |
 | --- | --- |
 | ⌘C | Copy the cell, or the rows chosen |
+| ⌘I | Show the card of the chosen cell, as Alt-click does |
 | ⌘⇧C | Advanced Copy: delimiter, column names, quoting, row numbers |
 | ⌘V | Paste over the chosen cell, as pending changes |
 | ⌘⇧V | Advanced Paste: delimiter, header row, as new rows |

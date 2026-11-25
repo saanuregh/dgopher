@@ -99,7 +99,8 @@ It decides what asks before running; see [Safety model](../safety.md).
 ## Connection URLs
 
 Paste a URL, or a file path, into **From URL** to fill in the form,
-including TLS.
+including TLS. The field shows for a new connection; one being edited is
+filled in already.
 
 - Schemes: `postgres://`, `postgresql://`, `cockroachdb://`,
   `cockroach://`, `yugabytedb://`, `timescaledb://`, `mysql://`,

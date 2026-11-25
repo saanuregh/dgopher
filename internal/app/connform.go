@@ -464,16 +464,19 @@ func (f *connForm) pageLabel(page int) string {
 func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
-	ui.Field(c, "From URL", func() {
-		in := ui.TextInput(c, &f.url).Font(widgets.MonoFont).FontSize(widgets.TextBody).
-			Placeholder("postgres://user:password@host:5432/db")
-		if f.urlFocus && in.Focus().Focused() {
-			f.urlFocus = false
-		}
-		if in.Submitted() || in.Changed() && strings.Contains(f.url, "://") {
-			a.fillFromURL(f)
-		}
-	}).Description("Paste a postgres://, mysql://, clickhouse:// or redis:// URL, or a database file's path, to fill in the rest.").Error(f.urlErr)
+	// A new connection's shortcut: one being edited is filled in already.
+	if f.editing == nil {
+		ui.Field(c, "From URL", func() {
+			in := ui.TextInput(c, &f.url).Font(widgets.MonoFont).FontSize(widgets.TextBody).
+				Placeholder("postgres://user:password@host:5432/db")
+			if f.urlFocus && in.Focus().Focused() {
+				f.urlFocus = false
+			}
+			if in.Submitted() || in.Changed() && strings.Contains(f.url, "://") {
+				a.fillFromURL(f)
+			}
+		}).Tooltip("Paste a postgres://, mysql://, clickhouse:// or redis:// URL, or a database file's path, to fill in the rest.").Error(f.urlErr)
+	}
 	ui.Field(c, "Engine", func() {
 		choice, choices := f.engine, engineOptions
 		if f.preset != nil {
@@ -502,7 +505,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 					f.id = fromName
 				}
 			})
-		}).Description("Query files name the connection by it, in their first lines: -- connection: " + f.id)
+		}).Tooltip("Query files name the connection by it, in their first lines: -- connection: " + f.id)
 	}
 	if engine.IsFile() {
 		ui.Field(c, "File", func() {
@@ -636,7 +639,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 		if ui.Select(c, &f.projectSel, a.projectLabels()).Label("Project").Changed() {
 			f.project = a.projectByLabel(f.projectSel)
 		}
-	}).Description("Saved in its " + project.File + ", without passwords, to commit with the project.")
+	}).Tooltip("Saved in its " + project.File + ", without passwords, to commit with the project.")
 	folderField(c, f)
 }
 
@@ -685,7 +688,7 @@ func colorField(c *ui.Context, f *connForm) {
 				f.cfg.Color = widgets.HexColor(custom)
 			}
 		})
-	}).Description("Marks the connection in the navigator and its tabs, and the band above its work. On staging and production, the band and the questions before a write keep the environment's color, and the status bar names it whatever the color.")
+	}).Tooltip("Marks the connection in the navigator and its tabs, and the band above its work. On staging and production, the band and the questions before a write keep the environment's color, and the status bar names it whatever the color.")
 }
 
 // networkPage holds how the app reaches a server: TLS and an SSH tunnel.

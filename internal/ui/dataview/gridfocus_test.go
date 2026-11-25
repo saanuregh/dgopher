@@ -117,3 +117,56 @@ func TestTabGoesToTheRecordAndBack(t *testing.T) {
 		t.Errorf("back in the grid, Down chose row %d, want 1", g.SelRow)
 	}
 }
+
+// ⌘I asks for the chosen cell's card, as an Alt+click on it does: the
+// card is not only for the pointer.
+func TestCellCardByKey(t *testing.T) {
+	_, tt, tb, _ := openNumbers(t, 5, 100)
+	g := tb.view.grid
+	tt.Frame()
+	if err := tt.Click("row 2"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	g.cardAsked = false
+	tt.Key(ui.Cmd, ui.KeyI)
+	if want := (gridCell{g.Order[g.SelRow], g.selCol}); g.cardCell != want {
+		t.Errorf("the key asked for the card of %v, the chosen cell is %v", g.cardCell, want)
+	}
+}
+
+// The panel at the grid's right is as wide as it is dragged, between a
+// least width and what leaves the grid room; the next grid starts with
+// that width.
+func TestGridPanelIsResizedByItsEdge(t *testing.T) {
+	a, tt, tb, _ := openNumbers(t, 5, 100)
+	tb.view.grid.ShowValue = true
+	tt.Frame()
+	tt.Frame()
+	edge, ok := tt.Access("Panel width")
+	if !ok {
+		t.Fatalf("the panel has no edge to drag: %q", tt.Texts())
+	}
+	x, y := edge.Bounds.X+2, edge.Bounds.Y+100
+	tt.Press(x, y)
+	tt.Move(x-120, y)
+	tt.Frame()
+	tt.Release(x-120, y)
+	tt.Frame()
+	if got := a.Layout().GridPanelWidth; got != panelWidth+120 {
+		t.Errorf("dragged 120 px wider, the panel is %v wide, want %v", got, panelWidth+120)
+	}
+	if moved, _ := tt.Access("Panel width"); moved.Bounds.X != edge.Bounds.X-120 {
+		t.Errorf("the edge is at %v, was at %v", moved.Bounds.X, edge.Bounds.X)
+	}
+	// Dragged far to the right, the panel keeps its least width.
+	x = edge.Bounds.X - 120 + 2
+	tt.Press(x, y)
+	tt.Move(x+900, y)
+	tt.Frame()
+	tt.Release(x+900, y)
+	tt.Frame()
+	if got := a.Layout().GridPanelWidth; got != panelMinWidth {
+		t.Errorf("dragged past its least width, the panel is %v wide, want %v", got, panelMinWidth)
+	}
+}
