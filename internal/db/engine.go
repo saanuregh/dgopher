@@ -22,6 +22,9 @@ type engineRules interface {
 	Base() Engine
 	// ColorHex tints the engine's icon, as "#rrggbb".
 	ColorHex() string
+	// Mark is the two letters that stand for the engine where its name
+	// has no room, as on a connection's badge in the navigator.
+	Mark() string
 	DefaultPort() int
 	DefaultUser() string
 	Kind() EngineKind
@@ -661,6 +664,7 @@ type unknownEngine struct{ id Engine }
 func (u unknownEngine) Label() string                 { return string(u.id) }
 func (u unknownEngine) Base() Engine                  { return u.id }
 func (unknownEngine) ColorHex() string                { return "#737373" }
+func (unknownEngine) Mark() string                    { return "DB" }
 func (unknownEngine) DefaultPort() int                { return 0 }
 func (unknownEngine) DefaultUser() string             { return "" }
 func (unknownEngine) Kind() EngineKind                { return KindSQL }
@@ -834,6 +838,10 @@ func (e Engine) Savepoints() bool { return rulesOf(e).Savepoints() }
 
 // ColorHex tints the engine's icon, as "#rrggbb".
 func (e Engine) ColorHex() string { return rulesOf(e).ColorHex() }
+
+// Mark is the two letters that stand for the engine where its name has
+// no room: PG for PostgreSQL, CH for ClickHouse.
+func (e Engine) Mark() string { return rulesOf(e).Mark() }
 
 // DatabaseField is the connection form's label of the database, and what
 // it shows when empty.

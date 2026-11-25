@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -327,9 +328,9 @@ func (a *App) rowCompareView(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	_, winH := c.Size()
-	dlg := widgets.Modal(c, &x.open, func() {
-		ui.Column(c).Width(900).MaxHeight(winH - 80).Gap(12).Children(func() {
-			ui.Text(c, "Compare the Rows of "+x.fromSchema+"."+x.fromTable+" · "+x.from.Config.Name).FontSize(15).Bold().SingleLine()
+	dlg := widgets.Modal(c, &x.open, widgets.DialogLarge, func() {
+		ui.Column(c).MaxHeight(winH - 80).Gap(12).Children(func() {
+			widgets.DialogTitle(c, "Compare the Rows of "+x.fromSchema+"."+x.fromTable+" · "+x.from.Config.Name).SingleLine()
 			ui.Form(c, func() {
 				to := x.target.fields(c, a, "With", x.running)
 				if x.result != nil && (to != x.to || x.target.database != x.toDB || x.target.schema != x.toSchema || x.table != x.toTable) {
@@ -367,30 +368,25 @@ func (a *App) rowCompareView(c *ui.Context) {
 			}
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				if x.running {
-					ui.Text(c, x.progress).FontSize(12).TextColor(pal.Muted)
+					ui.Text(c, x.progress).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 				}
 				ui.Spacer(c)
 				widgets.DismissButton(c, x.running, true, x.cancel, func() { x.open = false })
 				if x.result == nil {
-					compare := ui.PrimaryButton(c.Key("compare"), "Compare").Disabled(x.running)
-					widgets.Appear(compare)
-					if widgets.Activated(c, compare) {
+					compare := widgets.Appear(ui.PrimaryButton(c.Key("compare"), "Compare"))
+					if widgets.ActivatedUnless(c, compare, widgets.When(x.running, "The comparison is running")) {
 						a.startCompare(x)
 					}
 					return
 				}
-				if ui.Button(c.Key("again"), "Compare Again").Disabled(x.running).Clicked() {
+				if widgets.Clicked(ui.Button(c.Key("again"), "Compare Again"), widgets.When(x.running, "The comparison is running")) {
 					a.startCompare(x)
 				}
 				blocked := x.syncBlocked()
-				if ui.Button(c.Key("sql"), "Open as SQL").Disabled(x.running || blocked != "").Clicked() {
+				if widgets.Clicked(ui.Button(c.Key("sql"), "Open as SQL"), cmp.Or(widgets.When(x.running, "The comparison is running"), blocked)) {
 					a.openSyncSQL(x)
 				}
-				apply := ui.PrimaryButton(c.Key("apply"), "Apply to "+x.toTable+"…").Disabled(x.running || blocked != "")
-				if blocked != "" {
-					apply.Tooltip(blocked)
-				}
-				if apply.Clicked() {
+				if widgets.Clicked(ui.PrimaryButton(c.Key("apply"), "Apply to "+x.toTable+"…"), cmp.Or(widgets.When(x.running, "The comparison is running"), blocked)) {
 					a.startSync(x)
 				}
 			})
@@ -420,7 +416,7 @@ func (a *App) rowCompareResult(c *ui.Context, x *rowCompareDialog) {
 			n     int64
 			label string
 		}{{r.Same, "alike"}, {r.Changed, "changed"}, {r.OnlyInSource, "only in " + src}, {r.OnlyInTarget, "only in " + dst}} {
-			ui.Text(c, widgets.HumanCount(s.n)+" "+s.label).FontSize(13)
+			ui.Text(c, widgets.HumanCount(s.n)+" "+s.label).FontSize(widgets.TextBody)
 		}
 	})
 	if len(r.Differences) == 0 {
@@ -431,7 +427,7 @@ func (a *App) rowCompareResult(c *ui.Context, x *rowCompareDialog) {
 	if !r.Complete() {
 		note += fmt.Sprintf(" The first %s differences are kept.", widgets.HumanCount(db.DifferenceLimit))
 	}
-	ui.Text(c, note).FontSize(12).TextColor(pal.Muted)
+	ui.Text(c, note).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 	ui.List(c, &x.list, len(r.Differences), func(i int) {
 		d := r.Differences[i]
 		kind, color := "Changed", th.Warning
@@ -442,12 +438,12 @@ func (a *App) rowCompareResult(c *ui.Context, x *rowCompareDialog) {
 			kind, color = "Only in "+dst, th.Danger
 		}
 		ui.Row(c).Padding(4, 10).Gap(12).Children(func() {
-			ui.Text(c, kind).FontSize(12).TextColor(color).Width(150).SingleLine()
+			ui.Text(c, kind).FontSize(widgets.TextSmall).TextColor(color).Width(150).SingleLine()
 			row := d.Source
 			if row == nil {
 				row = d.Target
 			}
-			ui.Text(c, x.cellsText(row, r.Key)).Font(widgets.MonoFont).FontSize(12).Width(140).SingleLine()
+			ui.Text(c, x.cellsText(row, r.Key)).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Width(140).SingleLine()
 			detail := ""
 			if d.Kind == db.ChangeUpdate {
 				var parts []string
@@ -464,11 +460,11 @@ func (a *App) rowCompareResult(c *ui.Context, x *rowCompareDialog) {
 				}
 				detail = x.cellsText(row, rest)
 			}
-			ui.Text(c, detail).Font(widgets.MonoFont).FontSize(12).TextColor(pal.Muted).SingleLine().Grow(1).Shrink(1)
+			ui.Text(c, detail).Font(widgets.MonoFont).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Grow(1).Shrink(1)
 		})
-	}).MaxHeight(320).Border(1, th.Border).Radius(6)
+	}).MaxHeight(320).Border(1, th.Border).Radius(widgets.RadiusMedium)
 	ui.Column(c).Gap(4).Children(func() {
-		ui.Text(c, "Make "+dst+" as "+src+":").FontSize(13)
+		ui.Text(c, "Make "+dst+" as "+src+":").FontSize(widgets.TextBody)
 		ui.Checkbox(c, &x.add, fmt.Sprintf("Add the %s rows only in %s", widgets.HumanCount(r.OnlyInSource), src)).Disabled(x.running || r.OnlyInSource == 0)
 		ui.Checkbox(c, &x.update, fmt.Sprintf("Update the %s changed rows", widgets.HumanCount(r.Changed))).Disabled(x.running || r.Changed == 0)
 		ui.Checkbox(c, &x.remove, fmt.Sprintf("Delete the %s rows only in %s", widgets.HumanCount(r.OnlyInTarget), dst)).Disabled(x.running || r.OnlyInTarget == 0)

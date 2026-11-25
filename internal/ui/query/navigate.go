@@ -235,17 +235,16 @@ func usagesView(a Host, c *ui.Context) {
 		}
 		a.OpenQueryFile(u.path, u.at)
 	}
-	ui.DialogBase(c, &d.open, func(backdrop, panel ui.Element) {
-		widgets.PickerLook(c, backdrop, panel)
-		panel.Width(720).Radius(12).Background(th.Background).Border(1, th.Border).Clip().Label("Usages")
-		ui.Row(c).Padding(12, 16).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+	widgets.Picker(c, &d.open, func(panel ui.Element) {
+		panel.Label("Usages")
+		ui.Row(c).Padding(widgets.PadSectionY, widgets.PadSectionX).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Text(c, d.name).Font(widgets.MonoFont).Bold()
 			files := map[string]bool{}
 			for _, u := range d.usages {
 				files[u.file] = true
 			}
 			ui.Text(c, fmt.Sprintf("used %d time%s, in %d file%s", len(d.usages), widgets.Plural(len(d.usages)), len(files), widgets.Plural(len(files)))).
-				FontSize(12.5).TextColor(pal.Muted)
+				FontSize(widgets.TextBody).TextColor(pal.Muted)
 		})
 		var list ui.Element
 		widgets.ChosenRows(c, func() {
@@ -253,8 +252,8 @@ func usagesView(a Host, c *ui.Context) {
 				u := d.usages[i]
 				row := ui.Row(c).Padding(6, 16).Gap(10)
 				row.Children(func() {
-					ui.Text(c, fmt.Sprintf("%s:%d", u.file, u.line)).FontSize(11.5).TextColor(pal.Muted).Width(180).SingleLine()
-					ui.Text(c, u.text).Font(widgets.MonoFont).FontSize(12.5).SingleLine().Grow(1).Shrink(1).
+					ui.Text(c, fmt.Sprintf("%s:%d", u.file, u.line)).FontSize(widgets.TextMeta).TextColor(pal.Muted).Width(180).SingleLine()
+					ui.Text(c, u.text).Font(widgets.MonoFont).FontSize(widgets.TextBody).SingleLine().Grow(1).Shrink(1).
 						TextRanges(ui.TextRange{Start: u.match[0], End: u.match[1], Color: th.Accent, Weight: 700})
 				})
 			}).MaxHeight(440).Children(func() {
@@ -311,14 +310,14 @@ func renameView(a Host, c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	q := f.q
 	n := len(occurrences(q.Editor.Text(), f.id, q.Editor.Dialect))
-	widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(440).Gap(10).Children(func() {
-			ui.Text(c, "Rename "+f.id.name).FontSize(15).Bold()
+	widgets.Modal(c, &f.open, widgets.DialogSmall, func() {
+		ui.Column(c).Gap(10).Children(func() {
+			widgets.DialogTitle(c, "Rename "+f.id.name)
 			submit := ui.TextInput(c, &f.name).AutoFocus().Label("New name").Font(widgets.MonoFont).Submitted()
 			ui.Text(c, fmt.Sprintf("Renames its %d place%s in %s, not in the database: the navigator's Rename renames there.", n, widgets.Plural(n), q.Name)).
-				FontSize(12).TextColor(pal.Muted)
+				FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			if f.err != "" {
-				ui.Text(c, f.err).FontSize(12).TextColor(th.Danger)
+				ui.Text(c, f.err).FontSize(widgets.TextSmall).TextColor(th.Danger)
 			}
 			if widgets.DialogFooter(c, &f.open, "Rename", submit) {
 				name := strings.TrimSpace(f.name)

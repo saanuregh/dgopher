@@ -105,12 +105,12 @@ func (a *App) questions(c *ui.Context) {
 		}
 	}
 	if p := a.prompt; p != nil {
-		widgets.Modal(c, &p.open, func() {
-			ui.Column(c).Width(360).Gap(12).Children(func() {
-				ui.Text(c, "Password for "+p.name).FontSize(15).Bold()
+		widgets.Modal(c, &p.open, widgets.DialogSmall, func() {
+			ui.Column(c).Gap(12).Children(func() {
+				widgets.DialogTitle(c, "Password for "+p.name)
 				ui.Text(c, p.where).TextColor(pal.Muted)
 				if p.offerKeep {
-					ui.Text(c, "Its password is kept for its server alone, without the proxy, client certificate, jump hosts or identity it now has: type it again to send it with them.").FontSize(12).TextColor(pal.Muted)
+					ui.Text(c, "Its password is kept for its server alone, without the proxy, client certificate, jump hosts or identity it now has: type it again to send it with them.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 				}
 				submit := ui.TextInput(c, &p.password).Password().AutoFocus().Label("Password").Submitted()
 				if p.offerKeep {
@@ -134,11 +134,11 @@ func (a *App) questions(c *ui.Context) {
 		}
 	}
 	if h := a.hostKey; h != nil {
-		widgets.Modal(c, &h.open, func() {
-			ui.Column(c).Width(460).Gap(12).Children(func() {
-				ui.Text(c, "Trust this SSH server?").FontSize(15).Bold()
+		widgets.Modal(c, &h.open, widgets.DialogSmall, func() {
+			ui.Column(c).Gap(12).Children(func() {
+				widgets.DialogTitle(c, "Trust this SSH server?")
 				ui.Text(c, h.host+" has not been seen before. Compare its fingerprint with the one its administrator gives, then trust it to connect.")
-				ui.Text(c, h.fingerprint).Font(widgets.MonoFont).FontSize(12).Padding(8).Radius(6).Background(pal.EditorBg).Selectable()
+				ui.Text(c, h.fingerprint).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Padding(8).Radius(widgets.RadiusMedium).Background(pal.EditorBg).Selectable()
 				ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 					if ui.Button(c, "Cancel").Clicked() {
 						h.open = false
@@ -156,8 +156,8 @@ func (a *App) questions(c *ui.Context) {
 	}
 	if p := a.pending; p != nil {
 		title := "Apply " + widgets.Count(p.n, "pending change") + " first?"
-		switch ui.AlertDialog(c, &p.open, title, "Reading the rows again shows them as the database has them: the changes not applied yet are written first, or dropped.", "Cancel", "Discard", "Apply…") {
-		case 0, ui.AlertDismissed:
+		switch widgets.Prompt(c, &p.open, title, "Reading the rows again shows them as the database has them: the changes not applied yet are written first, or dropped.", "Cancel", "Discard", "Apply…") {
+		case 0, widgets.PromptDismissed:
 			p.cancel()
 		case 1:
 			p.discard()
@@ -173,13 +173,13 @@ func (a *App) questions(c *ui.Context) {
 	if r := a.closing; r != nil {
 		action := cmp.Or(r.action, "Close")
 		if len(r.txs) > 0 {
-			switch ui.AlertDialog(c, &r.open, r.title, r.reason, "Cancel", "Roll Back and "+action, "Commit and "+action) {
+			switch widgets.Prompt(c, &r.open, r.title, r.reason, "Cancel", "Roll Back and "+action, "Commit and "+action) {
 			case 1:
 				r.onClose()
 			case 2:
 				a.commitThen(r.txs, r.onClose)
 			}
-		} else if ui.AlertDialog(c, &r.open, r.title, r.reason, "Cancel", action) == 1 {
+		} else if widgets.Prompt(c, &r.open, r.title, r.reason, "Cancel", action) == 1 {
 			r.onClose()
 		}
 		if !r.open {
@@ -193,8 +193,8 @@ func (a *App) questions(c *ui.Context) {
 		}
 		// OK ends the card's row of buttons, after the report's actions.
 		r.Actions = append(slices.Clip(r.Actions), widgets.ErrorAction{Label: "OK"})
-		widgets.Modal(c, &al.open, func() {
-			ui.Column(c).Width(480).Children(func() {
+		widgets.Modal(c, &al.open, widgets.DialogSmall, func() {
+			ui.Column(c).Children(func() {
 				if widgets.ErrorCard(c, r, &al.details, a.WriteClipboard) ||
 					keymap.Pressed(c, keymap.ConfirmDialog) || c.Shortcut(0, ui.KeyEnter) {
 					al.open = false
@@ -228,6 +228,7 @@ func (a *App) askDeleteConn(cn *connection.Conn) {
 			}
 		}
 		a.deleteSecrets(&cn.Config)
+		a.forgetConn(cn)
 		a.saveProject(cn.Project)
 		a.Record(&cn.Config, audit.Event{Kind: audit.KindConfig, Detail: "connection deleted"})
 	})

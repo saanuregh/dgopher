@@ -298,13 +298,13 @@ func (a *App) backupView(c *ui.Context) {
 	if d := b.conn.DB(); !b.restore && d != nil && db.MysqldumpChecksCAOnly(d) {
 		note += " Through the tunnel or proxy, verify-full checks the server's certificate against the CA file only, not the server's name, which mysqldump cannot be told."
 	}
-	dlg := widgets.EnvModal(c, &b.open, &b.conn.Config, func() {
-		ui.Column(c).Width(620).Gap(12).Children(func() {
+	dlg := widgets.EnvModal(c, &b.open, &b.conn.Config, widgets.DialogMedium, func() {
+		ui.Column(c).Gap(12).Children(func() {
 			title := "Back Up " + b.what()
 			if b.restore {
 				title = "Restore into " + b.what()
 			}
-			ui.Text(c, title).FontSize(15).Bold()
+			widgets.DialogTitle(c, title)
 			ui.Form(c, func() {
 				if !b.restore {
 					if len(formats) > 1 {
@@ -331,16 +331,16 @@ func (a *App) backupView(c *ui.Context) {
 				}
 				ui.Field(c, label, func() {
 					ui.Row(c).Gap(6).Children(func() {
-						ui.TextInput(c, &b.path).Font(widgets.MonoFont).FontSize(12.5).Grow(1).Label(label).Disabled(b.running).AutoFocus()
-						if !onServer && ui.Button(c, "Choose…").Disabled(b.running).Clicked() {
+						ui.TextInput(c, &b.path).Font(widgets.MonoFont).FontSize(widgets.TextBody).Grow(1).Label(label).Disabled(b.running).AutoFocus()
+						if !onServer && widgets.Clicked(ui.Button(c, "Choose…"), widgets.When(b.running, "The work is running")) {
 							a.choosePath(b)
 						}
 					})
 				}).Description(note)
 			})
 			if len(b.lines) > 0 {
-				ui.Scroll(c).MaxHeight(160).Radius(6).Background(pal.EditorBg).Children(func() {
-					ui.Text(c, strings.Join(b.lines, "\n")).Font(widgets.MonoFont).FontSize(11.5).Padding(8, 10).Selectable()
+				ui.Scroll(c).MaxHeight(160).Radius(widgets.RadiusMedium).Background(pal.EditorBg).Children(func() {
+					ui.Text(c, strings.Join(b.lines, "\n")).Font(widgets.MonoFont).FontSize(widgets.TextMeta).Padding(8, 10).Selectable()
 				})
 			}
 			if b.err != "" {
@@ -354,10 +354,8 @@ func (a *App) backupView(c *ui.Context) {
 					action = "Restore…"
 				}
 				if !b.done {
-					disabled := b.running || strings.TrimSpace(b.path) == ""
-					start := ui.PrimaryButton(c.Key("start"), action).Disabled(disabled)
-					widgets.Appear(start)
-					if start.Clicked() && !disabled {
+					why := cmp.Or(widgets.When(b.running, "The work is running"), widgets.When(strings.TrimSpace(b.path) == "", "Choose a file first"))
+					if widgets.Clicked(widgets.Appear(ui.PrimaryButton(c.Key("start"), action)), why) {
 						a.startBackup(b)
 					}
 				}

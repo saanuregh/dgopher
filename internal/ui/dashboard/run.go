@@ -166,9 +166,9 @@ func shortDuration(d time.Duration) string {
 	return s
 }
 
-// whyNotRunAndKeep says why an edited panel cannot run yet, "" when it
+// whyNotSaveAndRun says why an edited panel cannot run yet, "" when it
 // can.
-func whyNotRunAndKeep(sql string, cn *connection.Conn) string {
+func whyNotSaveAndRun(sql string, cn *connection.Conn) string {
 	switch {
 	case strings.TrimSpace(sql) == "":
 		return "Write the panel's query first"

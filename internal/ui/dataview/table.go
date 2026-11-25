@@ -93,6 +93,9 @@ func (t *TableTab) Connection() *connection.Conn { return t.Conn }
 
 func (t *TableTab) Icon() *ui.SVG { return widgets.IconTable }
 
+// RowsHeld is the rows of the table read so far.
+func (t *TableTab) RowsHeld() int { return t.view.RowsHeld() }
+
 func (t *TableTab) Places() []connection.Place { return []connection.Place{t.Conn.PlaceOf(t.Database)} }
 
 func (t *TableTab) CloseReason() string {
@@ -304,27 +307,9 @@ func tableHistoryKey(cn *connection.Conn, obj db.Object) string {
 	return strings.TrimPrefix(cn.Config.ID, cn.Project.Prefix) + "/" + obj.Schema + "." + obj.Name
 }
 
-// txBar offers to end the transaction the session holds open, or says
-// whose transaction its statements run inside.
-func (t *TableTab) txBar(c *ui.Context) {
-	th := c.Theme()
-	label := "Changes applied in an open transaction (manual commit)."
-	if t.InsideTx != db.TxNone {
-		label = InsideTxLabel(t.owner, t.Conn.Config.Name, t.InsideTx)
-	}
-	if t.InTx() {
-		ui.Row(c).Padding(6, 12).Gap(10).Background(th.Warning.Alpha(0.16)).Children(func() {
-			ui.Icon(c, widgets.IconAlert).TextColor(th.Warning).FontSize(14)
-			ui.Text(c, label).Grow(1)
-			if ui.PrimaryButton(c, "Commit").Disabled(t.view.applying).Tooltip(keymap.Hint("Commit the transaction", keymap.Commit)).Clicked() {
-				t.endOpenTx(true)
-			}
-			if ui.Button(c, "Roll Back").Disabled(t.view.applying).Tooltip(keymap.Hint("Roll back the transaction", keymap.Rollback)).Clicked() {
-				t.endOpenTx(false)
-			}
-		})
-	}
-}
+// txBar says what the bar's Commit and Roll Back cannot of the session's
+// transaction (SessionTxState.Notice).
+func (t *TableTab) txBar(c *ui.Context) { t.Notice(c, t.Conn.Config.Name) }
 
 func (t *TableTab) View(c *ui.Context) {
 	a := t.a
@@ -340,19 +325,26 @@ func (t *TableTab) View(c *ui.Context) {
 	}
 	ui.Column(c).Grow(1).Children(func() {
 		widgets.Bar(c, "Table", func() {
+			// First, where the eye lands and nearest the navigator the
+			// pointer came from: what the tab shows of the table. Its name,
+			// which the tab's title says already, ends the bar.
+			ui.Segmented(c, &t.Page, "Data", "Structure", "DDL", "Diagram").Label("Table page").FontSize(widgets.TextBody)
+			ui.Spacer(c)
 			widgets.BarTitle(c, func() {
 				ic := widgets.IconTable
 				if t.Object.Kind != db.KindTable {
 					ic = widgets.IconView
 				}
-				ui.Icon(c, ic).TextColor(pal.Muted).FontSize(widgets.ToolIconSize)
-				ui.Text(c, t.Object.Schema+"."+t.Object.Name).Bold().SingleLine().Shrink(1)
+				ui.Icon(c, ic).TextColor(pal.Muted).FontSize(widgets.IconMedium)
+				ui.Text(c, t.Object.Schema+"."+t.Object.Name).TextColor(pal.Muted).SingleLine().Shrink(1)
 				if t.Object.Engine != "" {
 					ui.Badge(c, t.Object.Engine)
 				}
 			})
-			ui.Spacer(c)
-			ui.Segmented(c, &t.Page, "Data", "Structure", "DDL", "Diagram").Label("Table page").FontSize(widgets.ToolFontSize)
+			if t.InTx() || t.Conn.Config.Engine.Transactions() && t.Conn.Config.ManualCommit() {
+				ui.Divider(c).Margin(0, 4)
+				t.EndButtons(c, &t.Conn.Config, widgets.When(t.view.applying, "The changes are being written"), t.endOpenTx)
+			}
 		})
 		switch t.Page {
 		case PageData:
@@ -388,7 +380,7 @@ func (t *TableTab) structureView(c *ui.Context, a Host) {
 				t.editStructure()
 			}
 			if why != "" {
-				ui.Text(c, why).FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, why).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			}
 		})
 	}
@@ -413,21 +405,21 @@ func (t *TableTab) structureView(c *ui.Context, a Host) {
 				switch col {
 				case 0:
 					if cl.PrimaryKey {
-						ui.Icon(c, widgets.IconKey).TextColor(c.Theme().Warning).FontSize(12)
+						ui.Icon(c, widgets.IconKey).TextColor(c.Theme().Warning).FontSize(widgets.IconSmall)
 					}
 				case 1:
 					ui.Text(c, cl.Name).Bold().SingleLine()
 				case 2:
-					ui.Text(c, cl.Type).Font(widgets.MonoFont).FontSize(12).SingleLine()
+					ui.Text(c, cl.Type).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine()
 				case 3:
 					if cl.Nullable {
 						ui.Text(c, "yes").TextColor(pal.Muted)
 					} else {
-						ui.Text(c, "NOT NULL").FontSize(11).SingleLine()
+						ui.Text(c, "NOT NULL").FontSize(widgets.TextMeta).SingleLine()
 					}
 				case 4:
 					if cl.HasDefault {
-						ui.Text(c, cl.Default).Font(widgets.MonoFont).FontSize(12).SingleLine()
+						ui.Text(c, cl.Default).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine()
 					}
 				case 5:
 					ui.Text(c, cl.Comment).TextColor(pal.Muted).SingleLine()
@@ -450,7 +442,7 @@ func (t *TableTab) structureView(c *ui.Context, a Host) {
 					ui.Text(c, strings.Join(ix.Columns, ", ")).TextColor(pal.Muted)
 				})
 				if ix.Definition != "" {
-					ui.Text(c, ix.Definition).Font(widgets.MonoFont).FontSize(11.5).TextColor(pal.Muted).Selectable()
+					ui.Text(c, ix.Definition).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted).Selectable()
 				}
 			}
 			if t.fkErr != "" {

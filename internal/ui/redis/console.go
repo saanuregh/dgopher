@@ -97,12 +97,12 @@ func (r *Tab) helpView(c *ui.Context) {
 	// starting so; before, the commands it may be.
 	if d, ok := db.DocFor(r.docs, args); ok && (len(args) > 1 || strings.HasSuffix(line, " ") || len(db.CompleteCommand(r.docs, args[0])) == 1) {
 		ui.Column(c).Padding(4, 12).Gap(1).Children(func() {
-			ui.Text(c, d.Name+" "+d.Syntax).Font(widgets.MonoFont).FontSize(12).SingleLine()
+			ui.Text(c, d.Name+" "+d.Syntax).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine()
 			summary := d.Summary
 			if d.Since != "" {
 				summary += " Since " + d.Since + "."
 			}
-			ui.Text(c, summary).FontSize(11.5).TextColor(pal.Muted).SingleLine()
+			ui.Text(c, summary).FontSize(widgets.TextMeta).TextColor(pal.Muted).SingleLine()
 		})
 		return
 	}
@@ -115,7 +115,7 @@ func (r *Tab) helpView(c *ui.Context) {
 		if len(names) > 12 {
 			shown += fmt.Sprintf("  … %d more", len(names)-12)
 		}
-		ui.Text(c, shown+"   Tab completes").Font(widgets.MonoFont).FontSize(11.5).TextColor(pal.Muted).Padding(4, 12).SingleLine()
+		ui.Text(c, shown+"   Tab completes").Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted).Padding(4, 12).SingleLine()
 	}
 }
 
@@ -123,12 +123,12 @@ func (r *Tab) helpView(c *ui.Context) {
 func (r *Tab) consoleActions(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	if f := r.file; f != nil {
-		ui.Text(c, fmt.Sprintf("%s: %d of %d", filepath.Base(f.path), f.done, f.total)).FontSize(12).TextColor(pal.Muted)
-		if widgets.Appear(ui.Link(c.Key("file-stop"), "Stop", "").FontSize(12)).Clicked() {
+		ui.Text(c, fmt.Sprintf("%s: %d of %d", filepath.Base(f.path), f.done, f.total)).FontSize(widgets.TextSmall).TextColor(pal.Muted)
+		if widgets.Appear(ui.Link(c.Key("file-stop"), "Stop", "").FontSize(widgets.TextSmall)).Clicked() {
 			f.cancel()
 		}
 	}
-	if ui.Link(c, "Clear", "").FontSize(12).Clicked() {
+	if ui.Link(c, "Clear", "").FontSize(widgets.TextSmall).Clicked() {
 		r.consoleLog = nil
 	}
 }
@@ -140,7 +140,7 @@ func (r *Tab) consoleView(c *ui.Context) {
 	ui.Column(c).Grow(1).Children(func() {
 		ui.List(c, &r.consoleList, len(r.consoleLog), func(i int) {
 			l := r.consoleLog[i]
-			txt := ui.Text(c, l.text).Font(widgets.MonoFont).FontSize(12).Padding(1, 12).Selectable()
+			txt := ui.Text(c, l.text).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Padding(1, 12).Selectable()
 			switch {
 			case l.input:
 				txt.TextColor(th.Accent).Bold()
@@ -151,9 +151,9 @@ func (r *Tab) consoleView(c *ui.Context) {
 		// In a box of its own, always built: the input after it keeps its
 		// place, and with it the focus, as help comes and goes.
 		ui.Column(c).Children(func() { r.helpView(c) })
-		ui.Row(c).Padding(6, 10).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+		ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 			ui.Text(c, ">").Font(widgets.MonoFont).TextColor(pal.Muted)
-			in := ui.TextInputBase(c, &r.consoleIn).Font(widgets.MonoFont).FontSize(12.5).Grow(1).Placeholder("Type a command, e.g. GET user:1").Label("Command")
+			in := ui.TextInputBase(c, &r.consoleIn).Font(widgets.MonoFont).FontSize(widgets.TextBody).Grow(1).Placeholder("Type a command, e.g. GET user:1").Label("Command")
 			if r.caretToEnd {
 				// The text set last frame is the input's now.
 				end := utf8.RuneCountInString(r.consoleIn)

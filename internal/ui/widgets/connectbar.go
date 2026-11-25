@@ -23,6 +23,10 @@ type ConnectState struct {
 	// Offline is set while the system says the computer is offline;
 	// Connect stays, as the system may be wrong.
 	Offline bool
+	// Compact shows the button as an icon, as wide whatever it shows:
+	// beside the connection's name, as in an editor's toolbar, where the
+	// name says what the button's label would.
+	Compact bool
 }
 
 // ConnectBar is the bar of a view waiting for cn, as a toolbar: the
@@ -35,7 +39,7 @@ func ConnectBar(c *ui.Context, cn *connection.Conn, s ConnectState) (asked Conne
 	// A toolbar's look, its button in one, its message beside it: in the
 	// toolbar, a long message, as why it failed, would go out of sight
 	// into its overflow menu.
-	ui.Row(c.Key("connect-bar")).Padding(4, 8).Gap(4).AlignItems(ui.Center).FontSize(ToolFontSize).
+	ui.Row(c.Key("connect-bar")).Padding(4, 8).Gap(4).AlignItems(ui.Center).FontSize(TextBody).
 		BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 		ui.Toolbar(c, func() {
 			if a := ConnectStatus(c, cn, s); a != DisconnectAsked {
@@ -97,7 +101,12 @@ func ConnectStatus(c *ui.Context, cn *connection.Conn, s ConnectState) ConnectAc
 		if a == CancelAsked {
 			key = "cancel"
 		}
-		b := connectButton(c.Key(key), ic, label, tip)
+		var b ui.Element
+		if s.Compact {
+			b = IconButton(c.Key(key), ic, label).Tooltip(tip)
+		} else {
+			b = connectButton(c.Key(key), ic, label, tip)
+		}
 		if s.Default && a == ConnectAsked {
 			b.AutoFocus()
 		}
@@ -111,8 +120,16 @@ func ConnectStatus(c *ui.Context, cn *connection.Conn, s ConnectState) ConnectAc
 		return button(IconUnplug, "Disconnect", "Disconnect from "+cn.Config.Name, DisconnectAsked)
 	case s.Connecting && s.Cancellable && Lasted(c, s.Since):
 		return button(IconX, "Cancel", "Stop connecting to "+cn.Config.Name, CancelAsked)
+	case s.Connecting && s.Compact:
+		// A spinner in the icon's room, the button as wide as the others.
+		b := ui.ButtonBase(c.Key("connect")).Padding(4).Radius(RadiusMedium).Label("Connect")
+		b.Children(func() {
+			ui.Box(c).Size(IconMedium, IconMedium).Center().Children(func() { ui.Spinner(c).FontSize(TextMeta) })
+		})
+		b.AccessDisabled(true).Tooltip("Connecting to " + cn.Config.Name + "…")
+		return NoConnectAction
 	case s.Connecting:
-		connectButton(c.Key("connect"), nil, "Connect", "Connecting to "+cn.Config.Name+"…").Disabled(true)
+		Unavailable(connectButton(c.Key("connect"), nil, "Connect", ""), "Connecting to "+cn.Config.Name+"…")
 		return NoConnectAction
 	case cn.Status == connection.StatusFailed:
 		// The warning after the button, which stays where Connect was.
@@ -122,8 +139,14 @@ func ConnectStatus(c *ui.Context, cn *connection.Conn, s ConnectState) ConnectAc
 			tip += "."
 		}
 		a := button(IconRefresh, "Retry", tip+" Connect again.", ConnectAsked)
-		ui.Text(c, FailureText(cn)).FontSize(12).TextColor(c.Theme().Danger).SingleLine().Shrink(1).MinWidth(0).Label(why).Tooltip(cn.Err)
-		if ToolButton(c.Key("details"), IconInfo, "Details", "Show why the connection failed").Clicked() {
+		ui.Text(c, FailureText(cn)).FontSize(TextSmall).TextColor(c.Theme().Danger).SingleLine().Shrink(1).MinWidth(0).Label(why).Tooltip(cn.Err)
+		var details ui.Element
+		if s.Compact {
+			details = IconButton(c.Key("details"), IconInfo, "Details").Tooltip("Show why the connection failed")
+		} else {
+			details = ToolButton(c.Key("details"), IconInfo, "Details", "Show why the connection failed")
+		}
+		if details.Clicked() {
 			a = ConnectDetails
 		}
 		return a
@@ -142,17 +165,17 @@ func connectButton(c *ui.Context, ic *ui.SVG, label, tip string) ui.Element {
 	b := ui.Button(c, "").Label(label).Tooltip(tip)
 	b.Children(func() {
 		ui.Row(c).Gap(5).Invisible().Children(func() {
-			ui.Box(c).Size(ToolIconSize, ToolIconSize)
-			ui.Text(c, "Disconnect").FontSize(ToolFontSize)
+			ui.Box(c).Size(IconMedium, IconMedium)
+			ui.Text(c, "Disconnect").FontSize(TextBody)
 		})
 		ui.Row(c).Absolute().Left(0).Right(0).Top(0).Bottom(0).Gap(5).AlignItems(ui.Center).Justify(ui.Center).Children(func() {
 			if ic == nil {
 				// A spinner takes more than its font size: in the icon's room.
-				ui.Box(c).Size(ToolIconSize, ToolIconSize).Center().Children(func() { ui.Spinner(c).FontSize(9.5) })
+				ui.Box(c).Size(IconMedium, IconMedium).Center().Children(func() { ui.Spinner(c).FontSize(TextMeta) })
 			} else {
-				ui.Icon(c, ic).FontSize(ToolIconSize).ContentTransition(ui.ContentTransition{})
+				ui.Icon(c, ic).FontSize(IconMedium).ContentTransition(ui.ContentTransition{})
 			}
-			ui.Text(c, label).FontSize(ToolFontSize).ContentTransition(ui.ContentTransition{})
+			ui.Text(c, label).FontSize(TextBody).ContentTransition(ui.ContentTransition{})
 		})
 	})
 	return b

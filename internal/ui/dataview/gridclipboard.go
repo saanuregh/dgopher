@@ -221,9 +221,9 @@ func clipView(a Host, c *ui.Context) {
 	if f.paste {
 		title = "Advanced Paste"
 	}
-	dlg := widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(460).Gap(12).Children(func() {
-			ui.Text(c, title).FontSize(15).Bold()
+	dlg := widgets.Modal(c, &f.open, widgets.DialogSmall, func() {
+		ui.Column(c).Gap(12).Children(func() {
+			widgets.DialogTitle(c, title)
 			ui.Form(c, func() {
 				ui.Field(c, "Delimiter", func() {
 					ui.Segmented(c, &f.delim, delimiterLabels...).Label("Delimiter").AutoFocus()
@@ -241,7 +241,7 @@ func clipView(a Host, c *ui.Context) {
 				ui.Field(c, "NULL text", func() { ui.TextInput(c, &f.copy.NullText).Font(widgets.MonoFont) })
 			})
 			if f.paste {
-				ui.Text(c, "Pasted cells are pending changes: review them as SQL before they are applied.").FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, "Pasted cells are pending changes: review them as SQL before they are applied.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			}
 			label := "Copy"
 			if f.paste {

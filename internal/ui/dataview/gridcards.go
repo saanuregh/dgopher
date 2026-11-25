@@ -289,13 +289,13 @@ func (g *Grid) cellCard(c *ui.Context, a Host, src *Source, box ui.Element, data
 
 // valueCard shows a plain value, whole, and its column.
 func (g *Grid) valueCard(c *ui.Context, card *widgets.Card, a Host, src *Source, data, col int, v any, text string) {
-	card.Header(c, widgets.IconColumns, widgets.ToneColumn, src.Cols[col].Name, erType(src.Cols[col].Type))
+	card.Header(c, widgets.IconColumns, widgets.ToneColumn, src.Cols[col].Name, db.ShortType(src.Cols[col].Type))
 	card.Section(c, func() {
 		if v == nil {
 			ui.Text(c, "NULL").TextColor(widgets.PaletteOf(c).Null).Italic()
 			return
 		}
-		ui.Text(c, text).Font(widgets.MonoFont).FontSize(12.5).Selectable()
+		ui.Text(c, text).Font(widgets.MonoFont).FontSize(widgets.TextBody).Selectable()
 	})
 	card.Actions(c, func(ac *widgets.CardActions) {
 		if v != nil {
@@ -312,7 +312,7 @@ func (g *Grid) textCard(c *ui.Context, card *widgets.Card, a Host, src *Source, 
 	card.Header(c, widgets.IconFile, widgets.ToneValue, src.Cols[col].Name,
 		widgets.Count(utf8.RuneCountInString(text), "character")+lineCount(text))
 	shown := text[:min(len(text), jsonCardMax)]
-	card.Section(c, func() { ui.Text(c, shown).Selectable().FontSize(12.5) })
+	card.Section(c, func() { ui.Text(c, shown).Selectable().FontSize(widgets.TextBody) })
 	if len(shown) < len(text) {
 		card.Note(c, "The value goes on: the value editor shows it whole.")
 	}
@@ -356,7 +356,7 @@ func (g *Grid) jsonCard(c *ui.Context, card *widgets.Card, a Host, src *Source, 
 	card.Meta(c, tree.hint(c))
 	if tree.node == nil {
 		card.Section(c, func() {
-			ui.Text(c, text[:min(len(text), 4096)]).Font(widgets.MonoFont).FontSize(12).Selectable()
+			ui.Text(c, text[:min(len(text), 4096)]).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Selectable()
 		})
 		card.Note(c, "Too long to show here: the value editor shows it whole.")
 	} else {
@@ -411,40 +411,13 @@ func timeCard(c *ui.Context, card *widgets.Card, a Host, name, typ string, v any
 	card.Rows(c, [][2]string{
 		{"Local", local.Format("2006-01-02 15:04:05 MST")},
 		{"UTC", when.UTC().Format("2006-01-02 15:04:05")},
-		{"Relative", relativeTime(a.Now().Sub(when))},
+		{"Relative", widgets.RelativeTime(a.Now().Sub(when))},
 		{"Unix", strconv.FormatInt(when.Unix(), 10)},
 	})
 	card.Actions(c, func(ac *widgets.CardActions) {
 		ac.Copy(c, "Copy ISO 8601", when.UTC().Format(time.RFC3339))
 		ac.Copy(c, "Copy Unix", strconv.FormatInt(when.Unix(), 10))
 	})
-}
-
-// relativeTime says how long ago d was, or how far ahead, roughly.
-func relativeTime(d time.Duration) string {
-	ago := d >= 0
-	if !ago {
-		d = -d
-	}
-	var s string
-	switch {
-	case d < time.Minute:
-		return "now"
-	case d < time.Hour:
-		s = widgets.Count(int(d/time.Minute), "minute")
-	case d < 48*time.Hour:
-		s = widgets.Count(int(d/time.Hour), "hour")
-	case d < 60*24*time.Hour:
-		s = widgets.Count(int(d/(24*time.Hour)), "day")
-	case d < 730*24*time.Hour:
-		s = widgets.Count(int(d/(30*24*time.Hour)), "month")
-	default:
-		s = widgets.Count(int(d/(365*24*time.Hour)), "year")
-	}
-	if ago {
-		return s + " ago"
-	}
-	return "in " + s
 }
 
 // headerCard gives a column's header its card: the table's column, as
@@ -470,7 +443,7 @@ func (g *Grid) headerCard(c *ui.Context, src *Source, cell ui.Element, col int) 
 		}
 		card.Header(c, widgets.IconColumns, widgets.ToneColumn, src.Cols[col].Name, "")
 		if typ := src.Cols[col].Type; typ != "" {
-			card.Pills(c, widgets.CardPill{Text: erType(typ), Mono: true})
+			card.Pills(c, widgets.CardPill{Text: db.ShortType(typ), Mono: true})
 		}
 		card.Note(c, "A result's column, not a column of one table: its name and type only.")
 	})

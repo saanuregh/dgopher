@@ -280,6 +280,7 @@ var _ SQLRules = mysqlEngine{}
 func (mysqlEngine) Label() string                   { return "MySQL" }
 func (mysqlEngine) Base() Engine                    { return MySQL }
 func (mysqlEngine) ColorHex() string                { return "#00758f" }
+func (mysqlEngine) Mark() string                    { return "MY" }
 func (mysqlEngine) DefaultPort() int                { return 3306 }
 func (mysqlEngine) DefaultUser() string             { return "root" }
 func (mysqlEngine) Kind() EngineKind                { return KindSQL }

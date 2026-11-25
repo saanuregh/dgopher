@@ -102,13 +102,12 @@ func outlineView(a Host, c *ui.Context) {
 		d.open = false
 		d.q.GoTo(shown[i].start)
 	}
-	ui.DialogBase(c, &d.open, func(backdrop, panel ui.Element) {
-		widgets.PickerLook(c, backdrop, panel)
-		panel.Width(640).Radius(12).Background(th.Background).Border(1, th.Border).Clip().Label("Go to statement")
-		ui.Row(c).Padding(10, 14).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Icon(c, widgets.IconSearch).TextColor(pal.Muted).FontSize(15)
+	widgets.Picker(c, &d.open, func(panel ui.Element) {
+		panel.Label("Go to statement")
+		ui.Row(c).Padding(widgets.PadSectionY, widgets.PadSectionX).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+			ui.Icon(c, widgets.IconSearch).TextColor(pal.Muted).FontSize(widgets.IconLarge)
 			in := ui.TextInputBase(c, &d.filter).Placeholder(fmt.Sprintf("Go to one of %d statements", len(d.entries))).
-				AutoFocus().Grow(1).FontSize(15).Label("Filter")
+				AutoFocus().Grow(1).FontSize(widgets.TextTitle).Label("Filter")
 			if widgets.ListKeys(in, &d.sel, len(shown), &d.list, 0) {
 				jump(d.sel)
 			}
@@ -120,11 +119,11 @@ func outlineView(a Host, c *ui.Context) {
 				row := ui.Row(c).Padding(6, 14).Gap(10)
 				muted := pal.Muted
 				row.Children(func() {
-					ui.Text(c, fmt.Sprint(e.line)).Font(widgets.MonoFont).FontSize(11.5).TextColor(muted).Width(40).TextAlign(ui.End)
+					ui.Text(c, fmt.Sprint(e.line)).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(muted).Width(40).TextAlign(ui.End)
 					ui.Column(c).Gap(1).Grow(1).Shrink(1).Children(func() {
-						ui.Text(c, e.text).Font(widgets.MonoFont).FontSize(12.5).SingleLine()
+						ui.Text(c, e.text).Font(widgets.MonoFont).FontSize(widgets.TextBody).SingleLine()
 						if e.comment != "" {
-							ui.Text(c, e.comment).FontSize(11.5).TextColor(muted).SingleLine()
+							ui.Text(c, e.comment).FontSize(widgets.TextMeta).TextColor(muted).SingleLine()
 						}
 					})
 				})

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"strings"
@@ -115,8 +116,8 @@ func (t *searchTab) View(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Row(c).Padding(8, 12).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Icon(c, widgets.IconSearch).TextColor(pal.Muted).FontSize(14)
+		ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+			ui.Icon(c, widgets.IconSearch).TextColor(pal.Muted).FontSize(widgets.IconMedium)
 			in := ui.TextInput(c, &t.query).Placeholder("Find tables, columns, routines… by name or definition").
 				AutoFocus().Grow(1).Label("Search")
 			if widgets.ListKeys(in, &t.row, len(t.hits), &t.list, 0) {
@@ -130,12 +131,12 @@ func (t *searchTab) View(c *ui.Context) {
 			}
 			ui.Checkbox(c, &t.definitions, "In definitions").
 				Tooltip("Search the queries of views and the bodies of routines and triggers too")
-			if ui.PrimaryButton(c, "Search").Disabled(strings.TrimSpace(t.query) == "" || t.searching).Clicked() {
+			if widgets.Clicked(ui.PrimaryButton(c, "Search"), cmp.Or(widgets.When(t.searching, "The search is running"), widgets.When(strings.TrimSpace(t.query) == "", "Type what to search for first"))) {
 				t.search()
 			}
 		})
-		ui.Row(c).Padding(6, 12).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Text(c, t.status()).FontSize(12).TextColor(pal.Muted).Grow(1).Shrink(1).SingleLine()
+		ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+			ui.Text(c, t.status()).FontSize(widgets.TextSmall).TextColor(pal.Muted).Grow(1).Shrink(1).SingleLine()
 		})
 		if t.err != "" {
 			ui.Text(c, t.err).TextColor(th.Danger).Padding(10, 12).Selectable()
@@ -174,7 +175,7 @@ func (t *searchTab) hitRow(c *ui.Context, h db.SearchHit) {
 	muted := widgets.PaletteOf(c).Muted
 	ui.Column(c).Padding(6, 12).Gap(2).Children(func() {
 		ui.Row(c).Gap(8).Children(func() {
-			ui.Icon(c, searchIcon(h)).TextColor(muted).FontSize(13)
+			ui.Icon(c, searchIcon(h)).TextColor(muted).FontSize(widgets.IconMedium)
 			name := h.Name
 			switch {
 			case h.Kind == db.KindColumn:
@@ -184,14 +185,14 @@ func (t *searchTab) hitRow(c *ui.Context, h db.SearchHit) {
 			}
 			ui.Text(c, name).SingleLine().Shrink(1)
 			if h.Kind == db.KindColumn {
-				ui.Text(c, h.Detail).FontSize(11).TextColor(muted).SingleLine().Shrink(1)
+				ui.Text(c, h.Detail).FontSize(widgets.TextMeta).TextColor(muted).SingleLine().Shrink(1)
 			}
 			ui.Spacer(c)
-			ui.Text(c, h.Kind).FontSize(11).TextColor(muted)
-			ui.Text(c, h.Schema).FontSize(11).TextColor(muted).SingleLine()
+			ui.Text(c, h.Kind).FontSize(widgets.TextMeta).TextColor(muted)
+			ui.Text(c, h.Schema).FontSize(widgets.TextMeta).TextColor(muted).SingleLine()
 		})
 		if h.Excerpt != "" {
-			ui.Text(c, h.Excerpt).Font(widgets.MonoFont).FontSize(12).TextColor(muted).SingleLine().PaddingX(21)
+			ui.Text(c, h.Excerpt).Font(widgets.MonoFont).FontSize(widgets.TextSmall).TextColor(muted).SingleLine().PaddingX(21)
 		}
 	})
 }

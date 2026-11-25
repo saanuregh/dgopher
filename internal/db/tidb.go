@@ -52,6 +52,7 @@ func (tidbEngine) dialect() Dialect     { return tidbDialect{} }
 func (tidbEngine) Label() string        { return "TiDB" }
 func (tidbEngine) Base() Engine         { return MySQL }
 func (tidbEngine) ColorHex() string     { return "#e6007a" }
+func (tidbEngine) Mark() string         { return "TI" }
 func (tidbEngine) DefaultPort() int     { return 4000 }
 func (tidbEngine) DefaultUser() string  { return "root" }
 func (tidbEngine) URLSchemes() []string { return []string{"tidb"} }

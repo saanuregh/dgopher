@@ -17,7 +17,9 @@ while, and an idle session](../images/server-activity.png)
 | Metrics | ClickHouse | queries and merges running, connections, memory, parts and load, and queries and rows per second |
 | Redis | Redis | headline metrics and clients; disconnect a client (of one node, in a cluster) |
 
-Cancelling and ending sessions always asks; see
+The buttons that act on a row keep their place in the bar, and say to
+choose a row first while none is chosen. Cancelling and ending sessions
+always asks; see
 [Safety model](../safety.md#grid-edits).
 
 ## Users and Privileges

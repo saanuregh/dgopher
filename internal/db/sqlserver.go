@@ -63,6 +63,7 @@ var _ SQLRules = sqlserverEngine{}
 func (sqlserverEngine) Label() string                   { return "SQL Server" }
 func (sqlserverEngine) Base() Engine                    { return SQLServer }
 func (sqlserverEngine) ColorHex() string                { return "#cc2927" }
+func (sqlserverEngine) Mark() string                    { return "MS" }
 func (sqlserverEngine) DefaultPort() int                { return 1433 }
 func (sqlserverEngine) DefaultUser() string             { return "sa" }
 func (sqlserverEngine) Kind() EngineKind                { return KindSQL }

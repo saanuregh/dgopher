@@ -34,7 +34,7 @@ func (a *App) sidebarBar(c *ui.Context) {
 		} else {
 			// What the tree under it holds, as the sections in it are
 			// named: the row is the projects', and so is its New….
-			ui.Text(c, "Projects").FontSize(12).FontWeight(600).TextColor(widgets.PaletteOf(c).Muted).
+			ui.Text(c, "Projects").FontSize(widgets.TextSmall).FontWeight(600).TextColor(widgets.PaletteOf(c).Muted).
 				SingleLine().Grow(1).Shrink(1)
 		}
 		widgets.IconButton(c, widgets.IconPlus, "New…").Menu(a.addMenu)
@@ -77,7 +77,7 @@ func (a *App) workspaceBar(c *ui.Context) {
 				if cn := t.Connection(); cn != nil {
 					title += " — " + cn.Config.Name
 				}
-				ui.Text(c, title).FontSize(12.5).TextColor(pal.Muted).SingleLine().Shrink(1)
+				ui.Text(c, title).FontSize(widgets.TextBody).TextColor(pal.Muted).SingleLine().Shrink(1)
 			}
 			ui.Spacer(c)
 		}
@@ -220,17 +220,21 @@ func (a *App) titleMenu(m *ui.Menu) {
 func (a *App) projectHeader(c *ui.Context, p *project.Project) {
 	head := ui.Row(c).Gap(6).Grow(1).Shrink(1)
 	head.Children(func() { a.projectName(c, p) })
-	head.ContextMenu(func(m *ui.Menu) { a.navMenu(m, navNode{kind: nodeProject, projectDir: p.Dir}) })
+	node := navNode{kind: nodeProject, projectDir: p.Dir}
+	head.ContextMenu(func(m *ui.Menu) { a.navMenu(m, node) })
+	// Its name takes what is dragged out of a folder, to the top level:
+	// the one project has no row of its own in the tree.
+	a.folderDropTarget(c, head, p, node)
 }
 
 // projectName shows a project's folder and name, muted with why when it
 // cannot be read.
 func (a *App) projectName(c *ui.Context, p *project.Project) {
 	pal := widgets.PaletteOf(c)
-	ui.Icon(c, widgets.IconFolder).TextColor(pal.Muted).FontSize(14)
+	ui.Icon(c, widgets.IconFolder).TextColor(pal.Muted).FontSize(widgets.IconMedium)
 	name := ui.Text(c, a.projectLabel(p)).Bold().SingleLine().Grow(1).Shrink(1).Tooltip(p.Dir)
 	if p.Err != "" {
 		name.TextColor(pal.Muted)
-		ui.Icon(c, widgets.IconAlert).TextColor(c.Theme().Danger).FontSize(12).Tooltip(p.Err)
+		ui.Icon(c, widgets.IconAlert).TextColor(c.Theme().Danger).FontSize(widgets.IconSmall).Tooltip(p.Err)
 	}
 }

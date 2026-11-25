@@ -69,6 +69,14 @@ Keys are written as on macOS; on Linux and Windows, ⌘ is Ctrl and ⌥ is Alt.
 
 ## Running statements
 
+- **The editor's toolbar** reads from left to right: the connection its
+  statements run on, then Run, Run Script, Explain and Format, then, at
+  the right, Commit and Roll Back and the switches for the notebook view
+  and the AI chat. On staging and production the connection shows in the
+  environment's color, with its name, beside Run. In a narrow pane the
+  connection, Run and what is at the right stay in sight; the rest goes
+  into the toolbar's » menu.
+
 - **Statements end** at `;` or at a blank line, so ⌘↵ runs the statement
   around the caret without selecting it; a band shows which statement. A
   setting makes `;` the only end. A procedure, function or trigger body
@@ -83,21 +91,32 @@ Keys are written as on macOS; on Linux and Windows, ⌘ is Ctrl and ⌥ is Alt.
   statement, and the ▶ of the statement whose result shows is marked in the
   accent color, until that statement is edited.
 - **The results** sit under the editor and keep their share of its height as
-  the window resizes. ⌘J hides them down to their row of result tabs and
-  shows them again, as VS Code's panel; a run shows them. The buttons at the
-  right of that row hide them and maximize them over the editor. Every
-  editor shares the choice, and it is kept for the next start.
+  the window resizes. One result takes no row for its tab: the tab starts
+  the grid's toolbar, followed by **Output**, and the buttons that maximize
+  the results over the editor and hide them end it. Several results, an error,
+  a query plan, and one result too narrow for that, as in a split or
+  beside the chat, have a row of result tabs above them, Output last among
+  them, with those buttons at its right. ⌘J hides the results down to that row and shows
+  them again, as VS Code's panel; a run shows them. Every editor shares the
+  choice, and it is kept for the next start.
 - **A ▶ in the gutter**, on the first line of each statement, runs that
   statement. It is faint but on the statement a run would send, green, and
   on the one pointed at.
+- **A statement that returns no rows,** as an `UPDATE` or DDL, shows what
+  it did as a headline in **Output**, as "3 rows affected", over the log
+  of what ran before.
+- **While a statement runs,** Run turns to Stop, which shows how long the
+  run has gone on.
 - **On an error,** a script stops or continues, as a setting says. A failed
   statement shows the database's message, code, detail, hint, and where it
   went wrong; **Go to Error** puts the caret there.
 - **Statement timeout**: optional, per connection.
 - **Each editor has its own session**, so `SET`, temporary tables and
   transactions last between statements.
-- **Commit and roll back** from the editor's bar in manual commit, or with
-  ⌘⌥⇧↵ to commit. Roll back has no key unless you set one, because it loses
+- **Commit and Roll Back** keep their place at the right of the editor's
+  toolbar in manual commit, and show whenever a transaction is open. With
+  none open they cannot be pressed and say so; with one open, Commit is
+  filled. ⌘⌥⇧↵ commits too. Roll back has no key unless you set one, because it loses
   the transaction's work.
 - **Schema and database.** The editor's toolbar shows the schema it looks
   up names in (and on PostgreSQL its database), and switches them. A schema
@@ -121,7 +140,8 @@ See [How SQL is read](../sql.md#parameters).
 
 ## Query plans
 
-- **Explain** (⌘E) shows the plan. **Explain Analyze** (⌘⇧E) runs a
+- **Explain** (⌘E) shows the plan. **Explain Analyze** (⌘⇧E), in the menu
+  beside Explain, runs a
   statement that reads and measures it, on PostgreSQL, MySQL, SQL Server,
   Oracle and DuckDB.
 - The plan shows as a tree of steps, with rows estimated and found and each
@@ -149,7 +169,7 @@ its run count and its own result](../images/notebook.png)
   and Vim keys, or Markdown, shown as it reads, and edited with a click on
   a focused cell. Each SQL cell shows its results under it: rows in a grid,
   plans, errors, and what statements without rows did. Its `[n]` numbers
-  its last run, and what it took shows under it.
+  its last run; hovering it shows how long the run took.
 - **One session.** Every cell runs on the editor's session, as a
   notebook's cells run on one kernel: a temporary table, a `SET` or a
   transaction one cell begins, the next sees. Runs go through the same
@@ -180,7 +200,8 @@ its run count and its own result](../images/notebook.png)
 
 - Editors come back on the next launch, as scripts or notebooks as they
   showed. `.sql` files can be opened (⌘O) and
-  saved (⌘S, or ⌘⇧S to save as).
+  saved (⌘S, or ⌘⇧S to save as, also **Save As…** in the editor's menu and
+  the command palette).
 - A restored editor, or an opened file, does not connect on its own. Press
   Connect, or run a statement.
 

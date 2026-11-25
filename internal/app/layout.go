@@ -10,6 +10,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
+	"dgopher/internal/project"
 	"dgopher/internal/redact"
 	"dgopher/internal/ui/dashboard"
 	"dgopher/internal/ui/dataview"
@@ -35,6 +36,28 @@ func (a *App) activeConn() *connection.Conn {
 	return nil
 }
 
+// activePlace is the place at hand, which a new editor's picker has
+// first: the connection of the tab in front with the database that tab
+// works in; without a tab, the database of the database tree's chosen
+// row; else the active connection's own.
+func (a *App) activePlace() (connection.Place, bool) {
+	if t, ok := a.ActiveTab().(widgets.Placed); ok {
+		if places := t.Places(); len(places) == 1 && places[0].Conn != nil {
+			return places[0], true
+		}
+	}
+	cn := a.activeConn()
+	if cn == nil {
+		return connection.Place{}, false
+	}
+	if a.ActiveTab() == nil && a.nav.row >= 0 && a.nav.row < a.nav.tree.Rows() {
+		if n := a.nav.tree.Item(a.nav.row); n.conn == cn.Config.ID {
+			return cn.PlaceOf(n.database), true
+		}
+	}
+	return cn.PlaceOf(""), true
+}
+
 func (a *App) WriteClipboard(s string) {
 	if a.clipboard != nil {
 		a.clipboard(s)
@@ -57,6 +80,7 @@ func (a *App) view(c *ui.Context) {
 	tabs, front := a.tabs().Len(), a.ActiveTab()
 	a.drain()
 	a.now = c.Now()
+	c.SetZoom(a.zoom())
 	widgets.ApplyTheme(c, strings.TrimSpace(a.settings.UIFontFamily))
 	// Every menu of the window, a right-click's, a table's or a text's,
 	// drawn in the app's theme rather than the desktop's.
@@ -71,7 +95,7 @@ func (a *App) view(c *ui.Context) {
 		a.instant = false
 	}
 	a.window.several = a.window.panes.Len() > 1
-	root := ui.Column(c).Fill()
+	root := ui.Column(c).Fill().HandleInput(a.ZoomInput)
 	defer a.dropZone(c, root)
 	root.Children(func() {
 		// The sidebar is the main window's; the others hold tabs alone.
@@ -130,6 +154,9 @@ func (a *App) overlays(c *ui.Context) {
 	}
 	if a.renaming != nil {
 		a.renameView(c)
+	}
+	if a.schemaPicker != nil {
+		a.schemaPickerView(c)
 	}
 	if a.generating != nil {
 		a.generateView(c)
@@ -239,8 +266,14 @@ func (a *App) shortcuts(c *ui.Context) {
 	case keymap.Pressed(c, keymap.FocusNavigator):
 		a.layout.SidebarHidden = false
 		a.focusWant = "nav"
-	case keymap.Pressed(c, keymap.FocusFilter) && a.ActiveTab() != nil:
+	case (a.ActiveTab() != nil || !a.layout.SidebarHidden) && keymap.Pressed(c, keymap.FocusFilter):
+		// The filter of the view with the keys: the navigator's own
+		// while it has them, or no tab is open. Asked once: the key is
+		// taken as it is asked for.
 		a.focusWant = "filter"
+		if !a.layout.SidebarHidden && (a.nav.hasKeys || a.ActiveTab() == nil) {
+			a.focusWant = "nav-filter"
+		}
 	case keymap.Pressed(c, keymap.ShortcutsList):
 		a.shortcutsOpen = !a.shortcutsOpen
 	case keymap.Pressed(c, keymap.NextTab):
@@ -361,12 +394,12 @@ func (a *App) dropZones(c *ui.Context, w *window, g *panes.Group, t widgets.Tab)
 	th := c.Theme()
 	var over widgets.Tab
 	zone := func(label string, place func(ui.Element) ui.Element, then func(widgets.Tab)) {
-		b := place(ui.Box(c.Key("drop-"+label)).Absolute()).Radius(8).Border(1, th.Accent).Background(th.Accent.Alpha(0.10)).Center().Label(label)
+		b := place(ui.Box(c.Key("drop-"+label)).Absolute()).Radius(widgets.RadiusLarge).Border(1, th.Accent).Background(widgets.TintNotice(th.Accent)).Center().Label(label)
 		if d, ok := ui.DragOver[tabDrag](b); ok {
-			b.Background(th.Accent.Alpha(0.28))
+			b.Background(widgets.TintStrong(th.Accent))
 			over = d.tab
 		}
-		b.Children(func() { ui.Text(c, label).FontSize(12).TextColor(th.Accent) })
+		b.Children(func() { ui.Text(c, label).FontSize(widgets.TextSmall).TextColor(th.Accent) })
 		if d, ok := ui.Drop[tabDrag](b); ok {
 			a.Post(func() { then(d.tab) })
 		}
@@ -618,10 +651,16 @@ func (a *App) tabBar(c *ui.Context, g *panes.Group) {
 						p.Fill(ui.Rect{X: r.X + r.W - 1, Y: r.Y + r.H/2 - 9, W: 1, H: 18}, t.Border, 0)
 					})
 				}
-				if on && focusedGroup && a.several() {
-					// The tab the keys go to, of several groups.
+				if on {
+					// The tab in front carries a line: in the accent where the
+					// keys go, gray in a group beside it. Its lighter
+					// background alone is too near the others' to find.
+					line := t.Accent
+					if !focusedGroup {
+						line = t.TextMuted.Alpha(0.5)
+					}
 					item.DrawOver(func(p *ui.Painter, r ui.Rect) {
-						p.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: 2}, t.Accent, 0)
+						p.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: 2}, line, 0)
 					})
 				}
 				// A tab dropped on another takes its place, which the side it
@@ -649,12 +688,12 @@ func (a *App) tabBar(c *ui.Context, g *panes.Group) {
 						if i, ok := tb.(widgets.Iconed); ok {
 							ic = i.Icon()
 						}
-						ui.Icon(c, ic).FontSize(12).TextColor(pal.Muted)
+						ui.Icon(c, ic).FontSize(widgets.IconSmall).TextColor(pal.Muted)
 						ui.Column(c).Shrink(1).Children(func() {
 							// The one in front in the text's color, the others
 							// muted: the weight stays, so no tab moves as
 							// another comes in front.
-							txt := ui.Text(c, tb.Title()).SingleLine().FontSize(12.5).FontWeight(500)
+							txt := ui.Text(c, tb.Title()).SingleLine().FontSize(widgets.TextBody).FontWeight(500)
 							if !on && !hovered {
 								txt.TextColor(t.Text.Alpha(0.7))
 							}
@@ -665,7 +704,7 @@ func (a *App) tabBar(c *ui.Context, g *panes.Group) {
 								if !anyConnected(groups) {
 									col = col.Alpha(0.6)
 								}
-								ui.Text(c, sub).SingleLine().FontSize(10.5).TextColor(col)
+								ui.Text(c, sub).SingleLine().FontSize(widgets.TextMeta).TextColor(col)
 							}
 						})
 						var r string
@@ -678,19 +717,13 @@ func (a *App) tabBar(c *ui.Context, g *panes.Group) {
 							ui.Box(c).Size(6, 6).Radius(3).Background(t.Warning).Tooltip(r)
 						}
 						if pinned {
-							pin := ui.ButtonBase(c).Padding(3).Radius(4).Label("Unpin " + tb.Title()).Tooltip("Pinned: click to unpin")
-							if pin.Hovered() {
-								pin.Background(pal.Hover)
-							}
-							pin.Children(func() {
-								ui.Icon(c, widgets.IconPin).FontSize(11).TextColor(pal.Muted).ContentTransition(ui.ContentTransition{})
-							})
+							pin := widgets.SmallIconButton(c, widgets.IconPin, "Unpin "+tb.Title()).Tooltip("Pinned: click to unpin")
 							if pin.Clicked() {
 								a.Post(func() { l.SetPinned(tb, false) }) // after the tabs are drawn
 							}
 							return
 						}
-						x := ui.ButtonBase(c).Padding(3).Radius(4).Label("Close " + tb.Title())
+						x := ui.ButtonBase(c).Padding(3).Radius(widgets.RadiusSmall).Label("Close " + tb.Title())
 						// A file not saved yet shows a dot where the button
 						// is, the button itself once pointed at.
 						unsaved := false
@@ -706,9 +739,9 @@ func (a *App) tabBar(c *ui.Context, g *panes.Group) {
 						}
 						x.Children(func() {
 							if unsaved {
-								ui.Box(c).Size(8, 8).Margin(1.5).Radius(4).Background(t.Text)
+								ui.Box(c).Size(8, 8).Margin(1.5).Radius(widgets.RadiusRound).Background(t.Text)
 							} else {
-								ui.Icon(c, widgets.IconX).FontSize(11).ContentTransition(ui.ContentTransition{})
+								ui.Icon(c, widgets.IconX).FontSize(widgets.IconSmall).ContentTransition(ui.ContentTransition{})
 							}
 						})
 						if x.Clicked() {
@@ -765,7 +798,7 @@ func tabDots(c *ui.Context, groups []connPlaces) {
 			widgets.ConnDot(c, g.conn)
 		}
 		if n := len(groups) - maxChips; n > 0 {
-			ui.Text(c, fmt.Sprintf("+%d", n)).FontSize(10).TextColor(widgets.PaletteOf(c).Muted)
+			ui.Text(c, fmt.Sprintf("+%d", n)).FontSize(widgets.TextMeta).TextColor(widgets.PaletteOf(c).Muted)
 		}
 	})
 }
@@ -923,24 +956,32 @@ func (a *App) closeTogether(tabs []widgets.Tab) {
 	a.requestEnd(endClose, title, "", tabs, nil, end)
 }
 
+// welcome is the start page: for a project with connections, what there
+// is to open (home); before that, how to begin.
 func (a *App) welcome(c *ui.Context) {
+	if len(a.conns) > 0 {
+		a.home(c)
+		return
+	}
 	pal := widgets.PaletteOf(c)
 	t := c.Theme()
 	ui.Scroll(c).Grow(1).Children(func() {
 		ui.Column(c).Padding(48, 48).Gap(28).MaxWidth(860).Children(func() {
 			ui.Row(c).Gap(16).Children(func() {
-				ui.Box(c).Size(56, 56).Radius(14).Center().
+				ui.Box(c).Size(56, 56).Radius(widgets.RadiusLarge).Center().
 					LinearGradient(ui.LinearGradient{From: ui.Hex("#2563eb"), To: ui.Hex("#7c3aed"), Angle: 135}).
-					Children(func() { ui.Icon(c, widgets.IconDatabase).FontSize(28).TextColor(ui.RGB(255, 255, 255)) })
+					Children(func() {
+						ui.Icon(c, widgets.IconDatabase).FontSize(widgets.IconDisplay).TextColor(ui.RGB(255, 255, 255))
+					})
 				ui.Column(c).Gap(4).Children(func() {
-					ui.Text(c, "DGopher").FontSize(28).Bold()
-					ui.Text(c, "Dig into your databases.").FontSize(16)
+					ui.Text(c, "DGopher").FontSize(widgets.TextDisplay).Bold()
+					ui.Text(c, "Dig into your databases.").FontSize(widgets.TextTitle)
 					ui.Text(c, "PostgreSQL, MySQL, ClickHouse, SQLite, DuckDB, Redis and their kin: fast, keyboard-first, careful with production.").TextColor(pal.Muted)
 				})
 			})
 			ui.Grid(c).Columns(4).GapX(12).Children(func() {
 				card := func(ic *ui.SVG, title, detail, key string, onClick func()) {
-					b := ui.ButtonBase(c).Padding(14).Radius(10).Border(1, t.Border).Label(title).AlignItems(ui.Start) // tops in line, whatever their text
+					b := ui.ButtonBase(c).Padding(14).Radius(widgets.RadiusLarge).Border(1, t.Border).Label(title).AlignItems(ui.Start) // tops in line, whatever their text
 					if b.Hovered() {
 						b.Background(pal.Hover).Border(1, t.Accent)
 					}
@@ -949,14 +990,14 @@ func (a *App) welcome(c *ui.Context) {
 							// The key at the far end of the icon's row, where
 							// it takes no room from the title.
 							ui.Row(c).Height(22).AlignItems(ui.Center).Children(func() { // one height, keycap or not
-								ui.Icon(c, ic).FontSize(18).TextColor(t.Accent)
+								ui.Icon(c, ic).FontSize(widgets.IconLarge).TextColor(t.Accent)
 								ui.Spacer(c)
 								if k := keymap.First(key); k != "" {
 									widgets.Keycap(c, k)
 								}
 							})
 							ui.Text(c, title).Bold()
-							ui.Text(c, detail).FontSize(12).TextColor(pal.Muted)
+							ui.Text(c, detail).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 						})
 					})
 					if b.Clicked() {
@@ -974,71 +1015,168 @@ func (a *App) welcome(c *ui.Context) {
 				card(widgets.IconFolder, "Add a project folder", "A Git repository's connections and .sql files", keymap.AddFolder, a.addExistingProject)
 			})
 			if !a.settings.TourDone {
-				ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(10, 14).Radius(10).Background(t.Accent.Alpha(0.10)).Children(func() {
-					ui.Icon(c, widgets.IconWand).TextColor(t.Accent).FontSize(16)
+				ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(10, 14).Radius(widgets.RadiusLarge).Background(widgets.TintNotice(t.Accent)).Children(func() {
+					ui.Icon(c, widgets.IconWand).TextColor(t.Accent).FontSize(widgets.IconLarge)
 					ui.Text(c, "New here? A one-minute tour shows how DGopher works.").Grow(1).Shrink(1)
 					if ui.PrimaryButton(c, "Take the Tour").Clicked() {
 						a.startTour()
 					}
 				})
 			}
-			if len(a.conns) > 0 {
-				ui.Column(c).Gap(8).Children(func() {
-					ui.Text(c, "Connections").Bold().TextColor(pal.Muted).FontSize(12)
-					ui.Grid(c).Columns(2).GapX(10).GapY(8).Children(func() {
-						for _, cn := range a.conns {
-							retry := false // its Retry was clicked, not the card
-							row := ui.ButtonBase(c.Key("welcome-"+cn.Config.ID)).Padding(10, 14).Radius(8).Border(1, t.Border).Label("Open " + cn.Config.Name)
-							if row.Hovered() {
-								row.Background(pal.Hover)
-							}
-							row.Children(func() {
-								ui.Row(c).Gap(10).Grow(1).Children(func() {
-									ui.Box(c).Size(4, 32).Radius(2).Background(widgets.EnvColor(&cn.Config))
-									ui.Icon(c, widgets.IconDatabase).TextColor(widgets.EngineColor(cn.Config.Engine)).FontSize(18)
-									ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
-										ui.Text(c, cn.Config.Name).Bold().SingleLine()
-										ui.Text(c, connSummary(&cn.Config)).FontSize(12).TextColor(pal.Muted).SingleLine()
-									})
-									if cn.Status == connection.StatusFailed {
-										why := cmp.Or(cn.ErrKind.Hint(), redact.Secrets(cn.Err))
-										ui.Icon(c, widgets.IconAlert).FontSize(14).TextColor(t.Danger).Tooltip(widgets.FirstLine(why))
-										if ui.Button(c.Key("retry-"+cn.Config.ID), "Retry").Padding(3, 10).FontSize(12).Clicked() {
-											retry = true
-										}
-									}
-									if cn.Config.ReadOnly {
-										ui.Icon(c, widgets.IconLock).FontSize(12).TextColor(pal.Muted)
-									}
-								})
+			a.shortcutTips(c)
+		})
+	})
+}
+
+// home is the start page of a project with connections: what there is
+// to open comes first, the connections and the query files last worked
+// on; how to begin, which a returning user has done, is a row of links.
+func (a *App) home(c *ui.Context) {
+	pal := widgets.PaletteOf(c)
+	ui.Scroll(c).Grow(1).Children(func() {
+		ui.Column(c).Padding(32, 48).Gap(24).MaxWidth(860).Children(func() {
+			a.connectionCards(c)
+			if recent := a.recentQueries(recentQueryCount); len(recent) > 0 {
+				ui.Column(c).Gap(4).Children(func() {
+					ui.Text(c, "Recent Queries").Bold().TextColor(pal.Muted).FontSize(widgets.TextSmall).Padding(0, 0, 4, 0)
+					for _, r := range recent {
+						row := widgets.RowButton(c.Key("recent-"+r.project.Prefix+r.file), "Open "+r.file, false)
+						row.Children(func() {
+							ui.Row(c).Gap(8).Grow(1).AlignItems(ui.Center).Children(func() {
+								ui.Icon(c, widgets.IconFile).FontSize(widgets.IconMedium).TextColor(pal.Muted)
+								ui.Text(c, r.file).SingleLine().Shrink(1)
+								ui.Spacer(c)
+								if r.conn != "" {
+									ui.Text(c, r.conn).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine()
+								}
+								ui.Text(c, widgets.RelativeTime(a.Now().Sub(r.mod))).FontSize(widgets.TextSmall).TextColor(pal.Muted).Width(96).TextAlign(ui.End)
 							})
-							if retry {
-								a.Connect(cn, nil)
-							} else if row.Clicked() {
-								a.NewQueryTab(cn, "", "") // the key browser for a key-value engine
+						})
+						if row.Clicked() {
+							a.openQueryFile(r.project, r.file, nil)
+						}
+					}
+				})
+			}
+			ui.Row(c).Gap(8).Wrap().AlignItems(ui.Center).Children(func() {
+				if ui.Button(c, "New Connection…").Tooltip(keymap.Hint("A server or a file", keymap.NewConnection)).Clicked() {
+					a.openConnForm(nil)
+				}
+				if ui.Button(c, "Paste a URL…").Tooltip("postgres://, mysql://, redis://…").Clicked() {
+					a.openConnForm(nil)
+					if a.connForm != nil {
+						a.connForm.urlFocus = true
+					}
+				}
+				if ui.Button(c, "Add Existing Folder…").Tooltip(keymap.Hint("A Git repository's connections and .sql files", keymap.AddFolder)).Clicked() {
+					a.addExistingProject()
+				}
+				if !a.settings.TourDone && ui.Link(c, "Take the Tour", "").Clicked() {
+					a.startTour()
+				}
+			})
+			a.shortcutTips(c)
+		})
+	})
+}
+
+// recentQueryCount is how many query files the start page lists.
+const recentQueryCount = 6
+
+// recentQuery is a query file of a project, with the connection it names
+// and when it last changed.
+type recentQuery struct {
+	project *project.Project
+	file    string
+	conn    string
+	mod     time.Time
+}
+
+// recentQueries are the n query files last changed, of every project,
+// the latest first.
+func (a *App) recentQueries(n int) []recentQuery {
+	var all []recentQuery
+	for _, p := range a.projects {
+		for _, f := range p.Files {
+			fc := p.FileConnections[f]
+			r := recentQuery{project: p, file: f, mod: fc.Mod}
+			if cn := a.connByID(p.Prefix + fc.ID); cn != nil {
+				r.conn = cn.Config.Name
+			}
+			all = append(all, r)
+		}
+	}
+	slices.SortStableFunc(all, func(x, y recentQuery) int { return y.mod.Compare(x.mod) })
+	return all[:min(n, len(all))]
+}
+
+// connectionCards are the start page's connections, each a card that
+// opens an editor on it, or the key browser of a key-value engine.
+func (a *App) connectionCards(c *ui.Context) {
+	pal := widgets.PaletteOf(c)
+	t := c.Theme()
+	ui.Column(c).Gap(8).Children(func() {
+		ui.Text(c, "Connections").Bold().TextColor(pal.Muted).FontSize(widgets.TextSmall)
+		ui.Grid(c).Columns(2).GapX(10).GapY(8).Children(func() {
+			for _, cn := range a.conns {
+				retry := false // its Retry was clicked, not the card
+				row := ui.ButtonBase(c.Key("welcome-"+cn.Config.ID)).Padding(10, 14).Radius(widgets.RadiusLarge).Border(1, t.Border).Label("Open " + cn.Config.Name)
+				if row.Hovered() {
+					row.Background(pal.Hover)
+				}
+				row.Children(func() {
+					ui.Row(c).Gap(10).Grow(1).Children(func() {
+						// The environment's color down the card's side, which
+						// tells production at a glance, then the connection's
+						// mark as the navigator has it: its engine, gray until
+						// it is open, and its dot.
+						ui.Box(c).Size(4, 32).Radius(2).Background(widgets.EnvColor(&cn.Config))
+						widgets.ConnBadge(c, cn, t.Background)
+						ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
+							ui.Text(c, cn.Config.Name).Bold().SingleLine()
+							ui.Text(c, connSummary(&cn.Config)).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine()
+						})
+						if cn.Status == connection.StatusFailed {
+							why := cmp.Or(cn.ErrKind.Hint(), redact.Secrets(cn.Err))
+							ui.Icon(c, widgets.IconAlert).FontSize(widgets.IconMedium).TextColor(t.Danger).Tooltip(widgets.FirstLine(why))
+							if ui.Button(c.Key("retry-"+cn.Config.ID), "Retry").Padding(3, 10).FontSize(widgets.TextSmall).Clicked() {
+								retry = true
 							}
+						}
+						if cn.Config.ReadOnly {
+							ui.Icon(c, widgets.IconLock).FontSize(widgets.IconSmall).TextColor(pal.Muted)
 						}
 					})
 				})
+				if retry {
+					a.Connect(cn, nil)
+				} else if row.Clicked() {
+					a.NewQueryTab(cn, "", "") // the key browser for a key-value engine
+				}
 			}
-			ui.Row(c).Gap(16).Wrap().Children(func() {
-				tip := func(keys, what string) {
-					if keys == "" {
-						return // its key taken away
-					}
-					ui.Row(c).Gap(6).Children(func() {
-						widgets.Keycap(c, keys)
-						ui.Text(c, what).FontSize(12.5).TextColor(pal.Muted)
-					})
-				}
-				tip(keymap.First(keymap.Palette), "every command")
-				tip(keymap.First(keymap.OpenTable), "open a table")
-				tip(keymap.First(keymap.Run), "run")
-				if ui.Link(c, keymap.Hint("All shortcuts", keymap.ShortcutsList), "").FontSize(12.5).Clicked() {
-					a.shortcutsOpen = true
-				}
-			})
 		})
+	})
+}
+
+// shortcutTips are the keys worth knowing first, under the start page.
+func (a *App) shortcutTips(c *ui.Context) {
+	pal := widgets.PaletteOf(c)
+	ui.Row(c).Gap(16).Wrap().Children(func() {
+		tip := func(keys, what string) {
+			if keys == "" {
+				return // its key taken away
+			}
+			ui.Row(c).Gap(6).Children(func() {
+				widgets.Keycap(c, keys)
+				ui.Text(c, what).FontSize(widgets.TextBody).TextColor(pal.Muted)
+			})
+		}
+		tip(keymap.First(keymap.Palette), "every command")
+		tip(keymap.First(keymap.OpenTable), "open a table")
+		tip(keymap.First(keymap.Run), "run")
+		if ui.Link(c, keymap.Hint("All shortcuts", keymap.ShortcutsList), "").FontSize(widgets.TextBody).Clicked() {
+			a.shortcutsOpen = true
+		}
 	})
 }
 
@@ -1136,7 +1274,7 @@ func (a *App) connectionStatus(c *ui.Context, tab widgets.Tab, groups []connPlac
 	pal := widgets.PaletteOf(c)
 	switch len(groups) {
 	case 0:
-		ui.Text(c, "No connection").FontSize(12).TextColor(pal.Muted)
+		ui.Text(c, "No connection").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 		ui.Spacer(c)
 		return
 	case 1:
@@ -1149,7 +1287,7 @@ func (a *App) connectionStatus(c *ui.Context, tab widgets.Tab, groups []connPlac
 	cn := g.conn
 	connBadge(c, cn)
 	if w := g.where(); w != "" {
-		ui.Text(c, "· "+w).FontSize(12).TextColor(pal.Muted).SingleLine()
+		ui.Text(c, "· "+w).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine()
 	}
 	status := "disconnected"
 	if !a.Online() && !cn.Config.Engine.IsFile() {
@@ -1171,16 +1309,16 @@ func (a *App) connectionStatus(c *ui.Context, tab widgets.Tab, groups []connPlac
 	}
 	if status != "" {
 		// The first to give way as the group narrows.
-		ui.Text(c, status).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1).MinWidth(0).ContentTransition(ui.ContentTransition{})
+		ui.Text(c, status).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Shrink(1).MinWidth(0).ContentTransition(ui.ContentTransition{})
 	}
 	if cn.Config.ReadOnly {
 		ui.Row(c).Gap(4).Children(func() {
-			ui.Icon(c, widgets.IconLock).FontSize(11)
-			ui.Text(c, "read-only").FontSize(12)
+			ui.Icon(c, widgets.IconLock).FontSize(widgets.IconSmall)
+			ui.Text(c, "read-only").FontSize(widgets.TextSmall)
 		})
 	}
 	if cn.Config.SSH.Enabled {
-		ui.Text(c, "SSH "+cn.Config.SSH.Host).FontSize(12).TextColor(pal.Muted)
+		ui.Text(c, "SSH "+cn.Config.SSH.Host).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 	}
 	ui.Spacer(c)
 	// After the spacer, Cancel moves nothing as it comes and goes.
@@ -1191,16 +1329,16 @@ func (a *App) connectionStatus(c *ui.Context, tab widgets.Tab, groups []connPlac
 	case *query.Tab:
 		switch tb.Tx {
 		case db.TxOpen:
-			widgets.Appear(ui.Text(c.Key("transaction-state"), "● transaction open").FontSize(12).TextColor(t.Warning).ContentTransition(ui.ContentTransition{}))
+			widgets.Appear(ui.Text(c.Key("transaction-state"), "● transaction open").FontSize(widgets.TextSmall).TextColor(t.Warning).ContentTransition(ui.ContentTransition{}))
 		case db.TxFailed:
-			widgets.Appear(ui.Text(c.Key("transaction-state"), "● transaction failed").FontSize(12).TextColor(t.Danger).ContentTransition(ui.ContentTransition{}))
+			widgets.Appear(ui.Text(c.Key("transaction-state"), "● transaction failed").FontSize(widgets.TextSmall).TextColor(t.Danger).ContentTransition(ui.ContentTransition{}))
 		}
 	}
 	if cn.Config.Engine.Transactions() {
 		if cn.Config.ManualCommit() {
-			ui.Text(c, "manual commit").FontSize(12).TextColor(pal.Muted).Tooltip("Writes open a transaction that you commit or roll back")
+			ui.Text(c, "manual commit").FontSize(widgets.TextSmall).TextColor(pal.Muted).Tooltip("Writes open a transaction that you commit or roll back")
 		} else {
-			ui.Text(c, "auto-commit").FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, "auto-commit").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 		}
 	}
 }
@@ -1216,7 +1354,7 @@ func (a *App) connChips(c *ui.Context, tab widgets.Tab, groups []connPlaces) {
 	pal := widgets.PaletteOf(c)
 	shown := groups[:min(maxChips, len(groups))]
 	for _, g := range shown {
-		chip := ui.ButtonBase(c).Padding(1, 4).Radius(4).Label(g.label()).Tooltip(placesTooltip([]connPlaces{g}))
+		chip := ui.ButtonBase(c).Padding(1, 4).Radius(widgets.RadiusSmall).Label(g.label()).Tooltip(placesTooltip([]connPlaces{g}))
 		if chip.Hovered() {
 			chip.Background(pal.Hover)
 		}
@@ -1230,7 +1368,7 @@ func (a *App) connChips(c *ui.Context, tab widgets.Tab, groups []connPlaces) {
 				}
 				connName(c, g.conn)
 				if w := g.where(); w != "" {
-					ui.Text(c, "· "+w).FontSize(12).TextColor(pal.Muted).SingleLine()
+					ui.Text(c, "· "+w).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine()
 				}
 			})
 		})
@@ -1238,8 +1376,8 @@ func (a *App) connChips(c *ui.Context, tab widgets.Tab, groups []connPlaces) {
 	}
 	if rest := groups[len(shown):]; len(rest) > 0 {
 		label := fmt.Sprintf("+%d more", len(rest))
-		more := ui.ButtonBase(c).Padding(1, 6).Radius(4).Label(label).Tooltip(placesTooltip(rest))
-		more.Children(func() { ui.Text(c, label).FontSize(12).TextColor(pal.Muted) })
+		more := ui.ButtonBase(c).Padding(1, 6).Radius(widgets.RadiusSmall).Label(label).Tooltip(placesTooltip(rest))
+		more.Children(func() { ui.Text(c, label).FontSize(widgets.TextSmall).TextColor(pal.Muted) })
 		more.Menu(func(m *ui.Menu) {
 			for _, g := range rest {
 				m.Submenu(g.label()+" — "+connStateText(g.conn), func(m *ui.Menu) { a.connMenu(m, tab, g) })
@@ -1289,14 +1427,14 @@ func connBadge(c *ui.Context, cn *connection.Conn) {
 
 // envBadge names a connection's environment in its color.
 func envBadge(c *ui.Context, cn *connection.Conn) {
-	ui.Row(c).Gap(5).Padding(1, 8).Radius(4).Background(widgets.LabelFill(widgets.EnvironmentColor(cn.Config.Env))).Children(func() {
-		ui.Text(c, cn.Config.Env.Label()).FontSize(11).Bold().TextColor(ui.RGB(255, 255, 255))
+	ui.Row(c).Gap(5).Padding(1, 8).Radius(widgets.RadiusSmall).Background(widgets.LabelFill(widgets.EnvironmentColor(cn.Config.Env))).Children(func() {
+		ui.Text(c, cn.Config.Env.Label()).FontSize(widgets.TextMeta).Bold().TextColor(ui.RGB(255, 255, 255))
 	})
 }
 
 // connName is a connection's name as the status bar shows it.
 func connName(c *ui.Context, cn *connection.Conn) {
-	ui.Text(c, cn.Config.Name).FontSize(12).Bold()
+	ui.Text(c, cn.Config.Name).FontSize(widgets.TextSmall).Bold()
 }
 
 // tabKey identifies a tab among the elements of the frame.

@@ -2,6 +2,7 @@ package dataview
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/hex"
 	"encoding/xml"
 	"errors"
@@ -44,14 +45,16 @@ type refRows struct {
 // takes the grid's place.
 func (g *Grid) panelsView(c *ui.Context, a Host, src *Source, order []int) {
 	th := c.Theme()
-	col := ui.Column(c).BorderWidth(0, 0, 0, 1).BorderColor(th.Border)
+	// The edge comes before the panel it sizes, between it and the grid.
+	var col ui.Element
 	if g.panelMax {
-		col.Grow(1)
+		col = ui.Column(c).Grow(1).BorderWidth(0, 0, 0, 1).BorderColor(th.Border)
 	} else {
-		col.Width(360)
+		w := g.panelEdge(c, a)
+		col = ui.Column(c).Width(w)
 	}
 	col.Children(func() {
-		ui.Row(c).Padding(4, 6).Gap(4).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(4).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			name := panelNames[g.panel]
 			if ui.Select(c, &name, panelNames).Label("Panel").Grow(1).Changed() {
 				g.panel = slices.Index(panelNames, name)
@@ -86,6 +89,38 @@ func (g *Grid) panelsView(c *ui.Context, a Host, src *Source, order []int) {
 			g.referencesPanel(c, a, row)
 		}
 	})
+}
+
+// The panel's width: as it starts, and the least and the most a drag
+// gives it, the most leaving the grid this much.
+const (
+	panelWidth    = 360
+	panelMinWidth = 260
+	gridMinWidth  = 240
+)
+
+// panelEdge is the line between the grid and its panel, dragged to make
+// the panel wider or narrower, every grid's alike; it returns the panel's
+// width. A long value, a JSON document or a column's profile needs more
+// than the width it starts with, a narrow window less.
+func (g *Grid) panelEdge(c *ui.Context, a Host) float32 {
+	th := c.Theme()
+	l := a.Layout()
+	w := cmp.Or(l.GridPanelWidth, panelWidth)
+	edge := ui.Box(c.Key("panel-edge")).Width(5).Cursor(ui.CursorResizeEW).Label("Panel width").Tooltip("Drag to resize the panel")
+	if dx, _, ok := edge.Dragged(); ok && dx != 0 {
+		// The grid's width as last drawn, and the panel's, are what there
+		// is to share.
+		most := max(panelMinWidth, g.viewW+w-gridMinWidth)
+		w = min(max(w-dx, panelMinWidth), most)
+		l.GridPanelWidth = w
+	}
+	line := th.Border
+	if edge.Hovered() || edge.Pressed() {
+		line = th.Accent
+	}
+	edge.Draw(func(p *ui.Painter, r ui.Rect) { p.Fill(ui.Rect{X: r.X + 2, Y: r.Y, W: 1, H: r.H}, line, 0) })
+	return w
 }
 
 // valuePanel shows the whole value of the chosen cell, in the viewer its
@@ -143,7 +178,7 @@ func (g *Grid) valuePanel(c *ui.Context, a Host, src *Source, row int) {
 		}
 	}
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Row(c).Padding(6, 8).Gap(6).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(6).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Text(c, src.Cols[g.selCol].Name).Bold().SingleLine().Grow(1).Shrink(1)
 			viewers := []string{"Text", "JSON", "XML", "Hex"}
 			if g.bitmap != nil {
@@ -169,11 +204,11 @@ func (g *Grid) valuePanel(c *ui.Context, a Host, src *Source, row int) {
 			el, _ := area.View(c, &text)
 			el.Grow(1)
 		}
-		ui.Row(c).Padding(6, 8).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+		ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 			if widgets.IconButton(c, widgets.IconCopy, "Copy the value").Clicked() {
 				a.WriteClipboard(text)
 			}
-			if widgets.IconButton(c, widgets.IconDownload, "Save the value to a file…").Disabled(v == nil).Clicked() {
+			if widgets.Clicked(widgets.IconButton(c, widgets.IconDownload, "Save the value to a file…"), widgets.When(v == nil, "The value is NULL")) {
 				data := raw
 				if data == nil {
 					data = []byte(db.Display(v))
@@ -367,7 +402,7 @@ func (g *Grid) calcPanel(c *ui.Context, src *Source) {
 			line := func(k, v string) {
 				ui.Row(c).Gap(8).AlignItems(ui.Baseline).Children(func() {
 					ui.Text(c, k).TextColor(pal.Muted).Width(110)
-					ui.Text(c, v).Font(widgets.MonoFont).FontSize(12.5).Selectable()
+					ui.Text(c, v).Font(widgets.MonoFont).FontSize(widgets.TextBody).Selectable()
 				})
 			}
 			for _, s := range stats {
@@ -387,7 +422,7 @@ func (g *Grid) calcPanel(c *ui.Context, src *Source) {
 					line("Most frequent", fmt.Sprintf("%s (%d)", cellText(s.mode, 40), s.modeCount))
 				}
 			}
-			ui.Text(c, "Choose cells with a click or a drag: ⇧ extends, ⌘ adds rows.").FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, "Choose cells with a click or a drag: ⇧ extends, ⌘ adds rows.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 		})
 	})
 }
@@ -398,11 +433,11 @@ func (g *Grid) metadataPanel(c *ui.Context, src *Source) {
 		ui.Column(c).Padding(8, 10).Gap(4).Children(func() {
 			for i, col := range src.Cols {
 				ui.Row(c).Gap(8).Children(func() {
-					ui.Text(c, fmt.Sprint(i+1)).FontSize(11).TextColor(pal.Muted).Width(24)
+					ui.Text(c, fmt.Sprint(i+1)).FontSize(widgets.TextMeta).TextColor(pal.Muted).Width(24)
 					ui.Text(c, col.Name).Bold().SingleLine().Shrink(1)
-					ui.Text(c, col.Type).FontSize(12).TextColor(pal.Muted).SingleLine()
+					ui.Text(c, col.Type).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine()
 					if g.keyCols[i] {
-						ui.Icon(c, widgets.IconKey).FontSize(11).TextColor(c.Theme().Warning)
+						ui.Icon(c, widgets.IconKey).FontSize(widgets.IconSmall).TextColor(c.Theme().Warning)
 					}
 				})
 			}
@@ -436,8 +471,8 @@ func (g *Grid) groupingPanel(c *ui.Context, a Host, src *Source) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Row(c).Padding(6, 8).Gap(6).Wrap().BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-			ui.Text(c, "Group by").FontSize(12).TextColor(pal.Muted)
+		ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(6).Wrap().BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+			ui.Text(c, "Group by").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			for i, col := range src.Cols {
 				on := slices.Contains(g.groupCols, i)
 				if widgets.Pill(c, col.Name, on).Clicked() {
@@ -459,7 +494,7 @@ func (g *Grid) groupingPanel(c *ui.Context, a Host, src *Source) {
 			if g.groupServer {
 				label = "Counted on the server, over the whole table"
 			}
-			ui.Text(c, label).FontSize(12).TextColor(pal.Muted).Grow(1)
+			ui.Text(c, label).FontSize(widgets.TextSmall).TextColor(pal.Muted).Grow(1)
 			if g.groupOnServer != nil && ui.Button(c, "Group on the Server").Clicked() {
 				cols := slices.Clone(g.groupCols)
 				g.groupOnServer(cols, func(rows []groupRow, err error) {
@@ -489,7 +524,7 @@ func (g *Grid) groupingPanel(c *ui.Context, a Host, src *Source) {
 							}
 						}
 						ui.Text(c, strings.Join(parts, " · ")).SingleLine().Grow(1).Shrink(1)
-						ui.Text(c, fmt.Sprint(gr.count)).Font(widgets.MonoFont).FontSize(12).TextColor(pal.Muted)
+						ui.Text(c, fmt.Sprint(gr.count)).Font(widgets.MonoFont).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 					})
 				}
 			})
@@ -536,7 +571,7 @@ func (g *Grid) referencesPanel(c *ui.Context, a Host, row int) {
 				ui.Column(c).Gap(4).Children(func() {
 					ui.Row(c).Gap(8).Children(func() {
 						ui.Text(c, fmt.Sprintf("%s (%d rows)", r.title, len(r.rows))).Bold().Grow(1).Shrink(1).SingleLine()
-						if ui.Link(c, "Open", "").FontSize(12).Clicked() {
+						if ui.Link(c, "Open", "").FontSize(widgets.TextSmall).Clicked() {
 							r.open()
 						}
 					})
@@ -547,7 +582,7 @@ func (g *Grid) referencesPanel(c *ui.Context, a Host, row int) {
 					mini := NewGrid()
 					text := mini.plainText(a, &src, mini.ViewOrder(&src), 50)
 					ui.ScrollHorizontal(c).Children(func() {
-						ui.Text(c, text).Font(widgets.MonoFont).FontSize(11).Selectable().NoWrap()
+						ui.Text(c, text).Font(widgets.MonoFont).FontSize(widgets.TextMeta).Selectable().NoWrap()
 					})
 				})
 			}

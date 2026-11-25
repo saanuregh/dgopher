@@ -5,15 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"math/big"
 	"slices"
 	"strconv"
 	"strings"
 
 	"dgopher/internal/db"
-	"dgopher/internal/keymap"
 	"dgopher/internal/project"
-	"dgopher/internal/settings"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -179,43 +178,16 @@ func formatMenu(a Host, m *ui.Menu) {
 		m.Separator()
 		choose("NULL as NULL", &f.NullText, "")
 		choose("NULL as [NULL]", &f.NullText, "[NULL]")
-		m.Separator()
-		if keymap.Item(m.Item("Zoom In"), keymap.GridZoomIn).Chosen() {
-			stepGridFont(a, 1)
-		}
-		if keymap.Item(m.Item("Zoom Out"), keymap.GridZoomOut).Chosen() {
-			stepGridFont(a, -1)
-		}
-		if keymap.Item(m.Item("Actual Size"), keymap.GridZoomReset).Chosen() {
-			stepGridFont(a, 0)
-		}
 		if changed {
 			a.SaveSettings()
 		}
 	})
 }
 
-// stepGridFont makes the grids' text, of every tab, a size larger, or
-// smaller for a negative step; 0 puts it back at its default.
-func stepGridFont(a Host, step int) {
-	s := a.Settings()
-	size := float32(0)
-	if step != 0 {
-		size = min(max(s.GridFontSize()+float32(step), settings.MinFontSize), settings.MaxGridFont)
-	}
-	if size != s.GridFont {
-		s.GridFont = size
-		a.SaveSettings()
-	}
-}
-
-// zoom sets the grids' font size, of every tab, as a pinch zooms it.
-func (g *Grid) zoom(a Host, scale float32) {
-	s := a.Settings()
-	if size, ok := g.fontPinch.Zoom(s.GridFontSize(), scale, settings.MinFontSize, settings.MaxGridFont); ok {
-		s.GridFont = size
-		a.SaveSettings()
-	}
+// RowHeight is how tall a grid's rows are with text of a size: a row of
+// DBeaver's, 22 high, at the default one.
+func RowHeight(fontSize float32) float32 {
+	return float32(math.Round(float64(fontSize) * 1.7))
 }
 
 // colorRule colors the rows whose column holds a value.
@@ -323,6 +295,33 @@ func RenameConnection(p *project.Project, old, new string) error {
 		changed := false
 		rekey(slices.Collect(maps.Keys(all)), func(from, to string) { all[to] = all[from]; delete(all, from); changed = true })
 		if changed {
+			errs = append(errs, p.Local.SaveJSON(name, all))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// ForgetConnection drops a project's settings of a deleted connection's
+// tables, which RenameConnection moves: left, they would be those of a new
+// connection given its ID. The project's file is the caller's to save.
+func ForgetConnection(p *project.Project, id string) error {
+	gone := func(key string) bool { return strings.HasPrefix(key, id+"/") }
+	for _, m := range []map[string][]string{p.VirtualKeys, p.HiddenValues} {
+		maps.DeleteFunc(m, func(key string, _ []string) bool { return gone(key) })
+	}
+	if p.Local == nil {
+		return nil
+	}
+	defer paramsVersion.Add(1)
+	var errs []error
+	for _, name := range []string{filterHistoryFile, rowColorsFile, queryParamsFile} {
+		var all map[string]json.RawMessage
+		if err := p.Local.LoadJSON(name, &all); err != nil || all == nil {
+			continue
+		}
+		before := len(all)
+		maps.DeleteFunc(all, func(key string, _ json.RawMessage) bool { return gone(key) })
+		if len(all) != before {
 			errs = append(errs, p.Local.SaveJSON(name, all))
 		}
 	}

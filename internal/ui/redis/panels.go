@@ -88,7 +88,7 @@ func (r *Tab) panelView(c *ui.Context) {
 	}
 	ui.Column(c).Fill().Background(pal.EditorBg).Children(func() {
 		widgets.Bar(c, "Panels", func() {
-			ui.Segmented(c, &r.panel, "Console", "Monitor", "Slow Log", "Memory", "Pub/Sub", "Search").Label("Panel").FontSize(widgets.ToolFontSize)
+			ui.Segmented(c, &r.panel, "Console", "Monitor", "Slow Log", "Memory", "Pub/Sub", "Search").Label("Panel").FontSize(widgets.TextBody)
 			ui.Spacer(c)
 			if r.panel >= 0 && r.panel < len(panels) {
 				panels[r.panel].actions(c)
@@ -152,7 +152,7 @@ func (r *Tab) monitorActions(c *ui.Context) {
 	m := &r.monitor
 	pal := widgets.PaletteOf(c)
 	if m.cancel != nil {
-		ui.Text(c, widgets.Count(len(m.lines), "command")).FontSize(12).TextColor(pal.Muted)
+		ui.Text(c, widgets.Count(len(m.lines), "command")).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 	}
 	label := "Start"
 	if m.cancel != nil {
@@ -165,7 +165,7 @@ func (r *Tab) monitorActions(c *ui.Context) {
 			r.startMonitor()
 		}
 	}
-	if ui.Link(c, "Clear", "").FontSize(12).Clicked() {
+	if ui.Link(c, "Clear", "").FontSize(widgets.TextSmall).Clicked() {
 		m.lines = nil
 	}
 }
@@ -184,7 +184,7 @@ func (r *Tab) monitorView(c *ui.Context) {
 		}
 		if m.cancel == nil && len(m.lines) == 0 {
 			ui.Text(c, "Start shows each command the server runs as it runs it, from every client. It slows a busy server while it watches.").
-				FontSize(12.5).TextColor(pal.Muted).Padding(8, 12)
+				FontSize(widgets.TextBody).TextColor(pal.Muted).Padding(8, 12)
 			return
 		}
 		ownDB := cmp.Or(r.conn.Config.Database, "0")
@@ -199,13 +199,13 @@ func (r *Tab) monitorView(c *ui.Context) {
 		ui.List(c, &m.list, len(shown), func(i int) {
 			l := m.lines[shown[i]]
 			ui.Row(c).Padding(1, 12).Gap(10).Children(func() {
-				ui.Text(c, l.At.Format("15:04:05.000")).Font(widgets.MonoFont).FontSize(11.5).TextColor(pal.Muted)
+				ui.Text(c, l.At.Format("15:04:05.000")).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted)
 				where := l.Client
 				if m.allDBs {
 					where = "db" + l.DB + " " + where
 				}
-				ui.Text(c, where).FontSize(11.5).TextColor(pal.Muted).Width(170).SingleLine()
-				ui.Text(c, l.Command).Font(widgets.MonoFont).FontSize(12).SingleLine().Grow(1).Shrink(1).Selectable()
+				ui.Text(c, where).FontSize(widgets.TextMeta).TextColor(pal.Muted).Width(170).SingleLine()
+				ui.Text(c, l.Command).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine().Grow(1).Shrink(1).Selectable()
 			})
 		}).Grow(1).Label("Commands monitored")
 	})
@@ -223,10 +223,10 @@ func (r *Tab) loadSlowLog() {
 }
 
 func (r *Tab) slowLogActions(c *ui.Context) {
-	if ui.Link(c, "Refresh", "").FontSize(12).Clicked() {
+	if ui.Link(c, "Refresh", "").FontSize(widgets.TextSmall).Clicked() {
 		r.loadSlowLog()
 	}
-	if !r.conn.Config.ReadOnly && ui.Link(c, "Reset", "").FontSize(12).Clicked() {
+	if !r.conn.Config.ReadOnly && ui.Link(c, "Reset", "").FontSize(widgets.TextSmall).Clicked() {
 		r.resetSlowLog()
 	}
 }
@@ -277,7 +277,7 @@ func (r *Tab) slowLogView(c *ui.Context) {
 		return
 	}
 	if !s.loading && len(s.entries) == 0 {
-		ui.Text(c, "No command ran slower than the server's slowlog-log-slower-than.").FontSize(12.5).TextColor(pal.Muted).Padding(8, 12)
+		ui.Text(c, "No command ran slower than the server's slowlog-log-slower-than.").FontSize(widgets.TextBody).TextColor(pal.Muted).Padding(8, 12)
 		return
 	}
 	cols := []ui.TableColumn{{Title: "Took", Width: 90, Align: ui.End}, {Title: "When", Width: 150}, {Title: "Command"}, {Title: "Client", Width: 200}}
@@ -297,7 +297,7 @@ func (r *Tab) slowLogView(c *ui.Context) {
 		case 3:
 			text = e.Client
 		}
-		ui.Text(c, text).Font(widgets.MonoFont).FontSize(12).SingleLine()
+		ui.Text(c, text).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine()
 	}).Grow(1).Label("Slow commands")
 }
 
@@ -341,7 +341,7 @@ func (r *Tab) memoryActions(c *ui.Context) {
 	m := &r.memory
 	pal := widgets.PaletteOf(c)
 	if m.cancel != nil {
-		ui.Text(c, widgets.HumanCount(m.read)+" keys read").FontSize(12).TextColor(pal.Muted)
+		ui.Text(c, widgets.HumanCount(m.read)+" keys read").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 		if widgets.StatusButton(c.Key("analyse-run"), "Stop").Clicked() {
 			m.cancel()
 		}
@@ -368,7 +368,7 @@ func (r *Tab) memoryView(c *ui.Context) {
 	if rep == nil {
 		if m.cancel == nil {
 			ui.Text(c, "Analyse reads each key's type, size and TTL, as SCAN finds them, and sums them: the largest keys, the namespaces before the key separator, and when keys expire.").
-				FontSize(12.5).TextColor(pal.Muted).Padding(8, 12)
+				FontSize(widgets.TextBody).TextColor(pal.Muted).Padding(8, 12)
 		}
 		return
 	}
@@ -383,10 +383,10 @@ func (r *Tab) memoryView(c *ui.Context) {
 		summary := fmt.Sprintf("%s of %s keys read, taking %s. %s expire: %s within an hour, %s within a day, %s within a week, %s later.",
 			widgets.HumanCount(rep.Keys), widgets.HumanCount(rep.Total), widgets.HumanBytes(rep.Memory), widgets.HumanCount(rep.Expiring),
 			widgets.HumanCount(w[0]), widgets.HumanCount(w[1]), widgets.HumanCount(w[2]), widgets.HumanCount(w[3]))
-		ui.Text(c, summary).FontSize(12.5)
+		ui.Text(c, summary).FontSize(widgets.TextBody)
 		ui.Row(c).Grow(1).Gap(12).AlignItems(ui.Stretch).Children(func() {
 			ui.Column(c).Grow(2).Gap(4).Children(func() {
-				ui.Text(c, "Largest keys").FontSize(12).Bold()
+				ui.Text(c, "Largest keys").FontSize(widgets.TextSmall).Bold()
 				m.largest.Selected = &m.row
 				cols := []ui.TableColumn{{Title: "Key"}, {Title: "Type", Width: 60}, {Title: "Size", Width: 80, Align: ui.End}, {Title: "TTL", Width: 90, Align: ui.End}}
 				t := ui.Table(c, &m.largest, cols, len(rep.Largest), func(row, col int) {
@@ -403,14 +403,14 @@ func (r *Tab) memoryView(c *ui.Context) {
 							text = k.TTL.Round(time.Second).String()
 						}
 					}
-					ui.Text(c, text).Font(widgets.MonoFont).FontSize(12).SingleLine()
+					ui.Text(c, text).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine()
 				}).Grow(1).Label("Largest keys")
 				if t.Changed() && m.row >= 0 && m.row < len(rep.Largest) {
 					r.open(rep.Largest[m.row].Key)
 				}
 			})
 			ui.Column(c).Grow(1).Gap(4).Children(func() {
-				ui.Text(c, "Namespaces").FontSize(12).Bold()
+				ui.Text(c, "Namespaces").FontSize(widgets.TextSmall).Bold()
 				cols := []ui.TableColumn{{Title: "Prefix"}, {Title: "Keys", Width: 70, Align: ui.End}, {Title: "Size", Width: 80, Align: ui.End}, {Title: "Share", Width: 60, Align: ui.End}}
 				ui.Table(c, &m.spaces, cols, len(rep.Namespaces), func(row, col int) {
 					ns := rep.Namespaces[row]
@@ -427,9 +427,9 @@ func (r *Tab) memoryView(c *ui.Context) {
 					case col == 3:
 						text = share(ns.Memory)
 					}
-					ui.Text(c, text).Font(widgets.MonoFont).FontSize(12).SingleLine()
+					ui.Text(c, text).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine()
 				}).Grow(1).Label("Namespaces")
-				ui.Text(c, "Types").FontSize(12).Bold()
+				ui.Text(c, "Types").FontSize(widgets.TextSmall).Bold()
 				types := m.byType
 				cols = []ui.TableColumn{{Title: "Type"}, {Title: "Keys", Width: 70, Align: ui.End}, {Title: "Size", Width: 80, Align: ui.End}, {Title: "Share", Width: 60, Align: ui.End}}
 				ui.Table(c, &m.types, cols, len(types), func(row, col int) {
@@ -443,7 +443,7 @@ func (r *Tab) memoryView(c *ui.Context) {
 					case 3:
 						text = share(sum.Memory)
 					}
-					ui.Text(c, text).Font(widgets.MonoFont).FontSize(12).SingleLine()
+					ui.Text(c, text).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine()
 				}).Height(150).Label("Types")
 			})
 		})

@@ -107,3 +107,10 @@ func applyEdits(t *testing.T, a *fakeQueryHost, tt *ui.Tester) {
 	a.Confirm.OnConfirm()
 	a.Confirm = nil
 }
+
+// commitOffered reports whether the toolbar's Commit can be pressed: a
+// transaction is open, and shows as one.
+func commitOffered(tt *ui.Tester) bool {
+	commit, ok := tt.Access("Commit")
+	return ok && !commit.Disabled
+}

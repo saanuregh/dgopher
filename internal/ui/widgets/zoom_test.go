@@ -8,30 +8,31 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// A pinch's small scales add up to whole sizes, kept within the bounds,
-// and a size changed another way starts the pinch over from it.
-func TestFontPinch(t *testing.T) {
-	var p widgets.FontPinch
-	size := float32(13)
-	changes := 0
-	for range 10 {
-		if next, ok := p.Zoom(size, 1.02, 9, 24); ok {
-			size = next
-			changes++
+// A pinch's small scales add up to steps, out larger and in smaller, and
+// what is left of a step is kept for the next pinch.
+func TestZoomStepsOfAPinch(t *testing.T) {
+	var z widgets.ZoomSteps
+	pinch := func(scale float32) int {
+		t.Helper()
+		step, took := z.Step(ui.InputEvent{Kind: ui.InputZoom, Scale: scale})
+		if !took {
+			t.Fatalf("a pinch of %v is not a gesture that zooms", scale)
 		}
+		return step
 	}
-	// 13 × 1.02¹⁰ is 15.85.
-	if size != 16 || changes != 3 {
-		t.Fatalf("pinched out to %v in %d changes, want 16 in 3", size, changes)
+	steps := 0
+	for range 10 {
+		steps += pinch(1.02)
 	}
-	if next, _ := p.Zoom(size, 10, 9, 24); next != 24 {
-		t.Fatalf("pinched past the largest to %v", next)
+	// 1.02 five times is past 1.1: a step each five.
+	if steps != 2 {
+		t.Errorf("ten pinches of 1.02 made %d steps, want 2", steps)
 	}
-	if next, ok := p.Zoom(12, 1.01, 9, 24); ok || next != 12 {
-		t.Fatalf("a size set another way pinched to %v, %v; want 12 kept", next, ok)
+	if got := pinch(0.5); got != -1 {
+		t.Errorf("a pinch in by half made the step %d, want -1", got)
 	}
-	if next, ok := p.Zoom(12.5, 1.01, 9, 22); !ok || next != 13 {
-		t.Fatalf("the grid's default pinched to %v, %v; want 13", next, ok)
+	if step, took := z.Step(ui.InputEvent{Kind: ui.InputKeyDown}); took || step != 0 {
+		t.Errorf("a key is a gesture that zooms: %d, %v", step, took)
 	}
 }
 

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -340,23 +341,20 @@ func (a *App) connFormView(c *ui.Context) {
 	f := a.connForm
 	t := c.Theme()
 	engine := engineByLabel(f.engine)
-	dlg := ui.DialogBase(c, &f.open, func(backdrop, panel ui.Element) {
-		widgets.DialogLook(c, backdrop, panel)
+	dlg := widgets.Dialog(c, &f.open, widgets.DialogMedium, func(panel ui.Element) {
 		_, winH := c.Size()
-		panel.Width(680).Height(min(800, winH-40)).Radius(12).Background(t.Background).Border(1, t.Border).Role(ui.RoleDialog).Label("Connection")
+		panel.Height(min(800, winH-40)).Role(ui.RoleDialog).Label("Connection")
 		title := "New Connection"
 		if f.editing != nil {
 			title = "Edit " + f.editing.Config.Name
 		}
-		ui.Row(c).Padding(16, 20, 8, 20).Children(func() {
-			ui.Text(c, title).FontSize(16).Bold()
-		})
+		widgets.DialogHeader(c, func() { widgets.DialogTitle(c, title) })
 		pages := f.pages(engine)
 		if f.page >= len(pages) {
 			f.page = pageGeneral
 		}
 		labels := lists.Map(pages, f.pageLabel)
-		ui.Row(c).Padding(0, 20).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
+		ui.Row(c).Padding(0, widgets.DialogPad).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 			ui.Tabs(c, &f.page, labels...).Label("Settings")
 		})
 		ui.Scroll(c).Grow(1).Shrink(1).Children(func() {
@@ -371,12 +369,23 @@ func (a *App) connFormView(c *ui.Context) {
 				}
 			}).Padding(12, 20, 12, 20)
 		})
-		ui.Row(c).Padding(12, 20).Gap(8).BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
-			if ui.Button(c, "Test Connection").Disabled(f.testing).Clicked() {
+		// What went wrong, over the buttons: under them it would read as
+		// outside the dialog, and push them up as it came.
+		if why := cmp.Or(widgets.When(!f.testing && !f.testOK, f.testResult), f.err); why != "" {
+			ui.Scroll(c).MaxHeight(140).Shrink(0).Background(widgets.TintNotice(t.Danger)).Children(func() {
+				ui.Row(c).Padding(10, widgets.DialogPad).Gap(8).AlignItems(ui.Start).Children(func() {
+					ui.Icon(c, widgets.IconAlert).TextColor(t.Danger).FontSize(widgets.IconMedium).Margin(2, 0, 0, 0)
+					ui.Text(c, why).Selectable().Grow(1).Shrink(1)
+				})
+			})
+		}
+		widgets.DialogActions(c, func() {
+			test := widgets.BusyButton(c.Key("test"), "Test Connection", "Testing…", f.testing)
+			if widgets.Clicked(test, widgets.When(f.testing, "The test is running")) {
 				a.testConnection(f)
 			}
 			if !f.testing && f.testResult != "" {
-				// A failure shows in full below, to read and copy.
+				// A failure shows in full above, to read and copy.
 				line := widgets.FirstLine(f.testResult)
 				col := t.Danger
 				if f.testOK {
@@ -397,18 +406,10 @@ func (a *App) connFormView(c *ui.Context) {
 			if ui.Button(c, "Save").Clicked() {
 				a.saveConnForm(f, false)
 			}
-			if ui.PrimaryButton(c, "Save and Connect").Clicked() {
+			if widgets.Activated(c, ui.PrimaryButton(c, "Save and Connect")) {
 				a.saveConnForm(f, true)
 			}
 		})
-		if !f.testing && !f.testOK && f.testResult != "" {
-			ui.Scroll(c).MaxHeight(140).Shrink(0).Children(func() {
-				ui.Text(c, f.testResult).TextColor(t.Danger).Selectable().Padding(0, 20, 12, 20)
-			})
-		}
-		if f.err != "" {
-			ui.Text(c, f.err).TextColor(t.Danger).Selectable().Padding(0, 20, 12, 20)
-		}
 	})
 	f.dismiss.Keep(c, dlg, &f.open, f.inputs(), f.testing)
 }
@@ -463,16 +464,19 @@ func (f *connForm) pageLabel(page int) string {
 func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
-	ui.Field(c, "From URL", func() {
-		in := ui.TextInput(c, &f.url).Font(widgets.MonoFont).FontSize(12.5).
-			Placeholder("postgres://user:password@host:5432/db")
-		if f.urlFocus && in.Focus().Focused() {
-			f.urlFocus = false
-		}
-		if in.Submitted() || in.Changed() && strings.Contains(f.url, "://") {
-			a.fillFromURL(f)
-		}
-	}).Description("Paste a postgres://, mysql://, clickhouse:// or redis:// URL, or a database file's path, to fill in the rest.").Error(f.urlErr)
+	// A new connection's shortcut: one being edited is filled in already.
+	if f.editing == nil {
+		ui.Field(c, "From URL", func() {
+			in := ui.TextInput(c, &f.url).Font(widgets.MonoFont).FontSize(widgets.TextBody).
+				Placeholder("postgres://user:password@host:5432/db")
+			if f.urlFocus && in.Focus().Focused() {
+				f.urlFocus = false
+			}
+			if in.Submitted() || in.Changed() && strings.Contains(f.url, "://") {
+				a.fillFromURL(f)
+			}
+		}).Tooltip("Paste a postgres://, mysql://, clickhouse:// or redis:// URL, or a database file's path, to fill in the rest.").Error(f.urlErr)
+	}
 	ui.Field(c, "Engine", func() {
 		choice, choices := f.engine, engineOptions
 		if f.preset != nil {
@@ -496,13 +500,12 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 			ui.Row(c).Gap(6).Children(func() {
 				ui.TextInput(c, &f.id).Font(widgets.MonoFont).Label("ID").Grow(1)
 				fromName := a.idFromName(f.editing.Project, f.cfg.Name, f.editing)
-				b := widgets.IconButton(c, widgets.IconRefresh, "ID from the name").Disabled(fromName == strings.TrimSpace(f.id))
-				b.Tooltip("Make the ID from the name: " + fromName)
-				if b.Clicked() {
+				b := widgets.IconButton(c, widgets.IconRefresh, "ID from the name").Tooltip("Make the ID from the name: " + fromName)
+				if widgets.Clicked(b, widgets.When(fromName == strings.TrimSpace(f.id), "The ID is already the one made from the name")) {
 					f.id = fromName
 				}
 			})
-		}).Description("Query files name the connection by it, in their first lines: -- connection: " + f.id)
+		}).Tooltip("Query files name the connection by it, in their first lines: -- connection: " + f.id)
 	}
 	if engine.IsFile() {
 		ui.Field(c, "File", func() {
@@ -552,7 +555,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 		}).Error(portProblem(f.port, "port"))
 		if more != "" {
 			ui.Field(c, more, func() {
-				ui.TextInput(c, &f.cfg.Redis.Nodes).Placeholder("10.0.0.2:" + strconv.Itoa(port) + ", 10.0.0.3:" + strconv.Itoa(port)).Font(widgets.MonoFont).FontSize(12.5)
+				ui.TextInput(c, &f.cfg.Redis.Nodes).Placeholder("10.0.0.2:" + strconv.Itoa(port) + ", 10.0.0.3:" + strconv.Itoa(port)).Font(widgets.MonoFont).FontSize(widgets.TextBody)
 			}).Description("Any one that answers is enough; more keep the connection working when one is down.")
 		}
 		if mode == db.RedisSentinel {
@@ -587,9 +590,9 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 			// with a dot of theirs; one weight, so nothing moves as the
 			// choice does.
 			seg := ui.SegmentedBase(c, &f.env, 3)
-			seg.Track.Gap(2).Padding(2).Radius(8).Background(t.Surface).Children(func() {
+			seg.Track.Gap(2).Padding(2).Radius(widgets.RadiusLarge).Background(t.Surface).Children(func() {
 				for i, e := range db.Environments() {
-					s := seg.Segment(i).Padding(4, 12).Radius(6)
+					s := seg.Segment(i).Padding(4, 12).Radius(widgets.RadiusMedium)
 					if s.Clicked() || s.Changed() {
 						f.envChosen = true
 					}
@@ -603,7 +606,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 					}
 					s.Children(func() {
 						ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-							dot := ui.Box(c).Size(8, 8).Radius(4).Background(col)
+							dot := ui.Box(c).Size(8, 8).Radius(widgets.RadiusRound).Background(col)
 							txt := ui.Text(c, e.Label()).FontWeight(500)
 							if on {
 								txt.TextColor(ink)
@@ -617,9 +620,9 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 				}
 			})
 			if f.envAsked && !f.envChosen {
-				ui.Text(c, "Choose the environment: it sets how carefully statements run on this server.").FontSize(12).TextColor(t.Danger)
+				ui.Text(c, "Choose the environment: it sets how carefully statements run on this server.").FontSize(widgets.TextSmall).TextColor(t.Danger)
 			} else {
-				ui.Text(c, envHelp(db.Environments()[f.env])).FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, envHelp(db.Environments()[f.env])).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			}
 		})
 	})
@@ -636,7 +639,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 		if ui.Select(c, &f.projectSel, a.projectLabels()).Label("Project").Changed() {
 			f.project = a.projectByLabel(f.projectSel)
 		}
-	}).Description("Saved in its " + project.File + ", without passwords, to commit with the project.")
+	}).Tooltip("Saved in its " + project.File + ", without passwords, to commit with the project.")
 	folderField(c, f)
 }
 
@@ -667,7 +670,7 @@ func colorField(c *ui.Context, f *connForm) {
 	env := db.Environments()[f.env]
 	swatch := func(value string, col ui.Color, name string) {
 		on := f.cfg.Color == value
-		r := ui.RadioBase(c, &f.cfg.Color, value).Size(22, 22).Radius(11).Center().Background(col).Label(name).Tooltip(name)
+		r := ui.RadioBase(c, &f.cfg.Color, value).Size(22, 22).Radius(widgets.RadiusRound).Center().Background(col).Label(name).Tooltip(name)
 		if on {
 			r.Border(2, t.Text)
 		}
@@ -685,7 +688,7 @@ func colorField(c *ui.Context, f *connForm) {
 				f.cfg.Color = widgets.HexColor(custom)
 			}
 		})
-	}).Description("Marks the connection in the navigator and its tabs, and the band above its work. On staging and production, the band and the questions before a write keep the environment's color, and the status bar names it whatever the color.")
+	}).Tooltip("Marks the connection in the navigator and its tabs, and the band above its work. On staging and production, the band and the questions before a write keep the environment's color, and the status bar names it whatever the color.")
 }
 
 // networkPage holds how the app reaches a server: TLS and an SSH tunnel.
@@ -1418,7 +1421,7 @@ func (a *App) passwordField(c *ui.Context, f *connForm) {
 		unreadSecretNote(c, f, "password", f.cfg.Password, "password")
 	case sourceEnv:
 		ui.Field(c, "Variable", func() {
-			ui.TextInput(c, &f.cfg.PasswordEnv).Placeholder("DGOPHER_BILLING_PASSWORD").Font(widgets.MonoFont).FontSize(12.5)
+			ui.TextInput(c, &f.cfg.PasswordEnv).Placeholder("DGOPHER_BILLING_PASSWORD").Font(widgets.MonoFont).FontSize(widgets.TextBody)
 		}).Description(note).Error(envAllowed(&cfg))
 	case sourceCommand:
 		var bad string
@@ -1428,11 +1431,11 @@ func (a *App) passwordField(c *ui.Context, f *connForm) {
 			}
 		}
 		ui.Field(c, "Command", func() {
-			ui.TextInput(c, &f.cfg.PasswordCommand).Placeholder(`op read "op://Vault/Billing DB/password"`).Font(widgets.MonoFont).FontSize(12.5)
+			ui.TextInput(c, &f.cfg.PasswordCommand).Placeholder(`op read "op://Vault/Billing DB/password"`).Font(widgets.MonoFont).FontSize(widgets.TextBody)
 		}).Description(note).Error(bad)
 	case sourceAsk:
 		ui.Field(c, "", func() {
-			ui.Text(c, note).FontSize(12).TextColor(widgets.PaletteOf(c).Muted)
+			ui.Text(c, note).FontSize(widgets.TextSmall).TextColor(widgets.PaletteOf(c).Muted)
 		})
 	case sourceIdentity:
 		labels := lists.Map(cfg.Engine.CloudIdentities(), db.Identity.Label)
@@ -1520,7 +1523,7 @@ func (a *App) sshSecretFields(c *ui.Context, f *connForm) {
 	})
 	if f.sshSource == sshSources[1] {
 		ui.Field(c, "SSH command", func() {
-			ui.TextInput(c, &f.cfg.SSH.PasswordCommand).Placeholder(`op read "op://Vault/Bastion/password"`).Font(widgets.MonoFont).FontSize(12.5)
+			ui.TextInput(c, &f.cfg.SSH.PasswordCommand).Placeholder(`op read "op://Vault/Bastion/password"`).Font(widgets.MonoFont).FontSize(widgets.TextBody)
 		}).Description("Prints the key's passphrase when a key is set, else the SSH password. Not stored: it runs each time you connect, without a shell, once you approve it on this computer.")
 		return
 	}
@@ -1548,7 +1551,7 @@ func (a *App) sshSecretFields(c *ui.Context, f *connForm) {
 		note = keychainNote(accounts...)
 	}
 	ui.Field(c, "", func() {
-		ui.Text(c, note).FontSize(12).TextColor(widgets.PaletteOf(c).Muted).Selectable()
+		ui.Text(c, note).FontSize(widgets.TextSmall).TextColor(widgets.PaletteOf(c).Muted).Selectable()
 	})
 }
 
@@ -1562,7 +1565,7 @@ func unreadSecretNote(c *ui.Context, f *connForm, name, value, what string) {
 	}
 	note := "Couldn't read the saved " + what + " from the keychain: " + why.Error() + ". Leave this empty to keep it."
 	ui.Field(c, "", func() {
-		ui.Text(c, note).FontSize(12).TextColor(c.Theme().Warning).Selectable()
+		ui.Text(c, note).FontSize(widgets.TextSmall).TextColor(c.Theme().Warning).Selectable()
 	})
 }
 

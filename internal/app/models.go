@@ -67,9 +67,9 @@ func (a *App) newModelView(c *ui.Context) {
 			labels, engines = append(labels, e.Label()), append(engines, e)
 		}
 	}
-	dlg := widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(420).Gap(12).Children(func() {
-			ui.Text(c, "New Data Model").FontSize(15).Bold()
+	dlg := widgets.Modal(c, &f.open, widgets.DialogSmall, func() {
+		ui.Column(c).Gap(12).Children(func() {
+			widgets.DialogTitle(c, "New Data Model")
 			ui.Form(c, func() {
 				ui.Field(c, "Name", func() {
 					ui.TextInput(c, &f.name).AutoFocus().Label("Model name")
@@ -202,11 +202,11 @@ func (a *App) saveModelView(c *ui.Context) {
 	f := a.savingModel
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	dlg := widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(460).Gap(12).Children(func() {
-			ui.Text(c, "Save as Data Model").FontSize(15).Bold()
+	dlg := widgets.Modal(c, &f.open, widgets.DialogSmall, func() {
+		ui.Column(c).Gap(12).Children(func() {
+			widgets.DialogTitle(c, "Save as Data Model")
 			ui.Text(c, "The tables of "+f.schema+", with their columns, keys, indexes and checks, in a file of the project's "+datamodel.Folder+
-				" folder, for its team.").FontSize(12.5).TextColor(pal.Muted)
+				" folder, for its team.").FontSize(widgets.TextBody).TextColor(pal.Muted)
 			ui.Form(c, func() {
 				ui.Field(c, "Name", func() {
 					ui.TextInput(c, &f.name).AutoFocus().Label("Model name")
@@ -217,14 +217,14 @@ func (a *App) saveModelView(c *ui.Context) {
 			}
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				if f.building {
-					ui.Text(c, widgets.Count(f.read, "table")+" read…").FontSize(12.5).TextColor(pal.Muted)
+					ui.Text(c, widgets.Count(f.read, "table")+" read…").FontSize(widgets.TextBody).TextColor(pal.Muted)
 					c.After(200 * time.Millisecond)
 				}
 				ui.Spacer(c)
 				if ui.Button(c, "Cancel").Clicked() {
 					f.open = false
 				}
-				if widgets.Activated(c, ui.PrimaryButton(c, "Save").Disabled(f.building)) {
+				if widgets.ActivatedUnless(c, ui.PrimaryButton(c, "Save"), widgets.When(f.building, "The model is being built")) {
 					a.buildModel(f)
 				}
 			})

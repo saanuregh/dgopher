@@ -104,6 +104,9 @@ func TestQuitAsksAboutOpenTransactions(t *testing.T) {
 		t.Fatal("quit without asking")
 	}
 	tt.Frame()
+	// The question come in: a dialog fades into its place.
+	tt.Advance(time.Second)
+	tt.Frame()
 	testutil.Snapshot(t, tt, "quit-open-transaction")
 	if texts := strings.Join(tt.Texts(), "|"); !strings.HasSuffix(texts, "Cancel|Roll Back and Quit|Commit and Quit") || !tt.HasText("Quit DGopher?") {
 		t.Fatalf("the dialog's buttons: %s", texts)
@@ -320,8 +323,8 @@ func TestOwnerSeesOtherTabCommit(t *testing.T) {
 		t.Fatalf("no transaction: %v, %q", owner.OpenTx(), owner.CloseReason())
 	}
 	testutil.WaitFor(t, tt, "the warning", func() bool { return a.idleWarn != nil })
-	if !testutil.HasTextContaining(tt, "1 open transaction") || !testutil.HasTextContaining(tt, "Transaction open") {
-		t.Fatalf("no indicator or bar: %q", tt.Texts())
+	if commit, ok := tt.Access("Commit"); !testutil.HasTextContaining(tt, "1 open transaction") || !ok || commit.Disabled {
+		t.Fatalf("no indicator, or no Commit to press: %q", tt.Texts())
 	}
 
 	// Another session, as a tab that typed it before it was refused.
@@ -344,8 +347,8 @@ func TestOwnerSeesOtherTabCommit(t *testing.T) {
 	if a.idleWarn != nil || owner.CloseReason() != "" || len(a.openTxTabs()) != 0 {
 		t.Fatalf("after the commit: warning %v, close reason %q, open %d", a.idleWarn != nil, owner.CloseReason(), len(a.openTxTabs()))
 	}
-	if testutil.HasTextContaining(tt, "open transaction") || testutil.HasTextContaining(tt, "Transaction open") {
-		t.Fatalf("the indicator or the bar stays: %q", tt.Texts())
+	if _, ok := tt.Access("Commit"); testutil.HasTextContaining(tt, "open transaction") || ok {
+		t.Fatalf("the indicator or Commit stays: %q", tt.Texts())
 	}
 	if !a.requestQuit(func() {}) || a.closing != nil {
 		t.Fatalf("quitting asks: %+v", a.closing)

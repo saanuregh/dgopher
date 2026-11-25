@@ -17,6 +17,8 @@ import (
 	"dgopher/internal/safety"
 	"dgopher/internal/settings"
 	"dgopher/internal/ui/widgets"
+
+	"github.com/egoist/mygo/ui"
 )
 
 // Host is what the data view needs of the app.
@@ -26,6 +28,10 @@ type Host interface {
 	SaveSettings()
 	// Layout is the windows' layout, which the app keeps as it changes.
 	Layout() *widgets.Layout
+	// ZoomInput gives the app input over a view that takes its own, as
+	// an editor or a grid: a pinch, or scrolling with ⌘ held, zooms the
+	// window. It reports whether ev was one, which the view then leaves.
+	ZoomInput(ev ui.InputEvent) bool
 	ShowError(title, message string)
 	// ShowReport shows an error with its hint and actions.
 	ShowReport(r widgets.ErrorReport)

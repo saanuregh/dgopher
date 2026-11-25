@@ -292,18 +292,18 @@ func (e *ERTab) View(c *ui.Context) {
 	ui.Column(c).Grow(1).Children(func() {
 		widgets.Bar(c, "Diagram", func() {
 			widgets.BarTitle(c, func() {
-				ui.Icon(c, widgets.IconSchema).TextColor(pal.Muted).FontSize(widgets.ToolIconSize)
+				ui.Icon(c, widgets.IconSchema).TextColor(pal.Muted).FontSize(widgets.IconMedium)
 				if e.focus != nil {
 					ui.Text(c, "Tables linked to "+e.focus.Name+" by foreign keys").Bold()
 				} else {
 					ui.Text(c, e.schema).Bold()
 				}
-				ui.Text(c, widgets.Count(len(e.tables), "table")).FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, widgets.Count(len(e.tables), "table")).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 				if e.more > 0 {
-					ui.Text(c, fmt.Sprintf("(%d more not drawn)", e.more)).FontSize(12).TextColor(th.Warning)
+					ui.Text(c, fmt.Sprintf("(%d more not drawn)", e.more)).FontSize(widgets.TextSmall).TextColor(th.Warning)
 				}
 				if len(e.notes) > 0 {
-					ui.Text(c, "Some links could not be read").FontSize(12).TextColor(th.Warning).Tooltip(strings.Join(e.notes, "\n"))
+					ui.Text(c, "Some links could not be read").FontSize(widgets.TextSmall).TextColor(th.Warning).Tooltip(strings.Join(e.notes, "\n"))
 				}
 			})
 			ui.Spacer(c)
@@ -337,7 +337,7 @@ func (e *ERTab) View(c *ui.Context) {
 			e.canvas(c, a)
 		})
 		// How the canvas works, in its corner rather than in the bar.
-		ui.Text(c, "Drag a table by its name; double-click it to open its data.").FontSize(11.5).TextColor(pal.Muted).
+		ui.Text(c, "Drag a table by its name; double-click it to open its data.").FontSize(widgets.TextMeta).TextColor(pal.Muted).
 			Absolute().Left(14).Bottom(10)
 	})
 }
@@ -359,7 +359,11 @@ func Fragment(dst vec4, pos vec2) vec4 {
 // tools are the diagram's buttons: save it, a new table, read it again,
 // arrange it.
 func (e *ERTab) tools(c *ui.Context, a Host) {
-	widgets.ToolButton(c, widgets.IconDownload, "Save Image", "Save the diagram as a PNG or SVG image").Disabled(len(e.tables) == 0).Menu(func(m *ui.Menu) {
+	save := widgets.ToolButton(c, widgets.IconDownload, "Save Image", "Save the diagram as a PNG or SVG image")
+	widgets.Unavailable(save, widgets.When(len(e.tables) == 0, "The schema has no tables to draw")).Menu(func(m *ui.Menu) {
+		if len(e.tables) == 0 {
+			return // without items, the menu does not open
+		}
 		if m.Item("Save as PNG…").Chosen() {
 			e.save(exportPNG)
 		}
@@ -635,7 +639,7 @@ func (e *ERTab) box(c *ui.Context, a Host, t *erTable) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	box := ui.Column(c.Key("er-"+t.schema+"."+t.obj.Name)).Absolute().Left(t.x).Top(t.y).Width(erBoxW).Label("Table "+t.obj.Name).
-		Radius(8).Background(th.Background).Border(1, th.Border).Clip().
+		Radius(widgets.RadiusLarge).Background(th.Background).Border(1, th.Border).Clip().
 		Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.2)).Shadow(0, 4, 12, 0, ui.RGBA(0, 0, 0, 0.12))
 	box.ContextMenu(func(m *ui.Menu) { e.tableMenu(m, t) })
 	box.Children(func() {
@@ -646,7 +650,7 @@ func (e *ERTab) box(c *ui.Context, a Host, t *erTable) {
 			Focusable().Label("Table " + t.obj.Name + ": ↵ opens its data, the arrows move it")
 		focused := e.focus != nil && t.schema == e.focus.Schema && t.obj.Name == e.focus.Name
 		if focused || header.Focused() {
-			header.Background(th.Accent.Alpha(0.18))
+			header.Background(widgets.TintStrong(th.Accent))
 		}
 		if header.Shortcut(0, ui.KeyEnter) {
 			a.OpenTable(e.conn, e.database, t.obj, PageData)
@@ -658,12 +662,12 @@ func (e *ERTab) box(c *ui.Context, a Host, t *erTable) {
 			}
 		}
 		header.Children(func() {
-			ui.Icon(c, widgets.IconTable).FontSize(12).TextColor(widgets.EngineColor(e.conn.Config.Engine))
+			ui.Icon(c, widgets.IconTable).FontSize(widgets.IconSmall).TextColor(widgets.EngineColor(e.conn.Config.Engine))
 			name := t.obj.Name
 			if t.schema != e.schema {
 				name = t.schema + "." + name
 			}
-			ui.Text(c, name).Bold().FontSize(12.5).SingleLine().Grow(1).Shrink(1)
+			ui.Text(c, name).Bold().FontSize(widgets.TextBody).SingleLine().Grow(1).Shrink(1)
 		})
 		if dx, dy, ok := header.Dragged(); ok {
 			t.x, t.y = max(0, t.x+dx), max(0, t.y+dy)
@@ -678,12 +682,12 @@ func (e *ERTab) box(c *ui.Context, a Host, t *erTable) {
 		}
 		ui.Column(c).PaddingY(4).Children(func() {
 			if t.unreadable != "" {
-				ui.Text(c, "Its columns could not be read").FontSize(11).TextColor(th.Warning).Height(erRowH).Padding(3, 10).
+				ui.Text(c, "Its columns could not be read").FontSize(widgets.TextMeta).TextColor(th.Warning).Height(erRowH).Padding(3, 10).
 					SingleLine().Tooltip(t.unreadable)
 			}
 			for i, col := range t.cols {
 				if i == erMaxCols {
-					ui.Text(c, fmt.Sprintf("+ %d more", len(t.cols)-erMaxCols)).FontSize(11).TextColor(pal.Muted).Height(erRowH).Padding(3, 10)
+					ui.Text(c, fmt.Sprintf("+ %d more", len(t.cols)-erMaxCols)).FontSize(widgets.TextMeta).TextColor(pal.Muted).Height(erRowH).Padding(3, 10)
 					break
 				}
 				row := ui.Row(c).Height(erRowH).Padding(0, 10).Gap(6)
@@ -699,52 +703,24 @@ func (e *ERTab) box(c *ui.Context, a Host, t *erTable) {
 				row.Children(func() {
 					switch {
 					case col.PrimaryKey:
-						ui.Icon(c, widgets.IconKey).FontSize(10).TextColor(c.Theme().Warning).Width(12)
+						ui.Icon(c, widgets.IconKey).FontSize(widgets.IconSmall).TextColor(c.Theme().Warning).Width(12)
 					case isFKColumn(t, col.Name):
-						ui.Text(c, "→").FontSize(10).TextColor(th.Accent).Width(12)
+						ui.Text(c, "→").FontSize(widgets.TextMeta).TextColor(th.Accent).Width(12)
 					default:
 						ui.Box(c).Width(12)
 					}
-					ui.Text(c, col.Name).FontSize(12).SingleLine().Grow(1).Shrink(1)
-					ui.Text(c, erType(col.Type)).Font(widgets.MonoFont).FontSize(10.5).TextColor(pal.Muted).SingleLine().MaxWidth(130)
+					ui.Text(c, col.Name).FontSize(widgets.TextSmall).SingleLine().Grow(1).Shrink(1)
+					ui.Text(c, db.ShortType(col.Type)).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted).SingleLine().MaxWidth(130)
 					// The exception named, not the rule, after the type as
 					// DDL writes it: most columns hold no NULL, which a
 					// weight on each would only repeat.
 					if col.Nullable && !col.PrimaryKey {
-						ui.Text(c, "NULL").FontSize(9).TextColor(pal.Muted.Alpha(0.7)).SingleLine().Shrink(0)
+						ui.Text(c, "NULL").FontSize(widgets.TextMeta).TextColor(pal.Muted.Alpha(0.7)).SingleLine().Shrink(0)
 					}
 				})
 			}
 		})
 	})
-}
-
-// erType is a column's type as the diagram shows it: the SQL standard's
-// long names by the short ones PostgreSQL also takes, as varchar for
-// character varying, which fit the box.
-func erType(typ string) string {
-	for _, a := range erTypeAliases {
-		if rest, ok := strings.CutPrefix(typ, a.long); ok && (rest == "" || rest[0] == '(' || rest[0] == '[') {
-			typ = a.short + rest
-			break
-		}
-	}
-	// A precision before the zone, as timestamp(3) with time zone.
-	for _, z := range []struct{ suffix, base, short string }{
-		{" with time zone", "timestamp", "timestamptz"}, {" with time zone", "time", "timetz"},
-		{" without time zone", "timestamp", "timestamp"}, {" without time zone", "time", "time"},
-	} {
-		if head, ok := strings.CutSuffix(typ, z.suffix); ok {
-			if rest, ok := strings.CutPrefix(head, z.base); ok && (rest == "" || rest[0] == '(') {
-				return z.short + rest
-			}
-		}
-	}
-	return typ
-}
-
-var erTypeAliases = []struct{ long, short string }{
-	{"character varying", "varchar"}, {"character", "char"}, {"bit varying", "varbit"},
 }
 
 func isFKColumn(t *erTable, name string) bool {

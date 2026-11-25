@@ -292,12 +292,12 @@ func (t *CompareTab) View(c *ui.Context) {
 			}).Grow(1)
 			labels, values := t.matchChoices()
 			ui.Text(c, "Match rows by").TextColor(pal.Muted)
-			ui.Select(c, &t.matchLabel, labels).Label("Match rows by").FontSize(widgets.ToolFontSize)
+			ui.Select(c, &t.matchLabel, labels).Label("Match rows by").FontSize(widgets.TextBody)
 			if by := values[max(0, slices.Index(labels, t.matchLabel))]; by != t.matchBy {
 				t.matchBy = by
 				t.compare()
 			}
-			if ui.Segmented(c, &t.shown, "Differences", "All Rows").Label("Rows shown").FontSize(widgets.ToolFontSize).Changed() {
+			if ui.Segmented(c, &t.shown, "Differences", "All Rows").Label("Rows shown").FontSize(widgets.TextBody).Changed() {
 				t.lay()
 			}
 		})
@@ -314,7 +314,7 @@ func (t *CompareTab) View(c *ui.Context) {
 			d := line.diff
 			if col == 0 {
 				marks := []string{"=", "A", "B"}
-				ui.Text(c, marks[line.side]).FontSize(11.5).Bold().TextColor(pal.Muted)
+				ui.Text(c, marks[line.side]).FontSize(widgets.TextMeta).Bold().TextColor(pal.Muted)
 				return
 			}
 			i := col - 1

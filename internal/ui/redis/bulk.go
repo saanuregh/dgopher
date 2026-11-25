@@ -299,10 +299,10 @@ func (r *Tab) bulkView(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	ro := r.conn.Config.ReadOnly
-	dlg := widgets.Modal(c, &b.open, func() {
-		ui.Column(c).Width(560).Gap(12).Children(func() {
+	dlg := widgets.Modal(c, &b.open, widgets.DialogMedium, func() {
+		ui.Column(c).Gap(12).Children(func() {
 			title := map[bulkKind]string{bulkDelete: "Delete Keys", bulkExport: "Export Keys", bulkImport: "Import Keys"}[b.kind]
-			ui.Text(c, title+" · "+r.conn.Config.Name).FontSize(15).Bold()
+			widgets.DialogTitle(c, title+" · "+r.conn.Config.Name)
 			ui.Form(c, func() {
 				if b.kind != bulkImport {
 					ui.Field(c, "Matching", func() {
@@ -313,8 +313,8 @@ func (r *Tab) bulkView(c *ui.Context) {
 				} else {
 					ui.Field(c, "File", func() {
 						ui.Row(c).Gap(6).Children(func() {
-							ui.Text(c, b.path).Font(widgets.MonoFont).FontSize(12).SingleLine().TruncateStart().Grow(1).Shrink(1)
-							if ui.Button(c, "Choose…").Disabled(b.running).Clicked() {
+							ui.Text(c, b.path).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine().TruncateStart().Grow(1).Shrink(1)
+							if widgets.Clicked(ui.Button(c, "Choose…"), widgets.When(b.running, "Wait for the work on the keys to end")) {
 								r.chooseImport(b)
 							}
 						})
@@ -330,9 +330,9 @@ func (r *Tab) bulkView(c *ui.Context) {
 				if len(b.sample) > 0 {
 					text += ", as " + strings.Join(b.sample, ", ")
 				}
-				ui.Text(c, text+".").FontSize(12.5).SingleLine()
+				ui.Text(c, text+".").FontSize(widgets.TextBody).SingleLine()
 			case b.kind == bulkImport && b.dumps != nil:
-				ui.Text(c, fmt.Sprintf("%s keys in the file.", widgets.HumanCount(int64(len(b.dumps))))).FontSize(12.5)
+				ui.Text(c, fmt.Sprintf("%s keys in the file.", widgets.HumanCount(int64(len(b.dumps))))).FontSize(widgets.TextBody)
 			}
 			if b.err != "" {
 				ui.Text(c, b.err).TextColor(th.Danger).Selectable()
@@ -342,7 +342,7 @@ func (r *Tab) bulkView(c *ui.Context) {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				if b.running {
 					if b.done > 0 {
-						ui.Text(c, widgets.HumanCount(b.done)+" keys…").FontSize(12).TextColor(pal.Muted)
+						ui.Text(c, widgets.HumanCount(b.done)+" keys…").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 					}
 				}
 				ui.Spacer(c)
@@ -353,18 +353,18 @@ func (r *Tab) bulkView(c *ui.Context) {
 				switch b.kind {
 				case bulkDelete:
 					if b.counted != b.pattern || b.counted == "" {
-						if widgets.Activated(c, ui.PrimaryButton(c, "Count Keys").Disabled(b.running || strings.TrimSpace(b.pattern) == "")) {
+						if widgets.ActivatedUnless(c, ui.PrimaryButton(c, "Count Keys"), cmp.Or(widgets.When(b.running, "Wait for the work on the keys to end"), widgets.When(strings.TrimSpace(b.pattern) == "", "Type a pattern first"))) {
 							r.countKeys(b)
 						}
-					} else if ui.PrimaryButton(c, "Delete "+widgets.HumanCount(b.count)+" Keys…").Disabled(b.running || ro || b.count == 0).Clicked() {
+					} else if widgets.Clicked(ui.PrimaryButton(c, "Delete "+widgets.HumanCount(b.count)+" Keys…"), cmp.Or(widgets.When(b.running, "Wait for the work on the keys to end"), widgets.When(ro, "The connection is read-only"), widgets.When(b.count == 0, "No key matches the pattern"))) {
 						r.deleteKeys(b)
 					}
 				case bulkExport:
-					if widgets.Activated(c, ui.PrimaryButton(c, "Export…").Disabled(b.running || strings.TrimSpace(b.pattern) == "")) {
+					if widgets.ActivatedUnless(c, ui.PrimaryButton(c, "Export…"), cmp.Or(widgets.When(b.running, "Wait for the work on the keys to end"), widgets.When(strings.TrimSpace(b.pattern) == "", "Type a pattern first"))) {
 						r.chooseExport(b)
 					}
 				case bulkImport:
-					if ui.PrimaryButton(c, "Import").Disabled(b.running || ro || len(b.dumps) == 0).Clicked() {
+					if widgets.Clicked(ui.PrimaryButton(c, "Import"), cmp.Or(widgets.When(b.running, "Wait for the work on the keys to end"), widgets.When(ro, "The connection is read-only"), widgets.When(len(b.dumps) == 0, "Choose a file of keys first"))) {
 						r.importKeys(b)
 					}
 				}

@@ -22,6 +22,9 @@ const (
 	Settings            = "app::OpenSettings"
 	OpenKeymap          = "app::OpenKeymap"
 	ToggleSidebar       = "workspace::ToggleLeftDock"
+	ZoomIn              = "workspace::ZoomIn"
+	ZoomOut             = "workspace::ZoomOut"
+	ZoomReset           = "workspace::ResetZoom"
 	FullScreen          = "app::ToggleFullScreen"
 	Quit                = "app::Quit"
 	FocusNavigator      = "workspace::FocusNavigator"
@@ -51,6 +54,8 @@ const (
 
 	ToggleChat = "chat::Toggle"
 	ChatStop   = "chat::Stop"
+	ChatAllow  = "chat::Allow"
+	ChatDeny   = "chat::Deny"
 
 	NavigatorSelect    = "navigator::NewSelect"
 	NavigatorRefresh   = "navigator::Refresh"
@@ -88,14 +93,14 @@ const (
 	ToggleResults   = "editor::ToggleResults"
 	FocusResults    = "editor::FocusResults"
 	MaximizeResults = "editor::MaximizeResults"
+	NextResult      = "editor::NextResult"
+	PreviousResult  = "editor::PreviousResult"
+	GoToError       = "editor::GoToError"
 	Save            = "editor::Save"
 	SaveAs          = "editor::SaveAs"
 	Commit          = "editor::Commit"
 	Rollback        = "editor::Rollback"
 	ToggleNotebook  = "editor::ToggleNotebook"
-	EditorZoomIn    = "editor::IncreaseFontSize"
-	EditorZoomOut   = "editor::DecreaseFontSize"
-	EditorZoomReset = "editor::ResetFontSize"
 
 	RunCell        = "notebook::RunCell"
 	RunCellAdvance = "notebook::RunCellAndAdvance"
@@ -113,6 +118,7 @@ const (
 	PreviousCell   = "notebook::SelectPreviousCell"
 	NextCell       = "notebook::SelectNextCell"
 
+	ShowCellCard     = "grid::ShowCard"
 	Copy             = "grid::Copy"
 	AdvancedCopy     = "grid::AdvancedCopy"
 	Paste            = "grid::Paste"
@@ -151,9 +157,6 @@ const (
 	Discard          = "grid::Discard"
 	Refresh          = "grid::Refresh"
 	ToggleChart      = "grid::ToggleChart"
-	GridZoomIn       = "grid::IncreaseFontSize"
-	GridZoomOut      = "grid::DecreaseFontSize"
-	GridZoomReset    = "grid::ResetFontSize"
 )
 
 // command makes an action of its keys as keymap.json writes them.
@@ -187,7 +190,7 @@ func mustKeys(id, s string) Keystroke {
 var Commands = []Command{
 	command(Palette, Global, "Command palette: every command, connection, table and snippet", "cmd-shift-p"),
 	command(OpenTable, Global, "Open a table or a query file by name", "cmd-p"),
-	command(NewEditor, Global, "New SQL editor on the current connection", "cmd-t"),
+	command(NewEditor, Global, "New SQL editor, on the connection and database you choose", "cmd-t"),
 	command(NewNotebook, Global, "New SQL notebook on the current connection", "cmd-k cmd-t"),
 	command(NewConnection, Global, "New connection", "cmd-n"),
 	command(OpenScript, Global, "Open a SQL script", "cmd-o"),
@@ -202,6 +205,9 @@ var Commands = []Command{
 	command(Settings, Global, "Settings", "cmd-,"),
 	command(OpenKeymap, Global, "Open keymap.json, the keys you set", "cmd-k cmd-s"),
 	command(ToggleSidebar, Global, "Show or hide the sidebar", "cmd-b"),
+	command(ZoomIn, Global, "Zoom the window in: everything larger", "cmd-="),
+	command(ZoomOut, Global, "Zoom the window out: everything smaller", "cmd--"),
+	command(ZoomReset, Global, "The window at its actual size", "cmd-k cmd-0"),
 	command(FullScreen, Global, "Enter or leave full screen", "f11"),
 	command(Quit, Global, "Quit DGopher, asking first about what it would lose", "cmd-q"),
 	command(FocusNavigator, Global, "Focus the navigator", "cmd-0"),
@@ -233,7 +239,7 @@ var Commands = []Command{
 	command(ConfirmDialog, Dialog, "Do what a dialog is for: its main button, from any of its fields", "cmd-enter"),
 
 	command(NavigatorSelect, Navigator, "New editor with SELECT * of the table", "cmd-enter"),
-	command(NavigatorRefresh, Navigator, "Read the schema again", "cmd-r"),
+	command(NavigatorRefresh, Navigator, "Read the schema again", "cmd-r", "f5"),
 	command(NavigatorCopyName, Navigator, "Copy the table's name, quoted", "cmd-c"),
 	command(NavigatorRename, Navigator, "Rename the table", "f2"),
 	command(NavigatorStructure, Navigator, "The table's structure", "f4"),
@@ -268,6 +274,9 @@ var Commands = []Command{
 	command(ToggleResults, Editor, "Show or hide the results", "cmd-j"),
 	command(FocusResults, Editor, "Between the editor and its results", "cmd-shift-j"),
 	command(MaximizeResults, Editor, "Maximize the results over the editor, or restore them", "cmd-k cmd-shift-m"),
+	command(NextResult, Editor, "Show the next result, Output after the last", "cmd-alt-pagedown"),
+	command(PreviousResult, Editor, "Show the result before", "cmd-alt-pageup"),
+	command(GoToError, Editor, "Put the caret where the statement failed", "f8"),
 	command(Save, Editor, "Save the file now (it also saves as you type)", "cmd-s"),
 	command(SaveAs, Editor, "Save the editor as a file", "cmd-shift-s"),
 	command(Commit, Editor, "Commit the open transaction, an editor's or a table's", "cmd-alt-shift-enter"),
@@ -275,9 +284,6 @@ var Commands = []Command{
 	// modifiers, so it is hard to press by accident.
 	command(Rollback, Editor, "Roll back the open transaction, an editor's or a table's", "cmd-alt-shift-r"),
 	command(ToggleNotebook, Editor, "Show the editor as a notebook of cells, or as one script", "cmd-k cmd-n"),
-	command(EditorZoomIn, Editor, "Make the editors' text larger", "cmd-="),
-	command(EditorZoomOut, Editor, "Make the editors' text smaller", "cmd--"),
-	command(EditorZoomReset, Editor, "The editors' text at its default size", "cmd-k cmd-0"),
 
 	command(RunCellAdvance, Notebook, "Run the cell and go to the next, made when there is none", "shift-enter"),
 	command(RunCell, Notebook, "Run the cell, staying in it", "cmd-alt-enter"),
@@ -296,8 +302,11 @@ var Commands = []Command{
 	command(NextCell, Notebook, "Go to the cell below", "alt-pagedown"),
 
 	command(ChatStop, Chat, "Stop the reply", "cmd-."),
+	command(ChatAllow, Chat, "Allow what the agent asks to do", "cmd-enter"),
+	command(ChatDeny, Chat, "Deny what the agent asks to do", "cmd-backspace"),
 
 	command(Copy, Grid, "Copy the cell, or the rows chosen", "cmd-c"),
+	command(ShowCellCard, Grid, "Show the card of the chosen cell", "cmd-i"),
 	command(AdvancedCopy, Grid, "Advanced Copy: delimiter, column names, quoting, row numbers", "cmd-shift-c"),
 	command(Paste, Grid, "Paste cells over the chosen one, as pending changes", "cmd-v"),
 	command(AdvancedPaste, Grid, "Advanced Paste: delimiter, header row, as new rows", "cmd-shift-v"),
@@ -335,9 +344,6 @@ var Commands = []Command{
 	command(Discard, Grid, "Discard the pending changes; without any, read the rows again", "cmd-r"),
 	command(Refresh, Grid, "Read a table's rows again; scan the Redis keys, or run a dashboard's panels, again", "f5"),
 	command(ToggleChart, Grid, "Show or hide the chart of the rows"),
-	command(GridZoomIn, Grid, "Make the grids' text larger", "cmd-="),
-	command(GridZoomOut, Grid, "Make the grids' text smaller", "cmd--"),
-	command(GridZoomReset, Grid, "The grids' text at its default size", "cmd-k cmd-0"),
 }
 
 // Fixed are keys that are not actions, and cannot be changed: they move

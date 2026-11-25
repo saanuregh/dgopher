@@ -130,6 +130,49 @@ func TestConnectionFormSavesWithoutPassword(t *testing.T) {
 	}
 }
 
+// The key that presses a dialog's main button saves the connection and
+// connects it, from any field of the form.
+func TestConnectionFormSavesOnTheDialogKey(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1200, 800)
+	a.openConnForm(nil)
+	f := a.connForm
+	f.engine = db.SQLite.Label()
+	f.cfg.Name, f.cfg.Database = "local", ":memory:"
+	f.envChosen = true
+	tt.Frame()
+	tt.Key(ui.Cmd, ui.KeyEnter)
+	tt.Frame()
+	if len(a.conns) != 1 || a.connForm != nil && a.connForm.open {
+		t.Fatalf("%d connections; the form's error %q", len(a.conns), f.err)
+	}
+	testutil.WaitFor(t, tt, "the connection", func() bool { return a.conns[0].Status == connection.StatusConnected })
+}
+
+// With the question about discarding the form's changes over it, the
+// dialog key is the question's: it saves nothing behind it.
+func TestDialogKeyStaysWithThePromptOverTheConnectionForm(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1200, 800)
+	a.openConnForm(nil)
+	f := a.connForm
+	f.engine = db.SQLite.Label()
+	tt.Frame()
+	f.cfg.Name, f.cfg.Database = "local", ":memory:"
+	f.envChosen = true
+	tt.Frame()
+	tt.Key(0, ui.KeyEscape)
+	tt.Frame()
+	if !tt.HasText("Discard your changes?") {
+		t.Fatalf("Esc on a changed form asked nothing: %q", tt.Texts())
+	}
+	tt.Key(ui.Cmd, ui.KeyEnter)
+	tt.Frame()
+	if len(a.conns) != 0 {
+		t.Errorf("the dialog key saved %d connections from behind the question", len(a.conns))
+	}
+}
+
 // addConn adds a connection to the app's first project, trusted as one
 // the user made, with its ID prefixed as the project's are.
 func addConn(a *App, cfg db.Config) *connection.Conn {
@@ -1227,6 +1270,9 @@ func TestPendingChangesDialog(t *testing.T) {
 	if !tt.HasText("Apply 1 pending change first?") {
 		t.Fatalf("no question: %q", tt.Texts())
 	}
+	// The question come in: a dialog fades into its place.
+	tt.Advance(time.Second)
+	tt.Frame()
 	testutil.Snapshot(t, tt, "pending-changes-dialog")
 	if err := tt.Click("Discard"); err != nil {
 		t.Fatal(err)

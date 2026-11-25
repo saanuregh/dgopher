@@ -22,8 +22,8 @@ func SearchBox(c *ui.Context, query *string, placeholder string, width float32) 
 		box.Grow(1)
 	}
 	box.Children(func() {
-		ui.Icon(c, IconSearch).FontSize(12).TextColor(pal.Muted)
-		in = ui.TextInputBase(c, query).Placeholder(placeholder).Grow(1).FontSize(12.5).Label(placeholder)
+		ui.Icon(c, IconSearch).FontSize(IconSmall).TextColor(pal.Muted)
+		in = ui.TextInputBase(c, query).Placeholder(placeholder).Grow(1).FontSize(TextBody).Label(placeholder)
 		if *query != "" && in.Shortcut(0, ui.KeyEscape) {
 			*query = ""
 		}
@@ -66,7 +66,7 @@ func Pill(c *ui.Context, label string, on bool) ui.Element {
 // IconPill is a Pill with an icon after its label, none for nil.
 func IconPill(c *ui.Context, ic *ui.SVG, label string, on bool) ui.Element {
 	t := c.Theme()
-	b := ui.ButtonBase(c).Padding(3, 10).Radius(6).Label(label)
+	b := ui.ButtonBase(c).Padding(3, 10).Radius(RadiusMedium).Label(label)
 	if on {
 		b.Background(t.Surface)
 	} else if b.Hovered() {
@@ -75,48 +75,53 @@ func IconPill(c *ui.Context, ic *ui.SVG, label string, on bool) ui.Element {
 	b.Children(func() {
 		ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
 			// The weight stays as another comes in front, so no pill moves.
-			txt := ui.Text(c, label).FontSize(12).FontWeight(500)
+			txt := ui.Text(c, label).FontSize(TextSmall).FontWeight(500)
 			if !on {
 				txt.TextColor(PaletteOf(c).Muted)
 			}
 			if ic != nil {
-				ui.Icon(c, ic).FontSize(11).TextColor(PaletteOf(c).Muted)
+				ui.Icon(c, ic).FontSize(IconSmall).TextColor(PaletteOf(c).Muted)
 			}
 		})
 	})
 	return b
 }
 
-// ToolFontSize is the size of the labels of a toolbar's buttons, which
-// other controls there take to be as tall; ToolIconSize their icons'.
-const (
-	ToolFontSize = 12.5
-	ToolIconSize = 13
-)
-
 // ToolButton is a button of a toolbar with an icon and a label.
 // A button whose label changes, as Run to Stop, changes in place: the
 // label and icon slide to the new ones, and the button eases to its new
 // width, rather than one button popping in for another.
 func ToolButton(c *ui.Context, ic *ui.SVG, label, tip string) ui.Element {
-	return toolButton(c, ic, label, tip, nil)
+	return toolButton(c, ic, label, "", tip, nil)
 }
 
 // LeadToolButton is the ToolButton of the toolbar's main action, as Run:
 // its icon in tint, its label a little heavier, the first the eye finds.
 func LeadToolButton(c *ui.Context, ic *ui.SVG, label, tip string, tint ui.Color) ui.Element {
-	return toolButton(c, ic, label, tip, &tint)
+	return toolButton(c, ic, label, "", tip, &tint)
 }
 
-func toolButton(c *ui.Context, ic *ui.SVG, label, tip string, tint *ui.Color) ui.Element {
+// TimedToolButton is LeadToolButton with how long its work has run since
+// since after its label, as a clock: Stop, of a run. The time is not part
+// of its name, which a screen reader would else hear change each second.
+func TimedToolButton(c *ui.Context, ic *ui.SVG, label, tip string, tint ui.Color, since time.Time) ui.Element {
+	ran := time.Since(since)
+	c.After(time.Second - ran%time.Second)
+	return toolButton(c, ic, label, Clock(ran), tip, &tint)
+}
+
+func toolButton(c *ui.Context, ic *ui.SVG, label, note, tip string, tint *ui.Color) ui.Element {
 	b := ui.Button(c, "").Label(label).Tooltip(tip).Transition(morph)
 	b.Children(func() {
 		ui.Row(c).Gap(5).Children(func() {
-			icon := ui.Icon(c, ic).FontSize(ToolIconSize).ContentTransition(ui.ContentTransition{})
-			txt := ui.Text(c, label).FontSize(ToolFontSize).ContentTransition(ui.ContentTransition{})
+			icon := ui.Icon(c, ic).FontSize(IconMedium).ContentTransition(ui.ContentTransition{})
+			txt := ui.Text(c, label).FontSize(TextBody).ContentTransition(ui.ContentTransition{})
 			if tint != nil {
 				icon.TextColor(*tint)
 				txt.FontWeight(600)
+			}
+			if note != "" {
+				ui.Text(c, note).FontSize(TextSmall).FontFeatures("tnum").TextColor(PaletteOf(c).Muted)
 			}
 		})
 	})
@@ -199,17 +204,17 @@ func ToggleIconButton(c *ui.Context, ic *ui.SVG, label string, on bool) ui.Eleme
 
 func iconButton(c *ui.Context, ic *ui.SVG, label string, on bool) ui.Element {
 	t := c.Theme()
-	b := ui.ButtonBase(c).Label(label).Tooltip(label).Padding(4).Radius(6)
+	b := ui.ButtonBase(c).Label(label).Tooltip(label).Padding(4).Radius(RadiusMedium)
 	col := PaletteOf(c).Muted
 	switch {
 	case on:
-		b.Background(t.Accent.Alpha(0.15))
+		b.Background(TintNotice(t.Accent))
 		col = t.Accent
 	case b.Hovered():
 		b.Background(PaletteOf(c).Hover)
 		col = t.Text
 	}
-	b.Children(func() { ui.Icon(c, ic).FontSize(14).TextColor(col) })
+	b.Children(func() { ui.Icon(c, ic).FontSize(IconMedium).TextColor(col) })
 	return b
 }
 
@@ -221,19 +226,29 @@ func StatusButton(c *ui.Context, label string) ui.Element {
 	if b.Hovered() {
 		b.Background(PaletteOf(c).Hover)
 	}
-	b.Children(func() { ui.Text(c, label).FontSize(12).ContentTransition(ui.ContentTransition{}) })
+	b.Children(func() { ui.Text(c, label).FontSize(TextSmall).ContentTransition(ui.ContentTransition{}) })
+	return b
+}
+
+// StatusPrimaryButton is StatusButton filled with the accent: a status
+// bar's main action.
+func StatusPrimaryButton(c *ui.Context, label string) ui.Element {
+	t := c.Theme()
+	b := ui.ButtonBase(c).Label(label).Padding(1, 8).Radius(t.Radius).Border(1, t.Accent).Background(t.Accent)
+	if b.Hovered() {
+		b.Background(t.AccentHover).Border(1, t.AccentHover)
+	}
+	b.Children(func() { ui.Text(c, label).FontSize(TextSmall).FontWeight(500).TextColor(t.AccentText) })
 	return b
 }
 
 // DangerButton is the main button of what destroys data or trusts a
-// server: red, its label bold.
-func DangerButton(c *ui.Context, label string, disabled bool) ui.Element {
-	b := ui.ButtonBase(c).Padding(6, 14).Radius(c.Theme().Radius).Disabled(disabled).Label(label).Background(c.Theme().Danger)
-	if disabled {
-		b.Opacity(0.5)
-	}
-	b.Children(func() { ui.Text(c, label).TextColor(ui.RGB(255, 255, 255)).Bold() })
-	return b
+// server: red, its label bold; unavailable while why is not "", as
+// Unavailable has it, and its clicks then for the caller to ignore.
+func DangerButton(c *ui.Context, label, why string) ui.Element {
+	b := ui.ButtonBase(c).Padding(6, 14).Radius(c.Theme().Radius).Label(label).Background(c.Theme().Danger)
+	b.Children(func() { ui.Text(c, label).TextColor(OnDanger(c.Theme())).Bold() })
+	return Unavailable(b, why)
 }
 
 // Unavailable marks b unavailable while why is not "", with why as its
@@ -245,6 +260,66 @@ func Unavailable(b ui.Element, why string) ui.Element {
 	if why != "" {
 		b.AccessDisabled(true).Opacity(0.5).Tooltip(why)
 	}
+	return b
+}
+
+// NameDrag is what a drag of a named thing carries to where text is
+// written, as a table's row of the navigator dragged into an editor:
+// its name as SQL writes it.
+type NameDrag struct{ Text string }
+
+// When is why while cond holds, and "" otherwise: a reason a control is
+// unavailable, for Unavailable and Clicked. Several are tried in turn
+// with cmp.Or, the first that holds given.
+func When(cond bool, why string) string {
+	if cond {
+		return why
+	}
+	return ""
+}
+
+// WhyNot is what keeps something from being done, as a reason a control
+// is unavailable: the first line of err, "" for none.
+func WhyNot(err error) string {
+	if err == nil {
+		return ""
+	}
+	return FirstLine(err.Error())
+}
+
+// Clicked reports a click on b while it is available: why says why it
+// is not, as Unavailable shows it, and is "" while it is.
+func Clicked(b ui.Element, why string) bool {
+	return Unavailable(b, why).Clicked() && why == ""
+}
+
+// ActivatedUnless is Activated of a dialog's main button that is
+// unavailable while why is not "", with why as its tooltip.
+func ActivatedUnless(c *ui.Context, b ui.Element, why string) bool {
+	return Activated(c, Unavailable(b, why)) && why == ""
+}
+
+// BusyButton is a button that shows its work going on in place: a
+// spinner and busy, as "Testing…", while working, over the room its
+// label takes, so that what is beside it keeps its place. Its name stays
+// its label.
+func BusyButton(c *ui.Context, label, busy string, working bool) ui.Element {
+	b := ui.Button(c, "").Label(label)
+	b.Children(func() {
+		ui.Row(c).Gap(6).Invisible().Children(func() {
+			ui.Box(c).Size(IconMedium, IconMedium)
+			ui.Text(c, label)
+		})
+		ui.Row(c).Absolute().Left(0).Right(0).Top(0).Bottom(0).Gap(6).AlignItems(ui.Center).Justify(ui.Center).Children(func() {
+			if !working {
+				ui.Text(c, label)
+				return
+			}
+			// A spinner takes more than its font size: in an icon's room.
+			ui.Box(c).Size(IconMedium, IconMedium).Center().Children(func() { ui.Spinner(c).FontSize(TextMeta) })
+			ui.Text(c, busy)
+		})
+	})
 	return b
 }
 
@@ -284,8 +359,8 @@ func ChoosePath(post func(func()), opts mygo.OpenDialogOptions, then func(path s
 // Keycap shows a shortcut as the keys it is pressed with, as a key's cap.
 func Keycap(c *ui.Context, keys string) ui.Element {
 	pal := PaletteOf(c)
-	return ui.Text(c, KeyLabel(keys)).Font(MonoFont).FontSize(11).TextColor(pal.Muted).SingleLine().Shrink(0).
-		Padding(1, 5).Radius(4).Background(pal.Hover).Border(1, c.Theme().Border)
+	return ui.Text(c, KeyLabel(keys)).Font(MonoFont).FontSize(TextMeta).TextColor(pal.Muted).SingleLine().Shrink(0).
+		Padding(1, 5).Radius(RadiusSmall).Background(pal.Hover).Border(1, c.Theme().Border)
 }
 
 // Bar is the row of a view's tools, as the editor's along its top: tools
@@ -293,7 +368,7 @@ func Keycap(c *ui.Context, keys string) ui.Element {
 // line under it, so that every view's bar is as tall and reads alike.
 // Titles and notes in it take its size unless they set their own.
 func Bar(c *ui.Context, label string, fn func()) ui.Element {
-	return ui.Toolbar(c, fn).Label(label).Padding(4, 8).FontSize(ToolFontSize).
+	return ui.Toolbar(c, fn).Label(label).Padding(PadToolbarY, PadToolbarX).FontSize(TextBody).
 		BorderWidth(0, 0, 1, 0).BorderColor(c.Theme().Border)
 }
 

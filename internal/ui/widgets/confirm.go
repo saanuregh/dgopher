@@ -55,7 +55,7 @@ func EnvBand(c *ui.Context, cfg *db.Config) {
 	envCol := SafetyColor(cfg)
 	fill, ink := EnvironmentLabel(cfg.Env, envCol, c.Theme().Background)
 	ui.Row(c).Padding(10, 16).Gap(8).Background(fill).BorderWidth(3, 0, 0, 0).BorderColor(envCol).Children(func() {
-		ui.Icon(c, IconShield).TextColor(ink).FontSize(14)
+		ui.Icon(c, IconShield).TextColor(ink).FontSize(IconMedium)
 		ui.Text(c, cfg.Name+" · "+cfg.Env.Label()).Bold().TextColor(ink)
 		if cfg.ReadOnly {
 			ui.Text(c, "read-only").TextColor(ink)
@@ -68,12 +68,11 @@ func EnvBand(c *ui.Context, cfg *db.Config) {
 func ConfirmView(c *ui.Context, r *ConfirmRequest) {
 	t := c.Theme()
 	pal := PaletteOf(c)
-	ui.DialogBase(c, &r.Open, func(backdrop, panel ui.Element) {
-		DialogLook(c, backdrop, panel)
-		panel.Width(560).MaxHeightPercent(90).Radius(12).Background(t.Background).Border(1, t.Border).Clip().Role(ui.RoleAlertDialog).Label(r.Title)
+	Dialog(c, &r.Open, DialogMedium, func(panel ui.Element) {
+		panel.MaxHeightPercent(90).Role(ui.RoleAlertDialog).Label(r.Title)
 		EnvBand(c, &r.Conn.Config)
-		ui.Column(c).Padding(16, 20, 20, 20).Gap(12).Children(func() {
-			ui.Text(c, r.Title).FontSize(16).Bold()
+		DialogBody(c, func() {
+			DialogTitle(c, r.Title)
 			// What could go wrong in one callout; how the app guards
 			// against it, a note under it, without the warning's color.
 			var risks, notes []string
@@ -85,10 +84,10 @@ func ConfirmView(c *ui.Context, r *ConfirmRequest) {
 				}
 			}
 			if len(risks) > 0 {
-				ui.Column(c).Gap(6).Padding(10, 12).Radius(8).Background(t.Warning.Alpha(0.10)).Border(1, t.Warning.Alpha(0.3)).Children(func() {
+				ui.Column(c).Gap(6).Padding(10, 12).Radius(RadiusLarge).Background(TintNotice(t.Warning)).Border(1, t.Warning.Alpha(0.3)).Children(func() {
 					for _, reason := range risks {
 						ui.Row(c).Gap(8).AlignItems(ui.Start).Children(func() {
-							ui.Icon(c, IconAlert).TextColor(t.Warning).FontSize(14)
+							ui.Icon(c, IconAlert).TextColor(t.Warning).FontSize(IconMedium)
 							ui.Text(c, reason).Grow(1).Shrink(1)
 						})
 					}
@@ -96,12 +95,12 @@ func ConfirmView(c *ui.Context, r *ConfirmRequest) {
 			}
 			for _, note := range notes {
 				ui.Row(c).Gap(8).AlignItems(ui.Start).Children(func() {
-					ui.Icon(c, IconInfo).TextColor(pal.Muted).FontSize(14)
+					ui.Icon(c, IconInfo).TextColor(pal.Muted).FontSize(IconMedium)
 					ui.Text(c, note).TextColor(pal.Muted).Grow(1).Shrink(1)
 				})
 			}
 			if len(r.Details) > 0 {
-				ui.Scroll(c).MaxHeight(300).Radius(8).Border(1, t.Border).Children(func() {
+				ui.Scroll(c).MaxHeight(300).Radius(RadiusLarge).Border(1, t.Border).Children(func() {
 					ui.Column(c).Padding(10).Gap(6).Children(func() {
 						for _, d := range r.Details {
 							detailRow(c, d)
@@ -110,8 +109,8 @@ func ConfirmView(c *ui.Context, r *ConfirmRequest) {
 				})
 			}
 			if r.Preview != "" {
-				ui.Scroll(c).MaxHeight(220).Radius(8).Background(pal.EditorBg).Border(1, t.Border).Children(func() {
-					ui.Text(c, r.Preview).Font(MonoFont).FontSize(12).Padding(10).Selectable()
+				ui.Scroll(c).MaxHeight(220).Radius(RadiusLarge).Background(pal.EditorBg).Border(1, t.Border).Children(func() {
+					ui.Text(c, r.Preview).Font(MonoFont).FontSize(TextSmall).Padding(10).Selectable()
 				})
 			}
 			ready := true
@@ -121,7 +120,7 @@ func ConfirmView(c *ui.Context, r *ConfirmRequest) {
 				ui.Row(c).Gap(6).AlignItems(ui.Center).Wrap().Children(func() {
 					ui.Text(c, "Type").TextColor(pal.Muted)
 					// Not selectable: copied and pasted, it would not be typed.
-					ui.Text(c, name).Font(MonoFont).FontSize(12.5).Padding(1, 6).Radius(4).Background(pal.Hover)
+					ui.Text(c, name).Font(MonoFont).FontSize(TextBody).Padding(1, 6).Radius(RadiusSmall).Background(pal.Hover)
 					ui.Text(c, "to confirm.").TextColor(pal.Muted)
 				})
 				// No placeholder: the name in it would look typed already.
@@ -153,10 +152,11 @@ func ConfirmView(c *ui.Context, r *ConfirmRequest) {
 					r.OnRunAll()
 				}
 				var confirm ui.Element
+				why := When(!ready, "Type the connection's name first")
 				if r.Harmless {
-					confirm = ui.PrimaryButton(c, r.Action).Disabled(!ready)
+					confirm = Unavailable(ui.PrimaryButton(c, r.Action), why)
 				} else {
-					confirm = DangerButton(c, r.Action, !ready)
+					confirm = DangerButton(c, r.Action, why)
 				}
 				if confirm.Clicked() && ready {
 					r.Open, r.Answered = false, true
@@ -174,12 +174,12 @@ func detailRow(c *ui.Context, d ConfirmDetail) {
 	t := c.Theme()
 	pal := PaletteOf(c)
 	ui.Row(c).Gap(8).AlignItems(ui.Start).Children(func() {
-		label := ui.Text(c, d.Label).FontSize(12.5).Width(140).Shrink(0).TextColor(pal.Muted)
-		value := ui.Text(c, d.Value).FontSize(12.5).Grow(1).Shrink(1).Selectable()
+		label := ui.Text(c, d.Label).FontSize(TextBody).Width(140).Shrink(0).TextColor(pal.Muted)
+		value := ui.Text(c, d.Value).FontSize(TextBody).Grow(1).Shrink(1).Selectable()
 		if d.Changed {
 			label.TextColor(t.Warning).Bold()
 			value.TextColor(t.Warning)
-			ui.Text(c, "changed").FontSize(11).Bold().TextColor(t.Warning).Shrink(0)
+			ui.Text(c, "changed").FontSize(TextMeta).Bold().TextColor(t.Warning).Shrink(0)
 		}
 	})
 }

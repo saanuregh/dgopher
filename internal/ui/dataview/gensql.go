@@ -122,11 +122,11 @@ func showSQL(a Host, title, text string, cn *connection.Conn, database string) {
 func sqlDialogView(a Host, c *ui.Context) {
 	d := a.Dialogs().sqlShown
 	pal := widgets.PaletteOf(c)
-	widgets.Modal(c, &d.open, func() {
-		ui.Column(c).Width(760).Gap(12).Children(func() {
-			ui.Text(c, d.title).FontSize(15).Bold()
-			ui.Scroll(c).MaxHeight(420).Radius(8).Background(pal.EditorBg).Children(func() {
-				ui.Text(c, d.text).Font(widgets.MonoFont).FontSize(12.5).Padding(12).Selectable()
+	widgets.Modal(c, &d.open, widgets.DialogLarge, func() {
+		ui.Column(c).Gap(12).Children(func() {
+			widgets.DialogTitle(c, d.title)
+			ui.Scroll(c).MaxHeight(420).Radius(widgets.RadiusLarge).Background(pal.EditorBg).Children(func() {
+				ui.Text(c, d.text).Font(widgets.MonoFont).FontSize(widgets.TextBody).Padding(12).Selectable()
 			})
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 				if ui.Button(c, "Copy").Clicked() {

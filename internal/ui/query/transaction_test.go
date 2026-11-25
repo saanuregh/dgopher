@@ -147,7 +147,7 @@ func TestFailedApplyKeepsUserTransaction(t *testing.T) {
 		if len(a.Errors) == 0 {
 			t.Fatal("the failed batch reported nothing")
 		}
-		if q.Tx != db.TxOpen || q.sess.Tx() != db.TxOpen || !testutil.HasTextContaining(tt, "Transaction open") {
+		if q.Tx != db.TxOpen || q.sess.Tx() != db.TxOpen || !commitOffered(tt) {
 			t.Fatalf("after the failed batch: tx %v, session tx %v, texts %q", q.Tx, q.sess.Tx(), tt.Texts())
 		}
 		if got := sessionLabels(t, q); got != "one,two,three,mine" {
@@ -790,13 +790,13 @@ func TestAutocommitOffNote(t *testing.T) {
 	t.Cleanup(func() { q.sess.Close() })
 	runWith(t, tt, q, "SET", RunScript)
 	tt.Frame()
-	if q.Tx != db.TxNone || q.CloseReason() != "" || testutil.HasTextContaining(tt, "Transaction open") || !testutil.HasTextContaining(tt, "Autocommit is off") {
+	if q.Tx != db.TxNone || q.CloseReason() != "" || commitOffered(tt) || !testutil.HasTextContaining(tt, "Autocommit is off") {
 		t.Fatalf("tx %v, close reason %q; texts %q", q.Tx, q.CloseReason(), tt.Texts())
 	}
 	q.Editor.SetText("SELECT * FROM rv_acoff")
 	runWith(t, tt, q, "SELECT", RunStatement)
 	tt.Frame()
-	if q.Tx != db.TxOpen || !testutil.HasTextContaining(tt, "Transaction open") || testutil.HasTextContaining(tt, "Autocommit is off") {
+	if q.Tx != db.TxOpen || !commitOffered(tt) || testutil.HasTextContaining(tt, "Autocommit is off") {
 		t.Fatalf("after reading a table: tx %v; texts %q", q.Tx, tt.Texts())
 	}
 	q.endTx(true)

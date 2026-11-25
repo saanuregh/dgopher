@@ -110,18 +110,18 @@ func (r *Tab) runSearch() {
 
 func (r *Tab) searchActions(c *ui.Context) {
 	s := &r.search
-	if ui.Link(c, "Refresh", "").FontSize(12).Clicked() {
+	if ui.Link(c, "Refresh", "").FontSize(widgets.TextSmall).Clicked() {
 		r.loadIndexes()
 	}
 	if r.conn.Config.ReadOnly {
 		return
 	}
-	if ui.Link(c, "New Index…", "").FontSize(12).Clicked() {
+	if ui.Link(c, "New Index…", "").FontSize(widgets.TextSmall).Clicked() {
 		// FT.CREATE's schema is the index: written in the console, its
 		// syntax and help beside it.
 		r.panel, r.consoleIn, r.caretToEnd = panelConsole, newIndexTemplate, true
 	}
-	if index := s.chosen(); index != "" && ui.Link(c, "Drop Index", "").FontSize(12).Clicked() {
+	if index := s.chosen(); index != "" && ui.Link(c, "Drop Index", "").FontSize(widgets.TextSmall).Clicked() {
 		r.a.AskDiscard("Drop the index "+index+"?", "The index goes; the keys it indexes stay.", "Drop Index", func() {
 			r.write([]string{"FT.DROPINDEX", index}, r.loadIndexes)
 		})
@@ -133,11 +133,11 @@ func (r *Tab) searchView(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	if !r.conn.KV().HasSearch() {
-		ui.Text(c, "This server has no Redis Search: it comes with Redis 8, or as a module before.").FontSize(12.5).TextColor(pal.Muted).Padding(8, 12)
+		ui.Text(c, "This server has no Redis Search: it comes with Redis 8, or as a module before.").FontSize(widgets.TextBody).TextColor(pal.Muted).Padding(8, 12)
 		return
 	}
 	if db := r.conn.Config.Database; db != "" && db != "0" {
-		ui.Text(c, "Search indexes are of database 0, and this connection opens database "+db+": connect to database 0 to search.").FontSize(12.5).TextColor(pal.Muted).Padding(8, 12)
+		ui.Text(c, "Search indexes are of database 0, and this connection opens database "+db+": connect to database 0 to search.").FontSize(widgets.TextBody).TextColor(pal.Muted).Padding(8, 12)
 		return
 	}
 	if !s.asked {
@@ -147,7 +147,7 @@ func (r *Tab) searchView(c *ui.Context) {
 		ui.Column(c).Width(200).BorderWidth(0, 1, 0, 0).BorderColor(th.Border).Children(func() {
 			s.indexList.Selected = &s.index
 			list := ui.List(c, &s.indexList, len(s.indexes), func(i int) {
-				ui.Text(c, s.indexes[i]).Font(widgets.MonoFont).FontSize(12.5).Padding(3, 10).SingleLine()
+				ui.Text(c, s.indexes[i]).Font(widgets.MonoFont).FontSize(widgets.TextBody).Padding(3, 10).SingleLine()
 			}).Grow(1).Label("Search indexes")
 			if list.Changed() {
 				s.hits, s.searched, s.info = nil, false, nil
@@ -156,36 +156,36 @@ func (r *Tab) searchView(c *ui.Context) {
 		})
 		ui.Column(c).Grow(1).Padding(6, 12).Gap(6).Children(func() {
 			if s.err != "" {
-				ui.Text(c, s.err).FontSize(12).TextColor(th.Danger).Selectable()
+				ui.Text(c, s.err).FontSize(widgets.TextSmall).TextColor(th.Danger).Selectable()
 			}
 			if s.info == nil {
 				if len(s.indexes) == 0 && !s.loading {
-					ui.Text(c, "The server has no search index yet.").FontSize(12.5).TextColor(pal.Muted)
+					ui.Text(c, "The server has no search index yet.").FontSize(widgets.TextBody).TextColor(pal.Muted)
 				} else if s.chosen() == "" {
-					ui.Text(c, "Choose an index to search it.").FontSize(12.5).TextColor(pal.Muted)
+					ui.Text(c, "Choose an index to search it.").FontSize(widgets.TextBody).TextColor(pal.Muted)
 				}
 				return
 			}
 			fields := lists.Map(s.info.Fields, func(f db.IndexField) string { return f.As + " " + f.Type })
 			ui.Text(c, fmt.Sprintf("%s keys starting %s · %s documents · %s", s.info.On, strings.Join(s.info.Prefixes, ", "), widgets.HumanCount(s.info.Docs), strings.Join(fields, ", "))).
-				FontSize(12).TextColor(pal.Muted).SingleLine().Tooltip(strings.Join(fields, ", "))
+				FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Tooltip(strings.Join(fields, ", "))
 			ui.Row(c).Gap(6).Children(func() {
-				in := ui.TextInput(c, &s.query).Placeholder("A query, e.g. hello @n:[1 10], * for every document").Font(widgets.MonoFont).FontSize(12.5).Grow(1).Label("Search query")
+				in := ui.TextInput(c, &s.query).Placeholder("A query, e.g. hello @n:[1 10], * for every document").Font(widgets.MonoFont).FontSize(widgets.TextBody).Grow(1).Label("Search query")
 				if ui.Button(c, "Search").Clicked() || in.Submitted() {
 					r.runSearch()
 				}
 			})
 			if s.searched {
-				ui.Text(c, fmt.Sprintf("%s documents match; the first %d show.", widgets.HumanCount(s.total), len(s.hits))).FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, fmt.Sprintf("%s documents match; the first %d show.", widgets.HumanCount(s.total), len(s.hits))).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			}
 			ui.List(c, &s.hitList, len(s.hits), func(i int) {
 				h := s.hits[i]
-				row := ui.ButtonBase(c).Padding(3, 6).Label(h.Key)
+				row := widgets.RowButton(c, h.Key, false)
 				row.Children(func() {
 					ui.Row(c).Gap(10).FillWidth().Children(func() {
-						ui.Text(c, h.Key).Font(widgets.MonoFont).FontSize(12).Width(220).SingleLine()
+						ui.Text(c, h.Key).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Width(220).SingleLine()
 						parts := lists.Map(h.Fields, func(f [2]string) string { return f[0] + "=" + f[1] })
-						ui.Text(c, widgets.OneLine(strings.Join(parts, "  "), 300)).Font(widgets.MonoFont).FontSize(12).TextColor(pal.Muted).SingleLine().Grow(1).Shrink(1)
+						ui.Text(c, widgets.OneLine(strings.Join(parts, "  "), 300)).Font(widgets.MonoFont).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Grow(1).Shrink(1)
 					})
 				})
 				if row.Clicked() {

@@ -13,7 +13,9 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Palette is the colors the app adds to the theme's.
+// Palette is the colors the app adds to the theme's. Text in them reads
+// at 4.5 to 1 on what it is drawn on, line numbers at 3 to 1, which
+// TestBuiltInThemesMeetContrast holds them to.
 type Palette struct {
 	Sidebar  ui.Color
 	EditorBg ui.Color
@@ -36,21 +38,21 @@ var lightPalette = Palette{
 	Sidebar:          ui.Hex("#f5f5f4"),
 	EditorBg:         ui.Hex("#ffffff"),
 	CurrentStatement: ui.Hex("#f4f7fd"),
-	LineNumber:       ui.Hex("#a8a29e"),
+	LineNumber:       ui.Hex("#948e8a"),
 	GridHeader:       ui.Hex("#f5f5f4"),
 	GridLine:         ui.RGBA(0, 0, 0, 0.07),
 	CellSelected:     ui.RGBA(37, 99, 235, 0.16),
-	Null:             ui.Hex("#a8a29e"),
+	Null:             ui.Hex("#736c67"),
 	Modified:         ui.RGBA(234, 179, 8, 0.25),
 	Inserted:         ui.RGBA(34, 197, 94, 0.18),
 	Deleted:          ui.RGBA(239, 68, 68, 0.16),
-	Muted:            ui.Hex("#78716c"),
+	Muted:            ui.Hex("#6f6863"),
 	Hover:            ui.RGBA(0, 0, 0, 0.05),
 	Syntax: map[sqltext.Kind]ui.Color{
 		sqltext.Keyword:     ui.Hex("#7c3aed"),
 		sqltext.String:      ui.Hex("#15803d"),
 		sqltext.Number:      ui.Hex("#c2410c"),
-		sqltext.Comment:     ui.Hex("#a8a29e"),
+		sqltext.Comment:     ui.Hex("#736c67"),
 		sqltext.QuotedIdent: ui.Hex("#0e7490"),
 		sqltext.Param:       ui.Hex("#be185d"),
 		sqltext.Operator:    ui.Hex("#57534e"),
@@ -62,11 +64,11 @@ var darkPalette = Palette{
 	Sidebar:          ui.Hex("#141312"),
 	EditorBg:         ui.Hex("#1a1918"),
 	CurrentStatement: ui.Hex("#1f2229"),
-	LineNumber:       ui.Hex("#57534e"),
+	LineNumber:       ui.Hex("#706b66"),
 	GridHeader:       ui.Hex("#1f1d1b"),
 	GridLine:         ui.RGBA(255, 255, 255, 0.07),
 	CellSelected:     ui.RGBA(96, 165, 250, 0.22),
-	Null:             ui.Hex("#78716c"),
+	Null:             ui.Hex("#948e89"),
 	Modified:         ui.RGBA(234, 179, 8, 0.22),
 	Inserted:         ui.RGBA(34, 197, 94, 0.20),
 	Deleted:          ui.RGBA(239, 68, 68, 0.22),
@@ -76,7 +78,7 @@ var darkPalette = Palette{
 		sqltext.Keyword:     ui.Hex("#c4b5fd"),
 		sqltext.String:      ui.Hex("#86efac"),
 		sqltext.Number:      ui.Hex("#fdba74"),
-		sqltext.Comment:     ui.Hex("#78716c"),
+		sqltext.Comment:     ui.Hex("#948e89"),
 		sqltext.QuotedIdent: ui.Hex("#67e8f9"),
 		sqltext.Param:       ui.Hex("#f9a8d4"),
 		sqltext.Operator:    ui.Hex("#d6d3d1"),
@@ -120,6 +122,22 @@ func ChosenRows(c *ui.Context, build func()) {
 	t := *prev
 	t.Accent, t.AccentText = ChosenRow(c), prev.Text
 	t.InactiveAccent = inactiveTint(prev)
+	c.SetTheme(&t)
+	defer c.SetTheme(prev)
+	build()
+}
+
+// ChosenRowsElsewhere is ChosenRows for a list beside the one worked in,
+// as one of a sidebar's two: its chosen row keeps a faint tint, so that
+// of two rows chosen, one reads as the current one.
+func ChosenRowsElsewhere(c *ui.Context, build func()) {
+	prev := c.Theme()
+	t := *prev
+	faint := prev.Text.Alpha(0.07)
+	if !prev.Dark {
+		faint = prev.Text.Alpha(0.05)
+	}
+	t.Accent, t.AccentText, t.InactiveAccent = faint, prev.Text, faint
 	c.SetTheme(&t)
 	defer c.SetTheme(prev)
 	build()
@@ -207,7 +225,7 @@ func EnvironmentLabel(e db.Environment, col, bg ui.Color) (fill, ink ui.Color) {
 	if e == db.Staging || e == db.Production {
 		return LabelFill(col), ui.RGB(255, 255, 255)
 	}
-	return col.Alpha(0.14), LabelInk(col, bg.Mix(ui.RGB(col.R, col.G, col.B), 0.14))
+	return TintNotice(col), LabelInk(col, bg.Mix(ui.RGB(col.R, col.G, col.B), tintNotice))
 }
 
 // contrastWithWhite is the WCAG contrast ratio of white text on col.
@@ -256,12 +274,47 @@ func BackdropOf(c *ui.Context, picker bool) ui.Color {
 	return ui.RGBA(0, 0, 0, 0.18)
 }
 
+// EngineBadge is an engine's mark: its two letters on its color, which
+// tell a PostgreSQL connection from a ClickHouse one at a glance, where a
+// tinted icon of one shape for all did not. Not lit, as for a connection
+// that is not open, it is gray.
+func EngineBadge(c *ui.Context, e db.Engine, lit bool) ui.Element {
+	fill := EngineColor(e)
+	ink := legibleOn(fill)
+	if !lit {
+		fill, ink = c.Theme().Text.Alpha(0.10), PaletteOf(c).Muted
+	}
+	b := ui.Box(c).Size(20, 15).Radius(RadiusSmall).Background(fill).Center().Shrink(0).Label(e.Label())
+	b.Children(func() {
+		ui.Text(c, e.Mark()).FontSize(TextMark).FontWeight(700).LetterSpacing(0.2).TextColor(ink)
+	})
+	return b
+}
+
+// ConnBadge is a connection's engine badge with the connection's dot on
+// its corner, as a person's picture carries their presence: one mark
+// before the name says what the connection is and how it stands, where a
+// dot and an icon side by side took the room of two. The dot is on the
+// corner, past the letters: over them, PG read as PC. under is the color
+// the badge is on, as the sidebar's.
+func ConnBadge(c *ui.Context, cn *connection.Conn, under ui.Color) ui.Element {
+	box := ui.Box(c).Size(26, 20).Shrink(0)
+	box.Children(func() {
+		EngineBadge(c, cn.Config.Engine, cn.Status == connection.StatusConnected).Absolute().Left(0).Top(1)
+		// A ring of the color under it sets the dot apart from the badge.
+		ui.Box(c).Absolute().Right(0).Bottom(0).Size(10, 10).Radius(RadiusRound).Background(under).Center().Children(func() {
+			ConnDot(c, cn)
+		})
+	})
+	return box
+}
+
 // ConnState shows how a connection stands: its dot, with a warning when
 // it failed.
 func ConnState(c *ui.Context, cn *connection.Conn) {
 	ConnDot(c, cn)
 	if cn.Status == connection.StatusFailed {
-		ui.Icon(c, IconAlert).FontSize(10).TextColor(c.Theme().Danger)
+		ui.Icon(c, IconAlert).FontSize(IconSmall).TextColor(c.Theme().Danger)
 	}
 }
 
@@ -270,7 +323,7 @@ func ConnState(c *ui.Context, cn *connection.Conn) {
 // emptying while it connects, the work going on where its result shows.
 func ConnDot(c *ui.Context, cn *connection.Conn) ui.Element {
 	col := EnvColor(&cn.Config)
-	dot := ui.Box(c).Size(7, 7).Radius(4)
+	dot := ui.Box(c).Size(7, 7).Radius(RadiusRound)
 	switch cn.Status {
 	case connection.StatusConnected:
 		return dot.Background(col)
@@ -297,3 +350,18 @@ const connectPulse = 1200
 // connecting dot and the skeleton's light, which look as smooth at it as
 // at the display's rate and cost less power.
 const pulseFrameRate = 30
+
+// OnDanger is the color of text on a fill of the theme's Danger, as a
+// button that destroys.
+func OnDanger(t *ui.Theme) ui.Color { return legibleOn(t.Danger) }
+
+// legibleOn is the color of text on a fill: white, or the dark of a dark
+// window, whichever reads better on it. A light fill, as the dark
+// theme's accent, takes dark text.
+func legibleOn(fill ui.Color) ui.Color {
+	white, dark := ui.RGB(255, 255, 255), ui.Hex("#1a1918")
+	if contrast(dark, fill) > contrast(white, fill) {
+		return dark
+	}
+	return white
+}

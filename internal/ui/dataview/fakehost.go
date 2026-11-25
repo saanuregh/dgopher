@@ -34,6 +34,9 @@ type FakeHost struct {
 	active   int
 	dialogs  Dialogs
 	focus    string
+	// Zoomed is the steps the window would have zoomed by (ZoomInput).
+	Zoomed    int
+	zoomSteps widgets.ZoomSteps
 
 	// What the app would have shown or kept.
 	Confirm *widgets.ConfirmRequest
@@ -61,6 +64,8 @@ type FakeHost struct {
 
 	mu    sync.Mutex
 	queue []func()
+	// working counts the background work going on, which settle waits for.
+	working int
 }
 
 // Connections are the connections added.
@@ -94,20 +99,16 @@ func NewFakeHost(t TB) *FakeHost {
 		t.Fatal(err)
 	}
 	h := &FakeHost{tb: t, settings: settings.Default(), layout: widgets.DefaultLayout(), Project: p}
-	// As the app quits: the work posted since the last frame first, as it
+	// As the app quits: the work going on and what it posts first, as it
 	// may hand a tab its session, then the tabs, as their sessions hold a
-	// connection of the pools, then the pools, then the project's state.
+	// connection of the pools, with the work their closing starts, then
+	// the pools, then the project's state.
 	t.Cleanup(func() {
-		h.mu.Lock()
-		queue := h.queue
-		h.queue = nil
-		h.mu.Unlock()
-		for _, fn := range queue {
-			fn()
-		}
+		h.settle()
 		for _, tab := range h.Tabs {
 			tab.Close()
 		}
+		h.settle()
 		for _, cn := range h.Conns {
 			if cn.Store != nil {
 				cn.Store.Close()
@@ -167,6 +168,29 @@ func (h *FakeHost) View(c *ui.Context) {
 	widgets.FinishCards(c)
 }
 
+// settleWait is how long settle waits for work that does not end, as a
+// read a test left blocked: the test's end goes on without it.
+const settleWait = 5 * time.Second
+
+// settle waits for the work going on in the background and runs what it
+// posted, again while that starts more: a test that ends with work going
+// on, as a table's first rows being read, would otherwise leave what the
+// work brings, as a session and its open file, to nobody.
+func (h *FakeHost) settle() {
+	for deadline := time.Now().Add(settleWait); ; time.Sleep(time.Millisecond) {
+		h.mu.Lock()
+		working, queue := h.working, h.queue
+		h.queue = nil
+		h.mu.Unlock()
+		for _, fn := range queue {
+			fn()
+		}
+		if len(queue) == 0 && (working == 0 || time.Now().After(deadline)) {
+			return
+		}
+	}
+}
+
 func (h *FakeHost) Post(fn func()) {
 	h.mu.Lock()
 	h.queue = append(h.queue, fn)
@@ -174,7 +198,17 @@ func (h *FakeHost) Post(fn func()) {
 }
 
 func (h *FakeHost) Background(work func() func()) {
+	h.mu.Lock()
+	h.working++
+	h.mu.Unlock()
 	go func() {
+		// Counted as done once what it brings is posted: settle then
+		// finds it in the queue.
+		defer func() {
+			h.mu.Lock()
+			h.working--
+			h.mu.Unlock()
+		}()
 		defer RecoverBackground(h.Post, h.ShowReport, nil)
 		if done := work(); done != nil {
 			h.Post(done)
@@ -193,6 +227,13 @@ func (h *FakeHost) Settings() *settings.Settings { return &h.settings }
 func (h *FakeHost) Layout() *widgets.Layout { return &h.layout }
 
 func (h *FakeHost) SaveSettings() {}
+
+// ZoomInput counts the steps the gestures given it zoom by, in Zoomed.
+func (h *FakeHost) ZoomInput(ev ui.InputEvent) bool {
+	step, took := h.zoomSteps.Step(ev)
+	h.Zoomed += step
+	return took
+}
 
 func (h *FakeHost) ShowError(title, message string) {
 	h.ShowReport(widgets.ErrorReport{Title: title, Detail: message})

@@ -1,5 +1,10 @@
 # Getting started
 
+- **The start page.** Before a project has a connection, it shows how to
+  begin: a new connection, a pasted URL, the sample, a project folder.
+  Once there are connections, it leads with them and with the query files
+  last worked on, the latest first; how to begin is a row of buttons under
+  them.
 - **Try the sample.** The start page offers a small shop database in
   SQLite, made on your computer, so you can explore without a server.
 - **The tour.** A short guided tour explains projects and connections,

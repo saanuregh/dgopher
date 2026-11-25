@@ -45,8 +45,9 @@ change the form's.
   idle-connection limits, and the statement timeout.
 - **Network** holds TLS, the proxy and SSH. It is marked when SSH, a proxy
   or a client certificate is set.
-- **Test Connection** reports the server's version and how long connecting
-  took.
+- **Test Connection** shows that it is testing, then reports the server's
+  version and how long connecting took. A failure shows in full above the
+  dialog's buttons, to read and copy.
 - **Auto-connect** (off by default) opens the connection when DGopher
   starts, and connects its editors as they come into view.
 
@@ -56,11 +57,11 @@ Connections can be grouped in folders in the navigator, as in DBeaver.
 Folders nest, and belong to one project; they are saved in its
 `dgopher.json` ([fields](../project-files.md)).
 
-- **New Folder…** is on the Connections section's menu, a folder's, and a
-  connection's. From a connection, the folder is made beside it and the
+- **New Folder…** is in the sidebar's **+**, on the project's menu, a
+  folder's, and a connection's. From a connection, the folder is made beside it and the
   connection moves into it.
-- Move a connection by dragging it onto a folder, or onto **Connections**
-  for the top level; by its **Move to Folder** menu; or with **Folder** on
+- Move a connection by dragging it onto a folder, or onto the project's
+  name for the top level; by its **Move to Folder** menu; or with **Folder** on
   the form's General page, shown once the project has a folder. Folders
   drag too, but not into themselves.
 - **Rename…** (F2) renames a folder, and the folders in it follow.
@@ -98,7 +99,8 @@ It decides what asks before running; see [Safety model](../safety.md).
 ## Connection URLs
 
 Paste a URL, or a file path, into **From URL** to fill in the form,
-including TLS.
+including TLS. The field shows for a new connection; one being edited is
+filled in already.
 
 - Schemes: `postgres://`, `postgresql://`, `cockroachdb://`,
   `cockroach://`, `yugabytedb://`, `timescaledb://`, `mysql://`,
@@ -274,9 +276,10 @@ Dashboards and Data Models. Each shows a count and, when pointed at, a +
 that makes another. With only one project, its name is in the sidebar's
 top row and its sections at the top.
 
-- A query file shows, under its name, the connection its
-  `-- connection:` line names, in its environment's color, or in the
-  warning color if no connection has that ID.
+- A query file shows, on its line, the connection its `-- connection:`
+  line names: a dot in its environment's color before the file's name, and
+  the connection's name after it, or the ID in the warning color if no
+  connection has it.
 - A connection is a tree of databases, schemas, tables, views and columns,
   read as you open it, with row estimates. A database with one schema shows
   that schema's folders directly.

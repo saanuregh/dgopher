@@ -42,17 +42,17 @@ func (a *App) AskSnippet(q *query.Tab) {
 func (a *App) snippetFormView(c *ui.Context) {
 	f := a.snippetForm
 	pal := widgets.PaletteOf(c)
-	dlg := widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(520).Gap(10).Children(func() {
-			ui.Text(c, "Save as Snippet").FontSize(15).Bold()
+	dlg := widgets.Modal(c, &f.open, widgets.DialogMedium, func() {
+		ui.Column(c).Gap(10).Children(func() {
+			widgets.DialogTitle(c, "Save as Snippet")
 			submit := ui.TextInput(c, &f.name).AutoFocus().Label("Name").Placeholder("Name").Submitted()
 			ui.TextInput(c, &f.keyword).Label("Keyword").Placeholder("Keyword that completes to it, as recent").Font(widgets.MonoFont)
-			ui.Scroll(c).MaxHeight(200).Radius(8).Background(pal.EditorBg).Children(func() {
-				ui.Text(c, f.sql).Font(widgets.MonoFont).FontSize(12).Padding(10)
+			ui.Scroll(c).MaxHeight(200).Radius(widgets.RadiusLarge).Background(pal.EditorBg).Children(func() {
+				ui.Text(c, f.sql).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Padding(10)
 			})
-			ui.Text(c, "Saved in "+project.File+" of "+f.project.Name+", to share with the project; inserted from the command palette into any of its editors, or by typing its keyword. Fields to fill in are written ${1:default}, $2, and $0 where the caret ends; Tab goes from one to the next.").FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, "Saved in "+project.File+" of "+f.project.Name+", to share with the project; inserted from the command palette into any of its editors, or by typing its keyword. Fields to fill in are written ${1:default}, $2, and $0 where the caret ends; Tab goes from one to the next.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			if f.err != "" {
-				ui.Text(c, f.err).FontSize(12).TextColor(c.Theme().Danger)
+				ui.Text(c, f.err).FontSize(widgets.TextSmall).TextColor(c.Theme().Danger)
 			}
 			if widgets.DialogFooter(c, &f.open, "Save", submit) && strings.TrimSpace(f.name) != "" {
 				keyword := strings.TrimSpace(f.keyword)

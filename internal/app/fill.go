@@ -411,9 +411,9 @@ func (a *App) fillView(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	_, winH := c.Size()
-	dlg := widgets.EnvModal(c, &x.open, &x.conn.Config, func() {
-		ui.Column(c).Width(980).MaxHeight(winH - 80).Gap(12).Children(func() {
-			ui.Text(c, "Generate Test Data for "+x.obj.Schema+"."+x.obj.Name).FontSize(15).Bold().SingleLine()
+	dlg := widgets.EnvModal(c, &x.open, &x.conn.Config, widgets.DialogWide, func() {
+		ui.Column(c).MaxHeight(winH - 80).Gap(12).Children(func() {
+			widgets.DialogTitle(c, "Generate Test Data for "+x.obj.Schema+"."+x.obj.Name).SingleLine()
 			if x.loading {
 				ui.Row(c).Gap(8).Children(func() {
 					ui.Text(c, "Reading the table…").TextColor(pal.Muted)
@@ -424,9 +424,9 @@ func (a *App) fillView(c *ui.Context) {
 					ui.Text(c, "Rows to add")
 					ui.TextInput(c, &x.count).Width(120).Label("Rows to add").Disabled(x.running).AutoFocus()
 					ui.Text(c, "Keys continue from the highest; a column referring to another table takes the values it holds.").
-						FontSize(12).TextColor(pal.Muted).Shrink(1)
+						FontSize(widgets.TextSmall).TextColor(pal.Muted).Shrink(1)
 				})
-				ui.Scroll(c).MaxHeight(340).Border(1, th.Border).Radius(6).Children(func() {
+				ui.Scroll(c).MaxHeight(340).Border(1, th.Border).Radius(widgets.RadiusMedium).Children(func() {
 					ui.Column(c).Padding(4, 0).Children(func() {
 						for i := range x.cols {
 							a.fillColumnRow(c, x, &x.cols[i], fillKindLabels)
@@ -440,14 +440,14 @@ func (a *App) fillView(c *ui.Context) {
 			}
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				if x.running {
-					ui.Text(c, widgets.HumanCount(x.done)+" rows written…").FontSize(12).TextColor(pal.Muted)
+					ui.Text(c, widgets.HumanCount(x.done)+" rows written…").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 				}
 				ui.Spacer(c)
 				widgets.DismissButton(c, x.running, false, x.cancel, func() { x.open = false })
-				if ui.Button(c.Key("sample"), "New Sample").Disabled(x.running || len(x.cols) == 0).Clicked() {
+				if widgets.Clicked(ui.Button(c.Key("sample"), "New Sample"), cmp.Or(widgets.When(x.running, "The rows are being added"), widgets.When(len(x.cols) == 0, "The table's columns are not read yet"))) {
 					x.seed = rand.Uint64()
 				}
-				if ui.PrimaryButton(c.Key("add"), "Add Rows").Disabled(x.running || len(x.cols) == 0).Clicked() {
+				if widgets.Clicked(ui.PrimaryButton(c.Key("add"), "Add Rows"), cmp.Or(widgets.When(x.running, "The rows are being added"), widgets.When(len(x.cols) == 0, "The table's columns are not read yet"))) {
 					a.startFill(x)
 				}
 			})
@@ -473,8 +473,8 @@ func (a *App) fillColumnRow(c *ui.Context, x *fillDialog, fc *fillColumn, labels
 	}
 	ui.Row(c.Key("fill-"+fc.col.Name)).Padding(4, 10).Gap(10).AlignItems(ui.Center).Children(func() {
 		ui.Column(c).Width(200).Children(func() {
-			ui.Text(c, fc.col.Name).Font(widgets.MonoFont).FontSize(12.5).SingleLine()
-			ui.Text(c, fc.col.Type).FontSize(11).TextColor(pal.Muted).SingleLine()
+			ui.Text(c, fc.col.Name).Font(widgets.MonoFont).FontSize(widgets.TextBody).SingleLine()
+			ui.Text(c, fc.col.Type).FontSize(widgets.TextMeta).TextColor(pal.Muted).SingleLine()
 		})
 		ui.Select(c, &fc.kind, labels).Width(170).Label(fc.col.Name + " generator").Disabled(x.running)
 		ui.Row(c).Gap(6).Grow(1).Shrink(1).AlignItems(ui.Center).Children(func() {
@@ -491,25 +491,25 @@ func (a *App) fillColumnRow(c *ui.Context, x *fillDialog, fc *fillColumn, labels
 			case g.Kind == testdata.OneOf:
 				ui.TextInput(c, &fc.values).Placeholder("values, by commas").Label(fc.col.Name + " values").Grow(1).Disabled(x.running)
 			case g.Kind == testdata.Reference:
-				ui.Text(c, fmt.Sprintf("%s values of %s", widgets.HumanCount(int64(len(g.Values))), fc.refTo)).FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, fmt.Sprintf("%s values of %s", widgets.HumanCount(int64(len(g.Values))), fc.refTo)).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			case g.Kind == testdata.Default:
-				ui.Text(c, "Left out: the database fills it.").FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, "Left out: the database fills it.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			case fc.unique && (g.Kind.Textual() || g.Kind == testdata.UUID):
-				ui.Text(c, "Each unique.").FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, "Each unique.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			case fc.unique:
-				ui.Text(c, "Values may repeat, which the column refuses.").FontSize(12).TextColor(th.Warning)
+				ui.Text(c, "Values may repeat, which the column refuses.").FontSize(widgets.TextSmall).TextColor(th.Warning)
 			}
 			if fc.note != "" && err == nil {
-				ui.Text(c, fc.note).FontSize(12).TextColor(th.Warning).Shrink(1)
+				ui.Text(c, fc.note).FontSize(widgets.TextSmall).TextColor(th.Warning).Shrink(1)
 			}
 			if err != nil {
-				ui.Text(c, err.Error()).FontSize(12).TextColor(th.Danger).Shrink(1)
+				ui.Text(c, err.Error()).FontSize(widgets.TextSmall).TextColor(th.Danger).Shrink(1)
 			}
 		})
 		if fc.col.Nullable && g.Kind != testdata.Default && g.Kind != testdata.Null {
 			ui.Row(c).Gap(4).AlignItems(ui.Center).Children(func() {
 				ui.TextInput(c, &fc.nulls).Width(56).Label(fc.col.Name + " NULL percent").Disabled(x.running)
-				ui.Text(c, "% NULL").FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, "% NULL").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			})
 		}
 	})
@@ -532,12 +532,12 @@ func (a *App) fillSample(c *ui.Context, x *fillDialog) {
 		}
 	}
 	const cellW = 150
-	ui.Text(c, "Sample").FontSize(12).TextColor(pal.Muted)
-	ui.ScrollHorizontal(c).Border(1, th.Border).Radius(6).Children(func() {
+	ui.Text(c, "Sample").FontSize(widgets.TextSmall).TextColor(pal.Muted)
+	ui.ScrollHorizontal(c).Border(1, th.Border).Radius(widgets.RadiusMedium).Children(func() {
 		ui.Column(c).Padding(4, 0).Children(func() {
 			ui.Row(c).Padding(2, 10).Gap(10).Children(func() {
 				for _, col := range p.cols {
-					ui.Text(c, col.Name).Font(widgets.MonoFont).FontSize(11.5).Bold().Width(cellW).SingleLine()
+					ui.Text(c, col.Name).Font(widgets.MonoFont).FontSize(widgets.TextMeta).Bold().Width(cellW).SingleLine()
 				}
 			})
 			for _, row := range rows {
@@ -547,7 +547,7 @@ func (a *App) fillSample(c *ui.Context, x *fillDialog) {
 						if v != nil {
 							text = db.Display(db.ValueText(v, p.canonical[j]))
 						}
-						ui.Text(c, text).Font(widgets.MonoFont).FontSize(11.5).Width(cellW).SingleLine()
+						ui.Text(c, text).Font(widgets.MonoFont).FontSize(widgets.TextMeta).Width(cellW).SingleLine()
 					}
 				})
 			}

@@ -129,6 +129,7 @@ type App struct {
 	// it could not be: a folder too big to watch is not walked at each poll.
 	queryWatchAt map[*project.Project]time.Time
 	newProject   *newProjectForm
+	schemaPicker *schemaPicker
 	renaming     *renameForm
 	generating   *generateState
 	// closedTabs are the tabs the user closed, the latest last (rememberClosed).
@@ -187,9 +188,11 @@ type App struct {
 	// layout is the windows' layout, which ui keeps, when there is one,
 	// as layoutSaved was last written to it.
 	layout, layoutSaved widgets.Layout
-	ui                  *state.DB
-	clipboard           func(string)
-	readClip            func() string
+	// zoomSteps adds the gestures that zoom the window up into steps.
+	zoomSteps widgets.ZoomSteps
+	ui        *state.DB
+	clipboard func(string)
+	readClip  func() string
 
 	// recordProjects are the projects by the prefix of their
 	// connections' IDs, for Record and RecordTyped, which may run on any

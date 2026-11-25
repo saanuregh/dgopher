@@ -117,7 +117,7 @@ func TestIdleConnectionConfirmedRunConnects(t *testing.T) {
 	a.confirm.OnConfirm()
 	a.confirm = nil
 	testutil.WaitFor(t, tt, "the insert", func() bool {
-		return cn.Status == connection.StatusConnected && !q.Running && testutil.HasTextContaining(tt, "INSERT · 1 row affected")
+		return cn.Status == connection.StatusConnected && !q.Running && testutil.HasTextContaining(tt, "1 row affected")
 	})
 	q.FinishTx(false, func(error) {})
 }

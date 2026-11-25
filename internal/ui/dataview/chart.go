@@ -305,13 +305,13 @@ func ChartControls(c *ui.Context, s *Chart, src *Source) {
 		s.detect(src)
 	}
 	names := lists.Map(src.Cols, func(col db.ColumnInfo) string { return col.Name })
-	ui.Row(c).Padding(6, 10).Gap(10).Wrap().BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+	ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(10).Wrap().BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 		if ui.Segmented(c, &s.kind, chartKinds...).Label("Chart type").Changed() {
 			s.hover = -1
 		}
-		ui.Text(c, "X").FontSize(12).TextColor(pal.Muted)
+		ui.Text(c, "X").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 		ui.Select(c, &s.x, names).Label("X axis")
-		ui.Text(c, "Series").FontSize(12).TextColor(pal.Muted)
+		ui.Text(c, "Series").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 		for i, col := range src.Cols {
 			if col.Name == s.x || !numericColumn(src, i) {
 				continue
@@ -344,13 +344,13 @@ func ChartPlot(c *ui.Context, s *Chart, src *Source) {
 				for j, col := range series {
 					ui.Row(c).Gap(6).Children(func() {
 						ui.Box(c).Size(10, 10).Radius(2).Background(seriesColor(c, j))
-						ui.Text(c, src.Cols[col].Name).FontSize(12)
+						ui.Text(c, src.Cols[col].Name).FontSize(widgets.TextSmall)
 					})
 				}
 			})
 		}
 		if len(src.Rows) > maxChartPoints {
-			ui.Text(c, fmt.Sprintf("Charting the first %d rows.", maxChartPoints)).FontSize(12).TextColor(pal.Muted).Padding(4, 16)
+			ui.Text(c, fmt.Sprintf("Charting the first %d rows.", maxChartPoints)).FontSize(widgets.TextSmall).TextColor(pal.Muted).Padding(4, 16)
 		}
 		names := lists.Map(series, func(col int) string { return src.Cols[col].Name })
 		kind := s.kind
@@ -799,8 +799,8 @@ func pieView(c *ui.Context, s *Chart, src *Source, col int, pts []chartPoint) {
 			for i, sl := range slices {
 				ui.Row(c).Gap(8).Children(func() {
 					ui.Box(c).Size(10, 10).Radius(2).Background(seriesColor(c, i))
-					ui.Text(c, sl.label).FontSize(12.5).SingleLine().MaxWidth(200)
-					ui.Text(c, fmt.Sprintf("%s · %.1f%%", fmtNumber(sl.v), sl.v/total*100)).FontSize(12).TextColor(pal.Muted)
+					ui.Text(c, sl.label).FontSize(widgets.TextBody).SingleLine().MaxWidth(200)
+					ui.Text(c, fmt.Sprintf("%s · %.1f%%", fmtNumber(sl.v), sl.v/total*100)).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 				})
 			}
 		})

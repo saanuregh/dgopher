@@ -187,9 +187,16 @@ func (a *App) currentProject() *project.Project {
 	if cn := a.activeConn(); cn != nil {
 		return cn.Project
 	}
-	if a.nav.row >= 0 && a.nav.row < a.nav.tree.Rows() {
-		if p := a.projectByDir(a.nav.tree.Item(a.nav.row).projectDir); p != nil {
-			return p
+	// The row chosen in the pane that had the keys last, then the other's.
+	panes := a.nav.panes()
+	if a.nav.inFiles {
+		panes[0], panes[1] = panes[1], panes[0]
+	}
+	for _, pane := range panes {
+		if n, ok := pane.chosen(); ok {
+			if p := a.projectByDir(n.projectDir); p != nil {
+				return p
+			}
 		}
 	}
 	if len(a.projects) == 1 {
@@ -685,10 +692,10 @@ func (a *App) createProject(f *newProjectForm) {
 func (a *App) newProjectView(c *ui.Context) {
 	f := a.newProject
 	pal := widgets.PaletteOf(c)
-	dlg := widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(520).Gap(12).Children(func() {
-			ui.Text(c, "New Project").FontSize(15).Bold()
-			ui.Text(c, "A project is a folder to keep in Git: its "+project.File+" lists connections without passwords, and its queries are .sql files.").FontSize(12).TextColor(pal.Muted)
+	dlg := widgets.Modal(c, &f.open, widgets.DialogMedium, func() {
+		ui.Column(c).Gap(12).Children(func() {
+			widgets.DialogTitle(c, "New Project")
+			ui.Text(c, "A project is a folder to keep in Git: its "+project.File+" lists connections without passwords, and its queries are .sql files.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			var submit bool
 			ui.Form(c, func() {
 				ui.Field(c, "Name", func() {
@@ -696,7 +703,7 @@ func (a *App) newProjectView(c *ui.Context) {
 				})
 				ui.Field(c, "Create in", func() {
 					ui.Row(c).Gap(6).Children(func() {
-						ui.TextInput(c, &f.parent).Grow(1).Font(widgets.MonoFont).FontSize(12.5)
+						ui.TextInput(c, &f.parent).Grow(1).Font(widgets.MonoFont).FontSize(widgets.TextBody)
 						if ui.Button(c, "Choose…").Clicked() {
 							opts := mygo.OpenDialogOptions{Title: "Create the Project In", Directory: true, CreateDirectories: true}
 							widgets.ChoosePath(a.Post, opts, func(path string) { f.parent = path })
@@ -705,7 +712,7 @@ func (a *App) newProjectView(c *ui.Context) {
 				}).Description(filepath.Join(db.ExpandPath(strings.TrimSpace(f.parent)), strings.TrimSpace(f.name)))
 			})
 			if f.err != "" {
-				ui.Text(c, f.err).FontSize(12).TextColor(c.Theme().Danger)
+				ui.Text(c, f.err).FontSize(widgets.TextSmall).TextColor(c.Theme().Danger)
 			}
 			if widgets.DialogFooter(c, &f.open, "Create Project", submit) {
 				a.createProject(f)
@@ -774,12 +781,12 @@ func (a *App) renameQueryFile(p *project.Project, path, name string) error {
 
 func (a *App) renameView(c *ui.Context) {
 	f := a.renaming
-	widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(420).Gap(10).Children(func() {
-			ui.Text(c, f.title).FontSize(15).Bold()
+	widgets.Modal(c, &f.open, widgets.DialogSmall, func() {
+		ui.Column(c).Gap(10).Children(func() {
+			widgets.DialogTitle(c, f.title)
 			submit := ui.TextInput(c, &f.name).AutoFocus().Label("Name").Font(widgets.MonoFont).Submitted()
 			if f.err != "" {
-				ui.Text(c, f.err).FontSize(12).TextColor(c.Theme().Danger)
+				ui.Text(c, f.err).FontSize(widgets.TextSmall).TextColor(c.Theme().Danger)
 			}
 			if widgets.DialogFooter(c, &f.open, cmp.Or(f.action, "Rename"), submit) {
 				if err := f.rename(f.name); err != nil {

@@ -420,6 +420,7 @@ var _ SQLRules = postgresEngine{}
 func (postgresEngine) Label() string                   { return "PostgreSQL" }
 func (postgresEngine) Base() Engine                    { return Postgres }
 func (postgresEngine) ColorHex() string                { return "#336791" }
+func (postgresEngine) Mark() string                    { return "PG" }
 func (postgresEngine) DefaultPort() int                { return 5432 }
 func (postgresEngine) DefaultUser() string             { return "postgres" }
 func (postgresEngine) Kind() EngineKind                { return KindSQL }

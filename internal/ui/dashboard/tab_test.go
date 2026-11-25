@@ -235,7 +235,7 @@ func TestPanelConnection(t *testing.T) {
 	s.connID = other.Config.ID // as the select chooses it
 	tt.Frame()
 	testutil.Snapshot(t, tt, "dashboard-panel-connection")
-	if err := tt.Click("Run and Keep"); err != nil {
+	if err := tt.Click("Save and Run"); err != nil {
 		t.Fatal(err)
 	}
 	testutil.WaitFor(t, tt, "the run on the other", func() bool { return other.Status == connection.StatusConnected && s.src != nil && !s.running })
@@ -282,7 +282,7 @@ func TestPanelSameNameConnections(t *testing.T) {
 	}
 	tt.Frame()
 	s := tab.panels[0]
-	if err := tt.Click("Run and Keep"); err != nil {
+	if err := tt.Click("Save and Run"); err != nil {
 		t.Fatal(err)
 	}
 	testutil.WaitFor(t, tt, "the run on the second", func() bool { return second.Status == connection.StatusConnected && s.src != nil && !s.running })
@@ -339,7 +339,7 @@ func TestPanelDatabase(t *testing.T) {
 	}
 	s := tab.panels[0]
 	s.database = other // as the select chooses it
-	if err := tt.Click("Run and Keep"); err != nil {
+	if err := tt.Click("Save and Run"); err != nil {
 		t.Fatal(err)
 	}
 	testutil.WaitFor(t, tt, "the run", func() bool { return s.src != nil && !s.running })
@@ -384,12 +384,12 @@ func TestNarrowPanelTools(t *testing.T) {
 		t.Fatal("the SQL button took no click")
 	}
 	testutil.Snapshot(t, tt, "dashboard-narrow-panel-sql")
-	if err := tt.Click("Run and Keep"); err != nil {
+	if err := tt.Click("Save and Run"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
 	if tab.panels[0].editSQL {
-		t.Fatal("Run and Keep took no click")
+		t.Fatal("Save and Run took no click")
 	}
 }
 
@@ -442,7 +442,7 @@ func TestAddPanel(t *testing.T) {
 	s.sql = "SELECT 1 AS one"
 	tt.Frame()
 	testutil.Snapshot(t, tt, "dashboard-add-panel")
-	if err := tt.Click("Run and Keep"); err != nil {
+	if err := tt.Click("Save and Run"); err != nil {
 		t.Fatal(err)
 	}
 	testutil.WaitFor(t, tt, "the panel's rows", func() bool { return s.src != nil && !s.running })
@@ -512,12 +512,12 @@ func TestStoppedSays(t *testing.T) {
 	}
 }
 
-// Run and Keep, disabled, says why.
+// Save and Run, disabled, says why.
 func TestRunAndKeepWhy(t *testing.T) {
-	if why := whyNotRunAndKeep("", nil); why == "" {
+	if why := whyNotSaveAndRun("", nil); why == "" {
 		t.Fatal("empty query: no reason")
 	}
-	if why := whyNotRunAndKeep("SELECT 1", nil); !strings.Contains(why, "connection") {
+	if why := whyNotSaveAndRun("SELECT 1", nil); !strings.Contains(why, "connection") {
 		t.Fatalf("no connection: %q", why)
 	}
 }

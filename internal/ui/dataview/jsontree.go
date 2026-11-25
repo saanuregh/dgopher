@@ -69,7 +69,7 @@ func (t *jsonTree) view(c *ui.Context, engine db.Engine, column string, maxLines
 	pal := widgets.PaletteOf(c)
 	punct := pal.Syntax[sqltext.Operator]
 	mono := func(c *ui.Context, s string, color ui.Color) ui.Element {
-		return ui.Text(c, s).Font(widgets.MonoFont).FontSize(12).TextColor(color)
+		return ui.Text(c, s).Font(widgets.MonoFont).FontSize(widgets.TextSmall).TextColor(color)
 	}
 	lines := 0
 	var walk func(n *jsonNode, depth int, last bool)
@@ -91,7 +91,7 @@ func (t *jsonTree) view(c *ui.Context, engine db.Engine, column string, maxLines
 					icon = widgets.IconDropdown
 				}
 				if ui.ButtonBase(c.Key("fold")).Label("Fold").Size(14, jsonLine).Padding(0).Children(func() {
-					ui.Icon(c, icon).FontSize(10).TextColor(pal.Muted)
+					ui.Icon(c, icon).FontSize(widgets.IconSmall).TextColor(pal.Muted)
 				}).Clicked() {
 					t.folded[id] = open
 				}
@@ -128,7 +128,7 @@ func (t *jsonTree) view(c *ui.Context, engine db.Engine, column string, maxLines
 				mono(c, string(n.kind)+closer(n.kind)+comma, punct)
 			case t.folded[id]:
 				mono(c, string(n.kind)+" … "+closer(n.kind)+comma, punct)
-				ui.Text(c, "  "+n.size()).FontSize(11).TextColor(pal.Muted)
+				ui.Text(c, "  "+n.size()).FontSize(widgets.TextMeta).TextColor(pal.Muted)
 			default:
 				mono(c, string(n.kind), punct)
 			}

@@ -503,12 +503,12 @@ func queryBuilderView(a Host, c *ui.Context) {
 	_, winH := c.Size()
 	sql, err := b.sql()
 	section := func(title string) {
-		ui.Text(c, title).FontSize(12).Bold().TextColor(pal.Muted).Padding(6, 0, 0, 0)
+		ui.Text(c, title).FontSize(widgets.TextSmall).Bold().TextColor(pal.Muted).Padding(6, 0, 0, 0)
 	}
-	dlg := widgets.Modal(c, &b.open, func() {
+	dlg := widgets.Modal(c, &b.open, widgets.DialogWide, func() {
 		// A height of its own, for its sections to scroll in.
-		ui.Column(c).Width(1000).Height(min(winH-60, 860)).Gap(8).Children(func() {
-			ui.Text(c, "Build a Query · "+b.conn.Config.Name).FontSize(15).Bold()
+		ui.Column(c).Height(min(winH-60, 860)).Gap(8).Children(func() {
+			widgets.DialogTitle(c, "Build a Query · "+b.conn.Config.Name)
 			ui.Scroll(c).Grow(1).Children(func() {
 				ui.Column(c).Gap(6).Padding(0, 0, 8, 0).Children(func() {
 					section("Tables")
@@ -521,22 +521,22 @@ func queryBuilderView(a Host, c *ui.Context) {
 					b.orderView(c)
 				})
 			})
-			ui.Scroll(c).MaxHeight(180).Radius(6).Background(pal.EditorBg).Border(1, th.Border).Children(func() {
+			ui.Scroll(c).MaxHeight(180).Radius(widgets.RadiusMedium).Background(pal.EditorBg).Border(1, th.Border).Children(func() {
 				if err != nil {
-					ui.Text(c, widgets.Sentence(err.Error())).FontSize(12.5).TextColor(pal.Muted).Padding(8, 10)
+					ui.Text(c, widgets.Sentence(err.Error())).FontSize(widgets.TextBody).TextColor(pal.Muted).Padding(8, 10)
 					return
 				}
-				ui.Text(c, sql).Font(widgets.MonoFont).FontSize(12).Padding(8, 10).Selectable()
+				ui.Text(c, sql).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Padding(8, 10).Selectable()
 			})
 			ui.Row(c).Gap(8).Children(func() {
 				ui.Spacer(c)
 				if ui.Button(c, "Cancel").Clicked() {
 					b.open = false
 				}
-				if ui.Button(c, "Copy SQL").Disabled(err != nil).Clicked() {
+				if widgets.Clicked(ui.Button(c, "Copy SQL"), widgets.WhyNot(err)) {
 					a.WriteClipboard(sql)
 				}
-				if widgets.Activated(c, ui.PrimaryButton(c, "Open in Editor").Disabled(err != nil)) {
+				if widgets.ActivatedUnless(c, ui.PrimaryButton(c, "Open in Editor"), widgets.WhyNot(err)) {
 					a.NewQueryTab(b.conn, b.database, sql+";\n")
 					b.open = false
 				}
@@ -557,12 +557,12 @@ func (b *queryBuilder) tablesView(a Host, c *ui.Context) {
 		ui.Column(c.Key(fmt.Sprintf("qb-table-%p", t))).Gap(4).Children(func() {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, t.alias).Font(widgets.MonoFont).Bold()
-				ui.Text(c, t.schema+"."+t.name).FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, t.schema+"."+t.name).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 				if t.err != "" {
-					ui.Text(c, t.err).FontSize(12).TextColor(th.Danger).Shrink(1)
+					ui.Text(c, t.err).FontSize(widgets.TextSmall).TextColor(th.Danger).Shrink(1)
 				}
 				if t.fkErr != "" {
-					ui.Text(c, "Couldn't read foreign keys").FontSize(12).TextColor(pal.Muted).Tooltip(t.fkErr)
+					ui.Text(c, "Couldn't read foreign keys").FontSize(widgets.TextSmall).TextColor(pal.Muted).Tooltip(t.fkErr)
 				}
 				if i == 0 {
 					return
@@ -583,15 +583,15 @@ func (b *queryBuilder) tablesView(a Host, c *ui.Context) {
 				on := &t.on[k]
 				ui.Row(c.Key(fmt.Sprint("on-", k))).Gap(6).AlignItems(ui.Center).PaddingX(24).Children(func() {
 					if k == 0 {
-						ui.Text(c, "on").FontSize(12).TextColor(pal.Muted).Width(28)
+						ui.Text(c, "on").FontSize(widgets.TextSmall).TextColor(pal.Muted).Width(28)
 					} else {
-						ui.Text(c, "and").FontSize(12).TextColor(pal.Muted).Width(28)
+						ui.Text(c, "and").FontSize(widgets.TextSmall).TextColor(pal.Muted).Width(28)
 					}
-					ui.Text(c, t.alias+".").Font(widgets.MonoFont).FontSize(12)
+					ui.Text(c, t.alias+".").Font(widgets.MonoFont).FontSize(widgets.TextSmall)
 					ui.Select(c, &on.column, names).Width(180).Label("Column of " + t.alias)
 					ui.Text(c, "=").TextColor(pal.Muted)
 					ui.Select(c, &on.other, others).Width(240).Label("Column it equals")
-					if widgets.IconButton(c, widgets.IconX, "Remove the condition").Disabled(len(t.on) == 1).Clicked() {
+					if widgets.Clicked(widgets.IconButton(c, widgets.IconX, "Remove the condition"), widgets.When(len(t.on) == 1, "A join keeps one condition")) {
 						remove = k
 					}
 				})
@@ -599,7 +599,7 @@ func (b *queryBuilder) tablesView(a Host, c *ui.Context) {
 			if remove >= 0 {
 				t.on = slices.Delete(t.on, remove, remove+1)
 			}
-			if len(names) > 0 && len(others) > 0 && ui.Link(c, "and on another column", "").FontSize(12).Clicked() {
+			if len(names) > 0 && len(others) > 0 && ui.Link(c, "and on another column", "").FontSize(widgets.TextSmall).Clicked() {
 				t.on = append(t.on, qbOn{column: names[0], other: others[0]})
 			}
 		})
@@ -628,7 +628,7 @@ func (b *queryBuilder) columnsView(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	for _, t := range b.tables {
 		ui.Row(c.Key(fmt.Sprintf("qb-cols-%p", t))).Gap(10).Wrap().AlignItems(ui.Center).Children(func() {
-			ui.Text(c, t.alias).Font(widgets.MonoFont).FontSize(12).TextColor(pal.Muted).Width(120)
+			ui.Text(c, t.alias).Font(widgets.MonoFont).FontSize(widgets.TextSmall).TextColor(pal.Muted).Width(120)
 			for k, col := range t.cols {
 				label := t.alias + "." + col.Name
 				if ui.Checkbox(c, &t.chosen[k], col.Name).Changed() {
@@ -638,14 +638,14 @@ func (b *queryBuilder) columnsView(c *ui.Context) {
 		})
 	}
 	if len(b.columns) == 0 {
-		ui.Text(c, "None chosen: every column, *.").FontSize(12).TextColor(pal.Muted)
+		ui.Text(c, "None chosen: every column, *.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 		return
 	}
 	remove := -1
 	for i := range b.columns {
 		col := &b.columns[i]
 		ui.Row(c.Key(b.colKeys.key("qb-col-", i))).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, col.label).Font(widgets.MonoFont).FontSize(12.5).Width(260).SingleLine()
+			ui.Text(c, col.label).Font(widgets.MonoFont).FontSize(widgets.TextBody).Width(260).SingleLine()
 			agg := cmp.Or(col.agg, noAggregate)
 			if ui.Select(c, &agg, aggregates).Width(160).Label("Aggregate of " + col.label).Changed() {
 				col.agg = agg
@@ -670,7 +670,7 @@ func (b *queryBuilder) columnsView(c *ui.Context) {
 		}
 	}
 	if slices.ContainsFunc(b.columns, func(c qbColumn) bool { return c.agg != "" }) {
-		ui.Text(c, "With an aggregate, the rows are grouped by the other columns.").FontSize(12).TextColor(pal.Muted)
+		ui.Text(c, "With an aggregate, the rows are grouped by the other columns.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 	}
 }
 
@@ -693,7 +693,7 @@ func (b *queryBuilder) condsView(c *ui.Context) {
 				ui.TextInput(c, &bc.value).Placeholder(placeholder).Font(widgets.MonoFont).Width(200).Label("Value")
 			}
 			if op.values == 2 {
-				ui.Text(c, "and").FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, "and").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 				ui.TextInput(c, &bc.to).Placeholder("value").Font(widgets.MonoFont).Width(200).Label("Second value")
 			}
 			if widgets.IconButton(c, widgets.IconX, "Remove the condition").Clicked() {
@@ -735,7 +735,7 @@ func (b *queryBuilder) orderView(c *ui.Context) {
 		if len(choices) > 0 && widgets.ToolButton(c, widgets.IconPlus, "Order", "Sort the rows by a column").Clicked() {
 			b.addSort(qbSort{label: choices[0]})
 		}
-		ui.Text(c, "Limit").FontSize(12).TextColor(widgets.PaletteOf(c).Muted)
+		ui.Text(c, "Limit").FontSize(widgets.TextSmall).TextColor(widgets.PaletteOf(c).Muted)
 		ui.TextInput(c, &b.limit).Width(90).Placeholder("none").Label("Limit")
 		ui.Checkbox(c, &b.distinct, "Distinct rows")
 	})

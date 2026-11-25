@@ -53,7 +53,7 @@ func (r *Tab) binaryView(c *ui.Context, loadAll func(c *ui.Context)) {
 	el, _ := area.View(c, &r.binaryHex)
 	el.Grow(1)
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-		ui.Text(c, binaryNote).FontSize(12).TextColor(pal.Muted).Shrink(1)
+		ui.Text(c, binaryNote).FontSize(widgets.TextSmall).TextColor(pal.Muted).Shrink(1)
 		loadAll(c)
 	})
 }

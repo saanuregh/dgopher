@@ -72,8 +72,11 @@ type ViewerSource struct {
 	// Rerun runs the statement again for a refresh of a statement that writes, through the
 	// owner's safety review; nil for a table.
 	Rerun func()
-	// Bars draws the owner's bars between the toolbar and the pending changes.
+	// Bars draws the owner's bars between the toolbar and the rows.
 	Bars func(c *ui.Context)
+	// Lead draws the owner's controls before the toolbar's and Trail after
+	// them, both outside the toolbar's overflow; nil for none.
+	Lead, Trail func(c *ui.Context)
 	// ShowDDL opens the table's definition from the cell menu.
 	ShowDDL func()
 }
@@ -201,7 +204,7 @@ func NewViewer(a Host, src ViewerSource) *Viewer {
 	// The rows of a statement that writes are not read again: the
 	// grid filters and counts those read.
 	if src.Reads {
-		v.grid.filterSQL, v.grid.clearSQL = v.addFilter, v.clearFilters
+		v.grid.filterSQL, v.grid.clearSQL, v.grid.sqlFilter = v.addFilter, v.clearFilters, v.filterOn
 		v.grid.valuesMenu = v.valuesMenu
 		v.grid.columnInfo, v.grid.enumValues = v.columnInfo, v.enumValues
 		v.grid.distinctOf = v.distinctValues
@@ -224,6 +227,14 @@ func NewViewer(a Host, src ViewerSource) *Viewer {
 		v.bindTable()
 	}
 	return v
+}
+
+// RowsHeld is how many rows the viewer holds: those read so far.
+func (v *Viewer) RowsHeld() int {
+	if v == nil {
+		return 0
+	}
+	return len(v.src.Rows)
 }
 
 // bindTable wires what needs the rows' table: its row colors, its SQL
@@ -1208,7 +1219,12 @@ func (v *Viewer) applyFailure(title string, err error) widgets.ErrorReport {
 	return r
 }
 
-// View draws the rows with their toolbar, bars and status line.
+// BarsHeight is the room a Viewer's toolbar, header and edit bar take
+// above and below its rows, for an owner that makes it as tall as they
+// are, as a notebook's cell does.
+const BarsHeight = 96
+
+// View draws the rows with their toolbar, bars and edit bar.
 func (v *Viewer) View(c *ui.Context) {
 	a := v.a
 	th := c.Theme()
@@ -1258,128 +1274,112 @@ func (v *Viewer) View(c *ui.Context) {
 	case pressed(keymap.ToggleChart):
 		v.showChart = !v.showChart
 	}
-	widgets.Bar(c, "Data", func() {
-		divider := func() { ui.Divider(c).Margin(0, 4) }
-		// A ButtonBase looks the same disabled: dimmed, it shows it.
-		disable := func(b ui.Element, d bool) ui.Element {
-			if d {
-				b.Opacity(0.4)
-			}
-			return b.Disabled(d)
+	ui.Row(c).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		if v.source.Lead != nil {
+			v.source.Lead(c)
 		}
-		refreshTip := keymap.Hint("Read the rows again", keymap.Discard)
-		if !v.source.Reads {
-			refreshTip = keymap.Hint("Run the statement again, once confirmed", keymap.Discard)
-		}
-		// Refresh reads the rows again under the WHERE: it ends its box.
-		refresh := func() {
-			if widgets.IconButton(c, widgets.IconRefresh, "Refresh").Tooltip(widgets.KeyLabel(refreshTip)).Clicked() {
-				v.RequestReload()
-			}
-		}
-		// ⌘L focuses the WHERE, then, pressed there, the quick filter.
-		whereFocused := false
-		box := ui.Row(c).Gap(6).Grow(1).Padding(0, 6).Radius(th.Radius).Background(th.Surface).Border(1, th.Border)
-		box.Children(func() {
-			ui.Icon(c, widgets.IconFilter).TextColor(pal.Muted).FontSize(13)
-			placeholder := writesNotReread
-			if v.source.Reads {
-				// The keyword the filter goes after, as the statement would
-				// read, and an example in the place of the condition.
-				// Faint while there is no filter, so that an empty box does
-				// not read as one applied.
-				kw := pal.Syntax[sqltext.Keyword].Alpha(0.4)
-				if v.whereIn != "" || v.where != "" {
-					kw = kw.Alpha(0.8)
-				}
-				ui.Text(c, "WHERE").Font(widgets.MonoFont).FontSize(12.5).TextColor(kw)
-				placeholder = "e.g. status = 'active'"
-			}
-			cb := ui.ComboboxBase(c, &v.whereIn)
-			in := cb.Input.Font(widgets.MonoFont).FontSize(12.5).Placeholder(placeholder).Grow(1).Padding(4, 2).Label("Filter")
+		widgets.Bar(c, "Data", func() {
+			divider := func() { ui.Divider(c).Margin(0, 4) }
+			refreshTip := keymap.Hint("Read the rows again", keymap.Discard)
 			if !v.source.Reads {
-				in.Disabled(true).Tooltip(writesNotReread)
-				refresh()
-				return
+				refreshTip = keymap.Hint("Run the statement again, once confirmed", keymap.Discard)
 			}
-			suggestions := filterSuggestions(v.whereIn, v.src.Cols, filterHistory(v.source.Conn.Project, v.historyKey()))
-			cb.Popup(func(panel ui.Element) {
-				panel.Padding(4).Background(th.Background).Border(1, th.Border).Radius(6).MaxHeight(260)
-				for _, s := range suggestions {
-					item := cb.Item(s).Padding(4, 8).Radius(4)
-					if item.Highlighted() {
-						item.Background(widgets.ChosenRow(c))
+			// Refresh reads the rows again under the WHERE: it ends its box.
+			refresh := func() {
+				if widgets.IconButton(c, widgets.IconRefresh, "Refresh").Tooltip(widgets.KeyLabel(refreshTip)).Clicked() {
+					v.RequestReload()
+				}
+			}
+			// ⌘L focuses the WHERE, then, pressed there, the quick filter.
+			whereFocused := false
+			box := ui.Row(c).Gap(6).Grow(1).Padding(0, 6).Radius(th.Radius).Background(th.Surface).Border(1, th.Border)
+			box.Children(func() {
+				ui.Icon(c, widgets.IconFilter).TextColor(pal.Muted).FontSize(widgets.IconMedium)
+				placeholder := writesNotReread
+				if v.source.Reads {
+					// The keyword the filter goes after, as the statement would
+					// read, and an example in the place of the condition.
+					// Faint while there is no filter, so that an empty box does
+					// not read as one applied.
+					kw := pal.Syntax[sqltext.Keyword].Alpha(0.4)
+					if v.whereIn != "" || v.where != "" {
+						kw = kw.Alpha(0.8)
 					}
-					item.Children(func() { ui.Text(c, s).Font(widgets.MonoFont).FontSize(12.5).SingleLine() })
+					ui.Text(c, "WHERE").Font(widgets.MonoFont).FontSize(widgets.TextBody).TextColor(kw)
+					placeholder = "e.g. status = 'active'"
 				}
-			})
-			if s, ok := cb.Chosen(); ok {
-				v.whereIn = completeFilter(v.whereIn, s)
-			}
-			if in.Submitted() {
-				if v.historyKey() != "" {
-					rememberFilter(v.source.Conn.Project, v.historyKey(), v.whereIn)
+				cb := ui.ComboboxBase(c, &v.whereIn)
+				in := cb.Input.Font(widgets.MonoFont).FontSize(widgets.TextBody).Placeholder(placeholder).Grow(1).Padding(4, 2).Label("Filter")
+				if !v.source.Reads {
+					in.Disabled(true).Tooltip(writesNotReread)
+					refresh()
+					return
 				}
-				// Typed, the filter is the user's: the menu's are in it.
-				typed := v.whereIn
-				v.setFilter(func() {
-					v.where, v.typedWhere, v.menuFilters = typed, typed, nil
-					v.whereIn, v.count = typed, -1
+				suggestions := filterSuggestions(v.whereIn, v.src.Cols, filterHistory(v.source.Conn.Project, v.historyKey()))
+				cb.Popup(func(panel ui.Element) {
+					panel.Padding(4).Background(th.Background).Border(1, th.Border).Radius(widgets.RadiusMedium).MaxHeight(260)
+					for _, s := range suggestions {
+						item := cb.Item(s).Padding(4, 8).Radius(widgets.RadiusSmall)
+						if item.Highlighted() {
+							item.Background(widgets.ChosenRow(c))
+						}
+						item.Children(func() { ui.Text(c, s).Font(widgets.MonoFont).FontSize(widgets.TextBody).SingleLine() })
+					}
 				})
-			}
-			whereFocused = in.Focused()
-			if whereFocused {
-				box.Border(1, th.Accent)
-			}
-			if want := a.FocusWant(); *want == "filter" && keys && !whereFocused && in.Focus().Focused() {
+				if s, ok := cb.Chosen(); ok {
+					v.whereIn = completeFilter(v.whereIn, s)
+				}
+				if in.Submitted() {
+					if v.historyKey() != "" {
+						rememberFilter(v.source.Conn.Project, v.historyKey(), v.whereIn)
+					}
+					// Typed, the filter is the user's: the menu's are in it.
+					typed := v.whereIn
+					v.setFilter(func() {
+						v.where, v.typedWhere, v.menuFilters = typed, typed, nil
+						v.whereIn, v.count = typed, -1
+					})
+				}
+				whereFocused = in.Focused()
+				if whereFocused {
+					box.Border(1, th.Accent)
+				}
+				if want := a.FocusWant(); *want == "filter" && keys && !whereFocused && in.Focus().Focused() {
+					*want = ""
+				}
+				if v.where != "" && widgets.Appear(widgets.IconButton(c.Key("clear-filter"), widgets.IconX, "Clear the filter")).Clicked() {
+					v.clearFilters(-1)
+				}
+				build := widgets.ToggleIconButton(c, widgets.IconListFilter, "Build a filter from conditions", v.builder != nil)
+				if widgets.Clicked(build, widgets.When(len(v.src.Cols) == 0, "The columns are not read yet")) {
+					if v.builder == nil {
+						v.builder = v.newFilterBuilder()
+					} else {
+						v.builder = nil
+					}
+				}
+				refresh()
+			})
+			quick := widgets.SearchBox(c, &v.grid.Filter, "Filter rows", 150)
+			quick.Tooltip("Filter the rows already read, without asking the server")
+			if want := a.FocusWant(); *want == "filter" && keys && (!v.source.Reads || whereFocused) && quick.Focus().Focused() {
 				*want = ""
 			}
-			if v.where != "" && widgets.Appear(widgets.IconButton(c.Key("clear-filter"), widgets.IconX, "Clear the filter")).Clicked() {
-				v.clearFilters(-1)
+			divider()
+			v.presentationButtons(c)
+			divider()
+			if widgets.IconButton(c, widgets.IconDownload, "Export…").Tooltip(widgets.KeyLabel(keymap.Hint("Export the rows", keymap.Export))).Clicked() {
+				OpenExport(a, v.exportSource())
 			}
-			build := widgets.ToggleIconButton(c, widgets.IconListFilter, "Build a filter from conditions", v.builder != nil)
-			if disable(build, len(v.src.Cols) == 0).Clicked() {
-				if v.builder == nil {
-					v.builder = v.newFilterBuilder()
-				} else {
-					v.builder = nil
-				}
+			widgets.IconButton(c, widgets.IconCompare, "Compare").Tooltip("Compare these rows with another result's or another table's").Menu(v.compareMenu)
+			divider()
+			// The panels open at the right: their switch is there too.
+			if widgets.ToggleIconButton(c, widgets.IconSidebar, "Value Panel", v.grid.ShowValue).Tooltip(keymap.Hint("Show the chosen value, and more of the rows, in a panel at the right", keymap.ValuePanel)).Clicked() {
+				v.grid.ShowValue = !v.grid.ShowValue
 			}
-			refresh()
-		})
-		quick := widgets.SearchBox(c, &v.grid.Filter, "Filter rows", 170)
-		quick.Tooltip("Filter the rows already read, without asking the server")
-		if want := a.FocusWant(); *want == "filter" && keys && (!v.source.Reads || whereFocused) && quick.Focus().Focused() {
-			*want = ""
-		}
-		// The edit buttons keep their place, disabled while the rows cannot
-		// be edited, as while they are read: shown only once they could,
-		// they would move the toolbar a moment after every run.
-		divider()
-		tip := func(hint string) string { return cmp.Or(readOnly, hint) }
-		if disable(widgets.IconButton(c, widgets.IconPlus, "Add Row").Tooltip(tip(keymap.Hint("Add a row", keymap.AddRow))), readOnly != "").Clicked() {
-			v.grid.addRow(&v.src)
-		}
-		noRow := readOnly != "" || v.grid.SelRow < 0
-		if disable(widgets.IconButton(c, widgets.IconCopy, keymap.Hint("Duplicate the chosen row", keymap.DuplicateRow)).Tooltip(tip(keymap.Hint("Duplicate the chosen row", keymap.DuplicateRow))), noRow).Clicked() {
-			if rows := v.grid.selectedRows(&v.src); len(rows) > 0 {
-				v.grid.duplicateRow(&v.src, rows[0], v.grid.keyCols)
-			}
-		}
-		if disable(widgets.IconButton(c, widgets.IconTrash, "Delete").Tooltip(tip(keymap.Hint("Mark the chosen rows for deletion", keymap.DeleteRows))), noRow).Clicked() {
-			v.grid.deleteSelected(&v.src)
-		}
-		divider()
-		v.presentationButtons(c)
-		divider()
-		if widgets.IconButton(c, widgets.IconDownload, "Export…").Tooltip(widgets.KeyLabel(keymap.Hint("Export the rows", keymap.Export))).Clicked() {
-			OpenExport(a, v.exportSource())
-		}
-		widgets.IconButton(c, widgets.IconCompare, "Compare with other rows").Menu(v.compareMenu)
-		divider()
-		// The panels open at the right: their switch is there too.
-		if widgets.ToggleIconButton(c, widgets.IconSidebar, keymap.Hint("Value viewer", keymap.ValuePanel), v.grid.ShowValue).Clicked() {
-			v.grid.ShowValue = !v.grid.ShowValue
+		}).Grow(1).BorderWidth(0, 0, 0, 0)
+		if v.source.Trail != nil {
+			v.source.Trail(c)
 		}
 	})
 	if v.builder != nil && v.source.Reads && len(v.src.Cols) > 0 {
@@ -1387,26 +1387,6 @@ func (v *Viewer) View(c *ui.Context) {
 	}
 	if v.source.Bars != nil {
 		v.source.Bars(c)
-	}
-	if n := v.grid.edits.count(); n > 0 {
-		widgets.AppearBar(ui.Row(c.Key("pending-changes")).Padding(6, 12).Gap(10).Background(pal.Modified).Children(func() {
-			ui.Text(c, fmt.Sprintf("%d pending change%s", n, widgets.Plural(n))).Bold()
-			ui.Text(c, "Nothing is written until you review and apply.").TextColor(pal.Muted).Grow(1)
-			// The keys in the tooltips: labels short enough to scan.
-			if ui.Button(c, "Undo").Disabled(len(v.grid.undoStack) == 0).Tooltip(keymap.Hint("Undo the last change", keymap.Undo)).Clicked() {
-				v.grid.undo()
-			}
-			if ui.Button(c, "Discard All").Tooltip(keymap.Hint("Drop every pending change", keymap.Discard)).Clicked() {
-				v.discard()
-			}
-			if v.applying && widgets.Lasted(c, v.applyStarted) &&
-				widgets.Appear(ui.Button(c.Key("stop-apply"), "Stop")).Tooltip("Stop before the next change: every change rolls back").Clicked() {
-				v.stopApply()
-			}
-			if ui.PrimaryButton(c, "Review and Apply").Tooltip(keymap.Hint("Review the statements, then write them", keymap.Apply)).Disabled(v.applying).Clicked() {
-				v.Review(nil)
-			}
-		}))
 	}
 	// Without a grid drawn, a wish to focus it goes: left, another tab's
 	// grid would take it later.
@@ -1431,8 +1411,7 @@ func (v *Viewer) View(c *ui.Context) {
 	if v.err != "" {
 		// The rows below are those of before: the read that failed, as
 		// with a mistyped filter, changed nothing.
-		ui.Row(c).Padding(6, 12).Gap(10).Background(th.Danger.Alpha(0.12)).Children(func() {
-			ui.Icon(c, widgets.IconAlert).TextColor(th.Danger).FontSize(14)
+		widgets.NoticeBar(c, th.Danger, func() {
 			ui.Text(c, "Could not read the rows: "+widgets.FirstLine(v.err)+". The rows shown are those read before.").Grow(1).Shrink(1).Selectable().Tooltip(v.err)
 			if ui.Button(c, "Details").Clicked() {
 				v.a.ShowReport(widgets.ErrorReport{Title: "Could not read the rows", Hint: v.errHint, Detail: v.err})
@@ -1460,6 +1439,7 @@ func (v *Viewer) View(c *ui.Context) {
 		ChartView(c, &v.chart, &v.src)
 		noGrid()
 	} else {
+		v.grid.reading = v.loading
 		v.grid.View(c, a, &v.src)
 		if *a.FocusWant() == "results" && keys {
 			if v.grid.SelRow < 0 && len(v.src.Rows) > 0 {
@@ -1494,7 +1474,33 @@ func (v *Viewer) View(c *ui.Context) {
 			v.fetchMore()
 		}
 	}
-	ui.Row(c).Padding(4, 10).Gap(10).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+	pending := v.grid.edits.count()
+	bar := ui.Row(c).Padding(widgets.PadStatusY, widgets.PadStatusX).Gap(8).BorderWidth(1, 0, 0, 0).BorderColor(th.Border)
+	if pending > 0 {
+		// As the cells changed are: what is not written yet shows.
+		bar.Background(pal.Modified)
+	}
+	bar.Children(func() {
+		v.editButtons(c, readOnly)
+		if readOnly == "" {
+			readOnly = v.grid.readOnlyCols[v.grid.selCol]
+		}
+		switch {
+		case pending > 0:
+			v.pendingButtons(c, pending)
+		case readOnly != "" && !passing(readOnly):
+			ui.Row(c).Gap(4).Shrink(1).MinWidth(0).Children(func() {
+				ui.Icon(c, widgets.IconLock).TextColor(pal.Muted).FontSize(widgets.IconSmall)
+				ui.Text(c, widgets.FirstLine(readOnly)).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Shrink(1).Tooltip(readOnly)
+				if strings.Contains(readOnly, "virtual key") && ui.Link(c, "Define a Virtual Key…", "").FontSize(widgets.TextSmall).Clicked() {
+					openKeyForm(a, v)
+				}
+			})
+		}
+		ui.Spacer(c)
+		if stats := v.grid.SelectionStats(&v.src); stats != "" {
+			ui.Text(c, stats).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Shrink(1).Selectable()
+		}
 		// One phrase: "500 of ≈2.5k rows loaded", the count or the
 		// estimate of the table's rows its total.
 		n := len(v.src.Rows)
@@ -1525,7 +1531,7 @@ func (v *Viewer) View(c *ui.Context) {
 		}
 		// The phrase, then what more there is to do with the rows.
 		ui.Row(c).Gap(6).Children(func() {
-			muted := func(s string) ui.Element { return ui.Text(c, s).FontSize(12).TextColor(pal.Muted) }
+			muted := func(s string) ui.Element { return ui.Text(c, s).FontSize(widgets.TextSmall).TextColor(pal.Muted) }
 			// The time ends the phrase, a word's space after it.
 			ui.Row(c).Gap(4).Children(func() {
 				muted(status)
@@ -1542,9 +1548,7 @@ func (v *Viewer) View(c *ui.Context) {
 				}
 			case !v.done || v.fetchingAll:
 				fetch := widgets.Appear(widgets.StatusButton(c.Key("fetch-all"), "Fetch All")).Tooltip(keymap.Hint("Fetch every row", keymap.FetchAll))
-				if v.loading || v.fetchingAll {
-					fetch.Disabled(true)
-				} else if fetch.Clicked() {
+				if widgets.Clicked(fetch, widgets.When(v.loading || v.fetchingAll, "The rows are being read")) {
 					v.FetchAll()
 				}
 			}
@@ -1554,7 +1558,7 @@ func (v *Viewer) View(c *ui.Context) {
 			case v.counting:
 				// Count turns to Stop, in place, once the count lasts.
 				if !widgets.Lasted(c, v.countStarted) {
-					widgets.Appear(widgets.StatusButton(c.Key("count"), "Count")).Disabled(true)
+					widgets.Unavailable(widgets.Appear(widgets.StatusButton(c.Key("count"), "Count")), "The rows are being counted")
 					break
 				}
 				stop := widgets.Appear(widgets.StatusButton(c.Key("count"), "Stop"))
@@ -1568,21 +1572,64 @@ func (v *Viewer) View(c *ui.Context) {
 				}
 			}
 		})
-		ui.Spacer(c)
-		if stats := v.grid.SelectionStats(&v.src); stats != "" {
-			ui.Text(c, stats).FontSize(12).TextColor(pal.Muted).Selectable()
-		}
-		if readOnly == "" {
-			readOnly = v.grid.readOnlyCols[v.grid.selCol]
-		}
-		if readOnly != "" && !passing(readOnly) {
-			ui.Icon(c, widgets.IconLock).TextColor(pal.Muted).FontSize(12)
-			ui.Text(c, widgets.FirstLine(readOnly)).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1).Tooltip(readOnly)
-			if strings.Contains(readOnly, "virtual key") && ui.Link(c, "Define a Virtual Key…", "").FontSize(12).Clicked() {
-				openKeyForm(a, v)
-			}
-		}
 	})
+}
+
+// editButtons are the bar's buttons that add, duplicate and delete rows.
+// They keep their place while the rows cannot be edited, as while they are
+// read, and say why: shown only once they could, they would move the bar
+// a moment after every run.
+func (v *Viewer) editButtons(c *ui.Context, readOnly string) {
+	rowWhy := readOnly
+	if rowWhy == "" && v.grid.SelRow < 0 {
+		rowWhy = "Choose a row first"
+	}
+	pressed := func(b ui.Element, hint, why string) bool {
+		return widgets.Unavailable(b.Tooltip(hint), why).Clicked() && why == ""
+	}
+	if pressed(widgets.IconButton(c, widgets.IconPlus, "Add Row"), keymap.Hint("Add a row", keymap.AddRow), readOnly) {
+		v.grid.addRow(&v.src)
+	}
+	duplicate := keymap.Hint("Duplicate the chosen row", keymap.DuplicateRow)
+	if pressed(widgets.IconButton(c, widgets.IconCopy, duplicate), duplicate, rowWhy) {
+		if rows := v.grid.selectedRows(&v.src); len(rows) > 0 {
+			v.grid.duplicateRow(&v.src, rows[0], v.grid.keyCols)
+		}
+	}
+	if pressed(widgets.IconButton(c, widgets.IconTrash, "Delete"), keymap.Hint("Mark the chosen rows for deletion", keymap.DeleteRows), rowWhy) {
+		v.grid.deleteSelected(&v.src)
+	}
+}
+
+// pendingButtons are the bar's count of the n changes not applied yet and
+// what is done with them. The keys are in the tooltips: labels short
+// enough to scan.
+func (v *Viewer) pendingButtons(c *ui.Context, n int) {
+	ui.Text(c, fmt.Sprintf("%d pending change%s", n, widgets.Plural(n))).Bold().FontSize(widgets.TextSmall).SingleLine().Shrink(0).
+		Tooltip("Nothing is written until you review and apply.")
+	undoWhy := ""
+	if len(v.grid.undoStack) == 0 {
+		undoWhy = "Nothing to undo"
+	}
+	undo := widgets.StatusButton(c, "Undo").Tooltip(keymap.Hint("Undo the last change", keymap.Undo))
+	if widgets.Unavailable(undo, undoWhy).Clicked() && undoWhy == "" {
+		v.grid.undo()
+	}
+	if widgets.StatusButton(c, "Discard All").Tooltip(keymap.Hint("Drop every pending change", keymap.Discard)).Clicked() {
+		v.discard()
+	}
+	if v.applying && widgets.Lasted(c, v.applyStarted) &&
+		widgets.Appear(widgets.StatusButton(c.Key("stop-apply"), "Stop")).Tooltip("Stop before the next change: every change rolls back").Clicked() {
+		v.stopApply()
+	}
+	applyWhy := ""
+	if v.applying {
+		applyWhy = "The changes are being applied"
+	}
+	apply := widgets.StatusPrimaryButton(c, "Review and Apply").Tooltip(keymap.Hint("Review the statements, then write them", keymap.Apply))
+	if widgets.Unavailable(apply, applyWhy).Clicked() && applyWhy == "" {
+		v.Review(nil)
+	}
 }
 
 // sortsSharedName reports whether the order chosen sorts by a column
@@ -1883,6 +1930,44 @@ func (v *Viewer) clearFilters(col int) {
 		}
 		v.joinFilters()
 	})
+}
+
+// filterOn is the filter the server ran that is on a column: the Filter
+// menu's conditions on it, and the filter typed when it names the column;
+// all of the filter for -1.
+func (v *Viewer) filterOn(col int) string {
+	if col < 0 {
+		return strings.TrimSpace(v.where)
+	}
+	var parts []string
+	if typed := strings.TrimSpace(v.typedWhere); typed != "" && v.where != "" && namesColumn(typed, v.src.Cols[col].Name) {
+		parts = append(parts, typed)
+	}
+	for _, f := range v.menuFilters {
+		if f.col == col {
+			parts = append(parts, f.sql)
+		}
+	}
+	return strings.Join(parts, " AND ")
+}
+
+// namesColumn reports whether a filter typed names a column: as a word
+// of its own, in any case, quoted or not.
+func namesColumn(filter, column string) bool {
+	filter, column = strings.ToLower(filter), strings.ToLower(column)
+	word := func(r byte) bool { return r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 0x80 }
+	for at := 0; column != ""; {
+		i := strings.Index(filter[at:], column)
+		if i < 0 {
+			return false
+		}
+		start, end := at+i, at+i+len(column)
+		if (start == 0 || !word(filter[start-1])) && (end == len(filter) || !word(filter[end])) {
+			return true
+		}
+		at = start + 1
+	}
+	return false
 }
 
 // setFilter changes the filter by change, then reads the rows under it;
@@ -2262,10 +2347,10 @@ func openKeyForm(a Host, v *Viewer) {
 func keyFormView(a Host, c *ui.Context) {
 	f := a.Dialogs().keyForm
 	pal := widgets.PaletteOf(c)
-	dlg := widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(460).Gap(10).Children(func() {
-			ui.Text(c, "Virtual Key of "+f.v.source.Table.Name).FontSize(15).Bold()
-			ui.Text(c, "Choose the columns whose values tell each row apart. The key is kept in "+project.File+" for the team; each change must still match exactly one row.").FontSize(12).TextColor(pal.Muted)
+	dlg := widgets.Modal(c, &f.open, widgets.DialogSmall, func() {
+		ui.Column(c).Gap(10).Children(func() {
+			widgets.DialogTitle(c, "Virtual Key of "+f.v.source.Table.Name)
+			ui.Text(c, "Choose the columns whose values tell each row apart. The key is kept in "+project.File+" for the team; each change must still match exactly one row.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			ui.Scroll(c).MaxHeight(300).Children(func() {
 				ui.Column(c).Gap(4).Children(func() {
 					for i, col := range f.v.columns {
@@ -2274,7 +2359,7 @@ func keyFormView(a Host, c *ui.Context) {
 				})
 			})
 			if f.err != "" {
-				ui.Text(c, f.err).FontSize(12).TextColor(c.Theme().Danger)
+				ui.Text(c, f.err).FontSize(widgets.TextSmall).TextColor(c.Theme().Danger)
 			}
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
 				if ui.Button(c, "Remove the Key").Clicked() {

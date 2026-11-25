@@ -115,12 +115,12 @@ func (a *App) dropZone(c *ui.Context, root ui.Element) {
 		t := c.Theme()
 		ui.Overlay(c, func() {
 			ui.Column(c).Absolute().Left(12).Top(12).Right(12).Bottom(12).Center().Gap(6).
-				Radius(16).Border(2, t.Accent).BorderStyle(ui.BorderDashed).Background(t.Accent.Alpha(0.08)).PassThrough().
+				Radius(widgets.RadiusLarge).Border(2, t.Accent).BorderStyle(ui.BorderDashed).Background(widgets.TintSubtle(t.Accent)).PassThrough().
 				Children(func() {
 					// Each part passes the pointer too: a drop on one goes to
 					// the window, not to the overlay.
-					ui.Icon(c, widgets.IconDownload).FontSize(28).TextColor(t.Accent).PassThrough()
-					ui.Text(c, "Drop to open").FontSize(16).Bold().PassThrough()
+					ui.Icon(c, widgets.IconDownload).FontSize(widgets.IconDisplay).TextColor(t.Accent).PassThrough()
+					ui.Text(c, "Drop to open").FontSize(widgets.TextTitle).Bold().PassThrough()
 					ui.Text(c, "SQLite or DuckDB databases, .sql scripts, CSV, Parquet or JSON files to query, Excel or XML files to import").TextColor(widgets.PaletteOf(c).Muted).PassThrough()
 				})
 		})

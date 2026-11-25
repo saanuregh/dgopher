@@ -234,13 +234,13 @@ func (g *Grid) profilePanel(c *ui.Context, a Host, src *Source) {
 	profiles := g.profiles
 	ui.Column(c).Grow(1).Children(func() {
 		widgets.Bar(c, "Profile", func() {
-			label := fmt.Sprintf("Of the %d rows read", len(src.Rows))
+			label := fmt.Sprintf("Profile of the %d rows read", len(src.Rows))
 			if g.profileServer != nil {
 				profiles = g.profileServer
-				label = "Of every row, on the server"
+				label = "Profile of every row, made on the server"
 			}
-			ui.Text(c, label).FontSize(12).TextColor(pal.Muted).Grow(1).Shrink(1)
-			if g.profileOnServer != nil && ui.Button(c, "Profile Every Row").Disabled(g.profiling).Clicked() {
+			ui.Text(c, label).FontSize(widgets.TextSmall).TextColor(pal.Muted).Grow(1).Shrink(1)
+			if g.profileOnServer != nil && widgets.Clicked(ui.Button(c, "Profile Every Row"), widgets.When(g.profiling, "The rows are being profiled")) {
 				g.profiling = true
 				g.profileOnServer(func(ps []columnProfile, err error) {
 					g.profiling = false
@@ -277,20 +277,15 @@ func withColumnIndexes(ps []columnProfile, cols []db.ColumnInfo) []columnProfile
 func (g *Grid) profileRow(c *ui.Context, src *Source, i int, p columnProfile) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	row := ui.ButtonBase(c.Key("profile-"+strconv.Itoa(i))).Padding(6, 8).Radius(6).Label("Column " + p.name)
-	if p.col == g.selCol {
-		row.Background(th.Accent.Alpha(0.12))
-	} else if row.Hovered() {
-		row.Background(pal.Hover)
-	}
+	row := widgets.RowButton(c.Key("profile-"+strconv.Itoa(i)), "Column "+p.name, p.col == g.selCol)
 	row.Children(func() {
 		ui.Column(c).Gap(3).Grow(1).Children(func() {
 			ui.Row(c).Gap(8).Children(func() {
 				ui.Text(c, p.name).Bold().SingleLine().Shrink(1)
-				ui.Text(c, p.typ).FontSize(11).TextColor(pal.Muted).SingleLine().Shrink(1)
+				ui.Text(c, p.typ).FontSize(widgets.TextMeta).TextColor(pal.Muted).SingleLine().Shrink(1)
 				ui.Spacer(c)
 				if p.count > 0 {
-					ui.Text(c, fmt.Sprintf("%.0f%% NULL", float64(p.nulls)/float64(p.count)*100)).FontSize(11).TextColor(pal.Muted)
+					ui.Text(c, fmt.Sprintf("%.0f%% NULL", float64(p.nulls)/float64(p.count)*100)).FontSize(widgets.TextMeta).TextColor(pal.Muted)
 				}
 			})
 			masked := g.isMasked(p.col)
@@ -314,11 +309,11 @@ func (g *Grid) profileRow(c *ui.Context, src *Source, i int, p columnProfile) {
 			if p.median != "" {
 				figures = append(figures, "median "+p.median)
 			}
-			ui.Text(c, strings.Join(figures, " · ")).Font(widgets.MonoFont).FontSize(11).TextColor(pal.Muted)
+			ui.Text(c, strings.Join(figures, " · ")).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted)
 			for _, t := range p.top {
 				ui.Row(c).Gap(6).Children(func() {
-					ui.Text(c, t.text).FontSize(11.5).SingleLine().Grow(1).Shrink(1)
-					ui.Text(c, strconv.FormatInt(t.count, 10)).Font(widgets.MonoFont).FontSize(11).TextColor(pal.Muted)
+					ui.Text(c, t.text).FontSize(widgets.TextMeta).SingleLine().Grow(1).Shrink(1)
+					ui.Text(c, strconv.FormatInt(t.count, 10)).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted)
 				})
 			}
 		})

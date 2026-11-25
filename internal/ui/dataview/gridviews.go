@@ -23,18 +23,26 @@ const (
 // presentationButtons switches between the presentations, the chart
 // among them.
 func (v *Viewer) presentationButtons(c *ui.Context) {
-	for _, p := range []struct {
-		mode  int
-		icon  *ui.SVG
-		label string
-	}{{viewGrid, widgets.IconTable, "Grid"}, {viewRecord, widgets.IconFile, "Record: the chosen row as fields (Tab)"}, {viewText, widgets.IconCode, keymap.Hint("Text: the rows as plain text", keymap.NextPresentation)}} {
-		if widgets.ToggleIconButton(c, p.icon, p.label, !v.showChart && v.grid.mode == p.mode).Clicked() {
-			v.grid.mode, v.showChart = p.mode, false
+	// One control of four choices, on a track as a segmented control's:
+	// apart, they read as four unrelated tools.
+	ui.Row(c.Key("presentation")).Gap(1).Padding(1).Radius(widgets.RadiusMedium).Background(c.Theme().Surface).AlignItems(ui.Center).Label("Show the rows as").Children(func() {
+		for _, p := range []struct {
+			mode       int
+			icon       *ui.SVG
+			label, tip string
+		}{
+			{viewGrid, widgets.IconTable, "Grid", "Grid: the rows as a table"},
+			{viewRecord, widgets.IconFile, "Record", "Record: the chosen row as fields (Tab)"},
+			{viewText, widgets.IconCode, "Text", keymap.Hint("Text: the rows as plain text", keymap.NextPresentation)},
+		} {
+			if widgets.ToggleIconButton(c, p.icon, p.label, !v.showChart && v.grid.mode == p.mode).Tooltip(p.tip).Clicked() {
+				v.grid.mode, v.showChart = p.mode, false
+			}
 		}
-	}
-	if widgets.ToggleIconButton(c, widgets.IconChart, "Chart", v.showChart).Tooltip(keymap.Hint("Chart: the rows drawn", keymap.ToggleChart)).Clicked() {
-		v.showChart = !v.showChart
-	}
+		if widgets.ToggleIconButton(c, widgets.IconChart, "Chart", v.showChart).Tooltip(keymap.Hint("Chart: the rows drawn", keymap.ToggleChart)).Clicked() {
+			v.showChart = !v.showChart
+		}
+	})
 }
 
 // recordView shows the chosen row as a list of its fields, editable as the
@@ -57,11 +65,11 @@ func (g *Grid) recordView(c *ui.Context, a Host, src *Source, order []int) {
 	}
 	ui.Column(c).Grow(1).Children(func() {
 		widgets.Bar(c, "Record", func() {
-			if widgets.IconButton(c, widgets.IconPrev, "Previous row").Disabled(g.SelRow == 0).Clicked() {
+			if widgets.Clicked(widgets.IconButton(c, widgets.IconPrev, "Previous row"), widgets.When(g.SelRow == 0, "This is the first row")) {
 				g.SelRow--
 			}
-			ui.Text(c, "Row "+strconv.Itoa(g.SelRow+1)+" of "+strconv.Itoa(len(order))).FontSize(12).TextColor(pal.Muted)
-			if widgets.IconButton(c, widgets.IconNext, "Next row").Disabled(g.SelRow >= len(order)-1).Clicked() {
+			ui.Text(c, "Row "+strconv.Itoa(g.SelRow+1)+" of "+strconv.Itoa(len(order))).FontSize(widgets.TextSmall).TextColor(pal.Muted)
+			if widgets.Clicked(widgets.IconButton(c, widgets.IconNext, "Next row"), widgets.When(g.SelRow >= len(order)-1, "This is the last row")) {
 				g.SelRow++
 			}
 		})
@@ -75,16 +83,19 @@ func (g *Grid) recordView(c *ui.Context, a Host, src *Source, order []int) {
 		list := ui.Table(c, &g.recList, cols, len(fields), func(r, col int) {
 			field := fields[r]
 			if col == 0 {
-				ui.Text(c, src.Cols[field].Name).FontSize(12.5).Bold().SingleLine()
+				ui.Text(c, src.Cols[field].Name).FontSize(widgets.TextBody).Bold().SingleLine()
 				return
 			}
 			g.cell(c, a, src, data, field)
 		}).Grow(1).Label("Record")
+		if g.keysBack && g.recList.Focus(c) {
+			g.keysBack = false
+		}
 		if g.recRow >= 0 && g.recRow < len(fields) && fields[g.recRow] != g.selCol {
 			g.setCursorCol(fields[g.recRow])
 		}
 		if list.Valid() && g.recList.Shortcut(c, 0, ui.KeyTab) {
-			g.mode = viewGrid
+			g.mode, g.keysBack = viewGrid, true
 		}
 		if g.edits != nil && g.readOnly == "" && (g.recList.Shortcut(c, 0, ui.KeyF2) || list.Submitted()) && g.recRow >= 0 {
 			g.startEdit(src, data, fields[g.recRow])
@@ -100,7 +111,7 @@ func (g *Grid) textView(c *ui.Context, a Host, src *Source, order []int) {
 		g.textKey, g.text = key, g.plainText(a, src, order, 5000)
 	}
 	ui.ScrollBoth(c).Grow(1).Background(pal.EditorBg).Children(func() {
-		ui.Text(c, g.text).Font(widgets.MonoFont).FontSize(12).Padding(10, 12).Selectable().NoWrap()
+		ui.Text(c, g.text).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Padding(10, 12).Selectable().NoWrap()
 	})
 }
 

@@ -2,6 +2,7 @@ package app
 
 import (
 	"cmp"
+	"fmt"
 	"slices"
 	"sort"
 	"strings"
@@ -27,6 +28,12 @@ type paletteItem struct {
 	key   string
 	group string
 	icon  *ui.SVG
+	// conn is the connection a row is of, which then shows its badge in
+	// place of the icon, as the navigator has it.
+	conn *connection.Conn
+	// stay leaves the palette open once the row is chosen: what it starts
+	// shows there, as a server's databases once it has connected.
+	stay  bool
 	run   func()
 	score int
 }
@@ -45,6 +52,10 @@ type paletteState struct {
 	row    int
 	list   ui.ListState
 	tables bool // opened with ⌘P: tables first
+	places bool // opened to choose where a new editor opens (newEditor)
+	// placesOf is what the places listed were made of, to list them again
+	// when it changes, as a server connects (listPlaces).
+	placesOf string
 }
 
 func (a *App) openPalette(tables bool) {
@@ -75,6 +86,7 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 			cmds = append(cmds, paletteItem{title: cmd.Title, detail: cmd.Detail, key: cmd.Key, group: "Command", icon: cmd.Icon, run: cmd.Run})
 		}
 	}
+	zoomNow := fmt.Sprintf("the window, now at %.0f%%", a.zoom()*100)
 	cmds = append(cmds,
 		paletteItem{title: "New Connection…", key: keymap.NewConnection, group: "Command", icon: widgets.IconPlus, run: func() { a.openConnForm(nil) }},
 		paletteItem{title: "Import from DBeaver…", detail: "its saved connections", group: "Command", icon: widgets.IconPlug, run: func() { a.openDBeaverImport(nil) }},
@@ -84,14 +96,28 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 		paletteItem{title: "Notifications", detail: "every error and message of this session", key: keymap.ToggleNotifications, group: "Command", icon: widgets.IconBell, run: a.toggleNotificationsByKey},
 		paletteItem{title: "Settings…", key: keymap.Settings, group: "Command", icon: widgets.IconSettings, run: a.openSettings},
 		paletteItem{title: "Toggle Sidebar", key: keymap.ToggleSidebar, group: "Command", icon: widgets.IconColumns, run: func() { a.layout.SidebarHidden = !a.layout.SidebarHidden }},
+		paletteItem{title: "Zoom In", detail: zoomNow, key: keymap.ZoomIn, group: "Command", icon: widgets.IconMaximize, run: func() { a.stepZoom(1) }},
+		paletteItem{title: "Zoom Out", detail: zoomNow, key: keymap.ZoomOut, group: "Command", icon: widgets.IconMinimize, run: func() { a.stepZoom(-1) }},
+		paletteItem{title: "Actual Size", detail: zoomNow, key: keymap.ZoomReset, group: "Command", icon: widgets.IconMaximize, run: func() { a.stepZoom(0) }},
 		paletteItem{title: "Keyboard Shortcuts", key: keymap.ShortcutsList, group: "Command", icon: widgets.IconCode, run: func() { a.shortcutsOpen = true }},
 		paletteItem{title: "What's New in DGopher", detail: "this version's release notes", group: "Command", icon: widgets.IconWand, run: a.openWhatsNew},
 		paletteItem{title: "New Project…", group: "Command", icon: widgets.IconFolder, run: func() { a.openNewProject(nil) }},
 		paletteItem{title: "AI Chat", detail: "Claude Code, Codex or pi, beside the editor", key: keymap.ToggleChat, group: "Command", icon: widgets.IconSparkles, run: a.toggleChat},
 		paletteItem{title: "Add Existing Folder…", detail: "list a project folder", key: keymap.AddFolder, group: "Command", icon: widgets.IconFolder, run: a.addExistingProject},
 	)
+	// A dashboard's and a data model's headings show once there is one:
+	// the first is made from here, or from the sidebar's +.
+	if p := a.currentProject(); p != nil && p.Err == "" {
+		for _, kind := range []nodeKind{nodeDashboards, nodeModels} {
+			if label, run := a.sectionNew(p, kind); label != "" {
+				cmds = append(cmds, paletteItem{title: label, detail: p.Name, group: "Command", icon: widgets.IconPlus, run: run})
+			}
+		}
+	}
+	if len(a.conns) > 0 {
+		cmds = append(cmds, paletteItem{title: "New SQL Editor", detail: "on a connection and database you choose", key: keymap.NewEditor, group: "Command", icon: widgets.IconCode, run: a.newEditor})
+	}
 	if active != nil {
-		cmds = append(cmds, paletteItem{title: "New SQL Editor", detail: active.Config.Name, key: keymap.NewEditor, group: "Command", icon: widgets.IconCode, run: func() { a.NewQueryTab(active, "", "") }})
 		if active.Config.Engine.IsSQL() {
 			cmds = append(cmds, paletteItem{title: "New SQL Notebook", detail: active.Config.Name + ", cells with their own results", key: keymap.NewNotebook, group: "Command", icon: widgets.IconNotebook,
 				run: func() { a.newNotebook(active) }})
@@ -219,7 +245,8 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 	tables = lists.Map(places, func(r ranked) paletteItem { return r.item })
 	snippets := a.snippetItems()
 	if q, ok := a.ActiveTab().(*query.Tab); ok {
-		cmds = append(cmds, paletteItem{title: "Save as Snippet…", group: "Command", icon: widgets.IconSave, run: func() { a.AskSnippet(q) }},
+		cmds = append(cmds, paletteItem{title: "Save As…", detail: "a copy of the editor under another name", key: keymap.SaveAs, group: "Command", icon: widgets.IconSave, run: func() { a.SaveSQLFile(q, true) }},
+			paletteItem{title: "Save as Snippet…", group: "Command", icon: widgets.IconSave, run: func() { a.AskSnippet(q) }},
 			paletteItem{title: "Add to Dashboard…", detail: "the statement at the caret, as a panel", group: "Command", icon: widgets.IconLayers, run: func() { a.openAddToDashboard(q) }})
 	}
 	cmds = append(cmds, paletteItem{title: "Take the Tour", detail: "a minute on how DGopher works", group: "Command", icon: widgets.IconWand, run: a.startTour})
@@ -285,6 +312,9 @@ func (a *App) paletteView(c *ui.Context) {
 	p := a.palette
 	t := c.Theme()
 	pal := widgets.PaletteOf(c)
+	if p.places {
+		a.listPlaces(p)
+	}
 	if p.query != p.shownQ {
 		p.shownQ = p.query
 		p.shown = p.shown[:0]
@@ -305,21 +335,23 @@ func (a *App) paletteView(c *ui.Context) {
 	}
 	run := func(i int) {
 		if i >= 0 && i < len(p.shown) {
-			p.open = false
+			p.open = p.shown[i].stay
 			a.instant = true // a picker's choice shows at once, as a key's
 			p.shown[i].run()
 		}
 	}
-	ui.DialogBase(c, &p.open, func(backdrop, panel ui.Element) {
-		widgets.PickerLook(c, backdrop, panel)
-		panel.Width(600).Radius(12).Background(t.Background).Border(1, t.Border).Clip().Label("Command palette")
-		ui.Row(c).Padding(10, 14).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
-			ui.Icon(c, widgets.IconSearch).TextColor(pal.Muted).FontSize(15)
+	widgets.Picker(c, &p.open, func(panel ui.Element) {
+		panel.Label(map[bool]string{false: "Command palette", true: "New SQL editor"}[p.places])
+		ui.Row(c).Padding(widgets.PadSectionY, widgets.PadSectionX).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
+			ui.Icon(c, widgets.IconSearch).TextColor(pal.Muted).FontSize(widgets.IconLarge)
 			placeholder := "Search commands, connections and tables"
-			if p.tables {
+			switch {
+			case p.tables:
 				placeholder = "Open a table, a routine or a query file"
+			case p.places:
+				placeholder = "New SQL editor on…"
 			}
-			in := ui.TextInputBase(c, &p.query).Placeholder(placeholder).AutoFocus().Grow(1).FontSize(15).Label("Search")
+			in := ui.TextInputBase(c, &p.query).Placeholder(placeholder).AutoFocus().Grow(1).FontSize(widgets.TextTitle).Label("Search")
 			if widgets.ListKeys(in, &p.index, len(p.shown), &p.list, paletteRows) {
 				run(p.index)
 			}
@@ -328,7 +360,8 @@ func (a *App) paletteView(c *ui.Context) {
 		p.list.Selected = &p.row
 		widgets.ChosenRows(c, func() { a.paletteList(c, p, run) })
 	})
-	if !p.open {
+	// Unless the row chosen opened another, as New SQL Editor's picker.
+	if !p.open && a.palette == p {
 		a.palette = nil
 	}
 }
@@ -341,18 +374,21 @@ func (a *App) paletteList(c *ui.Context, p *paletteState, run func(int)) {
 		row := ui.Row(c).Padding(7, 14).Gap(10)
 		row.Children(func() {
 			col := pal.Muted
-			if it.icon != nil {
-				ui.Icon(c, it.icon).FontSize(14).TextColor(col)
+			switch {
+			case it.conn != nil:
+				widgets.ConnBadge(c, it.conn, c.Theme().Background)
+			case it.icon != nil:
+				ui.Icon(c, it.icon).FontSize(widgets.IconMedium).TextColor(col)
 			}
 			ui.Text(c, it.title).SingleLine().Shrink(1)
-			ui.Text(c, it.detail).FontSize(12).TextColor(col).SingleLine().Grow(1).Shrink(1)
+			ui.Text(c, it.detail).FontSize(widgets.TextSmall).TextColor(col).SingleLine().Grow(1).Shrink(1)
 			if k := keymap.First(it.key); k != "" {
 				widgets.Keycap(c, k)
 			}
 			// Commands are most of the list: only the other kinds say
 			// what they are.
 			if it.group != "Command" {
-				ui.Text(c, it.group).FontSize(11).TextColor(col)
+				ui.Text(c, it.group).FontSize(widgets.TextMeta).TextColor(col)
 			}
 		})
 		if row.Clicked() {

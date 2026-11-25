@@ -113,14 +113,11 @@ var settingsPages = []string{"Appearance", "Editor", "Results", "Safety", "Stora
 func (a *App) settingsView(c *ui.Context) {
 	th := c.Theme()
 	open := a.settingsOpen
-	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
-		widgets.DialogLook(c, backdrop, panel)
+	widgets.Dialog(c, &open, widgets.DialogMedium, func(panel ui.Element) {
 		_, winH := c.Size()
-		panel.Width(640).Height(min(620, winH-40)).Radius(12).Background(th.Background).Border(1, th.Border).Role(ui.RoleDialog).Label("Settings")
-		ui.Row(c).Padding(16, 20, 8, 20).Children(func() {
-			ui.Text(c, "Settings").FontSize(16).Bold()
-		})
-		ui.Row(c).Padding(0, 20).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		panel.Height(min(620, winH-40)).Role(ui.RoleDialog).Label("Settings")
+		widgets.DialogHeader(c, func() { widgets.DialogTitle(c, "Settings") })
+		ui.Row(c).Padding(0, widgets.DialogPad).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Tabs(c, &a.settingsPage, settingsPages...).Label("Settings pages")
 		})
 		ui.Scroll(c).Grow(1).Shrink(1).Children(func() {
@@ -139,7 +136,8 @@ func (a *App) settingsView(c *ui.Context) {
 				}
 			}).Padding(16, 20)
 		})
-		ui.Row(c).Padding(12, 20).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Justify(ui.End).Children(func() {
+		widgets.DialogActions(c, func() {
+			ui.Spacer(c)
 			if widgets.Activated(c, ui.PrimaryButton(c, "Done")) {
 				open = false
 			}
@@ -187,6 +185,15 @@ func (a *App) appearancePage(c *ui.Context) {
 	ui.Field(c, "Editor font size", func() {
 		if ui.NumberInput(c, &font, settings.MinFontSize, settings.MaxEditorFont, 1).Changed() {
 			a.settings.EditorFont = float32(font)
+			a.SaveSettings()
+		}
+	})
+	// The grids' text had its size from keys and a pinch, which zoom the
+	// whole window now: it is set here, as the editors' is.
+	gridFont := float64(a.settings.GridFontSize())
+	ui.Field(c, "Grid font size", func() {
+		if ui.NumberInput(c, &gridFont, settings.MinFontSize, settings.MaxGridFont, 1).Label("Grid font size").Changed() {
+			a.settings.GridFont = float32(gridFont)
 			a.SaveSettings()
 		}
 	})
@@ -345,8 +352,8 @@ func (a *App) storagePage(c *ui.Context) {
 	pal := widgets.PaletteOf(c)
 	ui.Field(c, "Folder", func() {
 		ui.Column(c).Gap(6).Children(func() {
-			ui.Text(c, a.st.Dir()).Font(widgets.MonoFont).FontSize(12).Selectable()
-			ui.Text(c, "App settings, the destinations you trusted, and SSH host keys. Everything else is in each project's folder: "+project.File+" and queries to share, and "+project.LocalDir+"/ (ignored by Git) for history, open files and the audit log.").FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, a.st.Dir()).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Selectable()
+			ui.Text(c, "App settings, the destinations you trusted, and SSH host keys. Everything else is in each project's folder: "+project.File+" and queries to share, and "+project.LocalDir+"/ (ignored by Git) for history, open files and the audit log.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			ui.Row(c).Children(func() {
 				if ui.Button(c, "Show in Folder").Clicked() {
 					mygo.Shell.OpenPath(a.st.Dir())
@@ -359,6 +366,6 @@ func (a *App) storagePage(c *ui.Context) {
 		keychain = "No system keychain is available: passwords are never saved, and asked on connect."
 	}
 	ui.Field(c, "Passwords", func() {
-		ui.Text(c, keychain).FontSize(12.5)
+		ui.Text(c, keychain).FontSize(widgets.TextBody)
 	})
 }

@@ -58,6 +58,15 @@ func screenshotter(t *testing.T) func(tt *ui.Tester, name string) {
 	}
 }
 
+// steadyMemory gives the sidebar's foot one figure for every image: the
+// memory read of the test's own process grows as it goes and differs
+// from run to run, which would redraw every image that shows the sidebar
+// though nothing in it changed. Read far in the future, it is not read
+// again.
+func steadyMemory(a *App) {
+	a.nav.memory = memoryUse{used: 184 << 20, most: 236 << 20, inGo: 61 << 20, ok: true, at: time.Now().Add(1000 * time.Hour)}
+}
+
 // TestScreenshots renders the images of the README and the docs, dark,
 // from the sample shop and connections made up around it, into the folder
 // DGOPHER_SCREENSHOTS names: docs/development.md says how.
@@ -66,6 +75,7 @@ func TestScreenshots(t *testing.T) {
 
 	a := newBareApp(t)
 	a.settings.Theme = "dark"
+	steadyMemory(a)
 	p, err := a.addProject(newProjectDir(t, "acme-analytics"))
 	if err != nil {
 		t.Fatal(err)
@@ -317,6 +327,7 @@ func TestScreenshotsServers(t *testing.T) {
 	start := func(t *testing.T) (*App, *ui.Tester) {
 		a := newBareApp(t)
 		a.settings.Theme = "dark"
+		steadyMemory(a)
 		if _, err := a.addProject(newProjectDir(t, "acme-analytics")); err != nil {
 			t.Fatal(err)
 		}

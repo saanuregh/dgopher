@@ -362,11 +362,11 @@ type filterPrompt struct {
 
 func filterPromptView(a Host, c *ui.Context) {
 	f := a.Dialogs().filterPrompt
-	widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(420).Gap(10).Children(func() {
-			ui.Text(c, "Filter: "+f.label).FontSize(15).Bold()
+	widgets.Modal(c, &f.open, widgets.DialogSmall, func() {
+		ui.Column(c).Gap(10).Children(func() {
+			widgets.DialogTitle(c, "Filter: "+f.label)
 			submit := ui.TextInput(c, &f.value).AutoFocus().Font(widgets.MonoFont).Label("Value").Submitted()
-			ui.Text(c, "A number when it reads as one, else text.").FontSize(12).TextColor(widgets.PaletteOf(c).Muted)
+			ui.Text(c, "A number when it reads as one, else text.").FontSize(widgets.TextSmall).TextColor(widgets.PaletteOf(c).Muted)
 			if widgets.DialogFooter(c, &f.open, "Filter", submit) {
 				f.open = false
 				f.apply(f.value)
@@ -443,9 +443,9 @@ func distinctView(a Host, c *ui.Context) {
 			shown = append(shown, i)
 		}
 	}
-	dlg := widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(520).Height(520).Gap(10).Children(func() {
-			ui.Text(c, "Filter "+f.name+" by its values").FontSize(15).Bold()
+	dlg := widgets.Modal(c, &f.open, widgets.DialogMedium, func() {
+		ui.Column(c).Height(520).Gap(10).Children(func() {
+			widgets.DialogTitle(c, "Filter "+f.name+" by its values")
 			ui.Row(c).Children(func() { widgets.SearchBox(c, &f.search, "Find a value", 0).AutoFocus() })
 			switch {
 			case f.loading:
@@ -460,11 +460,11 @@ func distinctView(a Host, c *ui.Context) {
 						if v.v == nil {
 							text.TextColor(pal.Null).Italic()
 						}
-						ui.Text(c, fmt.Sprint(v.count)).FontSize(12).TextColor(pal.Muted)
+						ui.Text(c, fmt.Sprint(v.count)).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 					})
-				}).Grow(1).Border(1, th.Border).Radius(6)
+				}).Grow(1).Border(1, th.Border).Radius(widgets.RadiusMedium)
 				if len(f.values) == maxDistinct {
-					ui.Text(c, fmt.Sprintf("The %d most frequent values.", maxDistinct)).FontSize(12).TextColor(pal.Muted)
+					ui.Text(c, fmt.Sprintf("The %d most frequent values.", maxDistinct)).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 				}
 			}
 			ui.Row(c).Gap(8).Children(func() {
@@ -488,7 +488,7 @@ func distinctView(a Host, c *ui.Context) {
 						chosen = append(chosen, v.v)
 					}
 				}
-				if widgets.Activated(c, ui.PrimaryButton(c, "Filter").Disabled(len(chosen) == 0)) {
+				if widgets.ActivatedUnless(c, ui.PrimaryButton(c, "Filter"), widgets.When(len(chosen) == 0, "Choose a value first")) {
 					f.open = false
 					f.apply(rowCond{col: f.col, op: "in", vals: chosen})
 				}
@@ -528,4 +528,70 @@ func (g *Grid) chosenValues(src *Source, rows []int, col int) []any {
 		}
 	}
 	return vals
+}
+
+// filterOn is the filter on a column, as its header's mark says it: the
+// conditions on the rows read, and the one the server ran; "" for none.
+func (g *Grid) filterOn(src *Source, col int) string {
+	var parts []string
+	for _, c := range g.conds {
+		if c.col == col {
+			parts = append(parts, condExprSQL(db.Engine(""), src.Cols[col].Name, c))
+		}
+	}
+	if g.sqlFilter != nil {
+		if f := g.sqlFilter(col); f != "" {
+			parts = append(parts, f)
+		}
+	}
+	return strings.Join(parts, " AND ")
+}
+
+// filterMark marks the header of a column the filter is on, which rows
+// are missing because of: the filter itself shows far from the column,
+// in the box over the grid.
+func (g *Grid) filterMark(c *ui.Context, src *Source, col int, accent ui.Color) {
+	on := g.filterOn(src, col)
+	if on == "" {
+		return
+	}
+	ui.Icon(c, widgets.IconFilter).FontSize(widgets.IconSmall).TextColor(accent).Margin(0, 0, 0, 4).
+		Label(src.Cols[col].Name + " is filtered").Tooltip("Filtered: " + widgets.OneLine(on, 200) + "\nRight-click the header to clear it.")
+}
+
+// filtered reports which filter leaves no row to show: the quick filter
+// or the conditions on the rows read, which hide them here, or the one
+// the server ran.
+func (g *Grid) filtered() (here, onServer bool) {
+	return g.Filter != "" || len(g.conds) > 0, g.sqlFilter != nil && g.sqlFilter(-1) != ""
+}
+
+// emptyView says that there are no rows, under the header, where a blank
+// grid would read as rows not read yet; with a filter on, that it is the
+// filter, and the button that clears it: the one that hides rows here
+// first, as the nearer cause.
+func (g *Grid) emptyView(c *ui.Context) {
+	here, onServer := g.filtered()
+	pal := widgets.PaletteOf(c)
+	box := ui.Column(c.Key("no-rows")).Absolute().Left(0).Top(g.List.RowHeight + 28).Gap(8).AlignItems(ui.Center)
+	if g.viewW > 0 {
+		box.Width(g.viewW)
+	} else {
+		box.Right(0)
+	}
+	box.Children(func() {
+		if !here && !onServer {
+			ui.Text(c, "No rows").TextColor(pal.Muted)
+			return
+		}
+		ui.Text(c, "No rows match the filter").TextColor(pal.Muted)
+		if ui.Button(c, "Clear Filter").Clicked() {
+			if here {
+				g.Filter = ""
+				g.clearConds(-1)
+			} else {
+				g.clearSQL(-1)
+			}
+		}
+	})
 }

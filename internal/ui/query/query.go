@@ -83,6 +83,10 @@ type message struct {
 	detail string
 	sql    string
 	err    bool
+	// head is what a statement did, as "3 rows affected", and meta its
+	// verb and time: the Output's headline while it is the last to have
+	// ended; "" for what is not a statement's outcome.
+	head, meta string
 }
 
 // Tab is a SQL editor with its results, on a session of its own.
@@ -156,6 +160,9 @@ type Tab struct {
 	stale     []*result
 	staleIdx  int
 	staleFrom int
+	// dockW is how wide the results showed in the last frame, 0 before
+	// the first.
+	dockW     float32
 	cancel    context.CancelFunc
 	StartedAt time.Time
 	// ongoing is the statements' run going on, nil for none; stopping is
@@ -192,10 +199,6 @@ type Tab struct {
 	named, namedText string
 	// exports counts the exports reading on the session.
 	exports int
-	// fontPinch and wheelZoom zoom the editors' text with pinches and the
-	// wheel.
-	fontPinch widgets.FontPinch
-	wheelZoom widgets.WheelZoom
 	// sessionLost is set when the session closed with its connection, left
 	// unused (ConnectionClosed): the next run is refused once.
 	sessionLost bool
@@ -227,13 +230,6 @@ func (q *Tab) key(c *ui.Context, mods ui.Modifiers, key ui.Key) bool {
 func (q *Tab) pressed(c *ui.Context, id string) bool {
 	return q.a.KeysTo(q) && (!q.chat.focused || id == keymap.Save) && keymap.Pressed(c, id)
 }
-
-// editorZoomKeys are the actions that zoom the editors' text, by the step
-// stepEditorFont takes.
-var editorZoomKeys = []struct {
-	id   string
-	step int
-}{{keymap.EditorZoomIn, 1}, {keymap.EditorZoomOut, -1}, {keymap.EditorZoomReset, 0}}
 
 func New(a Host, cn *connection.Conn, database, name, text string) *Tab {
 	q := &Tab{a: a, Conn: cn, Database: database, Name: name, editorPercent: a.Layout().EditorPercent}
@@ -267,37 +263,9 @@ func (q *Tab) newEditor(text string) *editor.Editor {
 }
 
 // editorInput takes an editor's input before it: a pinch or the wheel
-// with ⌘ held zooms the text, and a snippet takes its keys.
+// with ⌘ held zooms the window, and a snippet takes its keys.
 func (q *Tab) editorInput(ev ui.InputEvent) bool {
-	switch step, wheel := q.wheelZoom.Step(ev); {
-	case ev.Kind == ui.InputZoom:
-		s := q.a.Settings()
-		if size, ok := q.fontPinch.Zoom(s.EditorFont, ev.Scale, settings.MinFontSize, settings.MaxEditorFont); ok {
-			s.EditorFont = size
-			q.a.SaveSettings()
-		}
-	case wheel:
-		if step != 0 {
-			q.stepEditorFont(step)
-		}
-	default:
-		return q.snippetKey(ev)
-	}
-	return true
-}
-
-// stepEditorFont makes the editors' text, of every tab, a size larger, or
-// smaller for a negative step; 0 puts it back at its default.
-func (q *Tab) stepEditorFont(step int) {
-	s := q.a.Settings()
-	size := settings.Default().EditorFont
-	if step != 0 {
-		size = min(max(s.EditorFont+float32(step), settings.MinFontSize), settings.MaxEditorFont)
-	}
-	if size != s.EditorFont {
-		s.EditorFont = size
-		q.a.SaveSettings()
-	}
+	return q.a.ZoomInput(ev) || q.snippetKey(ev)
 }
 
 // Text is the editor's text, its lines ending in \n: the script's, which
@@ -329,6 +297,28 @@ func (q *Tab) SetText(text string) {
 func (q *Tab) Title() string { return q.Name }
 
 func (q *Tab) Connection() *connection.Conn { return q.Conn }
+
+// RowsHeld is the rows of the editor's results, and in a notebook of
+// every cell's: each result once, the bound cell's being the tab's own.
+func (q *Tab) RowsHeld() int {
+	seen := map[*result]bool{}
+	rows := 0
+	count := func(results []*result) {
+		for _, r := range results {
+			if !seen[r] {
+				seen[r] = true
+				rows += r.view.RowsHeld()
+			}
+		}
+	}
+	count(q.results)
+	if q.nb != nil {
+		for _, cl := range q.nb.cells {
+			count(cl.results)
+		}
+	}
+	return rows
+}
 
 func (q *Tab) Places() []connection.Place { return []connection.Place{q.Conn.PlaceOf(q.Database)} }
 
@@ -1390,17 +1380,20 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 					q.note(res.err+with, res.sql, true)
 					return
 				}
-				var text string
+				var head string
 				if res.rowsMode {
 					more := ""
 					if !done {
 						more = "+"
 					}
-					text = fmt.Sprintf("%s · %d%s rows · %s", verbLabel(res.verb), len(first), more, widgets.FormatDuration(res.elapsed))
+					head = fmt.Sprintf("%d%s rows", len(first), more)
 				} else {
-					text = fmt.Sprintf("%s · %s · %s", verbLabel(res.verb), affectedLabel(res.affected), widgets.FormatDuration(res.elapsed))
+					head = affectedLabel(res.affected)
 				}
-				q.note(text+with, res.sql, false)
+				took := widgets.FormatDuration(res.elapsed)
+				q.note(fmt.Sprintf("%s · %s · %s", verbLabel(res.verb), head, took)+with, res.sql, false)
+				m := &q.messages[len(q.messages)-1]
+				m.head, m.meta = strings.ToUpper(head[:1])+head[1:], verbLabel(res.verb)+" · "+took+with
 			})
 			if manual {
 				// A statement that ran in the session's transaction and left
@@ -1731,16 +1724,16 @@ func (q *Tab) View(c *ui.Context) {
 	if q.pressed(c, keymap.ToggleResults) {
 		q.toggleResults()
 	}
-	if q.Editor.HasFocus() {
-		// The grid's text takes the same keys while it has the focus.
-		for _, k := range editorZoomKeys {
-			if q.pressed(c, k.id) {
-				q.stepEditorFont(k.step)
-			}
-		}
-	}
 	if q.pressed(c, keymap.MaximizeResults) {
 		q.maximizeResults()
+	}
+	switch {
+	case q.pressed(c, keymap.NextResult):
+		q.stepResult(1)
+	case q.pressed(c, keymap.PreviousResult):
+		q.stepResult(-1)
+	case q.pressed(c, keymap.GoToError):
+		q.goToLatestError()
 	}
 	if q.pressed(c, keymap.FocusResults) {
 		// Between the editor and its results, without the pointer, showing
@@ -1817,75 +1810,12 @@ func (q *Tab) View(c *ui.Context) {
 func (q *Tab) body(c *ui.Context) {
 	a := q.a
 	ui.Column(c).Grow(1).Children(func() {
-		widgets.Bar(c, "Editor", func() {
-			// First, set apart: its label changes in place, Connect to
-			// Disconnect, in a button as wide whichever it shows. The
-			// buttons have keys of their own: one coming or going would else
-			// pass the others' labels along, each sliding to its neighbor's.
-			state := widgets.ConnectState{Connecting: q.Conn.Status == connection.StatusConnecting, Offline: !a.Online()}
-			switch widgets.ConnectStatus(c, q.Conn, state) {
-			case widgets.ConnectAsked:
-				a.Connect(q.Conn, nil)
-			case widgets.DisconnectAsked:
-				a.Disconnect(q.Conn)
-			case widgets.ConnectDetails:
-				a.ShowReport(widgets.ConnectionReport(q.Conn, func() { a.Connect(q.Conn, nil) }, nil))
-			}
-			ui.Divider(c).Margin(0, 4)
-			// One button: Run turns to Stop, in place, once a run lasts; a
-			// quick one leaves it as it is. A notebook has its own.
-			switch {
-			case q.nb != nil:
-				q.notebookBar(c)
-			case q.Running && widgets.Lasted(c, q.StartedAt):
-				q.stopButton(c, "Stop the running statement")
-			default:
-				if widgets.LeadToolButton(c.Key("run"), widgets.IconPlay, "Run", keymap.Hint("Run statement", keymap.Run), c.Theme().Success).Clicked() {
-					q.Run(RunStatement)
-				}
-			}
-			if q.nb == nil && widgets.ToolButton(c.Key("run-script"), widgets.IconLayers, "Run Script", keymap.Hint("Run all statements", keymap.RunScript)).Clicked() {
-				q.Run(RunScript)
-			}
-			if widgets.ToolButton(c.Key("explain"), widgets.IconCode, "Explain", keymap.Hint("Explain plan", keymap.Explain)).Clicked() {
-				q.Run(RunExplain)
-			}
-			if widgets.ToolButton(c.Key("analyze"), widgets.IconClock, "Analyze", keymap.Hint("Run the statement to measure its plan", keymap.ExplainAnalyze)).Clicked() {
-				q.Run(RunExplainAnalyze)
-			}
-			if widgets.ToolButton(c.Key("format"), widgets.IconWand, "Format", keymap.Hint("Format SQL", keymap.Format)).Clicked() {
-				q.format()
-			}
-			if widgets.ToolButton(c.Key("save-as"), widgets.IconSave, "Save As", keymap.Hint("Save a copy under another name", keymap.SaveAs)).Clicked() {
-				a.SaveSQLFile(q, true)
-			}
-			view, viewTip := "Notebook", "Show the editor as a notebook of cells, each with its results"
-			if q.nb != nil {
-				view, viewTip = "Script", "Show the editor as one script"
-			}
-			if widgets.ToolButton(c.Key("view"), widgets.IconNotebook, view, keymap.Hint(viewTip, keymap.ToggleNotebook)).Clicked() {
-				q.ToggleNotebook()
-			}
-			chatTip := "Ask an AI agent about this editor"
-			if q.ChatOpen() {
-				chatTip = "Hide the AI chat"
-			}
-			if widgets.ToolButton(c.Key("chat"), widgets.IconSparkles, "AI Chat", keymap.Hint(chatTip, keymap.ToggleChat)).Clicked() {
-				if q.ChatOpen() {
-					q.hideChat()
-				} else {
-					q.ToggleChat()
-				}
-			}
-			ui.Spacer(c)
-			q.switcherView(c)
-		})
+		q.toolbar(c)
 		// The bars come and go, as one while a header is typed: in a
 		// column always there, the editor keeps its place, and the focus.
 		ui.Column(c).Children(func() {
-			if q.InTx() {
-				q.txBar(c)
-			} else if q.autocommitOff && q.sess != nil {
+			q.Notice(c, q.Conn.Config.Name)
+			if !q.InTx() && q.autocommitOff && q.sess != nil {
 				q.autocommitBar(c)
 			}
 			if q.DiskConflict != "" {
@@ -1917,7 +1847,7 @@ func (q *Tab) body(c *ui.Context) {
 				// the tab in front.
 				waits := q.Editor.WantFocus && !a.KeysTo(q)
 				q.Editor.WantFocus = q.Editor.WantFocus && !waits
-				q.Editor.View(c, a.Settings().EditorFont)
+				q.takeName(c, q.Editor.View(c, a.Settings().EditorFont), q.Editor)
 				q.Editor.WantFocus = q.Editor.WantFocus || waits
 				q.trackSnippet()
 				q.completionKeys(c)
@@ -1998,36 +1928,12 @@ func (q *Tab) maximizeResults() {
 	}
 }
 
-func (q *Tab) txBar(c *ui.Context) {
-	t := c.Theme()
-	label := "Transaction open: changes are not visible to others until you commit."
-	col := t.Warning
-	switch {
-	case q.InsideTx != db.TxNone:
-		owner, _ := q.TxOwner()
-		label = dataview.InsideTxLabel(owner, q.Conn.Config.Name, q.InsideTx)
-	case q.Tx == db.TxFailed:
-		label = "The transaction failed: roll it back to go on."
-		col = t.Danger
-	}
-	widgets.AppearBar(ui.Row(c.Key("tx-bar")).Padding(6, 12).Gap(10).Background(col.Alpha(0.16)).BorderWidth(0, 0, 1, 0).BorderColor(col)).Children(func() {
-		ui.Icon(c, widgets.IconAlert).TextColor(col).FontSize(14)
-		ui.Text(c, label).Grow(1).Shrink(1)
-		if (q.Tx == db.TxOpen || q.InsideTx == db.TxOpen) && widgets.Appear(ui.PrimaryButton(c.Key("commit"), "Commit")).Disabled(q.Busy()).Tooltip(keymap.Hint("Commit the transaction", keymap.Commit)).Clicked() {
-			q.endOpenTx(true)
-		}
-		if ui.Button(c.Key("roll-back"), "Roll Back").Disabled(q.Busy()).Tooltip(keymap.Hint("Roll back the transaction", keymap.Rollback)).Clicked() {
-			q.endOpenTx(false)
-		}
-	})
-}
-
 // autocommitBar says that MySQL's autocommit is off with no transaction
 // open: nothing waits to be committed yet, so it offers nothing to end.
 func (q *Tab) autocommitBar(c *ui.Context) {
 	t := c.Theme()
-	widgets.AppearBar(ui.Row(c.Key("autocommit-bar")).Padding(6, 12).Gap(10).Background(t.Surface).BorderWidth(0, 0, 1, 0).BorderColor(t.Border)).Children(func() {
-		ui.Icon(c, widgets.IconClock).TextColor(widgets.PaletteOf(c).Muted).FontSize(14)
+	widgets.AppearBar(ui.Row(c.Key("autocommit-bar")).Padding(widgets.PadBarY, widgets.PadBarX).Gap(10).Background(t.Surface).BorderWidth(0, 0, 1, 0).BorderColor(t.Border)).Children(func() {
+		ui.Icon(c, widgets.IconClock).TextColor(widgets.PaletteOf(c).Muted).FontSize(widgets.IconMedium)
 		ui.Text(c, "Autocommit is off: the next statement that reads or writes a table begins a transaction.").Grow(1).Shrink(1)
 	})
 }
@@ -2037,14 +1943,11 @@ func (q *Tab) resultsView(c *ui.Context, a Host) {
 	if q.stale != nil && (!q.Running || len(q.results) > q.staleFrom) {
 		q.stale = nil
 	}
-	results, idx := q.results, q.resultIdx
+	results, idx := q.shownResults()
 	stale := q.stale != nil
-	if stale {
-		results, idx = q.stale, q.staleIdx
-	}
 	l := a.Layout()
 	hidden := l.Results == widgets.ResultsHidden
-	panel := ui.Column(c).Disabled(stale)
+	panel := ui.Column(c).Disabled(stale).Draw(func(_ *ui.Painter, r ui.Rect) { q.dockW = r.W })
 	if !hidden {
 		panel.Fill()
 	}
@@ -2054,59 +1957,20 @@ func (q *Tab) resultsView(c *ui.Context, a Host) {
 		panel.Opacity(0.55)
 	}
 	panel.Children(func() {
-		ui.Row(c).Padding(4, 8).Gap(4).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
-			ui.Row(c).Gap(2).Grow(1).Shrink(1).ClipX().Children(func() {
-				names := resultNames(results)
-				for i, r := range results {
-					if !r.rowsMode && r.err == "" {
-						continue
-					}
-					label := names[i]
-					switch {
-					case r.err != "" && r.view == nil:
-						label = "Error"
-					case r.err != "":
-						label += " ⚠"
-					}
-					var pin *ui.SVG
-					named := label
-					if r.pinned {
-						pin, named = widgets.IconPin, label+", pinned"
-					}
-					p := widgets.IconPill(c, pin, label, idx == i).Label(named).Tooltip(resultTip(r))
-					if p.Clicked() {
-						q.resultIdx = i
-						q.showResults()
-					}
-					p.ContextMenu(func(m *ui.Menu) {
-						title := "Pin"
-						if r.pinned {
-							title = "Unpin"
-						}
-						if m.Item(title).Chosen() {
-							r.pinned = !r.pinned
-						}
-						if m.Item("Close Result").Disabled(q.Running || r.view != nil && (r.view.Applying() || r.view.Counting())).Chosen() {
-							q.a.Post(func() { q.settlePending([]*result{r}, func() { q.closeResult(r) }) })
-						}
-					})
+		if !q.stripMerged() {
+			ui.Row(c).Padding(widgets.PadToolbarY, widgets.PadToolbarX).Gap(4).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
+				ui.Row(c).Gap(2).Grow(1).Shrink(1).ClipX().Children(func() {
+					q.resultTabs(c, results, idx)
+					q.outputTab(c, results, idx, false)
+				})
+				// Every result by name, those the row has no room for too.
+				if len(results) > 1 {
+					widgets.IconButton(c.Key("all-results"), widgets.IconDropdown, "All Results").
+						Tooltip(keymap.Hint("Every result, by name", keymap.NextResult)).Menu(q.resultsMenu)
 				}
+				q.dockButtons(c)
 			})
-			if widgets.ToggleIconButton(c, widgets.IconTerminal, "Output", idx >= len(results)).Clicked() {
-				q.resultIdx = len(q.results)
-				q.showResults()
-			}
-			if !hidden {
-				icon, label := maximizeResultsAction(l)
-				if widgets.IconButton(c, icon, label).Tooltip(keymap.Hint(label, keymap.MaximizeResults)).Clicked() {
-					q.maximizeResults()
-				}
-			}
-			icon, label := hideResultsAction(l)
-			if widgets.IconButton(c, icon, label).Tooltip(keymap.Hint(label, keymap.ToggleResults)).Clicked() {
-				q.toggleResults()
-			}
-		})
+		}
 		if hidden {
 			return
 		}
@@ -2135,6 +1999,228 @@ func (q *Tab) resultsView(c *ui.Context, a Host) {
 				r.view.View(c)
 			}
 		})
+	})
+}
+
+// shownResults are the results the dock shows and the one in front: those
+// of the run before while a run replaces them.
+func (q *Tab) shownResults() ([]*result, int) {
+	if q.stale != nil {
+		return q.stale, q.staleIdx
+	}
+	return q.results, q.resultIdx
+}
+
+// mergedStripWidth is the least width of the results at which one
+// result's tab shares its grid's toolbar: narrower, as in a split or
+// beside the chat, the tab would leave the WHERE box and the quick filter
+// no room there.
+const mergedStripWidth = 820
+
+// stripMerged reports whether the one result's tab and the dock's buttons
+// show in its grid's toolbar, in place of a row of their own: the rows
+// take the room. Several results, one that shows no grid, as an error or a
+// plan, and results too narrow keep the row, which hidden results are
+// left with.
+func (q *Tab) stripMerged() bool {
+	if q.nb != nil || q.a.Layout().Results == widgets.ResultsHidden || q.dockW > 0 && q.dockW < mergedStripWidth {
+		return false
+	}
+	results, idx := q.shownResults()
+	tabs := 0
+	for _, r := range results {
+		if r.rowsMode || r.err != "" {
+			tabs++
+		}
+	}
+	r := resultAt(results, idx)
+	return tabs == 1 && r != nil && r.view != nil && r.plan == nil
+}
+
+// resultTabs draws a tab for each result that shows rows or an error.
+func (q *Tab) resultTabs(c *ui.Context, results []*result, idx int) {
+	names := resultNames(results)
+	for i, r := range results {
+		if !r.rowsMode && r.err == "" {
+			continue
+		}
+		label := names[i]
+		switch {
+		case r.err != "" && r.view == nil:
+			label = "Error"
+		case r.err != "":
+			label += " ⚠"
+		}
+		var pin *ui.SVG
+		named := label
+		if r.pinned {
+			pin, named = widgets.IconPin, label+", pinned"
+		}
+		p := widgets.IconPill(c, pin, label, idx == i).Label(named).Tooltip(resultTip(r))
+		if p.Clicked() {
+			q.resultIdx = i
+			q.showResults()
+		}
+		p.ContextMenu(func(m *ui.Menu) {
+			title := "Pin"
+			if r.pinned {
+				title = "Unpin"
+			}
+			if m.Item(title).Chosen() {
+				r.pinned = !r.pinned
+			}
+			if m.Item("Close Result").Disabled(q.Running || r.view != nil && (r.view.Applying() || r.view.Counting())).Chosen() {
+				q.a.Post(func() { q.settlePending([]*result{r}, func() { q.closeResult(r) }) })
+			}
+		})
+	}
+}
+
+// resultTabIndexes are the places of the results that show as tabs, in
+// their order, then the Output's, which is past the last result.
+func resultTabIndexes(results []*result) []int {
+	var tabs []int
+	for i := range results {
+		if resultAt(results, i) != nil {
+			tabs = append(tabs, i)
+		}
+	}
+	return append(tabs, len(results))
+}
+
+// stepResult shows the result by places after the one in front, around
+// past the Output to the first.
+func (q *Tab) stepResult(by int) {
+	tabs := resultTabIndexes(q.results)
+	at := len(tabs) - 1 // the Output, which shows when no result does
+	if i := slices.Index(tabs, q.resultIdx); i >= 0 {
+		at = i
+	}
+	q.resultIdx = tabs[((at+by)%len(tabs)+len(tabs))%len(tabs)]
+	q.showResults()
+}
+
+// goToLatestError puts the caret where the statement of the error in
+// front failed, else that of the last result that failed.
+func (q *Tab) goToLatestError() {
+	if r := q.current(); r != nil && r.err != "" {
+		q.goToFailed(r)
+		return
+	}
+	for i := len(q.results) - 1; i >= 0; i-- {
+		if r := q.results[i]; r.err != "" {
+			q.resultIdx = i
+			q.showResults()
+			q.goToFailed(r)
+			return
+		}
+	}
+}
+
+// goToFailed puts the caret where r's statement failed, or at its start
+// when the server did not say where, as SQLite does not.
+func (q *Tab) goToFailed(r *result) {
+	if errorOffset(r.sql, r.start, r.skip, r.errInfo) >= 0 || q.nb != nil {
+		q.goToError(r)
+		return
+	}
+	q.Editor.Select(r.start, r.start)
+	q.Editor.WantFocus = true
+}
+
+// resultsMenu lists every result by name, and the Output, to bring in
+// front: those the row of tabs has no room for are reached here. Then
+// what a tab's own menu offers of the one in front.
+func (q *Tab) resultsMenu(m *ui.Menu) {
+	names := resultNames(q.results)
+	for _, i := range resultTabIndexes(q.results) {
+		name := "Output"
+		if i < len(q.results) {
+			name = names[i]
+			if q.results[i].err != "" && q.results[i].view == nil {
+				name = "Error: " + widgets.OneLine(q.results[i].sql, 40)
+			}
+		}
+		on := i == q.resultIdx || i == len(q.results) && q.current() == nil
+		if m.Item(name).Radio(on).Chosen() {
+			q.resultIdx = i
+			q.showResults()
+		}
+	}
+	r := q.current()
+	if r == nil {
+		return
+	}
+	m.Separator()
+	title := "Pin"
+	if r.pinned {
+		title = "Unpin"
+	}
+	if m.Item(title).Chosen() {
+		r.pinned = !r.pinned
+	}
+	if m.Item("Close Result").Disabled(q.Running || r.view != nil && (r.view.Applying() || r.view.Counting())).Chosen() {
+		q.a.Post(func() { q.settlePending([]*result{r}, func() { q.closeResult(r) }) })
+	}
+}
+
+// outputTab is the Output's tab, after the results': one more view of
+// the same pane, as they are. Beside one result in its grid's toolbar it
+// is its icon alone, where a label would take the tools' room.
+func (q *Tab) outputTab(c *ui.Context, results []*result, idx int, compact bool) {
+	on := idx >= len(results) || resultAt(results, idx) == nil
+	tip := "What ran, and what it did: every statement's outcome and the server's messages"
+	var tab ui.Element
+	if compact {
+		tab = widgets.ToggleIconButton(c.Key("output"), widgets.IconTerminal, "Output", on).Tooltip(tip)
+	} else {
+		tab = widgets.Pill(c.Key("output"), "Output", on).Tooltip(tip)
+	}
+	if tab.Clicked() {
+		q.resultIdx = len(q.results)
+		q.showResults()
+	}
+}
+
+// dockButtons draws the dock's buttons: the results maximized over the
+// editor or hidden under it.
+func (q *Tab) dockButtons(c *ui.Context) {
+	l := q.a.Layout()
+	hidden := l.Results == widgets.ResultsHidden
+	if !hidden {
+		icon, label := maximizeResultsAction(l)
+		if widgets.IconButton(c, icon, label).Tooltip(keymap.Hint(label, keymap.MaximizeResults)).Clicked() {
+			q.maximizeResults()
+		}
+	}
+	icon, label := hideResultsAction(l)
+	if widgets.IconButton(c, icon, label).Tooltip(keymap.Hint(label, keymap.ToggleResults)).Clicked() {
+		q.toggleResults()
+	}
+}
+
+// toolbarTabs starts a result's toolbar with its tab, while it is the one
+// result (stripMerged).
+func (q *Tab) toolbarTabs(c *ui.Context) {
+	if !q.stripMerged() {
+		return
+	}
+	results, idx := q.shownResults()
+	ui.Row(c).Gap(2).Shrink(0).Padding(0, 0, 0, 8).AlignItems(ui.Center).Children(func() {
+		q.resultTabs(c, results, idx)
+		q.outputTab(c, results, idx, true)
+	})
+}
+
+// toolbarDock ends it with the dock's buttons.
+func (q *Tab) toolbarDock(c *ui.Context) {
+	if !q.stripMerged() {
+		return
+	}
+	ui.Row(c).Gap(4).Shrink(0).Padding(0, 8, 0, 0).Children(func() {
+		// Apart from the grid's own: these are the dock's.
+		ui.Divider(c).Margin(0, 4, 0, 0)
+		q.dockButtons(c)
 	})
 }
 
@@ -2172,6 +2258,8 @@ func (q *Tab) newView(res *result, c *db.Cursor, rows [][]any, done bool, stop c
 		why = dataview.ReadingColumns
 	}
 	v := dataview.NewViewer(q.a, dataview.ViewerSource{
+		Lead:           q.toolbarTabs,
+		Trail:          q.toolbarDock,
 		Keys:           func() bool { return q.a.KeysTo(q) },
 		Conn:           q.Conn,
 		Database:       q.Database,
@@ -2341,7 +2429,7 @@ func (q *Tab) messagesView(c *ui.Context) {
 		ui.Column(c).Grow(1).Center().Gap(8).Children(func() {
 			for _, k := range []struct{ what, id string }{{"Run a statement", keymap.Run}, {"Run the script", keymap.RunScript}} {
 				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, k.what).FontSize(13).TextColor(pal.Muted)
+					ui.Text(c, k.what).FontSize(widgets.TextBody).TextColor(pal.Muted)
 					if key := keymap.First(k.id); key != "" {
 						widgets.Keycap(c, key)
 					}
@@ -2350,13 +2438,20 @@ func (q *Tab) messagesView(c *ui.Context) {
 		})
 		return
 	}
+	lead := q.outcome()
 	ui.Scroll(c).Grow(1).Children(func() {
 		ui.Column(c).Padding(8, 12).Gap(8).Children(func() {
+			if lead >= 0 {
+				q.outcomeView(c, q.messages[lead])
+			}
 			for i := len(q.messages) - 1; i >= 0; i-- {
+				if i == lead {
+					continue
+				}
 				m := q.messages[i]
 				ui.Column(c).Gap(2).Children(func() {
 					ui.Row(c).Gap(8).Children(func() {
-						ui.Text(c, m.at.Format("15:04:05")).FontSize(11).TextColor(pal.Muted).Font(widgets.MonoFont)
+						ui.Text(c, m.at.Format("15:04:05")).FontSize(widgets.TextMeta).TextColor(pal.Muted).Font(widgets.MonoFont)
 						txt := ui.Text(c, m.text).Selectable().Grow(1).Shrink(1)
 						if m.err {
 							txt.TextColor(t.Danger)
@@ -2366,9 +2461,41 @@ func (q *Tab) messagesView(c *ui.Context) {
 						}
 					})
 					if m.sql != "" {
-						ui.Text(c, widgets.OneLine(m.sql, 160)).Font(widgets.MonoFont).FontSize(11).TextColor(pal.Muted).SingleLine()
+						ui.Text(c, widgets.OneLine(m.sql, 160)).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted).SingleLine()
 					}
 				})
+			}
+		})
+	})
+}
+
+// outcome is the message the Output leads with: what the last statement
+// to end did, unless an error came after it, which is then the news; -1
+// for none.
+func (q *Tab) outcome() int {
+	for i := len(q.messages) - 1; i >= 0; i-- {
+		switch m := q.messages[i]; {
+		case m.err:
+			return -1
+		case m.head != "":
+			return i
+		}
+	}
+	return -1
+}
+
+// outcomeView is the Output's headline: what a statement did, to read at
+// a glance, as a statement that returns no rows shows nothing else.
+func (q *Tab) outcomeView(c *ui.Context, m message) {
+	t := c.Theme()
+	pal := widgets.PaletteOf(c)
+	ui.Row(c).Gap(10).Padding(6, 0, 10, 0).AlignItems(ui.Start).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
+		ui.Icon(c, widgets.IconCheck).FontSize(widgets.IconLarge).TextColor(t.Success).Margin(3, 0, 0, 0)
+		ui.Column(c).Gap(2).Grow(1).Shrink(1).Children(func() {
+			ui.Text(c, m.head).FontSize(widgets.TextTitle).Bold().Selectable()
+			ui.Text(c, m.meta+" · "+m.at.Format("15:04:05")).FontSize(widgets.TextSmall).TextColor(pal.Muted).Selectable()
+			if m.sql != "" {
+				ui.Text(c, widgets.OneLine(m.sql, 160)).Font(widgets.MonoFont).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine()
 			}
 		})
 	})
@@ -2417,8 +2544,7 @@ func (q *Tab) Flush(force bool) {
 // conflictBar says why the file is not saved, and offers the ways out.
 func (q *Tab) conflictBar(c *ui.Context) {
 	t := c.Theme()
-	widgets.AppearBar(ui.Row(c.Key("conflict-bar")).Padding(6, 12).Gap(10).Background(t.Warning.Alpha(0.16))).Children(func() {
-		ui.Icon(c, widgets.IconAlert).TextColor(t.Warning).FontSize(14)
+	widgets.AppearBar(widgets.NoticeBar(c.Key("conflict-bar"), t.Warning, func() {
 		ui.Text(c, filepath.Base(q.Path)+" "+q.DiskConflict+": the editor's text is not saved.").Grow(1).Shrink(1).SingleLine().Tooltip(q.Path)
 		if disk, err := os.ReadFile(q.Path); err == nil {
 			if ui.Button(c, "Reload").Tooltip("Replace the editor's text with the file's").Clicked() {
@@ -2429,7 +2555,7 @@ func (q *Tab) conflictBar(c *ui.Context) {
 		if ui.Button(c, "Keep Mine").Tooltip("Write the editor's text over the file").Clicked() {
 			q.keepMine()
 		}
-	})
+	}))
 }
 
 // keepMine writes the editor's text over its file: at once inside the
@@ -2457,13 +2583,12 @@ func (q *Tab) headerBar(c *ui.Context, id string, exists bool) {
 		col = t.Danger
 		msg = fmt.Sprintf("This file names the connection %s, which is not a SQL connection of %s: fix its first lines to run it.", id, q.Conn.Project.Name)
 	}
-	widgets.AppearBar(ui.Row(c.Key("header-bar")).Padding(6, 12).Gap(10).Background(col.Alpha(0.16))).Children(func() {
-		ui.Icon(c, widgets.IconAlert).TextColor(col).FontSize(14)
+	widgets.AppearBar(widgets.NoticeBar(c.Key("header-bar"), col, func() {
 		ui.Text(c, msg).Grow(1).Shrink(1)
-		if exists && ui.Button(c, "Switch to "+id).Disabled(q.Busy()).Clicked() {
+		if exists && widgets.Clicked(ui.Button(c, "Switch to "+id), q.busyWhy()) {
 			q.a.SwitchConnection(q, id)
 		}
-	})
+	}))
 }
 
 // errorOffset is where in the editor an error points: from the
@@ -2568,22 +2693,22 @@ func (q *Tab) errorPanel(c *ui.Context, r *result) {
 	ui.Scroll(c).Grow(1).Children(func() {
 		ui.Column(c).Padding(16, 20).Gap(12).MaxWidth(900).Children(func() {
 			ui.Row(c).Gap(10).Children(func() {
-				ui.Icon(c, widgets.IconAlert).TextColor(t.Danger).FontSize(18)
-				ui.Text(c, info.Message).FontSize(15).Bold().Selectable().Grow(1).Shrink(1)
+				ui.Icon(c, widgets.IconAlert).TextColor(t.Danger).FontSize(widgets.IconLarge)
+				ui.Text(c, info.Message).FontSize(widgets.TextTitle).Bold().Selectable().Grow(1).Shrink(1)
 			})
 			if r.errHint != "" {
-				ui.Text(c, r.errHint).FontSize(13).TextColor(pal.Muted).Selectable()
+				ui.Text(c, r.errHint).FontSize(widgets.TextBody).TextColor(pal.Muted).Selectable()
 			}
 			field := func(label, value string) {
 				if value == "" {
 					return
 				}
 				ui.Row(c).Gap(12).Children(func() {
-					ui.Text(c, label).FontSize(12).TextColor(pal.Muted).Width(70)
-					v := ui.Text(c, value).FontSize(13).Selectable().Grow(1).Shrink(1)
+					ui.Text(c, label).FontSize(widgets.TextSmall).TextColor(pal.Muted).Width(70)
+					v := ui.Text(c, value).FontSize(widgets.TextBody).Selectable().Grow(1).Shrink(1)
 					// A detail that points with a caret needs its columns.
 					if strings.Contains(value, "\n") {
-						v.Font(widgets.MonoFont).FontSize(12)
+						v.Font(widgets.MonoFont).FontSize(widgets.TextSmall)
 					}
 				})
 			}
@@ -2596,9 +2721,9 @@ func (q *Tab) errorPanel(c *ui.Context, r *result) {
 				where = fmt.Sprintf("line %d, column %d", line+1, col+1)
 			}
 			field("Where", where)
-			ui.Text(c, r.sql).Font(widgets.MonoFont).FontSize(12).Padding(10).Radius(6).Background(pal.EditorBg).Selectable()
+			ui.Text(c, r.sql).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Padding(10).Radius(widgets.RadiusMedium).Background(pal.EditorBg).Selectable()
 			ui.Row(c).Gap(8).Children(func() {
-				if where != "" && ui.PrimaryButton(c, "Go to Error").Clicked() {
+				if where != "" && ui.PrimaryButton(c, "Go to Error").Tooltip(keymap.Hint("Put the caret where the statement failed", keymap.GoToError)).Clicked() {
 					q.goToError(r)
 				}
 				if ui.Button(c, "Copy Error").Clicked() {
@@ -2997,6 +3122,9 @@ func (q *Tab) editorMenu(m *ui.Menu) {
 		q.askRename()
 	}
 	m.Separator()
+	if keymap.Item(m.Item("Save As…"), keymap.SaveAs).Chosen() {
+		q.a.SaveSQLFile(q, true)
+	}
 	m.Submenu("Format", func(m *ui.Menu) {
 		if keymap.Item(m.Item("Format SQL"), keymap.Format).Chosen() {
 			q.format()

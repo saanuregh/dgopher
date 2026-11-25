@@ -75,8 +75,8 @@ func (q *Tab) planView(c *ui.Context, r *result) {
 	pal := widgets.PaletteOf(c)
 	ui.Column(c).Grow(1).Children(func() {
 		widgets.Bar(c, "Plan", func() {
-			ui.Segmented(c, &r.planMode, "Plan", "Flame Graph", "Rows").Label("Plan view").FontSize(widgets.ToolFontSize)
-			ui.Text(c, planSummary(r.plan)).FontSize(12).TextColor(pal.Muted).SingleLine().Shrink(1).Margin(0, 0, 0, 8)
+			ui.Segmented(c, &r.planMode, "Plan", "Flame Graph", "Rows").Label("Plan view").FontSize(widgets.TextBody)
+			ui.Text(c, planSummary(r.plan)).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Shrink(1).Margin(0, 0, 0, 8)
 		})
 		switch r.planMode {
 		case planRows:
@@ -104,11 +104,11 @@ func (q *Tab) adviceView(c *ui.Context, r *result) {
 	th := c.Theme()
 	ui.Column(c).Padding(4, 12, 8, 12).Gap(4).Children(func() {
 		for i, a := range r.advice {
-			row := ui.ButtonBase(c.Key(fmt.Sprint("advice-", i))).Padding(6, 10).Radius(6).Background(th.Warning.Alpha(0.12)).Label(a.Text)
+			row := ui.ButtonBase(c.Key(fmt.Sprint("advice-", i))).Padding(6, 10).Radius(widgets.RadiusMedium).Background(widgets.TintNotice(th.Warning)).Label(a.Text)
 			row.Children(func() {
 				ui.Row(c).Gap(8).FillWidth().Children(func() {
-					ui.Icon(c, widgets.IconAlert).TextColor(th.Warning).FontSize(13)
-					ui.Text(c, a.Text).FontSize(12.5).Grow(1).Shrink(1)
+					ui.Icon(c, widgets.IconAlert).TextColor(th.Warning).FontSize(widgets.IconMedium)
+					ui.Text(c, a.Text).FontSize(widgets.TextBody).Grow(1).Shrink(1)
 				})
 			})
 			if row.Clicked() {
@@ -126,35 +126,35 @@ func (q *Tab) treeView(c *ui.Context, r *result) {
 	metric, _ := planMetric(r.plan)
 	total := max(metric(r.plan.Root), 1e-9)
 	ui.Row(c).Padding(4, 12).Gap(10).Children(func() {
-		ui.Text(c, "Step").FontSize(11.5).Bold().TextColor(pal.Muted).Grow(1)
-		ui.Text(c, "Rows").FontSize(11.5).Bold().TextColor(pal.Muted).Width(140).TextAlign(ui.End)
-		ui.Text(c, "Share").FontSize(11.5).Bold().TextColor(pal.Muted).Width(160)
+		ui.Text(c, "Step").FontSize(widgets.TextMeta).Bold().TextColor(pal.Muted).Grow(1)
+		ui.Text(c, "Rows").FontSize(widgets.TextMeta).Bold().TextColor(pal.Muted).Width(140).TextAlign(ui.End)
+		ui.Text(c, "Share").FontSize(widgets.TextMeta).Bold().TextColor(pal.Muted).Width(160)
 	})
 	r.plan.Root.Walk(func(n *db.PlanNode, depth int) {
 		row := ui.ButtonBase(c.Key(fmt.Sprintf("step-%p", n))).Padding(4, 12).Label(n.Op)
 		if n == r.planSel {
-			row.Background(th.Accent.Alpha(0.15))
+			row.Background(widgets.TintNotice(th.Accent))
 		} else if row.Hovered() {
 			row.Background(pal.Hover)
 		}
 		row.Children(func() {
 			ui.Row(c).Gap(10).AlignItems(ui.Center).FillWidth().Children(func() {
 				ui.Row(c).Gap(6).Grow(1).Shrink(1).PaddingX(float32(depth) * 16).AlignItems(ui.Baseline).Children(func() {
-					ui.Text(c, n.Op).Font(widgets.MonoFont).FontSize(12.5).Bold().SingleLine().Shrink(0)
+					ui.Text(c, n.Op).Font(widgets.MonoFont).FontSize(widgets.TextBody).Bold().SingleLine().Shrink(0)
 					if n.Target != "" && !opNames(n) {
-						ui.Text(c, n.Target).FontSize(12.5).SingleLine().Shrink(1)
+						ui.Text(c, n.Target).FontSize(widgets.TextBody).SingleLine().Shrink(1)
 					}
 					if n.Detail != "" {
-						ui.Text(c, n.Detail).FontSize(11.5).TextColor(pal.Muted).SingleLine().Shrink(1)
+						ui.Text(c, n.Detail).FontSize(widgets.TextMeta).TextColor(pal.Muted).SingleLine().Shrink(1)
 					}
 				})
-				ui.Text(c, rowsLabel(n)).FontSize(12).TextColor(pal.Muted).Width(140).TextAlign(ui.End).SingleLine()
+				ui.Text(c, rowsLabel(n)).FontSize(widgets.TextSmall).TextColor(pal.Muted).Width(140).TextAlign(ui.End).SingleLine()
 				share := metric(n) / total
 				ui.Row(c).Width(160).Gap(6).AlignItems(ui.Center).Children(func() {
 					ui.Box(c).Width(100).Height(6).Radius(3).Background(pal.Hover).Children(func() {
 						ui.Box(c).Width(100 * float32(min(share, 1))).Height(6).Radius(3).Background(shareColor(th, share))
 					})
-					ui.Text(c, fmt.Sprintf("%.0f%%", share*100)).FontSize(11.5).TextColor(pal.Muted)
+					ui.Text(c, fmt.Sprintf("%.0f%%", share*100)).FontSize(widgets.TextMeta).TextColor(pal.Muted)
 				})
 			})
 		})
@@ -210,14 +210,14 @@ func (q *Tab) stepView(c *ui.Context, r *result) {
 		ui.Column(c).Padding(10, 12).Gap(6).Children(func() {
 			n := r.planSel
 			if n == nil {
-				ui.Text(c, "Choose a step to see what the server tells of it.").FontSize(12.5).TextColor(pal.Muted)
+				ui.Text(c, "Choose a step to see what the server tells of it.").FontSize(widgets.TextBody).TextColor(pal.Muted)
 				return
 			}
 			ui.Text(c, n.Op).Font(widgets.MonoFont).Bold()
 			for _, p := range n.Props {
 				ui.Column(c).Gap(1).Children(func() {
-					ui.Text(c, p[0]).FontSize(11).TextColor(pal.Muted)
-					ui.Text(c, p[1]).Font(widgets.MonoFont).FontSize(12).Selectable()
+					ui.Text(c, p[0]).FontSize(widgets.TextMeta).TextColor(pal.Muted)
+					ui.Text(c, p[1]).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Selectable()
 				})
 			}
 		})
@@ -235,7 +235,7 @@ func (q *Tab) flameView(c *ui.Context, r *result) {
 	r.plan.Root.Walk(func(_ *db.PlanNode, d int) { depth = max(depth, d+1) })
 	ui.Column(c).Grow(1).Children(func() {
 		ui.Text(c, "Each step is as wide as its "+unit+", its own and its steps'; a click chooses it.").
-			FontSize(12).TextColor(pal.Muted).Padding(6, 12)
+			FontSize(widgets.TextSmall).TextColor(pal.Muted).Padding(6, 12)
 		ui.Scroll(c).Grow(1).Children(func() {
 			ui.Box(c).FillWidth().Height(float32(depth*rowH+8)).Padding(0, 12).Children(func() {
 				var lay func(n *db.PlanNode, d int, from, to float64)
@@ -258,7 +258,7 @@ func (q *Tab) flameView(c *ui.Context, r *result) {
 						box.Background(col.Alpha(0.55))
 					}
 					box.Children(func() {
-						ui.Text(c, stepTitle(n)).FontSize(11.5).SingleLine()
+						ui.Text(c, stepTitle(n)).FontSize(widgets.TextMeta).SingleLine()
 					})
 					if box.Clicked() {
 						r.planSel = n
@@ -274,12 +274,12 @@ func (q *Tab) flameView(c *ui.Context, r *result) {
 			})
 		})
 		if n := r.planSel; n != nil {
-			ui.Row(c).Padding(6, 12).Gap(10).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+			ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(10).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 				ui.Text(c, n.Op).Font(widgets.MonoFont).Bold()
 				ui.Text(c, n.Target).SingleLine().Shrink(1)
-				ui.Text(c, rowsLabel(n)+" rows").FontSize(12).TextColor(pal.Muted)
+				ui.Text(c, rowsLabel(n)+" rows").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 				if n.Time >= 0 {
-					ui.Text(c, formatMs(n.Time)).FontSize(12).TextColor(pal.Muted)
+					ui.Text(c, formatMs(n.Time)).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 				}
 			})
 		}

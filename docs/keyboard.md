@@ -22,7 +22,7 @@ action by the name keymap.json gives it, as `editor::Run`.
 | --- | --- |
 | ⇧⌘P | Command palette: every command, connection, table and snippet |
 | ⌘P | Open a table or a query file by name |
-| ⌘T | New SQL editor on the current connection |
+| ⌘T | New SQL editor: asks on which connection and database, where you are chosen first, so ↵ opens another there |
 | ⌘K ⌘T | New SQL notebook on the current connection |
 | ⌘K ⌘I | The editor's AI chat: show it, or hide it |
 | ⌘N | New connection |
@@ -40,9 +40,11 @@ action by the name keymap.json gives it, as `editor::Run`.
 | ⌘, | Settings |
 | ⌘K ⌘S | Open keymap.json |
 | ⌘B | Show or hide the sidebar |
+| ⌘=, ⌘- | Zoom the whole window in or out, as a browser zooms a page; so do a pinch and ⌘ with the mouse wheel. The zoom is kept |
+| ⌘K ⌘0 | The window at its actual size |
 | F11 | Enter or leave full screen |
 | ⌘0 | Focus the navigator |
-| ⌘L | Focus the filter of the current view: a table's `WHERE`, then its quick filter |
+| ⌘L | Focus the filter of the current view: a table's `WHERE`, then its quick filter; the navigator's filter while the navigator has the keys, or no tab is open |
 | F1 | The list of keys |
 | ⇧F10, Menu key | Open the context menu of what has focus |
 | ⌘Q | Quit, asking first about anything it would lose |
@@ -70,7 +72,7 @@ Keys marked *fixed* below cannot be changed.
 | Key | Does |
 | --- | --- |
 | ⌘↵ | New editor with `SELECT *` of the table |
-| ⌘R | Read the schema again |
+| ⌘R, F5 | Read the schema again |
 | ⌘C | Copy the table's name, quoted |
 | F2 | Rename the table |
 | F4 | The table's structure; on a connection, edit it |
@@ -93,6 +95,8 @@ Keys marked *fixed* below cannot be changed.
 | ⌘J | Show or hide the results |
 | ⌘⇧J | Switch between the editor and its results |
 | ⌘K ⌘⇧M | Maximize the results over the editor, or restore them |
+| ⌘⌥PageDown, ⌘⌥PageUp | Show the next result, Output after the last, or the one before |
+| F8 | Put the caret where the statement failed (**Go to Error**) |
 | ⌃Space | Complete tables, columns and keywords |
 | ⌘⇧F | Format the SQL |
 | ⌘F, ⌘⌥F | Find, and replace |
@@ -117,8 +121,6 @@ Keys marked *fixed* below cannot be changed.
 | ⌘S | Save now (editors also save as you type) |
 | ⌘⇧S | Save as a file |
 | ⌘K ⌘N | Show the editor as a notebook of cells, or as one script |
-| ⌘=, ⌘- | Make the editors' text larger or smaller; so do a pinch and ⌘ with the mouse wheel |
-| ⌘K ⌘0 | The editors' text at its default size |
 
 ## Notebook
 
@@ -142,12 +144,14 @@ A notebook's cells are editors: the SQL editor's keys work in them too.
 | --- | --- |
 | ↵ (fixed) | Send the message; ⇧↵ starts a new line |
 | ⌘. | Stop the reply |
+| ⌘↵, ⌘⌫ | Allow, or deny, what the agent asks to do |
 
 ## Results grid
 
 | Key | Does |
 | --- | --- |
 | ⌘C | Copy the cell, or the rows chosen |
+| ⌘I | Show the card of the chosen cell, as Alt-click does |
 | ⌘⇧C | Advanced Copy: delimiter, column names, quoting, row numbers |
 | ⌘V | Paste over the chosen cell, as pending changes |
 | ⌘⇧V | Advanced Paste: delimiter, header row, as new rows |
@@ -183,8 +187,6 @@ A notebook's cells are editors: the SQL editor's keys work in them too.
 | ⌘⇧= | Fetch every row |
 | ⌘K ⌘X | Export the rows |
 | (none) | Show or hide the chart of the rows |
-| ⌘=, ⌘- | Make the grids' text larger or smaller; so do a pinch and ⌘ with the mouse wheel |
-| ⌘K ⌘0 | The grids' text at its default size |
 
 ## Other views
 

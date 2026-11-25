@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -234,9 +235,9 @@ func (a *App) generateView(c *ui.Context) {
 	g := a.generating
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	dlg := widgets.Modal(c, &g.open, func() {
-		ui.Column(c).Width(620).Gap(12).Children(func() {
-			ui.Text(c, "Generate from "+g.title()).FontSize(15).Bold().SingleLine()
+	dlg := widgets.Modal(c, &g.open, widgets.DialogMedium, func() {
+		ui.Column(c).Gap(12).Children(func() {
+			widgets.DialogTitle(c, "Generate from "+g.title()).SingleLine()
 			ui.Row(c).Gap(12).Children(func() {
 				ui.Segmented(c, &g.output, "SQL Script", "Documentation").Label("Output")
 				if g.output == generateDocs {
@@ -252,24 +253,24 @@ func (a *App) generateView(c *ui.Context) {
 			}
 			ui.Row(c).Gap(8).Children(func() {
 				widgets.SearchBox(c, &g.filter, "Filter objects", 0).Grow(1)
-				if ui.Button(c, "All").Disabled(g.running).Clicked() {
+				if widgets.Clicked(ui.Button(c, "All"), widgets.When(g.running, "The script is being written")) {
 					for _, i := range shown {
 						g.choices[i].chosen = true
 					}
 				}
-				if ui.Button(c, "None").Disabled(g.running).Clicked() {
+				if widgets.Clicked(ui.Button(c, "None"), widgets.When(g.running, "The script is being written")) {
 					for _, i := range shown {
 						g.choices[i].chosen = false
 					}
 				}
 			})
-			ui.Scroll(c).Height(320).Border(1, th.Border).Radius(6).Children(func() {
+			ui.Scroll(c).Height(320).Border(1, th.Border).Radius(widgets.RadiusMedium).Children(func() {
 				ui.Column(c).Padding(4).Children(func() {
 					for _, i := range shown {
 						ch := &g.choices[i]
 						ui.Row(c.Key(fmt.Sprint("choice-", i))).Padding(3, 6).Gap(8).Children(func() {
 							ui.Checkbox(c, &ch.chosen, ch.label()).Disabled(g.running).Grow(1).Shrink(1)
-							ui.Text(c, ch.kind()).FontSize(11).TextColor(pal.Muted)
+							ui.Text(c, ch.kind()).FontSize(widgets.TextMeta).TextColor(pal.Muted)
 						})
 					}
 					if !g.loading && len(shown) == 0 {
@@ -282,7 +283,7 @@ func (a *App) generateView(c *ui.Context) {
 				status = fmt.Sprintf("Reading %d of %d objects…", g.done.Load(), g.total.Load())
 				c.After(200 * time.Millisecond)
 			}
-			ui.Text(c, status).FontSize(12).TextColor(pal.Muted)
+			ui.Text(c, status).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			if g.err != "" {
 				ui.Text(c, g.err).TextColor(th.Danger).Selectable()
 			}
@@ -299,7 +300,7 @@ func (a *App) generateView(c *ui.Context) {
 				if g.output == generateDocs {
 					action = "Save…"
 				}
-				if widgets.Activated(c, ui.PrimaryButton(c, action).Disabled(g.running || g.loading || chosen == 0)) {
+				if widgets.ActivatedUnless(c, ui.PrimaryButton(c, action), cmp.Or(widgets.When(g.running, "The script is being written"), widgets.When(g.loading, "The schema is being read"), widgets.When(chosen == 0, "Choose a table first"))) {
 					a.generate(g)
 				}
 			})

@@ -54,6 +54,7 @@ The `kv` table holds:
 | `colors.json` | each table's row colors |
 | `query-parameters.json` | the editors' parameter values, per connection |
 | `dashboard-parameters.json` | the dashboards' parameter values, per dashboard |
+| `known-databases.json` | the databases last read of each server, per connection, which the new editor's picker lists while the server is not connected |
 
 The file's schema has a version (`PRAGMA user_version`). A newer DGopher
 upgrades it, and an older one refuses a file it does not know.

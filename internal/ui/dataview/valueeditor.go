@@ -202,12 +202,12 @@ func valueEditorView(a Host, c *ui.Context) {
 	e := a.Dialogs().valueEdit
 	pal := widgets.PaletteOf(c)
 	th := c.Theme()
-	dlg := widgets.Modal(c, &e.open, func() {
-		ui.Column(c).Width(640).Gap(10).Children(func() {
+	dlg := widgets.Modal(c, &e.open, widgets.DialogMedium, func() {
+		ui.Column(c).Gap(10).Children(func() {
 			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 				ui.Row(c).Gap(8).AlignItems(ui.Baseline).Grow(1).Children(func() {
-					ui.Text(c, e.src.Cols[e.col].Name).FontSize(15).Bold()
-					ui.Text(c, e.info.Type).FontSize(12).TextColor(pal.Muted)
+					widgets.DialogTitle(c, e.src.Cols[e.col].Name)
+					ui.Text(c, e.info.Type).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 				})
 				if len(e.forms) > 1 {
 					at := slices.Index(e.forms, e.form)
@@ -221,7 +221,7 @@ func valueEditorView(a Host, c *ui.Context) {
 				case formTree:
 					e.treeView(c)
 				case formList:
-					ui.Scroll(c).Grow(1).Border(1, th.Border).Radius(6).Children(func() {
+					ui.Scroll(c).Grow(1).Border(1, th.Border).Radius(widgets.RadiusMedium).Children(func() {
 						ui.RadioGroup(c, func() {
 							for _, v := range e.enum {
 								ui.Radio(c, &e.choice, v, v).Disabled(!e.editable).Padding(4, 8)
@@ -237,7 +237,7 @@ func valueEditorView(a Host, c *ui.Context) {
 						}
 					})
 					e.text = e.date.text(e.when)
-					ui.Text(c, e.text).Font(widgets.MonoFont).FontSize(12.5).TextColor(pal.Muted).Selectable()
+					ui.Text(c, e.text).Font(widgets.MonoFont).FontSize(widgets.TextBody).TextColor(pal.Muted).Selectable()
 				case formSwitch:
 					ui.Segmented(c, &e.truth, "True", "False").Label("Value").Disabled(!e.editable)
 					e.text = truthText(e.info.Engine, e.info.Type, e.truth == 0)
@@ -249,7 +249,7 @@ func valueEditorView(a Host, c *ui.Context) {
 				}
 			})
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
-				if ui.Button(c, "Copy").Disabled(e.text == MaskedText).Clicked() {
+				if widgets.Clicked(ui.Button(c, "Copy"), widgets.When(e.text == MaskedText, "The value is hidden: show the column's values to copy it")) {
 					a.WriteClipboard(e.text)
 				}
 				if e.editable && ui.Button(c, "Set to NULL").Clicked() {
@@ -318,12 +318,12 @@ func (e *valueEditor) treeView(c *ui.Context) {
 		return
 	}
 	cut := false
-	ui.Scroll(c).Grow(1).Border(1, th.Border).Radius(6).Padding(4).Children(func() {
+	ui.Scroll(c).Grow(1).Border(1, th.Border).Radius(widgets.RadiusMedium).Padding(4).Children(func() {
 		cut = e.tree.view(c, e.g.SQLOpts.Engine, e.src.Cols[e.col].Name, valueTreeLines)
 	})
 	hint := e.tree.hint(c) + ". The Text editor changes the value."
 	if cut {
 		hint = "The document goes on: the Text editor shows it whole."
 	}
-	ui.Text(c, hint).FontSize(12).TextColor(pal.Muted)
+	ui.Text(c, hint).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 }

@@ -344,25 +344,25 @@ func (a *App) copyView(c *ui.Context) {
 	if to := x.target.conn(a); to != nil {
 		band = &to.Config
 	}
-	dlg := widgets.EnvModal(c, &x.open, band, func() {
-		ui.Column(c).Width(640).Gap(12).Children(func() {
-			ui.Text(c, "Copy Tables of "+x.fromSchema+" · "+x.from.Config.Name).FontSize(15).Bold().SingleLine()
-			ui.Scroll(c).MaxHeight(200).Border(1, th.Border).Radius(6).Children(func() {
+	dlg := widgets.EnvModal(c, &x.open, band, widgets.DialogMedium, func() {
+		ui.Column(c).Gap(12).Children(func() {
+			widgets.DialogTitle(c, "Copy Tables of "+x.fromSchema+" · "+x.from.Config.Name).SingleLine()
+			ui.Scroll(c).MaxHeight(200).Border(1, th.Border).Radius(widgets.RadiusMedium).Children(func() {
 				ui.Column(c).Padding(4).Children(func() {
 					for i := range x.tables {
 						t := &x.tables[i]
 						ui.Row(c.Key("copy-"+t.name)).Gap(8).Padding(2, 6).Children(func() {
 							ui.Checkbox(c, &t.chosen, t.name).Disabled(x.running).Grow(1).Shrink(1)
-							ui.Text(c, t.status).FontSize(12).TextColor(pal.Muted)
+							ui.Text(c, t.status).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 						})
 					}
 				})
 			})
 			ui.Form(c, func() {
 				x.target.fields(c, a, "Into", x.running)
-				ui.Field(c, "A table there", func() {
-					ui.Segmented(c, &x.mode, "Stops the Copy", "Gets the Rows Added", "Has Its Rows Replaced").Label("A table there").Disabled(x.running)
-				}).Description("A table not there is made, its columns typed as the target holds their values. Each table copies in one transaction where the target has them.")
+				ui.Field(c, "If the table exists", func() {
+					ui.Segmented(c, &x.mode, "Stop", "Add the Rows", "Replace the Rows").Label("If the table exists").Disabled(x.running)
+				}).Description("A table that does not exist is made, its columns typed as the target holds their values. Each table copies in one transaction where the target has them.")
 			})
 			if x.err != "" {
 				ui.Text(c, x.err).TextColor(th.Danger).Selectable()
@@ -371,9 +371,7 @@ func (a *App) copyView(c *ui.Context) {
 				ui.Spacer(c)
 				widgets.DismissButton(c, x.running, x.done, x.cancel, func() { x.open = false })
 				if !x.done {
-					copyButton := ui.PrimaryButton(c.Key("copy"), "Copy").Disabled(x.running)
-					widgets.Appear(copyButton)
-					if copyButton.Clicked() && !x.running {
+					if widgets.Clicked(widgets.Appear(ui.PrimaryButton(c.Key("copy"), "Copy")), widgets.When(x.running, "The copy is running")) {
 						a.startCopy(x)
 					}
 				}

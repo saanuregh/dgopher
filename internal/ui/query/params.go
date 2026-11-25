@@ -37,17 +37,17 @@ func (f *paramForm) submit() {
 func paramsView(a Host, c *ui.Context) {
 	f := a.QueryDialogs().params
 	pal := widgets.PaletteOf(c)
-	dlg := widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(520).Gap(12).Children(func() {
-			ui.Text(c, "Parameters").FontSize(15).Bold()
-			ui.Text(c, ":name values are sent apart from the SQL, as text, numbers or NULL; ${name} values are written into it. They are kept for this connection's editors: change them in the Parameters bar.").FontSize(12).TextColor(pal.Muted)
+	dlg := widgets.Modal(c, &f.open, widgets.DialogMedium, func() {
+		ui.Column(c).Gap(12).Children(func() {
+			widgets.DialogTitle(c, "Parameters")
+			ui.Text(c, ":name values are sent apart from the SQL, as text, numbers or NULL; ${name} values are written into it. They are kept for this connection's editors: change them in the Parameters bar.").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			submit := false
 			ui.Form(c, func() {
 				for i := range f.fields {
 					fl := &f.fields[i]
 					ui.Field(c, fl.key, func() {
 						ui.Row(c).Gap(6).Children(func() {
-							in := ui.TextInput(c, &fl.value).Font(widgets.MonoFont).FontSize(12.5).Label(fl.key).Grow(1)
+							in := ui.TextInput(c, &fl.value).Font(widgets.MonoFont).FontSize(widgets.TextBody).Label(fl.key).Grow(1)
 							if i == 0 {
 								in.AutoFocus()
 							}
@@ -141,8 +141,8 @@ func (q *Tab) paramsBar(c *ui.Context, keys []string) {
 		b.edits = map[string]*paramEdit{}
 	}
 	pending := false
-	ui.Row(c).Padding(6, 12).Gap(10).Wrap().AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
-		ui.Text(c, "Parameters").FontSize(12).TextColor(pal.Muted)
+	ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(10).Wrap().AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		ui.Text(c, "Parameters").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 		for _, k := range keys {
 			base := b.keptOf(k)
 			e := b.edits[k]
@@ -151,8 +151,8 @@ func (q *Tab) paramsBar(c *ui.Context, keys []string) {
 				b.edits[k] = e
 			}
 			ui.Row(c.Key("param-" + k)).Gap(4).AlignItems(ui.Center).Children(func() {
-				ui.Text(c, k).Font(widgets.MonoFont).FontSize(12).TextColor(pal.Muted)
-				ui.TextInput(c, &e.now.Value).Width(140).Font(widgets.MonoFont).FontSize(12.5).Placeholder("asked when run").Label("Value of " + k)
+				ui.Text(c, k).Font(widgets.MonoFont).FontSize(widgets.TextSmall).TextColor(pal.Muted)
+				ui.TextInput(c, &e.now.Value).Width(140).Font(widgets.MonoFont).FontSize(widgets.TextBody).Placeholder("asked when run").Label("Value of " + k)
 				if !strings.HasPrefix(k, "${") {
 					ui.Select(c, &e.now.Kind, params.Kinds).Width(90).Label("Send " + k + " as")
 				}

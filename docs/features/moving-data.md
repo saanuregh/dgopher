@@ -47,8 +47,8 @@ another.
 - A table that is not there is created with the same columns, nullability
   and primary key, with types that hold the values exactly (on the same
   engine, the same types).
-- A table that is there stops the copy, gets the rows added, or has its rows
-  replaced, as you choose.
+- **If the table exists**, the copy stops, adds the rows, or replaces the
+  rows, as you choose.
 - Each table copies in one transaction where the target supports it,
   through the target's safety policy, and is audited.
 

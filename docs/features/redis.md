@@ -8,8 +8,9 @@ and the console, monitor and other panels below](../images/redis.png)
 ## Keys
 
 - A key tree read with `SCAN`, grouped into folders by `:` (or the
-  separator the connection sets), with pattern and type filters. F5 scans
-  again.
+  separator the connection sets), with a pattern and, from the button
+  beside it, a type to list. F5 scans again. The count of keys is under
+  them, with **Scan More**.
 - Set a TTL, rename, delete and create keys. On Redis 7.4 and later, each
   hash field's TTL can be set or removed.
 - **Delete by pattern:** counts and names the keys first, always asks (with
@@ -63,6 +64,8 @@ keys.
 
 ## Console
 
+- The console and the other panels keep their height under the keys, as
+  you drag it; a taller window shows more keys.
 - Replies look the way `redis-cli` shows them. ↑ and ↓ walk the history.
 - As you type, the commands it may be show, and Tab completes the name.
   Once a command is named, its syntax and summary show, from the server's

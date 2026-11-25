@@ -66,10 +66,6 @@ type Source struct {
 // Grid shows rows in columns, with a chosen cell, and edits them when
 // edits is set.
 type Grid struct {
-	// fontPinch and wheelZoom zoom the grids' text with pinches and the
-	// wheel.
-	fontPinch widgets.FontPinch
-	wheelZoom widgets.WheelZoom
 	// keys is set while the grid's tab takes the shortcuts pressed
 	// anywhere, as ⌘` .
 	keys bool
@@ -94,7 +90,13 @@ type Grid struct {
 	widths   []float32
 	colsKey  string
 
-	editing   *cellEdit
+	editing *cellEdit
+	// keysBack is set as what had the keys goes by a key, the cell editor
+	// left by Enter or Esc or the rows of a presentation another takes the
+	// place of, until the rows shown have the keys again: left alone,
+	// nothing would have them, and an arrow would scroll what the pointer
+	// is over.
+	keysBack  bool
 	edits     *pendingEdits
 	readOnly  string // why the rows cannot be edited, when edits is set
 	ShowValue bool
@@ -110,6 +112,12 @@ type Grid struct {
 	// a table does, to filter on the server.
 	filterSQL func(rowCond)
 	clearSQL  func(col int)
+	// sqlFilter, set with filterSQL, is the filter the server ran that is
+	// on a column, or all of it for -1; "" for none.
+	sqlFilter func(col int) string
+	// reading is set while the rows are being read: none yet is then not
+	// none at all.
+	reading bool
 	// masked are the columns whose values show as MaskedText, and
 	// valuesMenu offers to hide or show a column's.
 	masked     []bool
@@ -448,9 +456,12 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 		}
 		cols = append(cols, ui.TableColumn{Title: col.Name, ID: colID(i), Width: widths[i], MinWidth: 40, Align: align, Sortable: true, Frozen: g.pinned[i]})
 	}
+	// The theme's accent: the table's own is the tint of its chosen cells.
+	accent := c.Theme().Accent
 	g.List.HeaderCell = func(cell ui.Element, col int) {
 		if col > 0 {
 			g.headerCard(c, src, cell, visible[col-1])
+			g.filterMark(c, src, visible[col-1], accent)
 		}
 	}
 	g.List.HeaderMenu = func(m *ui.Menu, col int) {
@@ -468,19 +479,9 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 	// colors: NULL stays NULL-colored, a number a number's.
 	dense := widgets.ChosenCells(*theme, theme.Background, pal.CellSelected)
 	dense.Spacing = 2.5
-	ui.Row(c).Grow(1).AlignItems(ui.Stretch).HandleInput(func(ev ui.InputEvent) bool {
-		switch step, wheel := g.wheelZoom.Step(ev); {
-		case ev.Kind == ui.InputZoom:
-			g.zoom(a, ev.Scale)
-		case wheel:
-			if step != 0 {
-				stepGridFont(a, step)
-			}
-		default:
-			return false
-		}
-		return true
-	}).Children(func() {
+	g.List.RowHeight = RowHeight(a.Settings().GridFontSize())
+	// A pinch over the grid, which takes its own input, zooms the window.
+	ui.Row(c).Grow(1).AlignItems(ui.Stretch).HandleInput(a.ZoomInput).Children(func() {
 		switch g.mode {
 		case viewRecord:
 			g.recordView(c, a, src, order)
@@ -511,7 +512,7 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 				if g.List.CellSelected(r, col) {
 					numColor = theme.Text
 				}
-				num := ui.Text(c, strconv.Itoa(r+1)).FontSize(11).FontFeatures("tnum").TextColor(numColor).SingleLine()
+				num := ui.Text(c, strconv.Itoa(r+1)).FontSize(widgets.TextMeta).FontFeatures("tnum").TextColor(numColor).SingleLine()
 				if g.edits != nil {
 					switch {
 					case data >= len(src.Rows):
@@ -524,8 +525,14 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 			}
 			g.cell(c, a, src, data, visible[col-1])
 		}).Grow(1).Label("Results").Draw(func(_ *ui.Painter, r ui.Rect) { g.viewW = r.W }).
-			FontSize(12) // the header's, a step under the cells', which set their own
+			FontSize(widgets.TextSmall) // the header's, a step under the cells', which set their own
 		c.SetTheme(theme)
+		if len(order) == 0 && !g.reading {
+			g.emptyView(c)
+		}
+		if g.keysBack && g.List.Focus(c) {
+			g.keysBack = false
+		}
 		if table.Changed() {
 			g.selGen++
 		}
@@ -555,20 +562,15 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 	}
 	// Tab shows the chosen row as a record, ⌘` switches presentations.
 	if g.mode == viewGrid && g.List.Shortcut(c, 0, ui.KeyTab) {
-		g.mode = viewRecord
+		g.mode, g.keysBack = viewRecord, true
 	}
 	if g.keys && keymap.Pressed(c, keymap.NextPresentation) {
-		g.mode = (g.mode + 1) % 3
+		g.mode, g.keysBack = (g.mode+1)%3, true
 	}
 	g.moveKeys(c, a, src, order)
 	escaped := g.selectKeys(c, src, order)
 	if keymap.ListPressed(c, &g.List, keymap.ValuePanel) || keymap.ListPressed(c, &g.recList, keymap.ValuePanel) {
 		g.ShowValue = !g.ShowValue
-	}
-	for _, k := range gridZoomKeys {
-		if keymap.ListPressed(c, &g.List, k.id) || keymap.ListPressed(c, &g.recList, k.id) {
-			stepGridFont(a, k.step)
-		}
 	}
 	if keymap.ListPressed(c, &g.List, keymap.Copy) {
 		a.WriteClipboard(g.copySelection(src, export.TSV, false))
@@ -593,27 +595,21 @@ func (g *Grid) View(c *ui.Context, a Host, src *Source) ui.Element {
 	return table
 }
 
-// gridZoomKeys are the actions that zoom the grids' text, by the step
-// stepGridFont takes.
-var gridZoomKeys = []struct {
-	id   string
-	step int
-}{{keymap.GridZoomIn, 1}, {keymap.GridZoomOut, -1}, {keymap.GridZoomReset, 0}}
-
 func (g *Grid) cell(c *ui.Context, a Host, src *Source, data, col int) {
 	pal := widgets.PaletteOf(c)
 	t := c.Theme()
 	if e := g.editing; e != nil && e.row == data && e.col == col {
-		in := ui.TextInputBase(c, &e.value).Font(widgets.MonoFont).FontSize(12).FillWidth().Padding(1, 4).
+		in := ui.TextInputBase(c, &e.value).Font(widgets.MonoFont).FontSize(widgets.TextSmall).FillWidth().Padding(1, 4).
 			Background(t.Background).Border(1, t.Focus).Radius(3).Label("Cell value")
 		if !e.focused {
 			in.AutoFocus().Focus()
 		}
 		switch {
 		case in.Shortcut(0, ui.KeyEscape):
-			g.editing = nil
+			g.editing, g.keysBack = nil, true
 		case in.Submitted():
 			g.commitEdit(src, true)
+			g.keysBack = true
 		case e.focused && !in.Focused():
 			g.commitEdit(src, false)
 		}

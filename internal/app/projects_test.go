@@ -1457,6 +1457,7 @@ func TestFieldDescriptionBelowInput(t *testing.T) {
 // opening or closing the section.
 func TestSectionNewButtons(t *testing.T) {
 	a := newTestApp(t)
+	filesOfEveryKind(t, a)
 	addConn(a, db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: ":memory:"})
 	tt := ui.NewTester(a.view, 1000, 700)
 	tt.Frame()
@@ -1501,8 +1502,10 @@ func TestNavigatorShallow(t *testing.T) {
 		kids := a.navChildren(conn)
 		return len(kids) > 0 && kids[0].kind == nodeFolder && kids[0].schema == "main"
 	})
-	if roots := a.navRoots(); roots[0].kind != nodeConnections {
-		t.Fatalf("roots %v", roots)
+	// The one project's connections are under the tree's one heading,
+	// and its files' sections are those of the pane under it.
+	if roots, files := a.navRoots(), a.navFileRoots(); len(roots) != 1 || roots[0].kind != nodeConnections || files[0].kind != nodeQueries {
+		t.Fatalf("roots %v, files %v", roots, files)
 	}
 	if !tt.HasText("main") || !tt.HasText(a.projectLabel(a.projects[0])) {
 		t.Fatalf("the schema or the project is not named: %q", tt.Texts())
@@ -1512,8 +1515,8 @@ func TestNavigatorShallow(t *testing.T) {
 	if _, err := a.addProject(newProjectDir(t, "second")); err != nil {
 		t.Fatal(err)
 	}
-	if roots := a.navRoots(); len(roots) != 2 || roots[0].kind != nodeProject {
-		t.Fatalf("with two projects, roots %v", roots)
+	if roots, files := a.navRoots(), a.navFileRoots(); len(roots) != 2 || roots[0].kind != nodeProject || len(files) != 2 || !files[0].files {
+		t.Fatalf("with two projects, roots %v, files %v", roots, files)
 	}
 }
 
@@ -1522,34 +1525,36 @@ func TestNavigatorShallow(t *testing.T) {
 // choice where it was.
 func TestNavigatorSkipsNotes(t *testing.T) {
 	a := newTestApp(t)
+	filesOfEveryKind(t, a)
 	tt := ui.NewTester(a.view, 1000, 400)
 	tt.Frame()
+	files := a.nav.panes()[1]
 	chosen := func() navNode {
-		if a.nav.row < 0 || a.nav.row >= a.nav.tree.Rows() {
-			return navNode{}
-		}
-		return a.nav.tree.Item(a.nav.row)
+		n, _ := files.chosen()
+		return n
 	}
 	dir := a.projects[0].Dir
-	if err := tt.Click("Connections"); err != nil {
+	// Queries is open, over its note that there are no files yet.
+	if err := tt.Click("Queries"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
 	tt.Key(0, ui.KeyDown)
 	tt.Frame()
-	if got := chosen(); got != (navNode{kind: nodeQueries, projectDir: dir}) {
-		t.Fatalf("down from Connections chose %+v", got)
+	if got := chosen(); got != (navNode{kind: nodeDashboards, projectDir: dir}) {
+		t.Fatalf("down from Queries chose %+v", got)
 	}
 	tt.Key(0, ui.KeyUp)
 	tt.Frame()
-	if got := chosen(); got != (navNode{kind: nodeConnections, projectDir: dir}) {
-		t.Fatalf("up from Queries chose %+v", got)
+	if got := chosen(); got != (navNode{kind: nodeQueries, projectDir: dir}) {
+		t.Fatalf("up from Dashboards chose %+v", got)
 	}
+	// In the database tree, whose only row is a note.
 	if err := tt.Click("No connections yet"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	if got := chosen(); got.kind == nodeInfo {
+	if got, ok := a.nav.panes()[0].chosen(); ok && got.kind == nodeInfo {
 		t.Fatalf("a click chose the note")
 	}
 }

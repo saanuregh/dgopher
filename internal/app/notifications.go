@@ -161,7 +161,7 @@ func (a *App) notificationRow(c *ui.Context, i int) {
 	n := a.notes[i]
 	highlighted := a.noteCursor == n.seq
 	if a.noteOpen == n.seq {
-		card := ui.Column(c).Padding(8).Radius(6).Background(pal.Hover)
+		card := ui.Column(c).Padding(8).Radius(widgets.RadiusMedium).Background(pal.Hover)
 		if highlighted {
 			card.Border(1, t.Accent).ScrollIntoView()
 		}
@@ -171,25 +171,25 @@ func (a *App) notificationRow(c *ui.Context, i int) {
 		})
 		return
 	}
-	row := ui.ButtonBase(c).Label(n.title).Padding(6, 8).Radius(6).Justify(ui.Start)
-	if row.Hovered() || highlighted {
-		row.Background(pal.Hover)
+	row := widgets.RowButton(c, n.title, false)
+	if highlighted {
+		row.Background(pal.Hover) // where the keys are, as where the pointer is
 	}
 	if highlighted {
 		row.ScrollIntoView()
 	}
 	row.Children(func() {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-			ui.Text(c, n.at.Format("15:04:05")).FontSize(11.5).TextColor(pal.Muted)
+			ui.Text(c, n.at.Format("15:04:05")).FontSize(widgets.TextMeta).TextColor(pal.Muted)
 			if n.isError {
-				ui.Icon(c, widgets.IconAlert).FontSize(13).TextColor(t.Danger)
+				ui.Icon(c, widgets.IconAlert).FontSize(widgets.IconMedium).TextColor(t.Danger)
 			} else {
-				ui.Icon(c, widgets.IconInfo).FontSize(13).TextColor(pal.Muted)
+				ui.Icon(c, widgets.IconInfo).FontSize(widgets.IconMedium).TextColor(pal.Muted)
 			}
 			ui.Column(c).Shrink(1).Children(func() {
 				ui.Text(c, n.title).SingleLine()
 				if d := widgets.FirstLine(n.detail); d != "" {
-					ui.Text(c, d).FontSize(11.5).TextColor(pal.Muted).SingleLine()
+					ui.Text(c, d).FontSize(widgets.TextMeta).TextColor(pal.Muted).SingleLine()
 				}
 			})
 		})

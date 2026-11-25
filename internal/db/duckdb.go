@@ -271,6 +271,7 @@ var _ SQLRules = duckdbEngine{}
 func (duckdbEngine) Label() string                   { return "DuckDB" }
 func (duckdbEngine) Base() Engine                    { return DuckDB }
 func (duckdbEngine) ColorHex() string                { return "#c49a00" }
+func (duckdbEngine) Mark() string                    { return "DK" }
 func (duckdbEngine) DefaultPort() int                { return 0 }
 func (duckdbEngine) DefaultUser() string             { return "" }
 func (duckdbEngine) Kind() EngineKind                { return KindSQL }

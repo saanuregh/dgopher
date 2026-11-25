@@ -77,6 +77,44 @@ func FormatDuration(d time.Duration) string {
 	return d.Round(time.Second).String()
 }
 
+// Clock writes how long something has run as a clock does, in minutes and
+// seconds, with hours once there are any: as wide from one second to the
+// next, so that what is beside it keeps its place.
+func Clock(d time.Duration) string {
+	s := int(d / time.Second)
+	if s >= 3600 {
+		return fmt.Sprintf("%d:%02d:%02d", s/3600, s/60%60, s%60)
+	}
+	return fmt.Sprintf("%d:%02d", s/60, s%60)
+}
+
+// RelativeTime says how long ago d was, or how far ahead, roughly.
+func RelativeTime(d time.Duration) string {
+	ago := d >= 0
+	if !ago {
+		d = -d
+	}
+	var s string
+	switch {
+	case d < time.Minute:
+		return "now"
+	case d < time.Hour:
+		s = Count(int(d/time.Minute), "minute")
+	case d < 48*time.Hour:
+		s = Count(int(d/time.Hour), "hour")
+	case d < 60*24*time.Hour:
+		s = Count(int(d/(24*time.Hour)), "day")
+	case d < 730*24*time.Hour:
+		s = Count(int(d/(30*24*time.Hour)), "month")
+	default:
+		s = Count(int(d/(365*24*time.Hour)), "year")
+	}
+	if ago {
+		return s + " ago"
+	}
+	return "in " + s
+}
+
 func OneLine(s string, n int) string {
 	s = strings.Join(strings.Fields(s), " ")
 	if r := []rune(s); len(r) > n {

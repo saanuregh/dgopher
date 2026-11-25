@@ -498,6 +498,7 @@ func (timescaledbEngine) dialect() Dialect     { return timescaledbDialect{} }
 func (timescaledbEngine) Label() string        { return "TimescaleDB" }
 func (timescaledbEngine) Base() Engine         { return Postgres }
 func (timescaledbEngine) ColorHex() string     { return "#3fa34d" }
+func (timescaledbEngine) Mark() string         { return "TS" }
 func (timescaledbEngine) DefaultPort() int     { return 5432 }
 func (timescaledbEngine) DefaultUser() string  { return "postgres" }
 func (timescaledbEngine) URLSchemes() []string { return []string{"timescaledb"} }

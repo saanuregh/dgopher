@@ -119,6 +119,9 @@ func (g *Grid) moveKeys(c *ui.Context, a Host, src *Source, order []int) {
 	switch {
 	case pressed(keymap.EditValue) && g.SelRow >= 0 && g.SelRow < len(order):
 		openValueEditor(a, g, src, order[g.SelRow], g.selCol)
+	case pressed(keymap.ShowCellCard) && g.SelRow >= 0 && g.SelRow < len(order) && g.selCol >= 0 && g.selCol < len(src.Cols) && g.hasCard(src, order[g.SelRow], g.selCol):
+		// As an Alt+click on the cell asks, for the hands on the keys.
+		g.cardCell, g.cardAsked = gridCell{order[g.SelRow], g.selCol}, true
 	case pressed(keymap.GoToRow):
 		openGoTo(a, g, src, false)
 	case pressed(keymap.GoToColumn):
@@ -189,9 +192,9 @@ func goToView(a Host, c *ui.Context) {
 	if f.column {
 		title, hint = "Go to Column", "Column name, or its start"
 	}
-	widgets.Modal(c, &f.open, func() {
-		ui.Column(c).Width(360).Gap(10).Children(func() {
-			ui.Text(c, title).FontSize(15).Bold()
+	widgets.Modal(c, &f.open, widgets.DialogSmall, func() {
+		ui.Column(c).Gap(10).Children(func() {
+			widgets.DialogTitle(c, title)
 			submit := ui.TextInput(c, &f.text).Placeholder(hint).AutoFocus().Label(hint).Submitted()
 			if widgets.DialogFooter(c, &f.open, "Go", submit) {
 				f.open = false
