@@ -3,6 +3,7 @@ package app
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"dgopher/internal/keymap"
 	"dgopher/internal/testutil"
@@ -53,5 +54,32 @@ func TestTour(t *testing.T) {
 	tt.Frame()
 	if a.touring {
 		t.Fatal("Done left the tour on")
+	}
+}
+
+// Every button of a stop is inside its card, at each stop: one with a
+// button of its own, as Open the Palette, has four to fit.
+func TestTourButtonsStayInTheCard(t *testing.T) {
+	a := newTestApp(t)
+	tt := ui.NewTester(a.view, 1280, 800)
+	a.startTour()
+	for i, stop := range tourStops() {
+		a.tourStop = i
+		tt.Frame()
+		tt.Advance(time.Second) // what comes in, come
+		tt.Frame()
+		card, ok := tt.Access(stop.title)
+		if !ok {
+			t.Fatalf("stop %d shows no card named %q", i+1, stop.title)
+		}
+		for _, button := range []string{"End Tour", stop.action, "Back", "Next", "Done"} {
+			r, ok := tt.Find(button)
+			if button == "" || !ok {
+				continue
+			}
+			if right, edge := r.X+r.W, card.Bounds.X+card.Bounds.W; right > edge || r.X < card.Bounds.X {
+				t.Errorf("stop %d, %q: the button %q is at %v, past its card at %v", i+1, stop.title, button, r, card.Bounds)
+			}
+		}
 	}
 }

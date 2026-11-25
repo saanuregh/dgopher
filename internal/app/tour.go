@@ -125,15 +125,18 @@ func (a *App) tourView(c *ui.Context) {
 			ui.Text(c, fmt.Sprintf("%d of %d", a.tourStop+1, len(stops))).FontSize(widgets.TextMeta).TextColor(pal.Muted)
 			ui.Text(c, stop.title).FontSize(widgets.TextTitle).Bold()
 			ui.Text(c, stop.text).FontSize(widgets.TextBody)
+			// A stop's own button has a line of its own: beside End Tour,
+			// Back and Next it did not fit the card, and they keep their
+			// places from stop to stop.
+			if stop.action != "" && ui.Button(c, stop.action).AlignSelf(ui.Start).Clicked() {
+				a.endTour()
+				stop.run(a)
+			}
 			ui.Row(c).Gap(8).Padding(4, 0, 0, 0).Children(func() {
 				if ui.Button(c, "End Tour").Clicked() {
 					a.endTour()
 				}
 				ui.Spacer(c)
-				if stop.action != "" && ui.Button(c, stop.action).Clicked() {
-					a.endTour()
-					stop.run(a)
-				}
 				if a.tourStop > 0 && widgets.Appear(ui.Button(c.Key("back"), "Back")).Clicked() {
 					a.tourStop--
 				}
