@@ -222,6 +222,7 @@ var _ SQLRules = clickhouseEngine{}
 func (clickhouseEngine) Label() string                   { return "ClickHouse" }
 func (clickhouseEngine) Base() Engine                    { return ClickHouse }
 func (clickhouseEngine) ColorHex() string                { return "#d4a10a" }
+func (clickhouseEngine) Mark() string                    { return "CH" }
 func (clickhouseEngine) DefaultPort() int                { return 9000 }
 func (clickhouseEngine) DefaultUser() string             { return "default" }
 func (clickhouseEngine) Kind() EngineKind                { return KindSQL }

@@ -229,6 +229,7 @@ var _ SQLRules = sqliteEngine{}
 func (sqliteEngine) Label() string                   { return "SQLite" }
 func (sqliteEngine) Base() Engine                    { return SQLite }
 func (sqliteEngine) ColorHex() string                { return "#0f80cc" }
+func (sqliteEngine) Mark() string                    { return "SL" }
 func (sqliteEngine) DefaultPort() int                { return 0 }
 func (sqliteEngine) DefaultUser() string             { return "" }
 func (sqliteEngine) Kind() EngineKind                { return KindSQL }

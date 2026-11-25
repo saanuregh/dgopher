@@ -42,6 +42,7 @@ var _ SQLRules = oracleEngine{}
 func (oracleEngine) Label() string    { return "Oracle" }
 func (oracleEngine) Base() Engine     { return Oracle }
 func (oracleEngine) ColorHex() string { return "#c74634" }
+func (oracleEngine) Mark() string     { return "OR" }
 func (oracleEngine) DefaultPort() int { return 1521 }
 
 // DefaultUser is SYSTEM, the administrator every installation has; SYS

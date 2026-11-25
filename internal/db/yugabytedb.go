@@ -36,6 +36,7 @@ func (yugabytedbEngine) dialect() Dialect     { return yugabytedbDialect{} }
 func (yugabytedbEngine) Label() string        { return "YugabyteDB" }
 func (yugabytedbEngine) Base() Engine         { return Postgres }
 func (yugabytedbEngine) ColorHex() string     { return "#ff6e42" }
+func (yugabytedbEngine) Mark() string         { return "YB" }
 func (yugabytedbEngine) DefaultPort() int     { return 5433 }
 func (yugabytedbEngine) DefaultUser() string  { return "yugabyte" }
 func (yugabytedbEngine) URLSchemes() []string { return []string{"yugabytedb"} }

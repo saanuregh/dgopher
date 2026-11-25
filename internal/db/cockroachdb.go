@@ -154,6 +154,7 @@ func (cockroachdbEngine) dialect() Dialect     { return cockroachdbDialect{} }
 func (cockroachdbEngine) Label() string        { return "CockroachDB" }
 func (cockroachdbEngine) Base() Engine         { return Postgres }
 func (cockroachdbEngine) ColorHex() string     { return "#6933ff" }
+func (cockroachdbEngine) Mark() string         { return "CR" }
 func (cockroachdbEngine) DefaultPort() int     { return 26257 }
 func (cockroachdbEngine) DefaultUser() string  { return "root" }
 func (cockroachdbEngine) URLSchemes() []string { return []string{"cockroachdb", "cockroach"} }

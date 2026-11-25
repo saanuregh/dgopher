@@ -86,6 +86,7 @@ func (mariadbEngine) dialect() Dialect     { return mariadbDialect{} }
 func (mariadbEngine) Label() string        { return "MariaDB" }
 func (mariadbEngine) Base() Engine         { return MySQL }
 func (mariadbEngine) ColorHex() string     { return "#c0765a" }
+func (mariadbEngine) Mark() string         { return "MA" }
 func (mariadbEngine) URLSchemes() []string { return []string{"mariadb"} }
 
 func (mariadbEngine) CreateFile(context.Context, string) error { return noFileError(MariaDB) }
