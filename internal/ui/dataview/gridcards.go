@@ -289,7 +289,7 @@ func (g *Grid) cellCard(c *ui.Context, a Host, src *Source, box ui.Element, data
 
 // valueCard shows a plain value, whole, and its column.
 func (g *Grid) valueCard(c *ui.Context, card *widgets.Card, a Host, src *Source, data, col int, v any, text string) {
-	card.Header(c, widgets.IconColumns, widgets.ToneColumn, src.Cols[col].Name, erType(src.Cols[col].Type))
+	card.Header(c, widgets.IconColumns, widgets.ToneColumn, src.Cols[col].Name, db.ShortType(src.Cols[col].Type))
 	card.Section(c, func() {
 		if v == nil {
 			ui.Text(c, "NULL").TextColor(widgets.PaletteOf(c).Null).Italic()
@@ -443,7 +443,7 @@ func (g *Grid) headerCard(c *ui.Context, src *Source, cell ui.Element, col int) 
 		}
 		card.Header(c, widgets.IconColumns, widgets.ToneColumn, src.Cols[col].Name, "")
 		if typ := src.Cols[col].Type; typ != "" {
-			card.Pills(c, widgets.CardPill{Text: erType(typ), Mono: true})
+			card.Pills(c, widgets.CardPill{Text: db.ShortType(typ), Mono: true})
 		}
 		card.Note(c, "A result's column, not a column of one table: its name and type only.")
 	})

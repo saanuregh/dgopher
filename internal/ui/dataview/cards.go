@@ -94,7 +94,7 @@ func TableCard(c *ui.Context, card *widgets.Card, h Host, cn *connection.Conn, d
 		list := make([]widgets.CardColumn, len(cols))
 		for i, col := range cols {
 			lower := strings.ToLower(col.Name)
-			list[i] = widgets.CardColumn{Name: col.Name, Type: erType(col.Type), Key: col.PrimaryKey,
+			list[i] = widgets.CardColumn{Name: col.Name, Type: db.ShortType(col.Type), Key: col.PrimaryKey,
 				Ref: refs[lower], Used: o.Used[lower]}
 		}
 		card.Columns(c, list, widgets.ColumnsOptions{Insert: o.Insert})
@@ -197,7 +197,7 @@ type ColumnCardOptions struct {
 // comment.
 func ColumnCard(c *ui.Context, card *widgets.Card, h Host, cn *connection.Conn, database, schema, table string, col db.Column, o ColumnCardOptions) {
 	card.Header(c, widgets.IconColumns, widgets.ToneColumn, col.Name, table)
-	pills := []widgets.CardPill{{Text: erType(col.Type), Mono: true}}
+	pills := []widgets.CardPill{{Text: db.ShortType(col.Type), Mono: true}}
 	if col.PrimaryKey {
 		pills = append(pills, widgets.CardPill{Text: "PRIMARY KEY", Tone: widgets.PillKey})
 	} else if !col.Nullable {

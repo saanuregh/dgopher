@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"dgopher/internal/db"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo"
@@ -187,7 +188,7 @@ func (e *ERTab) svgTable(b *strings.Builder, t *erTable) {
 			weight = "600"
 		}
 		fmt.Fprintf(b, `<text x="%g" y="%g" font-size="12" font-weight="%s" fill="%s">%s</text>`+"\n", x+28, ry, weight, svgInk, esc(fitText(col.Name, 20)))
-		fmt.Fprintf(b, `<text x="%g" y="%g" font-size="10.5" text-anchor="end" fill="%s">%s</text>`+"\n", x+erBoxW-10, ry, svgMuted, esc(fitText(erType(col.Type), 18)))
+		fmt.Fprintf(b, `<text x="%g" y="%g" font-size="10.5" text-anchor="end" fill="%s">%s</text>`+"\n", x+erBoxW-10, ry, svgMuted, esc(fitText(db.ShortType(col.Type), 18)))
 	}
 	b.WriteString("</g>\n")
 }
