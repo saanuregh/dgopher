@@ -1998,7 +1998,7 @@ func TestIntegrationUntrackedTransactionsAreSeen(t *testing.T) {
 		},
 		DuckDB: {
 			{sql: "/* why */ BEGIN", want: TxOpen},
-			{sql: "SELEC 1", want: TxOpen, fails: true}, // a parse error leaves it usable
+			{sql: "SELEC 1", want: TxFailed, fails: true}, // a parse error aborts it too
 			{sql: "INSERT INTO customers (id, name) VALUES (1, 'duplicate')", want: TxFailed, fails: true},
 			{sql: "ROLLBACK", want: TxNone},
 			{sql: "-- why\nSTART TRANSACTION", want: TxOpen},

@@ -143,7 +143,7 @@ func IsNumericType(t string) bool {
 var numericTypeWords = map[string]bool{
 	"INT": true, "INTEGER": true, "BIGINT": true, "SMALLINT": true, "TINYINT": true, "MEDIUMINT": true,
 	"UINT": true, "UINTEGER": true, "UBIGINT": true, "USMALLINT": true, "UTINYINT": true,
-	"HUGEINT": true, "UHUGEINT": true, "VARINT": true,
+	"HUGEINT": true, "UHUGEINT": true, "VARINT": true, "BIGNUM": true,
 	"SERIAL": true, "BIGSERIAL": true, "SMALLSERIAL": true,
 	"DECIMAL": true, "DEC": true, "NUMERIC": true, "NUMBER": true, "MONEY": true, "SMALLMONEY": true,
 	"FLOAT": true, "BFLOAT": true, "DOUBLE": true, "REAL": true, "BINARY_FLOAT": true, "BINARY_DOUBLE": true,

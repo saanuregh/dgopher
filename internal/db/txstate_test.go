@@ -157,7 +157,10 @@ func TestTxStateFromDriver(t *testing.T) {
 			{"INSERT INTO t VALUES (0)", false, TxNone},
 			{"-- why\nBEGIN", false, TxOpen},
 			{"INSERT INTO t VALUES (1)", false, TxOpen},
-			{"SELEC 1", true, TxOpen}, // a parse error leaves it usable
+			{"SELEC 1", true, TxFailed}, // a parse error aborts it too
+			{"ROLLBACK", false, TxNone},
+			{"BEGIN", false, TxOpen},
+			{"INSERT INTO t VALUES (1)", false, TxOpen},
 			{"INSERT INTO t VALUES (2)", false, TxOpen},
 			{"INSERT INTO t VALUES (1)", true, TxFailed},
 			{"SELECT 1", true, TxFailed},
@@ -199,7 +202,10 @@ func TestTxStateFromDriver(t *testing.T) {
 			{a, "-- why\nBEGIN", false, TxOpen, a},
 			{b, "INSERT INTO t VALUES (1)", false, TxOpen, a},
 			{a, "INSERT INTO t VALUES (2)", false, TxOpen, a},
-			{b, "SELEC 1", true, TxOpen, a},
+			{b, "SELEC 1", true, TxFailed, a}, // a parse error aborts it too
+			{a, "ROLLBACK", false, TxNone, nil},
+			{a, "BEGIN", false, TxOpen, a},
+			{b, "INSERT INTO t VALUES (1)", false, TxOpen, a},
 			{a, "INSERT INTO t VALUES (1)", true, TxFailed, a},
 			{b, "SELECT 1", true, TxFailed, a},
 			{a, "ROLLBACK", false, TxNone, nil},
@@ -429,7 +435,7 @@ func TestLexerFallbackVerbs(t *testing.T) {
 
 		{e: DuckDB, before: none, sql: "-- why\nBEGIN TRANSACTION", want: TxOpen},
 		{e: DuckDB, before: open, sql: "INSERT INTO t VALUES (1)", err: duckConstraint, want: TxFailed},
-		{e: DuckDB, before: open, sql: "SELEC 1", err: duckParser, want: TxOpen},
+		{e: DuckDB, before: open, sql: "SELEC 1", err: duckParser, want: TxFailed},
 		{e: DuckDB, before: none, sql: "INSERT INTO t VALUES (1)", err: duckConstraint, want: TxNone},
 		{e: DuckDB, before: txByVerbs{tx: TxFailed}, sql: "ROLLBACK", want: TxNone},
 		{e: DuckDB, before: txByVerbs{tx: TxFailed}, sql: "COMMIT", want: TxNone},

@@ -47,14 +47,14 @@ func TestAfterFailedStatementOrder(t *testing.T) {
 		{engines: []Engine{MySQL}, before: open, sql: "COMMIT", err: failed, want: open},
 
 		// Elsewhere a failed statement leaves the transaction, but
-		// DuckDB's, which any error but a parse error aborts.
+		// DuckDB's, which any error aborts, a parse error too.
 		{engines: notDuck, before: open, sql: "INSERT INTO t VALUES (1)", err: failed, want: open},
 		{engines: notDuck, before: open, sql: "COMMIT", err: duckConstraint, want: open},
 		{engines: others, before: off, sql: "SELECT 1", err: duplicate, want: off},
 		{engines: others, before: none, sql: "BEGIN", err: failed, want: none},
 		{engines: []Engine{DuckDB}, before: open, sql: "INSERT INTO t VALUES (1)", err: duckConstraint, want: txByVerbs{tx: TxFailed}},
 		{engines: []Engine{DuckDB}, before: open, sql: "COMMIT", err: failed, want: txByVerbs{tx: TxFailed}},
-		{engines: []Engine{DuckDB}, before: open, sql: "SELEC 1", err: duckParser, want: open},
+		{engines: []Engine{DuckDB}, before: open, sql: "SELEC 1", err: duckParser, want: txByVerbs{tx: TxFailed}},
 		{engines: []Engine{DuckDB}, before: failedTx, sql: "SELECT 1", err: duckConstraint, want: failedTx},
 		{engines: []Engine{DuckDB}, before: none, sql: "INSERT INTO t VALUES (1)", err: duckConstraint, want: none},
 

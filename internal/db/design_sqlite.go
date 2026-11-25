@@ -157,12 +157,21 @@ func sqliteAlterChange(d Dialect, was, now TableDesign) (SchemaChange, error) {
 	}
 	for _, c := range diff.addedColumns {
 		// ADD COLUMN takes no key, and NOT NULL only with a default.
-		rebuild = rebuild || c.PrimaryKey || !c.Nullable && c.Default == ""
+		rebuild = rebuild || c.PrimaryKey || !c.Nullable && c.Default == "" || sqliteRowidName(c.Name)
 	}
 	for _, c := range diff.droppedColumns {
 		used := c.PrimaryKey || slices.ContainsFunc(now.Indexes, func(ix IndexDesign) bool { return slices.Contains(ix.Columns, c.Name) }) ||
 			slices.ContainsFunc(was.ForeignKeys, func(fk ForeignKeyDesign) bool { return slices.Contains(fk.Columns, c.Name) })
-		rebuild = rebuild || used
+		rebuild = rebuild || used || sqliteRowidName(c.Name)
+	}
+	for _, c := range now.Columns {
+		if c.Was != "" && c.Was != c.Name {
+			for _, name := range []string{c.Was, c.Name} {
+				if sqliteRowidName(name) {
+					return SchemaChange{}, fmt.Errorf("SQLite cannot rename a column to or from %s, a name of the rowid", name)
+				}
+			}
+		}
 	}
 	for _, ix := range now.Indexes {
 		for _, c := range ix.Columns {
@@ -209,6 +218,17 @@ func sqliteAlterChange(d Dialect, was, now TableDesign) (SchemaChange, error) {
 		steps = append(steps, Step{SQL: "ALTER TABLE " + table + " RENAME TO " + d.Quote(now.Name)})
 	}
 	return SchemaChange{Steps: steps, Atomic: true}, nil
+}
+
+// sqliteRowidName reports whether a column has one of the rowid's names,
+// which SQLite's ALTER TABLE, since 3.54, adds, drops and renames no
+// column by; CREATE TABLE still takes them.
+func sqliteRowidName(name string) bool {
+	switch strings.ToLower(name) {
+	case "rowid", "_rowid_", "oid":
+		return true
+	}
+	return false
 }
 
 // sqliteRebuild makes a table again as now designs it, under its old

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"dgopher/internal/lists"
 )
 
 func TestParseSQLiteTable(t *testing.T) {
@@ -178,4 +180,63 @@ func clone(t TableDesign) TableDesign {
 	t.ForeignKeys = slices.Clone(t.ForeignKeys)
 	t.Checks = slices.Clone(t.Checks)
 	return t
+}
+
+// SQLite 3.54 refuses ALTER TABLE to add, drop or rename a column named
+// as the rowid (rowid, _rowid_ or oid), but makes a table with one: adding
+// or dropping one makes the table again, and renaming one is refused.
+func TestSQLiteRowidNamedColumns(t *testing.T) {
+	ctx := context.Background()
+	d := newSQLiteDB(t)
+	mustExec(t, d, `CREATE TABLE t (a INTEGER, rowid INTEGER)`, `INSERT INTO t VALUES (1, 10)`)
+	read := func() TableDesign {
+		t.Helper()
+		design, err := ReadTableDesign(ctx, d, Object{Schema: "main", Name: "t", Kind: KindTable})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return design
+	}
+	names := func(design TableDesign) string {
+		return strings.Join(lists.Map(design.Columns, func(c ColumnDesign) string { return c.Name }), ",")
+	}
+
+	was := read()
+	now := clone(was)
+	now.Columns = append(now.Columns, ColumnDesign{Name: "OID", Type: "TEXT", Nullable: true})
+	ch, err := AlterTableChange(d.Dialect, was, now)
+	if err != nil || !ch.rebuilds() {
+		t.Fatalf("add: %v\n%s", err, ch.Text())
+	}
+	if _, err := apply(t, d, ch); err != nil {
+		t.Fatalf("add: %v\n%s", err, ch.Text())
+	}
+	if got := names(read()); got != "a,rowid,OID" {
+		t.Fatalf("after the add: %s", got)
+	}
+
+	was = read()
+	now = clone(was)
+	now.Columns = slices.Delete(now.Columns, 1, 2)
+	ch, err = AlterTableChange(d.Dialect, was, now)
+	if err != nil || !ch.rebuilds() {
+		t.Fatalf("drop: %v\n%s", err, ch.Text())
+	}
+	if _, err := apply(t, d, ch); err != nil {
+		t.Fatalf("drop: %v\n%s", err, ch.Text())
+	}
+	var a int
+	if got := names(read()); got != "a,OID" || d.SQL.QueryRow(`SELECT a FROM t`).Scan(&a) != nil || a != 1 {
+		t.Fatalf("after the drop: %s, a %d", got, a)
+	}
+
+	for _, rename := range [][2]string{{"a", "_rowid_"}, {"OID", "b"}} {
+		was = read()
+		now = clone(was)
+		i := slices.IndexFunc(now.Columns, func(c ColumnDesign) bool { return c.Name == rename[0] })
+		now.Columns[i].Name = rename[1]
+		if _, err := AlterTableChange(d.Dialect, was, now); err == nil || !strings.Contains(err.Error(), "rowid") {
+			t.Errorf("rename %s to %s: %v", rename[0], rename[1], err)
+		}
+	}
 }

@@ -72,7 +72,7 @@ func TestIsNumericType(t *testing.T) {
 		{"UInt8", true}, {"UInt256", true}, {"Int32", true}, {"Nullable(Int64)", true},
 		{"LowCardinality(Nullable(UInt16))", true}, {"Float64", true}, {"BFloat16", true},
 		{"Decimal(9, 2)", true}, {"Decimal128(4)", true}, {"HUGEINT", true}, {"UHUGEINT", true},
-		{"UBIGINT", true}, {"UTINYINT", true}, {"VARINT", true}, {"numeric(10,2)", true},
+		{"UBIGINT", true}, {"UTINYINT", true}, {"VARINT", true}, {"BIGNUM", true}, {"numeric(10,2)", true},
 		{"double precision", true}, {"real", true}, {"money", true}, {"smallmoney", true},
 		{"serial", true}, {"bigserial", true}, {"NUMBER(10,2)", true}, {"BINARY_DOUBLE", true},
 		{"INTERVAL", false}, {"interval day to second", false}, {"INTERVAL YEAR(2) TO MONTH", false},

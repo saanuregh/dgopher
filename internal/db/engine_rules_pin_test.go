@@ -1796,7 +1796,7 @@ func TestPinSessionTransactions(t *testing.T) {
 		"sqlite SAVEPOINT a; RELEASE a":                                                        "SAVEPOINT a -> open\nRELEASE a -> none",
 		"sqlite BEGIN; CREATE TABLE u (a INT); ROLLBACK":                                       "BEGIN -> open\nCREATE TABLE u (a INT) -> open\nROLLBACK -> none",
 		"duckdb BEGIN; INSERT INTO t VALUES (1); INSERT INTO t VALUES (1); SELECT 1; ROLLBACK": "BEGIN -> open\nINSERT INTO t VALUES (1) -> open\nINSERT INTO t VALUES (1) -> failed (failed)\nSELECT 1 -> failed (failed)\nROLLBACK -> none",
-		"duckdb BEGIN; SELEC 1; COMMIT":                                                        "BEGIN -> open\nSELEC 1 -> open (failed)\nCOMMIT -> none",
+		"duckdb BEGIN; SELEC 1; COMMIT":                                                        "BEGIN -> open\nSELEC 1 -> failed (failed)\nCOMMIT -> none",
 		"duckdb SAVEPOINT a; RELEASE a":                                                        "SAVEPOINT a -> none (failed)\nRELEASE a -> none (failed)",
 		"duckdb BEGIN; CREATE TABLE u (a INT); ROLLBACK":                                       "BEGIN -> open\nCREATE TABLE u (a INT) -> open\nROLLBACK -> none",
 	}, func(add func(key, got string)) {
@@ -1958,7 +1958,7 @@ func TestPinTxByVerbsSequences(t *testing.T) {
 		"duckdb temporary table in a transaction":        "open/off=false open/off=false",
 		"duckdb failure in a transaction":                "open/off=false failed/off=false failed/off=false none/off=false",
 		"duckdb constraint failure in a transaction":     "open/off=false failed/off=false none/off=false",
-		"duckdb parse failure in a transaction":          "open/off=false open/off=false",
+		"duckdb parse failure in a transaction":          "open/off=false failed/off=false",
 		"duckdb deadlock in a transaction":               "open/off=false failed/off=false",
 		"duckdb lock wait, rolled back":                  "open/off=false failed/off=false",
 		"duckdb lock wait, kept":                         "open/off=false failed/off=false",
