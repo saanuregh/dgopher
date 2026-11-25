@@ -21,8 +21,9 @@ except `.dgopher/`:
 | --- | --- | --- |
 | `dgopher.json` | committed | connections (without passwords), snippets, per-table settings such as virtual keys and hidden columns, and the queries folder |
 | `queries/**/*.sql` | committed | SQL files, each starting with `-- connection: <id>`, and `-- view: notebook` for a notebook |
-| `dashboards/` | committed | dashboards |
-| `models/` | committed | data models |
+| `dashboards/` | committed | dashboards, in folders of their own if you make them |
+| `models/` | committed | data models, in folders of their own if you make them |
+| `bookmarks.json` | committed | [bookmarks](project-files.md#bookmarksjson) of tables, routines and files |
 | `.dgopher/.gitignore` | ignored | holds `*`, so the folder ignores itself and your own `.gitignore` is never touched |
 | `.dgopher/state.sqlite` | ignored | your state for this project (below), with SQLite's `-wal` and `-shm` files beside it |
 | `.dgopher/sample.sqlite` | ignored | the sample database, if you created it in this project |
@@ -129,8 +130,9 @@ run kept away from your config also keeps away from your layout.
   full screen.
 - `kv`: one row per layout value: the sidebar's width and whether it shows,
   the editor's share of the height above its results (where new editors
-  start), whether the results are hidden or maximized, and the Redis
-  browser's key list width and console height.
+  start), whether the results are hidden or maximized, the Redis
+  browser's key list width and console height, and the navigator's
+  headings left closed and sections of files sorted by last modified.
 
 Each value is written when a drag ends and read at start. A missing value
 keeps its default. If the file cannot be written, the layout lasts only

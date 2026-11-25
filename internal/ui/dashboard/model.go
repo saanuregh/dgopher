@@ -55,12 +55,14 @@ type Panel struct {
 	Width      int                     `json:"width"` // in grid columns, 1 to Columns
 }
 
-// File is a dashboard's file in a project, by its name.
-func File(p *project.Project, name string) string {
-	return filepath.Join(p.Dir, Folder, project.Slug(name)+".json")
+// File is a dashboard's file in a project, by its name, in a folder of
+// Folder, a / path, "" for its top.
+func File(p *project.Project, folder, name string) string {
+	return filepath.Join(p.Dir, Folder, filepath.FromSlash(folder), project.Slug(name)+".json")
 }
 
-// List names a project's dashboards, by their files, in order.
+// List names a project's dashboards, by their files, in order, those
+// of its folders too.
 func List(p *project.Project) ([]string, error) {
 	return project.ListFiles(p, Folder)
 }

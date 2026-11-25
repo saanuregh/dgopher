@@ -89,11 +89,11 @@ func TestQuitWhileAnotherQuestionIsOpen(t *testing.T) {
 // projectViews opens a dashboard and a data model of a project.
 func projectViews(t *testing.T, a *App, p *project.Project) (*dashboard.Tab, *modelview.Tab) {
 	t.Helper()
-	dpath := dashboard.File(p, "Sales")
+	dpath := dashboard.File(p, "", "Sales")
 	if _, err := (&dashboard.Dashboard{Name: "Sales", Panels: []dashboard.Panel{}}).Save(dpath, nil); err != nil {
 		t.Fatal(err)
 	}
-	mpath := datamodel.File(p, "Shop")
+	mpath := datamodel.File(p, "", "Shop")
 	if _, err := (&datamodel.Model{Name: "Shop", Engine: db.SQLite, Tables: []db.TableDesign{}}).Save(mpath, nil); err != nil {
 		t.Fatal(err)
 	}

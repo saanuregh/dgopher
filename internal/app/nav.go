@@ -14,11 +14,14 @@ const (
 	nodeProject     nodeKind = iota
 	nodeConnections          // the connections of a project
 	nodeQueries              // the query files of a project
-	nodeQueryFile
-	nodeDashboards // the dashboards of a project
-	nodeDashboard  // named by its file's path
-	nodeModels     // the data models of a project
-	nodeModel      // named by its file's path
+	nodeQueryFile            // named by its path in the section, as a dashboard and a model
+	nodeDashboards           // the dashboards of a project
+	nodeDashboard
+	nodeModels // the data models of a project
+	nodeModel
+	nodeFileFolder // a folder of a section of a project's files (filesections.go)
+	nodeBookmarks  // the bookmarks of a project (bookmarks.go)
+	nodeBookmark   // named by its project.Bookmark's Target
 	nodeConnFolder // a folder of a project's connections, named by its path
 	nodeConn
 	nodeDatabase
@@ -52,6 +55,8 @@ type navNode struct {
 	// an item, its kind and label (itemName).
 	name   string
 	folder string // a folder's: folderTables, folderViews, or an item kind
+	// section is a nodeFileFolder's: the kind of its section's heading.
+	section nodeKind
 	// files is set for a project's node in the pane of the projects'
 	// files, which holds its query files, dashboards and data models;
 	// the one of the database tree holds its connections.
@@ -95,6 +100,8 @@ type navState struct {
 	shown  widgets.Tab
 	reveal *navNode
 	opened map[navNode]bool
+	// openRevealed is the node to open once revealed, as a bookmark's.
+	openRevealed *navNode
 	// chose is the row chosen as the last frame ended, which a choice
 	// moved from.
 	chose int
@@ -178,7 +185,7 @@ func (p navPane) chosen() (navNode, bool) {
 // files: a section of them, a file, or a project's node there.
 func inFilesPane(n navNode) bool {
 	switch n.kind {
-	case nodeQueries, nodeQueryFile, nodeDashboards, nodeDashboard, nodeModels, nodeModel:
+	case nodeQueries, nodeQueryFile, nodeDashboards, nodeDashboard, nodeModels, nodeModel, nodeFileFolder, nodeBookmarks, nodeBookmark:
 		return true
 	}
 	return n.files

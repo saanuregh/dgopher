@@ -61,7 +61,10 @@ type Project struct {
 	Queries string // absolute
 	Prefix  string // what the IDs of its connections start with, in the app
 	Files   []string
-	Scanned time.Time
+	// QueryFolders are the folders under Queries, as / paths relative to
+	// it, sorted.
+	QueryFolders []string
+	Scanned      time.Time
 	// FileConnections are, by file of Files, the connection each one's
 	// header names, as last read.
 	FileConnections map[string]FileConnection
@@ -326,26 +329,6 @@ func SaveShared(path string, was, data []byte) error {
 		os.Remove(tmp.Name())
 	}
 	return err
-}
-
-// ListFiles lists the JSON files of a project's folder, in order; none
-// when the folder is missing.
-func ListFiles(p *Project, folder string) ([]string, error) {
-	entries, err := os.ReadDir(filepath.Join(p.Dir, folder))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".json") {
-			out = append(out, filepath.Join(p.Dir, folder, e.Name()))
-		}
-	}
-	sort.Strings(out)
-	return out, nil
 }
 
 // LoadJSON reads a shared file into a T that check accepts, with the

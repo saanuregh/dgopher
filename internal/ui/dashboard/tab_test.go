@@ -41,7 +41,7 @@ func TestDashboardPanels(t *testing.T) {
 		{Title: "Two", Connection: "lite", SQL: "SELECT 1; SELECT 2", View: ViewTable, Width: 1},
 		{Title: "Gone", Connection: "nowhere", SQL: "SELECT 1", View: ViewTable, Width: 1},
 	}}
-	path := File(h.Project, d.Name)
+	path := File(h.Project, "", d.Name)
 	if _, err := d.Save(path, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func TestDashboardConnectionFails(t *testing.T) {
 	cn := h.AddConn(db.Config{ID: "pg", Name: "pg", Engine: db.Postgres, Host: "127.0.0.1", Port: 1, User: "x", Database: "x"})
 	tt := ui.NewTester(h.View, 1000, 600)
 	d := &Dashboard{Name: "Down", Panels: []Panel{{Title: "One", Connection: "pg", SQL: "SELECT 1", View: ViewValue, Width: 1}}}
-	path := File(h.Project, d.Name)
+	path := File(h.Project, "", d.Name)
 	if _, err := d.Save(path, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestDashboardPanelRetry(t *testing.T) {
 	cn := h.AddConn(db.Config{ID: "pg", Name: "pg", Engine: db.Postgres, Host: "127.0.0.1", Port: 1, User: "x", Database: "x"})
 	tt := ui.NewTester(h.View, 1000, 600)
 	d := &Dashboard{Name: "Down", Panels: []Panel{{Title: "One", Connection: "pg", SQL: "SELECT 1", View: ViewValue, Width: 1}}}
-	path := File(h.Project, d.Name)
+	path := File(h.Project, "", d.Name)
 	if _, err := d.Save(path, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestPanelConnection(t *testing.T) {
 	}
 	tt := ui.NewTester(h.View, 1280, 800)
 	d := &Dashboard{Name: "D", Panels: []Panel{{Title: "P", Connection: "lite", SQL: "SELECT 1 AS one", View: ViewTable, Width: Columns}}}
-	path := File(h.Project, d.Name)
+	path := File(h.Project, "", d.Name)
 	if _, err := d.Save(path, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +257,7 @@ func TestPanelSameNameConnections(t *testing.T) {
 	}
 	tt := ui.NewTester(h.View, 1280, 800)
 	d := &Dashboard{Name: "D", Panels: []Panel{{Title: "P", Connection: "first", SQL: "SELECT 1 AS one", View: ViewTable, Width: Columns}}}
-	path := File(h.Project, d.Name)
+	path := File(h.Project, "", d.Name)
 	if _, err := d.Save(path, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +320,7 @@ func TestPanelDatabase(t *testing.T) {
 	other := "it_panel"
 	id := strings.TrimPrefix(cn.Config.ID, h.Project.Prefix)
 	d := &Dashboard{Name: "D", Panels: []Panel{{Title: "P", Connection: id, SQL: "SELECT current_database() AS db", View: ViewTable, Width: Columns}}}
-	path := File(h.Project, d.Name)
+	path := File(h.Project, "", d.Name)
 	d.Save(path, nil)
 	tab, err := Open(h, h.Project, path)
 	if err != nil {
@@ -357,7 +357,7 @@ func TestNarrowPanelTools(t *testing.T) {
 	h.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
 	tt := ui.NewTester(h.View, 1280, 800)
 	d := &Dashboard{Name: "N", Panels: []Panel{{Title: "P", Connection: "lite", SQL: "SELECT 1 AS one", View: ViewTable, Width: 1}}}
-	path := File(h.Project, d.Name)
+	path := File(h.Project, "", d.Name)
 	d.Save(path, nil)
 	tab, err := Open(h, h.Project, path)
 	if err != nil {
@@ -402,7 +402,7 @@ func TestAddPanel(t *testing.T) {
 	cn := h.AddConn(db.Config{ID: "lite", Name: "lite", Engine: db.SQLite, Database: file})
 	tt := ui.NewTester(h.View, 1280, 800)
 	d := &Dashboard{Name: "A", Panels: []Panel{}}
-	path := File(h.Project, d.Name)
+	path := File(h.Project, "", d.Name)
 	d.Save(path, nil)
 	tab, err := Open(h, h.Project, path)
 	if err != nil {
@@ -468,7 +468,7 @@ func TestDashboardAskedRefreshAlerts(t *testing.T) {
 	cn := h.AddConn(db.Config{ID: "pg", Name: "pg", Engine: db.Postgres, Host: "127.0.0.1", Port: 1, User: "x", Database: "x"})
 	tt := ui.NewTester(h.View, 1000, 600)
 	d := &Dashboard{Name: "Down", Panels: []Panel{{Title: "One", Connection: "pg", SQL: "SELECT 1", View: ViewValue, Width: 1}}}
-	path := File(h.Project, d.Name)
+	path := File(h.Project, "", d.Name)
 	if _, err := d.Save(path, nil); err != nil {
 		t.Fatal(err)
 	}

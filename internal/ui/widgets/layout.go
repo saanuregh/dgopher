@@ -32,6 +32,10 @@ type Layout struct {
 	// or Queries of a project, a line each: the others open as they first
 	// show. Text, for the layout to compare as a value.
 	NavClosed string `json:"navClosed"`
+	// NavByModified are the sections of the projects' files sorted by
+	// when each file last changed, as "queries", a line each: the others
+	// are sorted by name.
+	NavByModified string `json:"navByModified"`
 	// Zoom is the windows' zoom, as a browser's of a page, 0 for none.
 	Zoom float32 `json:"zoom"`
 }

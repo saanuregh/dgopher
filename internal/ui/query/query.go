@@ -2511,6 +2511,13 @@ func refreshAfterDDL(cn *connection.Conn, stmts []safety.Statement) {
 	}
 }
 
+// Moved follows the editor's file, renamed or moved to path, which it
+// saves to from then on. Filed away, it is kept even holding only what
+// the app first wrote (Created).
+func (q *Tab) Moved(path string) {
+	q.Path, q.Name, q.Created = path, filepath.Base(path), ""
+}
+
 // Flush writes the editor's text to its file. Unless force is set, it
 // first checks that the file is still as the editor last read or wrote
 // it: a file changed by someone else, as by a git pull, is not

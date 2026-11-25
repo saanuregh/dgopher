@@ -84,6 +84,30 @@ window buttons, without a row of its own:
 - **New Folder…** for connections is in the sidebar's **+**, in the
   project's own menu and in a connection's. Dragging a connection onto
   the project's name takes it out of its folder.
+- **Folders of files.** Queries, Dashboards and Data Models hold folders
+  too, as DBeaver's Scripts do: real folders on disk, under `queries/`,
+  `dashboards/` and `models/`, nested at will. Folders come first, then
+  files. **New Folder…** is in each heading's menu, a folder's and a
+  file's (a file moves into the new folder). Drag a file or a folder onto
+  another folder, or onto the heading for the top, or use **Move to
+  Folder**, which DBeaver lacks, from the keys. F2 renames a folder and
+  Delete deletes it with everything in it, once you agree: its tabs close
+  and its bookmarks go. A folder's menu makes a new editor, dashboard or
+  data model in it. Open tabs follow a file moved or renamed. A
+  dashboard's or a data model's name stays unique across folders, for
+  **Add to Dashboard** to pick it by name.
+- **Sort By** in a heading's menu orders its files by **Name** or by
+  **Last Modified**, the latest first; folders stay first, by name. Each
+  heading keeps its own order, on this computer. DBeaver has no such sort.
+- **Bookmarks**, as DBeaver's: ⌘⌥⇧D, or **Add Bookmark** in a row's menu,
+  bookmarks a table, a view, a routine, a query file, a dashboard or a
+  data model, and again removes it. Bookmarks are listed under their own
+  heading at the top of the files pane, each with where it is; ↵ opens
+  one, connecting first. They are kept in the project's
+  [`bookmarks.json`](../project-files.md#bookmarksjson), shared with the
+  team. Unlike DBeaver, a bookmark is made at once, named after what it
+  links to (F2 renames it), files have them too, and they have no folders.
+  A bookmark whose file or table is gone shows in the warning color.
 - The tab row shows the sidebar again, and holds the
   [notifications](#notifications) bell, the palette's search box and the
   app menu: File, View, Help, Settings and Quit.

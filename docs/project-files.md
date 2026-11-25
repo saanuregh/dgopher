@@ -10,6 +10,7 @@ every file, including those that are not shared.
 - [Query files](#query-files)
 - [Dashboards](#dashboards)
 - [Data models](#data-models)
+- [`bookmarks.json`](#bookmarksjson)
 - [Editing by hand](#editing-by-hand)
 
 ## `dgopher.json`
@@ -168,7 +169,8 @@ safely. See [Connections from a project file](safety.md#connections-from-a-proje
 ## Query files
 
 - Query files are the `.sql` files in the queries folder and its
-  subfolders. Folders whose names start with a dot are skipped.
+  subfolders, which the navigator shows as folders. Folders whose names
+  start with a dot are skipped.
 - A `-- connection: <id>` line in the first five lines binds the file to a
   connection. The first such line wins.
 - A file without one asks, when opened, which connection to use and offers
@@ -184,8 +186,9 @@ SELECT count(*) FROM orders;
 
 ## Dashboards
 
-One JSON file per dashboard in `dashboards/`, named after the dashboard
-(`Orders` becomes `orders.json`).
+One JSON file per dashboard in `dashboards/` or a folder under it, named
+after the dashboard (`Orders` becomes `orders.json`). Names are unique
+across the folders.
 
 | Field | Values |
 | --- | --- |
@@ -227,7 +230,8 @@ each user's own and are not in the file.
 
 ## Data models
 
-One JSON file per model in `models/`, named after the model.
+One JSON file per model in `models/` or a folder under it, named after the
+model. Names are unique across the folders.
 
 | Field | Values |
 | --- | --- |
@@ -258,6 +262,34 @@ the same table twice, and each table needs at least one column.
   ]
 }
 ```
+
+## `bookmarks.json`
+
+The project's bookmarks, beside `dgopher.json`, in the order they were
+made. The file is removed when the last bookmark is.
+
+```json
+{
+  "bookmarks": [
+    {"name": "orders", "connection": "orders-prod", "schema": "public", "object": "orders", "kind": "table"},
+    {"name": "refresh_stats(integer)", "connection": "orders-prod", "schema": "public", "object": "refresh_stats(integer)", "item": "function"},
+    {"name": "daily", "file": "queries/reports/daily.sql"}
+  ]
+}
+```
+
+| Field | Values |
+| --- | --- |
+| `name` | what the bookmark shows as; required |
+| `connection` | a database object's connection, by its ID in `dgopher.json` |
+| `database` | its database; the connection's own when omitted |
+| `schema` | its schema |
+| `object` | a table's or a view's name, or a routine's label with its arguments |
+| `kind` | a table's or a view's kind, as `table` or `view` |
+| `item` | instead of `kind`, a routine's or another item's kind, as `function` |
+| `file` | instead of an object, a file's path in the project, `/` separated |
+
+A bookmark names either a `file` or an `object` with its `connection`.
 
 ## Editing by hand
 

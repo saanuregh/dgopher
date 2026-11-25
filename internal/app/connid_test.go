@@ -47,8 +47,8 @@ func TestRenameConn(t *testing.T) {
 	outside := filepath.Join(t.TempDir(), "outside.sql")
 	os.WriteFile(outside, []byte("-- connection: lite\n\nSELECT 6;"), 0o644)
 	linked := os.Symlink(outside, filepath.Join(p.Queries, "link.sql")) == nil
-	(&dashboard.Dashboard{Name: "D", Panels: []dashboard.Panel{{Title: "P", Connection: "lite", SQL: "SELECT 1", View: dashboard.Views[0], Width: 1}}}).Save(dashboard.File(p, "D"), nil)
-	(&datamodel.Model{Name: "M", Engine: db.SQLite, Source: &datamodel.Source{Connection: "lite"}}).Save(datamodel.File(p, "M"), nil)
+	(&dashboard.Dashboard{Name: "D", Panels: []dashboard.Panel{{Title: "P", Connection: "lite", SQL: "SELECT 1", View: dashboard.Views[0], Width: 1}}}).Save(dashboard.File(p, "", "D"), nil)
+	(&datamodel.Model{Name: "M", Engine: db.SQLite, Source: &datamodel.Source{Connection: "lite"}}).Save(datamodel.File(p, "", "M"), nil)
 	p.Local.SaveJSON("filters.json", map[string][]string{"lite/main.t": {"a = 1"}})
 	p.Local.SaveJSON("colors.json", map[string]any{"lite/main.t": []any{map[string]string{"column": "a", "value": "1", "color": "#fff"}}})
 	withPassword := cn.Config
@@ -110,10 +110,10 @@ func TestRenameConn(t *testing.T) {
 	if got, _ := os.ReadFile(outside); string(got) != "-- connection: lite\n\nSELECT 6;" || elsewhere.Saved != string(got) {
 		t.Errorf("the file elsewhere %q (linked %v), its editor's saved text %q", got, linked, elsewhere.Saved)
 	}
-	if d, err := dashboard.Load(dashboard.File(p, "D")); err != nil || d.Panels[0].Connection != "lite2" {
+	if d, err := dashboard.Load(dashboard.File(p, "", "D")); err != nil || d.Panels[0].Connection != "lite2" {
 		t.Errorf("the dashboard: %v, %+v", err, d)
 	}
-	if m, err := datamodel.Load(datamodel.File(p, "M")); err != nil || m.Source.Connection != "lite2" {
+	if m, err := datamodel.Load(datamodel.File(p, "", "M")); err != nil || m.Source.Connection != "lite2" {
 		t.Errorf("the model: %v, %+v", err, m)
 	}
 	for _, name := range []string{"filters.json", "colors.json"} {

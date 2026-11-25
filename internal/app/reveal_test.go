@@ -49,13 +49,13 @@ func TestNavigatorFollowsTab(t *testing.T) {
 	d := &dashboard.Dashboard{Name: "Sales", Panels: []dashboard.Panel{
 		{Title: "Orders", Connection: strings.TrimPrefix(cn.Config.ID, p.Prefix), SQL: "SELECT count(*) FROM orders", View: dashboard.ViewValue, Width: 1},
 	}}
-	path := dashboard.File(p, d.Name)
+	path := dashboard.File(p, "", d.Name)
 	if _, err := d.Save(path, nil); err != nil {
 		t.Fatal(err)
 	}
 	a.openDashboard(p, path)
 	testutil.WaitFor(t, tt, "the dashboard chosen", func() bool {
-		return chosen(navNode{kind: nodeDashboard, projectDir: p.Dir, name: path})
+		return chosen(dashboardsSection.fileNode(p, "sales.json"))
 	})
 	if cn.Config.Env != db.Development || tt.HasText("No connection") || !tt.HasText(cn.Config.Env.Label()) {
 		t.Fatalf("the status bar does not name the panels' connection: %q", tt.Texts())

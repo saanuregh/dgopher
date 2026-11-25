@@ -155,12 +155,14 @@ type App struct {
 	dbeaverImport *dbeaverImport
 	// fileLists are the projects' dashboards and models, by folder: a
 	// menu asks for them each frame it shows.
-	fileLists   map[string]namedFiles
-	quitting    bool // the user agreed to what quitting loses
-	idleWarn    *idleWarning
-	snippetForm *snippetForm
-	history     *historyState
-	toasts      []pendingToast // shown in the next frame
+	fileLists map[string]readFiles
+	// bookmarkLists are the projects' bookmarks, by project folder.
+	bookmarkLists map[string]bookmarkList
+	quitting      bool // the user agreed to what quitting loses
+	idleWarn      *idleWarning
+	snippetForm   *snippetForm
+	history       *historyState
+	toasts        []pendingToast // shown in the next frame
 	// identified are the servers found on connect to be other engines
 	// than their connections are set to, told of in the next frame.
 	identified []identifiedConn
@@ -229,6 +231,7 @@ func newApp(st *store.Store, uiState *state.DB) *App {
 	db.SetOnSend(a.recordSent)
 	a.nav.init()
 	a.nav.tree.List.DragRows = a.navDragRows
+	a.nav.files.tree.List.DragRows = a.fileDragRows
 	// Before the editors are restored, which take its height above their
 	// results.
 	if uiState != nil {

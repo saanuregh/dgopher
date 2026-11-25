@@ -116,6 +116,9 @@ func (t *Tab) Rename(name, to string) error {
 	return err
 }
 
+// Moved follows the model's file, moved to path, as into another folder.
+func (t *Tab) Moved(path string) { t.Path = path }
+
 // save writes the model's file, unless it changed on disk since it was
 // read.
 func (t *Tab) save() error {

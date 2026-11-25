@@ -21,6 +21,8 @@ func headingKey(n navNode) string {
 		return "connections:" + n.projectDir
 	case nodeQueries:
 		return "queries:" + n.projectDir
+	case nodeBookmarks:
+		return "bookmarks:" + n.projectDir
 	}
 	return ""
 }

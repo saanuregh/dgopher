@@ -96,11 +96,11 @@ func TestPaletteOpensItsDashboard(t *testing.T) {
 	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1000, 700)
 	p := a.projects[0]
-	path := dashboard.File(p, "terst")
+	path := dashboard.File(p, "", "terst")
 	if _, err := (&dashboard.Dashboard{Name: "terst", Panels: []dashboard.Panel{}}).Save(path, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := (&datamodel.Model{Name: "mkt", Engine: db.Postgres}).Save(datamodel.File(p, "mkt"), nil); err != nil {
+	if _, err := (&datamodel.Model{Name: "mkt", Engine: db.Postgres}).Save(datamodel.File(p, "", "mkt"), nil); err != nil {
 		t.Fatal(err)
 	}
 	a.openPalette(false)

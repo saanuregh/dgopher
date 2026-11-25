@@ -147,11 +147,11 @@ LIMIT 10;
 		{Title: "Best sellers", Connection: id, View: dashboard.ViewTable, Width: 4,
 			SQL: "SELECT p.name AS product, p.category, sum(i.quantity) AS units, round(sum(i.quantity * i.unit_price), 2) AS revenue FROM order_items i JOIN products p ON p.id = i.product_id GROUP BY p.id ORDER BY revenue DESC LIMIT 6"},
 	}}
-	dashPath := dashboard.File(p, sales.Name)
+	dashPath := dashboard.File(p, "", sales.Name)
 	if _, err := sales.Save(dashPath, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := (&datamodel.Model{Name: "Shop schema", Engine: db.SQLite}).Save(datamodel.File(p, "Shop schema"), nil); err != nil {
+	if _, err := (&datamodel.Model{Name: "Shop schema", Engine: db.SQLite}).Save(datamodel.File(p, "", "Shop schema"), nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -287,7 +287,7 @@ ORDER BY units DESC;
 	// Two groups: the editor and its result, the dashboard beside.
 	a.closeTabOf(nb)
 	a.window.tabs().Select(q)
-	a.openDashboard(p, dashboard.File(p, "Sales overview"))
+	a.openDashboard(p, dashboard.File(p, "", "Sales overview"))
 	a.splitTab(a.main, a.main.panes.Focused(), panes.Right)
 	a.main.panes.Groups()[0].Tabs.Select(q)
 	testutil.WaitFor(t, tt, "the groups", func() bool {

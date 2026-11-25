@@ -137,7 +137,7 @@ func rowAdd(c *ui.Context, row ui.Element, chosen bool, label string) bool {
 // by its button where it has one.
 func (a *App) quietHeading(c *ui.Context, n navNode) ui.Color {
 	switch n.kind {
-	case nodeConnections, nodeQueries, nodeDashboards, nodeModels, nodeFolder:
+	case nodeConnections, nodeQueries, nodeDashboards, nodeModels, nodeBookmarks, nodeFolder:
 		if at, ok := a.nav.paneOf(n).chosen(); ok && at == n {
 			return widgets.PaletteOf(c).Sidebar
 		}
@@ -190,11 +190,23 @@ func (a *App) navStart(c *ui.Context, n navNode) {
 		arrow.Children(func() {
 			ui.Icon(c, widgets.IconChevronRight).FontSize(widgets.IconSmall).TextColor(widgets.PaletteOf(c).Muted).Rotate(turn)
 		})
-	case at.underHead:
+	case at.underHead, a.besideFolders(n):
 		ui.Box(c).Width(navArrow).Shrink(0)
 	case n.kind == nodeQueryFile, n.kind == nodeDashboard, n.kind == nodeModel, n.kind == nodeColumn, n.kind == nodeInfo:
 		ui.Box(c).Width(4).Shrink(0)
 	default:
 		ui.Box(c).Width(navArrow).Shrink(0)
 	}
+}
+
+// besideFolders reports whether a node is a file of a section that has
+// folders: it keeps the room of their arrows, for its name to line up
+// with theirs, as a connection's does among folders.
+func (a *App) besideFolders(n navNode) bool {
+	s, ok := sectionOf(n)
+	if !ok || n.kind != s.file {
+		return false
+	}
+	p := a.projectByDir(n.projectDir)
+	return p != nil && len(a.sectionFiles(p, s).Folders) > 0
 }

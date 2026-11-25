@@ -14,9 +14,20 @@ func (a *App) projectMenu(m *ui.Menu, n navNode) {
 	if p == nil {
 		return
 	}
-	if n.kind == nodeConnFolder {
+	switch n.kind {
+	case nodeConnFolder:
 		if p.Err == "" {
 			a.connFolderMenu(m, p, n)
+		}
+		return
+	case nodeFileFolder:
+		if p.Err == "" {
+			a.fileFolderMenu(m, p, n)
+		}
+		return
+	case nodeBookmark:
+		if p.Err == "" {
+			a.bookmarkMenu(m, p, n)
 		}
 		return
 	}
@@ -30,6 +41,7 @@ func (a *App) projectMenu(m *ui.Menu, n navNode) {
 		if (n.kind == nodeProject || n.kind == nodeConnections) && m.Item("New Folder…").Chosen() {
 			a.askNewFolder(p, "", nil)
 		}
+		a.fileFolderItems(m, p, n)
 		if m.Item("Import from DBeaver…").Chosen() {
 			a.openDBeaverImport(p)
 		}
@@ -40,6 +52,7 @@ func (a *App) projectMenu(m *ui.Menu, n navNode) {
 			if n.kind == nodeQueryFile && m.Item("Duplicate").Chosen() {
 				a.duplicateQueryFile(p, n.name)
 			}
+			a.bookmarkItem(m, n)
 			if keymap.Item(m.Item("Delete…"), keymap.NavigatorDrop).Chosen() {
 				del()
 			}

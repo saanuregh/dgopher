@@ -326,7 +326,7 @@ func TestQueryFileShowsConnection(t *testing.T) {
 	}
 	// A dashboard shows its panels' connections.
 	addConn(a, db.Config{ID: "two", Name: "Two", Engine: db.SQLite, Database: writeSQL(t, "2.sqlite", "")})
-	path := dashboard.File(p, "D")
+	path := dashboard.File(p, "", "D")
 	panel := func(conn string) dashboard.Panel {
 		return dashboard.Panel{Title: conn, Connection: conn, SQL: "SELECT 1", View: dashboard.Views[0], Width: 1}
 	}
@@ -337,7 +337,7 @@ func TestQueryFileShowsConnection(t *testing.T) {
 		t.Fatalf("dashboard: %q", got)
 	}
 	// A data model shows the connection it is read from.
-	model := datamodel.File(p, "M")
+	model := datamodel.File(p, "", "M")
 	(&datamodel.Model{Name: "M", Engine: db.SQLite, Source: &datamodel.Source{Connection: "two"}}).Save(model, nil)
 	a.openModel(p, model)
 	if got := tabSubtitle(a.ActiveTab()); got != "Two" {
@@ -513,7 +513,7 @@ func TestStatusBarPlaces(t *testing.T) {
 	}
 	broken := addConn(a, db.Config{ID: "broken", Name: "broken", Engine: db.SQLite, Database: filepath.Join(t.TempDir(), "no", "such", "x.sqlite")})
 	panels = append(panels, dashboard.Panel{Title: "broken", Connection: "broken", SQL: "SELECT 1", View: dashboard.ViewValue, Width: 1})
-	path := dashboard.File(p, "Five")
+	path := dashboard.File(p, "", "Five")
 	(&dashboard.Dashboard{Name: "Five", Panels: panels}).Save(path, nil)
 	tt := ui.NewTester(a.view, 1400, 800)
 	a.openDashboard(p, path)

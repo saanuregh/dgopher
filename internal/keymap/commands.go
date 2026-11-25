@@ -63,6 +63,7 @@ const (
 	NavigatorRename    = "navigator::Rename"
 	NavigatorStructure = "navigator::Structure"
 	NavigatorDrop      = "navigator::Drop"
+	NavigatorBookmark  = "navigator::Bookmark"
 
 	Run             = "editor::Run"
 	CancelQuery     = "editor::CancelQuery"
@@ -244,6 +245,7 @@ var Commands = []Command{
 	command(NavigatorRename, Navigator, "Rename the table", "f2"),
 	command(NavigatorStructure, Navigator, "The table's structure", "f4"),
 	command(NavigatorDrop, Navigator, "A DROP of the table, in a new editor to review and run", "delete"),
+	command(NavigatorBookmark, Navigator, "Add a bookmark of the table, routine or file, or remove it", "cmd-alt-shift-d"),
 
 	command(Run, Editor, "Run the statement at the caret (blank lines and ; end it), or the selection", "cmd-enter", "f5"),
 	command(RunInNewTab, Editor, "Run it into a new result tab, keeping the results shown", "cmd-alt-\\"),

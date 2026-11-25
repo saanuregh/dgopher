@@ -334,6 +334,13 @@ func (t *Tab) Rename(name, to string) error {
 	return err
 }
 
+// Moved follows the dashboard's file, moved to path, as into another
+// folder: the values given its parameters go with it.
+func (t *Tab) Moved(path string) {
+	t.Path = path
+	t.saveValues()
+}
+
 // kept is the dashboard as its file keeps it: without the panels added
 // whose query has not run yet.
 func (t *Tab) kept() *Dashboard {

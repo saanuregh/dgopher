@@ -12,7 +12,6 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -274,33 +273,17 @@ func (a *App) ScanQueries(p *project.Project, now bool) {
 	p.Scanned = time.Now()
 	root, known := p.Queries, p.FileConnections // replaced, never changed
 	a.Background(func() func() {
-		var files []string
+		listed, err := project.List(root, ".sql")
 		connections := map[string]project.FileConnection{}
-		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.IsDir() && strings.HasPrefix(d.Name(), ".") && path != root {
-				return filepath.SkipDir
-			}
-			if !d.IsDir() && strings.EqualFold(filepath.Ext(path), ".sql") {
-				rel, _ := filepath.Rel(root, path)
-				rel = filepath.ToSlash(rel)
-				files = append(files, rel)
-				connections[rel] = fileConnection(path, known[rel])
-			}
-			return nil
-		})
-		if errors.Is(err, fs.ErrNotExist) {
-			err = nil
+		for _, rel := range listed.Files {
+			connections[rel] = fileConnection(filepath.Join(root, filepath.FromSlash(rel)), known[rel])
 		}
-		sort.Strings(files)
 		return func() {
-			if pl := a.palette; pl != nil && !slices.Equal(p.Files, files) {
+			if pl := a.palette; pl != nil && !slices.Equal(p.Files, listed.Files) {
 				// Files added since the palette opened are offered too.
 				defer func() { pl.items, pl.shownQ = a.paletteItems(pl.tables), "\x00" }()
 			}
-			p.Files, p.FileConnections = files, connections
+			p.Files, p.QueryFolders, p.FileConnections = listed.Files, listed.Folders, connections
 			p.ScanErr = ""
 			if err != nil {
 				p.ScanErr = err.Error()
@@ -512,7 +495,7 @@ func (a *App) firstProjectSlug(p *project.Project) string {
 func (a *App) newQueryFile(cn *connection.Conn, database, text string, then func(*query.Tab)) {
 	// The editor opens at once, connected or not, as a restored one does:
 	// a connection that fails leaves it with Retry, not without an editor.
-	q := a.createQueryFile(cn, database, connection.HeaderLine(cn)+text)
+	q := a.createQueryFile(cn, "", database, connection.HeaderLine(cn)+text)
 	if q == nil {
 		return
 	}
@@ -530,23 +513,25 @@ func (a *App) newNotebook(cn *connection.Conn) {
 		a.ShowError("Not a SQL connection", cn.Config.Name+" runs no SQL: a notebook needs a SQL connection.")
 		return
 	}
-	if q := a.createQueryFile(cn, "", connection.HeaderLine(cn)+query.NewNotebookText); q != nil {
+	if q := a.createQueryFile(cn, "", "", connection.HeaderLine(cn)+query.NewNotebookText); q != nil {
 		a.Connect(cn, nil)
 	}
 }
 
-// createQueryFile writes content in the next free query-N.sql of the
-// connection's project and opens an editor on it, which closed with only
-// that removes the file; nil when it could not be written.
-func (a *App) createQueryFile(cn *connection.Conn, database, content string) *query.Tab {
+// createQueryFile writes content in the next free query-N.sql of a
+// folder of the connection's project's queries, "" for their top, and
+// opens an editor on it, which closed with only that removes the file;
+// nil when it could not be written.
+func (a *App) createQueryFile(cn *connection.Conn, folder, database, content string) *query.Tab {
 	p := cn.Project
-	if err := os.MkdirAll(p.Queries, 0o755); err != nil {
+	dir := queriesSection.path(p, folder)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		a.ShowReport(widgets.ErrorReportOf("Could not create the queries folder", err))
 		return nil
 	}
 	var path string
 	for n := 1; ; n++ {
-		path = filepath.Join(p.Queries, fmt.Sprintf("query-%d.sql", n))
+		path = filepath.Join(dir, fmt.Sprintf("query-%d.sql", n))
 		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if errors.Is(err, fs.ErrExist) {
 			continue
@@ -564,7 +549,7 @@ func (a *App) createQueryFile(cn *connection.Conn, database, content string) *qu
 	// Listed before the scan finds it, so that the navigator can choose
 	// it as the editor opens. Files is replaced, never changed: a scan
 	// may hold the old one.
-	if rel := filepath.Base(path); !slices.Contains(p.Files, rel) {
+	if rel, _ := queriesSection.rel(p, path); !slices.Contains(p.Files, rel) {
 		i, _ := slices.BinarySearch(p.Files, rel)
 		p.Files = slices.Insert(slices.Clone(p.Files), i, rel)
 	}
@@ -616,7 +601,7 @@ func (a *App) copyQuery(cn *connection.Conn, database, text string) {
 	if project.HeaderConnection(text) == "" {
 		text = connection.HeaderLine(cn) + text
 	}
-	if d := a.createQueryFile(cn, database, text); d != nil {
+	if d := a.createQueryFile(cn, "", database, text); d != nil {
 		d.Created = ""
 	}
 }
@@ -759,21 +744,11 @@ func (a *App) renameQueryFile(p *project.Project, path, name string) error {
 	if to == path {
 		return nil
 	}
-	if _, err := os.Lstat(to); err == nil {
+	if taken(to, path) {
 		return errors.New(name + " exists already.")
 	}
-	for _, t := range a.everyTab() {
-		if q, ok := t.(*query.Tab); ok && q.Path == path {
-			q.Flush(false)
-		}
-	}
-	if err := os.Rename(path, to); err != nil {
+	if err := a.movePath(p, path, to); err != nil {
 		return err
-	}
-	for _, t := range a.everyTab() {
-		if q, ok := t.(*query.Tab); ok && q.Path == path {
-			q.Path, q.Name, q.Created = to, name, ""
-		}
 	}
 	a.ScanQueries(p, true)
 	return nil

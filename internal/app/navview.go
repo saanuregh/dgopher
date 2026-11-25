@@ -179,6 +179,10 @@ func (a *App) nodeKeys(c *ui.Context, pane navPane) {
 	if !ok {
 		return
 	}
+	if keymap.ListPressed(c, l, keymap.NavigatorBookmark) {
+		a.toggleBookmark(n)
+		return
+	}
 	if n.kind == nodeConn {
 		// As DBeaver: F4 edits a connection, Delete deletes it once agreed.
 		if cn := a.connByID(n.conn); cn != nil {
@@ -192,8 +196,15 @@ func (a *App) nodeKeys(c *ui.Context, pane navPane) {
 		return
 	}
 	if p := a.projectByDir(n.projectDir); p != nil {
-		if n.kind == nodeConnFolder {
+		switch n.kind {
+		case nodeConnFolder:
 			a.connFolderKeys(c, l, p, n)
+			return
+		case nodeFileFolder:
+			a.fileFolderKeys(c, l, p, n)
+			return
+		case nodeBookmark:
+			a.bookmarkKeys(c, l, p, n)
 			return
 		}
 		if rename, del := a.fileActions(p, n); rename != nil {
@@ -250,11 +261,18 @@ func (a *App) activate(n navNode) {
 		return
 	}
 	switch n.kind {
-	case nodeProject, nodeConnections, nodeConnFolder, nodeQueries, nodeDashboards, nodeModels:
+	case nodeProject, nodeConnections, nodeConnFolder, nodeQueries, nodeDashboards, nodeModels, nodeFileFolder, nodeBookmarks:
 		if a.nav.isOpen(n) {
 			a.nav.collapse(n)
 		} else {
 			a.nav.expand(n)
+		}
+		return
+	case nodeBookmark:
+		if p := a.projectByDir(n.projectDir); p != nil {
+			if b, ok := a.bookmark(p, n); ok {
+				a.openBookmark(p, b)
+			}
 		}
 		return
 	case nodeQueryFile, nodeDashboard, nodeModel:
@@ -264,9 +282,9 @@ func (a *App) activate(n navNode) {
 		case n.kind == nodeQueryFile:
 			a.openQueryFile(p, n.name, nil)
 		case n.kind == nodeDashboard:
-			a.openDashboard(p, n.name)
+			a.openDashboard(p, a.filePath(p, n))
 		default:
-			a.openModel(p, n.name)
+			a.openModel(p, a.filePath(p, n))
 		}
 		return
 	}
