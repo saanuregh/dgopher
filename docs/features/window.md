@@ -65,8 +65,8 @@ dashboard on the right, each group with its tab bar](../images/groups.png)
   two: its own order, pins, tab in front, overflow list, and buttons that
   split it or close it. With one group, the tabs stay in the title bar;
   with several, the title bar names the focused group's tab in front.
-- **The focused group** has the keys, and its tab in front is marked with a
-  line in the accent color. Keys, the window's title, the
+- **The tab in front** carries a line along its top: in the accent color
+  in the focused group, which has the keys, and gray in a group beside it. Keys, the window's title, the
   navigator's highlight, the palette's commands, ⌘W, ⌘1…⌘9 and Next Tab
   act on it. A press anywhere in a group, or ⌘K ⌘← … ⌘K ⌘↓ and ⌘K ⌘1…⌘9,
   focuses it.

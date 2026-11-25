@@ -259,18 +259,21 @@ func (t *activityTab) View(c *ui.Context) {
 			if widgets.ToolButton(c, widgets.IconRefresh, "Refresh", "Read the page now").Clicked() {
 				t.refresh()
 			}
-			if row := t.selected(); row != nil {
-				if t.conn.KV() != nil {
-					if widgets.Appear(ui.Button(c.Key("disconnect-client"), "Disconnect Client")).Clicked() {
-						t.act(row, true)
-					}
-				} else {
-					if page.Stop != nil && widgets.Appear(ui.Button(c.Key("cancel-query"), "Cancel Query")).Clicked() {
-						t.act(row, false)
-					}
-					if page.Kill != nil && widgets.Appear(ui.Button(c.Key("end-session"), "End Session")).Clicked() {
-						t.act(row, true)
-					}
+			// What acts on a row keeps its place, unavailable until one is
+			// chosen: coming and going, it would move Refresh under the
+			// pointer.
+			row := t.selected()
+			none := widgets.When(row == nil, "Choose a row first")
+			if t.conn.KV() != nil {
+				if widgets.Clicked(ui.Button(c.Key("disconnect-client"), "Disconnect Client"), none) {
+					t.act(row, true)
+				}
+			} else {
+				if page.Stop != nil && widgets.Clicked(ui.Button(c.Key("cancel-query"), "Cancel Query"), none) {
+					t.act(row, false)
+				}
+				if page.Kill != nil && widgets.Clicked(ui.Button(c.Key("end-session"), "End Session"), none) {
+					t.act(row, true)
 				}
 			}
 		})

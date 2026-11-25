@@ -169,7 +169,7 @@ its run count and its own result](../images/notebook.png)
   and Vim keys, or Markdown, shown as it reads, and edited with a click on
   a focused cell. Each SQL cell shows its results under it: rows in a grid,
   plans, errors, and what statements without rows did. Its `[n]` numbers
-  its last run, and what it took shows under it.
+  its last run; hovering it shows how long the run took.
 - **One session.** Every cell runs on the editor's session, as a
   notebook's cells run on one kernel: a temporary table, a `SET` or a
   transaction one cell begins, the next sees. Runs go through the same

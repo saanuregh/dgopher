@@ -205,7 +205,8 @@ func TestPinBackupDialog(t *testing.T) {
 				tt.Frame()
 				var shown []string
 				for _, l := range labels {
-					shown = append(shown, fmt.Sprintf("%s=%v", l, tt.HasText(l)))
+					// The dialog's own label, not a word of the page behind it.
+					shown = append(shown, fmt.Sprintf("%s=%v", l, hasExact(tt, l)))
 				}
 				add(fmt.Sprintf("%s restore=%v", e, restore), strings.Join(shown, " ")+
 					fmt.Sprintf(" note shown=%v", testutil.HasTextContaining(tt, r.BackupNote(restore)[:20])))

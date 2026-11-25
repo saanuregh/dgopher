@@ -48,12 +48,12 @@ func TestLayoutPersists(t *testing.T) {
 	if err := tt.Click("Hide Sidebar"); err != nil {
 		t.Fatal(err)
 	}
-	a.layout.EditorPercent, a.layout.RedisConsoleHeight = 60, 300 // as dragged
+	a.layout.EditorPercent, a.layout.RedisPanelHeight = 60, 300 // as dragged
 	tt.Frame()
 
 	a, _ = run()
 	want := widgets.DefaultLayout()
-	want.SidebarWidth, want.SidebarHidden, want.EditorPercent, want.RedisConsoleHeight = 333, true, 60, 300
+	want.SidebarWidth, want.SidebarHidden, want.EditorPercent, want.RedisPanelHeight = 333, true, 60, 300
 	if a.layout != want {
 		t.Fatalf("the next run's layout %+v, want %+v", a.layout, want)
 	}

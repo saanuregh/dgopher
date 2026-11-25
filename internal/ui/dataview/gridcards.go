@@ -411,40 +411,13 @@ func timeCard(c *ui.Context, card *widgets.Card, a Host, name, typ string, v any
 	card.Rows(c, [][2]string{
 		{"Local", local.Format("2006-01-02 15:04:05 MST")},
 		{"UTC", when.UTC().Format("2006-01-02 15:04:05")},
-		{"Relative", relativeTime(a.Now().Sub(when))},
+		{"Relative", widgets.RelativeTime(a.Now().Sub(when))},
 		{"Unix", strconv.FormatInt(when.Unix(), 10)},
 	})
 	card.Actions(c, func(ac *widgets.CardActions) {
 		ac.Copy(c, "Copy ISO 8601", when.UTC().Format(time.RFC3339))
 		ac.Copy(c, "Copy Unix", strconv.FormatInt(when.Unix(), 10))
 	})
-}
-
-// relativeTime says how long ago d was, or how far ahead, roughly.
-func relativeTime(d time.Duration) string {
-	ago := d >= 0
-	if !ago {
-		d = -d
-	}
-	var s string
-	switch {
-	case d < time.Minute:
-		return "now"
-	case d < time.Hour:
-		s = widgets.Count(int(d/time.Minute), "minute")
-	case d < 48*time.Hour:
-		s = widgets.Count(int(d/time.Hour), "hour")
-	case d < 60*24*time.Hour:
-		s = widgets.Count(int(d/(24*time.Hour)), "day")
-	case d < 730*24*time.Hour:
-		s = widgets.Count(int(d/(30*24*time.Hour)), "month")
-	default:
-		s = widgets.Count(int(d/(365*24*time.Hour)), "year")
-	}
-	if ago {
-		return s + " ago"
-	}
-	return "in " + s
 }
 
 // headerCard gives a column's header its card: the table's column, as

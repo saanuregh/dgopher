@@ -826,7 +826,12 @@ func (q *Tab) cellView(c *ui.Context, cl *cell) {
 				label = fmt.Sprintf("[%d]", cl.count)
 			}
 			if !cl.markdown {
-				ui.Text(c, label).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted)
+				num := ui.Text(c, label).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted)
+				if cl.count > 0 && !running {
+					// On the run's number, not a line of its own under the
+					// results, which say their own time.
+					num.Tooltip(fmt.Sprintf("Run %d took %s", cl.count, widgets.FormatDuration(cl.took)))
+				}
 				if running {
 					if widgets.Clicked(widgets.IconButton(c.Key("stop"), widgets.IconStop, "Stop the cell"), widgets.When(q.stopping, "Asked to stop: the run ends once the server stops it")) {
 						q.stop()
@@ -997,9 +1002,6 @@ func (q *Tab) cellResultsView(c *ui.Context, cl *cell) {
 			ui.Column(c).Height(360).Children(func() { q.planView(c, r) })
 		default:
 			ui.Column(c).Height(q.resultHeight(r)).Children(func() { r.view.View(c) })
-		}
-		if cl.count > 0 && !running {
-			ui.Text(c, "took "+widgets.FormatDuration(cl.took)).FontSize(widgets.TextMeta).TextColor(pal.Muted).Padding(0, 10, 4, 10)
 		}
 	})
 }

@@ -10,6 +10,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/keymap"
+	"dgopher/internal/project"
 	"dgopher/internal/redact"
 	"dgopher/internal/ui/dashboard"
 	"dgopher/internal/ui/dataview"
@@ -618,10 +619,16 @@ func (a *App) tabBar(c *ui.Context, g *panes.Group) {
 						p.Fill(ui.Rect{X: r.X + r.W - 1, Y: r.Y + r.H/2 - 9, W: 1, H: 18}, t.Border, 0)
 					})
 				}
-				if on && focusedGroup && a.several() {
-					// The tab the keys go to, of several groups.
+				if on {
+					// The tab in front carries a line: in the accent where the
+					// keys go, gray in a group beside it. Its lighter
+					// background alone is too near the others' to find.
+					line := t.Accent
+					if !focusedGroup {
+						line = t.TextMuted.Alpha(0.5)
+					}
 					item.DrawOver(func(p *ui.Painter, r ui.Rect) {
-						p.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: 2}, t.Accent, 0)
+						p.Fill(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: 2}, line, 0)
 					})
 				}
 				// A tab dropped on another takes its place, which the side it
@@ -923,7 +930,13 @@ func (a *App) closeTogether(tabs []widgets.Tab) {
 	a.requestEnd(endClose, title, "", tabs, nil, end)
 }
 
+// welcome is the start page: for a project with connections, what there
+// is to open (home); before that, how to begin.
 func (a *App) welcome(c *ui.Context) {
+	if len(a.conns) > 0 {
+		a.home(c)
+		return
+	}
 	pal := widgets.PaletteOf(c)
 	t := c.Theme()
 	ui.Scroll(c).Grow(1).Children(func() {
@@ -984,63 +997,159 @@ func (a *App) welcome(c *ui.Context) {
 					}
 				})
 			}
-			if len(a.conns) > 0 {
-				ui.Column(c).Gap(8).Children(func() {
-					ui.Text(c, "Connections").Bold().TextColor(pal.Muted).FontSize(widgets.TextSmall)
-					ui.Grid(c).Columns(2).GapX(10).GapY(8).Children(func() {
-						for _, cn := range a.conns {
-							retry := false // its Retry was clicked, not the card
-							row := ui.ButtonBase(c.Key("welcome-"+cn.Config.ID)).Padding(10, 14).Radius(widgets.RadiusLarge).Border(1, t.Border).Label("Open " + cn.Config.Name)
-							if row.Hovered() {
-								row.Background(pal.Hover)
-							}
-							row.Children(func() {
-								ui.Row(c).Gap(10).Grow(1).Children(func() {
-									ui.Box(c).Size(4, 32).Radius(2).Background(widgets.EnvColor(&cn.Config))
-									ui.Icon(c, widgets.IconDatabase).TextColor(widgets.EngineColor(cn.Config.Engine)).FontSize(widgets.IconLarge)
-									ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
-										ui.Text(c, cn.Config.Name).Bold().SingleLine()
-										ui.Text(c, connSummary(&cn.Config)).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine()
-									})
-									if cn.Status == connection.StatusFailed {
-										why := cmp.Or(cn.ErrKind.Hint(), redact.Secrets(cn.Err))
-										ui.Icon(c, widgets.IconAlert).FontSize(widgets.IconMedium).TextColor(t.Danger).Tooltip(widgets.FirstLine(why))
-										if ui.Button(c.Key("retry-"+cn.Config.ID), "Retry").Padding(3, 10).FontSize(widgets.TextSmall).Clicked() {
-											retry = true
-										}
-									}
-									if cn.Config.ReadOnly {
-										ui.Icon(c, widgets.IconLock).FontSize(widgets.IconSmall).TextColor(pal.Muted)
-									}
-								})
+			a.shortcutTips(c)
+		})
+	})
+}
+
+// home is the start page of a project with connections: what there is
+// to open comes first, the connections and the query files last worked
+// on; how to begin, which a returning user has done, is a row of links.
+func (a *App) home(c *ui.Context) {
+	pal := widgets.PaletteOf(c)
+	ui.Scroll(c).Grow(1).Children(func() {
+		ui.Column(c).Padding(32, 48).Gap(24).MaxWidth(860).Children(func() {
+			a.connectionCards(c)
+			if recent := a.recentQueries(recentQueryCount); len(recent) > 0 {
+				ui.Column(c).Gap(4).Children(func() {
+					ui.Text(c, "Recent Queries").Bold().TextColor(pal.Muted).FontSize(widgets.TextSmall).Padding(0, 0, 4, 0)
+					for _, r := range recent {
+						row := ui.ButtonBase(c.Key("recent-"+r.project.Prefix+r.file)).Padding(5, 8).Radius(widgets.RadiusMedium).Label("Open " + r.file)
+						if row.Hovered() {
+							row.Background(pal.Hover)
+						}
+						row.Children(func() {
+							ui.Row(c).Gap(8).Grow(1).AlignItems(ui.Center).Children(func() {
+								ui.Icon(c, widgets.IconFile).FontSize(widgets.IconMedium).TextColor(pal.Muted)
+								ui.Text(c, r.file).SingleLine().Shrink(1)
+								ui.Spacer(c)
+								if r.conn != "" {
+									ui.Text(c, r.conn).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine()
+								}
+								ui.Text(c, widgets.RelativeTime(a.Now().Sub(r.mod))).FontSize(widgets.TextSmall).TextColor(pal.Muted).Width(96).TextAlign(ui.End)
 							})
-							if retry {
-								a.Connect(cn, nil)
-							} else if row.Clicked() {
-								a.NewQueryTab(cn, "", "") // the key browser for a key-value engine
+						})
+						if row.Clicked() {
+							a.openQueryFile(r.project, r.file, nil)
+						}
+					}
+				})
+			}
+			ui.Row(c).Gap(8).Wrap().AlignItems(ui.Center).Children(func() {
+				if ui.Button(c, "New Connection…").Tooltip(keymap.Hint("A server or a file", keymap.NewConnection)).Clicked() {
+					a.openConnForm(nil)
+				}
+				if ui.Button(c, "Paste a URL…").Tooltip("postgres://, mysql://, redis://…").Clicked() {
+					a.openConnForm(nil)
+					if a.connForm != nil {
+						a.connForm.urlFocus = true
+					}
+				}
+				if ui.Button(c, "Add Existing Folder…").Tooltip(keymap.Hint("A Git repository's connections and .sql files", keymap.AddFolder)).Clicked() {
+					a.addExistingProject()
+				}
+				if !a.settings.TourDone && ui.Link(c, "Take the Tour", "").Clicked() {
+					a.startTour()
+				}
+			})
+			a.shortcutTips(c)
+		})
+	})
+}
+
+// recentQueryCount is how many query files the start page lists.
+const recentQueryCount = 6
+
+// recentQuery is a query file of a project, with the connection it names
+// and when it last changed.
+type recentQuery struct {
+	project *project.Project
+	file    string
+	conn    string
+	mod     time.Time
+}
+
+// recentQueries are the n query files last changed, of every project,
+// the latest first.
+func (a *App) recentQueries(n int) []recentQuery {
+	var all []recentQuery
+	for _, p := range a.projects {
+		for _, f := range p.Files {
+			fc := p.FileConnections[f]
+			r := recentQuery{project: p, file: f, mod: fc.Mod}
+			if cn := a.connByID(p.Prefix + fc.ID); cn != nil {
+				r.conn = cn.Config.Name
+			}
+			all = append(all, r)
+		}
+	}
+	slices.SortStableFunc(all, func(x, y recentQuery) int { return y.mod.Compare(x.mod) })
+	return all[:min(n, len(all))]
+}
+
+// connectionCards are the start page's connections, each a card that
+// opens an editor on it, or the key browser of a key-value engine.
+func (a *App) connectionCards(c *ui.Context) {
+	pal := widgets.PaletteOf(c)
+	t := c.Theme()
+	ui.Column(c).Gap(8).Children(func() {
+		ui.Text(c, "Connections").Bold().TextColor(pal.Muted).FontSize(widgets.TextSmall)
+		ui.Grid(c).Columns(2).GapX(10).GapY(8).Children(func() {
+			for _, cn := range a.conns {
+				retry := false // its Retry was clicked, not the card
+				row := ui.ButtonBase(c.Key("welcome-"+cn.Config.ID)).Padding(10, 14).Radius(widgets.RadiusLarge).Border(1, t.Border).Label("Open " + cn.Config.Name)
+				if row.Hovered() {
+					row.Background(pal.Hover)
+				}
+				row.Children(func() {
+					ui.Row(c).Gap(10).Grow(1).Children(func() {
+						ui.Box(c).Size(4, 32).Radius(2).Background(widgets.EnvColor(&cn.Config))
+						ui.Icon(c, widgets.IconDatabase).TextColor(widgets.EngineColor(cn.Config.Engine)).FontSize(widgets.IconLarge)
+						ui.Column(c).Grow(1).Shrink(1).Gap(2).Children(func() {
+							ui.Text(c, cn.Config.Name).Bold().SingleLine()
+							ui.Text(c, connSummary(&cn.Config)).FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine()
+						})
+						if cn.Status == connection.StatusFailed {
+							why := cmp.Or(cn.ErrKind.Hint(), redact.Secrets(cn.Err))
+							ui.Icon(c, widgets.IconAlert).FontSize(widgets.IconMedium).TextColor(t.Danger).Tooltip(widgets.FirstLine(why))
+							if ui.Button(c.Key("retry-"+cn.Config.ID), "Retry").Padding(3, 10).FontSize(widgets.TextSmall).Clicked() {
+								retry = true
 							}
+						}
+						if cn.Config.ReadOnly {
+							ui.Icon(c, widgets.IconLock).FontSize(widgets.IconSmall).TextColor(pal.Muted)
 						}
 					})
 				})
+				if retry {
+					a.Connect(cn, nil)
+				} else if row.Clicked() {
+					a.NewQueryTab(cn, "", "") // the key browser for a key-value engine
+				}
 			}
-			ui.Row(c).Gap(16).Wrap().Children(func() {
-				tip := func(keys, what string) {
-					if keys == "" {
-						return // its key taken away
-					}
-					ui.Row(c).Gap(6).Children(func() {
-						widgets.Keycap(c, keys)
-						ui.Text(c, what).FontSize(widgets.TextBody).TextColor(pal.Muted)
-					})
-				}
-				tip(keymap.First(keymap.Palette), "every command")
-				tip(keymap.First(keymap.OpenTable), "open a table")
-				tip(keymap.First(keymap.Run), "run")
-				if ui.Link(c, keymap.Hint("All shortcuts", keymap.ShortcutsList), "").FontSize(widgets.TextBody).Clicked() {
-					a.shortcutsOpen = true
-				}
-			})
 		})
+	})
+}
+
+// shortcutTips are the keys worth knowing first, under the start page.
+func (a *App) shortcutTips(c *ui.Context) {
+	pal := widgets.PaletteOf(c)
+	ui.Row(c).Gap(16).Wrap().Children(func() {
+		tip := func(keys, what string) {
+			if keys == "" {
+				return // its key taken away
+			}
+			ui.Row(c).Gap(6).Children(func() {
+				widgets.Keycap(c, keys)
+				ui.Text(c, what).FontSize(widgets.TextBody).TextColor(pal.Muted)
+			})
+		}
+		tip(keymap.First(keymap.Palette), "every command")
+		tip(keymap.First(keymap.OpenTable), "open a table")
+		tip(keymap.First(keymap.Run), "run")
+		if ui.Link(c, keymap.Hint("All shortcuts", keymap.ShortcutsList), "").FontSize(widgets.TextBody).Clicked() {
+			a.shortcutsOpen = true
+		}
 	})
 }
 

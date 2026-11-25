@@ -88,17 +88,20 @@ type Tab struct {
 	newKey    *newKeyForm
 	bulk      *bulkDialog
 
-	split       float32
-	consoleH    float32
-	consoleIn   string
-	consoleLog  []consoleLine
-	history     []string
-	histIdx     int
-	consoleList ui.ListState
-	docs        map[string]db.CommandDoc // the commands' help; nil before it is read, or without it
-	docsAsked   time.Time                // when the help was asked for; zero before, and after it failed a while
-	caretToEnd  bool                     // the console's caret goes to the end of its line next frame
-	file        *fileRun
+	split float32
+	// panelH is the height of the panel under the keys, and viewH that
+	// of the whole browser as last drawn, which the keys take the rest
+	// of.
+	panelH, viewH float32
+	consoleIn     string
+	consoleLog    []consoleLine
+	history       []string
+	histIdx       int
+	consoleList   ui.ListState
+	docs          map[string]db.CommandDoc // the commands' help; nil before it is read, or without it
+	docsAsked     time.Time                // when the help was asked for; zero before, and after it failed a while
+	caretToEnd    bool                     // the console's caret goes to the end of its line next frame
+	file          *fileRun
 
 	panel   int // the panel below the keys: console, monitor, slow log or memory
 	monitor monitorState
@@ -133,7 +136,7 @@ const (
 
 func New(a Host, cn *connection.Conn) *Tab {
 	l := a.Layout()
-	r := &Tab{a: a, conn: cn, typeFilter: allTypes, split: l.RedisKeysWidth, consoleH: l.RedisConsoleHeight, treeRow: -1, fieldRow: -1}
+	r := &Tab{a: a, conn: cn, typeFilter: allTypes, split: l.RedisKeysWidth, panelH: l.RedisPanelHeight, treeRow: -1, fieldRow: -1}
 	r.tree.List.Selected = &r.treeRow
 	r.consoleList.FollowEnd = true
 	r.rescan()
@@ -503,18 +506,30 @@ func (r *Tab) review(args, fallback []string, ask string, then func()) {
 	run()
 }
 
+// minPanelHeight is the least the panel under the keys takes: its bar and
+// a line of the console.
+const minPanelHeight = 80
+
 func (r *Tab) View(c *ui.Context) {
 	a := r.a
-	ui.Column(c).Grow(1).Children(func() {
-		// Where the next browser's keys and console start.
-		if ui.SplitVertical(c, &r.consoleH, func() {
+	ui.Column(c).Grow(1).Draw(func(_ *ui.Painter, rect ui.Rect) { r.viewH = rect.H }).Children(func() {
+		// The panel keeps its height, as dragged, and the keys and the
+		// value take the rest: a tall window shows more keys, not more of
+		// an empty console.
+		above := float32(400) // before the first frame says how tall the browser is
+		if r.viewH > 0 {
+			above = max(minPanelHeight, r.viewH-r.panelH)
+		}
+		if ui.SplitVertical(c, &above, func() {
 			if ui.Split(c, &r.split, func() { r.keysView(c, a) }, func() { r.keyView(c, a) }).Fill().Changed() {
 				a.Layout().RedisKeysWidth = r.split
 			}
 		}, func() {
 			r.panelView(c)
-		}).Grow(1).Changed() {
-			a.Layout().RedisConsoleHeight = r.consoleH
+		}).Grow(1).Changed() && r.viewH > 0 {
+			// Where the next browser's panel starts.
+			r.panelH = max(minPanelHeight, r.viewH-above)
+			a.Layout().RedisPanelHeight = r.panelH
 		}
 	})
 }
@@ -533,6 +548,7 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 				if want := a.FocusWant(); *want == "filter" && a.KeysTo(r) && search.Focus().Focused() {
 					*want = ""
 				}
+				r.typeButton(c)
 				if widgets.IconButton(c, widgets.IconRefresh, keymap.Hint("Refresh the keys", keymap.Refresh)).Clicked() || keymap.ListPressed(c, &r.tree.List, keymap.Refresh) {
 					r.pattern = r.patternIn
 					r.rescan()
@@ -557,13 +573,6 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 						r.chooseCommandFile()
 					}
 				})
-			})
-			ui.Row(c).Gap(6).Children(func() {
-				if ui.Select(c, &r.typeFilter, typeLabels).Label("Type").Changed() {
-					r.rescan()
-				}
-				ui.Spacer(c)
-				ui.Text(c, fmt.Sprintf("%d of %d keys", len(r.keys), r.dbsize)).FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			})
 		})
 		if r.scanErr != "" {
@@ -610,9 +619,15 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 				r.open(n)
 			}
 		}
-		ui.Row(c).Padding(6, 8).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+		// How many keys show, of how many, with the way to read more.
+		ui.Row(c).Padding(6, 8).Gap(6).AlignItems(ui.Center).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+			count := func() {
+				ui.Spacer(c)
+				ui.Text(c, fmt.Sprintf("%d of %d keys", len(r.keys), r.dbsize)).FontSize(widgets.TextSmall).TextColor(pal.Muted)
+			}
 			if r.scanDone && !r.scanning {
 				widgets.Appear(ui.Text(c.Key("scan-complete"), "Scan complete").FontSize(widgets.TextSmall).TextColor(pal.Muted))
+				count()
 				return
 			}
 			// One button, so its label eases from Scan More to Scanning….
@@ -623,10 +638,31 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 			if widgets.Clicked(widgets.MorphButton(c.Key("scan-more"), label), widgets.When(r.scanning, "The scan is running")) {
 				r.scan()
 			}
+			count()
 		})
 	})
 	r.newKeyView(c)
 	r.bulkView(c)
+}
+
+// typeButton lists the keys of one type: beside the pattern, as both say
+// which keys to list. It is an icon while every type shows, and names
+// the type once one is chosen, so that the pattern keeps its room.
+func (r *Tab) typeButton(c *ui.Context) {
+	var b ui.Element
+	if r.typeFilter == allTypes {
+		b = widgets.IconButton(c.Key("type"), widgets.IconListFilter, "Type").Tooltip("List the keys of one type")
+	} else {
+		b = widgets.IconPill(c.Key("type"), widgets.IconDropdown, r.typeFilter, true).Label("Type").Tooltip("Only " + r.typeFilter + " keys are listed")
+	}
+	b.Menu(func(m *ui.Menu) {
+		for _, t := range typeLabels {
+			if m.Item(t).Radio(t == r.typeFilter).Chosen() {
+				r.typeFilter = t
+				r.rescan()
+			}
+		}
+	})
 }
 
 // askDelete deletes a key once the user agrees.

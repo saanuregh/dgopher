@@ -12,10 +12,11 @@ type Layout struct {
 	// Results is how the editors' results show, which every editor
 	// shares, as VS Code's panel.
 	Results ResultsState `json:"results"`
-	// RedisKeysWidth and RedisConsoleHeight are the width of the Redis
-	// browser's keys and the height above its console.
-	RedisKeysWidth     float32 `json:"redisKeysWidth"`
-	RedisConsoleHeight float32 `json:"redisConsoleHeight"`
+	// RedisKeysWidth and RedisPanelHeight are the width of the Redis
+	// browser's keys and the height of the panel under them, as its
+	// console: the keys and the value take the rest of a tall window.
+	RedisKeysWidth   float32 `json:"redisKeysWidth"`
+	RedisPanelHeight float32 `json:"redisPanelHeight"`
 	// ChatWidth is the width of the editors' AI chat, 0 for its default.
 	ChatWidth float32 `json:"chatWidth,omitempty"`
 }
@@ -33,5 +34,5 @@ const (
 
 // DefaultLayout is the layout of a first run.
 func DefaultLayout() Layout {
-	return Layout{SidebarWidth: 260, EditorPercent: 40, RedisKeysWidth: 340, RedisConsoleHeight: 520}
+	return Layout{SidebarWidth: 260, EditorPercent: 40, RedisKeysWidth: 340, RedisPanelHeight: 200}
 }
