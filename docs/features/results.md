@@ -23,8 +23,8 @@ One viewer shows both a query's results and a table's data.
 - Formats: numbers show in your region's format with thousands
   separators by default, as in DBeaver, and either can be turned off
   (every digit is kept); dates, booleans, binary and NULL; dates in your
-  region's format; row colors by value; zoom, also with ⌘= and ⌘-, ⌘K ⌘0
-  for the default size, ⌘ with the mouse wheel and pinching a touchpad.
+  region's format; row colors by value. The text's size is in Settings;
+  ⌘= and ⌘- zoom the whole window.
 - **Refresh**, **Fetch All** (with Stop, which keeps the rows read), and on
   a table **Count** (`SELECT COUNT(*)`, with Stop). The keys: F5, ⌘⇧= and
   ⌘⌥N for the next page.

@@ -10,6 +10,18 @@ window buttons, without a row of its own:
 
 - The sidebar's top row adds a project or a connection, and hides the
   sidebar.
+- **Zoom.** ⌘= and ⌘- zoom the whole window, as a browser zooms a page:
+  everything larger or smaller, laid out again at that size and as sharp.
+  A pinch and ⌘ with the mouse wheel zoom it too. ⌘K ⌘0 puts it back, and
+  the zoom is kept for the next start. The sizes of the editors' and the
+  grids' text alone are in Settings.
+- **Memory.** The sidebar's foot shows the memory DGopher uses, as the
+  system's task manager counts it. Click it for the rest: the most it has
+  been this run, Go's part and what is outside it (the databases'
+  libraries and the drawing), the rows each tab holds, most first, and
+  the connections open. **Free Memory** drops what Go no longer needs and
+  hands it back to the system; rows a tab still shows stay until the tab
+  is closed.
 - **The navigator is two panes.** The upper one lists the project's
   files: query files, dashboards and data models. The lower one is the
   tree of the connections and what their databases hold: schemas, tables,

@@ -80,6 +80,7 @@ func (a *App) view(c *ui.Context) {
 	tabs, front := a.tabs().Len(), a.ActiveTab()
 	a.drain()
 	a.now = c.Now()
+	c.SetZoom(a.zoom())
 	widgets.ApplyTheme(c, strings.TrimSpace(a.settings.UIFontFamily))
 	// Every menu of the window, a right-click's, a table's or a text's,
 	// drawn in the app's theme rather than the desktop's.
@@ -94,7 +95,7 @@ func (a *App) view(c *ui.Context) {
 		a.instant = false
 	}
 	a.window.several = a.window.panes.Len() > 1
-	root := ui.Column(c).Fill()
+	root := ui.Column(c).Fill().HandleInput(a.ZoomInput)
 	defer a.dropZone(c, root)
 	root.Children(func() {
 		// The sidebar is the main window's; the others hold tabs alone.

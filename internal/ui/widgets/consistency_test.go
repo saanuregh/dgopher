@@ -72,6 +72,7 @@ func TestBarsUseNamedPaddings(t *testing.T) {
 func TestHandBuiltButtonsAreCounted(t *testing.T) {
 	want := map[string]int{
 		"app/layout.go":           6, // a tab, its close button, a start page's cards, the status bar's chips
+		"app/navfoot.go":          1, // the sidebar's foot's chip of the memory used, an icon before its figure
 		"app/titlebar.go":         1, // a window button
 		"app/txsafety.go":         1, // the title bar's chip of open transactions
 		"ui/chat/modelpicker.go":  0,

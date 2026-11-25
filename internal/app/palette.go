@@ -2,6 +2,7 @@ package app
 
 import (
 	"cmp"
+	"fmt"
 	"slices"
 	"sort"
 	"strings"
@@ -85,6 +86,7 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 			cmds = append(cmds, paletteItem{title: cmd.Title, detail: cmd.Detail, key: cmd.Key, group: "Command", icon: cmd.Icon, run: cmd.Run})
 		}
 	}
+	zoomNow := fmt.Sprintf("the window, now at %.0f%%", a.zoom()*100)
 	cmds = append(cmds,
 		paletteItem{title: "New Connection…", key: keymap.NewConnection, group: "Command", icon: widgets.IconPlus, run: func() { a.openConnForm(nil) }},
 		paletteItem{title: "Import from DBeaver…", detail: "its saved connections", group: "Command", icon: widgets.IconPlug, run: func() { a.openDBeaverImport(nil) }},
@@ -94,6 +96,9 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 		paletteItem{title: "Notifications", detail: "every error and message of this session", key: keymap.ToggleNotifications, group: "Command", icon: widgets.IconBell, run: a.toggleNotificationsByKey},
 		paletteItem{title: "Settings…", key: keymap.Settings, group: "Command", icon: widgets.IconSettings, run: a.openSettings},
 		paletteItem{title: "Toggle Sidebar", key: keymap.ToggleSidebar, group: "Command", icon: widgets.IconColumns, run: func() { a.layout.SidebarHidden = !a.layout.SidebarHidden }},
+		paletteItem{title: "Zoom In", detail: zoomNow, key: keymap.ZoomIn, group: "Command", icon: widgets.IconMaximize, run: func() { a.stepZoom(1) }},
+		paletteItem{title: "Zoom Out", detail: zoomNow, key: keymap.ZoomOut, group: "Command", icon: widgets.IconMinimize, run: func() { a.stepZoom(-1) }},
+		paletteItem{title: "Actual Size", detail: zoomNow, key: keymap.ZoomReset, group: "Command", icon: widgets.IconMaximize, run: func() { a.stepZoom(0) }},
 		paletteItem{title: "Keyboard Shortcuts", key: keymap.ShortcutsList, group: "Command", icon: widgets.IconCode, run: func() { a.shortcutsOpen = true }},
 		paletteItem{title: "What's New in DGopher", detail: "this version's release notes", group: "Command", icon: widgets.IconWand, run: a.openWhatsNew},
 		paletteItem{title: "New Project…", group: "Command", icon: widgets.IconFolder, run: func() { a.openNewProject(nil) }},

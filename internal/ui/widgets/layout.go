@@ -32,6 +32,8 @@ type Layout struct {
 	// or Queries of a project, a line each: the others open as they first
 	// show. Text, for the layout to compare as a value.
 	NavClosed string `json:"navClosed"`
+	// Zoom is the windows' zoom, as a browser's of a page, 0 for none.
+	Zoom float32 `json:"zoom"`
 }
 
 // ResultsState is how the editors' results show: under the editor,

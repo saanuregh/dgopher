@@ -199,10 +199,6 @@ type Tab struct {
 	named, namedText string
 	// exports counts the exports reading on the session.
 	exports int
-	// fontPinch and wheelZoom zoom the editors' text with pinches and the
-	// wheel.
-	fontPinch widgets.FontPinch
-	wheelZoom widgets.WheelZoom
 	// sessionLost is set when the session closed with its connection, left
 	// unused (ConnectionClosed): the next run is refused once.
 	sessionLost bool
@@ -234,13 +230,6 @@ func (q *Tab) key(c *ui.Context, mods ui.Modifiers, key ui.Key) bool {
 func (q *Tab) pressed(c *ui.Context, id string) bool {
 	return q.a.KeysTo(q) && (!q.chat.focused || id == keymap.Save) && keymap.Pressed(c, id)
 }
-
-// editorZoomKeys are the actions that zoom the editors' text, by the step
-// stepEditorFont takes.
-var editorZoomKeys = []struct {
-	id   string
-	step int
-}{{keymap.EditorZoomIn, 1}, {keymap.EditorZoomOut, -1}, {keymap.EditorZoomReset, 0}}
 
 func New(a Host, cn *connection.Conn, database, name, text string) *Tab {
 	q := &Tab{a: a, Conn: cn, Database: database, Name: name, editorPercent: a.Layout().EditorPercent}
@@ -274,37 +263,9 @@ func (q *Tab) newEditor(text string) *editor.Editor {
 }
 
 // editorInput takes an editor's input before it: a pinch or the wheel
-// with ⌘ held zooms the text, and a snippet takes its keys.
+// with ⌘ held zooms the window, and a snippet takes its keys.
 func (q *Tab) editorInput(ev ui.InputEvent) bool {
-	switch step, wheel := q.wheelZoom.Step(ev); {
-	case ev.Kind == ui.InputZoom:
-		s := q.a.Settings()
-		if size, ok := q.fontPinch.Zoom(s.EditorFont, ev.Scale, settings.MinFontSize, settings.MaxEditorFont); ok {
-			s.EditorFont = size
-			q.a.SaveSettings()
-		}
-	case wheel:
-		if step != 0 {
-			q.stepEditorFont(step)
-		}
-	default:
-		return q.snippetKey(ev)
-	}
-	return true
-}
-
-// stepEditorFont makes the editors' text, of every tab, a size larger, or
-// smaller for a negative step; 0 puts it back at its default.
-func (q *Tab) stepEditorFont(step int) {
-	s := q.a.Settings()
-	size := settings.Default().EditorFont
-	if step != 0 {
-		size = min(max(s.EditorFont+float32(step), settings.MinFontSize), settings.MaxEditorFont)
-	}
-	if size != s.EditorFont {
-		s.EditorFont = size
-		q.a.SaveSettings()
-	}
+	return q.a.ZoomInput(ev) || q.snippetKey(ev)
 }
 
 // Text is the editor's text, its lines ending in \n: the script's, which
@@ -336,6 +297,28 @@ func (q *Tab) SetText(text string) {
 func (q *Tab) Title() string { return q.Name }
 
 func (q *Tab) Connection() *connection.Conn { return q.Conn }
+
+// RowsHeld is the rows of the editor's results, and in a notebook of
+// every cell's: each result once, the bound cell's being the tab's own.
+func (q *Tab) RowsHeld() int {
+	seen := map[*result]bool{}
+	rows := 0
+	count := func(results []*result) {
+		for _, r := range results {
+			if !seen[r] {
+				seen[r] = true
+				rows += r.view.RowsHeld()
+			}
+		}
+	}
+	count(q.results)
+	if q.nb != nil {
+		for _, cl := range q.nb.cells {
+			count(cl.results)
+		}
+	}
+	return rows
+}
 
 func (q *Tab) Places() []connection.Place { return []connection.Place{q.Conn.PlaceOf(q.Database)} }
 
@@ -1740,14 +1723,6 @@ func (q *Tab) View(c *ui.Context) {
 	}
 	if q.pressed(c, keymap.ToggleResults) {
 		q.toggleResults()
-	}
-	if q.Editor.HasFocus() {
-		// The grid's text takes the same keys while it has the focus.
-		for _, k := range editorZoomKeys {
-			if q.pressed(c, k.id) {
-				q.stepEditorFont(k.step)
-			}
-		}
 	}
 	if q.pressed(c, keymap.MaximizeResults) {
 		q.maximizeResults()

@@ -17,6 +17,7 @@ func (a *App) sidebar(c *ui.Context) {
 	side := ui.Column(c).FillHeight().Width(a.layout.SidebarWidth).Background(pal.Sidebar)
 	a.tourPart(tourSidebar, side)
 	side.Children(func() {
+		defer a.sidebarFoot(c) // under the panes, or what stands for them
 		a.sidebarBar(c)
 		if len(a.projects) == 0 {
 			ui.Column(c).Padding(16).Gap(10).Children(func() {

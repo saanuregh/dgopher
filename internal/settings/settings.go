@@ -290,8 +290,7 @@ func GroupDigits(s string) string {
 	return sign + b.String()
 }
 
-// The sizes the editor's and the grids' text may be set to, by Settings,
-// the grid's menu and pinching.
+// The sizes the editor's and the grids' text may be set to, in Settings.
 const (
 	MinFontSize   = 9
 	MaxEditorFont = 24

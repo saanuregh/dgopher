@@ -93,6 +93,9 @@ func (t *TableTab) Connection() *connection.Conn { return t.Conn }
 
 func (t *TableTab) Icon() *ui.SVG { return widgets.IconTable }
 
+// RowsHeld is the rows of the table read so far.
+func (t *TableTab) RowsHeld() int { return t.view.RowsHeld() }
+
 func (t *TableTab) Places() []connection.Place { return []connection.Place{t.Conn.PlaceOf(t.Database)} }
 
 func (t *TableTab) CloseReason() string {

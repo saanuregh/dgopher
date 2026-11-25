@@ -1,30 +1,42 @@
 package widgets
 
-import (
-	"math"
+import "github.com/egoist/mygo/ui"
 
-	"github.com/egoist/mygo/ui"
-)
+// ZoomSteps turns what zooms a window by gesture, a touchpad's pinch and
+// scrolling with ⌘ (Ctrl elsewhere) held, into steps of zoom. A pinch
+// comes as many small scales, which it multiplies until they make a step.
+type ZoomSteps struct {
+	wheel WheelZoom
+	pinch float64
+}
 
-// FontPinch turns a touchpad's pinch into whole font sizes: a pinch comes
-// as many small scales, each too small to change a rounded size, which it
-// adds up.
-type FontPinch struct{ size float64 }
+// pinchStep is how far a pinch goes for a step of zoom.
+const pinchStep = 1.1
 
-// Zoom returns size scaled by scale, rounded and kept between lo and hi,
-// and whether that differs from size.
-func (p *FontPinch) Zoom(size, scale, lo, hi float32) (float32, bool) {
-	if math.Round(p.size) != float64(size) {
-		// The first pinch, or the size changed since in another way.
-		p.size = float64(size)
+// Step returns the step ev zooms by, 1 larger and -1 smaller, and whether
+// ev is a gesture that zooms, even by less than a step.
+func (z *ZoomSteps) Step(ev ui.InputEvent) (step int, took bool) {
+	if ev.Kind != ui.InputZoom {
+		return z.wheel.Step(ev)
 	}
-	p.size = min(max(p.size*float64(scale), float64(lo)), float64(hi))
-	next := float32(math.Round(p.size))
-	return next, next != size
+	if z.pinch == 0 {
+		z.pinch = 1
+	}
+	z.pinch *= float64(ev.Scale)
+	switch {
+	case z.pinch >= pinchStep:
+		step = 1
+	case z.pinch <= 1/pinchStep:
+		step = -1
+	default:
+		return 0, true
+	}
+	z.pinch = 1
+	return step, true
 }
 
 // WheelZoom turns scrolling with ⌘ (Ctrl elsewhere) held into steps of
-// font size, one for a mouse wheel's notch. Scrolling that comes as
+// zoom, one for a mouse wheel's notch. Scrolling that comes as
 // pixels, a touchpad's, or a wheel's as GTK reports it on Wayland, takes
 // a step each wheelStep DIPs, which it adds up.
 type WheelZoom struct{ rest float32 }
@@ -33,7 +45,7 @@ type WheelZoom struct{ rest float32 }
 // notch, which MyGo scrolls by 50 DIPs, and GTK's on Wayland by 75.
 const wheelStep = 50
 
-// Step returns the step ev zooms text by, 1 larger and -1 smaller, and
+// Step returns the step ev zooms by, 1 larger and -1 smaller, and
 // whether ev is scrolling with ⌘ held, which zooms rather than scrolls,
 // even by less than a step.
 func (w *WheelZoom) Step(ev ui.InputEvent) (int, bool) {

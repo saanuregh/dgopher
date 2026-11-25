@@ -17,6 +17,12 @@ type Tab interface {
 	Close()
 }
 
+// RowHolder is a tab that holds rows read from a database, which take
+// memory while it is open; the others hold none worth telling.
+type RowHolder interface {
+	RowsHeld() int
+}
+
 // Iconed is a tab with an icon of its own; the others show IconCode.
 type Iconed interface {
 	Icon() *ui.SVG

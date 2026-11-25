@@ -40,6 +40,8 @@ action by the name keymap.json gives it, as `editor::Run`.
 | ⌘, | Settings |
 | ⌘K ⌘S | Open keymap.json |
 | ⌘B | Show or hide the sidebar |
+| ⌘=, ⌘- | Zoom the whole window in or out, as a browser zooms a page; so do a pinch and ⌘ with the mouse wheel. The zoom is kept |
+| ⌘K ⌘0 | The window at its actual size |
 | F11 | Enter or leave full screen |
 | ⌘0 | Focus the navigator |
 | ⌘L | Focus the filter of the current view: a table's `WHERE`, then its quick filter; the navigator's filter while the navigator has the keys, or no tab is open |
@@ -119,8 +121,6 @@ Keys marked *fixed* below cannot be changed.
 | ⌘S | Save now (editors also save as you type) |
 | ⌘⇧S | Save as a file |
 | ⌘K ⌘N | Show the editor as a notebook of cells, or as one script |
-| ⌘=, ⌘- | Make the editors' text larger or smaller; so do a pinch and ⌘ with the mouse wheel |
-| ⌘K ⌘0 | The editors' text at its default size |
 
 ## Notebook
 
@@ -187,8 +187,6 @@ A notebook's cells are editors: the SQL editor's keys work in them too.
 | ⌘⇧= | Fetch every row |
 | ⌘K ⌘X | Export the rows |
 | (none) | Show or hide the chart of the rows |
-| ⌘=, ⌘- | Make the grids' text larger or smaller; so do a pinch and ⌘ with the mouse wheel |
-| ⌘K ⌘0 | The grids' text at its default size |
 
 ## Other views
 

@@ -188,6 +188,15 @@ func (a *App) appearancePage(c *ui.Context) {
 			a.SaveSettings()
 		}
 	})
+	// The grids' text had its size from keys and a pinch, which zoom the
+	// whole window now: it is set here, as the editors' is.
+	gridFont := float64(a.settings.GridFontSize())
+	ui.Field(c, "Grid font size", func() {
+		if ui.NumberInput(c, &gridFont, settings.MinFontSize, settings.MaxGridFont, 1).Label("Grid font size").Changed() {
+			a.settings.GridFont = float32(gridFont)
+			a.SaveSettings()
+		}
+	})
 	ui.Field(c, "Interface font", func() {
 		if ui.Autocomplete(c, &a.settings.UIFontFamily, uiFamilies).Placeholder("The system's").Label("Interface font").Width(240).Changed() {
 			a.settingsDirty = true

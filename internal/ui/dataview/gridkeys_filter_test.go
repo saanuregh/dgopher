@@ -85,16 +85,3 @@ func TestExportKey(t *testing.T) {
 		t.Fatal("Cmd+K Cmd+X did not open the export dialog")
 	}
 }
-
-// Cmd+= alone still zooms a focused grid: the grid leaves it only while
-// Cmd+K waits for a second key.
-func TestGridZoomKeyWithoutChord(t *testing.T) {
-	a, tt, _ := openLabels(t)
-	if err := tt.Click("apple"); err != nil {
-		t.Fatal(err)
-	}
-	tt.Frame()
-	before := a.Settings().GridFontSize()
-	tt.Key(ui.Cmd, ui.KeyEqual)
-	testutil.WaitFor(t, tt, "the grid zoomed", func() bool { return a.Settings().GridFontSize() > before })
-}

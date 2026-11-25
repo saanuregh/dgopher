@@ -34,6 +34,9 @@ type FakeHost struct {
 	active   int
 	dialogs  Dialogs
 	focus    string
+	// Zoomed is the steps the window would have zoomed by (ZoomInput).
+	Zoomed    int
+	zoomSteps widgets.ZoomSteps
 
 	// What the app would have shown or kept.
 	Confirm *widgets.ConfirmRequest
@@ -193,6 +196,13 @@ func (h *FakeHost) Settings() *settings.Settings { return &h.settings }
 func (h *FakeHost) Layout() *widgets.Layout { return &h.layout }
 
 func (h *FakeHost) SaveSettings() {}
+
+// ZoomInput counts the steps the gestures given it zoom by, in Zoomed.
+func (h *FakeHost) ZoomInput(ev ui.InputEvent) bool {
+	step, took := h.zoomSteps.Step(ev)
+	h.Zoomed += step
+	return took
+}
 
 func (h *FakeHost) ShowError(title, message string) {
 	h.ShowReport(widgets.ErrorReport{Title: title, Detail: message})

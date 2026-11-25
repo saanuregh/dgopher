@@ -138,6 +138,17 @@ func (t *Tab) Title() string { return t.d.Name }
 // Connection is none: a dashboard's panels are of any connection.
 func (t *Tab) Connection() *connection.Conn { return nil }
 
+// RowsHeld is the rows of the panels' results.
+func (t *Tab) RowsHeld() int {
+	rows := 0
+	for _, p := range t.panels {
+		if p.src != nil {
+			rows += len(p.src.Rows)
+		}
+	}
+	return rows
+}
+
 func (t *Tab) Icon() *ui.SVG { return widgets.IconLayers }
 
 // Places are where the panels run, each once, in the panels' order; a

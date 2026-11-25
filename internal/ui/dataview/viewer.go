@@ -229,6 +229,14 @@ func NewViewer(a Host, src ViewerSource) *Viewer {
 	return v
 }
 
+// RowsHeld is how many rows the viewer holds: those read so far.
+func (v *Viewer) RowsHeld() int {
+	if v == nil {
+		return 0
+	}
+	return len(v.src.Rows)
+}
+
 // bindTable wires what needs the rows' table: its row colors, its SQL
 // and the rows that refer to its rows.
 func (v *Viewer) bindTable() {

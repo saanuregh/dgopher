@@ -110,6 +110,8 @@ type navState struct {
 	holds map[navNode]bool
 	// hasKeys is whether the tree had the focus as it was last drawn.
 	hasKeys bool
+	// memory is the memory the app uses, as the sidebar's foot shows it.
+	memory memoryUse
 	// databasesKept are the databases last kept of each connection, by
 	// its ID, a line each (keepKnownDatabases).
 	databasesKept map[string]string

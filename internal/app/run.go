@@ -249,10 +249,14 @@ func accelerator(id string) string {
 // menu bar takes the first key of each, where there is one, and the window
 // the others.
 var menuCommands = []string{keymap.Settings, keymap.NewConnection, keymap.NewEditor, keymap.OpenScript, keymap.AddFolder,
-	keymap.CloseTab, keymap.CloseAllTabs, keymap.ReopenTab, keymap.Palette, keymap.OpenTable, keymap.History, keymap.AuditLog, keymap.ToggleSidebar, keymap.FullScreen, keymap.Quit, keymap.OpenKeymap, keymap.NewNotebook, keymap.ToggleChat, keymap.ShowLatestError, keymap.ToggleNotifications}
+	keymap.CloseTab, keymap.CloseAllTabs, keymap.ReopenTab, keymap.Palette, keymap.OpenTable, keymap.History, keymap.AuditLog, keymap.ToggleSidebar, keymap.FullScreen, keymap.Quit, keymap.OpenKeymap, keymap.NewNotebook, keymap.ToggleChat, keymap.ShowLatestError, keymap.ToggleNotifications,
+	keymap.ZoomIn, keymap.ZoomOut, keymap.ZoomReset}
 
 // menuAction is what a command of the menu bar does.
 func (a *App) menuAction(id string) func() {
+	if zoom := a.zoomAction(id); zoom != nil {
+		return zoom
+	}
 	switch id {
 	case keymap.Settings:
 		return a.openSettings
@@ -381,6 +385,9 @@ func (a *App) appMenus() []menuGroup {
 			cmd("Toggle Sidebar", keymap.ToggleSidebar),
 			cmd("AI Chat", keymap.ToggleChat),
 			{},
+			cmd("Zoom In", keymap.ZoomIn),
+			cmd("Zoom Out", keymap.ZoomOut),
+			cmd("Actual Size", keymap.ZoomReset),
 			cmd("Toggle Full Screen", keymap.FullScreen),
 		}},
 		// The list of keys shows no key: its key toggles it, which the
