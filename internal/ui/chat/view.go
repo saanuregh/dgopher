@@ -182,14 +182,14 @@ func (t *Chat) transcriptView(c *ui.Context) {
 		if n.err {
 			col = th.Danger
 		}
-		ui.Row(c.Key(fmt.Sprintf("notice-%d", i))).Gap(8).Padding(6, 10).Radius(widgets.RadiusLarge).Background(col.Alpha(0.12)).Transition(entering).Children(func() {
+		ui.Row(c.Key(fmt.Sprintf("notice-%d", i))).Gap(8).Padding(6, 10).Radius(widgets.RadiusLarge).Background(widgets.TintNotice(col)).Transition(entering).Children(func() {
 			ui.Icon(c, widgets.IconAlert).TextColor(col).FontSize(widgets.IconMedium)
 			ui.Text(c, n.text).FontSize(widgets.TextBody).Grow(1).Shrink(1).Selectable()
 		})
 	}
 	switch {
 	case t.startErr != "":
-		ui.Column(c).Gap(8).Padding(10, 12).Radius(widgets.RadiusLarge).Background(th.Danger.Alpha(0.10)).Children(func() {
+		ui.Column(c).Gap(8).Padding(10, 12).Radius(widgets.RadiusLarge).Background(widgets.TintNotice(th.Danger)).Children(func() {
 			ui.Text(c, t.startErr).Selectable()
 			ui.Row(c).Gap(8).Children(func() {
 				if ui.Button(c, "Try Again").Clicked() {
@@ -249,7 +249,7 @@ func (t *Chat) emptyView(c *ui.Context) {
 				b.Transition(ui.ElementTransition{Enter: &ui.Motion{Opacity: 0, Y: 6}, Animation: &ui.Animation{Duration: 260 * time.Millisecond, Delay: time.Duration(n) * 60 * time.Millisecond}, Position: true})
 				n++
 				if b.Hovered() {
-					b.Background(th.Accent.Alpha(0.08)).Border(1, th.Accent.Alpha(0.5))
+					b.Background(widgets.TintSubtle(th.Accent)).Border(1, th.Accent.Alpha(0.5))
 				}
 				b.Children(func() {
 					ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
@@ -284,7 +284,7 @@ func userBubble(c *ui.Context, text string) {
 	th, muted := c.Theme(), widgets.PaletteOf(c).Muted
 	text, summary := splitContext(text)
 	ui.Column(c).AlignItems(ui.End).Gap(3).Transition(ui.ElementTransition{Enter: &ui.Motion{Opacity: 0, X: 16, Scale: 0.97}, Duration: 240 * time.Millisecond, Position: true}).Children(func() {
-		ui.Text(c, text).Padding(8, 12).Radius(widgets.RadiusLarge).Background(th.Accent.Alpha(0.12)).MaxWidth(620).Selectable()
+		ui.Text(c, text).Padding(8, 12).Radius(widgets.RadiusLarge).Background(widgets.TintNotice(th.Accent)).MaxWidth(620).Selectable()
 		if summary != "" {
 			ui.Row(c).Gap(4).AlignItems(ui.Center).Tooltip("What the message carried of the editor").Children(func() {
 				ui.Icon(c, widgets.IconCode).FontSize(widgets.IconSmall).TextColor(muted)
@@ -532,7 +532,7 @@ func smallButton(c *ui.Context, icon *ui.SVG, label string) ui.Element {
 func (t *Chat) requestCard(c *ui.Context, r *request) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	widgets.Appear(ui.Column(c.Key("request-"+r.id)).Gap(8).Padding(10, 12).Radius(widgets.RadiusLarge).Border(1, th.Warning).Background(th.Warning.Alpha(0.08))).Children(func() {
+	widgets.Appear(ui.Column(c.Key("request-"+r.id)).Gap(8).Padding(10, 12).Radius(widgets.RadiusLarge).Border(1, th.Warning).Background(widgets.TintSubtle(th.Warning))).Children(func() {
 		ui.Row(c).Gap(8).Children(func() {
 			ui.Icon(c, widgets.IconShield).TextColor(th.Warning).FontSize(widgets.IconMedium)
 			ui.Text(c, r.title).Bold().Grow(1).Shrink(1)

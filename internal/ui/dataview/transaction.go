@@ -250,8 +250,7 @@ func (s *SessionTxState) Notice(c *ui.Context, conn string) {
 	default:
 		return
 	}
-	widgets.AppearBar(ui.Row(c.Key("tx-bar")).Padding(6, 12).Gap(10).Background(col.Alpha(0.16)).BorderWidth(0, 0, 1, 0).BorderColor(col)).Children(func() {
-		ui.Icon(c, widgets.IconAlert).TextColor(col).FontSize(widgets.IconMedium)
+	widgets.AppearBar(widgets.NoticeBar(c.Key("tx-bar"), col, func() {
 		ui.Text(c, label).Grow(1).Shrink(1)
-	})
+	}))
 }

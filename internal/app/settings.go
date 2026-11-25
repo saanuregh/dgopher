@@ -117,7 +117,7 @@ func (a *App) settingsView(c *ui.Context) {
 		_, winH := c.Size()
 		panel.Height(min(620, winH-40)).Role(ui.RoleDialog).Label("Settings")
 		widgets.DialogHeader(c, func() { widgets.DialogTitle(c, "Settings") })
-		ui.Row(c).Padding(0, 20).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		ui.Row(c).Padding(0, widgets.DialogPad).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Tabs(c, &a.settingsPage, settingsPages...).Label("Settings pages")
 		})
 		ui.Scroll(c).Grow(1).Shrink(1).Children(func() {

@@ -141,7 +141,7 @@ func (q *Tab) paramsBar(c *ui.Context, keys []string) {
 		b.edits = map[string]*paramEdit{}
 	}
 	pending := false
-	ui.Row(c).Padding(6, 12).Gap(10).Wrap().AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+	ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(10).Wrap().AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 		ui.Text(c, "Parameters").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 		for _, k := range keys {
 			base := b.keptOf(k)

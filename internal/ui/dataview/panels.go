@@ -51,7 +51,7 @@ func (g *Grid) panelsView(c *ui.Context, a Host, src *Source, order []int) {
 		col.Width(360)
 	}
 	col.Children(func() {
-		ui.Row(c).Padding(4, 6).Gap(4).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(4).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			name := panelNames[g.panel]
 			if ui.Select(c, &name, panelNames).Label("Panel").Grow(1).Changed() {
 				g.panel = slices.Index(panelNames, name)
@@ -143,7 +143,7 @@ func (g *Grid) valuePanel(c *ui.Context, a Host, src *Source, row int) {
 		}
 	}
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Row(c).Padding(6, 8).Gap(6).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(6).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Text(c, src.Cols[g.selCol].Name).Bold().SingleLine().Grow(1).Shrink(1)
 			viewers := []string{"Text", "JSON", "XML", "Hex"}
 			if g.bitmap != nil {
@@ -169,7 +169,7 @@ func (g *Grid) valuePanel(c *ui.Context, a Host, src *Source, row int) {
 			el, _ := area.View(c, &text)
 			el.Grow(1)
 		}
-		ui.Row(c).Padding(6, 8).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+		ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 			if widgets.IconButton(c, widgets.IconCopy, "Copy the value").Clicked() {
 				a.WriteClipboard(text)
 			}
@@ -436,7 +436,7 @@ func (g *Grid) groupingPanel(c *ui.Context, a Host, src *Source) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Row(c).Padding(6, 8).Gap(6).Wrap().BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(6).Wrap().BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Text(c, "Group by").FontSize(widgets.TextSmall).TextColor(pal.Muted)
 			for i, col := range src.Cols {
 				on := slices.Contains(g.groupCols, i)

@@ -410,7 +410,7 @@ func (k *Card) Header(c *ui.Context, icon *ui.SVG, tone Tone, name, where string
 	t := c.Theme()
 	col := toneColor(c, tone)
 	ui.Row(c).Gap(8).AlignItems(ui.Center).Padding(10, cardPadX, 4, cardPadX).Children(func() {
-		ui.Box(c).Size(20, 20).Radius(RadiusMedium).Background(col.Alpha(0.14)).AlignItems(ui.Center).Justify(ui.Center).Shrink(0).Children(func() {
+		ui.Box(c).Size(20, 20).Radius(RadiusMedium).Background(TintNotice(col)).AlignItems(ui.Center).Justify(ui.Center).Shrink(0).Children(func() {
 			ui.Icon(c, icon).FontSize(IconSmall).TextColor(col)
 		})
 		ui.Text(c, name).FontWeight(600).FontSize(t.FontSize).SingleLine().Shrink(1)
@@ -728,7 +728,7 @@ func (k *Card) Pages(c *ui.Context, n int) int {
 // Actions adds the card's buttons, in a row below a line.
 func (k *Card) Actions(c *ui.Context, fn func(a *CardActions)) {
 	t := c.Theme()
-	ui.Row(c).Wrap().Gap(2).Padding(5, 6).BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
+	ui.Row(c).Wrap().Gap(2).Padding(PadBarY, PadBarX).BorderWidth(1, 0, 0, 0).BorderColor(t.Border).Children(func() {
 		fn(&CardActions{k: k})
 	})
 }

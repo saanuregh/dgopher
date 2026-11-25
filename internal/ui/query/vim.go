@@ -30,7 +30,7 @@ func (q *Tab) vimBar(c *ui.Context) {
 	}
 	pal := widgets.PaletteOf(c)
 	status := cmp.Or(v.Status(), "-- NORMAL --")
-	ui.Row(c).Padding(2, 12).BorderWidth(1, 0, 0, 0).BorderColor(c.Theme().Border).Children(func() {
+	ui.Row(c).Padding(widgets.PadStatusY, widgets.PadStatusX).BorderWidth(1, 0, 0, 0).BorderColor(c.Theme().Border).Children(func() {
 		ui.Text(c, status).Font(widgets.MonoFont).FontSize(widgets.TextMeta).TextColor(pal.Muted).SingleLine()
 	})
 }

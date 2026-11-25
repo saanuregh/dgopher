@@ -28,3 +28,13 @@ const (
 	RadiusLarge  = 10
 	RadiusRound  = 999
 )
+
+// The paddings of bars: a toolbar's, tight around its buttons; a bar's
+// inside a view, as a notice, a panel's header or a footer; a section's,
+// which holds content under or over a rule; and a status line's.
+const (
+	PadToolbarY, PadToolbarX = 4, 8
+	PadBarY, PadBarX         = 6, 12
+	PadSectionY, PadSectionX = 10, 16
+	PadStatusY, PadStatusX   = 3, 8
+)

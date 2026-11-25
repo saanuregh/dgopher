@@ -354,7 +354,7 @@ func (a *App) connFormView(c *ui.Context) {
 			f.page = pageGeneral
 		}
 		labels := lists.Map(pages, f.pageLabel)
-		ui.Row(c).Padding(0, 20).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
+		ui.Row(c).Padding(0, widgets.DialogPad).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 			ui.Tabs(c, &f.page, labels...).Label("Settings")
 		})
 		ui.Scroll(c).Grow(1).Shrink(1).Children(func() {
@@ -372,7 +372,7 @@ func (a *App) connFormView(c *ui.Context) {
 		// What went wrong, over the buttons: under them it would read as
 		// outside the dialog, and push them up as it came.
 		if why := cmp.Or(widgets.When(!f.testing && !f.testOK, f.testResult), f.err); why != "" {
-			ui.Scroll(c).MaxHeight(140).Shrink(0).Background(t.Danger.Alpha(0.10)).Children(func() {
+			ui.Scroll(c).MaxHeight(140).Shrink(0).Background(widgets.TintNotice(t.Danger)).Children(func() {
 				ui.Row(c).Padding(10, widgets.DialogPad).Gap(8).AlignItems(ui.Start).Children(func() {
 					ui.Icon(c, widgets.IconAlert).TextColor(t.Danger).FontSize(widgets.IconMedium).Margin(2, 0, 0, 0)
 					ui.Text(c, why).Selectable().Grow(1).Shrink(1)

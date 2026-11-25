@@ -119,7 +119,7 @@ func (a *App) catalogQueriesView(c *ui.Context) {
 			if e.Err != "" {
 				text += "\n-- " + e.Err
 			}
-			ui.Column(c).Padding(10, 16).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+			ui.Column(c).Padding(widgets.PadSectionY, widgets.PadSectionX).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 				ui.Scroll(c).MaxHeight(150).Radius(widgets.RadiusMedium).Background(pal.EditorBg).Children(func() {
 					ui.Text(c, text).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Padding(8, 10).Selectable()
 				})

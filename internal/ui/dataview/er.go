@@ -650,7 +650,7 @@ func (e *ERTab) box(c *ui.Context, a Host, t *erTable) {
 			Focusable().Label("Table " + t.obj.Name + ": ↵ opens its data, the arrows move it")
 		focused := e.focus != nil && t.schema == e.focus.Schema && t.obj.Name == e.focus.Name
 		if focused || header.Focused() {
-			header.Background(th.Accent.Alpha(0.18))
+			header.Background(widgets.TintStrong(th.Accent))
 		}
 		if header.Shortcut(0, ui.KeyEnter) {
 			a.OpenTable(e.conn, e.database, t.obj, PageData)

@@ -172,7 +172,7 @@ func (a *App) auditTab(c *ui.Context, h *historyState) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	shown := v.shown()
-	ui.Row(c).Padding(8, 16).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+	ui.Row(c).Padding(widgets.PadSectionY, widgets.PadSectionX).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 		ui.Icon(c, widgets.IconShield).FontSize(widgets.IconLarge).TextColor(th.Accent).Tooltip(auditAbout)
 		widgets.SearchBox(c, &v.filter, "Filter by statement, connection, user or error", 0).AutoFocus()
 		ui.Select(c, &v.kind, auditKinds).Label("Kind")
@@ -251,7 +251,7 @@ func (a *App) auditTab(c *ui.Context, h *historyState) {
 			// the rest, most of the log, plain.
 			kind := ui.Text(c, e.Kind).FontSize(widgets.TextSmall).SingleLine()
 			if col, ok := kindColor(th, e.Kind); ok {
-				kind.TextColor(col).FontWeight(500).Padding(0, 6).Radius(widgets.RadiusSmall).Background(col.Alpha(0.14))
+				kind.TextColor(col).FontWeight(500).Padding(0, 6).Radius(widgets.RadiusSmall).Background(widgets.TintNotice(col))
 			} else {
 				kind.TextColor(pal.Muted)
 			}
@@ -293,7 +293,7 @@ func (a *App) auditTab(c *ui.Context, h *historyState) {
 	}
 	if v.row >= 0 && v.row < len(shown) {
 		e := shown[v.row]
-		ui.Column(c).Padding(10, 16).Gap(4).MaxHeight(220).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+		ui.Column(c).Padding(widgets.PadSectionY, widgets.PadSectionX).Gap(4).MaxHeight(220).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 			ui.Scroll(c).Children(func() {
 				ui.Column(c).Gap(4).Children(func() {
 					ui.Text(c, fmt.Sprintf("#%d · %s · %s · %s", e.Seq, e.Time.Local().Format(time.RFC3339), e.User, e.Kind)).FontSize(widgets.TextSmall).TextColor(pal.Muted).Selectable()
@@ -322,7 +322,7 @@ func (a *App) auditTab(c *ui.Context, h *historyState) {
 			})
 		})
 	}
-	ui.Row(c).Padding(10, 16).Gap(8).AlignItems(ui.Center).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+	ui.Row(c).Padding(widgets.PadSectionY, widgets.PadSectionX).Gap(8).AlignItems(ui.Center).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 		ui.Text(c, auditCount(len(shown), len(v.events))+" · Secrets are redacted. ↵ opens a statement in a new editor.").FontSize(widgets.TextSmall).TextColor(pal.Muted).Grow(1).Shrink(1)
 		actions()
 		if ui.Button(c, "Close").Clicked() {

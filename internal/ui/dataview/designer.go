@@ -259,7 +259,7 @@ func (d *designer) View(c *ui.Context) {
 			})
 		})
 		ch, err := d.change()
-		ui.Row(c).Padding(8, 16).Gap(10).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+		ui.Row(c).Padding(widgets.PadSectionY, widgets.PadSectionX).Gap(10).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 			switch {
 			case d.applying:
 				widgets.Appear(ui.Text(c.Key("applying"), "Applying…").TextColor(pal.Muted))

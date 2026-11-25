@@ -157,10 +157,7 @@ func (t *Chat) modelPickerView(c *ui.Context, button ui.Element) {
 func (t *Chat) pickRow(c *ui.Context, e pickEntry, hi bool) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	row := ui.ButtonBase(c.Key("model-"+e.id)).Padding(5, 8).Radius(widgets.RadiusMedium).Label(e.label)
-	if hi || row.Hovered() {
-		row.Background(th.Accent.Alpha(0.12))
-	}
+	row := widgets.RowButton(c.Key("model-"+e.id), e.label, hi)
 	if hi && t.picker.moved {
 		row.ScrollIntoView()
 	}

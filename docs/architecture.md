@@ -28,6 +28,37 @@ state on its own.
   connections, projects, dialogs and job list; each `window` holds its
   groups of tabs; each tab owns its own state.
 
+### One look
+
+The same thing is built the same way everywhere, from `internal/ui/widgets`.
+Tests there read the source and fail on a second way.
+
+| What | Comes from | Held by |
+| --- | --- | --- |
+| Text, icon and corner sizes | `sizes.go` (`TextBody`, `IconMedium`, `RadiusMedium`, …) | `TestSizesAreNamed` |
+| A bar's padding: toolbar, bar, section, status line | `sizes.go` (`PadBarY`, `PadBarX`, …) | `TestBarsUseNamedPaddings` |
+| How strongly a status color or the accent fills | `tints.go` (`TintSubtle`, `TintNotice`, `TintStrong`) | `TestTintsAreNamed` |
+| A dialog, a picker, a prompt | `dialog.go` (`Dialog`, `Picker`, `Prompt`) | `TestDialogsShareOneShell` |
+| A bar that says something of a view | `tints.go` (`NoticeBar`) | review |
+| A pressed row of a list | `tints.go` (`RowButton`) | `TestHandBuiltButtonsAreCounted` |
+| A button that cannot be pressed | `controls.go` (`Unavailable`, `Clicked`, `When`): it says why | `TestUnavailableButtonsSayWhy` |
+| Commit and Roll Back of a tab | `dataview` (`SessionTxState.EndButtons`) | review |
+| Text colors in the light and dark themes | `theme.go`, `themes.go` | `TestBuiltInThemesMeetContrast` |
+
+Words, one for each action:
+
+| Word | Means |
+| --- | --- |
+| Refresh | read rows or a schema again from the server |
+| Reload | read a file again from disk |
+| Remove | take out of a list, losing no data |
+| Delete | destroy rows, keys or a connection |
+| Drop | destroy an object of the database, as SQL says it |
+| Roll Back | end a transaction without its changes; two words |
+
+Button labels are in Title Case, with small words in lower case, and end
+in "…" when they open a dialog that asks for more.
+
 ### Main thread and background work
 
 All UI state, including every `connection.Conn`, is read and changed on

@@ -212,14 +212,8 @@ func (t *usersTab) View(c *ui.Context) {
 }
 
 func (t *usersTab) accountRow(c *ui.Context, i int, acc db.Account) {
-	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	row := ui.ButtonBase(c.Key("account-"+acc.Label())).Padding(6, 8).Radius(widgets.RadiusMedium).Label(acc.Label())
-	if i == t.sel {
-		row.Background(th.Accent.Alpha(0.15))
-	} else if row.Hovered() {
-		row.Background(pal.Hover)
-	}
+	row := widgets.RowButton(c.Key("account-"+acc.Label()), acc.Label(), i == t.sel)
 	row.Children(func() {
 		icon := widgets.IconUser
 		if acc.Role {
@@ -243,7 +237,7 @@ func (t *usersTab) accountView(c *ui.Context, acc db.Account) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	d := t.conn.DB().Dialect
-	ui.Row(c).Padding(10, 16).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+	ui.Row(c).Padding(widgets.PadSectionY, widgets.PadSectionX).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 		ui.Text(c, acc.Label()).FontSize(widgets.TextTitle).Bold().Grow(1).Shrink(1)
 		if !acc.Role && ui.Button(c, "Change Password…").Clicked() {
 			t.openForm(formPassword)

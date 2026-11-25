@@ -84,7 +84,7 @@ func ConfirmView(c *ui.Context, r *ConfirmRequest) {
 				}
 			}
 			if len(risks) > 0 {
-				ui.Column(c).Gap(6).Padding(10, 12).Radius(RadiusLarge).Background(t.Warning.Alpha(0.10)).Border(1, t.Warning.Alpha(0.3)).Children(func() {
+				ui.Column(c).Gap(6).Padding(10, 12).Radius(RadiusLarge).Background(TintNotice(t.Warning)).Border(1, t.Warning.Alpha(0.3)).Children(func() {
 					for _, reason := range risks {
 						ui.Row(c).Gap(8).AlignItems(ui.Start).Children(func() {
 							ui.Icon(c, IconAlert).TextColor(t.Warning).FontSize(IconMedium)

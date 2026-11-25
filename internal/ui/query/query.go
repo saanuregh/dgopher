@@ -1949,7 +1949,7 @@ func (q *Tab) maximizeResults() {
 // open: nothing waits to be committed yet, so it offers nothing to end.
 func (q *Tab) autocommitBar(c *ui.Context) {
 	t := c.Theme()
-	widgets.AppearBar(ui.Row(c.Key("autocommit-bar")).Padding(6, 12).Gap(10).Background(t.Surface).BorderWidth(0, 0, 1, 0).BorderColor(t.Border)).Children(func() {
+	widgets.AppearBar(ui.Row(c.Key("autocommit-bar")).Padding(widgets.PadBarY, widgets.PadBarX).Gap(10).Background(t.Surface).BorderWidth(0, 0, 1, 0).BorderColor(t.Border)).Children(func() {
 		ui.Icon(c, widgets.IconClock).TextColor(widgets.PaletteOf(c).Muted).FontSize(widgets.IconMedium)
 		ui.Text(c, "Autocommit is off: the next statement that reads or writes a table begins a transaction.").Grow(1).Shrink(1)
 	})
@@ -1975,7 +1975,7 @@ func (q *Tab) resultsView(c *ui.Context, a Host) {
 	}
 	panel.Children(func() {
 		if !q.stripMerged() {
-			ui.Row(c).Padding(4, 8).Gap(4).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
+			ui.Row(c).Padding(widgets.PadToolbarY, widgets.PadToolbarX).Gap(4).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 				ui.Row(c).Gap(2).Grow(1).Shrink(1).ClipX().Children(func() {
 					q.resultTabs(c, results, idx)
 					q.outputTab(c, results, idx, false)
@@ -2468,8 +2468,7 @@ func (q *Tab) Flush(force bool) {
 // conflictBar says why the file is not saved, and offers the ways out.
 func (q *Tab) conflictBar(c *ui.Context) {
 	t := c.Theme()
-	widgets.AppearBar(ui.Row(c.Key("conflict-bar")).Padding(6, 12).Gap(10).Background(t.Warning.Alpha(0.16))).Children(func() {
-		ui.Icon(c, widgets.IconAlert).TextColor(t.Warning).FontSize(widgets.IconMedium)
+	widgets.AppearBar(widgets.NoticeBar(c.Key("conflict-bar"), t.Warning, func() {
 		ui.Text(c, filepath.Base(q.Path)+" "+q.DiskConflict+": the editor's text is not saved.").Grow(1).Shrink(1).SingleLine().Tooltip(q.Path)
 		if disk, err := os.ReadFile(q.Path); err == nil {
 			if ui.Button(c, "Reload").Tooltip("Replace the editor's text with the file's").Clicked() {
@@ -2480,7 +2479,7 @@ func (q *Tab) conflictBar(c *ui.Context) {
 		if ui.Button(c, "Keep Mine").Tooltip("Write the editor's text over the file").Clicked() {
 			q.keepMine()
 		}
-	})
+	}))
 }
 
 // keepMine writes the editor's text over its file: at once inside the
@@ -2508,13 +2507,12 @@ func (q *Tab) headerBar(c *ui.Context, id string, exists bool) {
 		col = t.Danger
 		msg = fmt.Sprintf("This file names the connection %s, which is not a SQL connection of %s: fix its first lines to run it.", id, q.Conn.Project.Name)
 	}
-	widgets.AppearBar(ui.Row(c.Key("header-bar")).Padding(6, 12).Gap(10).Background(col.Alpha(0.16))).Children(func() {
-		ui.Icon(c, widgets.IconAlert).TextColor(col).FontSize(widgets.IconMedium)
+	widgets.AppearBar(widgets.NoticeBar(c.Key("header-bar"), col, func() {
 		ui.Text(c, msg).Grow(1).Shrink(1)
 		if exists && widgets.Clicked(ui.Button(c, "Switch to "+id), q.busyWhy()) {
 			q.a.SwitchConnection(q, id)
 		}
-	})
+	}))
 }
 
 // errorOffset is where in the editor an error points: from the

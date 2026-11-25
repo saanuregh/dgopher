@@ -116,7 +116,7 @@ func (t *searchTab) View(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	ui.Column(c).Grow(1).Children(func() {
-		ui.Row(c).Padding(8, 12).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(10).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Icon(c, widgets.IconSearch).TextColor(pal.Muted).FontSize(widgets.IconMedium)
 			in := ui.TextInput(c, &t.query).Placeholder("Find tables, columns, routines… by name or definition").
 				AutoFocus().Grow(1).Label("Search")
@@ -135,7 +135,7 @@ func (t *searchTab) View(c *ui.Context) {
 				t.search()
 			}
 		})
-		ui.Row(c).Padding(6, 12).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Text(c, t.status()).FontSize(widgets.TextSmall).TextColor(pal.Muted).Grow(1).Shrink(1).SingleLine()
 		})
 		if t.err != "" {

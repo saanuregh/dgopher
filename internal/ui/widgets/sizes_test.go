@@ -40,7 +40,7 @@ func TestUnsizedTextIsThirteen(t *testing.T) {
 // bars.
 func TestSizesAreNamed(t *testing.T) {
 	fontSize := regexp.MustCompile(`FontSize\(\s*[0-9]`)
-	radius := regexp.MustCompile(`\.Radius\(\s*([0-9.]+)\s*\)`)
+	radius := regexp.MustCompile(`\bRadius\(\s*([0-9.]+)\s*\)`)
 	root := filepath.Join("..", "..")
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || filepath.Base(path) == "sizes.go" {

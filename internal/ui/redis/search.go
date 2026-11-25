@@ -180,7 +180,7 @@ func (r *Tab) searchView(c *ui.Context) {
 			}
 			ui.List(c, &s.hitList, len(s.hits), func(i int) {
 				h := s.hits[i]
-				row := ui.ButtonBase(c).Padding(3, 6).Label(h.Key)
+				row := widgets.RowButton(c, h.Key, false)
 				row.Children(func() {
 					ui.Row(c).Gap(10).FillWidth().Children(func() {
 						ui.Text(c, h.Key).Font(widgets.MonoFont).FontSize(widgets.TextSmall).Width(220).SingleLine()

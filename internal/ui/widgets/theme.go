@@ -209,7 +209,7 @@ func EnvironmentLabel(e db.Environment, col, bg ui.Color) (fill, ink ui.Color) {
 	if e == db.Staging || e == db.Production {
 		return LabelFill(col), ui.RGB(255, 255, 255)
 	}
-	return col.Alpha(0.14), LabelInk(col, bg.Mix(ui.RGB(col.R, col.G, col.B), 0.14))
+	return TintNotice(col), LabelInk(col, bg.Mix(ui.RGB(col.R, col.G, col.B), tintNotice))
 }
 
 // contrastWithWhite is the WCAG contrast ratio of white text on col.

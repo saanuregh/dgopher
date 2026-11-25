@@ -237,7 +237,7 @@ func usagesView(a Host, c *ui.Context) {
 	}
 	widgets.Picker(c, &d.open, func(panel ui.Element) {
 		panel.Label("Usages")
-		ui.Row(c).Padding(12, 16).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		ui.Row(c).Padding(widgets.PadSectionY, widgets.PadSectionX).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Text(c, d.name).Font(widgets.MonoFont).Bold()
 			files := map[string]bool{}
 			for _, u := range d.usages {

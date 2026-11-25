@@ -182,7 +182,7 @@ func (r *Tab) pubSubView(c *ui.Context) {
 			if r.conn.Config.ReadOnly {
 				return
 			}
-			ui.Row(c).Padding(6, 10).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+			ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 				ui.TextInput(c, &p.channel).Placeholder("Channel").Font(widgets.MonoFont).FontSize(widgets.TextBody).Width(180).Label("Channel to publish to")
 				in := ui.TextInput(c, &p.message).Placeholder("Message").Font(widgets.MonoFont).FontSize(widgets.TextBody).Grow(1).Label("Message to publish")
 				if widgets.Clicked(ui.Button(c, "Publish"), widgets.When(strings.TrimSpace(p.channel) == "", "Type a channel first")) || in.Submitted() {
@@ -199,7 +199,7 @@ func (r *Tab) pubSubView(c *ui.Context) {
 			})
 			ui.List(c, &p.channelList, len(p.channels), func(i int) {
 				ch := p.channels[i]
-				row := ui.ButtonBase(c).Padding(2, 10).Label(ch.Name)
+				row := widgets.RowButton(c, ch.Name, false)
 				row.Children(func() {
 					ui.Row(c).Gap(6).FillWidth().Children(func() {
 						ui.Text(c, ch.Name).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine().Grow(1).Shrink(1)

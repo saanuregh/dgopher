@@ -362,9 +362,9 @@ func (a *App) dropZones(c *ui.Context, w *window, g *panes.Group, t widgets.Tab)
 	th := c.Theme()
 	var over widgets.Tab
 	zone := func(label string, place func(ui.Element) ui.Element, then func(widgets.Tab)) {
-		b := place(ui.Box(c.Key("drop-"+label)).Absolute()).Radius(widgets.RadiusLarge).Border(1, th.Accent).Background(th.Accent.Alpha(0.10)).Center().Label(label)
+		b := place(ui.Box(c.Key("drop-"+label)).Absolute()).Radius(widgets.RadiusLarge).Border(1, th.Accent).Background(widgets.TintNotice(th.Accent)).Center().Label(label)
 		if d, ok := ui.DragOver[tabDrag](b); ok {
-			b.Background(th.Accent.Alpha(0.28))
+			b.Background(widgets.TintStrong(th.Accent))
 			over = d.tab
 		}
 		b.Children(func() { ui.Text(c, label).FontSize(widgets.TextSmall).TextColor(th.Accent) })
@@ -685,13 +685,7 @@ func (a *App) tabBar(c *ui.Context, g *panes.Group) {
 							ui.Box(c).Size(6, 6).Radius(3).Background(t.Warning).Tooltip(r)
 						}
 						if pinned {
-							pin := ui.ButtonBase(c).Padding(3).Radius(widgets.RadiusSmall).Label("Unpin " + tb.Title()).Tooltip("Pinned: click to unpin")
-							if pin.Hovered() {
-								pin.Background(pal.Hover)
-							}
-							pin.Children(func() {
-								ui.Icon(c, widgets.IconPin).FontSize(widgets.IconSmall).TextColor(pal.Muted).ContentTransition(ui.ContentTransition{})
-							})
+							pin := widgets.SmallIconButton(c, widgets.IconPin, "Unpin "+tb.Title()).Tooltip("Pinned: click to unpin")
 							if pin.Clicked() {
 								a.Post(func() { l.SetPinned(tb, false) }) // after the tabs are drawn
 							}
@@ -989,7 +983,7 @@ func (a *App) welcome(c *ui.Context) {
 				card(widgets.IconFolder, "Add a project folder", "A Git repository's connections and .sql files", keymap.AddFolder, a.addExistingProject)
 			})
 			if !a.settings.TourDone {
-				ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(10, 14).Radius(widgets.RadiusLarge).Background(t.Accent.Alpha(0.10)).Children(func() {
+				ui.Row(c).Gap(10).AlignItems(ui.Center).Padding(10, 14).Radius(widgets.RadiusLarge).Background(widgets.TintNotice(t.Accent)).Children(func() {
 					ui.Icon(c, widgets.IconWand).TextColor(t.Accent).FontSize(widgets.IconLarge)
 					ui.Text(c, "New here? A one-minute tour shows how DGopher works.").Grow(1).Shrink(1)
 					if ui.PrimaryButton(c, "Take the Tour").Clicked() {
@@ -1014,10 +1008,7 @@ func (a *App) home(c *ui.Context) {
 				ui.Column(c).Gap(4).Children(func() {
 					ui.Text(c, "Recent Queries").Bold().TextColor(pal.Muted).FontSize(widgets.TextSmall).Padding(0, 0, 4, 0)
 					for _, r := range recent {
-						row := ui.ButtonBase(c.Key("recent-"+r.project.Prefix+r.file)).Padding(5, 8).Radius(widgets.RadiusMedium).Label("Open " + r.file)
-						if row.Hovered() {
-							row.Background(pal.Hover)
-						}
+						row := widgets.RowButton(c.Key("recent-"+r.project.Prefix+r.file), "Open "+r.file, false)
 						row.Children(func() {
 							ui.Row(c).Gap(8).Grow(1).AlignItems(ui.Center).Children(func() {
 								ui.Icon(c, widgets.IconFile).FontSize(widgets.IconMedium).TextColor(pal.Muted)

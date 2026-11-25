@@ -538,7 +538,7 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	ui.Column(c).Fill().Children(func() {
-		ui.Column(c).Padding(8).Gap(6).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		ui.Column(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(6).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Row(c).Gap(6).Children(func() {
 				search := widgets.SearchBox(c, &r.patternIn, "Pattern, e.g. user:*", 0)
 				if search.Submitted() {
@@ -620,7 +620,7 @@ func (r *Tab) keysView(c *ui.Context, a Host) {
 			}
 		}
 		// How many keys show, of how many, with the way to read more.
-		ui.Row(c).Padding(6, 8).Gap(6).AlignItems(ui.Center).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+		ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(6).AlignItems(ui.Center).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 			count := func() {
 				ui.Spacer(c)
 				ui.Text(c, fmt.Sprintf("%d of %d keys", len(r.keys), r.dbsize)).FontSize(widgets.TextSmall).TextColor(pal.Muted)
@@ -692,7 +692,7 @@ func (r *Tab) keyView(c *ui.Context, a Host) {
 		return
 	}
 	ui.Column(c).Fill().Children(func() {
-		ui.Column(c).Padding(10, 14).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+		ui.Column(c).Padding(widgets.PadSectionY, widgets.PadSectionX).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 			ui.Row(c).Gap(8).Children(func() {
 				if r.info.Type != "" {
 					ui.Badge(c, strings.ToUpper(typeLabel(r.info.Type)))
@@ -915,7 +915,7 @@ func (r *Tab) valueView(c *ui.Context, a Host) {
 		return
 	}
 	// Add, change and remove items.
-	ui.Row(c).Padding(8, 14).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+	ui.Row(c).Padding(widgets.PadSectionY, widgets.PadSectionX).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 		switch r.info.Type {
 		case "hash":
 			ui.TextInput(c, &r.newName).Placeholder("Field").Width(160).Label("Field")
@@ -1028,7 +1028,7 @@ func (r *Tab) itemDetail(c *ui.Context) {
 		r.itemView, r.itemRaw = newDecodeView(f.Value), widgets.TextStart(decode.Text([]byte(f.Value)), stringStart)
 	}
 	th := c.Theme()
-	ui.Column(c).Height(200).Padding(8, 14).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+	ui.Column(c).Height(200).Padding(widgets.PadSectionY, widgets.PadSectionX).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 		if !r.itemView.view(c, f.Value, "Item", r.a.Background) {
 			area := &r.itemArea
 			area.Label, area.Language, area.ReadOnly, area.NoLineNumbers, area.NoFolding = "Item value", editor.LanguageDetected, true, true, true

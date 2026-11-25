@@ -163,7 +163,7 @@ func (r *Tab) vectorDetail(c *ui.Context, f db.Field) {
 		v.attrs = f.Value
 	}
 	ro := r.conn.Config.ReadOnly
-	ui.Row(c).Height(220).Padding(8, 14).Gap(12).AlignItems(ui.Stretch).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+	ui.Row(c).Height(220).Padding(widgets.PadSectionY, widgets.PadSectionX).Gap(12).AlignItems(ui.Stretch).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 		ui.Column(c).Grow(1).Gap(6).Children(func() {
 			ui.Text(c, "Attributes of "+f.Name).FontSize(widgets.TextSmall).Bold()
 			v.area.Label, v.area.Language, v.area.ReadOnly = "Element attributes", editor.LanguageJSON, ro
@@ -198,7 +198,7 @@ func (r *Tab) vectorDetail(c *ui.Context, f db.Field) {
 			ui.Text(c, "Most like it").FontSize(widgets.TextSmall).Bold()
 			ui.List(c, &v.list, len(v.similar), func(i int) {
 				s := v.similar[i]
-				row := ui.ButtonBase(c).Padding(2, 4).Label(s.Name)
+				row := widgets.RowButton(c, s.Name, false)
 				row.Children(func() {
 					ui.Row(c).Gap(8).FillWidth().Children(func() {
 						ui.Text(c, s.Name).Font(widgets.MonoFont).FontSize(widgets.TextSmall).SingleLine().Grow(1).Shrink(1)

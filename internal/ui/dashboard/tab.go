@@ -621,7 +621,7 @@ func (t *Tab) autoRefresh(c *ui.Context) {
 func (t *Tab) paramsBar(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	ui.Row(c).Padding(6, 12).Gap(10).Wrap().AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+	ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(10).Wrap().AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 		submitted := false
 		for i := range t.fields {
 			f := &t.fields[i]
@@ -707,7 +707,7 @@ func (t *Tab) panelView(c *ui.Context, i int, height float32) {
 			}
 		})
 		if s.editSQL {
-			ui.Column(c).Height(196).Padding(6, 10).Gap(6).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+			ui.Column(c).Height(196).Padding(widgets.PadBarY, widgets.PadBarX).Gap(6).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 				cn := t.whereView(c, s)
 				area := &s.sqlArea
 				area.Label, area.Language, area.FontSize = "Panel query", editor.LanguageSQL, 12

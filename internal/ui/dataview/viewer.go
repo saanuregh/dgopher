@@ -1403,8 +1403,7 @@ func (v *Viewer) View(c *ui.Context) {
 	if v.err != "" {
 		// The rows below are those of before: the read that failed, as
 		// with a mistyped filter, changed nothing.
-		ui.Row(c).Padding(6, 12).Gap(10).Background(th.Danger.Alpha(0.12)).Children(func() {
-			ui.Icon(c, widgets.IconAlert).TextColor(th.Danger).FontSize(widgets.IconMedium)
+		widgets.NoticeBar(c, th.Danger, func() {
 			ui.Text(c, "Could not read the rows: "+widgets.FirstLine(v.err)+". The rows shown are those read before.").Grow(1).Shrink(1).Selectable().Tooltip(v.err)
 			if ui.Button(c, "Details").Clicked() {
 				v.a.ShowReport(widgets.ErrorReport{Title: "Could not read the rows", Hint: v.errHint, Detail: v.err})
@@ -1468,7 +1467,7 @@ func (v *Viewer) View(c *ui.Context) {
 		}
 	}
 	pending := v.grid.edits.count()
-	bar := ui.Row(c).Padding(3, 8).Gap(8).BorderWidth(1, 0, 0, 0).BorderColor(th.Border)
+	bar := ui.Row(c).Padding(widgets.PadStatusY, widgets.PadStatusX).Gap(8).BorderWidth(1, 0, 0, 0).BorderColor(th.Border)
 	if pending > 0 {
 		// As the cells changed are: what is not written yet shows.
 		bar.Background(pal.Modified)

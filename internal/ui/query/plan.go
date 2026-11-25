@@ -104,7 +104,7 @@ func (q *Tab) adviceView(c *ui.Context, r *result) {
 	th := c.Theme()
 	ui.Column(c).Padding(4, 12, 8, 12).Gap(4).Children(func() {
 		for i, a := range r.advice {
-			row := ui.ButtonBase(c.Key(fmt.Sprint("advice-", i))).Padding(6, 10).Radius(widgets.RadiusMedium).Background(th.Warning.Alpha(0.12)).Label(a.Text)
+			row := ui.ButtonBase(c.Key(fmt.Sprint("advice-", i))).Padding(6, 10).Radius(widgets.RadiusMedium).Background(widgets.TintNotice(th.Warning)).Label(a.Text)
 			row.Children(func() {
 				ui.Row(c).Gap(8).FillWidth().Children(func() {
 					ui.Icon(c, widgets.IconAlert).TextColor(th.Warning).FontSize(widgets.IconMedium)
@@ -133,7 +133,7 @@ func (q *Tab) treeView(c *ui.Context, r *result) {
 	r.plan.Root.Walk(func(n *db.PlanNode, depth int) {
 		row := ui.ButtonBase(c.Key(fmt.Sprintf("step-%p", n))).Padding(4, 12).Label(n.Op)
 		if n == r.planSel {
-			row.Background(th.Accent.Alpha(0.15))
+			row.Background(widgets.TintNotice(th.Accent))
 		} else if row.Hovered() {
 			row.Background(pal.Hover)
 		}
@@ -274,7 +274,7 @@ func (q *Tab) flameView(c *ui.Context, r *result) {
 			})
 		})
 		if n := r.planSel; n != nil {
-			ui.Row(c).Padding(6, 12).Gap(10).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+			ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(10).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 				ui.Text(c, n.Op).Font(widgets.MonoFont).Bold()
 				ui.Text(c, n.Target).SingleLine().Shrink(1)
 				ui.Text(c, rowsLabel(n)+" rows").FontSize(widgets.TextSmall).TextColor(pal.Muted)

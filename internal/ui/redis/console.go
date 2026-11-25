@@ -151,7 +151,7 @@ func (r *Tab) consoleView(c *ui.Context) {
 		// In a box of its own, always built: the input after it keeps its
 		// place, and with it the focus, as help comes and goes.
 		ui.Column(c).Children(func() { r.helpView(c) })
-		ui.Row(c).Padding(6, 10).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+		ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 			ui.Text(c, ">").Font(widgets.MonoFont).TextColor(pal.Muted)
 			in := ui.TextInputBase(c, &r.consoleIn).Font(widgets.MonoFont).FontSize(widgets.TextBody).Grow(1).Placeholder("Type a command, e.g. GET user:1").Label("Command")
 			if r.caretToEnd {

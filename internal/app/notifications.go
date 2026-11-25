@@ -171,9 +171,9 @@ func (a *App) notificationRow(c *ui.Context, i int) {
 		})
 		return
 	}
-	row := ui.ButtonBase(c).Label(n.title).Padding(6, 8).Radius(widgets.RadiusMedium).Justify(ui.Start)
-	if row.Hovered() || highlighted {
-		row.Background(pal.Hover)
+	row := widgets.RowButton(c, n.title, false)
+	if highlighted {
+		row.Background(pal.Hover) // where the keys are, as where the pointer is
 	}
 	if highlighted {
 		row.ScrollIntoView()

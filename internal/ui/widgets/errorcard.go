@@ -75,8 +75,7 @@ func ErrorCard(c *ui.Context, r ErrorReport, open *bool, copyText func(string)) 
 func ErrorBanner(c *ui.Context, r ErrorReport, show func(ErrorReport)) {
 	t := c.Theme()
 	r, line := bannerText(r)
-	ui.Row(c).Padding(6, 12).Gap(10).Background(t.Danger.Alpha(0.12)).Children(func() {
-		ui.Icon(c, IconAlert).TextColor(t.Danger).FontSize(IconMedium)
+	NoticeBar(c, t.Danger, func() {
 		ui.Text(c, line).Grow(1).Shrink(1).Selectable().Tooltip(r.Detail)
 		reportButtons(c, r, show, false)
 	})
@@ -87,7 +86,7 @@ func ErrorBanner(c *ui.Context, r ErrorReport, show func(ErrorReport)) {
 func ErrorBlock(c *ui.Context, r ErrorReport, show func(ErrorReport)) {
 	t := c.Theme()
 	r, line := bannerText(r)
-	ui.Column(c).Padding(8, 12).Gap(6).Background(t.Danger.Alpha(0.12)).Children(func() {
+	ui.Column(c).Padding(8, 12).Gap(6).Background(TintNotice(t.Danger)).Children(func() {
 		ui.Row(c).Gap(8).Children(func() {
 			ui.Icon(c, IconAlert).TextColor(t.Danger).FontSize(IconMedium)
 			ui.Text(c, line).FontSize(TextBody).Grow(1).Shrink(1).Selectable().Tooltip(r.Detail)

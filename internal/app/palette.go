@@ -313,7 +313,7 @@ func (a *App) paletteView(c *ui.Context) {
 	}
 	widgets.Picker(c, &p.open, func(panel ui.Element) {
 		panel.Label("Command palette")
-		ui.Row(c).Padding(10, 14).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
+		ui.Row(c).Padding(widgets.PadSectionY, widgets.PadSectionX).Gap(8).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 			ui.Icon(c, widgets.IconSearch).TextColor(pal.Muted).FontSize(widgets.IconLarge)
 			placeholder := "Search commands, connections and tables"
 			if p.tables {

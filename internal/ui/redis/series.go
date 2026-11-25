@@ -119,7 +119,7 @@ func (r *Tab) seriesView(c *ui.Context, ro bool) {
 		if ro {
 			return
 		}
-		ui.Row(c).Padding(8, 14).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+		ui.Row(c).Padding(widgets.PadSectionY, widgets.PadSectionX).Gap(6).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 			ui.TextInput(c, &s.newAt).Placeholder("Time in ms, * for now").Width(170).Font(widgets.MonoFont).Label("Sample time")
 			ui.TextInput(c, &s.newValue).Placeholder("Value").Width(140).Font(widgets.MonoFont).Label("Sample value")
 			if ui.Button(c, "Add Sample").Clicked() {

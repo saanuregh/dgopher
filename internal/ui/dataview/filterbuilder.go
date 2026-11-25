@@ -191,7 +191,7 @@ func (v *Viewer) builderView(c *ui.Context) {
 	compact.Spacing, compact.FontSize = 2.5, 12.5
 	c.SetTheme(&compact)
 	defer c.SetTheme(th)
-	ui.Column(c).Padding(6, 8).Gap(4).Background(th.Surface).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+	ui.Column(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(4).Background(th.Surface).BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 		remove := -1
 		submitted := false
 		for i := range b.conds {

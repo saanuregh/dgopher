@@ -277,12 +277,7 @@ func withColumnIndexes(ps []columnProfile, cols []db.ColumnInfo) []columnProfile
 func (g *Grid) profileRow(c *ui.Context, src *Source, i int, p columnProfile) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
-	row := ui.ButtonBase(c.Key("profile-"+strconv.Itoa(i))).Padding(6, 8).Radius(widgets.RadiusMedium).Label("Column " + p.name)
-	if p.col == g.selCol {
-		row.Background(th.Accent.Alpha(0.12))
-	} else if row.Hovered() {
-		row.Background(pal.Hover)
-	}
+	row := widgets.RowButton(c.Key("profile-"+strconv.Itoa(i)), "Column "+p.name, p.col == g.selCol)
 	row.Children(func() {
 		ui.Column(c).Gap(3).Grow(1).Children(func() {
 			ui.Row(c).Gap(8).Children(func() {

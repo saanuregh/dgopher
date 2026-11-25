@@ -208,7 +208,7 @@ func iconButton(c *ui.Context, ic *ui.SVG, label string, on bool) ui.Element {
 	col := PaletteOf(c).Muted
 	switch {
 	case on:
-		b.Background(t.Accent.Alpha(0.15))
+		b.Background(TintNotice(t.Accent))
 		col = t.Accent
 	case b.Hovered():
 		b.Background(PaletteOf(c).Hover)
@@ -363,7 +363,7 @@ func Keycap(c *ui.Context, keys string) ui.Element {
 // line under it, so that every view's bar is as tall and reads alike.
 // Titles and notes in it take its size unless they set their own.
 func Bar(c *ui.Context, label string, fn func()) ui.Element {
-	return ui.Toolbar(c, fn).Label(label).Padding(4, 8).FontSize(TextBody).
+	return ui.Toolbar(c, fn).Label(label).Padding(PadToolbarY, PadToolbarX).FontSize(TextBody).
 		BorderWidth(0, 0, 1, 0).BorderColor(c.Theme().Border)
 }
 

@@ -305,7 +305,7 @@ func ChartControls(c *ui.Context, s *Chart, src *Source) {
 		s.detect(src)
 	}
 	names := lists.Map(src.Cols, func(col db.ColumnInfo) string { return col.Name })
-	ui.Row(c).Padding(6, 10).Gap(10).Wrap().BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
+	ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(10).Wrap().BorderWidth(0, 0, 1, 0).BorderColor(th.Border).Children(func() {
 		if ui.Segmented(c, &s.kind, chartKinds...).Label("Chart type").Changed() {
 			s.hover = -1
 		}

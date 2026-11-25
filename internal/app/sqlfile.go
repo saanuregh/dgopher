@@ -266,7 +266,7 @@ func (a *App) sqlFileSummary(c *ui.Context, x *sqlFileRun) {
 	parts := lists.Map(verbs, func(v string) string { return fmt.Sprintf("%d %s", x.verbs[v], v) })
 	ui.Text(c, fmt.Sprintf("%s in %s: %s.", widgets.Count(x.statements, "statement"), widgets.HumanBytes(x.size), strings.Join(parts, ", "))).FontSize(widgets.TextBody)
 	if len(x.dangerous) > 0 {
-		ui.Column(c).Gap(2).Padding(8, 10).Radius(widgets.RadiusMedium).Background(th.Danger.Alpha(0.1)).Children(func() {
+		ui.Column(c).Gap(2).Padding(8, 10).Radius(widgets.RadiusMedium).Background(widgets.TintNotice(th.Danger)).Children(func() {
 			ui.Text(c, "It destroys data:").Bold().FontSize(widgets.TextSmall).TextColor(th.Danger)
 			for _, d := range x.dangerous {
 				ui.Text(c, d).Font(widgets.MonoFont).FontSize(widgets.TextMeta).SingleLine()

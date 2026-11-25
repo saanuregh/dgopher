@@ -382,7 +382,7 @@ func (t *Tab) migrationBar(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	differs := slices.ContainsFunc(r.diffs, func(d datamodel.TableDiff) bool { return d.State != datamodel.Same })
-	ui.Row(c).Padding(8, 12).Gap(10).AlignItems(ui.Center).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
+	ui.Row(c).Padding(widgets.PadBarY, widgets.PadBarX).Gap(10).AlignItems(ui.Center).BorderWidth(1, 0, 0, 0).BorderColor(th.Border).Children(func() {
 		ui.Checkbox(c, &r.drop, "Drop what the model lacks")
 		ui.Text(c, "Otherwise kept: a column renamed reads as one dropped and one added.").FontSize(widgets.TextSmall).TextColor(pal.Muted).SingleLine().Shrink(1)
 		ui.Spacer(c)

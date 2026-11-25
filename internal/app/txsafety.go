@@ -286,7 +286,7 @@ func (a *App) txIndicator(c *ui.Context) {
 	if len(txs) > 1 {
 		label = fmt.Sprintf("%d open transactions", len(txs))
 	}
-	b := widgets.Appear(ui.ButtonBase(c.Key("open-transactions")).Padding(1, 8).Radius(widgets.RadiusSmall).Background(c.Theme().Warning.Alpha(0.2)).Label(label))
+	b := widgets.Appear(ui.ButtonBase(c.Key("open-transactions")).Padding(1, 8).Radius(widgets.RadiusSmall).Background(widgets.TintStrong(c.Theme().Warning)).Label(label))
 	b.Children(func() { ui.Text(c, label).FontSize(widgets.TextSmall).Bold().ContentTransition(ui.ContentTransition{}) })
 	b.Menu(func(m *ui.Menu) {
 		for _, h := range txs {
