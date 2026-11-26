@@ -2,7 +2,7 @@
 
 The changes of each version of DGopher.
 
-## Unreleased
+## 0.9.0
 
 ### Added
 
@@ -17,11 +17,91 @@ The changes of each version of DGopher.
 - On Valkey the Slow Log panel is the **Command Log**, which also lists
   the largest requests and replies, by size. `COMMANDLOG GET` and `LEN`
   count as reads, as `SLOWLOG`'s do.
+- **Preview Changes** (⌘⌥E, in the Explain menu, the Run submenu and the
+  palette) shows the rows an UPDATE or DELETE would change, read-only,
+  with each new value beside the old one, then Cancel or Run. It writes
+  nothing. DGopher's own; DBeaver has none.
+- **A plan check on production.** A query, INSERT, UPDATE or DELETE run
+  from an editor on production is explained first, and a table scan past
+  Settings → Safety → Large scans (1,000,000 rows) asks first, with Show
+  Plan. Its reasons share one question with the policy's.
+- **Folders and bookmarks for a project's files.** Queries, Dashboards
+  and Data Models hold nested folders on disk, with New Folder…, Rename…
+  (F2), Delete…, Move to Folder and drag and drop. Sort By ▸ Name or
+  Last Modified on each heading. Bookmark tables, views, routines and
+  files with ⌘⌥⇧D, as DBeaver does.
+- **Settings → Notifications** chooses how long work and work at risk
+  alert you: off, notification, sound, or both, and the seconds long work
+  takes (10). Many more things now tell you when they end or fail, and a
+  click on a notice brings its tab forward.
+- The sidebar's foot shows the **memory DGopher uses**; a click shows
+  what holds it, tab by tab, and **Free Memory**.
+- **Zoom the whole window** with ⌘= and ⌘-, a pinch or ⌘ and the wheel,
+  from 50% to 300%, and ⌘K ⌘0 to reset. It is kept for the next start.
+  The grid's text size has its own field in Settings.
+- **New SQL Editor** (Ctrl+T) asks where, in a picker of connections and
+  their databases, the current one first.
+- A **filter over the navigator** leaves the connections, tables and files
+  whose names match, with the matched letters underlined.
+- DuckDB queries and imports JSON Lines named `.ldjson` or `.jsonlines`,
+  and gzip or zstd copies of CSV and JSON files, such as
+  `events.jsonl.gz`.
+- The system offers DGopher to open SQLite, DuckDB and `.sql` files, and
+  the Linux packages add a `dgopher` command.
+- Keys for what only the pointer reached: Ctrl+Alt+PageDown and PageUp
+  for the next and previous result, F8 to the error's place, Ctrl+I for a
+  cell's card, Ctrl+Enter and Ctrl+Backspace to allow or deny the AI
+  agent, Roll Back ⌘⌥⇧R, Maximize Results ⌘K ⌘⇧M, Export ⌘K ⌘X, and
+  filter by the cell's value ⌘K ⌘= and ⌘K ⌘⇧1.
+- **What's New in DGopher** shows the release notes once after an update,
+  and from the Help menu.
 
 ### Changed
 
+- **A new look.** The navigator is two panes, the project's files above
+  the connections, with denser rows and each engine's two-letter badge.
+  The editor's toolbar starts with the connection it runs on, in its
+  environment's color on staging and production. Every dialog shares one
+  shell in four widths, text and icons follow one scale, and the themes
+  keep text readable (4.5 to 1). Every unavailable button says why in its
+  tooltip.
+- More rows fit on screen: the grid's rows are 22 px, one result takes no
+  row of tabs, and the bars that slid in over the grid and the editor are
+  gone; their buttons keep still in the toolbars.
+- A table's columns are designed in a grid, a row each.
+- The start page of a project with connections leads with them and the
+  query files last changed.
+- Table tabs restore their filter, sort and chosen cell after a restart,
+  a reconnect or Reopen Closed Tab.
+- After sleep or a network change, connections are checked: an idle one
+  reconnects quietly, and one holding a transaction, changes or running
+  work is reported lost, never closed silently.
+- Error dialogs hide secrets in their text and show the error's hint;
+  failed counts, applies, dashboard panels and connections offer Retry.
+- ⌘P lists recently opened tables first.
+- A statement that returns no rows shows its outcome, such as "3 rows
+  affected", as the Output's headline. Stop shows how long the run has
+  taken. A grid without rows says why, with Clear Filter when a filter is
+  the reason.
+- DuckDB 2.0.1 and SQLite 3.54.1. DuckDB opens and writes 1.x files
+  without upgrading them, but a `.duckdb` export is in 2.0's format,
+  which DuckDB 1.x cannot open.
 - The key browser's type filter lists a module's types, such as vector
   sets or time series, only when the server has the module.
+
+### Fixed
+
+- A ClickHouse user in readonly mode can connect, with Read-only on or
+  off.
+- On Windows, querying a dropped CSV no longer fails with a syntax error.
+- A dropped file whose name holds `[`, `*` or `?` opens that file, not
+  others its name matches as a pattern.
+- After a cell edit or Tab to the record view, the arrow keys move in the
+  grid again.
+- Deleting a connection forgets its tables' settings, filters and colors,
+  which a new connection with its ID took over.
+- Some layout sizes, such as the chat's width, now last past one run.
+- The tour's buttons fit their card.
 
 ## 0.8.0
 
