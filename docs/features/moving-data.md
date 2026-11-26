@@ -5,7 +5,9 @@
 Import a CSV, TSV, text, JSON, JSON Lines, Parquet, Excel or XML file into
 a table (**Import Data…**), or into a new table made from the file's
 columns (**Import File as New Table…** on a schema, or drop an Excel or XML
-file on the window).
+file on the window). JSON Lines may be named `.jsonl`, `.ndjson`, `.ldjson`
+or `.jsonlines`, and a CSV or JSON file may be a gzip or zstd copy, such as
+`events.jsonl.gz`.
 
 - **Reading:** DuckDB reads the file, finding a CSV file's delimiter and
   header and every format's column types. You can change the delimiter, the

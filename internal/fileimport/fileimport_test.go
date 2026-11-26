@@ -241,3 +241,52 @@ func TestXMLTwoPassSameRows(t *testing.T) {
 		t.Fatalf("missing rows: %v", err)
 	}
 }
+
+// compressedCopy writes the rows of a query to a gzip or zstd file, by
+// the path's suffix, in a format of COPY.
+func compressedCopy(t *testing.T, path, query, format string) {
+	t.Helper()
+	d, err := sql.Open("duckdb", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	compression := map[string]string{".gz": "gzip", ".zst": "zstd"}[filepath.Ext(path)]
+	if _, err := d.Exec("COPY (" + query + ") TO '" + path + "' (" + format + ", COMPRESSION " + compression + ")"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// JSON Lines go by more names, and CSV and JSON files may be gzip or zstd
+// copies, also of a name read through a link.
+func TestLineNamesAndCompressedCopies(t *testing.T) {
+	lines := "{\"kind\": \"login\"}\n{\"kind\": \"logout\"}\n"
+	jsons := []string{write(t, "events.ldjson", lines), write(t, "events.JSONLines", lines)}
+	for _, name := range []string{"events.jsonl.gz", "events.ldjson.zst", "data[1].json.gz"} {
+		path := filepath.Join(t.TempDir(), name)
+		compressedCopy(t, path, "SELECT 'login' AS kind UNION ALL SELECT 'logout'", "FORMAT JSON")
+		jsons = append(jsons, path)
+	}
+	for _, path := range jsons {
+		if got := rows(t, open(t, path, Options{}, Column{"kind", "VARCHAR"})); len(got) != 2 {
+			t.Fatalf("%s: %v", filepath.Base(path), got)
+		}
+	}
+	for _, name := range []string{"people.csv.zst", "people.tsv.gz", "people[1].csv.gz"} {
+		path := filepath.Join(t.TempDir(), name)
+		compressedCopy(t, path, "SELECT 1 AS id, 'Ada' AS name", "FORMAT CSV, DELIMITER ';'")
+		f := open(t, path, Options{}, Column{"id", "BIGINT"}, Column{"name", "VARCHAR"})
+		if f.Delimiter != ';' || !f.HasHeader {
+			t.Fatalf("%s: detected %q, header %v", name, f.Delimiter, f.HasHeader)
+		}
+		if got := rows(t, f); len(got) != 1 || got[0][1] != "Ada" {
+			t.Fatalf("%s: %v", name, got)
+		}
+	}
+	// Only CSV and JSON files may be compressed, and only by gzip or zstd.
+	for _, name := range []string{"n.parquet.gz", "sheet.xlsx.zst", "a.xml.gz", "backup.tar.gz", "x.gz", "notes.bz2"} {
+		if f, ok := FormatOf(name); ok {
+			t.Errorf("%s reads as %s", name, f)
+		}
+	}
+}

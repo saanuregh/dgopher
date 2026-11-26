@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -29,23 +30,61 @@ const (
 )
 
 // Extensions are the file extensions of the formats, for a file chooser.
-var Extensions = []string{"csv", "tsv", "txt", "json", "jsonl", "ndjson", "parquet", "xlsx", "xml"}
+var Extensions = []string{"csv", "tsv", "txt", "json", "jsonl", "ndjson", "ldjson", "jsonlines", "parquet", "xlsx", "xml", "gz", "zst"}
 
-// FormatOf is the format of a file by its extension.
+// FormatOf is the format of a file by its extension; for a gzip or zstd
+// copy, by the extension before .gz or .zst.
 func FormatOf(path string) (Format, bool) {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".csv", ".tsv", ".txt":
-		return CSV, true
-	case ".json", ".jsonl", ".ndjson":
-		return JSON, true
-	case ".parquet":
-		return Parquet, true
-	case ".xlsx":
-		return Excel, true
-	case ".xml":
-		return XML, true
+	name := strings.ToLower(filepath.Base(path))
+	// DuckDB reads gzip and zstd copies of CSV and JSON files as they are.
+	ext := filepath.Ext(name)
+	compressed := ext == ".gz" || ext == ".zst"
+	if compressed {
+		name = strings.TrimSuffix(name, ext)
 	}
-	return "", false
+	var format Format
+	switch filepath.Ext(name) {
+	case ".csv", ".tsv", ".txt":
+		format = CSV
+	case ".json", ".jsonl", ".ndjson", ".ldjson", ".jsonlines":
+		format = JSON
+	case ".parquet":
+		format = Parquet
+	case ".xlsx":
+		format = Excel
+	case ".xml":
+		format = XML
+	}
+	if format == "" || compressed && format != CSV && format != JSON {
+		return "", false
+	}
+	return format, true
+}
+
+// Reader is the DuckDB function that reads a file of the format in place,
+// "" for a format DuckDB does not read.
+func (f Format) Reader() string {
+	switch f {
+	case CSV:
+		return "read_csv"
+	case JSON:
+		return "read_json"
+	case Parquet:
+		return "read_parquet"
+	}
+	return ""
+}
+
+// EscapeGlob is a path DuckDB reads as the one file it names: DuckDB
+// reads [, * and ? as a pattern of many files, and [x] as x. Outside
+// Windows a backslash escapes in a pattern and no escape keeps one, so a
+// path holding one stays as it is, which DuckDB reads when it matches no
+// other file.
+func EscapeGlob(path string) string {
+	if runtime.GOOS != "windows" && strings.Contains(path, `\`) {
+		return path
+	}
+	return strings.NewReplacer("[", "[[]", "*", "[*]", "?", "[?]").Replace(path)
 }
 
 func (f Format) Label() string {
@@ -156,6 +195,7 @@ func (f *File) load(ctx context.Context, opt Options) error {
 		return err
 	}
 	lit := quoteString(path)
+	reader := f.Format.Reader()
 	var from string
 	// with is the source read with one more option, for a CSV or JSON
 	// file, whose types DuckDB guesses.
@@ -166,15 +206,15 @@ func (f *File) load(ctx context.Context, opt Options) error {
 		if err != nil {
 			return err
 		}
-		from = "read_csv(" + strings.Join(args, ", ") + ")"
+		from = reader + "(" + strings.Join(args, ", ") + ")"
 		with = func(option string) string {
-			return "read_csv(" + strings.Join(append(slices.Clip(args), option), ", ") + ")"
+			return reader + "(" + strings.Join(append(slices.Clip(args), option), ", ") + ")"
 		}
 	case JSON:
-		from = "read_json(" + lit + ", format = 'auto')"
-		with = func(option string) string { return "read_json(" + lit + ", format = 'auto', " + option + ")" }
+		from = reader + "(" + lit + ", format = 'auto')"
+		with = func(option string) string { return reader + "(" + lit + ", format = 'auto', " + option + ")" }
 	case Parquet:
-		from = "read_parquet(" + lit + ")"
+		from = reader + "(" + lit + ")"
 	}
 	cols, err := describe(ctx, f.db, "SELECT * FROM "+from)
 	if err != nil {

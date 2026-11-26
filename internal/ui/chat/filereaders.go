@@ -71,8 +71,8 @@ func identName(t sqltext.Token) string {
 }
 
 // fileExtensions are those of the files DuckDB reads as tables.
-var fileExtensions = []string{".csv", ".tsv", ".txt", ".parquet", ".json", ".jsonl", ".ndjson", ".db", ".duckdb", ".sqlite",
-	".sqlite3", ".xlsx", ".arrow", ".avro", ".gz", ".zst", ".bz2"}
+var fileExtensions = []string{".csv", ".tsv", ".txt", ".parquet", ".json", ".jsonl", ".ndjson", ".ldjson", ".jsonlines", ".db",
+	".duckdb", ".sqlite", ".sqlite3", ".xlsx", ".arrow", ".avro", ".gz", ".zst"}
 
 // looksLikeFile reports whether a name is a path, a URL or a data file's.
 func looksLikeFile(s string) bool {

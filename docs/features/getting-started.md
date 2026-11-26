@@ -20,7 +20,8 @@
   | --- | --- |
   | SQLite (`.sqlite`, `.sqlite3`, `.db`, `.db3`) or DuckDB (`.duckdb`, `.ddb`) | opens as a connection |
   | `.sql` | opens in an editor on the connection chosen in the navigator |
-  | CSV, TSV, Parquet, JSON or JSON Lines (`.csv`, `.tsv`, `.parquet`, `.json`, `.jsonl`, `.ndjson`) | queried in place with DuckDB |
+  | CSV, TSV, Parquet, JSON or JSON Lines (`.csv`, `.tsv`, `.txt`, `.parquet`, `.json`, `.jsonl`, `.ndjson`, `.ldjson`, `.jsonlines`) | queried in place with DuckDB |
+  | A gzip or zstd copy of a CSV or JSON file, such as `events.jsonl.gz` or `data.csv.zst` | queried in place with DuckDB |
   | Excel (`.xlsx`) or XML | imported into a new table of the connection chosen in the navigator |
 
 - **Open Recent** in the File menu (and the Dock, the jump list on Windows,
