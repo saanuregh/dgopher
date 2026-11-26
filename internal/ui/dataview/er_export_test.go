@@ -67,7 +67,8 @@ func TestERSaveFailureNotifies(t *testing.T) {
 			t.Errorf("notice %d: %+v", i, n)
 		}
 	}
-	if b := a.Notified[0].Body; !strings.Contains(b, "no such file") {
+	// The error's own wording is the system's; its path names the folder.
+	if b := a.Notified[0].Body; !strings.Contains(b, "\n") || !strings.Contains(b[strings.Index(b, "\n"):], "missing") {
 		t.Errorf("failure body %q", b)
 	}
 }
