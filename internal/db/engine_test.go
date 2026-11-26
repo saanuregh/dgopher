@@ -36,6 +36,7 @@ func TestEngineFactsPinned(t *testing.T) {
 		TimescaleDB: {"TimescaleDB", 5432, "postgres", sqltext.Postgres, "SHOW server_version", timescaledbDialect{}, []BackupFormat{BackupArchive, BackupSQL}},
 		MariaDB:     {"MariaDB", 3306, "root", sqltext.MySQL, "SELECT VERSION()", mariadbDialect{}, []BackupFormat{BackupSQL}},
 		TiDB:        {"TiDB", 4000, "root", sqltext.MySQL, "SELECT VERSION()", tidbDialect{}, []BackupFormat{BackupSQL}},
+		Valkey:      {"Valkey", 6379, "", sqltext.Generic, "", nil, nil},
 
 		SQLServer: {"SQL Server", 1433, "sa", sqltext.TSQL, "SELECT CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(128))", sqlserverDialect{}, []BackupFormat{BackupBacpac, BackupServerFile}},
 		Oracle:    {"Oracle", 1521, "system", sqltext.Oracle, "SELECT version_full FROM product_component_version WHERE ROWNUM = 1", oracleDialect{}, []BackupFormat{BackupDataPump}},
@@ -156,12 +157,12 @@ func TestOpenStoreFailsWithNoStore(t *testing.T) {
 }
 
 // The connection form says whether the server refuses writes of a
-// read-only connection too: TiDB and Redis have no read-only mode, so
+// read-only connection too: TiDB, Redis and Valkey have no read-only mode, so
 // there the app's check is the only one.
 func TestServerEnforcesReadOnly(t *testing.T) {
 	want := map[Engine]bool{
 		Postgres: true, CockroachDB: true, YugabyteDB: true, TimescaleDB: true, MySQL: true, MariaDB: true, TiDB: false,
-		ClickHouse: true, SQLite: true, DuckDB: true, Redis: false, "unknown": false, SQLServer: false,
+		ClickHouse: true, SQLite: true, DuckDB: true, Redis: false, Valkey: false, "unknown": false, SQLServer: false,
 		// From 23ai (ServerReadOnlySince).
 		Oracle: true,
 	}

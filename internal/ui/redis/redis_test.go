@@ -15,6 +15,7 @@ import (
 
 	"dgopher/internal/db"
 	"dgopher/internal/testutil"
+	"dgopher/internal/testutil/redisserver"
 	"dgopher/internal/ui/dataview"
 
 	"github.com/egoist/mygo/ui"
@@ -22,8 +23,9 @@ import (
 
 func TestRedisBrowser(t *testing.T) {
 	testutil.Integration(t)
+	rs := redisserver.Get(t)
 	a := dataview.NewFakeHost(t)
-	cfg := db.Config{ID: "r", Name: "Cache", Engine: db.Redis, Host: "127.0.0.1", Port: 16379, Database: "2", Env: db.Staging}
+	cfg := db.Config{ID: "r", Name: "Cache", Engine: db.Engine(rs.Engine), Host: redisserver.Host, Port: rs.Port, Database: "2", Env: db.Staging}
 	cn := a.AddConn(cfg)
 	ctx := context.Background()
 	kv, err := db.OpenRedis(ctx, cfg, nil)
@@ -185,6 +187,33 @@ func TestRedisBrowser(t *testing.T) {
 	if r.slow.err != "" {
 		t.Fatal(r.slow.err)
 	}
+	tt.Frame()
+	testutil.Snapshot(t, tt, "redis-slow-log")
+	// Valkey's command log also tells large requests and replies apart.
+	if rs.Valkey() {
+		if !tt.HasText("Command Log") || !tt.HasText("Large requests") {
+			t.Fatalf("Valkey's panel: %q", tt.Texts())
+		}
+		// Every request is large for a moment.
+		was, err := kv.Do(ctx, []string{"CONFIG", "GET", "commandlog-request-larger-than"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		kv.Do(ctx, []string{"CONFIG", "SET", "commandlog-request-larger-than", "0"})
+		kv.Do(ctx, []string{"SET", "large", strings.Repeat("z", 300)})
+		kv.Do(ctx, []string{"CONFIG", "SET", "commandlog-request-larger-than", was.([]any)[1].(string)})
+		defer kv.Do(ctx, []string{"COMMANDLOG", "RESET", "large-request"})
+		if err := tt.Click("Large requests"); err != nil {
+			t.Fatal(err)
+		}
+		testutil.WaitFor(t, tt, "the large requests", func() bool { return commandLogs[r.slow.shown].log == db.LogLargeRequest && !r.slow.loading })
+		if r.slow.err != "" || !tt.HasText("Size") {
+			t.Fatalf("large requests: %q, %q", r.slow.err, tt.Texts())
+		}
+		testutil.Snapshot(t, tt, "redis-command-log")
+	} else if !tt.HasText("Slow Log") || tt.HasText("Large requests") {
+		t.Fatalf("Redis's panel: %q", tt.Texts())
+	}
 	r.panel = panelMemory
 	r.analyseMemory()
 	testutil.WaitFor(t, tt, "the analysis", func() bool { return r.memory.cancel == nil })
@@ -271,13 +300,14 @@ func TestRedisBrowser(t *testing.T) {
 	r.file = nil
 }
 
-// Redis 8's types: a JSON document edited, an array's values set and
+// The modules' types: a JSON document edited, an array's values set and
 // removed, a vector set's elements added, with their vectors, attributes
 // and the elements most like them.
 func TestRedisModules(t *testing.T) {
 	testutil.Integration(t)
+	rs := redisserver.Get(t)
 	a := dataview.NewFakeHost(t)
-	cfg := db.Config{ID: "r8", Name: "Redis 8", Engine: db.Redis, Host: "127.0.0.1", Port: 16385, Env: db.Development}
+	cfg := db.Config{ID: "r8", Name: "Redis 8", Engine: db.Engine(rs.Engine), Host: redisserver.Host, Port: rs.ModulesPort, Env: db.Development}
 	cn := a.AddConn(cfg)
 	ctx := context.Background()
 	kv, err := db.OpenRedis(ctx, cfg, nil)
@@ -285,14 +315,20 @@ func TestRedisModules(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer kv.Close()
-	for _, cmd := range [][]string{
+	keys := 2
+	setup := [][]string{
 		{"FLUSHDB"},
 		{"JSON.SET", "doc", "$", `{"a":1}`},
-		{"ARSET", "arr", "0", "x"}, {"ARSET", "arr", "5", "y"},
-		{"VADD", "vec", "VALUES", "2", "1", "0", "east", "SETATTR", `{"n":1}`},
-		{"VADD", "vec", "VALUES", "2", "0", "1", "north"},
 		{"BF.ADD", "bloom", "x"},
-	} {
+	}
+	if !rs.Valkey() {
+		keys += 2
+		setup = append(setup,
+			[]string{"ARSET", "arr", "0", "x"}, []string{"ARSET", "arr", "5", "y"},
+			[]string{"VADD", "vec", "VALUES", "2", "1", "0", "east", "SETATTR", `{"n":1}`},
+			[]string{"VADD", "vec", "VALUES", "2", "0", "1", "north"})
+	}
+	for _, cmd := range setup {
 		if _, err := kv.Do(ctx, cmd); err != nil {
 			t.Fatal(cmd, err)
 		}
@@ -301,14 +337,14 @@ func TestRedisModules(t *testing.T) {
 	a.Connect(cn, func() { a.AddTab(New(a, cn)) })
 	testutil.WaitFor(t, tt, "redis tab", func() bool { return len(a.Tabs) == 1 })
 	r := a.Tabs[0].(*Tab)
-	testutil.WaitFor(t, tt, "keys", func() bool { return len(r.keys) == 4 })
-	loaded := func(what string) {
+	testutil.WaitFor(t, tt, "keys", func() bool { return len(r.keys) == keys })
+	loaded := func(t *testing.T, what string) {
 		t.Helper()
 		testutil.WaitFor(t, tt, what, func() bool { return !r.loadingKey && r.info.Type != "" })
 	}
 
 	r.open("doc")
-	loaded("the document")
+	loaded(t, "the document")
 	if r.editValue != "{\n  \"a\": 1\n}" {
 		t.Fatalf("document shown as %q", r.editValue)
 	}
@@ -323,62 +359,71 @@ func TestRedisModules(t *testing.T) {
 		t.Fatalf("saved as %s", doc)
 	}
 
-	r.open("arr")
-	loaded("the array")
-	if len(r.fields) != 2 || r.fields[1].Name != "5" || r.fields[1].Value != "y" {
-		t.Fatalf("array %+v", r.fields)
-	}
-	r.write([]string{"ARSET", "arr", "9", "z"}, r.loadKey)
-	testutil.WaitFor(t, tt, "the set", func() bool { return !r.loadingKey && len(r.fields) == 3 })
-	r.fieldRow = 0
-	tt.Frame()
-	if err := tt.Click("Remove Chosen"); err != nil {
-		t.Fatal(err)
-	}
-	if a.Confirm == nil {
-		t.Fatal("Remove Chosen does not ask")
-	}
-	a.Confirm.OnConfirm()
-	a.Confirm = nil
-	testutil.WaitFor(t, tt, "the removal", func() bool { return !r.loadingKey && len(r.fields) == 2 })
-
-	r.open("vec")
-	loaded("the vector set")
-	r.newName, r.newValue, r.newScore = "west", "-1, 0", `{"n":3}`
-	r.addVector()
-	testutil.WaitFor(t, tt, "the element", func() bool { return !r.loadingKey && len(r.fields) == 3 })
-	r.fieldRow = slices.IndexFunc(r.fields, func(f db.Field) bool { return f.Name == "east" })
-	testutil.WaitFor(t, tt, "the vector", func() bool { return r.vector.element == "east" && !r.vector.loading })
-	if len(r.vector.vector) != 2 || len(r.vector.similar) == 0 || r.vector.similar[0].Name != "north" || r.vector.attrs != `{"n":1}` {
-		t.Fatalf("east: %v, similar %+v, attributes %s", r.vector.vector, r.vector.similar, r.vector.attrs)
-	}
-	r.vector.attrs = `{"n":2}`
-	tt.Frame()
-	if err := tt.Click("Save Attributes"); err != nil {
-		t.Fatal(err)
-	}
-	testutil.WaitFor(t, tt, "the attributes", func() bool {
-		v, _ := kv.Do(ctx, []string{"VGETATTR", "vec", "east"})
-		return v == `{"n":2}`
+	t.Run("array", func(t *testing.T) {
+		rs.SkipOnValkey(t, "arrays")
+		r.open("arr")
+		loaded(t, "the array")
+		if len(r.fields) != 2 || r.fields[1].Name != "5" || r.fields[1].Value != "y" {
+			t.Fatalf("array %+v", r.fields)
+		}
+		r.write([]string{"ARSET", "arr", "9", "z"}, r.loadKey)
+		testutil.WaitFor(t, tt, "the set", func() bool { return !r.loadingKey && len(r.fields) == 3 })
+		r.fieldRow = 0
+		tt.Frame()
+		if err := tt.Click("Remove Chosen"); err != nil {
+			t.Fatal(err)
+		}
+		if a.Confirm == nil {
+			t.Fatal("Remove Chosen does not ask")
+		}
+		a.Confirm.OnConfirm()
+		a.Confirm = nil
+		testutil.WaitFor(t, tt, "the removal", func() bool { return !r.loadingKey && len(r.fields) == 2 })
 	})
-	testutil.Snapshot(t, tt, "redis-vector-set")
+
+	t.Run("vector set", func(t *testing.T) {
+		rs.SkipOnValkey(t, "vector sets")
+		r.open("vec")
+		loaded(t, "the vector set")
+		r.newName, r.newValue, r.newScore = "west", "-1, 0", `{"n":3}`
+		r.addVector()
+		testutil.WaitFor(t, tt, "the element", func() bool { return !r.loadingKey && len(r.fields) == 3 })
+		r.fieldRow = slices.IndexFunc(r.fields, func(f db.Field) bool { return f.Name == "east" })
+		testutil.WaitFor(t, tt, "the vector", func() bool { return r.vector.element == "east" && !r.vector.loading })
+		if len(r.vector.vector) != 2 || len(r.vector.similar) == 0 || r.vector.similar[0].Name != "north" || r.vector.attrs != `{"n":1}` {
+			t.Fatalf("east: %v, similar %+v, attributes %s", r.vector.vector, r.vector.similar, r.vector.attrs)
+		}
+		r.vector.attrs = `{"n":2}`
+		tt.Frame()
+		if err := tt.Click("Save Attributes"); err != nil {
+			t.Fatal(err)
+		}
+		testutil.WaitFor(t, tt, "the attributes", func() bool {
+			v, _ := kv.Do(ctx, []string{"VGETATTR", "vec", "east"})
+			return v == `{"n":2}`
+		})
+		testutil.Snapshot(t, tt, "redis-vector-set")
+	})
 
 	// A time series charts by buckets; a sample adds to it.
-	kv.Do(ctx, []string{"TS.CREATE", "temp", "LABELS", "room", "kitchen"})
-	for i := range 50 {
-		kv.Do(ctx, []string{"TS.ADD", "temp", strconv.Itoa(1000 + i*1000), strconv.Itoa(i)})
-	}
-	r.open("temp")
-	loaded("the series")
-	r.series.span = len(seriesSpans) - 1
-	testutil.WaitFor(t, tt, "the chart", func() bool { return !r.series.loading && r.series.source != nil })
-	if r.series.err != "" || len(r.series.source.Rows) == 0 || r.series.last.UnixMilli() != 50_000 {
-		t.Fatalf("series %q, %d points, last %v", r.series.err, len(r.series.source.Rows), r.series.last)
-	}
-	r.series.newAt, r.series.newValue = "60000", "99"
-	r.addSample()
-	testutil.WaitFor(t, tt, "the sample", func() bool { return !r.series.loading && r.series.last.UnixMilli() == 60_000 })
-	testutil.Snapshot(t, tt, "redis-time-series")
+	t.Run("time series", func(t *testing.T) {
+		rs.SkipOnValkey(t, "time series")
+		kv.Do(ctx, []string{"TS.CREATE", "temp", "LABELS", "room", "kitchen"})
+		for i := range 50 {
+			kv.Do(ctx, []string{"TS.ADD", "temp", strconv.Itoa(1000 + i*1000), strconv.Itoa(i)})
+		}
+		r.open("temp")
+		loaded(t, "the series")
+		r.series.span = len(seriesSpans) - 1
+		testutil.WaitFor(t, tt, "the chart", func() bool { return !r.series.loading && r.series.source != nil })
+		if r.series.err != "" || len(r.series.source.Rows) == 0 || r.series.last.UnixMilli() != 50_000 {
+			t.Fatalf("series %q, %d points, last %v", r.series.err, len(r.series.source.Rows), r.series.last)
+		}
+		r.series.newAt, r.series.newValue = "60000", "99"
+		r.addSample()
+		testutil.WaitFor(t, tt, "the sample", func() bool { return !r.series.loading && r.series.last.UnixMilli() == 60_000 })
+		testutil.Snapshot(t, tt, "redis-time-series")
+	})
 
 	// The Search panel lists the indexes, describes one, and searches it.
 	kv.Do(ctx, []string{"HSET", "doc:1", "title", "hello world"})
@@ -397,13 +442,13 @@ func TestRedisModules(t *testing.T) {
 		return r.search.total == 1
 	})
 	r.open(r.search.hits[0].Key)
-	loaded("the document")
+	loaded(t, "the document")
 	if r.selected != "doc:1" || r.info.Type != "hash" {
 		t.Fatalf("a hit opened %q, a %s", r.selected, r.info.Type)
 	}
 
 	r.open("bloom")
-	loaded("the Bloom filter")
+	loaded(t, "the Bloom filter")
 	if !tt.HasText("The browser has no viewer for a Bloom filter: read and change it with its commands in the console.") {
 		t.Fatal("a type without a viewer says nothing")
 	}
@@ -429,8 +474,9 @@ func TestConsoleLogCap(t *testing.T) {
 // for another.
 func TestMonitorMorphs(t *testing.T) {
 	testutil.Integration(t)
+	rs := redisserver.Get(t)
 	a := dataview.NewFakeHost(t)
-	cn := a.AddConn(db.Config{ID: "r", Name: "Cache", Engine: db.Redis, Host: "127.0.0.1", Port: 16379, Database: "2", Env: db.Staging})
+	cn := a.AddConn(db.Config{ID: "r", Name: "Cache", Engine: db.Engine(rs.Engine), Host: redisserver.Host, Port: rs.Port, Database: "2", Env: db.Staging})
 	tt := ui.NewTester(a.View, 1360, 860)
 	a.Connect(cn, func() { a.AddTab(New(a, cn)) })
 	testutil.WaitFor(t, tt, "redis tab", func() bool { return len(a.Tabs) == 1 })

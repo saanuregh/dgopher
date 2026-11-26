@@ -80,6 +80,14 @@ type KeyValueRules interface {
 	// DefaultKeySeparator splits key names into folders unless a
 	// connection says otherwise.
 	DefaultKeySeparator() string
+	// NoSearchNote tells a server without search where it comes from.
+	NoSearchNote() string
+	// ClusterDatabases reports whether a cluster may hold databases
+	// other than 0.
+	ClusterDatabases() bool
+	// BloomFilterType is how TYPE names a Bloom filter of the engine's
+	// module.
+	BloomFilterType() string
 }
 
 // SQLRules is what an engine that speaks SQL answers besides; packages
@@ -630,6 +638,7 @@ var registeredRules = map[Engine]engineRules{
 	TiDB:        tidbEngine{},
 	ClickHouse:  clickhouseEngine{},
 	Redis:       redisEngine{},
+	Valkey:      valkeyEngine{},
 	SQLite:      sqliteEngine{},
 	DuckDB:      duckdbEngine{},
 	SQLServer:   sqlserverEngine{},

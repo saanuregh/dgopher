@@ -3,8 +3,8 @@
 **Dig into your databases.** DGopher is a fast, free and open-source
 database client for Linux, macOS and Windows. One app for **PostgreSQL,
 MySQL, SQL Server, Oracle, ClickHouse, SQLite, DuckDB and Redis**, and for
-CockroachDB, YugabyteDB, TimescaleDB, MariaDB and TiDB as engines of their
-own.
+CockroachDB, YugabyteDB, TimescaleDB, MariaDB, TiDB and Valkey as engines
+of their own.
 
 [Download](https://github.com/saanuregh/dgopher/releases/latest) ·
 [Features](docs/features.md) · [Engine support](docs/engines.md) ·
@@ -126,9 +126,9 @@ To build from source, see [Development](docs/development.md).
 - **Admin:** server activity with running queries to cancel, locks and the
   slowest statements; users and privileges; and VACUUM, ANALYZE, REINDEX
   or OPTIMIZE from a table's menu.
-- **Redis:** a key browser, value editors for every type including Redis
-  8's, a console with completion, and monitor, slow log, memory and
-  Pub/Sub panels.
+- **Redis and Valkey:** a key browser, value editors for every type
+  including Redis 8's, a console with completion, and monitor, slow log,
+  memory and Pub/Sub panels.
 
 ### Connections and security
 

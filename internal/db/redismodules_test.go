@@ -7,13 +7,17 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"dgopher/internal/testutil/redisserver"
 )
 
-// redis8 opens the server of Redis 8, with its modules and arrays.
-func redis8(t *testing.T) *KV {
+// modulesServer opens the server with the modules: Redis 8's, with its
+// arrays, or Valkey's bundle.
+func modulesServer(t *testing.T) (*KV, redisserver.Servers) {
 	t.Helper()
 	integration(t)
-	k, err := OpenRedis(context.Background(), Config{Name: "r8", Engine: Redis, Host: "127.0.0.1", Port: 16385}, nil)
+	rs := redisserver.Get(t)
+	k, err := OpenRedis(context.Background(), Config{Name: "r8", Engine: Engine(rs.Engine), Host: redisserver.Host, Port: rs.ModulesPort}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,31 +25,43 @@ func redis8(t *testing.T) *KV {
 	if _, err := k.Do(context.Background(), []string{"FLUSHDB"}); err != nil {
 		t.Fatal(err)
 	}
-	return k
+	return k, rs
 }
 
 // TestIntegrationRedisModules reads a JSON document, an array and a
 // vector set, page by page.
 func TestIntegrationRedisModules(t *testing.T) {
-	k := redis8(t)
+	k, rs := modulesServer(t)
 	ctx := context.Background()
-	do := func(args ...string) {
+	do := func(t *testing.T, args ...string) {
 		t.Helper()
 		if _, err := k.Do(ctx, args); err != nil {
 			t.Fatal(args, err)
 		}
 	}
-	do("JSON.SET", "doc", "$", `{"a":[1,2],"b":"x"}`)
-	if doc, err := k.JSONDocument(ctx, "doc"); err != nil || doc != `{"a":[1,2],"b":"x"}` {
-		t.Fatalf("document %q %v", doc, err)
-	}
-	if info, err := k.Info(ctx, "doc"); err != nil || info.Type != "ReJSON-RL" {
-		t.Fatalf("info %+v %v", info, err)
-	}
+	t.Run("JSON", func(t *testing.T) {
+		do(t, "JSON.SET", "doc", "$", `{"a":[1,2],"b":"x"}`)
+		if doc, err := k.JSONDocument(ctx, "doc"); err != nil || doc != `{"a":[1,2],"b":"x"}` {
+			t.Fatalf("document %q %v", doc, err)
+		}
+		if info, err := k.Info(ctx, "doc"); err != nil || info.Type != "ReJSON-RL" {
+			t.Fatalf("info %+v %v", info, err)
+		}
+	})
+	t.Run("array", func(t *testing.T) {
+		rs.SkipOnValkey(t, "arrays")
+		testSparseArray(t, ctx, k, do)
+	})
+	t.Run("vector set", func(t *testing.T) {
+		rs.SkipOnValkey(t, "vector sets")
+		testVectorSet(t, ctx, k, do)
+	})
+}
 
-	// A sparse array: 25 values among 1000 indexes.
+// testSparseArray reads 25 values among 1000 indexes, page by page.
+func testSparseArray(t *testing.T, ctx context.Context, k *KV, do func(*testing.T, ...string)) {
 	for i := range 25 {
-		do("ARSET", "arr", strconv.Itoa(i*40), "v"+strconv.Itoa(i))
+		do(t, "ARSET", "arr", strconv.Itoa(i*40), "v"+strconv.Itoa(i))
 	}
 	if info, _ := k.Info(ctx, "arr"); info.Type != "array" || info.Length != 25 {
 		t.Fatalf("array info %+v", info)
@@ -65,12 +81,15 @@ func TestIntegrationRedisModules(t *testing.T) {
 	if len(got) != 25 || got[24].Name != "960" || got[24].Value != "v24" {
 		t.Fatalf("array read as %+v", got)
 	}
+}
 
+func testVectorSet(t *testing.T, ctx context.Context, k *KV, do func(*testing.T, ...string)) {
 	for i := range 12 {
 		n := strconv.Itoa(i)
-		do("VADD", "vec", "VALUES", "2", n, strconv.Itoa(12-i), "e"+n, "SETATTR", `{"n":`+n+`}`)
+		do(t, "VADD", "vec", "VALUES", "2", n, strconv.Itoa(12-i), "e"+n, "SETATTR", `{"n":`+n+`}`)
 	}
-	pos, got = ItemsPos{}, nil
+	var pos ItemsPos
+	var got []Field
 	for {
 		items, next, done, err := k.ReadItems(ctx, "vec", "vectorset", pos, 5)
 		if err != nil {
@@ -98,24 +117,28 @@ func TestIntegrationRedisModules(t *testing.T) {
 // TestIntegrationRedisSearchAndSeries reads a search index, searches it,
 // and reads a time series by buckets.
 func TestIntegrationRedisSearchAndSeries(t *testing.T) {
-	k := redis8(t)
+	k, rs := modulesServer(t)
 	ctx := context.Background()
+	t.Run("search", func(t *testing.T) { testSearch(t, ctx, k) })
+	t.Run("time series", func(t *testing.T) {
+		rs.SkipOnValkey(t, "time series")
+		testSeries(t, ctx, k)
+	})
+}
+
+func testSearch(t *testing.T, ctx context.Context, k *KV) {
 	for _, cmd := range [][]string{
 		{"HSET", "doc:1", "title", "hello world", "n", "5"},
 		{"HSET", "doc:2", "title", "goodbye", "n", "7"},
 		{"FT.CREATE", "it_idx", "ON", "HASH", "PREFIX", "1", "doc:", "SCHEMA", "title", "TEXT", "n", "NUMERIC"},
-		{"TS.CREATE", "temp", "LABELS", "room", "kitchen"},
 	} {
 		if _, err := k.Do(ctx, cmd); err != nil {
 			t.Fatal(cmd, err)
 		}
 	}
 	defer k.Do(ctx, []string{"FT.DROPINDEX", "it_idx"})
-	for i := range 100 {
-		k.Do(ctx, []string{"TS.ADD", "temp", strconv.Itoa(1000 + i*1000), strconv.Itoa(i)})
-	}
 	if !k.HasSearch() {
-		t.Fatal("Redis 8 has search")
+		t.Fatal("the server has search")
 	}
 	if names, err := k.SearchIndexes(ctx); err != nil || !slices.Contains(names, "it_idx") {
 		t.Fatalf("indexes %v %v", names, err)
@@ -128,12 +151,23 @@ func TestIntegrationRedisSearchAndSeries(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if info.On != "HASH" || !slices.Equal(info.Prefixes, []string{"doc:"}) || len(info.Fields) != 2 || info.Fields[1].Type != "NUMERIC" || info.Docs != 2 {
+	// Valkey's search lists the fields by name, Redis's in schema order.
+	n := slices.IndexFunc(info.Fields, func(f IndexField) bool { return f.Name == "n" })
+	if info.On != "HASH" || !slices.Equal(info.Prefixes, []string{"doc:"}) || len(info.Fields) != 2 || n < 0 || info.Fields[n].Type != "NUMERIC" || info.Docs != 2 {
 		t.Fatalf("index %+v", info)
 	}
 	total, hits, err := k.Search(ctx, "it_idx", "hello", 10)
 	if err != nil || total != 1 || hits[0].Key != "doc:1" || !slices.Contains(hits[0].Fields, [2]string{"title", "hello world"}) {
 		t.Fatalf("search %d %+v %v", total, hits, err)
+	}
+}
+
+func testSeries(t *testing.T, ctx context.Context, k *KV) {
+	if _, err := k.Do(ctx, []string{"TS.CREATE", "temp", "LABELS", "room", "kitchen"}); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 100 {
+		k.Do(ctx, []string{"TS.ADD", "temp", strconv.Itoa(1000 + i*1000), strconv.Itoa(i)})
 	}
 	first, last, props, err := k.SeriesInfo(ctx, "temp")
 	if err != nil || first.UnixMilli() != 1000 || last.UnixMilli() != 100_000 || !slices.Contains(props, Property{"labels", "room=kitchen"}) {

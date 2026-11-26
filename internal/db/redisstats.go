@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,11 +24,36 @@ type SlowEntry struct {
 	// long ones cut, and those holding secrets left out.
 	Args   []string
 	Client string // its address, and its name after a space
+	// Size is the bytes of a large request or reply, 0 in the slow log.
+	Size int64
 }
 
-// SlowLog reads up to n of the latest slow commands of each master,
-// slowest first.
-func (k *KV) SlowLog(ctx context.Context, n int64) ([]SlowEntry, error) {
+// CommandLog is one of the logs of commands a server keeps, by
+// COMMANDLOG's names: Redis keeps the slow one alone.
+type CommandLog string
+
+const (
+	LogSlow         CommandLog = "slow"
+	LogLargeRequest CommandLog = "large-request"
+	LogLargeReply   CommandLog = "large-reply"
+)
+
+// args is the command that runs a subcommand of the log with extra
+// arguments: SLOWLOG for the slow one, which every server has, COMMANDLOG,
+// naming the log last, for the others.
+func (l CommandLog) args(subcommand string, extra ...string) []string {
+	if l == LogSlow {
+		return append([]string{"SLOWLOG", subcommand}, extra...)
+	}
+	return append(append([]string{"COMMANDLOG", subcommand}, extra...), string(l))
+}
+
+// ResetArgs is the command that empties the log.
+func (l CommandLog) ResetArgs() []string { return l.args("RESET") }
+
+// CommandLog reads up to n of the latest entries of a log of each master,
+// the slowest, or largest, first.
+func (k *KV) CommandLog(ctx context.Context, log CommandLog, n int64) ([]SlowEntry, error) {
 	masters, err := k.mastersFor(ctx, false)
 	if err != nil {
 		return nil, err
@@ -42,21 +68,26 @@ func (k *KV) SlowLog(ctx context.Context, n int64) ([]SlowEntry, error) {
 				}
 			}
 		}
-		raw, err := c.Do(ctx, c.B().SlowlogGet().Count(n).Build()).ToArray()
+		raw, err := c.Do(ctx, c.B().Arbitrary(log.args("GET", strconv.FormatInt(n, 10))...).Build()).ToArray()
 		if err != nil {
 			return nil, err
 		}
 		for _, m := range raw {
 			fields, err := m.ToArray()
 			if err != nil || len(fields) < 4 {
-				return nil, fmt.Errorf("a slow log entry the app cannot read: %v", err)
+				return nil, fmt.Errorf("a log entry the app cannot read: %v", err)
 			}
 			e := SlowEntry{Node: node}
 			e.ID, _ = fields[0].AsInt64()
 			at, _ := fields[1].AsInt64()
 			e.At = time.Unix(at, 0)
-			us, _ := fields[2].AsInt64()
-			e.Duration = time.Duration(us) * time.Microsecond
+			// The duration in µs, or a large request's or reply's bytes.
+			value, _ := fields[2].AsInt64()
+			if log == LogSlow {
+				e.Duration = time.Duration(value) * time.Microsecond
+			} else {
+				e.Size = value
+			}
 			e.Args, _ = fields[3].AsStrSlice()
 			if len(fields) >= 6 {
 				addr, _ := fields[4].ToString()
@@ -66,18 +97,23 @@ func (k *KV) SlowLog(ctx context.Context, n int64) ([]SlowEntry, error) {
 			out = append(out, e)
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Duration > out[j].Duration })
+	// The slow log's entries by how long they took, the others' by size.
+	key := func(e SlowEntry) int64 { return e.Size }
+	if log == LogSlow {
+		key = func(e SlowEntry) int64 { return int64(e.Duration) }
+	}
+	sort.SliceStable(out, func(i, j int) bool { return key(out[i]) > key(out[j]) })
 	return out, nil
 }
 
-// ResetSlowLog empties the slow log of every master.
-func (k *KV) ResetSlowLog(ctx context.Context) error {
+// ResetCommandLog empties a log of every master.
+func (k *KV) ResetCommandLog(ctx context.Context, log CommandLog) error {
 	masters, err := k.mastersFor(ctx, false)
 	if err != nil {
 		return err
 	}
 	for _, c := range masters {
-		if err := c.Do(ctx, c.B().SlowlogReset().Build()).Error(); err != nil {
+		if err := c.Do(ctx, c.B().Arbitrary(log.ResetArgs()...).Build()).Error(); err != nil {
 			return err
 		}
 	}

@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"dgopher/internal/testutil/redisserver"
 )
 
 // mysqlPacket writes one MySQL protocol packet.
@@ -331,6 +333,7 @@ func TestClickHouseHTTPNoRedirectNoEnvProxy(t *testing.T) {
 // transport that refuses others.
 func TestIntegrationTLSState(t *testing.T) {
 	integration(t)
+	rs := redisserver.Get(t)
 	ctx := context.Background()
 	for _, c := range []struct {
 		cfg  Config
@@ -360,7 +363,7 @@ func TestIntegrationTLSState(t *testing.T) {
 		}
 		d.Close()
 	}
-	k, err := OpenRedis(ctx, Config{Name: "r", Engine: Redis, Host: "127.0.0.1", Port: 16379, TLS: TLSPrefer}, nil)
+	k, err := OpenRedis(ctx, Config{Name: "r", Engine: Engine(rs.Engine), Host: redisserver.Host, Port: rs.Port, TLS: TLSPrefer}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

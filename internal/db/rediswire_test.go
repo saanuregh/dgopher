@@ -5,13 +5,16 @@ import (
 	"testing"
 	"time"
 
+	"dgopher/internal/testutil/redisserver"
+
 	"github.com/redis/rueidis"
 )
 
 func TestIntegrationRedisWireRecords(t *testing.T) {
 	integration(t)
+	rs := redisserver.Get(t)
 	ctx := context.Background()
-	cfg := Config{Name: "wire-redis", Engine: Redis, Host: "127.0.0.1", Port: 16379, Database: "1"}
+	cfg := Config{Name: "wire-redis", Engine: Engine(rs.Engine), Host: redisserver.Host, Port: rs.Port, Database: "1"}
 	l := captureSends(t, cfg.Name)
 	k, err := OpenRedis(ctx, cfg, nil)
 	if err != nil {
@@ -91,8 +94,10 @@ func TestIntegrationRedisWireRecords(t *testing.T) {
 // which the hook redacts.
 func TestIntegrationRedisWireMonitorAuth(t *testing.T) {
 	integration(t)
+	rs := redisserver.Get(t)
+	rs.RequireSentinel(t)
 	ctx := context.Background()
-	cfg := redisSentinel()
+	cfg := redisSentinel(rs)
 	cfg.Name = "wire-sentinel"
 	l := captureSends(t, cfg.Name)
 	k, err := OpenRedis(ctx, cfg, nil)

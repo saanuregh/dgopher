@@ -55,7 +55,35 @@ type monitorState struct {
 	resume  bool // as pubSubState's
 }
 
+// commandLogChoice is a log the command log panel shows, with what it
+// says when the log is empty.
+type commandLogChoice struct {
+	log          db.CommandLog
+	label, empty string
+}
+
+// commandLogs are the logs the command log panel switches between, and
+// commandLogLabels their switch's labels.
+var commandLogs = []commandLogChoice{
+	{db.LogSlow, "Slow", "No command ran slower than the server's slowlog-log-slower-than."},
+	{db.LogLargeRequest, "Large requests", "No request was larger than the server's commandlog-request-larger-than."},
+	{db.LogLargeReply, "Large replies", "No reply was larger than the server's commandlog-reply-larger-than."},
+}
+
+var commandLogLabels = func() []string {
+	out := make([]string, len(commandLogs))
+	for i, l := range commandLogs {
+		out[i] = l.label
+	}
+	return out
+}()
+
 type slowLogState struct {
+	// shown indexes commandLogs: the slow log unless the server has
+	// Valkey's COMMANDLOG and another was chosen.
+	shown int
+	// reads counts the reads: one of a log no longer shown is dropped.
+	reads   int
 	asked   bool
 	loading bool
 	entries []db.SlowEntry
@@ -88,7 +116,11 @@ func (r *Tab) panelView(c *ui.Context) {
 	}
 	ui.Column(c).Fill().Background(pal.EditorBg).Children(func() {
 		widgets.Bar(c, "Panels", func() {
-			ui.Segmented(c, &r.panel, "Console", "Monitor", "Slow Log", "Memory", "Pub/Sub", "Search").Label("Panel").FontSize(widgets.TextBody)
+			slow := "Slow Log"
+			if r.conn.KV().HasCommand("COMMANDLOG") {
+				slow = "Command Log"
+			}
+			ui.Segmented(c, &r.panel, "Console", "Monitor", slow, "Memory", "Pub/Sub", "Search").Label("Panel").FontSize(widgets.TextBody)
 			ui.Spacer(c)
 			if r.panel >= 0 && r.panel < len(panels) {
 				panels[r.panel].actions(c)
@@ -211,18 +243,25 @@ func (r *Tab) monitorView(c *ui.Context) {
 	})
 }
 
-// loadSlowLog reads the latest slow commands.
+// loadSlowLog reads the latest entries of the log shown.
 func (r *Tab) loadSlowLog() {
 	s := &r.slow
 	s.asked, s.loading, s.err = true, true, ""
-	kv := r.conn.KV()
-	r.loadLatest(func() bool { return true }, &s.loading, &s.err, 30*time.Second, func(ctx context.Context) (func(), error) {
-		entries, err := kv.SlowLog(ctx, slowLogRead)
+	s.reads++
+	kv, log, read := r.conn.KV(), commandLogs[s.shown].log, s.reads
+	r.loadLatest(func() bool { return read == s.reads }, &s.loading, &s.err, 30*time.Second, func(ctx context.Context) (func(), error) {
+		entries, err := kv.CommandLog(ctx, log, slowLogRead)
 		return func() { s.entries = entries }, err
 	})
 }
 
 func (r *Tab) slowLogActions(c *ui.Context) {
+	if r.conn.KV().HasCommand("COMMANDLOG") {
+		if ui.Segmented(c, &r.slow.shown, commandLogLabels...).Label("Log").FontSize(widgets.TextSmall).Changed() {
+			r.slow.entries = nil
+			r.loadSlowLog()
+		}
+	}
 	if ui.Link(c, "Refresh", "").FontSize(widgets.TextSmall).Clicked() {
 		r.loadSlowLog()
 	}
@@ -231,13 +270,15 @@ func (r *Tab) slowLogActions(c *ui.Context) {
 	}
 }
 
-// resetSlowLog empties the slow log of every master, as the policy says.
+// resetSlowLog empties the log shown of every master, as the policy says.
 func (r *Tab) resetSlowLog() {
 	cfg := r.conn.Config
-	args := []string{"SLOWLOG", "RESET"}
+	log := commandLogs[r.slow.shown].log
+	args := log.ResetArgs()
+	command := strings.Join(args, " ")
 	v := safety.ReviewRedis(&cfg, r.conn.KV(), args)
 	if v.Blocked != "" {
-		r.a.RecordBlocked(r.conn, v.Blocked, "SLOWLOG RESET")
+		r.a.RecordBlocked(r.conn, v.Blocked, command)
 		r.slow.err = v.Blocked
 		return
 	}
@@ -247,8 +288,8 @@ func (r *Tab) resetSlowLog() {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			start := time.Now()
-			err := kv.ResetSlowLog(ctx)
-			r.a.RecordRun(cfg, audit.KindCommand, cfg.Database, "SLOWLOG RESET", -1, time.Since(start), err)
+			err := kv.ResetCommandLog(ctx, log)
+			r.a.RecordRun(cfg, audit.KindCommand, cfg.Database, command, -1, time.Since(start), err)
 			return func() {
 				if err != nil {
 					r.slow.err = err.Error()
@@ -259,7 +300,7 @@ func (r *Tab) resetSlowLog() {
 		})
 	}
 	if v.Confirm {
-		r.a.AskConfirm(r.conn, v, "Reset the slow log of "+cfg.Name+"?", "Reset", "SLOWLOG RESET", run)
+		r.a.AskConfirm(r.conn, v, "Reset the "+strings.ToLower(commandLogs[r.slow.shown].label)+" log of "+cfg.Name+"?", "Reset", command, run)
 		return
 	}
 	run()
@@ -276,17 +317,25 @@ func (r *Tab) slowLogView(c *ui.Context) {
 		ui.Text(c, s.err).TextColor(th.Danger).Padding(8, 12).Selectable()
 		return
 	}
+	shown := commandLogs[s.shown]
 	if !s.loading && len(s.entries) == 0 {
-		ui.Text(c, "No command ran slower than the server's slowlog-log-slower-than.").FontSize(widgets.TextBody).TextColor(pal.Muted).Padding(8, 12)
+		ui.Text(c, shown.empty).FontSize(widgets.TextBody).TextColor(pal.Muted).Padding(8, 12)
 		return
 	}
-	cols := []ui.TableColumn{{Title: "Took", Width: 90, Align: ui.End}, {Title: "When", Width: 150}, {Title: "Command"}, {Title: "Client", Width: 200}}
+	first := "Took"
+	if shown.log != db.LogSlow {
+		first = "Size"
+	}
+	cols := []ui.TableColumn{{Title: first, Width: 90, Align: ui.End}, {Title: "When", Width: 150}, {Title: "Command"}, {Title: "Client", Width: 200}}
 	ui.Table(c, &s.list, cols, len(s.entries), func(row, col int) {
 		e := s.entries[row]
 		var text string
 		switch col {
 		case 0:
 			text = e.Duration.String()
+			if shown.log != db.LogSlow {
+				text = widgets.HumanBytes(e.Size)
+			}
 		case 1:
 			text = e.At.Format(time.DateTime)
 		case 2:

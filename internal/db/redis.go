@@ -27,9 +27,10 @@ type KV struct {
 	// who is the connection the client's commands are recorded as.
 	who    *sendsAs
 	tunnel *sshtunnel.Tunnel
-	// readOnly holds the names of the server's read-only commands, from
-	// COMMAND; nil when the server does not list them.
-	readOnly map[string]bool
+	// readOnly and commands hold the names of the server's read-only
+	// commands, and of all, from COMMAND; nil when the server does not
+	// list them.
+	readOnly, commands map[string]bool
 
 	// masters are the clients of a cluster's masters, by address, as the
 	// last scan from the start found them.
@@ -39,6 +40,11 @@ type KV struct {
 	// docs are the commands' help, read once by CommandDocs.
 	docsMu sync.Mutex
 	docs   map[string]CommandDoc
+
+	// info is INFO's server section, read once by serverInfo: connecting
+	// both identifies the server and reads its version from it.
+	infoMu sync.Mutex
+	info   string
 
 	// dial reaches a node as the client does, through the tunnel or the
 	// proxy and TLS, for a connection the client cannot hold, as MONITOR.
@@ -55,7 +61,7 @@ func (k *KV) TLSState() string { return k.tlsState }
 // OpenRedis connects to a Redis server, a cluster, or the master Sentinel
 // names, and checks the connection.
 func OpenRedis(ctx context.Context, cfg Config, knownHosts []string) (*KV, error) {
-	if cfg.Engine != Redis {
+	if cfg.Engine.Base() != Redis {
 		return nil, fmt.Errorf("%s is not Redis", cfg.Engine.Label())
 	}
 	if err := cfg.Validate(); err != nil {
@@ -86,6 +92,9 @@ func OpenRedis(ctx context.Context, cfg Config, knownHosts []string) (*KV, error
 	fail := func(err error) (*KV, error) {
 		if tunnel != nil {
 			tunnel.Close()
+		}
+		if cfg.Redis.Mode == RedisCluster && strings.Contains(err.Error(), "DB index is out of range") {
+			err = fmt.Errorf("%w: a cluster has the databases its servers' cluster-databases sets, database 0 only unless set (Valkey 9.0 and later)", err)
 		}
 		return nil, redact(err, cfg)
 	}
@@ -176,13 +185,14 @@ func OpenRedis(ctx context.Context, cfg Config, knownHosts []string) (*KV, error
 		dial: func(ctx context.Context, addr string) (net.Conn, error) { return dialNode(ctx, dialTCP, addr, tc) }}
 	// Each COMMAND entry is [name, arity, flags, ...].
 	if cmds, err := client.Do(pctx, client.B().Command().Build()).ToArray(); err == nil {
-		k.readOnly = map[string]bool{}
+		k.readOnly, k.commands = map[string]bool{}, map[string]bool{}
 		for _, c := range cmds {
 			entry, err := c.ToArray()
 			if err != nil || len(entry) < 3 {
 				continue
 			}
 			name, _ := entry[0].ToString()
+			k.commands[strings.ToUpper(name)] = true
 			flags, _ := entry[2].AsStrSlice()
 			for _, f := range flags {
 				if f == "readonly" {
@@ -243,14 +253,34 @@ func (k *KV) Close() error {
 	return nil
 }
 
-// ServerVersion returns the server's version.
+// ServerVersion returns the server's version, as Redis's: Valkey says
+// 7.2.4, the Redis it forked.
 func (k *KV) ServerVersion(ctx context.Context) string {
-	info, err := k.Client.Do(ctx, k.Client.B().Info().Section("server").Build()).ToString()
+	info, err := k.serverInfo(ctx)
 	if err != nil {
 		return ""
 	}
+	return infoField(info, "redis_version")
+}
+
+// serverInfo reads INFO's server section, once.
+func (k *KV) serverInfo(ctx context.Context) (string, error) {
+	k.infoMu.Lock()
+	defer k.infoMu.Unlock()
+	if k.info != "" {
+		return k.info, nil
+	}
+	info, err := k.Client.Do(ctx, k.Client.B().Info().Section("server").Build()).ToString()
+	if err == nil {
+		k.info = info
+	}
+	return info, err
+}
+
+// infoField is the value of an INFO reply's field, "" when absent.
+func infoField(info, name string) string {
 	for _, line := range strings.Split(info, "\n") {
-		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "redis_version:"); ok {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), name+":"); ok {
 			return v
 		}
 	}
@@ -279,16 +309,22 @@ func init() {
 var readOnlySubcommands = map[string][]string{
 	"CLIENT":  {"LIST", "INFO", "ID", "GETNAME", "TRACKINGINFO", "GETREDIR"},
 	"SLOWLOG": {"GET", "LEN", "HELP"},
-	"LATENCY": {"LATEST", "HISTORY", "DOCTOR", "GRAPH", "HISTOGRAM", "HELP"},
-	"MEMORY":  {"USAGE", "STATS", "DOCTOR", "MALLOC-STATS", "HELP"},
-	"CONFIG":  {"GET", "HELP"},
-	"OBJECT":  {"ENCODING", "FREQ", "IDLETIME", "REFCOUNT", "HELP"},
-	"COMMAND": {"", "COUNT", "DOCS", "INFO", "LIST", "GETKEYS", "GETKEYSANDFLAGS", "HELP"},
-	"ACL":     {"WHOAMI", "CAT", "HELP"},
-	"CLUSTER": {"INFO", "NODES", "SHARDS", "SLOTS", "MYID", "KEYSLOT", "COUNTKEYSINSLOT", "HELP"},
-	"SCRIPT":  {"EXISTS", "HELP"},
-	"XINFO":   {"STREAM", "GROUPS", "CONSUMERS", "HELP"},
+	// Valkey's log of slow commands and large requests and replies.
+	"COMMANDLOG": {"GET", "LEN", "HELP"},
+	"LATENCY":    {"LATEST", "HISTORY", "DOCTOR", "GRAPH", "HISTOGRAM", "HELP"},
+	"MEMORY":     {"USAGE", "STATS", "DOCTOR", "MALLOC-STATS", "HELP"},
+	"CONFIG":     {"GET", "HELP"},
+	"OBJECT":     {"ENCODING", "FREQ", "IDLETIME", "REFCOUNT", "HELP"},
+	"COMMAND":    {"", "COUNT", "DOCS", "INFO", "LIST", "GETKEYS", "GETKEYSANDFLAGS", "HELP"},
+	"ACL":        {"WHOAMI", "CAT", "HELP"},
+	"CLUSTER":    {"INFO", "NODES", "SHARDS", "SLOTS", "MYID", "KEYSLOT", "COUNTKEYSINSLOT", "HELP"},
+	"SCRIPT":     {"EXISTS", "HELP"},
+	"XINFO":      {"STREAM", "GROUPS", "CONSUMERS", "HELP"},
 }
+
+// HasCommand reports whether the server's command table has a command,
+// as a module's; false when the server hides COMMAND.
+func (k *KV) HasCommand(name string) bool { return k.commands[name] }
 
 // IsReadOnly reports whether a command, with its arguments, only reads.
 func (k *KV) IsReadOnly(args ...string) bool {
@@ -720,14 +756,19 @@ type redisEngine struct{}
 
 var _ KeyValueRules = redisEngine{}
 
-func (redisEngine) Label() string                   { return "Redis" }
-func (redisEngine) Base() Engine                    { return Redis }
-func (redisEngine) ColorHex() string                { return "#dc382d" }
-func (redisEngine) Mark() string                    { return "RD" }
-func (redisEngine) DefaultPort() int                { return 6379 }
-func (redisEngine) DefaultUser() string             { return "" }
-func (redisEngine) Kind() EngineKind                { return KindKeyValue }
-func (redisEngine) DefaultKeySeparator() string     { return DefaultKeySeparator }
+func (redisEngine) Label() string               { return "Redis" }
+func (redisEngine) Base() Engine                { return Redis }
+func (redisEngine) ColorHex() string            { return "#dc382d" }
+func (redisEngine) Mark() string                { return "RD" }
+func (redisEngine) DefaultPort() int            { return 6379 }
+func (redisEngine) DefaultUser() string         { return "" }
+func (redisEngine) Kind() EngineKind            { return KindKeyValue }
+func (redisEngine) DefaultKeySeparator() string { return DefaultKeySeparator }
+func (redisEngine) ClusterDatabases() bool      { return false }
+func (redisEngine) BloomFilterType() string     { return "MBbloom--" }
+func (redisEngine) NoSearchNote() string {
+	return "This server has no Redis Search: it comes with Redis 8, or as a module before."
+}
 func (redisEngine) Transactions() bool              { return false }
 func (redisEngine) Savepoints() bool                { return false }
 func (redisEngine) TransactionalDDL() bool          { return false }

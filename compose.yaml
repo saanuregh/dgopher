@@ -1,7 +1,6 @@
 # The servers the integration tests run against (DGOPHER_IT=1). Ports and
 # passwords match internal/testutil/testutil.go, internal/db/integration_test.go
-# and, for Redis 8, internal/db/redismodules_test.go and
-# internal/ui/redis/redis_test.go.
+# and, for Redis and Valkey, internal/testutil/redisserver.
 name: dgopher-test
 
 services:
@@ -219,3 +218,48 @@ services:
         redis-server --port 16380 --bind 127.0.0.1 --requirepass dgopher --daemonize yes;
         printf "port 26379\nbind 127.0.0.1\nrequirepass sentinelpw\nsentinel monitor mymaster 127.0.0.1 16380 1\nsentinel auth-pass mymaster dgopher\n" > /tmp/sentinel.conf;
         exec redis-sentinel /tmp/sentinel.conf
+
+  # Valkey's servers, for the Redis tests run with DGOPHER_REDIS=valkey
+  # (internal/testutil/redisserver): valkey-bundle, with its JSON, search
+  # and Bloom modules, a cluster and a sentinel, as Redis's above.
+  valkey:
+    image: docker.io/valkey/valkey-bundle:9.2.0
+    container_name: dgopher-valkey
+    profiles: ["compat"]
+    ports: ["127.0.0.1:16386:6379"]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 2s
+      retries: 30
+
+  valkey-cluster:
+    image: docker.io/valkey/valkey:9.2.1
+    container_name: dgopher-valkey-cluster
+    profiles: ["compat"]
+    network_mode: host
+    command:
+      - sh
+      - -c
+      - >-
+        for p in 17100 17101 17102; do
+        valkey-server --port $$p --bind 127.0.0.1 --cluster-enabled yes
+        --cluster-databases 16
+        --cluster-config-file nodes-$$p.conf --requirepass dgopher
+        --masterauth dgopher --daemonize yes; done;
+        sleep 1;
+        valkey-cli -a dgopher --no-auth-warning --cluster create
+        127.0.0.1:17100 127.0.0.1:17101 127.0.0.1:17102 --cluster-yes;
+        exec tail -f /dev/null
+
+  valkey-sentinel:
+    image: docker.io/valkey/valkey:9.2.1
+    container_name: dgopher-valkey-sentinel
+    profiles: ["compat"]
+    network_mode: host
+    command:
+      - sh
+      - -c
+      - >-
+        valkey-server --port 16390 --bind 127.0.0.1 --requirepass dgopher --daemonize yes;
+        printf "port 26390\nbind 127.0.0.1\nrequirepass sentinelpw\nsentinel monitor mymaster 127.0.0.1 16390 1\nsentinel auth-pass mymaster dgopher\n" > /tmp/sentinel.conf;
+        exec valkey-sentinel /tmp/sentinel.conf

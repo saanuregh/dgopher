@@ -44,6 +44,29 @@ func TestIdentifyFromVersionStrings(t *testing.T) {
 	}
 }
 
+// INFO server, as each server prints it: Valkey keeps redis_version at
+// 7.2.4 and names itself in server_name, its version in valkey_version.
+func TestIdentifyRedisFamily(t *testing.T) {
+	cases := []struct {
+		name, info string
+		engine     Engine
+		version    string
+	}{
+		{"redis 7", "# Server\r\nredis_version:7.4.1\r\nredis_git_sha1:00000000\r\nredis_mode:standalone\r\n", Redis, "7.4.1"},
+		{"redis 8", "# Server\r\nredis_version:8.2.1\r\nredis_git_sha1:00000000\r\nredis_mode:standalone\r\n", Redis, "8.2.1"},
+		{"valkey 9", "# Server\r\nredis_version:7.2.4\r\nserver_name:valkey\r\nvalkey_version:9.1.3\r\nvalkey_release_stage:ga\r\n", Valkey, "9.1.3"},
+		// Valkey 7.2.4 says what Redis 7.2.4 does: no telling them apart.
+		{"redis or valkey 7.2.4", "# Server\r\nredis_version:7.2.4\r\nredis_git_sha1:00000000\r\n", "", ""},
+		{"valkey without its version", "# Server\r\nredis_version:7.2.4\r\nserver_name:valkey\r\n", Valkey, ""},
+		{"nothing said", "", Redis, ""},
+	}
+	for _, c := range cases {
+		if e, v := redisServer(c.info); e != c.engine || v != c.version {
+			t.Errorf("%s: got %q %q, want %q %q", c.name, e, v, c.engine, c.version)
+		}
+	}
+}
+
 // A flavor runs on its parent's rules, but is colored and opened by
 // URL as itself; TestEngineFactsPinned and TestEngineRulesCover cover
 // the rest.
@@ -51,6 +74,7 @@ func TestFlavorOverridesEngine(t *testing.T) {
 	parents := map[Engine]Engine{
 		CockroachDB: Postgres, YugabyteDB: Postgres, TimescaleDB: Postgres,
 		MariaDB: MySQL, TiDB: MySQL,
+		Valkey: Redis,
 	}
 	for flavor, parent := range parents {
 		if flavor.Base() != parent || parent.Base() != parent {

@@ -318,13 +318,15 @@ func (f *connForm) config() db.Config {
 		cfg.KeySeparator = ""
 	}
 	switch {
-	case cfg.Engine != db.Redis:
+	case cfg.Engine.Base() != db.Redis:
 		cfg.Redis = db.RedisConfig{}
 	case cfg.Redis.Mode == db.RedisStandalone:
 		cfg.Redis = db.RedisConfig{}
 	case cfg.Redis.Mode == db.RedisCluster:
 		cfg.Redis.Master, cfg.Redis.SentinelUser, cfg.Redis.SentinelPassword = "", "", ""
-		cfg.Database = ""
+		if kv, ok := db.KeyValue(cfg.Engine); !ok || !kv.ClusterDatabases() {
+			cfg.Database = ""
+		}
 	}
 	return cfg
 }
@@ -531,7 +533,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 				}
 			})
 		}
-		if engine == db.Redis {
+		if engine.Base() == db.Redis {
 			ui.Field(c, "Topology", func() {
 				ui.Segmented(c, &f.redisMode, redisModeLabels...).Label("Topology")
 			})
@@ -567,8 +569,11 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 		})
 		a.passwordField(c, f)
 		label, placeholder := engine.DatabaseField()
-		if mode != db.RedisCluster { // a cluster has database 0 only
+		switch kv, ok := db.KeyValue(engine); {
+		case mode != db.RedisCluster:
 			textField(c, label, &f.cfg.Database, placeholder)
+		case ok && kv.ClusterDatabases():
+			textField(c, label, &f.cfg.Database, placeholder).Description("A database other than 0 needs cluster-databases set on the servers (Valkey 9.0 and later).")
 		}
 		if connectionFields(engine).SID {
 			ui.Field(c, "SID", func() {
@@ -1157,7 +1162,7 @@ func (a *App) saveConnForm(f *connForm, connect bool) {
 // connection's other nodes, through its SSH server if it tunnels.
 func destination(cfg db.Config) string {
 	at := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
-	if cfg.Engine == db.Redis && strings.TrimSpace(cfg.Redis.Nodes) != "" {
+	if cfg.Engine.Base() == db.Redis && strings.TrimSpace(cfg.Redis.Nodes) != "" {
 		at += ", " + strings.TrimSpace(cfg.Redis.Nodes)
 	}
 	if cfg.SSH.Enabled {
@@ -1187,7 +1192,7 @@ func remote(cfg *db.Config) bool {
 	if cfg.SSH.Enabled {
 		hosts = append(hosts, cfg.SSH.Host)
 	}
-	if cfg.Engine == db.Redis {
+	if cfg.Engine.Base() == db.Redis {
 		hosts = append(hosts, strings.Split(cfg.Redis.Nodes, ",")...)
 	}
 	return slices.ContainsFunc(hosts, func(h string) bool { return !local(h) })

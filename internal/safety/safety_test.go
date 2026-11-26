@@ -237,12 +237,12 @@ func TestRedisStatefulCommandsRefused(t *testing.T) {
 		}
 	}
 	ro := &db.Config{Name: "cache", Engine: db.Redis, ReadOnly: true}
-	for _, cmd := range [][]string{{"CLIENT", "KILL", "ID", "1"}, {"SLOWLOG", "RESET"}, {"CONFIG", "SET", "x", "y"}, {"MEMORY", "PURGE"}} {
+	for _, cmd := range [][]string{{"CLIENT", "KILL", "ID", "1"}, {"SLOWLOG", "RESET"}, {"COMMANDLOG", "RESET", "slow"}, {"CONFIG", "SET", "x", "y"}, {"MEMORY", "PURGE"}} {
 		if v := ReviewRedis(ro, &db.KV{}, cmd); v.Blocked == "" {
 			t.Errorf("%v was allowed on a read-only connection", cmd)
 		}
 	}
-	for _, cmd := range [][]string{{"CLIENT", "LIST"}, {"SLOWLOG", "GET"}, {"INFO"}, {"MEMORY", "USAGE", "k"}} {
+	for _, cmd := range [][]string{{"CLIENT", "LIST"}, {"SLOWLOG", "GET"}, {"COMMANDLOG", "GET", "10", "slow"}, {"commandlog", "len", "large-request"}, {"INFO"}, {"MEMORY", "USAGE", "k"}} {
 		if v := ReviewRedis(ro, &db.KV{}, cmd); v.Blocked != "" {
 			t.Errorf("%v was refused: %s", cmd, v.Blocked)
 		}

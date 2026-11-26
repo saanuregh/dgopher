@@ -23,9 +23,11 @@ const usage = `Usage: go run ./tools/dev <command>
   doctor                  check the tools a build and the tests need
   setup                   download modules, register the pre-commit check, run doctor
   check                   gofmt, go vet and the tests, as CI runs them
-  test [--it] [--snapshots] [-- <go test arguments>]
+  test [--it] [--snapshots] [--redis redis|valkey] [-- <go test arguments>]
                           the tests (./... by default); --it also against the
-                          integration servers; --snapshots writes PNGs of the UI
+                          integration servers; --snapshots writes PNGs of the UI;
+                          --redis valkey runs the Redis tests against Valkey's
+                          servers (profile compat)
   servers up|down [--profile compat|enterprise]... [service]...
                           (flags before the services)
                           start or stop the integration servers, or only the

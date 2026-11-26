@@ -8,7 +8,7 @@ import (
 )
 
 // Identify reads what the server is, among the engines of the
-// connection's family (PostgreSQL's or MySQL's), and its version: a
+// connection's SQL family (PostgreSQL's or MySQL's), and its version: a
 // connection may be set to one engine and reach another of its family.
 // An engine with no others in its family is itself, with no version.
 func (d *DB) Identify(ctx context.Context) (Engine, string, error) {
@@ -17,6 +17,32 @@ func (d *DB) Identify(ctx context.Context) (Engine, string, error) {
 		return "", "", fmt.Errorf("%s has no SQL rules", d.Config.Engine.Label())
 	}
 	return r.identify(ctx, d.SQL)
+}
+
+// Identify reads which engine of Redis's family the server is, and its
+// own version.
+func (k *KV) Identify(ctx context.Context) (Engine, string, error) {
+	info, err := k.serverInfo(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	e, v := redisServer(info)
+	return e, v, nil
+}
+
+// redisServer is the engine of Redis's family whose INFO server section
+// is info, and the engine's own version; none when it cannot tell.
+// Valkey names itself from 7.2.5: its first release, 7.2.4, says what
+// Redis 7.2.4 does.
+func redisServer(info string) (Engine, string) {
+	if infoField(info, "server_name") == "valkey" {
+		return Valkey, infoField(info, "valkey_version")
+	}
+	version := infoField(info, "redis_version")
+	if version == "7.2.4" {
+		return "", ""
+	}
+	return Redis, version
 }
 
 // identifyPostgresFamily reads a server of PostgreSQL's family: its

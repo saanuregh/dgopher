@@ -1,8 +1,8 @@
 # Engine support
 
 What each engine supports in DGopher. CockroachDB, YugabyteDB and
-TimescaleDB are engines of PostgreSQL's family, and MariaDB and TiDB of
-MySQL's: each supports what its family's engine does in the tables
+TimescaleDB are engines of PostgreSQL's family, MariaDB and TiDB of
+MySQL's, and Valkey of Redis's: each supports what its family's engine does in the tables
 below, except where its own section under
 [Engines of a family](#engines-of-a-family) says otherwise. [Features](features.md) describes each feature, and
 [Known limitations](limitations.md) explains the gaps.
@@ -296,6 +296,30 @@ works as PostgreSQL does.
   A SQL file restored with Run SQL File needs `SELECT
   public.timescaledb_pre_restore();` first and `SELECT
   public.timescaledb_post_restore();` last.
+
+### Valkey
+
+Tested against Valkey 9.2, and valkey-bundle 9.2 for its modules, with
+the whole Redis suite: one server, a cluster and Sentinel.
+
+- **Version:** the app reads `valkey_version`; Valkey keeps
+  `redis_version` at 7.2.4, the Redis it forked. Valkey names itself from
+  7.2.5; a 7.2.4 server says what Redis 7.2.4 does, so for that version
+  neither is offered in place of the other.
+- **What the server has** turns on as on Redis: each hash field's TTL from
+  Valkey 9.0, and JSON documents, search and Bloom filters with
+  valkey-bundle (or its valkey-json, valkey-search and valkey-bloom
+  modules). Valkey has no vector sets, time
+  series or arrays, so those viewers do not show.
+- **Command log:** the Slow Log panel is the Command Log, which also shows
+  the largest requests and replies (`COMMANDLOG`). `COMMANDLOG GET` and
+  `LEN` read, as `SLOWLOG`'s do; `COMMANDLOG RESET` writes.
+- Valkey's own commands, such as `DELIFEQ`, run in the console and are
+  judged by the server's command table.
+- **Cluster databases:** a Valkey cluster may open a database other than
+  0 when its servers set `cluster-databases` (Valkey 9.0 and later); a
+  server without it refuses the database, and the error says so.
+- **Server Activity** shows Valkey's own version.
 
 ## SQL Server
 

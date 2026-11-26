@@ -21,6 +21,7 @@ import (
 	"dgopher/internal/project"
 	"dgopher/internal/store"
 	"dgopher/internal/testutil"
+	"dgopher/internal/testutil/redisserver"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/panes"
 	"dgopher/internal/ui/query"
@@ -602,12 +603,13 @@ func TestSnippets(t *testing.T) {
 
 func TestServerActivity(t *testing.T) {
 	testutil.Integration(t)
+	rs := redisserver.Get(t)
 	a := newTestApp(t)
 	cases := []db.Config{
 		testutil.PGConfig(),
 		{ID: "my", Name: "my", Engine: db.MySQL, Host: "127.0.0.1", Port: 13306, User: "root", Password: "dgopher", Database: "shop"},
 		{ID: "ch", Name: "ch", Engine: db.ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"},
-		{ID: "rd", Name: "rd", Engine: db.Redis, Host: "127.0.0.1", Port: 16379},
+		{ID: "rd", Name: "rd", Engine: db.Engine(rs.Engine), Host: redisserver.Host, Port: rs.Port},
 	}
 	tt := ui.NewTester(a.view, 1360, 760)
 	for _, cfg := range cases {
@@ -631,6 +633,35 @@ func TestServerActivity(t *testing.T) {
 			}
 			testutil.Snapshot(t, tt, "activity-"+string(cfg.Engine)+"-"+strings.ToLower(page.Name))
 		}
+	}
+}
+
+// The Version tile of a server of Redis's family is its own: Valkey's,
+// not the Redis 7.2.4 it reports for compatibility.
+func TestRedisActivityVersion(t *testing.T) {
+	testutil.Integration(t)
+	rs := redisserver.Get(t)
+	cfg := db.Config{ID: "rd", Name: "rd", Engine: db.Engine(rs.Engine), Host: redisserver.Host, Port: rs.Port}
+	kv, err := db.OpenRedis(context.Background(), cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, version, err := kv.Identify(context.Background())
+	kv.Close()
+	if err != nil || version == "" {
+		t.Fatalf("identified version %q, %v", version, err)
+	}
+	a := newTestApp(t)
+	cn := addConn(a, cfg)
+	tt := ui.NewTester(a.view, 1360, 760)
+	a.openActivity(cn)
+	testutil.WaitFor(t, tt, "the figures", func() bool {
+		at, ok := a.ActiveTab().(*activityTab)
+		return ok && !at.loading && at.info != nil
+	})
+	tt.Frame()
+	if !tt.HasText(version) || rs.Valkey() && tt.HasText("7.2.4") {
+		t.Fatalf("the activity shows %q, not version %q", tt.Texts(), version)
 	}
 }
 
@@ -1258,8 +1289,9 @@ func resultCount(tt *ui.Tester, q *query.Tab) (int, bool) {
 // A new editor on a Redis connection is its Redis tab, opened once.
 func TestRedisTab(t *testing.T) {
 	testutil.Integration(t)
+	rs := redisserver.Get(t)
 	a := newTestApp(t)
-	cn := addConn(a, db.Config{ID: "r", Name: "Cache", Engine: db.Redis, Host: "127.0.0.1", Port: 16379, Database: "2", Env: db.Staging})
+	cn := addConn(a, db.Config{ID: "r", Name: "Cache", Engine: db.Engine(rs.Engine), Host: redisserver.Host, Port: rs.Port, Database: "2", Env: db.Staging})
 	tt := ui.NewTester(a.view, 1100, 760)
 	a.NewQueryTab(cn, "", "")
 	testutil.WaitFor(t, tt, "the redis tab", func() bool { return a.tabs().Len() == 1 })

@@ -188,8 +188,7 @@ need no server.
 PostgreSQL, MySQL, ClickHouse, Redis 7 and 8, a Redis cluster, and a Redis
 master with a sentinel. Their ports and passwords match
 `internal/testutil/testutil.go`, `internal/db/integration_test.go` and,
-for Redis 8, `internal/db/redismodules_test.go` and
-`internal/ui/redis/redis_test.go`.
+for Redis, `internal/testutil/redisserver`.
 
 ```sh
 go run ./tools/dev servers up        # start them with Podman or Docker, and wait until they are ready
@@ -204,9 +203,17 @@ running. Their addresses are in
 `internal/testutil/optionalserver/optionalserver.go`:
 
 ```sh
-go run ./tools/dev servers up --profile compat       # also MariaDB, TiDB, CockroachDB, YugabyteDB and TimescaleDB
+go run ./tools/dev servers up --profile compat       # also MariaDB, TiDB, CockroachDB, YugabyteDB, TimescaleDB and Valkey
 go run ./tools/dev servers up --profile enterprise   # also SQL Server (x86-64 only, about 2 GB) and Oracle Free
 go run ./tools/dev servers up --profile enterprise oracle   # only Oracle
+```
+
+The Redis tests run against Valkey's servers (`valkey`, `valkey-cluster`
+and `valkey-sentinel`, profile `compat`) with `--redis valkey`; tests of
+what Valkey lacks, such as vector sets, skip:
+
+```sh
+go run ./tools/dev test --it --redis valkey
 ```
 
 Oracle Free (service `oracle`, container `dgopher-oracle`) uses up to

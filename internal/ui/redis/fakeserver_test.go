@@ -212,10 +212,17 @@ func writeReply(w *bufio.Writer, v any) {
 // openFake opens a connected Redis tab on a fake server in env.
 func openFake(t *testing.T, f *fakeRedis, env db.Environment) (*dataview.FakeHost, *ui.Tester, *connection.Conn, *Tab) {
 	t.Helper()
+	return openFakeAs(t, f, env, db.Redis)
+}
+
+// openFakeAs opens a connected tab of engine, of Redis's family, on a
+// fake server in env.
+func openFakeAs(t *testing.T, f *fakeRedis, env db.Environment, engine db.Engine) (*dataview.FakeHost, *ui.Tester, *connection.Conn, *Tab) {
+	t.Helper()
 	host, port, _ := net.SplitHostPort(f.addr)
 	p, _ := strconv.Atoi(port)
 	a := dataview.NewFakeHost(t)
-	cn := a.AddConn(db.Config{ID: "r", Name: "Cache", Engine: db.Redis, Host: host, Port: p, Env: env})
+	cn := a.AddConn(db.Config{ID: "r", Name: "Cache", Engine: engine, Host: host, Port: p, Env: env})
 	tt := ui.NewTester(a.View, 1360, 860)
 	a.Connect(cn, func() { a.AddTab(New(a, cn)) })
 	testutil.WaitFor(t, tt, "redis tab", func() bool { return len(a.Tabs) == 1 })

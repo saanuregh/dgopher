@@ -2,6 +2,27 @@
 
 The changes of each version of DGopher.
 
+## Unreleased
+
+### Added
+
+- **Valkey** as an engine of Redis's family: its name and own version
+  ("Valkey 9.2", not the Redis 7.2.4 it reports for compatibility), and
+  `valkey://` and `valkeys://` URLs. It works as Redis does, and turns on
+  what its server has, such as each hash field's TTL from Valkey 9, and
+  JSON and search with valkey-bundle. A Redis connection that reaches a
+  Valkey server offers **Use Valkey**, as the other families do.
+- A Valkey cluster can open a database other than 0, when its servers set
+  `cluster-databases` (Valkey 9.0 and later).
+- On Valkey the Slow Log panel is the **Command Log**, which also lists
+  the largest requests and replies, by size. `COMMANDLOG GET` and `LEN`
+  count as reads, as `SLOWLOG`'s do.
+
+### Changed
+
+- The key browser's type filter lists a module's types, such as vector
+  sets or time series, only when the server has the module.
+
 ## 0.8.0
 
 ### Added
