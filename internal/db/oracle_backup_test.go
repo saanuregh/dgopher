@@ -3,12 +3,13 @@ package db
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
 	"testing"
+
+	"dgopher/internal/containercli"
 )
 
 // A dump file is named in a directory object, DATA_PUMP_DIR when alone,
@@ -85,8 +86,9 @@ func fakeDataPump(t *testing.T) (args string) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the fake Data Pump tools are shell scripts")
 	}
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skip("docker is not installed, whose container's Data Pump the test runs")
+	engine, err := containercli.Engine()
+	if err != nil {
+		t.Skip(err.Error() + "; the test runs the Data Pump of the server's container")
 	}
 	dir := t.TempDir()
 	args = filepath.Join(dir, "args")
@@ -98,14 +100,14 @@ for a in "$@"; do
   parfile=*)
     [ "$(stat -c %a "${a#parfile=}")" = 600 ] || { echo "the parameter file is not the owner's alone" >&2; exit 1; }
     sed 's/(HOST=127\.0\.0\.1)(PORT=11521)/(HOST=localhost)(PORT=1521)/' "${a#parfile=}" |
-      docker exec -i dgopher-oracle sh -c 'cat > /tmp/dgopher-it.par' || exit 1
+      ` + engine + ` exec -i dgopher-oracle sh -c 'cat > /tmp/dgopher-it.par' || exit 1
     a=parfile=/tmp/dgopher-it.par;;
   esac
   set -- "$@" "$a"
 done
 shift $n
 printf '%s\n' "$tool" "$@" >> ` + args + `
-exec docker exec dgopher-oracle "$tool" "$@"
+exec ` + engine + ` exec dgopher-oracle "$tool" "$@"
 `
 	for _, tool := range []string{"expdp", "impdp"} {
 		if err := os.WriteFile(filepath.Join(dir, tool), []byte(script), 0o700); err != nil {

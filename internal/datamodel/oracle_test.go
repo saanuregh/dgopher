@@ -34,7 +34,7 @@ func TestIntegrationOracleModels(t *testing.T) {
 	testutil.Integration(t)
 	srvs := oracleServers()
 	if len(srvs) == 0 {
-		t.Skip("Oracle is not running: start it with docker compose --profile enterprise up -d --wait oracle")
+		t.Skip("Oracle is not running: start it with go run ./tools/dev servers up --profile enterprise oracle")
 	}
 	srv := srvs[0]
 	ctx := context.Background()

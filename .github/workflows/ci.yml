@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-latest]
+        os: [ubuntu-24.04, windows-latest, macos-26]
     env:
       CGO_ENABLED: "1" # DuckDB
     defaults:
@@ -30,12 +30,8 @@ jobs:
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
-      - name: Format
-        if: runner.os == 'Linux'
-        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
-      - name: Vet
-        run: go vet ./...
-      # Unit and headless UI tests; the integration tests need the servers
-      # of docs/development.md, and skip without DGOPHER_IT.
-      - name: Test
-        run: go test ./...
+      # gofmt, vet, and the unit and headless UI tests; the integration
+      # tests need the servers of docs/development.md, and skip without
+      # DGOPHER_IT.
+      - name: Check
+        run: go run ./tools/dev check

@@ -70,6 +70,7 @@ func Run(args []string) error {
 	}
 	a := newApp(st, uiState)
 	a.keepRunning = mygo.Power.KeepRunning
+	a.setMenu = mygo.App.SetMenu
 	defer a.captureLog()()
 	// The windows' places are kept with the layout, and without it last
 	// the run too: never in a file of MyGo's own.
@@ -326,11 +327,15 @@ func (a *App) menuAction(id string) func() {
 // the title bar's (titleBar), drawn by the app as on macOS.
 const nativeMenuBar = runtime.GOOS == "darwin"
 
+// hasMenuBar is whether the app shows the system's menu bar: only where
+// the system has one, and with its windows, not in headless tests.
+func (a *App) hasMenuBar() bool { return nativeMenuBar && a.setMenu != nil }
+
 // setMenuBar gives the app the system's menu bar where it has one, with the
 // commands' keys as they are set.
 func setMenuBar(a *App) {
-	if nativeMenuBar {
-		mygo.App.SetMenu(buildMenu(a))
+	if a.hasMenuBar() {
+		a.setMenu(buildMenu(a))
 	}
 }
 

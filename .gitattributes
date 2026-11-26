@@ -1,0 +1,5 @@
+# LF everywhere, on Windows too: gofmt and the tests expect it.
+* text=auto eol=lf
+# License texts are kept byte for byte, with the line ends they came with.
+resources/THIRD_PARTY_NOTICES.txt -text
+tools/licenses/duckdb.txt -text

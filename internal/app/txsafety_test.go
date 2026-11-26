@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/safety"
 	"dgopher/internal/testutil"
@@ -304,6 +305,9 @@ func TestSharedTransactionOwner(t *testing.T) {
 // and waits for the run to end.
 func runAt(t *testing.T, tt *ui.Tester, q *query.Tab, at string, mode query.RunMode) {
 	t.Helper()
+	// A run asked for while the connection opens waits for it without
+	// Running, which would look like a run already ended.
+	testutil.WaitFor(t, tt, "the connection", func() bool { return q.Conn.Status != connection.StatusConnecting })
 	testutil.SetCaret(tt, q.Editor, strings.Index(q.Editor.Text(), at))
 	q.Run(mode)
 	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running })

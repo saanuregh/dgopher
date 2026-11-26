@@ -42,22 +42,24 @@ tests.
 
 ## Commands
 
-cgo is required (DuckDB). `nix develop` provides Go, the GUI libraries,
-`pg_dump` for the backup tests and `CGO_ENABLED=1`.
+cgo is required (DuckDB). `go run ./tools/dev` runs the contributor
+commands on any OS and sets `CGO_ENABLED=1` itself; `docs/development.md`
+has each OS's setup. `nix develop` provides Go, the GUI libraries,
+`pg_dump` for the backup tests, the compose providers and `CGO_ENABLED=1`.
 
 ```sh
-CGO_ENABLED=1 go run .                        # run the app
+go run ./tools/dev doctor                     # what the build and tests need, and what is missing
+go run ./tools/dev run                        # run the app (--scratch: throwaway settings)
 CGO_ENABLED=1 go tool mygo build              # bundle and installers into build/ (mygo.json)
-go vet ./... && gofmt -l .                    # both clean today; any output is new
-go test ./...                                 # unit and headless UI tests
-go test ./internal/sqltext -run TestSplit     # one test
-docker compose up -d --wait                  # start the integration servers (compose.yaml)
-DGOPHER_IT=1 go test -timeout 30m ./...      # also against the integration servers
-DGOPHER_SNAPSHOTS=/tmp/snaps go test ./...   # write PNGs of the UI under test
+go run ./tools/dev check                      # gofmt, go vet and go test ./...; all clean today
+go run ./tools/dev test -- ./internal/sqltext -run TestSplit   # one test
+go run ./tools/dev servers up                 # start the integration servers (Podman, else Docker)
+go run ./tools/dev test --it                  # also against the integration servers
+go run ./tools/dev test --snapshots           # write PNGs of the UI under test
 DGOPHER_LIVE_CHAT=claude go test ./internal/ui/chat -run TestLiveChat   # the AI chat against a real CLI; spends tokens
 ```
 
-Run vet, gofmt and `go test ./...` before calling a change done, and the
+Run `go run ./tools/dev check` before calling a change done, and the
 integration tests too when it touches `internal/db`.
 
 ## Conventions
@@ -65,7 +67,7 @@ integration tests too when it touches `internal/db`.
 - Integration servers are the containers of `compose.yaml`: `dgopher-pg`,
   `dgopher-mysql`, `dgopher-ch`, `dgopher-redis`, `dgopher-redis8`,
   `dgopher-redis-cluster` and `dgopher-redis-sentinel`, and, started with
-  `docker compose --profile compat up -d --wait`, `dgopher-mariadb`,
+  `go run ./tools/dev servers up --profile compat`, `dgopher-mariadb`,
   `dgopher-tidb`, `dgopher-cockroachdb`, `dgopher-yugabytedb` and
   `dgopher-timescaledb`, and, with `--profile enterprise`,
   `dgopher-sqlserver` and `dgopher-oracle`; their tests skip when they are not running. Their ports and passwords are in
@@ -74,7 +76,9 @@ integration tests too when it touches `internal/db`.
   `internal/testutil/optionalserver/optionalserver.go`, and, for Redis 8,
   `internal/db/redismodules_test.go` and `internal/ui/redis/redis_test.go`; keep `compose.yaml` matching them.
   Tests call `testutil.Integration(t)`, which serializes them on Unix;
-  elsewhere use `go test -p 1`.
+  elsewhere use `go test -p 1`, which `go run ./tools/dev test --it` adds.
+  `internal/containercli` chooses Podman, else Docker
+  (`DGOPHER_CONTAINER` overrides); name images in full in `compose.yaml`.
 - UI tests run headless through MyGo's `ui.Tester`, with `dataview.FakeHost`
   as the window and `testutil.WaitFor` to wait for frames.
 - MyGo is replaced in `go.mod` by a commit of a `dbgopher-v<version>` branch of

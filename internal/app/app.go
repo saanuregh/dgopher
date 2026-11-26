@@ -38,6 +38,7 @@ import (
 	"dgopher/internal/ui/redis"
 	"dgopher/internal/ui/widgets"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -64,6 +65,10 @@ type App struct {
 	// windows are out of sight, as macOS's App Nap does, until release is
 	// called: the system's, nil without its windows.
 	keepRunning func(reason string) (release func())
+	// setMenu sets the system's menu bar: the system's, nil without its
+	// windows, where the menu's plugins, such as the updater's, are not
+	// set up.
+	setMenu func(*mygo.Menu)
 	// releaseRunning ends keepRunning's hold, nil while none is held;
 	// runningMu guards it.
 	runningMu      sync.Mutex

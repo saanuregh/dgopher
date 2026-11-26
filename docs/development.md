@@ -19,43 +19,132 @@ statements.
 
 ## Set up
 
-You need:
-
-- **Go**, at the version in `go.mod`. An older `go` downloads the right
-  one automatically.
-- **A C compiler.** cgo is required: DuckDB is compiled in through
-  [duckdb-go](https://github.com/duckdb/duckdb-go), which links it
-  statically, and so is agent-cli-connector. Set `CGO_ENABLED=1`.
-- **On Linux,** GTK 3 and OpenGL for the window. WebKitGTK is not needed.
-
-With Nix on Linux, `nix develop` gives a shell with Go, the GUI libraries
-the window loads, PostgreSQL's client tools for the backup tests, and
-`CGO_ENABLED=1` (see `flake.nix`). The flake covers
-`x86_64-linux` and `aarch64-linux` only.
-
-To check gofmt and `go vet` before each commit, as CI does, register
-`tools/githooks/pre-commit` as a pre-commit hook of your clone, with a
-Git that has config-based hooks (`git help hook`). It checks with the
-gofmt of `go.mod`'s Go, since a gofmt of another version may lay files
-out differently. The command skips the check on a branch older than the
-script, where it would otherwise stop every commit:
+You need Go, a C compiler (cgo builds DuckDB and agent-cli-connector into
+the binary), and on Linux GTK 3. The integration tests also need Podman
+or Docker with compose, and PostgreSQL's client tools at the major
+version of `compose.yaml`'s `postgres` image. Install them for your OS
+below, then, from the repository's root:
 
 ```sh
-git config hook.dgopher-checks.command 'test ! -e tools/githooks/pre-commit || tools/githooks/pre-commit'
-git config hook.dgopher-checks.event pre-commit
+go run ./tools/dev setup
 ```
+
+It downloads the modules, registers the pre-commit check, and runs
+`go run ./tools/dev doctor`, which lists what is still missing and how to
+install it. Any Go from 1.21 on will do: it downloads the version in
+`go.mod` by itself.
+
+### Linux with Nix
+
+`nix develop` gives a shell with Go, the GUI libraries the window loads,
+`pg_dump`, podman-compose, docker-compose and `CGO_ENABLED=1` (see
+`flake.nix`). Install Podman or Docker yourself; on NixOS,
+`virtualisation.podman.enable = true;`.
+
+### Debian and Ubuntu
+
+```sh
+sudo apt install golang build-essential libgtk-3-0 libsecret-1-0 libgl1 libxtst6 podman pipx
+pipx install podman-compose==1.6.0
+```
+
+The distributions' `podman-compose` is too old to wait for the servers.
+`pg_dump` 19 comes from PostgreSQL's own repository:
+
+```sh
+sudo apt install postgresql-common
+sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+sudo apt install postgresql-client-19
+```
+
+### Fedora
+
+```sh
+sudo dnf install golang gcc gcc-c++ gtk3 libsecret libglvnd-glx libXtst podman podman-compose
+```
+
+For `pg_dump` 19, add PostgreSQL's repository as
+[its download page](https://www.postgresql.org/download/linux/redhat/)
+shows, and install `postgresql19`.
+
+### Arch
+
+```sh
+sudo pacman -S --needed go base-devel gtk3 libsecret libglvnd libxtst podman podman-compose
+```
+
+For `pg_dump`, install `postgresql-libs` when its major matches
+`compose.yaml`'s `postgres` image; `doctor` says when it does not.
+
+### macOS
+
+```sh
+xcode-select --install
+brew install go podman podman-compose postgresql@19
+podman machine init && podman machine start
+```
+
+`postgresql@19` is keg-only: put `$(brew --prefix postgresql@19)/bin` on
+your `PATH`. On Apple silicon, `nix develop` also works.
+
+### Windows
+
+```powershell
+winget install -e --id GoLang.Go
+winget install -e --id Git.Git
+winget install -e --id MSYS2.MSYS2
+winget install -e --id RedHat.Podman
+winget install -e --id Docker.DockerCompose
+```
+
+Then, in the MSYS2 UCRT64 shell, install the C compiler DuckDB's driver
+needs, and add `C:\msys64\ucrt64\bin` to your `PATH`:
+
+```sh
+pacman -S --needed mingw-w64-ucrt-x86_64-gcc
+```
+
+Start Podman's machine with `podman machine init` and
+`podman machine start`. Install PostgreSQL's command line tools from
+[its Windows download page](https://www.postgresql.org/download/windows/)
+for `pg_dump`. Docker Desktop works in place of Podman.
+
+### Podman or Docker
+
+`tools/dev` and the tests use Podman when it is installed, otherwise
+Docker. Set `DGOPHER_CONTAINER` to `podman` or `docker` to choose.
+`podman compose` runs `docker-compose` when it is installed, otherwise
+`podman-compose`.
+
+On Linux, Podman also needs its image policy (`policy.json`) and
+subordinate IDs for your user; the distribution's package sets both up,
+and on NixOS `virtualisation.podman.enable = true;` does. Through
+`docker-compose` it needs its API socket too:
+`systemctl --user enable --now podman.socket`, or set
+`PODMAN_COMPOSE_PROVIDER=podman-compose`. `doctor` checks all three.
+
+### The pre-commit check
+
+`setup` registers `tools/githooks/pre-commit`, which runs gofmt (with
+`go.mod`'s Go) and `go vet` before each commit, as CI does. It needs a Git
+with config-based hooks (`git help hook`).
 
 ## Build and run
 
 ```sh
-CGO_ENABLED=1 go run .                  # run the app
+go run ./tools/dev run                  # run the app
+go run ./tools/dev run --scratch        # with settings in a new temporary folder
 CGO_ENABLED=1 go build -o dgopher .     # build a single binary
 CGO_ENABLED=1 go tool mygo build        # app bundle, installers and archives in build/ (configured by mygo.json)
 ```
 
-To keep a development run's settings and window layout apart from your
-own, set `DGOPHER_CONFIG_DIR` to a scratch directory. `DGOPHER_DATA_DIR`
-moves only the layout. See [Where things are kept](storage.md).
+`tools/dev` sets `CGO_ENABLED=1` itself, so its commands work the same in
+any shell. Elsewhere, set it as your shell does; in PowerShell,
+`$env:CGO_ENABLED = "1"`.
+
+`--scratch` sets `DGOPHER_CONFIG_DIR` to keep a development run's
+settings and window layout apart from your own. `DGOPHER_DATA_DIR` moves
+only the layout. See [Where things are kept](storage.md).
 
 ### Other platforms
 
@@ -74,24 +163,26 @@ Build on Windows instead.
 ## Test
 
 ```sh
-go vet ./... && gofmt -l .                   # both print nothing on a clean tree
-go test ./...                                # unit tests and headless UI tests
-go test ./internal/sqltext -run TestSplit    # one test
-docker compose up -d --wait                  # start the integration servers (below)
-DGOPHER_IT=1 go test -timeout 30m ./...      # also against those servers
-DGOPHER_SNAPSHOTS=/tmp/snaps go test ./...   # write PNGs of the UI as the tests see it
+go run ./tools/dev check                     # gofmt, go vet and go test ./..., as CI runs them
+go run ./tools/dev test                      # unit tests and headless UI tests
+go run ./tools/dev test -- ./internal/sqltext -run TestSplit    # one test
+go run ./tools/dev servers up                # start the integration servers (below)
+go run ./tools/dev test --it                 # also against those servers
+go run ./tools/dev test --snapshots          # write PNGs of the UI as the tests see it
 ```
 
-Run vet, gofmt and `go test ./...` before calling a change done. Run the
-integration tests too when the change touches `internal/db`.
+Run `check` before calling a change done. Run the integration tests too
+when the change touches `internal/db`.
 
-[Testing](testing.md) explains how to write each kind of test.
+[Testing](testing.md) explains how to write each kind of test, and which
+run on each OS.
 
 ### Integration servers
 
-Integration tests run only with `DGOPHER_IT=1`. They call
-`testutil.Integration(t)`, which serializes them across packages on Unix;
-elsewhere, add `-p 1`. SQLite and DuckDB need no server.
+Integration tests run only with `DGOPHER_IT=1`, which `test --it` sets.
+They call `testutil.Integration(t)`, which serializes them across
+packages on Unix; elsewhere `test --it` adds `-p 1`. SQLite and DuckDB
+need no server.
 
 [`compose.yaml`](../compose.yaml) runs every server the tests use:
 PostgreSQL, MySQL, ClickHouse, Redis 7 and 8, a Redis cluster, and a Redis
@@ -101,9 +192,9 @@ for Redis 8, `internal/db/redismodules_test.go` and
 `internal/ui/redis/redis_test.go`.
 
 ```sh
-docker compose up -d --wait              # start them, and wait until they are ready
-DGOPHER_IT=1 go test -timeout 30m ./...  # run every test against them
-docker compose down                      # stop and remove them
+go run ./tools/dev servers up        # start them with Podman or Docker, and wait until they are ready
+go run ./tools/dev test --it         # run every test against them
+go run ./tools/dev servers down      # stop and remove them
 ```
 
 Servers of the engines built on another's (MariaDB, TiDB, CockroachDB,
@@ -113,8 +204,9 @@ running. Their addresses are in
 `internal/testutil/optionalserver/optionalserver.go`:
 
 ```sh
-docker compose --profile compat up -d --wait       # also MariaDB, TiDB, CockroachDB, YugabyteDB and TimescaleDB
-docker compose --profile enterprise up -d --wait   # also SQL Server (x86-64 only, about 2 GB) and Oracle Free
+go run ./tools/dev servers up --profile compat       # also MariaDB, TiDB, CockroachDB, YugabyteDB and TimescaleDB
+go run ./tools/dev servers up --profile enterprise   # also SQL Server (x86-64 only, about 2 GB) and Oracle Free
+go run ./tools/dev servers up --profile enterprise oracle   # only Oracle
 ```
 
 Oracle Free (service `oracle`, container `dgopher-oracle`) uses up to
@@ -128,14 +220,16 @@ for a client certificate (`compose.yaml`; both `oracle-tcps` entries in
 `internal/db/testdata/oracle-tls/tcps.sh` with the wallet beside it. That
 wallet and the CA signing the tests' client certificates are written by
 `TestWriteOracleTLS` in `internal/db/oraclewallet_test.go`; after writing
-them again, make the container again with `docker compose --profile
-enterprise up -d --force-recreate --wait oracle`. A container made before
-it had TCPS gets it from `docker compose --profile enterprise up -d
---wait oracle`, which makes it again.
+them again, make the container again with `podman compose --profile
+enterprise up -d --force-recreate --wait oracle` (or `docker compose`). A
+container made before it had TCPS gets it from `go run ./tools/dev servers
+up --profile enterprise oracle`, which makes it again.
 
 The Redis cluster and sentinel use the host's network, so the addresses
-the nodes announce are reachable from the tests. This needs Docker on
-Linux, or Docker Desktop with host networking turned on.
+the nodes announce are reachable from the tests. This needs Podman or
+Docker on Linux, or Docker Desktop with host networking turned on. With
+Podman's machine on macOS or Windows, the host is the machine's Linux VM,
+so their tests cannot reach them.
 
 ### Screenshots
 
@@ -146,7 +240,7 @@ Draw them again after a change to what they show. Text needs Pango's
 library on the loader's path, which `nix develop` provides.
 
 The query plan, Server Activity and Redis images need the integration
-servers (`docker compose up -d --wait`), so they come only with
+servers (`go run ./tools/dev servers up`), so they come only with
 `DGOPHER_IT`. Without it, `TestScreenshotsServers` skips and leaves them as
 they are.
 
@@ -204,8 +298,9 @@ of `install.sh` or of the extracted `.tar.gz` update themselves. The
 `.deb` and `.rpm` install into `/opt`, which the app cannot write, so they
 do not.
 
-`.github/workflows/ci.yml` runs gofmt, vet and the tests on every push and
-pull request, on Linux and Windows. It does not run the integration tests.
+`.github/workflows/ci.yml` runs `go run ./tools/dev check` on every push
+and pull request, on Linux, macOS and Windows. It does not run the
+integration tests.
 
 ## MyGo
 
@@ -369,7 +464,9 @@ see [Architecture](architecture.md#engines).
 | Path | What |
 | --- | --- |
 | `internal/lists` | generic slice helpers |
+| `internal/containercli` | chooses Podman or Docker for the integration servers, for `tools/dev` and the tests |
 | `internal/testutil` | shared test helpers: snapshots, waiting for frames, the integration servers, and the open-file check; `serverlock` serializes integration tests |
 | `tools/icon` | draws `resources/icon.png` |
 | `tools/licenses` | writes `resources/THIRD_PARTY_NOTICES.txt` |
-| `tools/githooks` | the optional pre-commit check (see [Set up](#set-up)) |
+| `tools/githooks` | the optional pre-commit check (see [The pre-commit check](#the-pre-commit-check)) |
+| `tools/dev` | the contributor commands: `doctor`, `setup`, `check`, `test`, `servers` and `run` |
