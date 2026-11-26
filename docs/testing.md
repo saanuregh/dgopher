@@ -15,12 +15,25 @@ commands to run them and the servers the integration tests need.
 | --- | --- | --- |
 | Unit | always, with `go test ./...` | nothing |
 | UI | always; drawn without a window | nothing; SQLite and DuckDB run in memory |
-| Integration | only with `DGOPHER_IT=1` | the servers in [`compose.yaml`](../compose.yaml): `docker compose up -d --wait` |
+| Integration | only with `DGOPHER_IT=1` | the servers in [`compose.yaml`](../compose.yaml): `go run ./tools/dev servers up` |
 | Fuzz | with `-fuzz` | nothing |
 | Screenshots | only with `DGOPHER_SCREENSHOTS` | Pango's library on the loader's path |
 
 Prefer a UI test on in-memory SQLite or DuckDB over an integration test when
 the behavior does not depend on a server.
+
+### Which tests run on each OS
+
+| Tests | Linux | macOS | Windows |
+| --- | --- | --- | --- |
+| Unit and UI | yes | yes | yes (CI runs them) |
+| Integration, most servers | yes | yes, through Podman's machine or Docker Desktop | yes, likewise; `test --it` adds `-p 1` |
+| Redis cluster and sentinel | yes | only with Docker Desktop's host networking | only with Docker Desktop's host networking |
+| SQL Server | x86-64 | Intel only | yes |
+| Oracle Data Pump backups | yes | yes | no: the stand-in tools are shell scripts |
+
+`go run ./tools/dev doctor` says which of the tools these need are
+missing.
 
 ## Conventions
 
@@ -110,10 +123,10 @@ func TestRunsStatementAtCaretAcrossBlankLines(t *testing.T) {
 Start the servers once, then run the tests against them:
 
 ```sh
-docker compose up -d --wait
-DGOPHER_IT=1 go test -timeout 30m ./...                     # everything
-DGOPHER_IT=1 go test ./internal/db -run TestIntegration     # one package's
-docker compose down                                         # when done
+go run ./tools/dev servers up
+go run ./tools/dev test --it                                        # everything
+go run ./tools/dev test --it -- ./internal/db -run TestIntegration  # one package's
+go run ./tools/dev servers down                                     # when done
 ```
 
 Start an integration test with `testutil.Integration(t)`. It skips the test
@@ -137,11 +150,13 @@ func TestAutocomplete(t *testing.T) {
   `internal/db/integration_test.go`. Its tests loop over the fixtures with
   `t.Run(f.cfg.Name, …)`.
 - The lock is a file lock on Unix (`internal/testutil/serverlock`). On other
-  systems it does nothing, so run integration tests with `go test -p 1`.
+  systems it does nothing, so run integration tests with `go test -p 1`,
+  which `go run ./tools/dev test --it` adds there.
 - **A new server**, or a new engine version, goes in `compose.yaml`, with
   its port and password in `internal/testutil/testutil.go` or the test that
-  uses it. Bind its ports to `127.0.0.1`, and add a health check so
-  `docker compose up --wait` waits for it.
+  uses it. Name its image in full (`docker.io/library/…`) so Podman pulls
+  it without asking, bind its ports to `127.0.0.1`, and add a health check
+  so `go run ./tools/dev servers up` waits for it.
 
 ## Test helpers
 

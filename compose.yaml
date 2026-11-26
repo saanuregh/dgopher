@@ -6,7 +6,7 @@ name: dgopher-test
 
 services:
   postgres:
-    image: postgres:19
+    image: docker.io/library/postgres:19
     container_name: dgopher-pg
     ports: ["127.0.0.1:15432:5432"]
     environment:
@@ -17,7 +17,7 @@ services:
       retries: 30
 
   mysql:
-    image: mysql:9.7
+    image: docker.io/library/mysql:9.7
     container_name: dgopher-mysql
     ports: ["127.0.0.1:13306:3306"]
     environment:
@@ -28,10 +28,10 @@ services:
       interval: 2s
       retries: 60
 
-  # MariaDB, in the compat profile: docker compose --profile compat up -d
-  # --wait mariadb. Its tests skip when it is not running.
+  # MariaDB, in the compat profile: go run ./tools/dev servers up --profile
+  # compat mariadb. Its tests skip when it is not running.
   mariadb:
-    image: mariadb:12.3
+    image: docker.io/library/mariadb:12.3
     container_name: dgopher-mariadb
     profiles: ["compat"]
     ports: ["127.0.0.1:13307:3306"]
@@ -43,13 +43,13 @@ services:
       interval: 2s
       retries: 60
 
-  # TiDB, in the compat profile: docker compose --profile compat up -d
-  # --wait tidb. One server on its own embedded store (unistore); the first
+  # TiDB, in the compat profile: go run ./tools/dev servers up --profile
+  # compat tidb. One server on its own embedded store (unistore); the first
   # start sets root's password (ALTER USER there leaves it empty; an
   # UPDATE of mysql.user sets it), keeps CHECK constraints, which TiDB
   # ignores by default, and makes the database.
   tidb:
-    image: pingcap/tidb:v8.5.8
+    image: docker.io/pingcap/tidb:v8.5.8
     container_name: dgopher-tidb
     profiles: ["compat"]
     ports: ["127.0.0.1:14000:4000"]
@@ -64,12 +64,12 @@ services:
       interval: 2s
       retries: 60
 
-  # CockroachDB, in the compat profile: docker compose --profile compat up
-  # -d --wait cockroachdb. One secure node, so that passwords work, taking
+  # CockroachDB, in the compat profile: go run ./tools/dev servers up
+  # --profile compat cockroachdb. One secure node, so that passwords work, taking
   # them without TLS; the image makes the database, and the user dgopher
   # (an admin) with its password. Healthy once both exist.
   cockroachdb:
-    image: cockroachdb/cockroach:latest-v26.4
+    image: docker.io/cockroachdb/cockroach:latest-v26.4
     container_name: dgopher-cockroachdb
     profiles: ["compat"]
     ports: ["127.0.0.1:26257:26257"]
@@ -83,12 +83,12 @@ services:
       interval: 2s
       retries: 60
 
-  # YugabyteDB, in the compat profile: docker compose --profile compat up
-  # -d --wait yugabytedb. One node, which takes about 1.5 GB of memory; the
+  # YugabyteDB, in the compat profile: go run ./tools/dev servers up
+  # --profile compat yugabytedb. One node, which takes about 1.5 GB of memory; the
   # first start turns on passwords, sets yugabyte's and makes the database.
   # Healthy once it logs in there.
   yugabytedb:
-    image: yugabytedb/yugabyte:2025.2.9.0-b87
+    image: docker.io/yugabytedb/yugabyte:2025.2.9.0-b87
     container_name: dgopher-yugabytedb
     profiles: ["compat"]
     ports: ["127.0.0.1:15433:5433"]
@@ -101,12 +101,12 @@ services:
       interval: 2s
       retries: 90
 
-  # TimescaleDB, in the compat profile: docker compose --profile compat up
-  # -d --wait timescaledb. The image creates the extension in the database
+  # TimescaleDB, in the compat profile: go run ./tools/dev servers up
+  # --profile compat timescaledb. The image creates the extension in the database
   # it makes, shop, and in template1. Healthy once it listens on TCP, which
   # the server that runs the image's setup does not.
   timescaledb:
-    image: timescale/timescaledb:latest-pg18
+    image: docker.io/timescale/timescaledb:latest-pg18
     container_name: dgopher-timescaledb
     profiles: ["compat"]
     ports: ["127.0.0.1:15434:5432"]
@@ -138,13 +138,13 @@ services:
   # The app user dgopher owns the test schema in the FREEPDB1 service.
   # TCPS is set up by internal/db/testdata/oracle-tls/tcps.sh.
   oracle:
-    image: gvenzl/oracle-free:slim-faststart
+    image: docker.io/gvenzl/oracle-free:slim-faststart
     container_name: dgopher-oracle
     profiles: ["enterprise"]
     ports: ["127.0.0.1:11521:1521", "127.0.0.1:12484:2484", "127.0.0.1:12485:2485"]
     volumes:
-      - ./internal/db/testdata/oracle-tls/server:/opt/oracle/tls:ro
-      - ./internal/db/testdata/oracle-tls/tcps.sh:/container-entrypoint-startdb.d/tcps.sh:ro
+      - ./internal/db/testdata/oracle-tls/server:/opt/oracle/tls:ro,z
+      - ./internal/db/testdata/oracle-tls/tcps.sh:/container-entrypoint-startdb.d/tcps.sh:ro,z
     environment:
       ORACLE_PASSWORD: dgopher
       APP_USER: dgopher
@@ -155,7 +155,7 @@ services:
       retries: 60
 
   clickhouse:
-    image: clickhouse/clickhouse-server:26.8
+    image: docker.io/clickhouse/clickhouse-server:26.8
     container_name: dgopher-ch
     ports: ["127.0.0.1:19000:9000", "127.0.0.1:18123:8123"]
     environment:
@@ -168,7 +168,7 @@ services:
       retries: 30
 
   redis:
-    image: redis:7
+    image: docker.io/library/redis:7
     container_name: dgopher-redis
     ports: ["127.0.0.1:16379:6379"]
     healthcheck:
@@ -179,7 +179,7 @@ services:
   # Redis 8, with its modules (JSON, Search, TimeSeries, vector sets) and
   # arrays.
   redis8:
-    image: redis:8
+    image: docker.io/library/redis:8
     container_name: dgopher-redis8
     ports: ["127.0.0.1:16385:6379"]
     healthcheck:
@@ -190,7 +190,7 @@ services:
   # A cluster of three masters. It uses the host's network, so the
   # addresses the nodes announce are reachable from the tests.
   redis-cluster:
-    image: redis:7
+    image: docker.io/library/redis:7
     container_name: dgopher-redis-cluster
     network_mode: host
     command:
@@ -209,7 +209,7 @@ services:
   # A master on 16380 watched by a sentinel on 26379, also on the host's
   # network.
   redis-sentinel:
-    image: redis:7
+    image: docker.io/library/redis:7
     container_name: dgopher-redis-sentinel
     network_mode: host
     command:

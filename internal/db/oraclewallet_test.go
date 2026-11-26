@@ -298,8 +298,8 @@ func rsaCertificate(t testing.TB, name string, usage x509.ExtKeyUsage, parent *x
 
 // TestWriteOracleTLS writes the test server's CA and wallet again, for
 // when they need replacing: DGOPHER_WRITE_ORACLE_TLS=1 go test
-// ./internal/db -run TestWriteOracleTLS, then docker compose --profile
-// enterprise up -d --force-recreate --wait oracle.
+// ./internal/db -run TestWriteOracleTLS, then podman (or docker) compose
+// --profile enterprise up -d --force-recreate --wait oracle.
 func TestWriteOracleTLS(t *testing.T) {
 	if os.Getenv("DGOPHER_WRITE_ORACLE_TLS") == "" {
 		t.Skip("set DGOPHER_WRITE_ORACLE_TLS=1 to write the Oracle test server's CA and wallet")

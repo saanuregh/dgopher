@@ -8,27 +8,26 @@ import (
 	"time"
 )
 
-// server is where an optional server listens, and the command that
-// starts it.
+// server is where an optional server listens, and compose.yaml's
+// profile and service that start it.
 type server struct {
-	address string
-	start   string
+	address, profile, service string
 }
 
 // servers are the optional servers, by compose.yaml's service name, or
 // the service and a listener of its own.
 var servers = map[string]server{
-	"mariadb":     {"127.0.0.1:13307", "docker compose --profile compat up -d --wait mariadb"},
-	"tidb":        {"127.0.0.1:14000", "docker compose --profile compat up -d --wait tidb"},
-	"cockroachdb": {"127.0.0.1:26257", "docker compose --profile compat up -d --wait cockroachdb"},
-	"yugabytedb":  {"127.0.0.1:15433", "docker compose --profile compat up -d --wait yugabytedb"},
-	"timescaledb": {"127.0.0.1:15434", "docker compose --profile compat up -d --wait timescaledb"},
-	"sqlserver":   {"127.0.0.1:11433", "docker compose --profile enterprise up -d --wait sqlserver"},
-	"oracle":      {"127.0.0.1:11521", "docker compose --profile enterprise up -d --wait oracle"},
+	"mariadb":     {"127.0.0.1:13307", "compat", "mariadb"},
+	"tidb":        {"127.0.0.1:14000", "compat", "tidb"},
+	"cockroachdb": {"127.0.0.1:26257", "compat", "cockroachdb"},
+	"yugabytedb":  {"127.0.0.1:15433", "compat", "yugabytedb"},
+	"timescaledb": {"127.0.0.1:15434", "compat", "timescaledb"},
+	"sqlserver":   {"127.0.0.1:11433", "enterprise", "sqlserver"},
+	"oracle":      {"127.0.0.1:11521", "enterprise", "oracle"},
 	// The oracle service's TCPS listeners, absent from a container made
 	// before compose.yaml had them, which the command makes again.
-	"oracle-tcps":      {"127.0.0.1:12484", "docker compose --profile enterprise up -d --wait oracle"},
-	"oracle-tcps-mtls": {"127.0.0.1:12485", "docker compose --profile enterprise up -d --wait oracle"},
+	"oracle-tcps":      {"127.0.0.1:12484", "enterprise", "oracle"},
+	"oracle-tcps-mtls": {"127.0.0.1:12485", "enterprise", "oracle"},
 }
 
 // SkipUnless skips the test unless the optional server service is
@@ -59,7 +58,7 @@ func skipUnlessListening(t testing.TB, s server) {
 	t.Helper()
 	c, err := net.DialTimeout("tcp", s.address, time.Second)
 	if err != nil {
-		t.Skipf("no server at %s: start it with %s", s.address, s.start)
+		t.Skipf("no server at %s: start it with go run ./tools/dev servers up --profile %s %s", s.address, s.profile, s.service)
 	}
 	c.Close()
 }

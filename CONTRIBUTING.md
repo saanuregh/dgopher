@@ -26,30 +26,34 @@ merged.
   that is shown or logged through `internal/redact`.
 - **An open transaction is never closed silently.** Closing a tab,
   disconnecting or quitting asks first.
-- **Engine behavior is not only in `Dialect`.** Switches on `db.Engine` are
-  spread across packages; search for `case db.<Engine>` when changing an
-  engine.
+- **Engine behavior lives in each engine's rules.** Each engine implements
+  `engineRules`, and SQL engines `SQLRules` (`internal/db/engine.go`, with
+  each engine's methods in its own file). Outside `internal/db`, reach them
+  through `Engine` methods and `db.SQL(e)` or `db.KeyValue(e)`; do not add
+  a `case db.<Engine>` comparison, which `TestNoEngineSwitches` rejects.
 - **DuckDB and in-memory SQLite share one connection** (`DB.single`), so
   all their sessions share one transaction.
 
 ## Make the change
 
-1. Fork the repository and create a branch named `<type>/<short-slug>`, for
+1. Set up your machine as [Development](docs/development.md#set-up)
+   shows for your OS; `go run ./tools/dev doctor` checks it.
+2. Fork the repository and create a branch named `<type>/<short-slug>`, for
    example `fix/data-view-layout` or `feat/saved-query-parameters`.
-2. Make the change, with tests. [Testing](docs/testing.md) explains how to
+3. Make the change, with tests. [Testing](docs/testing.md) explains how to
    write unit, UI and integration tests.
-3. Update the docs when behavior changes: the area's page under
+4. Update the docs when behavior changes: the area's page under
    [Features](docs/features.md) for what users see, and [Safety model](docs/safety.md) for anything that
    runs statements.
-4. Run the checks, which must all pass:
+5. Run the checks, which must all pass:
 
    ```sh
-   go vet ./... && gofmt -l .                   # both print nothing on a clean tree
-   go test ./...
-   DGOPHER_IT=1 go test -timeout 30m ./...      # when the change touches internal/db
+   go run ./tools/dev check                     # gofmt, go vet and go test ./...
+   go run ./tools/dev servers up                # when the change touches internal/db:
+   go run ./tools/dev test --it                 #   the integration tests too
    ```
 
-   CI runs gofmt, vet and `go test ./...` on Linux and Windows, but not the
+   CI runs `check` on Linux, macOS and Windows, but not the
    integration tests. Run those yourself;
    [Development](docs/development.md#integration-servers) starts the
    servers.
@@ -74,8 +78,8 @@ docs(readme): link the safety model
 
 - Keep one change per pull request.
 - Say what changed and why, and how you tested it, including which engines.
-- For a UI change, add a screenshot. `DGOPHER_SNAPSHOTS=/tmp/snaps go test
-  ./...` writes PNGs of the UI under test.
+- For a UI change, add a screenshot. `go run ./tools/dev test --snapshots`
+  writes PNGs of the UI under test.
 
 ## License
 

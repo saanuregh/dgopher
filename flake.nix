@@ -9,6 +9,8 @@
       systems = [
         "x86_64-linux"
         "aarch64-linux"
+        # Nixpkgs no longer builds for Intel Macs; they use Homebrew.
+        "aarch64-darwin"
       ];
       forEach = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
     in
@@ -36,22 +38,32 @@
           ];
         in
         {
-          default = pkgs.mkShell {
-            packages = [
-              # The Go of go.mod's go line; pkgs.go trails a minor release.
-              pkgs.go_1_27
-              # pg_dump for the backup tests, as new as compose.yaml's postgres:
-              # it refuses a newer server.
-              (pkgs.lib.getBin pkgs.postgresql_19)
-            ];
-            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath guiLibraries;
-            # DuckDB's driver is a cgo package; mygo keeps CGO_ENABLED when set.
-            CGO_ENABLED = "1";
-            # GTK's file chooser aborts the app without its settings schemas.
-            shellHook = ''
-              export XDG_DATA_DIRS=${pkgs.gtk3}/share/gsettings-schemas/${pkgs.gtk3.name}:${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}''${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}
-            '';
-          };
+          default = pkgs.mkShell (
+            {
+              packages = [
+                # The Go of go.mod's go line; pkgs.go trails a minor release.
+                pkgs.go_1_27
+                # pg_dump for the backup tests, as new as compose.yaml's postgres:
+                # it refuses a newer server.
+                (pkgs.lib.getBin pkgs.postgresql_19)
+                # Compose providers for tools/dev servers. podman-compose needs no
+                # API socket; docker-compose serves Docker, and Podman through its
+                # socket. Podman and Docker themselves come from the system.
+                pkgs.podman-compose
+                pkgs.docker-compose
+              ];
+              # DuckDB's driver is a cgo package; mygo keeps CGO_ENABLED when set.
+              CGO_ENABLED = "1";
+            }
+            # macOS draws with its own frameworks; only Linux loads GTK.
+            // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+              LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath guiLibraries;
+              # GTK's file chooser aborts the app without its settings schemas.
+              shellHook = ''
+                export XDG_DATA_DIRS=${pkgs.gtk3}/share/gsettings-schemas/${pkgs.gtk3.name}:${pkgs.gsettings-desktop-schemas}/share/gsettings-schemas/${pkgs.gsettings-desktop-schemas.name}''${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}
+              '';
+            }
+          );
         }
       );
     };

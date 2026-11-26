@@ -24,8 +24,8 @@ import (
 	"dgopher/internal/testutil/serverlock"
 )
 
-// The integration tests run against the servers of `docker ps --filter
-// name=dgopher` (see docs/development.md): DGOPHER_IT=1 go test ./internal/db/
+// The integration tests run against the servers of compose.yaml (see
+// docs/development.md): go run ./tools/dev test --it -- ./internal/db/
 func integration(t *testing.T) {
 	t.Helper()
 	if os.Getenv("DGOPHER_IT") == "" {
@@ -1937,6 +1937,7 @@ func fixtureOf(t *testing.T, e Engine) fixture {
 	t.Helper()
 	for _, f := range fixtures(t) {
 		if f.cfg.Engine == e {
+			skipUnlessRunning(t, f.cfg)
 			return f
 		}
 	}
