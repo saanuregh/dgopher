@@ -255,11 +255,11 @@ func (q *Tab) countNote(ctx context.Context, ask *inRunAsk, s safety.Statement, 
 		return "The rows could not be counted: " + strings.TrimSuffix(widgets.FirstLine(err.Error()), ".") + "."
 	}
 	shown := db.Display(count)
-	n, nErr := strconv.ParseInt(shown, 10, 64)
+	n, nErr := strconv.Atoi(shown)
 	if nErr == nil {
 		shown = settings.GroupDigits(shown)
 	}
-	return fmt.Sprintf("It changes %s row%s of %s, counted just now.", shown, widgets.Plural(int(min(n, 2))), qualifiedName(p.Table))
+	return fmt.Sprintf("It changes %s row%s of %s, counted just now.", shown, widgets.Plural(n), qualifiedName(p.Table))
 }
 
 // explainStatement explains a statement of the editor, as Explain does

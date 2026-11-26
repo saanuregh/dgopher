@@ -47,7 +47,7 @@ type writePreview struct {
 	count safety.Statement
 	// total is what count read, -1 until then; countErr is why it read
 	// nothing. The run sets both before it shows the rows.
-	total    int64
+	total    int
 	countErr string
 }
 
@@ -166,7 +166,7 @@ func (q *Tab) countPreview(ctx context.Context, sess *db.Session, cfg db.Config,
 		p.countErr = strings.TrimSuffix(widgets.FirstLine(err.Error()), ".")
 		return
 	}
-	n, err := strconv.ParseInt(db.Display(value), 10, 64)
+	n, err := strconv.Atoi(db.Display(value))
 	if err != nil {
 		p.countErr = "the count read " + db.Display(value)
 		return
@@ -228,7 +228,7 @@ func (q *Tab) previewNotice(c *ui.Context, res *result) {
 				ui.Text(c, "The rows could not be counted: "+p.countErr+".")
 				return
 			}
-			ui.Text(c, settings.GroupDigits(strconv.FormatInt(p.total, 10))+" row"+widgets.Plural(int(min(p.total, 2)))).Bold()
+			ui.Text(c, settings.GroupDigits(strconv.Itoa(p.total))+" row"+widgets.Plural(p.total)).Bold()
 			done := "would change"
 			if p.verb == "DELETE" {
 				done = "would be deleted"
