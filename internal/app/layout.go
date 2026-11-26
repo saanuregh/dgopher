@@ -245,7 +245,7 @@ func (a *App) shortcuts(c *ui.Context) {
 	a.watchKeymap(c)
 	a.openKeymapNow(c)
 	pressed := keymap.Pressed
-	if nativeMenuBar {
+	if a.hasMenuBar() {
 		pressed = keymap.LaterPressed // the first keys are the menu bar's
 	}
 	for _, id := range menuCommands {

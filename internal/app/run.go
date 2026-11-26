@@ -327,10 +327,14 @@ func (a *App) menuAction(id string) func() {
 // the title bar's (titleBar), drawn by the app as on macOS.
 const nativeMenuBar = runtime.GOOS == "darwin"
 
+// hasMenuBar is whether the app shows the system's menu bar: only where
+// the system has one, and with its windows, not in headless tests.
+func (a *App) hasMenuBar() bool { return nativeMenuBar && a.setMenu != nil }
+
 // setMenuBar gives the app the system's menu bar where it has one, with the
 // commands' keys as they are set.
 func setMenuBar(a *App) {
-	if nativeMenuBar && a.setMenu != nil {
+	if a.hasMenuBar() {
 		a.setMenu(buildMenu(a))
 	}
 }
