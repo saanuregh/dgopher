@@ -299,7 +299,7 @@ func TestClickHouseHTTPNoRedirectNoEnvProxy(t *testing.T) {
 	cfg := Config{Name: "c", Engine: ClickHouse, Host: "127.0.0.1", Port: 8443, User: "default", Password: "s3cret", TLS: TLSRequire}
 	ep := endpoint{host: "127.0.0.1", port: port, serverName: "127.0.0.1"}
 	tc, _ := tlsConfig(&cfg, ep.serverName)
-	sqldb := openClickHouse(cfg, ep, tc, wire{who: newSendsAs(cfg), engine: cfg.Engine})
+	sqldb := openClickHouse(cfg, ep, tc, wire{who: newSendsAs(cfg), engine: cfg.Engine}, false)
 	defer sqldb.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

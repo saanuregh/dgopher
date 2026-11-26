@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"dgopher/internal/sqltext"
 
@@ -280,7 +281,32 @@ func (clickhouseEngine) open(ctx context.Context, cfg Config, ep endpoint, tc *t
 	if cfg.TLS == TLSPrefer && !speaksTLS(ctx, ep, tc) {
 		tc = nil
 	}
-	return openedPool{sql: openClickHouse(cfg, ep, tc, w), tls: tc}, nil
+	sqldb := openClickHouse(cfg, ep, tc, w, false)
+	if !cfg.ReadOnly {
+		return openedPool{sql: sqldb, tls: tc}, nil
+	}
+	// A user the server keeps read-only may not change readonly, even to
+	// 2: the setting goes only to a user the server lets write.
+	level, err := clickhouseReadOnlyLevel(ctx, sqldb)
+	if err != nil {
+		sqldb.Close()
+		return openedPool{}, err
+	}
+	if level == 0 {
+		sqldb.Close()
+		sqldb = openClickHouse(cfg, ep, tc, w, true)
+	}
+	return openedPool{sql: sqldb, tls: tc}, nil
+}
+
+// clickhouseReadOnlyLevel is the user's own readonly setting: 0 when it may
+// write.
+func clickhouseReadOnlyLevel(ctx context.Context, sqldb *sql.DB) (uint64, error) {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	var level uint64
+	err := sqldb.QueryRowContext(ctx, "SELECT toUInt64(getSetting('readonly'))").Scan(&level)
+	return level, err
 }
 
 func (clickhouseEngine) tlsState(_ context.Context, _ *sql.DB, _ Config, tc *tls.Config) string {

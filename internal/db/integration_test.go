@@ -2532,6 +2532,51 @@ func TestIntegrationReconnectRefusesOnce(t *testing.T) {
 	}
 }
 
+// A ClickHouse user in readonly mode (readonly=1) may not change any
+// setting: it connects and queries, with a deadline, over either protocol,
+// though the driver turns a deadline into max_execution_time, and on a
+// read-only connection, which sets readonly for a user that may write.
+func TestIntegrationClickHouseReadonlyUser(t *testing.T) {
+	integration(t)
+	ctx := context.Background()
+	admin, err := Open(ctx, Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+	mustExec(t, admin, "DROP USER IF EXISTS it_readonly",
+		"CREATE USER it_readonly IDENTIFIED BY 'reader' SETTINGS readonly = 1", "GRANT SELECT ON default.* TO it_readonly")
+	defer admin.SQL.ExecContext(ctx, "DROP USER IF EXISTS it_readonly")
+	cfg := Config{Name: "readonly", Engine: ClickHouse, Host: "127.0.0.1", User: "it_readonly", Password: "reader"}
+	for _, c := range []struct {
+		name string
+		port int // the one cfg names, which chooses the protocol
+		ep   endpoint
+	}{
+		{"native", 9000, endpoint{host: "127.0.0.1", port: 19000, serverName: "127.0.0.1"}},
+		{"http", 8123, endpoint{host: "127.0.0.1", port: 18123, serverName: "127.0.0.1"}},
+	} {
+		for _, readOnly := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/read-only=%v", c.name, readOnly), func(t *testing.T) {
+				cfg := cfg
+				cfg.Port = c.port
+				cfg.ReadOnly = readOnly
+				d, err := openWith(ctx, cfg, c.ep, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer d.Close()
+				qctx, cancel := context.WithTimeout(ctx, time.Minute)
+				defer cancel()
+				var n int
+				if err := d.SQL.QueryRowContext(qctx, "SELECT 1").Scan(&n); err != nil {
+					t.Errorf("query: %v", err)
+				}
+			})
+		}
+	}
+}
+
 // A ClickHouse user granted its database alone, as ClickHouse Cloud's
 // users often are, may not read system.projections or
 // system.data_skipping_indices: the catalog and a table's indexes are
