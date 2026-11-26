@@ -74,6 +74,9 @@ type result struct {
 	advice   []db.Advice
 	planMode int
 	planSel  *db.PlanNode
+	// preview is what Preview Changes read the rows for, nil for another
+	// result.
+	preview *writePreview
 }
 
 type message struct {
@@ -123,8 +126,15 @@ type Tab struct {
 	stmtOK    bool
 	// newTab keeps the results of earlier runs for the next one.
 	newTab bool
-	// stepConfirm asks before each write of the next run.
-	stepConfirm bool
+	// askInRun makes the next run ask inside itself, before each
+	// statement that needs it (askStep); nil for a run that asked before
+	// it, or asks nothing.
+	askInRun *inRunAsk
+	// toRun is the statement a preview's Run runs next (runPreviewed).
+	toRun *writePreview
+	// readingPlan is set while a run reads a statement's plan before it
+	// runs, which Stop's tooltip says.
+	readingPlan bool
 	// paramKeys are the parameters of paramKeysText, the text as last
 	// read for them.
 	paramKeysText  string
@@ -516,6 +526,7 @@ const (
 	RunExplain                       // the plan of the statement at the caret
 	RunNewTab                        // as RunStatement, keeping the results shown
 	RunExplainAnalyze                // the plan of the statement at the caret, as it runs
+	RunPreview                       // the rows the UPDATE or DELETE at the caret would change
 )
 
 // purposeManualCommit is why a manual-commit editor begins a transaction.
@@ -830,6 +841,10 @@ func (q *Tab) run(mode RunMode) {
 	if q.Running {
 		return
 	}
+	if mode == RunPreview || mode == runPreviewed {
+		q.runPreview(mode)
+		return
+	}
 	if why := q.explainRefusal(mode); why != "" {
 		q.note(why, "", true)
 		q.cellSkipped()
@@ -951,36 +966,66 @@ func (q *Tab) runBound(stmts []string, starts []int, values map[string]params.In
 		}
 		an[i].Skip = skip
 	}
-	if q.refuseEndingOthersTx(an) {
+	v, ok := q.review(an)
+	if !ok {
 		return
+	}
+	q.runReviewed(v, an, an, starts, explain, nil)
+}
+
+// review is the policy's verdict on statements about to run; false, said
+// and audited, when they are not allowed.
+func (q *Tab) review(an []safety.Statement) (safety.Verdict, bool) {
+	cfg := &q.Conn.Config
+	if q.refuseEndingOthersTx(an) {
+		return safety.Verdict{}, false
 	}
 	v := safety.ReviewSQL(cfg, an)
 	q.warnImplicitCommits(&v, an)
 	q.warnUncounted(&v, an)
 	if v.Blocked != "" {
+		sqls := make([]string, len(an))
+		for i, s := range an {
+			sqls[i] = s.SQL
+		}
 		q.a.RecordBlocked(q.Conn, v.Blocked, strings.Join(sqls, ";\n"))
 		q.note(v.Blocked, "", true)
 		q.a.ShowError("Not allowed", v.Blocked)
-		return
+		return safety.Verdict{}, false
 	}
-	if v.Confirm && cfg.Env == db.Production && len(an) > 1 {
-		// A script on production asks before each write, as it comes.
-		q.stepConfirm = true
-		q.execute(an, v.Writes, explain)
+	return v, true
+}
+
+// runReviewed runs statements as their verdict has it: asking first, or
+// on production inside the run. reviewed are the statements the verdict
+// is on, which the question shows; run are those it runs: the same, or
+// a preview's rows without its count.
+func (q *Tab) runReviewed(v safety.Verdict, reviewed, run []safety.Statement, starts []int, explain *db.ExplainRun, prev *writePreview) {
+	cfg := &q.Conn.Config
+	if cfg.Env == db.Production && explain == nil && (v.Confirm || q.a.Settings().ScanLimit > 0) {
+		// On production a run asks inside itself, before each statement
+		// as it comes, once its plan is read: one question holds the
+		// policy's reasons, the plan's large scans and the rows counted.
+		q.askInRun = &inRunAsk{verdict: v, starts: starts}
+		q.execute(run, v.Writes, explain, prev)
 		return
 	}
 	if v.Confirm {
-		title := fmt.Sprintf("Run %d statement%s on %s?", len(sqls), widgets.Plural(len(sqls)), cfg.Name)
+		title := fmt.Sprintf("Run %d statement%s on %s?", len(reviewed), widgets.Plural(len(reviewed)), cfg.Name)
+		sqls := make([]string, len(reviewed))
+		for i, s := range reviewed {
+			sqls[i] = s.SQL
+		}
 		preview := strings.Join(sqls, ";\n\n") + ";"
-		for _, sh := range shown {
-			if sh != "" {
-				preview += "\n-- " + sh
+		for _, s := range reviewed {
+			if s.Shown != "" {
+				preview += "\n-- " + s.Shown
 			}
 		}
-		q.a.AskConfirm(q.Conn, v, title, "Run", preview, func() { q.execute(an, v.Writes, explain) })
+		q.a.AskConfirm(q.Conn, v, title, "Run", preview, func() { q.execute(run, v.Writes, explain, prev) })
 		return
 	}
-	q.execute(an, v.Writes, explain)
+	q.execute(run, v.Writes, explain, prev)
 }
 
 // followingResult is a result after the first of one statement, read
@@ -1029,62 +1074,52 @@ func wantsRows(s safety.Statement, d sqltext.Dialect) bool {
 }
 
 // execute runs reviewed statements. explain, for Explain's run of one
-// statement, holds the steps run around it, nil for another run.
-func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.ExplainRun) {
+// statement, holds the steps run around it, nil for another run; prev,
+// for Preview Changes, the count read before its rows, nil for another.
+func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.ExplainRun, prev *writePreview) {
 	if q.Conn.Status != connection.StatusConnected {
-		// It closed while a confirmation or the parameters waited.
-		q.a.Connect(q.Conn, func() { q.execute(stmts, writes, explain) })
+		// It closed while a confirmation or the parameters waited. The
+		// question in the run goes with it, not to a run after a failed
+		// connect.
+		ask := q.askInRun
+		q.askInRun = nil
+		q.a.Connect(q.Conn, func() {
+			q.askInRun = ask
+			q.execute(stmts, writes, explain, prev)
+		})
 		return
 	}
 	if q.sessionLost {
-		q.sessionLost = false
+		q.sessionLost, q.askInRun = false, nil
 		q.noteDetail("The connection was closed and opened again: run again to use it.",
 			"The new session has none of what the old one had set: USE, search_path, role, variables and temporary tables.", "", true)
 		return
 	}
 	// The context lives as long as the cursors of the results it reads:
 	// the next run, or closing the tab, ends it.
-	oldCancel := q.cancel
+	oldCancel, oldStartedAt := q.cancel, q.StartedAt
 	ctx, cancel := context.WithCancel(context.Background())
 	q.Running, q.cancel, q.StartedAt = true, cancel, time.Now()
 	run := &runState{}
-	q.ongoing, q.stopping, q.lastRunFailed = run, false, false
-	q.runReads = slices.ContainsFunc(stmts, func(s safety.Statement) bool { return s.Analysis.Class == sqltext.Read })
-	q.showResults() // a run shows what it returns
-	// A run replaces the results, but those pinned and, run into a new
-	// tab, all of them; the cursors of those it drops close, and a kept
-	// one that was still reading ends where it is.
-	var kept []*result
-	var closers []func()
-	for _, r := range q.results {
-		switch {
-		case r.view == nil:
-		case !q.newTab && !r.pinned:
-			closers = append(closers, r.view.Release())
-		case !r.view.Done():
-			closers = append(closers, r.view.CutShort())
-		}
-		if q.newTab || r.pinned {
-			kept = append(kept, r)
-		}
-	}
-	// The cursors other cells still read close too: the session runs one
-	// statement at a time.
-	for _, r := range q.otherResults() {
-		if r.view != nil && !r.view.Done() {
-			closers = append(closers, r.view.CutShort())
-		}
-	}
+	q.ongoing, q.stopping = run, false
+	newTab := q.newTab
 	q.newTab = false
-	stepConfirm := q.stepConfirm
-	q.stepConfirm = false
-	// The results it drops stay in view, dimmed and inert, until a new one
-	// comes or the run ends: a quick run then replaces them in one frame.
-	if len(kept) < len(q.results) {
-		q.stale, q.staleIdx, q.staleFrom = q.results, q.resultIdx, len(kept)
+	ask := q.askInRun
+	q.askInRun = nil
+	// replaced is whether the run replaced the results: at once, or, for a
+	// run that asks inside itself, once its first question is answered,
+	// so that Cancel leaves the editor as it was. Until then only the rows
+	// still read on the session end, as the plan's read and the count
+	// need it.
+	replaced := ask == nil
+	var closers []func()
+	if replaced {
+		closers = q.replaceResults(stmts, newTab)
+	} else {
+		ask.sess, ask.database, ask.schema = q.sess, q.Database, q.schema
+		ask.dialect, ask.scanLimit = q.Editor.Dialect, q.a.Settings().ScanLimit
+		closers = q.cutHeldCursors()
 	}
-	q.results = kept
-	q.resultIdx = len(kept)
 	timeout := time.Duration(q.Conn.Config.StatementTimeout) * time.Second
 	continueOnError := q.a.Settings().ContinueOnError
 	changeLimit := q.a.Settings().ChangeLimit
@@ -1105,12 +1140,18 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 		for _, close := range closers {
 			close()
 		}
-		connection.CloseThenCancel(nil, oldCancel)
+		if replaced {
+			connection.CloseThenCancel(nil, oldCancel)
+		}
 		var err error
 		if sess == nil {
 			if sess, err = connection.OpenSession(ctx, pool, database); err != nil {
 				q.a.Post(func() {
 					q.Running, q.ongoing, q.lastRunFailed = false, nil, true
+					if !replaced {
+						cancel()
+						q.cancel = oldCancel // the results kept read on
+					}
 					q.note(err.Error(), "", true)
 					q.runEnded()
 				})
@@ -1118,7 +1159,11 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 			}
 			q.adoptSession(sess)
 		}
-		runAll := false
+		if ask != nil {
+			ask.sess = sess
+		}
+		// afterRun is what an answer asked to do once the run ends.
+		var afterRun func()
 		// resetSchema is where a connection made again finds names, read
 		// as a statement is refused on it (db.ErrSessionReset).
 		resetSchema := ""
@@ -1146,14 +1191,26 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 		// is no change of rows could alter its engine or the database.
 		transactional := map[[2]string]bool{}
 		for i, s := range stmts {
-			if stepConfirm {
-				answer := q.askStep(ctx, s, i, len(stmts), &runAll, sess.Tx() != db.TxNone && !fresh)
+			if ask != nil {
+				answer, after := q.askStep(ctx, ask, s, i, len(stmts), sess.Tx() != db.TxNone && !fresh)
+				afterRun = after
+				if !replaced && answer != "cancel" {
+					swapped := make(chan []func(), 1)
+					q.a.Post(func() { swapped <- q.replaceResults(stmts, newTab) })
+					for _, close := range <-swapped {
+						close()
+					}
+					connection.CloseThenCancel(nil, oldCancel)
+					replaced = true
+				}
 				if answer == "skip" {
 					q.a.Post(func() { q.note("Skipped: "+widgets.OneLine(s.SQL, 120), s.SQL, false) })
 					continue
 				}
 				if answer == "cancel" {
-					q.a.Post(func() { q.note(fmt.Sprintf("Stopped before statement %d of %d.", i+1, len(stmts)), "", true) })
+					if len(stmts) > 1 {
+						q.a.Post(func() { q.note(fmt.Sprintf("Stopped before statement %d of %d.", i+1, len(stmts)), "", true) })
+					}
 					break
 				}
 			}
@@ -1211,6 +1268,10 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 			var timer *time.Timer
 			if timeout > 0 {
 				timer = time.AfterFunc(timeout, func() { timedOut.Store(true); scancel() })
+			}
+			if prev != nil {
+				q.countPreview(sctx, sess, cfg, database, prev, purpose)
+				prev.dress(res)
 			}
 			if wantsRows(s, dialect) && res.tableWhy == "" && res.table.Schema == "" {
 				// Where the session finds the table now, before the
@@ -1426,6 +1487,18 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 				break
 			}
 		}
+		if !replaced {
+			// Cancelled at its first question: the editor is as it was
+			// before the run, the results' cursors read on as they did.
+			q.a.Post(func() {
+				cancel()
+				q.Running, q.ongoing, q.cancel, q.StartedAt, q.stopping = false, nil, oldCancel, oldStartedAt, false
+				if afterRun != nil {
+					afterRun()
+				}
+			})
+			return
+		}
 		own, inside := dataview.SessionTx(sess)
 		autocommitOff := sess.AutocommitOff()
 		sessionDB, tracked := "", false
@@ -1456,6 +1529,9 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 			refreshAfterDDL(q.Conn, stmts)
 			q.notifyRun(len(stmts), run.results)
 			q.runEnded()
+			if afterRun != nil {
+				afterRun()
+			}
 		})
 	}()
 }
@@ -1776,6 +1852,9 @@ func (q *Tab) View(c *ui.Context) {
 	}
 	if q.pressed(c, keymap.Explain) {
 		q.Run(RunExplain)
+	}
+	if q.pressed(c, keymap.PreviewChanges) {
+		q.Run(RunPreview)
 	}
 	if q.Running {
 		q.cancelQueryKey(c)
@@ -2277,7 +2356,11 @@ func (q *Tab) newView(res *result, c *db.Cursor, rows [][]any, done bool, stop c
 		TxOwner:        q.TxOwner,
 		SessionReset:   q.rereadSchema,
 		Rerun:          func() { q.rerun(s) },
+		Bars:           q.previewBar(res),
 	})
+	if res.preview != nil {
+		v.SetTint(res.preview.tint)
+	}
 	v.Adopt(c, rows, done, res.elapsed, stop)
 	if res.tableWhy == "" && reads && res.schemaErr == nil {
 		schema := cmp.Or(res.table.Schema, res.schema)
@@ -2416,7 +2499,7 @@ func (q *Tab) rerun(s safety.Statement) {
 			preview += "\n-- " + s.Shown
 		}
 		title := fmt.Sprintf("Run the statement again on %s?", cfg.Name)
-		q.a.AskConfirm(q.Conn, v, title, "Run", preview, func() { q.execute([]safety.Statement{s}, v.Writes, nil) })
+		q.a.AskConfirm(q.Conn, v, title, "Run", preview, func() { q.execute([]safety.Statement{s}, v.Writes, nil, nil) })
 	})
 }
 
@@ -2770,46 +2853,6 @@ func SplitOptions(s *settings.Settings) sqltext.SplitOptions {
 	return sqltext.SplitOptions{Mode: sqltext.BlankLineAndSemicolon}
 }
 
-// askStep asks, on the main thread, whether to run a statement of a
-// script on production, and waits for the answer: "run", "skip" or
-// "cancel". Run All answers for the plain writes left; a destructive
-// statement asks still, as one that commits the open transaction, or
-// takes effect at once inside it, does.
-// open is whether a transaction is open on the session that holds what
-// the statement may commit.
-func (q *Tab) askStep(ctx context.Context, s safety.Statement, i, n int, runAll *bool, open bool) string {
-	cfg := q.Conn.Config
-	v := safety.ReviewSQL(&cfg, []safety.Statement{s})
-	commits := open && (safety.CommitsImplicitly(cfg.Engine, s) || safety.TakesEffectAtOnce(cfg.Engine, s))
-	v.EndsTransaction(&cfg, []safety.Statement{s}, commits)
-	if !v.Confirm || *runAll && !v.TypeName && !commits {
-		return "run"
-	}
-	answer := make(chan string, 1)
-	q.a.Post(func() {
-		title := fmt.Sprintf("Run statement %d of %d on %s?", i+1, n, cfg.Name)
-		r := q.a.AskConfirm(q.Conn, v, title, "Run", s.SQL, func() { answer <- "run" })
-		r.OnCancel = func() { answer <- "cancel" }
-		r.OnSkip = func() {
-			q.a.Record(&cfg, audit.Event{Kind: audit.KindConfirm, Statement: s.SQL, Detail: title + " — skipped"})
-			answer <- "skip"
-		}
-		if !v.TypeName {
-			r.OnRunAll = func() {
-				q.a.Record(&cfg, audit.Event{Kind: audit.KindConfirm, Statement: s.SQL, Detail: title + " — run all the script's writes"})
-				*runAll = true
-				answer <- "run"
-			}
-		}
-	})
-	select {
-	case a := <-answer:
-		return a
-	case <-ctx.Done():
-		return "cancel"
-	}
-}
-
 // errDeclined is a change the user chose not to commit, which stops a
 // script whatever it does on an error.
 var errDeclined = errors.New("not committed")
@@ -3103,6 +3146,9 @@ func (q *Tab) editorMenu(m *ui.Menu) {
 		}
 		if keymap.Item(m.Item("Explain Analyze"), keymap.ExplainAnalyze).Chosen() {
 			q.Run(RunExplainAnalyze)
+		}
+		if keymap.Item(m.Item("Preview Changes"), keymap.PreviewChanges).Chosen() {
+			q.Run(RunPreview)
 		}
 		m.Separator()
 		if m.Item("Export from Query…").Chosen() {

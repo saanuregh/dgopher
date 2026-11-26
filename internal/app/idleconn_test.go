@@ -108,16 +108,18 @@ func TestIdleConnectionDisconnects(t *testing.T) {
 func TestIdleConnectionConfirmedRunConnects(t *testing.T) {
 	idleAfter(t, time.Second)
 	a, tt, cn := idleApp(t, false)
-	cn.Config.Env = db.Production
+	// Staging asks before the run; production asks inside it, which
+	// holds the connection.
+	cn.Config.Env = db.Staging
 	a.trust(cn)
-	q := newAppEditor(t, a, tt, cn, "INSERT INTO t VALUES (3)")
-	runAt(t, tt, q, "INSERT", query.RunStatement)
+	q := newAppEditor(t, a, tt, cn, "CREATE TABLE u (a INT)")
+	runAt(t, tt, q, "CREATE", query.RunStatement)
 	testutil.WaitFor(t, tt, "the confirmation", func() bool { return a.confirm != nil })
 	testutil.WaitFor(t, tt, "the idle disconnect", func() bool { return cn.Status == connection.StatusIdle })
 	a.confirm.OnConfirm()
 	a.confirm = nil
-	testutil.WaitFor(t, tt, "the insert", func() bool {
-		return cn.Status == connection.StatusConnected && !q.Running && testutil.HasTextContaining(tt, "1 row affected")
+	testutil.WaitFor(t, tt, "the create", func() bool {
+		return cn.Status == connection.StatusConnected && !q.Running && testutil.HasTextContaining(tt, "CREATE · ")
 	})
 	q.FinishTx(false, func(error) {})
 }

@@ -367,6 +367,34 @@ func (clickhouseEngine) ParsePlan(_ []string, rows [][]any) (*Plan, bool) {
 	return parseClickHousePlan(planText(rows))
 }
 
+// ScanCheck is EXPLAIN ESTIMATE: its plan tells no rows, but the estimate
+// tells those each MergeTree table's read reads, after its parts and
+// marks are chosen.
+func (clickhouseEngine) ScanCheck(statement string) (ExplainRun, bool) {
+	return explainWithPrefix("EXPLAIN ESTIMATE ", statement), true
+}
+
+// ScansOf reads EXPLAIN ESTIMATE's rows, a table each.
+func (clickhouseEngine) ScansOf(names [][]string, rows [][][]any) []Scan {
+	var out []Scan
+	for i, cols := range names {
+		database, table, read := slices.Index(cols, "database"), slices.Index(cols, "table"), slices.Index(cols, "rows")
+		if database < 0 || table < 0 || read < 0 {
+			continue
+		}
+		for _, r := range rows[i] {
+			if len(r) == len(cols) {
+				out = append(out, Scan{Schema: Display(r[database]), Table: Display(r[table]), Step: "ReadFromMergeTree", Rows: valueNumber(r[read])})
+			}
+		}
+	}
+	return out
+}
+
+func (clickhouseEngine) TableRowsSQL([]Scan) (string, []any) { return "", nil }
+
+func (c clickhouseEngine) PreviewNewName(col string) string { return c.Quote(col + " → new") }
+
 func (clickhouseEngine) AdvisePlanStep(n *PlanNode, add func(n *PlanNode, format string, args ...any)) {
 	if !strings.HasPrefix(n.Op, "ReadFromMergeTree") {
 		return

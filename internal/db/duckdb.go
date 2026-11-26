@@ -378,6 +378,48 @@ func (duckdbEngine) ParsePlan(_ []string, rows [][]any) (*Plan, bool) {
 	return parseDuckDBPlan(planText(rows))
 }
 
+func (d duckdbEngine) ScanCheck(statement string) (ExplainRun, bool) {
+	return d.Explain(statement, false)
+}
+
+// ScansOf takes a table's scan. Its estimated cardinality is what the
+// filters pushed into it keep, fewer than it reads: the rows of a table
+// named with its schema are read from the catalog instead (-1 until
+// then).
+func (duckdbEngine) ScansOf(names [][]string, rows [][][]any) []Scan {
+	return planScans(DuckDB, names, rows, func(n *PlanNode) (Scan, bool) {
+		op := strings.TrimSpace(n.Op)
+		if op != "SEQ_SCAN" && op != "TABLE_SCAN" || n.Target == "" {
+			return Scan{}, false
+		}
+		// A Target is the table, or catalog.schema.table.
+		parts := strings.Split(n.Target, ".")
+		s := Scan{Table: parts[len(parts)-1], Step: op, Rows: n.Rows}
+		if len(parts) > 1 {
+			s.Schema, s.Rows = parts[len(parts)-2], -1
+		}
+		return s, true
+	})
+}
+
+// TableRowsSQL reads duckdb_tables()'s estimated_size, the rows a table
+// holds.
+func (d duckdbEngine) TableRowsSQL(scans []Scan) (string, []any) {
+	tables := unknownRowScans(scans)
+	if len(tables) == 0 {
+		return "", nil
+	}
+	var match []string
+	var args []any
+	for _, t := range tables {
+		match = append(match, "(schema_name = "+d.Placeholder(len(args)+1)+" AND table_name = "+d.Placeholder(len(args)+2)+")")
+		args = append(args, t[0], t[1])
+	}
+	return "SELECT schema_name, table_name, estimated_size FROM duckdb_tables() WHERE " + strings.Join(match, " OR "), args
+}
+
+func (d duckdbEngine) PreviewNewName(col string) string { return d.Quote(col + " → new") }
+
 func (duckdbEngine) AdvisePlanStep(*PlanNode, func(n *PlanNode, format string, args ...any)) {}
 
 func (duckdbEngine) UseSchemaSQL(schema string) string {

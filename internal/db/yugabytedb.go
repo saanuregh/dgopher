@@ -109,6 +109,16 @@ func (y yugabytedbEngine) AdvisePlanStep(n *PlanNode, add func(n *PlanNode, form
 	y.postgresEngine.AdvisePlanStep(n, add)
 }
 
+// ScanCheck and ScansOf: YugabyteDB's own Explain and ParsePlan, its scans
+// read as PostgreSQL's.
+func (y yugabytedbEngine) ScanCheck(statement string) (ExplainRun, bool) {
+	return y.Explain(statement, false)
+}
+
+func (yugabytedbEngine) ScansOf(names [][]string, rows [][][]any) []Scan {
+	return planScans(YugabyteDB, names, rows, postgresScan)
+}
+
 // ActivityPages: each node keeps its own sessions, statement statistics
 // and samples of waits; pg_locks lists the cluster's locks, a session by
 // its transaction.

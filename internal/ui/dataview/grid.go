@@ -66,6 +66,8 @@ type Source struct {
 // Grid shows rows in columns, with a chosen cell, and edits them when
 // edits is set.
 type Grid struct {
+	// tint colours cells from outside the grid's edits (Viewer.SetTint).
+	tint func(row, col int, pal *widgets.Palette) (ui.Color, bool)
 	// keys is set while the grid's tab takes the shortcuts pressed
 	// anywhere, as ⌘` .
 	keys bool
@@ -623,21 +625,7 @@ func (g *Grid) cell(c *ui.Context, a Host, src *Source, data, col int) {
 	if g.numericColumn(src, col) {
 		box.AlignItems(ui.End)
 	}
-	var fill ui.Color
-	if color, ok := g.rowColor(src, data); ok {
-		fill = ui.Hex(color).Alpha(0.45)
-	}
-	if g.edits != nil {
-		switch {
-		case data >= len(src.Rows):
-			fill = pal.Inserted
-		case g.edits.deleted[data]:
-			fill = pal.Deleted
-		case changed:
-			fill = pal.Modified
-		}
-	}
-	if fill != (ui.Color{}) {
+	if fill := g.cellFill(src, pal, data, col, changed); fill != (ui.Color{}) {
 		// The whole cell, past the table's padding around this box, which
 		// the cell clips; under the text. A changed one has a bar along
 		// its edge too, which shows on a chosen cell.
@@ -1005,4 +993,28 @@ func holdsText(typ string) bool {
 	return typ == "" || slices.ContainsFunc([]string{"char", "text", "string", "clob"}, func(w string) bool {
 		return strings.Contains(typ, w)
 	})
+}
+
+// cellFill is the fill under a cell: a pending edit's, else the tint set
+// from outside the grid, else its row's colour rule; none is zero.
+func (g *Grid) cellFill(src *Source, pal *widgets.Palette, data, col int, changed bool) ui.Color {
+	if g.edits != nil {
+		switch {
+		case data >= len(src.Rows):
+			return pal.Inserted
+		case g.edits.deleted[data]:
+			return pal.Deleted
+		case changed:
+			return pal.Modified
+		}
+	}
+	if g.tint != nil {
+		if fill, ok := g.tint(data, col, pal); ok {
+			return fill
+		}
+	}
+	if color, ok := g.rowColor(src, data); ok {
+		return ui.Hex(color).Alpha(0.45)
+	}
+	return ui.Color{}
 }

@@ -133,6 +133,20 @@ func (tidbEngine) ParsePlan(_ []string, rows [][]any) (*Plan, bool) {
 	return parseTiDBPlan(planText(rows))
 }
 
+func (t tidbEngine) ScanCheck(statement string) (ExplainRun, bool) {
+	return t.Explain(statement, false)
+}
+
+// ScansOf takes a TableFullScan, in either part of a join.
+func (tidbEngine) ScansOf(names [][]string, rows [][][]any) []Scan {
+	return planScans(TiDB, names, rows, func(n *PlanNode) (Scan, bool) {
+		if op, _, _ := strings.Cut(n.Op, " ("); op != "TableFullScan" {
+			return Scan{}, false
+		}
+		return Scan{Table: targetTable(n), Step: "TableFullScan", Rows: n.Rows}, true
+	})
+}
+
 // AdvisePlanStep reads a step's operator without its part in a join, as
 // "TableFullScan (Build)".
 func (tidbEngine) AdvisePlanStep(n *PlanNode, add func(n *PlanNode, format string, args ...any)) {

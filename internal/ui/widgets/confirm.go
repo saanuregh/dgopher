@@ -1,6 +1,7 @@
 package widgets
 
 import (
+	"slices"
 	"strings"
 
 	"dgopher/internal/connection"
@@ -30,6 +31,13 @@ type ConfirmRequest struct {
 	// script, or to run the rest without asking again.
 	OnSkip   func()
 	OnRunAll func()
+	// Notes say what the request knows besides its risks, as how many
+	// rows a change makes, without the warning's color.
+	Notes []string
+	// Extra, when set, labels a button left of the others that answers
+	// with OnExtra, as one to look before running.
+	Extra   string
+	OnExtra func()
 	// Trust marks the question whether to connect to a destination.
 	Trust bool
 	// Harmless marks a request by which nothing is lost, as connecting or
@@ -75,7 +83,8 @@ func ConfirmView(c *ui.Context, r *ConfirmRequest) {
 			DialogTitle(c, r.Title)
 			// What could go wrong in one callout; how the app guards
 			// against it, a note under it, without the warning's color.
-			var risks, notes []string
+			var risks []string
+			notes := slices.Clip(r.Notes) // an append copies: the request keeps its own
 			for _, reason := range r.Reasons {
 				if reason == OneRowEach {
 					notes = append(notes, reason)
@@ -137,6 +146,13 @@ func ConfirmView(c *ui.Context, r *ConfirmRequest) {
 				}
 			}
 			ui.Row(c).Gap(8).Justify(ui.End).Children(func() {
+				if r.Extra != "" {
+					if ui.Button(c, r.Extra).Clicked() {
+						r.Open, r.Answered = false, true
+						r.OnExtra()
+					}
+					ui.Spacer(c)
+				}
 				if ui.Button(c, "Cancel").Clicked() {
 					r.Open, r.Answered = false, true
 					if r.OnCancel != nil {

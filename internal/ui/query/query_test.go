@@ -211,11 +211,14 @@ func TestParametersBoundAndReviewed(t *testing.T) {
 	q.Run(RunStatement)
 	a.dialogs.params.fields[0].value = "DELETE FROM t"
 	a.dialogs.params.submit()
-	tt.Frame()
-	if a.Confirm == nil || !a.Confirm.TypeName {
+	// Production asks inside the run, a frame or more later.
+	testutil.WaitFor(t, tt, "the question", func() bool { return a.Confirm != nil })
+	if !a.Confirm.TypeName {
 		t.Fatal("a DELETE without WHERE from a variable ran without asking")
 	}
+	a.Confirm.OnCancel()
 	a.Confirm = nil
+	testutil.WaitFor(t, tt, "the cancelled run's end", func() bool { return !q.Running })
 	// A value that adds a statement is refused outright.
 	q.Editor.SetText("-- connection: lite\n\nSELECT * FROM ${t}")
 	testutil.SetCaret(tt, q.Editor, len(q.Editor.Text()))

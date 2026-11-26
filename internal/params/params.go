@@ -169,6 +169,21 @@ func Bind(sql string, e db.Engine, d sqltext.Dialect, values map[string]Input) (
 	return b.String(), args, strings.Join(shown, ", "), nil
 }
 
+// Placeholders counts the placeholders bound into a statement for engine
+// e: its tokens the dialect reads as parameters, and the engine's own ?
+// where the dialect reads ? as an operator, as DuckDB's PostgreSQL one
+// does, though not on PostgreSQL itself, whose ? is jsonb's.
+func Placeholders(sql string, e db.Engine, d sqltext.Dialect) int {
+	question := db.DialectOf(e).Placeholder(1) == "?"
+	n := 0
+	for _, t := range sqltext.Tokenize(sql, d) {
+		if t.Kind == sqltext.Param || question && t.Text == "?" {
+			n++
+		}
+	}
+	return n
+}
+
 // mixedStyles refuses a statement with both :name parameters and the
 // engine's own placeholders, which would be numbered or ordered wrongly.
 func mixedStyles(sql string, d sqltext.Dialect, params []sqltext.Parameter) error {

@@ -152,6 +152,12 @@ See [How SQL is read](../sql.md#parameters).
   hash spilling to disk, a nested loop rescanning a table, or a ClickHouse
   key that narrows nothing.
 - A typed `EXPLAIN` in one of these forms shows the same way.
+- **Preview Changes** (⌥⌘E), in the same menu, shows the rows an `UPDATE`
+  or `DELETE` would change and how many, with each new value beside the
+  old, then runs it or not. See
+  [Preview a change](../safety.md#preview-a-change).
+- On production, a statement whose plan reads more rows of a table than
+  the limit asks before it runs. See [Large scans](../safety.md#large-scans).
 
 ![The plan of a join on PostgreSQL, run by Explain Analyze: each step with
 the rows estimated and found, and its share of the time](../images/query-plan.png)

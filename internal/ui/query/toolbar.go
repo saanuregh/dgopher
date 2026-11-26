@@ -120,6 +120,10 @@ func (q *Tab) runTools(c *ui.Context) {
 		if keymap.Item(m.Item("Explain Analyze"), keymap.ExplainAnalyze).Chosen() {
 			q.Run(RunExplainAnalyze)
 		}
+		m.Separator()
+		if keymap.Item(m.Item("Preview Changes"), keymap.PreviewChanges).Chosen() {
+			q.Run(RunPreview)
+		}
 	})
 	if widgets.ToolButton(c.Key("format"), widgets.IconWand, "Format", keymap.Hint("Format SQL", keymap.Format)).Clicked() {
 		q.format()

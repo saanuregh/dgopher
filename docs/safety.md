@@ -11,6 +11,8 @@ statement the policy cannot classify counts as a write.
 - [The policy at a glance](#the-policy-at-a-glance)
 - [Read-only connections](#read-only-connections)
 - [Large changes](#large-changes)
+- [Preview a change](#preview-a-change)
+- [Large scans](#large-scans)
 - [Scripts and SQL files](#scripts-and-sql-files)
 - [Transactions](#transactions)
 - [Lost and idle connections](#lost-and-idle-connections)
@@ -135,6 +137,67 @@ These changes are not held for a count:
 On production, applying grid changes or a row comparison that updates or
 deletes more existing rows than the limit asks for the connection's name,
 as an `UPDATE` without `WHERE` does.
+
+## Preview a change
+
+**Preview Changes** (⌥⌘E, in the menu beside Explain) shows the rows an
+`UPDATE` or `DELETE` would change before it runs. Unlike DBeaver, which
+has no such command, it reads them without changing anything:
+
+- It rewrites the statement as a `SELECT` of the same table and `WHERE`,
+  and counts them. The rewrite goes through the policy like any statement
+  and runs as the editor's own reads, without a savepoint.
+- On MySQL, an `UPDATE` whose `SET` value reads a column it sets before
+  is refused: MySQL would read the new value, which the preview cannot
+  show.
+- An `UPDATE`'s preview shows each `SET` column's new value, tinted, beside
+  the value it has now. A `DELETE`'s rows are tinted as deleted.
+- **Run** runs the statement as it was previewed, through every check
+  below. Edited since the preview, Run is unavailable until you preview
+  again.
+- It reads one table's rows. A statement that reads another table (`FROM`,
+  `USING`, a join, a `WITH`, MySQL's forms of several tables), T-SQL's
+  `OUTPUT` and `TOP … PERCENT`, and ClickHouse's `ALTER TABLE` mutations
+  are refused, saying why, and nothing is sent.
+
+On production, the confirmation of an `UPDATE` or `DELETE` the preview can
+read also says how many rows it changes, counted just before it asks. A
+count that takes more than 5 seconds, or fails, is said to, and the
+confirmation still asks. Its **Preview Changes** button opens the preview
+instead of running.
+
+## Large scans
+
+On production, each statement run from an editor is explained before it
+runs. If its plan estimates that a step reads more rows of a table than
+the limit, the app asks first, naming each such table, with **Show Plan**
+to see the plan instead. DBeaver has no such check.
+
+- The limit is in **Settings → Safety → Large scans** (1,000,000 rows by
+  default; 0 turns the check off).
+- It checks queries, `INSERT`, `UPDATE`, `DELETE`, `MERGE` and `REPLACE`,
+  alone or in a script, but not schema changes, `SHOW`, `CALL`, `VACUUM`
+  and other statements without a plan, Explain runs, Run SQL File or
+  Redis.
+- A write that asks on production anyway asks once, with both reasons. In
+  a script, Run All covers these questions as it covers writes.
+- The plan's estimate is the server's guess. The rows a step reads come
+  from the plan on most engines, and from the table's statistics on
+  PostgreSQL, TimescaleDB and YugabyteDB (`pg_class.reltuples`), so a
+  table never analyzed is not checked. DuckDB estimates after its filters,
+  so it may say fewer rows than it reads. SQLite plans give no estimates
+  and are not checked.
+- If the plan cannot be read, the statement runs, and the editor says it
+  ran without the check and why.
+- Inside an open transaction, the check and the count run behind a
+  savepoint where the engine has them (the PostgreSQL and MySQL families
+  and SQLite files, not DuckDB, in-memory SQLite, ClickHouse, SQL Server
+  or Oracle), so their failure cannot abort the transaction. They are
+  recorded in the audit log with their purpose; the savepoints, as every
+  statement sent, in its [traffic](audit-log.md#traffic).
+- After a lost connection, the statement is refused once, as before
+  ([After a lost connection](#after-a-lost-connection)): the check and
+  the count do not use up that refusal.
 
 ## Scripts and SQL files
 

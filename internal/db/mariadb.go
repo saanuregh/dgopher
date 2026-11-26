@@ -174,6 +174,21 @@ func (mariadbEngine) ParsePlan(_ []string, rows [][]any) (*Plan, bool) {
 	return parseMariaDBPlan(planText(rows))
 }
 
+func (m mariadbEngine) ScanCheck(statement string) (ExplainRun, bool) {
+	return m.Explain(statement, false)
+}
+
+// ScansOf takes a table's access_type ALL, read as a Table scan, of a
+// table of the server's: not one the query made, as <derived2>.
+func (mariadbEngine) ScansOf(names [][]string, rows [][][]any) []Scan {
+	return planScans(MariaDB, names, rows, func(n *PlanNode) (Scan, bool) {
+		if n.Op != mariadbAccess["ALL"] || n.Target == "" || strings.HasPrefix(n.Target, "<") {
+			return Scan{}, false
+		}
+		return Scan{Table: n.Target, Step: n.Op, Rows: n.Rows}, true
+	})
+}
+
 func (mariadbEngine) AdvisePlanStep(n *PlanNode, add func(n *PlanNode, format string, args ...any)) {
 	adviseMySQLFamilyStep("MariaDB", n, add)
 	if n.Op == mariadbBlockJoin && len(n.Children) == 1 && rowsOf(n.Children[0]) >= adviseRows {

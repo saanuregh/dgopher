@@ -4,6 +4,8 @@ import (
 	"slices"
 
 	"dgopher/internal/keymap"
+	"dgopher/internal/safety"
+	"dgopher/internal/sqltext"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -27,6 +29,59 @@ func (q *Tab) addRunResults(run *runState, results ...*result) {
 	}
 	q.results = append(q.results, results...)
 	run.results = append(run.results, results...)
+}
+
+// replaceResults makes way for a run's results, on the main thread, and
+// returns what closes the cursors of those it drops, to call off it. A
+// run replaces the results, but those pinned and, run into a new tab, all
+// of them; the cursors of those it drops close, and a kept one that was
+// still reading ends where it is.
+func (q *Tab) replaceResults(stmts []safety.Statement, newTab bool) []func() {
+	q.lastRunFailed = false
+	q.runReads = slices.ContainsFunc(stmts, func(s safety.Statement) bool { return s.Analysis.Class == sqltext.Read })
+	q.showResults() // a run shows what it returns
+	var kept []*result
+	var closers []func()
+	for _, r := range q.results {
+		switch {
+		case r.view == nil:
+		case !newTab && !r.pinned:
+			closers = append(closers, r.view.Release())
+		case !r.view.Done():
+			closers = append(closers, r.view.CutShort())
+		}
+		if newTab || r.pinned {
+			kept = append(kept, r)
+		}
+	}
+	// The cursors other cells still read close too: the session runs one
+	// statement at a time.
+	for _, r := range q.otherResults() {
+		if r.view != nil && !r.view.Done() {
+			closers = append(closers, r.view.CutShort())
+		}
+	}
+	// The results it drops stay in view, dimmed and inert, until a new one
+	// comes or the run ends: a quick run then replaces them in one frame.
+	if len(kept) < len(q.results) {
+		q.stale, q.staleIdx, q.staleFrom = q.results, q.resultIdx, len(kept)
+	}
+	q.results = kept
+	q.resultIdx = len(kept)
+	return closers
+}
+
+// cutHeldCursors ends where they are the results whose rows still to read
+// hold the session, which a statement sent on it would end, and returns
+// what closes their cursors, to call off the main thread.
+func (q *Tab) cutHeldCursors() []func() {
+	var closers []func()
+	for _, r := range append(slices.Clip(q.results), q.otherResults()...) {
+		if r.view != nil && !r.view.Done() && r.view.HoldsCursor() {
+			closers = append(closers, r.view.CutShort())
+		}
+	}
+	return closers
 }
 
 // dropRun lets the results of the run going on go, theirs to show
@@ -114,6 +169,9 @@ func (q *Tab) stopButton(c *ui.Context, tip string) {
 	if q.stopping {
 		widgets.Unavailable(widgets.LeadToolButton(c.Key("run"), widgets.IconStop, "Stopping…", "", danger), "Asked to stop: the run ends once the server stops it")
 		return
+	}
+	if q.readingPlan {
+		tip = "Reading the plan…"
 	}
 	if widgets.TimedToolButton(c.Key("run"), widgets.IconStop, "Stop", keymap.Hint(tip, keymap.CancelQuery), danger, q.StartedAt).Clicked() {
 		q.stop()
