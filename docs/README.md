@@ -14,7 +14,6 @@
 | [Command line and environment](command-line.md) | starting DGopher, and the environment variables it reads |
 | [Troubleshooting](troubleshooting.md) | fixes for common problems |
 | [Known limitations](limitations.md) | what does not work, and why |
-| [Roadmap](roadmap.md) | what is planned |
 
 ## Working on DGopher
 

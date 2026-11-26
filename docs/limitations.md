@@ -1,7 +1,6 @@
 # Known limitations
 
-What DGopher does not do, or does only in part, and why. Planned work is in
-the [Roadmap](roadmap.md).
+What DGopher does not do, or does only in part, and why.
 
 ## Connections
 

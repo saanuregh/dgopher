@@ -47,8 +47,7 @@ own.
   TimescaleDB's hypertables. See [Engine support](docs/engines.md).
 
 DGopher is young and has not reached 1.0. [Known limitations](docs/limitations.md)
-lists what it does not do yet, and the [Roadmap](docs/roadmap.md) what is
-planned.
+lists what it does not do yet.
 
 ## Screenshots
 
@@ -181,7 +180,7 @@ The [documentation index](docs/README.md) lists every page:
 - [Safety model](docs/safety.md) and [Audit log](docs/audit-log.md)
 - [Where things are kept](docs/storage.md) and [Project files](docs/project-files.md)
 - [Command line](docs/command-line.md) and [Troubleshooting](docs/troubleshooting.md)
-- [Known limitations](docs/limitations.md) and [Roadmap](docs/roadmap.md)
+- [Known limitations](docs/limitations.md)
 - For contributors: [Development](docs/development.md),
   [Architecture](docs/architecture.md), [Testing](docs/testing.md),
   [How SQL is read](docs/sql.md) and [CONTRIBUTING.md](CONTRIBUTING.md)
