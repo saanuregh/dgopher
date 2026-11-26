@@ -18,6 +18,7 @@ func (q *Tab) Commands() []widgets.Command {
 		{Title: "Run Script", Key: keymap.RunScript, Icon: widgets.IconPlay, Run: func() { q.Run(RunScript) }},
 		{Title: "Explain Plan", Key: keymap.Explain, Icon: widgets.IconLayers, Run: func() { q.Run(RunExplain) }},
 		{Title: "Explain Analyze", Detail: "runs the statement", Key: keymap.ExplainAnalyze, Icon: widgets.IconLayers, Run: func() { q.Run(RunExplainAnalyze) }},
+		{Title: "Preview Changes", Detail: "the rows an UPDATE or DELETE would change", Key: keymap.PreviewChanges, Icon: widgets.IconLayers, Run: func() { q.Run(RunPreview) }},
 		{Title: "Format SQL", Key: keymap.Format, Icon: widgets.IconWand, Run: q.format},
 		{Title: "Go to Statement…", Key: keymap.GoToStatement, Icon: widgets.IconSearch, Run: q.openOutline},
 		{Title: "Export from Query…", Icon: widgets.IconDownload, Run: q.exportFromQuery},

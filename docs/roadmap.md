@@ -53,13 +53,6 @@ what does not work today and why, see [Known limitations](limitations.md).
 - Cloud data warehouses: Snowflake, BigQuery and MotherDuck.
 - Elasticsearch and OpenSearch.
 
-## Safety
-
-- Preview a write: the rows an `UPDATE` or `DELETE` would change, and how
-  many, shown before it runs, to run or cancel.
-- A plan check on production: Run reads the plan first and asks when it
-  estimates a scan of millions of rows.
-
 ## Data
 
 - Run a statement on several connections, such as staging and production

@@ -902,10 +902,8 @@ func TestAuditTrail(t *testing.T) {
 	q := a.tabs().At(0).(*query.Tab)
 	testutil.SetCaret(tt, q.Editor, 3)
 	q.Run(query.RunStatement)
-	tt.Frame()
-	if a.confirm == nil {
-		t.Fatal("CREATE on production ran without asking")
-	}
+	// Production asks inside the run, a frame or more later.
+	testutil.WaitFor(t, tt, "the CREATE's question", func() bool { return a.confirm != nil })
 	a.confirm.Open = false
 	a.confirm.OnConfirm()
 	a.confirm = nil
@@ -917,11 +915,13 @@ func TestAuditTrail(t *testing.T) {
 	q.Editor.SetText("ALTER USER app WITH PASSWORD 'hunter2';")
 	testutil.SetCaret(tt, q.Editor, 3)
 	q.Run(query.RunStatement)
-	testutil.WaitFor(t, tt, "select", func() bool { return !q.Running })
-	if a.confirm == nil {
-		t.Fatal("ALTER USER on production ran without asking")
-	}
-	a.confirm = nil // left unanswered: the question would cover the audit viewer
+	testutil.WaitFor(t, tt, "the ALTER USER's question", func() bool { return a.confirm != nil })
+	// Cancelled: the question would cover the audit viewer, and the run
+	// waiting for it would hold the editor.
+	a.confirm.Open = false
+	a.confirm.OnCancel()
+	a.confirm = nil
+	testutil.WaitFor(t, tt, "the cancelled run", func() bool { return !q.Running })
 	ro := cn.Config
 	cn.Config.ReadOnly = true
 	q.Editor.SetText("DELETE FROM accounts WHERE id = 1;")

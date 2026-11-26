@@ -604,6 +604,12 @@ func (timescaledbEngine) ParsePlan(_ []string, rows [][]any) (*Plan, bool) {
 	return p, true
 }
 
+// ScansOf reads TimescaleDB's plan, whose chunks a hypertable's scan
+// reads each are scans of their own, as PostgreSQL's.
+func (timescaledbEngine) ScansOf(names [][]string, rows [][][]any) []Scan {
+	return planScans(TimescaleDB, names, rows, postgresScan)
+}
+
 // ActivityPages: PostgreSQL's, and the database's jobs: TimescaleDB's
 // policies and those added with add_job.
 func (t timescaledbEngine) ActivityPages() []ActivityPage {

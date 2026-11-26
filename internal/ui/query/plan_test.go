@@ -115,7 +115,7 @@ func TestExplainStepsRunAroundStatement(t *testing.T) {
 	}
 	run := func(sql string, explain *db.ExplainRun) *result {
 		t.Helper()
-		q.execute(safety.Analyze(&cn.Config, []string{sql}), true, explain)
+		q.execute(safety.Analyze(&cn.Config, []string{sql}), true, explain, nil)
 		testutil.WaitFor(t, tt, sql, func() bool { return !q.Running && q.current() != nil })
 		return q.current()
 	}

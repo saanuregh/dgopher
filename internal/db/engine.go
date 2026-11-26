@@ -220,6 +220,18 @@ type queryRules interface {
 	// and reports whether they were one.
 	ParsePlan(cols []string, rows [][]any) (*Plan, bool)
 	AdvisePlanStep(n *PlanNode, add func(n *PlanNode, format string, args ...any))
+	// ScanCheck is the run that tells a statement's scans, without running
+	// it, false when the engine estimates none (LargeScans).
+	ScanCheck(statement string) (ExplainRun, bool)
+	// ScansOf lists the scans in the results of ScanCheck's run, each given
+	// by its columns' names and rows, in the plan's order.
+	ScansOf(names [][]string, rows [][][]any) []Scan
+	// TableRowsSQL reads the rows of the tables of the scans whose Rows is
+	// -1, as rows of (schema, table, rows); "" when the plan tells them.
+	TableRowsSQL(scans []Scan) (string, []any)
+	// PreviewNewName is the quoted alias of a SET column's new value in
+	// Preview Changes.
+	PreviewNewName(col string) string
 	// UseSchemaSQL makes a session find unqualified names in a schema, ""
 	// for an engine whose sessions have no schema to change.
 	UseSchemaSQL(schema string) string

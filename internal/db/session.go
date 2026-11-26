@@ -1069,6 +1069,54 @@ func (s *Session) runAfter(ctx context.Context, after []string, held runner, sen
 	return errors.Join(errs...)
 }
 
+// readAsideSavepoint names the savepoint ReadAside reads behind.
+const readAsideSavepoint = "dgopher_read"
+
+// ReadAside runs read on the session behind a savepoint when a
+// transaction is open on it and the engine has savepoints
+// (Engine.Savepoints), so that read failing leaves the transaction as it
+// was: an error rolls back to the savepoint and releases it, success
+// releases it. Elsewhere read runs as it is: with no transaction, with
+// none to nest in, on an engine without savepoints, and on a pool of one
+// connection, whose sessions share their transaction, which nothing sent
+// here may begin or end. A connection lost in read took the transaction
+// with it, and nothing is sent after it. A read refused as the first
+// statement on a connection made again (ErrSessionReset) sent nothing,
+// and leaves that refusal for the statement it was read for.
+func (s *Session) ReadAside(ctx context.Context, read func(context.Context) error) (err error) {
+	defer func() {
+		if errors.Is(err, ErrSessionReset) {
+			s.resetPending = true
+		}
+	}()
+	if s.db.single || !s.db.Config.Engine.Savepoints() || s.Tx() != TxOpen {
+		return read(ctx)
+	}
+	if _, err := s.Exec(ctx, "SAVEPOINT "+readAsideSavepoint); err != nil {
+		return fmt.Errorf("the read could not be set behind a savepoint in the open transaction: %w", err)
+	}
+	err = read(ctx)
+	// The savepoint's end goes out on a context of its own: a read cut
+	// short by ctx must still give the transaction back as it was.
+	end, cancel := context.WithTimeout(context.WithoutCancel(ctx), AfterStepsWait)
+	defer cancel()
+	if err == nil {
+		_, err = s.Exec(end, "RELEASE SAVEPOINT "+readAsideSavepoint)
+		return err
+	}
+	if errors.Is(err, ErrTxLost) {
+		return err
+	}
+	_, undoErr := s.Exec(end, "ROLLBACK TO SAVEPOINT "+readAsideSavepoint)
+	if undoErr == nil {
+		_, undoErr = s.Exec(end, "RELEASE SAVEPOINT "+readAsideSavepoint)
+	}
+	if undoErr != nil {
+		return fmt.Errorf("%w\nand rolling back to the savepoint before it failed too: %w", err, undoErr)
+	}
+	return err
+}
+
 // CurrentSchema is the schema the session's unqualified names resolve in,
 // as its own statements (SET search_path, USE) left it. On a connection
 // made again, it is the new one's, read without refusing (ErrSessionReset).

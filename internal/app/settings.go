@@ -338,6 +338,9 @@ func (a *App) safetyPage(c *ui.Context) {
 	ui.Field(c, "Large changes", func() {
 		a.numberSetting(c, &a.settings.ChangeLimit, 0, 1_000_000, 100, "Rows a change makes without asking", "rows, 0 for no limit")
 	}).Description("On staging and production in auto-commit, an UPDATE, DELETE, MERGE, REPLACE or upsert that changes more rows than this asks before it commits; until then it is held in a transaction.")
+	ui.Field(c, "Large scans", func() {
+		a.numberSetting(c, &a.settings.ScanLimit, 0, 1_000_000_000, 100_000, "Rows a scan reads without asking", "rows, 0 for no limit")
+	}).Description("On production, each statement is explained before it runs, and one whose plan reads more rows of a table than this asks first. SQLite plans give no row estimates and are not checked.")
 	ui.Field(c, "Sensitive values", func() {
 		hide := !a.settings.ShowSensitive
 		if ui.Checkbox(c, &hide, "Hide the values of columns that look sensitive").Changed() {

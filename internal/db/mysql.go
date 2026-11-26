@@ -456,6 +456,25 @@ func (mysqlEngine) ParsePlan(_ []string, rows [][]any) (*Plan, bool) {
 	return parseMySQLTree(planText(rows))
 }
 
+func (m mysqlEngine) ScanCheck(statement string) (ExplainRun, bool) {
+	return m.Explain(statement, false)
+}
+
+// ScansOf takes a Table scan, whose rows are those it reads, of a table
+// of the server's: not one the query made, as <temporary>.
+func (mysqlEngine) ScansOf(names [][]string, rows [][][]any) []Scan {
+	return planScans(MySQL, names, rows, func(n *PlanNode) (Scan, bool) {
+		if !strings.HasPrefix(n.Op, "Table scan on ") || strings.HasPrefix(n.Target, "<") {
+			return Scan{}, false
+		}
+		return Scan{Table: n.Target, Step: "Table scan", Rows: n.Rows}, true
+	})
+}
+
+func (mysqlEngine) TableRowsSQL([]Scan) (string, []any) { return "", nil }
+
+func (m mysqlEngine) PreviewNewName(col string) string { return m.Quote(col + " → new") }
+
 func (mysqlEngine) AdvisePlanStep(n *PlanNode, add func(n *PlanNode, format string, args ...any)) {
 	adviseMySQLFamilyStep("MySQL", n, add)
 }

@@ -91,6 +91,7 @@ Keys marked *fixed* below cannot be changed.
 | ⌘⌥\ | Run into a new result tab, keeping the results shown |
 | ⌘E | Explain the statement |
 | ⌘⇧E | Explain Analyze: run the statement and measure it |
+| ⌘⌥E | Preview Changes: the rows an UPDATE or DELETE would change |
 | ⌘⌥⇧↵ | Commit the open transaction |
 | ⌘⌥⇧R | Roll back the open transaction |
 | ⌘J | Show or hide the results |

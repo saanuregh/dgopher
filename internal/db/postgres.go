@@ -601,6 +601,42 @@ func (postgresEngine) AdvisePlanStep(n *PlanNode, add func(n *PlanNode, format s
 	}
 }
 
+func (p postgresEngine) ScanCheck(statement string) (ExplainRun, bool) {
+	return p.Explain(statement, false)
+}
+
+func (postgresEngine) ScansOf(names [][]string, rows [][][]any) []Scan {
+	return planScans(Postgres, names, rows, postgresScan)
+}
+
+// postgresScan takes a Seq Scan, whose Plan Rows are those its filter
+// keeps: the rows it reads are the table's, which the catalog tells.
+func postgresScan(n *PlanNode) (Scan, bool) {
+	if n.Op != "Seq Scan" {
+		return Scan{}, false
+	}
+	return Scan{Schema: n.Prop("Schema"), Table: n.Prop("Relation Name"), Step: n.Op, Rows: -1}, true
+}
+
+// TableRowsSQL reads pg_class's reltuples, the rows the last VACUUM or
+// ANALYZE counted; -1 for a table never counted.
+func (p postgresEngine) TableRowsSQL(scans []Scan) (string, []any) {
+	tables := unknownRowScans(scans)
+	if len(tables) == 0 {
+		return "", nil
+	}
+	var pairs []string
+	var args []any
+	for _, t := range tables {
+		pairs = append(pairs, "("+p.Placeholder(len(args)+1)+", "+p.Placeholder(len(args)+2)+")")
+		args = append(args, t[0], t[1])
+	}
+	return "SELECT n.nspname, c.relname, c.reltuples FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE (n.nspname, c.relname) IN (" +
+		strings.Join(pairs, ", ") + ")", args
+}
+
+func (p postgresEngine) PreviewNewName(col string) string { return p.Quote(col + " → new") }
+
 func (postgresEngine) UseSchemaSQL(schema string) string {
 	return "SET search_path TO " + postgresDialect{}.Quote(schema)
 }

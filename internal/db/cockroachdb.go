@@ -204,6 +204,25 @@ func (cockroachdbEngine) ParsePlan(_ []string, rows [][]any) (*Plan, bool) {
 	return parseCockroachPlan(planText(rows))
 }
 
+func (c cockroachdbEngine) ScanCheck(statement string) (ExplainRun, bool) {
+	return c.Explain(statement, false)
+}
+
+// ScansOf takes a scan of every span of its table, whose estimated row
+// count is the rows it reads.
+func (cockroachdbEngine) ScansOf(names [][]string, rows [][][]any) []Scan {
+	return planScans(CockroachDB, names, rows, func(n *PlanNode) (Scan, bool) {
+		if n.Op != "scan" || n.Prop("spans") != "FULL SCAN" {
+			return Scan{}, false
+		}
+		return Scan{Table: targetTable(n), Step: "FULL SCAN", Rows: n.Rows}, true
+	})
+}
+
+// TableRowsSQL is "": the plan tells the rows of its scans, or, without
+// the table's statistics, nothing does.
+func (cockroachdbEngine) TableRowsSQL([]Scan) (string, []any) { return "", nil }
+
 func (cockroachdbEngine) AdvisePlanStep(n *PlanNode, add func(n *PlanNode, format string, args ...any)) {
 	if index := n.Prop("index recommendation"); index != "" {
 		add(n, "CockroachDB recommends an index: %s", index)

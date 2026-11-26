@@ -324,6 +324,12 @@ func (sqliteEngine) ParsePlan(cols []string, rows [][]any) (*Plan, bool) {
 	return parseSQLitePlan(cols, rows)
 }
 
+// ScanCheck is false: SQLite's plan estimates no rows.
+func (sqliteEngine) ScanCheck(string) (ExplainRun, bool)  { return ExplainRun{}, false }
+func (sqliteEngine) ScansOf([][]string, [][][]any) []Scan { return nil }
+func (sqliteEngine) TableRowsSQL([]Scan) (string, []any)  { return "", nil }
+func (s sqliteEngine) PreviewNewName(col string) string   { return s.Quote(col + " → new") }
+
 func (sqliteEngine) AdvisePlanStep(n *PlanNode, add func(n *PlanNode, format string, args ...any)) {
 	switch {
 	case strings.HasPrefix(n.Op, "SCAN ") && !strings.Contains(n.Op, "USING"):

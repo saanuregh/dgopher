@@ -36,6 +36,10 @@ type Settings struct {
 	// before it asks to commit; 0 for no limit. Kept even at 0, which the default
 	// would otherwise replace.
 	ChangeLimit int `json:"changeLimit"`
+	// ScanLimit is how many rows a scan of a table in a statement's plan
+	// may read on production before the statement asks to run; 0 for no
+	// limit, kept as ChangeLimit's 0 is.
+	ScanLimit int `json:"scanLimit"`
 	// ContinueOnError runs a script's next statements after one fails.
 	ContinueOnError bool `json:"continueOnError,omitempty"`
 	// GridFont is the size of the grids' text; 0 for the default.
@@ -110,7 +114,7 @@ type TrustedDetail struct {
 
 // Default returns the settings of a first run.
 func Default() Settings {
-	return Settings{Theme: "system", EditorFont: 13, PageSize: 500, NotifyAfter: 10, ChangeLimit: 1000}
+	return Settings{Theme: "system", EditorFont: 13, PageSize: 500, NotifyAfter: 10, ChangeLimit: 1000, ScanLimit: 1_000_000}
 }
 
 // ExportPrefs are the export choices the app keeps from one export to

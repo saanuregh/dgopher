@@ -201,3 +201,25 @@ func (oracleEngine) AdvisePlanStep(n *PlanNode, add func(n *PlanNode, format str
 			count(read), n.Target, count(rowsOf(n)), where)
 	}
 }
+
+func (o oracleEngine) ScanCheck(statement string) (ExplainRun, bool) {
+	return o.Explain(statement, false)
+}
+
+// ScansOf takes a full scan of a table, with the rows its statistics
+// hold (table_rows), -1 for a table never analyzed.
+func (oracleEngine) ScansOf(names [][]string, rows [][][]any) []Scan {
+	return planScans(Oracle, names, rows, func(n *PlanNode) (Scan, bool) {
+		if !strings.HasPrefix(n.Op, "TABLE ACCESS") || !strings.HasSuffix(n.Op, " FULL") {
+			return Scan{}, false
+		}
+		return Scan{Schema: n.Prop("Object owner"), Table: n.Prop("Object name"), Step: n.Op, Rows: jsonNumber(n.Prop("Table rows"))}, true
+	})
+}
+
+func (oracleEngine) TableRowsSQL([]Scan) (string, []any) { return "", nil }
+
+// PreviewNewName ends the name with _new, not " → new": a name holds 128
+// bytes, and a database whose character set is not AL32UTF8 may hold no
+// arrow.
+func (o oracleEngine) PreviewNewName(col string) string { return o.Quote(col + "_new") }

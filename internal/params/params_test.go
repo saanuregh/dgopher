@@ -118,3 +118,22 @@ func TestIsSet(t *testing.T) {
 		}
 	}
 }
+
+// A statement's placeholders count the engine's own: PostgreSQL's $n but
+// not its jsonb ? operator, and DuckDB's ?, which it lexes as PostgreSQL.
+func TestPlaceholders(t *testing.T) {
+	for _, c := range []struct {
+		e    db.Engine
+		sql  string
+		want int
+	}{
+		{db.Postgres, "SELECT * FROM t WHERE a = $1 AND b ? 'k' AND c = $2", 2},
+		{db.DuckDB, "SELECT * FROM t WHERE a = ? AND b = ?", 2},
+		{db.MySQL, "UPDATE t SET a = ? WHERE id = ?", 2},
+		{db.SQLite, "SELECT 1", 0},
+	} {
+		if got := Placeholders(c.sql, c.e, db.LexDialect(c.e)); got != c.want {
+			t.Errorf("%s %q: %d placeholders, want %d", c.e, c.sql, got, c.want)
+		}
+	}
+}

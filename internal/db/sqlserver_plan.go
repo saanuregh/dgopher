@@ -489,3 +489,31 @@ func (sqlserverEngine) AdvisePlanStep(n *PlanNode, add func(n *PlanNode, format 
 		add(n, "A %s reads %s rows of %s one at a time: an index that holds %s too, as INCLUDE columns, avoids it.", name, count(rowsOf(n)), table, cols)
 	}
 }
+
+func (s sqlserverEngine) ScanCheck(statement string) (ExplainRun, bool) {
+	return s.Explain(statement, false)
+}
+
+// sqlserverScans are the steps that read a whole table, or index.
+var sqlserverScans = []string{"Table Scan", "Clustered Index Scan", "Index Scan"}
+
+// ScansOf takes a scan with the rows it reads, else, from a plan that
+// does not tell them, the rows of its table.
+func (sqlserverEngine) ScansOf(names [][]string, rows [][][]any) []Scan {
+	return planScans(SQLServer, names, rows, func(n *PlanNode) (Scan, bool) {
+		op, _, _ := strings.Cut(n.Op, " (")
+		if !slices.Contains(sqlserverScans, op) {
+			return Scan{}, false
+		}
+		// The Target is schema.table, as sqlserverName writes it.
+		schema, table, ok := strings.Cut(targetTable(n), ".")
+		if !ok {
+			schema, table = "", schema
+		}
+		return Scan{Schema: schema, Table: table, Step: op, Rows: jsonNumber(cmp.Or(n.Prop("EstimatedRowsRead"), n.Prop("TableCardinality")))}, true
+	})
+}
+
+func (sqlserverEngine) TableRowsSQL([]Scan) (string, []any) { return "", nil }
+
+func (s sqlserverEngine) PreviewNewName(col string) string { return s.Quote(col + " → new") }

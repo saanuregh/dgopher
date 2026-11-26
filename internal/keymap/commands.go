@@ -71,6 +71,7 @@ const (
 	RunScript       = "editor::RunScript"
 	Explain         = "editor::Explain"
 	ExplainAnalyze  = "editor::ExplainAnalyze"
+	PreviewChanges  = "editor::PreviewChanges"
 	Format          = "editor::Format"
 	Complete        = "editor::ShowCompletions"
 	Find            = "editor::Find"
@@ -253,6 +254,7 @@ var Commands = []Command{
 	command(CancelQuery, Editor, "Cancel the running statement; Esc goes to the editor first, as to leave Vim's insert mode", "escape"),
 	command(Explain, Editor, "Explain the statement", "cmd-e"),
 	command(ExplainAnalyze, Editor, "Explain and analyze the statement, running it", "cmd-shift-e"),
+	command(PreviewChanges, Editor, "Preview the rows an UPDATE or DELETE would change", "cmd-alt-e"),
 	command(Format, Editor, "Format the SQL", "cmd-shift-f"),
 	command(Complete, Editor, "Complete: tables, columns, keywords", "ctrl-space"),
 	command(Find, Editor, "Find in the editor (↵ next, ⇧↵ previous)", "cmd-f"),

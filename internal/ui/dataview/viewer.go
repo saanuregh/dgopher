@@ -262,6 +262,12 @@ func (v *Viewer) BindTable(obj db.Object, cols []db.Column, fks []db.ForeignKey)
 // table is not found.
 func (v *Viewer) SetReadOnly(why string) { v.source.ReadOnly = why }
 
+// SetTint colours the cells tint names, by data row and column, under a
+// pending edit's colour, as a preview marks the values a change gives.
+func (v *Viewer) SetTint(tint func(row, col int, pal *widgets.Palette) (ui.Color, bool)) {
+	v.grid.tint = tint
+}
+
 // Unbind takes a query's rows from the table BindTable gave them, which
 // they no longer edit, saying why.
 func (v *Viewer) Unbind(why string) { v.source.Table, v.source.ReadOnly = nil, why }
