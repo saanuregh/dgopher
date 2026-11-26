@@ -7,6 +7,7 @@ import (
 
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
+	"dgopher/internal/fileimport"
 	"dgopher/internal/project"
 	"dgopher/internal/sqltext"
 	"dgopher/internal/ui/query"
@@ -19,7 +20,7 @@ import (
 // files as connections, SQL as editors, data files queried by DuckDB.
 func (a *App) openDropped(paths []string) {
 	for _, p := range paths {
-		switch ext := strings.ToLower(filepath.Ext(p)); ext {
+		switch strings.ToLower(filepath.Ext(p)) {
 		case ".sqlite", ".sqlite3", ".db", ".db3":
 			a.openFileDatabase(db.SQLite, p)
 		case ".duckdb", ".ddb":
@@ -43,10 +44,17 @@ func (a *App) openDropped(paths []string) {
 				a.AddTab(q)
 				addRecent(path)
 			})
-		case ".csv", ".tsv", ".parquet", ".json", ".jsonl", ".ndjson":
-			a.queryDataFile(p)
-		case ".xlsx", ".xml":
-			// DuckDB reads neither in place: they become a table.
+		default:
+			format, ok := fileimport.FormatOf(p)
+			if !ok {
+				a.ShowError("Not a file DGopher opens", filepath.Base(p)+": drop a SQLite or DuckDB database, a .sql script, a CSV, Parquet or JSON file, or an Excel or XML file to import.")
+				continue
+			}
+			if format.Reader() != "" {
+				a.queryDataFile(p, format)
+				continue
+			}
+			// DuckDB reads neither Excel nor XML in place: they become a table.
 			cn := a.activeConn()
 			if cn == nil || !cn.Config.Engine.IsSQL() {
 				a.ShowError("Which connection?", "Choose a connection in the navigator, then drop "+filepath.Base(p)+" again: it is imported into a new table there.")
@@ -54,8 +62,6 @@ func (a *App) openDropped(paths []string) {
 			}
 			path := p
 			a.Connect(cn, func() { a.openImportOf(cn, "", cn.DefaultSchema, nil, path) })
-		default:
-			a.ShowError("Not a file DGopher opens", filepath.Base(p)+": drop a SQLite or DuckDB database, a .sql script, a CSV, Parquet or JSON file, or an Excel or XML file to import.")
 		}
 	}
 }
@@ -81,11 +87,11 @@ func (a *App) openFileDatabase(e db.Engine, path string) {
 
 // queryDataFile opens an editor querying a data file with an in-memory
 // DuckDB, which reads CSV, Parquet and JSON itself.
-func (a *App) queryDataFile(path string) {
-	a.withProject(func(p *project.Project) { a.queryDataFileIn(p, path) })
+func (a *App) queryDataFile(path string, format fileimport.Format) {
+	a.withProject(func(p *project.Project) { a.queryDataFileIn(p, path, format) })
 }
 
-func (a *App) queryDataFileIn(p *project.Project, path string) {
+func (a *App) queryDataFileIn(p *project.Project, path string, format fileimport.Format) {
 	var cn *connection.Conn
 	for _, c := range a.projectConns(p) {
 		if c.Config.Engine == db.DuckDB && c.Config.Database == ":memory:" {
@@ -98,10 +104,10 @@ func (a *App) queryDataFileIn(p *project.Project, path string) {
 			return
 		}
 	}
-	lit := db.Literal(db.DuckDB, path)
+	lit := db.Literal(db.DuckDB, fileimport.EscapeGlob(path))
 	// The name goes in a comment: a newline in it would end the comment
 	// and run what follows, as this editor runs at once.
-	text := sqltext.LineComment(filepath.Base(path)+", read in place by DuckDB") + "\nSELECT *\nFROM " + lit + "\nLIMIT 1000;\n"
+	text := sqltext.LineComment(filepath.Base(path)+", read in place by DuckDB") + "\nSELECT *\nFROM " + format.Reader() + "(" + lit + ")\nLIMIT 1000;\n"
 	a.newQueryFile(cn, "", text, func(q *query.Tab) { q.Run(query.RunScript) })
 }
 

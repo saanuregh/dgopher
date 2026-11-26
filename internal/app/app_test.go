@@ -1,6 +1,8 @@
 package app
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -886,8 +888,39 @@ func TestDropFiles(t *testing.T) {
 		q, ok := a.ActiveTab().(*query.Tab)
 		return ok && q.Conn.Config.Engine == db.DuckDB && resultRows(tt, q, 2)
 	})
-
 	testutil.Snapshot(t, tt, "drop-csv")
+
+	// waitQuery waits for the editor of a dropped file, holding text, to show n rows.
+	waitQuery := func(text string, n int) {
+		t.Helper()
+		testutil.WaitFor(t, tt, fmt.Sprintf("%d rows of %s", n, text), func() bool {
+			q, ok := a.ActiveTab().(*query.Tab)
+			return ok && strings.Contains(q.Editor.Text(), text) && resultRows(tt, q, n)
+		})
+	}
+
+	// DuckDB reads JSON Lines of this name only through read_json.
+	lines := dir + "/events.ldjson.gz"
+	var gz bytes.Buffer
+	w := gzip.NewWriter(&gz)
+	w.Write([]byte("{\"kind\": \"login\"}\n{\"kind\": \"logout\"}\n"))
+	w.Close()
+	os.WriteFile(lines, gz.Bytes(), 0o600)
+	a.openDropped([]string{lines})
+	waitQuery("read_json(", 2)
+
+	// DuckDB reads [, * and ? as a pattern: d[1].csv would read d1.csv.
+	bracketed := dir + "/d[1].csv"
+	os.WriteFile(bracketed, []byte("n\n1\n"), 0o600)
+	os.WriteFile(dir+"/d1.csv", []byte("n\n1\n2\n3\n"), 0o600)
+	a.openDropped([]string{bracketed})
+	waitQuery("d[1].csv,", 1)
+	if runtime.GOOS != "windows" { // a backslash in a name, which no escape in a pattern keeps
+		slashed := dir + `/b\x[1].csv`
+		os.WriteFile(slashed, []byte("n\n1\n"), 0o600)
+		a.openDropped([]string{slashed})
+		waitQuery(`b\x[1].csv,`, 1)
+	}
 }
 
 func TestAuditTrail(t *testing.T) {
