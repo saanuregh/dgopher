@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"dgopher/internal/connection"
+	"dgopher/internal/redact"
+	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/widgets"
 )
@@ -165,6 +168,8 @@ func (a *App) lostAfterWake(cn *connection.Conn, err error, why absence, w conne
 	}
 	retryAsReconnect(&r)
 	a.ShowReport(r)
+	lost := slices.Concat(w.txs, w.changes, w.running)
+	a.Notify(dataview.Notice{AtRisk: true, Title: r.Title, Body: cn.Config.Name + ": " + redact.Secrets(strings.Join(lost, ", "))})
 }
 
 // reconnectAfterWake connects again a connection whose server stopped

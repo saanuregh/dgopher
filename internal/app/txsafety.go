@@ -194,6 +194,7 @@ func (a *App) checkIdleTransactions(c *ui.Context) {
 				}
 				a.Record(&cfg, audit.Event{Kind: audit.KindConfirm, Detail: "rolled back the transaction of " + h.Title() + ", idle past the connection's limit"})
 				a.Toast("Rolled back the idle transaction of "+h.Title(), "", nil)
+				a.notifyIdleTx(h, "Rolled back idle transaction", "idle past the connection's limit")
 			})
 			return
 		}
@@ -213,6 +214,7 @@ func (a *App) checkIdleTransactions(c *ui.Context) {
 		due := h.Times().Used.Add(limit - idleWarnAhead)
 		if !a.now.Before(due) {
 			a.idleWarn = &idleWarning{open: true, tab: h, deadline: a.now.Add(idleWarnAhead), used: h.Times().Used}
+			a.notifyIdleTx(h, "Transaction rolls back soon", "unless you keep it open")
 			c.After(time.Second)
 			return
 		}
@@ -297,4 +299,11 @@ func (a *App) txIndicator(c *ui.Context) {
 		}
 	})
 	c.After(time.Second) // the ages move on
+}
+
+// notifyIdleTx tells of h's idle transaction at once, the rollback in
+// place of the warning before it.
+func (a *App) notifyIdleTx(h txHolder, title, why string) {
+	body := h.Title() + " on " + h.Connection().Config.Name + ": " + why
+	a.Notify(dataview.Notice{AtRisk: true, Title: title, Body: body, Tab: h, ID: fmt.Sprintf("idle-tx:%p", h)})
 }

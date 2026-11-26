@@ -464,7 +464,7 @@ func (a *App) runSQLFile(x *sqlFileRun) {
 				title = fmt.Sprintf("SQL file finished with %d errors", len(failures))
 			}
 			cn.ForgetCatalog()
-			a.Notify(started, title, filepath.Base(path)+" on "+cfg.Name, nil)
+			a.Notify(dataview.Notice{Started: started, Title: title, Body: filepath.Base(path) + " on " + cfg.Name})
 		}
 	})
 }

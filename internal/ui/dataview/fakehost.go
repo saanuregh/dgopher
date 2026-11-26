@@ -50,9 +50,8 @@ type FakeHost struct {
 	JobTitles []string
 	// ToastRun is what the button of the last toast does, nil without one.
 	ToastRun func()
-	// Notified are the notifications asked for, as "title: body", however
-	// long the work took.
-	Notified  []string
+	// Notified are the notices asked for, however long the work took.
+	Notified  []Notice
 	Clipboard string
 	// ClipboardReads counts ReadClipboard calls.
 	ClipboardReads int
@@ -252,9 +251,7 @@ func (h *FakeHost) Toast(text, action string, run func()) {
 	}
 }
 
-func (h *FakeHost) Notify(started time.Time, title, body string, show func()) {
-	h.Notified = append(h.Notified, title+": "+body)
-}
+func (h *FakeHost) Notify(n Notice) { h.Notified = append(h.Notified, n) }
 
 func (h *FakeHost) WriteClipboard(text string) { h.Clipboard = text }
 

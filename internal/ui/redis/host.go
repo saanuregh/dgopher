@@ -8,6 +8,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/safety"
+	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
 )
 
@@ -38,4 +39,5 @@ type Host interface {
 	// connection list title, which says what the work does and what
 	// stopping it loses, and stop it with cancel.
 	StartJob(cn *connection.Conn, title string, cancel context.CancelFunc) (finish func())
+	Notify(n dataview.Notice)
 }

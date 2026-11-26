@@ -274,21 +274,34 @@ Enter, shows its full text and its fix; Esc closes the list. The list
 keeps the newest 200 and is empty again at the next start; **Clear All**
 empties it.
 
-A statement, script, export or import that took 10 seconds or more tells
-the system when it ends, if DGopher is in the background. The notice says
-what ran, on which connection, and its first error, but never its SQL.
-Clicking it brings its tab forward. The time is a setting (0 turns
-notifications off).
+While DGopher is in the background, it tells you when long work ends
+and, right away, when work is at risk. Long work is a statement, script,
+notebook Run All, commit, Redis command, AI chat reply or question,
+export, import, backup, restore, copy, comparison or generated script
+that took 10 seconds or more, and a connect that failed after as long.
+Work at risk is an idle transaction about to roll back and its rollback, a
+dropped SSH tunnel, and work lost while the computer slept. Each can
+alert you with a system notification, a sound or both, and also flashes
+the window's taskbar button (on macOS the Dock icon bounces) until the
+window has the focus. A tab's work tells you unless its own window has
+the focus; app-wide work unless any DGopher window has it. The notice
+says what ran and where, and its first error, but never its SQL or the
+chat's text. Clicking it brings the tab forward in its window.
+
+Unlike DBeaver, which notifies after 30 seconds, also while in front, and
+shows the SQL, DGopher waits 10 seconds, only alerts in the background,
+keeps the SQL out, alerts for work at risk, and opens the exact tab.
 
 ## Settings and themes
 
-Settings (⌘,) has five pages:
+Settings (⌘,) has six pages:
 
 | Page | Settings |
 | --- | --- |
 | Appearance | theme; editor and interface fonts; editor font size (9–24, 13 by default), which ⌘= and ⌘- in the editor, ⌘K ⌘0, ⌘ with the mouse wheel and pinching a touchpad change too |
 | Editor | where statements end; what a script does on an error; Vim; keyboard shortcuts |
-| Results | rows per page (50–10,000, 500 by default); when to notify (0–3,600 seconds, 10 by default) |
+| Results | rows per page (50–10,000, 500 by default) |
+| Notifications | how long work and work at risk alert you: off, notifications only, sound only, or notifications with sound (the default); how long work takes (1–3,600 seconds, 10 by default) |
 | Safety | the large-change limit (1,000 rows by default); showing sensitive values |
 | Storage | where the app keeps its files, whether a keychain is available, and Show in Folder |
 

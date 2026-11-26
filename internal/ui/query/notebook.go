@@ -261,6 +261,12 @@ type notebook struct {
 	fromQueue bool
 	// fromRunAll says the last run asked was Run All's.
 	fromRunAll bool
+	// allStartedAt is when Run All began, zero when none goes on: its end
+	// is told once, for every cell; allCells counts the cells it ran, and
+	// allFailed says one failed.
+	allStartedAt time.Time
+	allCells     int
+	allFailed    bool
 }
 
 // Notebook reports whether the editor shows as a notebook.
@@ -596,13 +602,21 @@ func (q *Tab) runCells(cells []*cell) {
 			nb.queue = append(nb.queue, cl)
 		}
 	}
+	nb.allStartedAt, nb.allCells, nb.allFailed = time.Time{}, 0, false
+	if len(nb.queue) > 0 {
+		nb.allStartedAt = time.Now()
+	}
 	q.runNextCell()
 }
 
 // runNextCell runs the next cell of the queue.
 func (q *Tab) runNextCell() {
 	nb := q.nb
-	if len(nb.queue) == 0 || q.Running {
+	if q.Running {
+		return
+	}
+	if len(nb.queue) == 0 {
+		q.runAllEnded()
 		return
 	}
 	next := nb.queue[0]
@@ -635,11 +649,35 @@ func (q *Tab) cellRunEnded() {
 	}
 	nb.runs++
 	cl.count, cl.took = nb.runs, time.Since(nb.startedAt)
+	if !nb.allStartedAt.IsZero() {
+		nb.allCells++
+		nb.allFailed = nb.allFailed || q.lastRunFailed
+	}
 	if q.lastRunFailed && !q.a.Settings().ContinueOnError {
 		nb.queue = nil
+		q.runAllEnded()
 		return
 	}
 	q.runNextCell()
+}
+
+// runAllEnded tells of the end of Run All, once, when one went on.
+func (q *Tab) runAllEnded() {
+	nb := q.nb
+	started := nb.allStartedAt
+	if started.IsZero() {
+		return
+	}
+	nb.allStartedAt = time.Time{}
+	title := "Notebook finished"
+	switch {
+	case q.stopping:
+		title = "Notebook stopped"
+	case nb.allFailed:
+		title = "Notebook failed"
+	}
+	body := dataview.NoticeBody(q.Name, q.Conn.Config.Name, started, widgets.Count(nb.allCells, "cell"), "")
+	q.a.Notify(dataview.Notice{Started: started, Title: title, Body: body, Tab: q})
 }
 
 // moveCell moves the focused cell by d places.

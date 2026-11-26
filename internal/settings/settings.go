@@ -46,9 +46,14 @@ type Settings struct {
 	GridFont float32 `json:"gridFont,omitempty"`
 	// ViewFormat is how the grids show values.
 	ViewFormat ViewFormat `json:"viewFormat,omitzero"`
-	// NotifyAfter is how many seconds work takes for its end to be told
-	// by a system notification while the app is in the background; 0 for
-	// never. Kept even at 0, which the default would otherwise replace.
+	// NotifyLongWork is how long work that ends while the app is in the
+	// background tells of it, and NotifyAtRisk how work at risk does, as an
+	// idle transaction about to roll back; "" reads as AlertBoth.
+	NotifyLongWork Alert `json:"notifyLongWork,omitempty"`
+	NotifyAtRisk   Alert `json:"notifyAtRisk,omitempty"`
+	// NotifyAfter is how many seconds work takes to count as long, at
+	// least 1. An older DGopher saved 0 for never, which the app reads as
+	// NotifyLongWork off.
 	NotifyAfter int `json:"notifyAfterSeconds"`
 	// ShowSensitive shows the values of columns that look sensitive, as
 	// passwords and tokens, which the grids otherwise hide.
@@ -112,9 +117,30 @@ type TrustedDetail struct {
 	NoRowsToChat bool           `json:"noRowsToChat,omitempty"`
 }
 
+// Alert is how the app tells of an event while it is in the background.
+// Every alert but AlertOff also flashes the window's taskbar button.
+type Alert string
+
+const (
+	AlertOff          Alert = "off"
+	AlertNotification Alert = "notification"
+	AlertSound        Alert = "sound"
+	AlertBoth         Alert = "both"
+)
+
+// On reports whether the alert tells at all.
+func (a Alert) On() bool { return a != AlertOff }
+
+// Desktop reports whether the alert shows a system notification; an alert
+// this version does not know shows one, as AlertBoth.
+func (a Alert) Desktop() bool { return a != AlertOff && a != AlertSound }
+
+// Sound reports whether the alert plays the system's alert sound.
+func (a Alert) Sound() bool { return a != AlertOff && a != AlertNotification }
+
 // Default returns the settings of a first run.
 func Default() Settings {
-	return Settings{Theme: "system", EditorFont: 13, PageSize: 500, NotifyAfter: 10, ChangeLimit: 1000, ScanLimit: 1_000_000}
+	return Settings{Theme: "system", EditorFont: 13, PageSize: 500, NotifyLongWork: AlertBoth, NotifyAtRisk: AlertBoth, NotifyAfter: 10, ChangeLimit: 1000, ScanLimit: 1_000_000}
 }
 
 // ExportPrefs are the export choices the app keeps from one export to

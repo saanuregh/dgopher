@@ -51,8 +51,11 @@ func (a *App) routeLost(cn *connection.Conn, gen int, err error) {
 	r.Title = "Lost " + cn.Config.Name
 	reconnect := &r.Actions[1] // after Edit Connection
 	reconnect.Label = "Reconnect"
+	body := "The SSH tunnel closed."
 	if len(rolledBack) > 0 {
 		r.Detail += "\n\nRolled back the open transaction of " + strings.Join(rolledBack, ", ") + "."
+		body += " Rolled back the transaction of " + strings.Join(rolledBack, ", ") + "."
 	}
 	a.ShowReport(r)
+	a.Notify(dataview.Notice{AtRisk: true, Title: r.Title, Body: body})
 }

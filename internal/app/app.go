@@ -56,11 +56,11 @@ type App struct {
 	// makeWindow makes the system's window of a window, nil without the
 	// system's windows, as in tests.
 	makeWindow func(*window)
-	// windowFocused reports whether a window of the app has the keyboard
-	// focus; notify shows a system notification, whose click runs onClick
-	// off the main thread. Both are the system's, nil without its windows.
-	windowFocused func() bool
-	notify        func(title, body string, onClick func())
+	// windowFocused reports whether a window has the keyboard focus, and
+	// deliverNotice tells of a notice by the system (Notify). Both are the
+	// system's, nil without its windows.
+	windowFocused func(*window) bool
+	deliverNotice func(alerting)
 	// keepRunning keeps the system from slowing the app down while its
 	// windows are out of sight, as macOS's App Nap does, until release is
 	// called: the system's, nil without its windows.
@@ -230,6 +230,9 @@ func newApp(st *store.Store, uiState *state.DB) *App {
 	}
 	if a.settings.EditorFont <= 0 {
 		a.settings.EditorFont = 13
+	}
+	if a.settings.NotifyAfter <= 0 {
+		a.settings.NotifyLongWork, a.settings.NotifyAfter = settings.AlertOff, 10 // an older DGopher saved 0 for never
 	}
 	a.appKnownHosts = filepath.Join(st.Dir(), "known_hosts")
 	a.recordProjects = map[string]*project.Project{}
@@ -844,7 +847,7 @@ func (a *App) connect(cn *connection.Conn, then func(), alert, quiet bool) {
 	if why := envAllowed(&cfg); why != "" {
 		cn.Fail(errors.New(why))
 		cn.Waiters = nil
-		a.connectFailed(cn, alert)
+		a.connectFailed(cn, alert, time.Now())
 		return
 	}
 	cn.Status, cn.Err, cn.ErrKind = connection.StatusConnecting, "", db.ProblemUnknown
@@ -871,7 +874,7 @@ func (a *App) connect(cn *connection.Conn, then func(), alert, quiet bool) {
 				a.Record(&cfg, audit.Event{Kind: audit.KindConnect, Detail: connectionSummary(&cfg), Err: err})
 				cn.Fail(err)
 				cn.Waiters = nil
-				a.connectFailed(cn, at.alert)
+				a.connectFailed(cn, at.alert, at.started)
 			}
 		}
 		lost := a.passwordLost(&cfg)
@@ -1000,7 +1003,7 @@ func (a *App) open(cn *connection.Conn, cfg db.Config, alert bool) {
 					a.askHostKey(cn, cfg, hk, at.alert)
 					return
 				}
-				a.connectFailed(cn, at.alert)
+				a.connectFailed(cn, at.alert, at.started)
 				return
 			}
 			cn.Reset()
@@ -1315,10 +1318,12 @@ func (a *App) noteReport(r widgets.ErrorReport) {
 	a.note(notification{isError: true, title: r.Title, hint: r.Hint, detail: redact.Secrets(r.Detail), actions: r.Actions})
 }
 
-// connectFailed reports cn's failed connect: in an alert when asked for
-// one, else in the notifications alone, as the view that asked shows it.
-func (a *App) connectFailed(cn *connection.Conn, alert bool) {
+// connectFailed reports cn's failed connect, begun at started: in an
+// alert when asked for one, else in the notifications alone, as the view
+// that asked shows it.
+func (a *App) connectFailed(cn *connection.Conn, alert bool, started time.Time) {
 	r := a.connectionReport(cn, nil)
+	a.Notify(dataview.Notice{Started: started, Title: "Could not connect " + cn.Config.Name, Body: dataview.NoticeError(cn.Err)})
 	if alert {
 		a.ShowReport(r)
 		return

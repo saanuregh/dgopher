@@ -45,25 +45,33 @@ func (e *ERTab) save(form string) {
 		if err != nil || path == "" {
 			return
 		}
-		started := time.Now()
-		var data []byte
-		if form == exportSVG {
-			data = []byte(snapshot.svg())
-		} else {
-			data, err = snapshot.png()
-		}
-		if err == nil {
-			err = os.WriteFile(path, data, 0o644)
-		}
-		e.a.Post(func() {
-			if err != nil {
-				e.a.ShowReport(widgets.ErrorReportOf("The diagram was not saved", err))
-				return
-			}
-			e.a.Notify(started, "Diagram saved", filepath.Base(path), nil)
-			e.a.Toast("Saved the diagram to "+filepath.Base(path), "", nil)
-		})
+		e.writeTo(snapshot, form, path)
 	}()
+}
+
+// writeTo writes snapshot to path in form, off the UI thread, and tells
+// how it went.
+func (e *ERTab) writeTo(snapshot *ERTab, form, path string) {
+	started := time.Now()
+	var data []byte
+	var err error
+	if form == exportSVG {
+		data = []byte(snapshot.svg())
+	} else {
+		data, err = snapshot.png()
+	}
+	if err == nil {
+		err = os.WriteFile(path, data, 0o644)
+	}
+	e.a.Post(func() {
+		if err != nil {
+			e.a.ShowReport(widgets.ErrorReportOf("The diagram was not saved", err))
+			e.a.Notify(Notice{Started: started, Title: "Diagram not saved", Body: filepath.Base(path) + "\n" + NoticeError(err.Error()), Tab: e})
+			return
+		}
+		e.a.Notify(Notice{Started: started, Title: "Diagram saved", Body: filepath.Base(path), Tab: e})
+		e.a.Toast("Saved the diagram to "+filepath.Base(path), "", nil)
+	})
 }
 
 // snapshot is a copy of the diagram as it stands, which a save reads off

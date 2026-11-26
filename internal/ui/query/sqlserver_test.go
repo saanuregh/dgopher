@@ -127,7 +127,7 @@ func TestIntegrationSQLServerManualCommitBatch(t *testing.T) {
 	if !began || q.Tx != db.TxOpen {
 		t.Fatalf("manual BEGIN %v, tx %v; messages %+v", began, q.Tx, q.messages)
 	}
-	q.endTx(false)
+	q.endTx(false, true)
 	testutil.WaitFor(t, tt, "the rollback", func() bool { return !q.Running })
 	var v int
 	if err := d.SQL.QueryRow("SELECT v FROM dbo.rv_ms_manual WHERE id = 1").Scan(&v); err != nil || v != 1 {

@@ -274,7 +274,7 @@ func TestProductionCancelKeepsResults(t *testing.T) {
 		t.Fatalf("results %d (shown %d), stale %d", len(q.results), q.resultIdx, len(q.stale))
 	}
 	if len(q.messages) != messages || q.runsShown != runs || len(a.Notified) != notified {
-		t.Fatalf("messages %+v, runs shown %d, notified %q", q.messages[messages:], q.runsShown-runs, a.Notified)
+		t.Fatalf("messages %+v, runs shown %d, notified %+v", q.messages[messages:], q.runsShown-runs, a.Notified)
 	}
 	if got := len(q.results[0].view.Rows()); got != 5 {
 		t.Fatalf("the read's result shows %d rows", got)

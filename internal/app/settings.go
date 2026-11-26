@@ -108,7 +108,7 @@ func fontFamilySuggestions() (mono, all []string) {
 }
 
 // The pages of the settings, as their tabs name them.
-var settingsPages = []string{"Appearance", "Editor", "Results", "Safety", "Storage"}
+var settingsPages = []string{"Appearance", "Editor", "Results", "Notifications", "Safety", "Storage"}
 
 func (a *App) settingsView(c *ui.Context) {
 	th := c.Theme()
@@ -129,6 +129,8 @@ func (a *App) settingsView(c *ui.Context) {
 					a.editorPage(c, &open)
 				case "Results":
 					a.resultsPage(c)
+				case "Notifications":
+					a.notificationsPage(c)
 				case "Safety":
 					a.safetyPage(c)
 				case "Storage":
@@ -316,9 +318,53 @@ func (a *App) resultsPage(c *ui.Context) {
 			a.SaveSettings()
 		}
 	}).Description("Results load this many rows at a time as you scroll.")
-	ui.Field(c, "Notifications", func() {
-		a.numberSetting(c, &a.settings.NotifyAfter, 0, 3600, 5, "Seconds", "seconds, 0 for never")
-	}).Description("A statement, script, export or import that takes this long tells the system when it ends, if DGopher is in the background then.")
+}
+
+// The alerts a notifications setting chooses from, as its menu names them.
+var alertChoices = []struct {
+	alert settings.Alert
+	label string
+}{
+	{settings.AlertOff, "Off"},
+	{settings.AlertNotification, "Notifications only"},
+	{settings.AlertSound, "Sound only"},
+	{settings.AlertBoth, "Notifications with sound"},
+}
+
+// notificationsPage sets how long work and work at risk tell of
+// themselves while DGopher is in the background.
+func (a *App) notificationsPage(c *ui.Context) {
+	ui.Field(c, "When long work ends", func() {
+		a.alertSetting(c, &a.settings.NotifyLongWork, "When long work ends")
+	}).Description("Statements, scripts, Redis commands, AI chat replies, exports, imports, backups and copies that end while DGopher is in the background.")
+	if a.settings.NotifyLongWork.On() {
+		ui.Field(c, "Long work takes", func() {
+			a.numberSetting(c, &a.settings.NotifyAfter, 1, 3600, 5, "Seconds", "seconds or more")
+		})
+	}
+	ui.Field(c, "When work is at risk", func() {
+		a.alertSetting(c, &a.settings.NotifyAtRisk, "When work is at risk")
+	}).Description("Right away, while DGopher is in the background: an idle transaction about to roll back, a dropped SSH tunnel, work lost after sleep. With either, the taskbar button flashes; on macOS the Dock icon bounces.")
+}
+
+// alertSetting chooses an alert from a menu.
+func (a *App) alertSetting(c *ui.Context, setting *settings.Alert, label string) {
+	chosen := alertChoices[len(alertChoices)-1].label // an alert this version does not know tells as both
+	labels := make([]string, len(alertChoices))
+	for i, ch := range alertChoices {
+		labels[i] = ch.label
+		if ch.alert == *setting {
+			chosen = ch.label
+		}
+	}
+	if ui.Select(c, &chosen, labels).Width(240).Label(label).Changed() {
+		for _, ch := range alertChoices {
+			if ch.label == chosen {
+				*setting = ch.alert
+			}
+		}
+		a.SaveSettings()
+	}
 }
 
 // numberSetting sets a whole-number setting, with its unit after it.

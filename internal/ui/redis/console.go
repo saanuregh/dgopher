@@ -224,6 +224,11 @@ func (r *Tab) runConsole(line string) {
 			logged := redact.Redis(args)
 			r.a.RecordTyped(cfg, audit.TypedRun{Kind: audit.KindCommand, Database: cfg.Database, Sent: logged, Rows: -1, Took: time.Since(start), Err: err, History: true})
 			return func() {
+				title := "Command finished"
+				if err != nil {
+					title = "Command failed"
+				}
+				r.notify(start, title, "")
 				if err != nil {
 					r.logConsole(consoleLine{text: "(error) " + err.Error(), err: true})
 					return
@@ -312,11 +317,15 @@ func (r *Tab) startCommandFile(path string, cmds []db.CommandLine) {
 	r.file = f
 	r.logConsole(consoleLine{input: true, text: "> run " + filepath.Base(path)})
 	kv := r.conn.KV()
+	began := time.Now()
 	go func() {
 		defer dataview.RecoverBackground(r.a.Post, r.a.ShowReport, func() { r.file = nil })
 		defer cancel()
+		var failed error
+		stopped := false
 		for i, cmd := range cmds {
 			if ctx.Err() != nil {
+				stopped = true
 				r.a.Post(func() { r.logConsole(consoleLine{text: "(stopped)", err: true}) })
 				break
 			}
@@ -338,10 +347,20 @@ func (r *Tab) startCommandFile(path string, cmds []db.CommandLine) {
 				r.logConsole(replyLines(out)...)
 			})
 			if err != nil {
+				failed = err
 				break
 			}
 		}
 		r.a.Post(func() {
+			counted := fmt.Sprintf("%d of %d commands", f.done, f.total)
+			title := "Command file finished"
+			switch {
+			case stopped:
+				title = "Command file stopped"
+			case failed != nil:
+				title = "Command file failed"
+			}
+			r.notify(began, title, counted)
 			r.file = nil
 			r.rescan()
 			if r.selected != "" {
@@ -349,6 +368,14 @@ func (r *Tab) startCommandFile(path string, cmds []db.CommandLine) {
 			}
 		})
 	}()
+}
+
+// notify tells of the end of what began at start: never the command or
+// its reply, error replies too, which may quote the command's arguments
+// that another app's screen should not show.
+func (r *Tab) notify(start time.Time, title, detail string) {
+	body := dataview.NoticeBody(r.Title(), r.conn.Config.Name, start, detail, "")
+	r.a.Notify(dataview.Notice{Started: start, Title: title, Body: body, Tab: r})
 }
 
 // consoleLogLimit is the most lines the console keeps: the oldest go, so

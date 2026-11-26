@@ -211,11 +211,11 @@ func (a *App) runCopy(x *copyDialog, to *connection.Conn, tables []string) {
 			to.ForgetCatalog()
 			if err != nil {
 				x.err = err.Error()
-				a.Notify(started, "Copy failed", to.Config.Name, nil)
+				a.Notify(dataview.Notice{Started: started, Title: "Copy failed", Body: to.Config.Name})
 				return
 			}
 			x.done = true
-			a.Notify(started, "Copy finished", widgets.Count(len(tables), "table")+" into "+to.Config.Name, nil)
+			a.Notify(dataview.Notice{Started: started, Title: "Copy finished", Body: widgets.Count(len(tables), "table") + " into " + to.Config.Name})
 		}
 	})
 }

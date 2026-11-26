@@ -136,7 +136,7 @@ func TestTransactionSurvivesNewRun(t *testing.T) {
 			if q.Tx != db.TxOpen || db.Display(q.results[0].view.Rows()[0][0]) != "1" {
 				t.Fatalf("after a new run: tx %v, v %v, messages %+v", q.Tx, q.results[0].view.Rows(), q.messages)
 			}
-			q.endTx(false)
+			q.endTx(false, true)
 			testutil.WaitFor(t, tt, "rollback", func() bool { return !q.Running && q.Tx == db.TxNone })
 		})
 	}
@@ -344,8 +344,8 @@ func TestRunNotifies(t *testing.T) {
 	q.Run(RunScript)
 	testutil.WaitFor(t, tt, "the script", func() bool { return !q.Running && len(a.Notified) == 1 })
 	n := a.Notified[0]
-	if !strings.HasPrefix(n, "Script failed: query on Lite") || !strings.Contains(n, "no such table") || strings.Contains(n, "secret") {
-		t.Fatalf("notified %q", n)
+	if n.Title != "Script failed" || !strings.HasPrefix(n.Body, "query on Lite") || !strings.Contains(n.Body, "no such table") || strings.Contains(n.Body, "secret") || n.Tab != q {
+		t.Fatalf("notified %+v", n)
 	}
 }
 
@@ -743,7 +743,7 @@ func TestIntegrationLargeChangeAutocommitOff(t *testing.T) {
 	if q.Tx != db.TxOpen || sum() != 0 {
 		t.Fatalf("tx %v, committed sum %d", q.Tx, sum())
 	}
-	q.endTx(false)
+	q.endTx(false, true)
 	testutil.WaitFor(t, tt, "the rollback", func() bool { return !q.Running })
 	if sum() != 0 {
 		t.Fatalf("committed sum %d after Roll Back", sum())
@@ -869,4 +869,48 @@ func TestEditorTakesLayoutPercent(t *testing.T) {
 // label among those it was given.
 func offers(q *Tab, label string) bool {
 	return q.Editor.State.CompletionsOpen() && slices.ContainsFunc(q.ac.items, func(s suggestion) bool { return s.label == label })
+}
+
+// A run the user stops is told as stopped, not as failed.
+func TestNotifyRunStopped(t *testing.T) {
+	a, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "Lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700,
+		"WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n) SELECT count(*) FROM n;")
+	q.Run(RunStatement)
+	testutil.WaitFor(t, tt, "the run", func() bool { return q.Running && q.cancel != nil })
+	q.stop()
+	testutil.WaitFor(t, tt, "the stop", func() bool { return !q.Running && len(a.Notified) == 1 })
+	if n := a.Notified[0]; n.Title != "Query stopped" || !strings.HasPrefix(n.Body, "query on Lite") || n.Tab != q {
+		t.Fatalf("notified %+v", n)
+	}
+}
+
+// A session that cannot open ends the run with a notice of its failure.
+func TestNotifyRunSessionFailed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "lite.db")
+	os.WriteFile(path, nil, 0o600)
+	a, tt, cn, q := openEditor(t, db.Config{ID: "lite", Name: "Lite", Engine: db.SQLite, Database: path}, 1000, 700, "SELECT 1;")
+	if q.sess != nil {
+		t.Fatal("a session before the first run")
+	}
+	cn.DB().SQL.Close() // no connection of its own opens for the run
+	q.Run(RunStatement)
+	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running && len(a.Notified) == 1 })
+	if n := a.Notified[0]; n.Title != "Query failed" || !strings.HasPrefix(n.Body, "query on Lite") || !strings.Contains(n.Body, "\n") || n.Tab != q {
+		t.Fatalf("notified %+v", n)
+	}
+}
+
+// Commit from the editor is told as it ends.
+func TestNotifyCommit(t *testing.T) {
+	a, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "Lite", Engine: db.SQLite, Database: ":memory:"}, 1000, 700, "BEGIN;\nCREATE TABLE t (a);")
+	q.Run(RunScript)
+	testutil.WaitFor(t, tt, "the script", func() bool { return !q.Running && len(a.Notified) == 1 })
+	if q.Tx != db.TxOpen {
+		t.Fatalf("tx %v", q.Tx)
+	}
+	q.endTx(true, true)
+	testutil.WaitFor(t, tt, "the commit", func() bool { return !q.Running && len(a.Notified) == 2 })
+	if n := a.Notified[1]; n.Title != "Committed" || !strings.HasPrefix(n.Body, "query on Lite") || n.Started.IsZero() || n.Tab != q {
+		t.Fatalf("notified %+v", n)
+	}
 }

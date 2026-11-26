@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -502,5 +503,80 @@ func TestConsoleHistoryUpDownAndTabCompletion(t *testing.T) {
 	tt.Frame()
 	if r.consoleIn != "HGET k" {
 		t.Fatalf("typed after a completion: %q, want the caret at the end", r.consoleIn)
+	}
+}
+
+// A console command and a file of commands each end in a notice of the
+// tab, saying where and how it went, without the command or its reply.
+func TestRedisCommandNotifies(t *testing.T) {
+	f := newFakeRedis(t, func(args []string) any {
+		switch strings.ToUpper(args[0]) {
+		case "GET":
+			return "secret-reply"
+		case "INCR":
+			return errors.New("ERR value is not an integer")
+		}
+		return unhandled{}
+	})
+	a, tt, _, r := openFake(t, f, db.Development)
+	r.runConsole("GET sensitive-key")
+	testutil.WaitFor(t, tt, "the reply", func() bool { return len(a.Notified) == 1 })
+	r.runConsole("INCR sensitive-key")
+	testutil.WaitFor(t, tt, "the error", func() bool { return len(a.Notified) == 2 })
+	path := filepath.Join(t.TempDir(), "cmds.redis")
+	if err := os.WriteFile(path, []byte("GET a\nGET b\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.runCommandFile(path)
+	if a.Confirm != nil {
+		a.Confirm.OnConfirm()
+		a.Confirm = nil
+	}
+	testutil.WaitFor(t, tt, "the file", func() bool { return len(a.Notified) == 3 })
+	for i, want := range []struct{ title, body string }{
+		{"Command finished", "Cache · keys on Cache · "},
+		{"Command failed", "Cache · keys on Cache · "},
+		{"Command file finished", "2 of 2 commands"},
+	} {
+		n := a.Notified[i]
+		if n.Title != want.title || !strings.Contains(n.Body, want.body) || n.Tab != r || n.Started.IsZero() {
+			t.Errorf("notice %d: %+v", i, n)
+		}
+		// An error reply may quote the command's arguments: it stays out too.
+		if strings.Contains(n.Body, "sensitive") || strings.Contains(n.Body, "secret-reply") || strings.Contains(n.Body, "not an integer") {
+			t.Errorf("notice %d leaks the command or reply: %q", i, n.Body)
+		}
+	}
+}
+
+// Bulk deletes, exports and imports end in a notice with the count.
+func TestRedisBulkNotifies(t *testing.T) {
+	f := newFakeRedis(t, func(args []string) any {
+		switch strings.ToUpper(args[0]) {
+		case "SCAN":
+			return []any{"0", []string{"a", "b"}}
+		case "UNLINK", "DEL":
+			return int64(len(args) - 1)
+		}
+		return unhandled{}
+	})
+	a, tt, _, r := openFake(t, f, db.Development)
+	r.openBulk(bulkDelete)
+	b := r.bulk
+	b.counted, b.count = "x*", 2
+	r.deleteKeys(b)
+	a.Confirm.OnConfirm()
+	a.Confirm = nil
+	testutil.WaitFor(t, tt, "the deletion", func() bool { return len(a.Notified) == 1 })
+	b.pattern, b.path = "x*", filepath.Join(t.TempDir(), "missing", "keys.jsonl")
+	r.exportKeys(b)
+	testutil.WaitFor(t, tt, "the export", func() bool { return len(a.Notified) == 2 })
+	for i, want := range []struct{ title, body string }{
+		{"Keys deleted", "2 keys"},
+		{"Export failed", "keys.jsonl"},
+	} {
+		if n := a.Notified[i]; n.Title != want.title || !strings.Contains(n.Body, want.body) || n.Tab != r || n.Started.IsZero() {
+			t.Errorf("notice %d: %+v", i, n)
+		}
 	}
 }

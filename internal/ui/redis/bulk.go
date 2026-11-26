@@ -143,6 +143,7 @@ func (r *Tab) deleteKeys(b *bulkDialog) {
 				b.counted = ""
 				r.selected = ""
 				r.rescan()
+				r.notifyBulk(start, "Keys deleted", "Delete failed", gone, err, "")
 				if err != nil {
 					b.err = bulkFailure(err, "deleted", gone)
 					return
@@ -176,6 +177,7 @@ func (r *Tab) exportKeys(b *bulkDialog) {
 		written, skipped, err := exportTo(ctx, kv, pattern, path, func(n int64) { r.a.Post(func() { b.done = n }) })
 		r.a.RecordRun(cfg, audit.KindExport, cfg.Database, "keys matching "+pattern+" to "+path, written, time.Since(start), err)
 		return func() {
+			r.notifyBulk(start, "Keys exported", "Export failed", written, err, filepath.Base(path))
 			if err != nil {
 				b.err = err.Error()
 				return
@@ -272,6 +274,7 @@ func (r *Tab) importKeys(b *bulkDialog) {
 			r.a.RecordRun(cfg, audit.KindImport, cfg.Database, "keys from "+path, written, time.Since(start), err)
 			return func() {
 				r.rescan()
+				r.notifyBulk(start, "Keys imported", "Import failed", written, err, filepath.Base(path))
 				if err != nil {
 					b.err = bulkFailure(err, "written", written)
 					return
@@ -378,6 +381,24 @@ func (r *Tab) bulkView(c *ui.Context) {
 		}
 		r.bulk = nil
 	}
+}
+
+// notifyBulk tells of the end of bulk work begun at start, with the
+// keys it got through and the file, if any; stopped, it tells nothing.
+func (r *Tab) notifyBulk(start time.Time, done, failed string, n int64, err error, file string) {
+	if errors.Is(err, context.Canceled) {
+		return
+	}
+	detail := widgets.HumanCount(n) + " keys"
+	if file != "" {
+		detail += " · " + file
+	}
+	title, errText := done, ""
+	if err != nil {
+		title, errText = failed, err.Error()
+	}
+	body := dataview.NoticeBody(r.Title(), r.conn.Config.Name, start, detail, errText)
+	r.a.Notify(dataview.Notice{Started: start, Title: title, Body: body, Tab: r})
 }
 
 // bulkFailure says why bulk work ended early, after n keys were done.

@@ -288,7 +288,7 @@ func TestProductionScriptConfirmsEachWrite(t *testing.T) {
 	if got := db.Display(last.view.Rows()[0][0]); got != "2" {
 		t.Fatalf("rows left %s (want 2: the skipped insert and the skipped delete did not run)", got)
 	}
-	q.endTx(false)
+	q.endTx(false, true)
 	// The rollback is audited into the project, which must be done before
 	// its directory is removed.
 	testutil.WaitFor(t, tt, "the rollback", func() bool { return !q.Running })
