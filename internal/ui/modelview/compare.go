@@ -234,11 +234,17 @@ func (t *Tab) runCompare(f *compareForm) {
 	database := strings.TrimSpace(f.database)
 	schema := strings.TrimSpace(f.schema)
 	f.running = true
+	started := time.Now()
 	t.readSchema(cn, database, schema, func(r *comparison, err error) {
 		f.running = false
 		if t.comparing != f || !f.open {
 			return // cancelled
 		}
+		title, errText := "Compare finished", ""
+		if err != nil {
+			title, errText = "Compare failed", err.Error()
+		}
+		t.notify(started, title, cn.Config.Name, errText)
 		if err != nil {
 			f.err = err.Error()
 			return
@@ -452,16 +458,30 @@ func (t *Tab) applyMigration() {
 	if len(notes) > 0 {
 		always += " " + strings.Join(notes, " ")
 	}
+	var started time.Time
 	dataview.ApplyChange(t.h, r.conn, r.database, "Make "+r.schema+" like the model?", ch, always,
-		func(cancel func()) { r.applying, r.cancel = true, cancel },
+		func(cancel func()) { r.applying, r.cancel, started = true, cancel, time.Now() },
 		func(err error) {
 			r.applying, r.cancel = false, nil
 			r.conn.ForgetCatalog()
+			// Without the error, which starts with the failing statement.
+			title := "Migration applied"
+			if err != nil {
+				title = "Migration failed"
+			}
+			t.notify(started, title, r.conn.Config.Name, "")
 			if err != nil {
 				t.h.ShowReport(widgets.ErrorReportOf("The migration failed", err))
 			}
 			t.recompare()
 		})
+}
+
+// notify tells of the end of work on the database of conn begun at
+// started, with the first line of errText, never SQL.
+func (t *Tab) notify(started time.Time, title, conn, errText string) {
+	body := dataview.NoticeBody(t.Title(), conn, started, "", errText)
+	t.h.Notify(dataview.Notice{Started: started, Title: title, Body: body, Tab: t})
 }
 
 // recompare reads the database compared with again, and compares anew.

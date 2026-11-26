@@ -573,9 +573,15 @@ func (t *Chat) apply(sess *agent.Session, ev agent.Event) {
 		t.running = false
 		r := p.Result
 		t.cost += r.Usage.CostUSD
-		if e := r.Error; e != nil && r.Status != agent.TurnStatusInterrupted && e.Kind != agent.ErrorKindInterrupted {
-			t.notices = append(t.notices, notice{text: redact.Secrets(cmp.Or(e.Message, string(e.Kind))), err: true})
+		switch e := r.Error; {
+		case e == nil:
+			t.notify("Chat replied", "")
+		case r.Status != agent.TurnStatusInterrupted && e.Kind != agent.ErrorKindInterrupted:
+			msg := redact.Secrets(cmp.Or(e.Message, string(e.Kind)))
+			t.notices = append(t.notices, notice{text: msg, err: true})
+			t.notify("Chat failed", widgets.FirstLine(msg))
 		}
+		t.turnAt = time.Time{} // ended: a later event without its own start tells nothing
 	case agent.ItemCompleted:
 		if p.Item.Kind == agent.ItemKindUserMessage {
 			t.sent = slices.DeleteFunc(t.sent, func(s sentMessage) bool { return s.id == p.Item.ClientID || s.text == p.Item.Text })
@@ -592,10 +598,28 @@ func (t *Chat) apply(sess *agent.Session, ev agent.Event) {
 		t.answer(r, deny, "DGopher's chat allows only DGopher's own tools; write the SQL instead, or use them.")
 	case agent.UserInputRequest:
 		t.requests = append(t.requests, &request{id: p.ID, title: cmp.Or(p.Title, "A question"), question: &p, sess: sess})
+		t.notify("Chat asks a question", "")
 	case agent.RequestResolved:
 		id := p.RequestID
 		t.requests = slices.DeleteFunc(t.requests, func(r *request) bool { return r.answer == nil && r.id == id })
 	}
+}
+
+// notify tells of the turn begun at turnAt, naming the agent and the
+// editor's tab but nothing the agent or the user wrote. A turn never seen
+// to start tells nothing.
+func (t *Chat) notify(title, detail string) {
+	if t.turnAt.IsZero() {
+		return
+	}
+	n := dataview.Notice{Started: t.turnAt, Title: title, Body: providerLabel(t.provider)}
+	if tab, ok := t.ed.(widgets.Tab); ok {
+		n.Tab, n.Body = tab, n.Body+" · "+tab.Title()
+	}
+	if detail != "" {
+		n.Body += "\n" + detail
+	}
+	t.a.Notify(n)
 }
 
 // permissionTitle is what a request of the agent asks, on a line.

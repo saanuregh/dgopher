@@ -15,7 +15,6 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/lists"
-	"dgopher/internal/redact"
 	"dgopher/internal/safety"
 	"dgopher/internal/testdata"
 	"dgopher/internal/ui/dataview"
@@ -391,13 +390,13 @@ func (a *App) runFill(x *fillDialog) {
 			x.running, x.cancel = false, nil
 			if err != nil {
 				x.err = err.Error()
-				a.Notify(started, "Generating rows failed", obj.Name+" · "+redact.Secrets(widgets.FirstLine(err.Error())), nil)
+				a.Notify(dataview.Notice{Started: started, Title: "Generating rows failed", Body: obj.Name + " · " + dataview.NoticeError(err.Error())})
 				return
 			}
 			x.open = false
 			text := fmt.Sprintf("Added %s generated rows to %s", widgets.HumanCount(written), obj.Name)
 			a.Toast(text, "", nil)
-			a.Notify(started, "Rows generated", text, nil)
+			a.Notify(dataview.Notice{Started: started, Title: "Rows generated", Body: text})
 			a.reloadTableTabs(cn, obj.Schema, obj.Name)
 		}
 	})

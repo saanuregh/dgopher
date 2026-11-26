@@ -553,7 +553,7 @@ func TestStoppedWorkReadsTxAgain(t *testing.T) {
 		t.Fatalf("after the stopped Commit: told %v, then kept %v, running %v", told, q.Times().Then != nil, q.Running)
 	}
 	testutil.WaitFor(t, tt, "the transaction read again", func() bool { return q.Tx == db.TxOpen })
-	q.endTx(false)
+	q.endTx(false, true)
 	testutil.WaitFor(t, tt, "the rollback", func() bool { return !q.Running && q.Tx == db.TxNone })
 }
 
@@ -707,7 +707,7 @@ func TestManualCommitReopensAfterImplicitCommit(t *testing.T) {
 	if got := committedIDs(t, d, "rv_reopen"); got != "1" {
 		t.Fatalf("another connection sees %q: row 2 must wait for Commit", got)
 	}
-	q.endTx(false)
+	q.endTx(false, true)
 	testutil.WaitFor(t, tt, "the rollback", func() bool { return !q.Running })
 	if got := committedIDs(t, d, "rv_reopen"); q.Tx != db.TxNone || got != "1" {
 		t.Fatalf("after Roll Back: tx %v, rows %q", q.Tx, got)
@@ -772,7 +772,7 @@ func TestProductionRunAllAsksImplicitCommit(t *testing.T) {
 	if got := committedIDs(t, d, "rv_runall"); got != "1,2" {
 		t.Fatalf("another connection sees %q", got)
 	}
-	q.endTx(false)
+	q.endTx(false, true)
 	testutil.WaitFor(t, tt, "the rollback", func() bool { return !q.Running })
 	if got := committedIDs(t, d, "rv_runall"); got != "1,2" {
 		t.Fatalf("after Roll Back: %q", got)
@@ -799,7 +799,7 @@ func TestAutocommitOffNote(t *testing.T) {
 	if q.Tx != db.TxOpen || !commitOffered(tt) || testutil.HasTextContaining(tt, "Autocommit is off") {
 		t.Fatalf("after reading a table: tx %v; texts %q", q.Tx, tt.Texts())
 	}
-	q.endTx(true)
+	q.endTx(true, true)
 	testutil.WaitFor(t, tt, "the commit", func() bool { return !q.Running })
 	tt.Frame()
 	if q.Tx != db.TxNone || !testutil.HasTextContaining(tt, "Autocommit is off") {
@@ -838,7 +838,7 @@ func TestAutocommitOffHoldsWrites(t *testing.T) {
 
 	q.Editor.SetText("SELECT * FROM rv_acheld ORDER BY id")
 	runWith(t, tt, q, "SELECT", RunStatement)
-	q.endTx(true) // the read opened a transaction; none is open for the edit
+	q.endTx(true, true) // the read opened a transaction; none is open for the edit
 	testutil.WaitFor(t, tt, "the commit", func() bool { return !q.Running && q.Tx == db.TxNone })
 	waitEditable(t, tt, q)
 	editCell(t, tt, "10", "11")
@@ -848,7 +848,7 @@ func TestAutocommitOffHoldsWrites(t *testing.T) {
 	if got := committed(); got != "10" || q.sess.Tx() != db.TxOpen {
 		t.Fatalf("after the apply: committed %q, session tx %v", got, q.sess.Tx())
 	}
-	q.endTx(true)
+	q.endTx(true, true)
 	testutil.WaitFor(t, tt, "the commit", func() bool { return !q.Running && q.Tx == db.TxNone })
 	if got := committed(); got != "11" {
 		t.Fatalf("after COMMIT: %q", got)
@@ -915,7 +915,7 @@ func TestYugabyteDBSchemaChangeOutsideManualTransaction(t *testing.T) {
 	if got := strings.Join(ran(), ","); got != "CREATE,TRUNCATE,manual BEGIN,INSERT" || q.Tx != db.TxOpen {
 		t.Fatalf("ran %s, tx %v; messages %+v", got, q.Tx, q.messages)
 	}
-	q.endTx(false)
+	q.endTx(false, true)
 	testutil.WaitFor(t, tt, "the rollback", func() bool { return !q.Running })
 	if n := yugabytedbRows(t, d, "rv_yb_at_once"); n != 0 {
 		t.Fatalf("after TRUNCATE and Roll Back: %d rows", n)
@@ -939,7 +939,7 @@ func TestYugabyteDBSchemaChangeOutsideManualTransaction(t *testing.T) {
 	if q.Running || q.Tx != db.TxOpen {
 		t.Fatalf("ran without agreeing: running %v, tx %v", q.Running, q.Tx)
 	}
-	q.endTx(false)
+	q.endTx(false, true)
 	testutil.WaitFor(t, tt, "the rollback", func() bool { return !q.Running })
 }
 
@@ -972,6 +972,6 @@ func TestYugabyteDBProductionRunAllAsksSchemaChange(t *testing.T) {
 	r.Open, r.Answered, a.Confirm = false, true, nil
 	r.OnCancel()
 	testutil.WaitFor(t, tt, "the run", func() bool { return !q.Running })
-	q.endTx(false)
+	q.endTx(false, true)
 	testutil.WaitFor(t, tt, "the rollback", func() bool { return !q.Running })
 }

@@ -88,6 +88,7 @@ func (a *App) startCompare(x *rowCompareDialog) {
 	source := db.CompareTable{Schema: x.fromSchema, Table: x.fromTable}
 	target := db.CompareTable{Schema: toSchema, Table: toTable}
 	show := a.Settings().ShowSensitive
+	begun := time.Now()
 	dataview.BackgroundResetOnPanic(a, func() { x.running, x.cancel = false, nil }, func() func() {
 		defer cancel()
 		var r *db.RowComparison
@@ -104,7 +105,8 @@ func (a *App) startCompare(x *rowCompareDialog) {
 				took = time.Since(started)
 			}
 		}
-		if ctx.Err() != nil {
+		canceled := ctx.Err() != nil
+		if canceled {
 			err = errors.New("cancelled")
 		}
 		if compared {
@@ -118,10 +120,15 @@ func (a *App) startCompare(x *rowCompareDialog) {
 		}
 		return func() {
 			x.running, x.cancel = false, nil
+			what := x.fromTable + " and " + toTable + " of " + toCfg.Name
 			if err != nil {
 				x.err = err.Error()
+				if !canceled {
+					a.Notify(dataview.Notice{Started: begun, Title: "Compare failed", Body: what + "\n" + dataview.NoticeError(err.Error())})
+				}
 				return
 			}
+			a.Notify(dataview.Notice{Started: begun, Title: "Compare finished", Body: what})
 			x.result, x.to, x.toDB, x.toSchema, x.toTable = r, to, toDB, toSchema, toTable
 			from := dataview.MaskedColumns(x.from, x.fromSchema, x.fromTable, r.Columns, show)
 			into := dataview.MaskedColumns(to, toSchema, toTable, r.Columns, show)
@@ -307,11 +314,11 @@ func (a *App) runSync(x *rowCompareDialog, stmts, shown []db.Statement) {
 			x.running, x.cancel = false, nil
 			if err != nil {
 				x.err = err.Error()
-				a.Notify(started, "Sync failed", x.toTable, nil)
+				a.Notify(dataview.Notice{Started: started, Title: "Sync failed", Body: x.toTable})
 				return
 			}
 			done := fmt.Sprintf("Applied %s change%s to %s.", widgets.HumanCount(int64(len(stmts))), widgets.Plural(len(stmts)), x.toTable)
-			a.Notify(started, "Rows synced", done, nil)
+			a.Notify(dataview.Notice{Started: started, Title: "Rows synced", Body: done})
 			a.reloadTableTabs(to, toSchema, toTable)
 			if a.rowCompare != x {
 				return // closed meanwhile

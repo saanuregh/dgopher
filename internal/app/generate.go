@@ -171,6 +171,7 @@ func (a *App) generate(g *generateState) {
 		job = "Reading " + title + " for its documentation: stopping it changes nothing, and writes no documentation."
 	}
 	stopped := func() { g.running, g.err = false, "It stopped on an internal error." }
+	begun := time.Now()
 	dataview.RunJob(a, g.conn, job, cancel, stopped, func() func() {
 		defer cancel()
 		d, err := poolOf(ctx)
@@ -197,11 +198,15 @@ func (a *App) generate(g *generateState) {
 				return // closed or canceled
 			case err != nil:
 				g.err = err.Error()
+				a.Notify(dataview.Notice{Started: begun, Title: "Generating failed", Body: title + "\n" + dataview.NoticeError(err.Error())})
 			case output == generateScript:
 				g.open = false
 				a.NewQueryTab(g.conn, g.database, text)
+				a.Notify(dataview.Notice{Started: begun, Title: "Script generated", Body: title})
 			default:
 				g.open = false
+				// The save dialog waits for the user.
+				a.Notify(dataview.Notice{Started: begun, Title: "Documentation ready to save", Body: title})
 				a.saveDocs(g.schema, format, text)
 			}
 		}

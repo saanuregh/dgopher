@@ -153,3 +153,20 @@ func TestReadAgainKeepsResultsWithTheirSQL(t *testing.T) {
 		t.Fatalf("cells %d; the run's cell moved to %d", len(q.nb.cells), q.nb.index(ran))
 	}
 }
+
+// Run All tells of its end once, not once a cell.
+func TestNotebookRunAllNotifiesOnce(t *testing.T) {
+	text := "-- %%\nSELECT 1;\n\n-- %%\nSELECT 2;\n\n-- %%\nSELECT 3;\n"
+	a, tt, _, q := openEditor(t, db.Config{ID: "lite", Name: "Lite", Engine: db.SQLite, Database: ":memory:"}, 1100, 900, text)
+	q.ToggleNotebook()
+	tt.Frame()
+	q.runCells(q.nb.cells)
+	testutil.WaitFor(t, tt, "the last cell's run", func() bool { return !q.Running && q.nb.cells[2].count > 0 })
+	tt.Frame()
+	if len(a.Notified) != 1 || a.Notified[0].Title != "Notebook finished" || !strings.Contains(a.Notified[0].Body, "3 cells") || a.Notified[0].Tab != q {
+		t.Fatalf("notified %+v", a.Notified)
+	}
+	if !q.nb.allStartedAt.IsZero() {
+		t.Fatal("Run All still marked as running")
+	}
+}

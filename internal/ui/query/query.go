@@ -24,7 +24,6 @@ import (
 	"dgopher/internal/lists"
 	"dgopher/internal/params"
 	"dgopher/internal/project"
-	"dgopher/internal/redact"
 	"dgopher/internal/safety"
 	"dgopher/internal/settings"
 	"dgopher/internal/sqltext"
@@ -778,7 +777,7 @@ func (q *Tab) Run(mode RunMode) {
 			return
 		}
 		if !nb.fromQueue {
-			nb.queue = nil
+			nb.queue, nb.allStartedAt = nil, time.Time{}
 		}
 		nb.fromQueue = false
 	}
@@ -1153,6 +1152,7 @@ func (q *Tab) execute(stmts []safety.Statement, writes bool, explain *db.Explain
 						q.cancel = oldCancel // the results kept read on
 					}
 					q.note(err.Error(), "", true)
+					q.notifyRunEnd(len(stmts), err.Error(), true)
 					q.runEnded()
 				})
 				return
@@ -1627,22 +1627,42 @@ func readPlan(e db.Engine, res *result, cursor *db.Cursor, first [][]any, follow
 // the first error, without the SQL, which may hold what the screen of
 // another app should not.
 func (q *Tab) notifyRun(stmts int, results []*result) {
+	errText := ""
+	for _, r := range results {
+		if r.err != "" {
+			errText = r.err
+			break
+		}
+	}
+	q.notifyRunEnd(stmts, errText, errText != "")
+}
+
+// notifyRunEnd tells of the end of a run of stmts statements, failed
+// with errText when it is not empty; Run All tells of its end once, for
+// every cell.
+func (q *Tab) notifyRunEnd(stmts int, errText string, failed bool) {
+	if q.nb != nil && !q.nb.allStartedAt.IsZero() {
+		return
+	}
 	what := "Query"
 	if stmts > 1 {
 		what = "Script"
 	}
 	title := what + " finished"
-	body := q.Name + " on " + q.Conn.Config.Name + " · " + widgets.FormatDuration(time.Since(q.StartedAt))
-	for _, r := range results {
-		if r.err != "" {
-			title = what + " failed"
-			body += "\n" + redact.Secrets(widgets.FirstLine(r.err))
-			break
-		}
+	switch {
+	case q.stopping:
+		title = what + " stopped"
+	case failed:
+		title = what + " failed"
 	}
-	q.a.Notify(q.StartedAt, title, body, func() {
-		q.a.ActivateTab(func(t widgets.Tab) bool { return t == q })
-	})
+	q.notify(q.StartedAt, title, errText)
+}
+
+// notify tells of the tab's work begun at started: the tab and where it
+// ran, how long it took, and the first line of errText, never the SQL.
+func (q *Tab) notify(started time.Time, title, errText string) {
+	body := dataview.NoticeBody(q.Name, q.Conn.Config.Name, started, "", errText)
+	q.a.Notify(dataview.Notice{Started: started, Title: title, Body: body, Tab: q})
 }
 
 func verbLabel(v string) string {
@@ -1678,12 +1698,15 @@ func (q *Tab) refuse(why string) {
 	}
 }
 
-func (q *Tab) endTx(commit bool) {
+// endTx commits or rolls back the session's transaction; tell has its end
+// told by a notice, which what the app ends itself (FinishTx) does not.
+func (q *Tab) endTx(commit, tell bool) {
 	if q.sess == nil || q.Busy() {
 		return
 	}
 	q.Running = true
 	sess, cfg, database := q.sess, q.Conn.Config, q.Database
+	began := time.Now()
 	go func() {
 		defer dataview.RecoverBackground(q.a.Post, q.a.ShowReport, q.endTxStopped)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1711,6 +1734,16 @@ func (q *Tab) endTx(commit bool) {
 			for _, r := range q.results {
 				if r.view != nil {
 					r.view.CutShort()
+				}
+			}
+			if tell {
+				switch {
+				case err == nil:
+					q.notify(began, word, "")
+				case commit:
+					q.notify(began, "Commit failed", err.Error())
+				default:
+					q.notify(began, "Rollback failed", err.Error())
 				}
 			}
 			switch {

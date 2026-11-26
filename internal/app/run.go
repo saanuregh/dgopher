@@ -112,9 +112,10 @@ func Run(args []string) error {
 		})
 		a.main.native = win
 		a.followMaximized(a.main)
-		a.windowFocused = a.anyFocused
-		// The dialogs move to the window gaining the focus.
-		win.OnFocus(func() { a.lastFocused = a.main; a.invalidate() })
+		a.windowFocused = func(w *window) bool { return w.native != nil && w.native.IsFocused() }
+		// The dialogs move to the window gaining the focus, which a notice
+		// no longer needs to flash.
+		win.OnFocus(func() { a.lastFocused = a.main; win.FlashFrame(false); a.invalidate() })
 		showWhenDrawn(win)
 		a.makeWindow = func(w *window) {
 			w.native = mygo.NewWindow(mygo.WindowOptions{
@@ -129,7 +130,8 @@ func Run(args []string) error {
 				Content:           ui.View(a.windowView(w)),
 				Hidden:            true,
 			})
-			w.native.OnFocus(func() { a.lastFocused = w; a.invalidate() })
+			native := w.native
+			native.OnFocus(func() { a.lastFocused = w; native.FlashFrame(false); a.invalidate() })
 			a.followMaximized(w)
 			// Closed, its tabs go back to the main window.
 			w.native.OnClose(func(*mygo.CloseEvent) {
@@ -140,21 +142,25 @@ func Run(args []string) error {
 			})
 			showWhenDrawn(w.native)
 		}
-		if mygo.NotificationsSupported() {
-			a.notify = func(title, body string, onClick func()) {
-				n := mygo.NewNotification(mygo.NotificationOptions{Title: title, Body: body})
-				n.OnClick(func() {
-					win.Show()
-					win.Focus()
-					onClick()
-				})
-				// On macOS the first one waits for the user to allow them.
-				go func() {
-					if err := n.Show(); err != nil && !errors.Is(err, mygo.ErrNotificationsDenied) {
-						log.Println("notification:", err)
-					}
-				}()
+		a.deliverNotice = func(x alerting) {
+			if x.window != nil && x.window.native != nil {
+				x.window.native.FlashFrame(true)
 			}
+			if x.sound {
+				mygo.Shell.Beep()
+			}
+			if !x.desktop || !mygo.NotificationsSupported() {
+				return
+			}
+			// Silent: the sound is the setting's, played above.
+			n := mygo.NewNotification(mygo.NotificationOptions{ID: x.ID, Title: x.Title, Body: x.Body, Silent: true})
+			n.OnClick(func() { a.Post(x.onClick) })
+			// On macOS the first one waits for the user to allow them.
+			go func() {
+				if err := n.Show(); err != nil && !errors.Is(err, mygo.ErrNotificationsDenied) {
+					log.Println("notification:", err)
+				}
+			}()
 		}
 		// Grids in regional formats write numbers and dates as the user's
 		// regional settings do, in the app's language.

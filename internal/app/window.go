@@ -105,6 +105,15 @@ func (a *App) everyTab() iter.Seq2[*window, widgets.Tab] {
 	}
 }
 
+// raiseWindow brings w to the front, when it is still open.
+func (a *App) raiseWindow(w *window) {
+	if w == nil || w.native == nil {
+		return
+	}
+	w.native.Show()
+	w.native.Focus()
+}
+
 // findTab brings forward the first tab of any window match accepts, in
 // its window, which comes to the front: it reports the tab, and whether
 // there was one.
@@ -117,9 +126,8 @@ func (a *App) findTab(match func(widgets.Tab) bool) (widgets.Tab, bool) {
 			if a.drawing == nil {
 				a.window = w
 			}
-			if w.native != nil && w != a.focusedWindow() {
-				w.native.Show()
-				w.native.Focus()
+			if w != a.focusedWindow() {
+				a.raiseWindow(w)
 			}
 			return t, true
 		}
@@ -177,9 +185,8 @@ func (a *App) moveToWindow(t widgets.Tab, to *window) {
 	}
 	to.tabs().Add(t)
 	a.window = to
-	if to.native != nil && to != from {
-		to.native.Show()
-		to.native.Focus()
+	if to != from {
+		a.raiseWindow(to)
 	}
 }
 
@@ -257,11 +264,6 @@ func (a *App) closeWindow(w *window) {
 		w.native = nil
 		native.Close()
 	}
-}
-
-// anyFocused reports whether a window of the app has the keyboard focus.
-func (a *App) anyFocused() bool {
-	return slices.ContainsFunc(a.windows, func(w *window) bool { return w.native != nil && w.native.IsFocused() })
 }
 
 // invalidate has every window drawn again.

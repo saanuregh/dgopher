@@ -209,17 +209,21 @@ func (a *App) startBackup(b *backupDialog) {
 					if restore && choices.RestoreKeepsPart {
 						b.err += "\n\nWhat was restored before the error stays in " + b.what() + "."
 					}
-					a.Notify(started, "Backup failed", b.what(), nil)
+					title := "Backup failed"
+					if restore {
+						title = "Restore failed"
+					}
+					a.Notify(dataview.Notice{Started: started, Title: title, Body: b.what()})
 					return
 				}
 				b.done = true
 				if restore {
 					cn.ForgetCatalog()
-					a.Notify(started, "Restored", b.what(), nil)
+					a.Notify(dataview.Notice{Started: started, Title: "Restored", Body: b.what()})
 					a.Toast("Restored "+b.what(), "", nil)
 					return
 				}
-				a.Notify(started, "Backed up", b.what(), nil)
+				a.Notify(dataview.Notice{Started: started, Title: "Backed up", Body: b.what()})
 				a.Toast("Backed up "+b.what()+" to "+filepath.Base(path), "", nil)
 			}
 		})

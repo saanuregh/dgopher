@@ -38,7 +38,7 @@ func (q *Tab) FinishTx(commit bool, then func(error)) {
 		then(errors.New(q.Name + " is still running a statement"))
 	default:
 		q.Times().Then = then
-		q.endTx(commit)
+		q.endTx(commit, false)
 	}
 }
 
@@ -52,7 +52,7 @@ func (q *Tab) endOpenTx(commit bool) {
 	if q.Tx == db.TxNone || q.Busy() || commit && q.Tx != db.TxOpen {
 		return
 	}
-	q.endTx(commit)
+	q.endTx(commit, true)
 }
 
 // setTx keeps the session's transaction as last read (dataview.SessionTx).
@@ -66,7 +66,11 @@ func (q *Tab) runStopped() {
 	q.readTxAgain()
 	if q.nb != nil {
 		q.nb.queue = nil // what follows a run that broke does not run
+		if !q.nb.allStartedAt.IsZero() {
+			q.nb.allFailed = true
+		}
 	}
+	q.notifyRunEnd(1, "", true)
 	q.runEnded()
 }
 

@@ -93,6 +93,7 @@ func (q *Tab) switchSchema(schema string) {
 	}
 	run := func() {
 		q.Running, q.StartedAt = true, time.Now()
+		began := q.StartedAt
 		sess, pool, database := q.sess, cn.DB(), q.Database
 		go func() {
 			defer dataview.RecoverBackground(q.a.Post, q.a.ShowReport, func() { q.Running = false })
@@ -122,10 +123,12 @@ func (q *Tab) switchSchema(schema string) {
 						q.schema = current // the connection made again finds names there
 					}
 					q.note("Could not switch to "+schema+": "+err.Error(), stmt, true)
+					q.notify(began, "Switch failed", err.Error())
 					return
 				}
 				q.schema = current
 				q.note("Names are found in "+current+" now.", stmt, false)
+				q.notify(began, "Switched to "+current, "")
 			})
 		}()
 	}

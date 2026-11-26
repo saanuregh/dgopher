@@ -37,11 +37,9 @@ type Host interface {
 	ShowReport(r widgets.ErrorReport)
 	// Toast shows text, with a button doing run when action is set.
 	Toast(text, action string, run func())
-	// Notify tells of the end of work begun at started by a system
-	// notification, when it took long and the window is in the
-	// background; clicking it brings the window forward and runs show,
-	// when set.
-	Notify(started time.Time, title, body string, show func())
+	// Notify tells of an event while DGopher is in the background, as the
+	// settings choose.
+	Notify(n Notice)
 	WriteClipboard(text string)
 	ReadClipboard() string
 	// Now is the time the current frame started.
@@ -155,3 +153,43 @@ func CloseSession(a Host, name string, sess *db.Session) {
 		})
 	}
 }
+
+// Notice is an event told by a system notification, a sound or both,
+// while DGopher is in the background.
+type Notice struct {
+	// AtRisk tells at once, as the "When work is at risk" setting says.
+	// Otherwise the notice is the end of long work begun at Started, told
+	// as "When long work ends" says once it took the seconds set.
+	AtRisk  bool
+	Started time.Time
+	Title   string
+	Body    string
+	// Tab is the tab the event is of: the notice is told unless that tab's
+	// window has the focus, and a click brings the tab forward. Nil for
+	// app-wide work, told unless a window of the app has the focus.
+	Tab widgets.Tab
+	// ID replaces a notification still shown with the same ID, as a
+	// warning by what came of it; "" gives each its own.
+	ID string
+	// Show runs on the UI thread after a click has brought the window
+	// forward, when set.
+	Show func()
+}
+
+// NoticeBody is the body of a notice of work on conn begun at started:
+// the tab, the connection and how long it took, then detail and the first
+// line of errText, each on its own line when not empty.
+func NoticeBody(tab, conn string, started time.Time, detail, errText string) string {
+	body := tab + " on " + conn + " · " + widgets.FormatDuration(time.Since(started))
+	if detail != "" {
+		body += "\n" + detail
+	}
+	if errText != "" {
+		body += "\n" + NoticeError(errText)
+	}
+	return body
+}
+
+// NoticeError is the first line of an error's text, without its secrets,
+// as a notice shows it.
+func NoticeError(text string) string { return redact.Secrets(widgets.FirstLine(text)) }

@@ -777,3 +777,46 @@ func TestToolErrorsRedacted(t *testing.T) {
 		t.Fatalf("not redacted: %q, %v", res.Text(), err)
 	}
 }
+
+// tabEditor is an editor that is a tab of its own, as the query editor is.
+type tabEditor struct{ *fakeEditor }
+
+func (e tabEditor) Title() string       { return "orders.sql" }
+func (e tabEditor) View(*ui.Context)    {}
+func (e tabEditor) CloseReason() string { return "" }
+func (e tabEditor) Close()              {}
+
+// A reply, a failed turn and a question each end in a notice of the
+// editor's tab, naming it but none of the reply's or the question's
+// text; an interrupted turn ends in none.
+func TestChatTurnNotifies(t *testing.T) {
+	h, _, ed, tab := chatWith(t)
+	te := tabEditor{ed}
+	tab.ed = te
+	tab.apply(nil, event(agent.TurnCompleted{Result: agent.TurnResult{Text: "secret reply"}}))
+	if len(h.Notified) != 0 {
+		t.Fatalf("a turn never started notified: %+v", h.Notified)
+	}
+	tab.apply(nil, event(agent.TurnStarted{}))
+	tab.apply(nil, event(agent.TurnCompleted{Result: agent.TurnResult{Text: "secret reply"}}))
+	tab.apply(nil, event(agent.TurnStarted{}))
+	tab.apply(nil, event(agent.TurnCompleted{Result: agent.TurnResult{Status: agent.TurnStatusFailed, Error: &agent.ErrorInfo{Message: "rate limited\nmore"}}}))
+	tab.apply(nil, event(agent.TurnStarted{}))
+	tab.apply(nil, event(agent.TurnCompleted{Result: agent.TurnResult{Status: agent.TurnStatusInterrupted, Error: &agent.ErrorInfo{Kind: agent.ErrorKindInterrupted}}}))
+	tab.apply(nil, event(agent.TurnStarted{}))
+	tab.apply(nil, event(agent.UserInputRequest{ID: "q", Title: "secret question", Questions: []agent.Question{{ID: "a", Text: "secret?"}}}))
+	tab.requests = nil // no session to answer it as the chat closes
+	var titles []string
+	for _, n := range h.Notified {
+		titles = append(titles, n.Title)
+		if n.Tab != te || n.Started.IsZero() || !strings.Contains(n.Body, "orders.sql") || strings.Contains(n.Body, "secret") {
+			t.Errorf("notice %+v", n)
+		}
+	}
+	if want := []string{"Chat replied", "Chat failed", "Chat asks a question"}; !slices.Equal(titles, want) {
+		t.Fatalf("notices %q, want %q", titles, want)
+	}
+	if b := h.Notified[1].Body; !strings.Contains(b, "rate limited") || strings.Contains(b, "more") {
+		t.Errorf("failure body %q", b)
+	}
+}

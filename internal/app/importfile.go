@@ -14,7 +14,6 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/fileimport"
-	"dgopher/internal/redact"
 	"dgopher/internal/safety"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/widgets"
@@ -415,7 +414,7 @@ func (a *App) runImport(x *importState) {
 			x.running = false
 			if err != nil {
 				x.err = widgets.ErrorText(err)
-				a.Notify(started, "Import failed", target.Table+" · "+redact.Secrets(widgets.FirstLine(err.Error())), nil)
+				a.Notify(dataview.Notice{Started: started, Title: "Import failed", Body: target.Table + " · " + dataview.NoticeError(err.Error())})
 				return
 			}
 			x.open = false
@@ -424,7 +423,7 @@ func (a *App) runImport(x *importState) {
 				cn.ForgetCatalog()
 			}
 			a.Toast(fmt.Sprintf("Imported %d rows into %s", n, target.Table), "", nil)
-			a.Notify(started, "Import finished", fmt.Sprintf("%s into %s", widgets.Count(n, "row"), target.Table), nil)
+			a.Notify(dataview.Notice{Started: started, Title: "Import finished", Body: fmt.Sprintf("%s into %s", widgets.Count(n, "row"), target.Table)})
 			a.reloadTableTabs(cn, x.schema, target.Table)
 		}
 	})

@@ -16,7 +16,6 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/export"
-	"dgopher/internal/redact"
 	"dgopher/internal/safety"
 	"dgopher/internal/settings"
 	"dgopher/internal/sqltext"
@@ -556,7 +555,7 @@ func runExport(a Host, x *exportState) {
 			x.running = false
 			if err != nil {
 				x.err = "The export stopped: " + err.Error()
-				a.Notify(started, "Export failed", name+" · "+redact.Secrets(widgets.FirstLine(err.Error())), nil)
+				a.Notify(Notice{Started: started, Title: "Export failed", Body: name + " · " + NoticeError(err.Error())})
 				return
 			}
 			note := ""
@@ -566,7 +565,7 @@ func runExport(a Host, x *exportState) {
 			case len(stopped) > 0:
 				note = fmt.Sprintf(": the limit of %d rows stopped %s, with rows left", limit, strings.Join(stopped, ", "))
 			}
-			a.Notify(started, "Export finished", fmt.Sprintf("%s of %s%s", widgets.Count(n, "row"), name, note), nil)
+			a.Notify(Notice{Started: started, Title: "Export finished", Body: fmt.Sprintf("%s of %s%s", widgets.Count(n, "row"), name, note)})
 			x.open = false
 			if toClip {
 				a.WriteClipboard(clip.String())
