@@ -520,7 +520,8 @@ func openMySQL(cfg Config, ep endpoint, tc *tls.Config, w wire, readOnly string)
 	return sql.OpenDB(conn), conn, nil
 }
 
-func openClickHouse(cfg Config, ep endpoint, tc *tls.Config, w wire) *sql.DB {
+// openClickHouse opens a pool; sendsReadOnly has each query refuse writes.
+func openClickHouse(cfg Config, ep endpoint, tc *tls.Config, w wire, sendsReadOnly bool) *sql.DB {
 	opt := &clickhouse.Options{
 		Addr: []string{net.JoinHostPort(ep.host, strconv.Itoa(ep.port))},
 		Auth: clickhouse.Auth{
@@ -538,10 +539,13 @@ func openClickHouse(cfg Config, ep endpoint, tc *tls.Config, w wire) *sql.DB {
 		opt.Protocol = clickhouse.HTTP
 		opt.TransportFunc = clickhouseTransport(opt.Addr[0])
 	}
-	if cfg.ReadOnly {
-		// 2: reads, and changes of settings, which the driver makes.
+	if sendsReadOnly {
+		// 2: reads, and changes of settings, as in a query's SETTINGS clause.
 		opt.Settings = clickhouse.Settings{"readonly": 2}
 	}
+	// The driver sends a context's deadline as max_execution_time, a
+	// setting a user in readonly mode may not change: every query would fail.
+	w.hidesDeadlines = true
 	sqldb := sql.OpenDB(w.connector(clickhouse.Connector(opt)))
 	// The driver's default, which its OpenDB gives the pool too.
 	sqldb.SetConnMaxLifetime(time.Hour)

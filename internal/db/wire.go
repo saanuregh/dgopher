@@ -76,7 +76,27 @@ type wire struct {
 	// retired counts the pool's retirements (DB.RetireConnections): a
 	// connection opened before the last is closed rather than used again.
 	retired *atomic.Int64
+	// hidesDeadlines gives the driver contexts without their deadlines,
+	// still cancelled when the deadline passes (driverContext).
+	hidesDeadlines bool
 }
+
+// driverContext is the context the driver is given for ctx.
+func (w wire) driverContext(ctx context.Context) context.Context {
+	if !w.hidesDeadlines {
+		return ctx
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		return ctx
+	}
+	return noDeadline{ctx}
+}
+
+// noDeadline is a context without its parent's deadline that is done,
+// and fails, as its parent does.
+type noDeadline struct{ context.Context }
+
+func (noDeadline) Deadline() (time.Time, bool) { return time.Time{}, false }
 
 // record gives the hook a statement the driver answered. driver.ErrSkip
 // sent nothing: database/sql then prepares the statement, which is
@@ -118,7 +138,7 @@ type wireConnector struct {
 }
 
 func (c *wireConnector) Connect(ctx context.Context) (driver.Conn, error) {
-	dc, err := c.inner.Connect(ctx)
+	dc, err := c.inner.Connect(c.driverContext(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +220,7 @@ func (c *wireConn) PrepareContext(ctx context.Context, query string) (driver.Stm
 		return nil, errors.New("db: driver lacks PrepareContext")
 	}
 	start := time.Now()
-	si, err := p.PrepareContext(ctx, query)
+	si, err := p.PrepareContext(c.driverContext(ctx), query)
 	if err != nil {
 		// A statement is recorded as it runs; one that never ran is
 		// recorded here.
@@ -240,7 +260,7 @@ func (c *wireConn) ExecContext(ctx context.Context, query string, args []driver.
 		return nil, driver.ErrSkip
 	}
 	start := time.Now()
-	res, err := e.ExecContext(ctx, query, args)
+	res, err := e.ExecContext(c.driverContext(ctx), query, args)
 	c.recordSent(query, len(args), start, err)
 	return res, err
 }
@@ -251,7 +271,7 @@ func (c *wireConn) QueryContext(ctx context.Context, query string, args []driver
 		return nil, driver.ErrSkip
 	}
 	start := time.Now()
-	rows, err := q.QueryContext(ctx, query, args)
+	rows, err := q.QueryContext(c.driverContext(ctx), query, args)
 	c.recordSent(query, len(args), start, err)
 	return rows, err
 }
@@ -262,7 +282,7 @@ func (c *wireConn) Ping(ctx context.Context) error {
 		return nil
 	}
 	start := time.Now()
-	err := p.Ping(ctx)
+	err := p.Ping(c.driverContext(ctx))
 	c.record(pingStatement(c.engine), 0, start, err)
 	return err
 }
@@ -350,7 +370,7 @@ func (s *wireStmt) ExecContext(ctx context.Context, args []driver.NamedValue) (d
 	var res driver.Result
 	var err error
 	if e, ok := s.inner.(driver.StmtExecContext); ok {
-		res, err = e.ExecContext(ctx, args)
+		res, err = e.ExecContext(s.conn.driverContext(ctx), args)
 	} else {
 		dargs, verr := legacyArgs(ctx, args)
 		if verr != nil {
@@ -367,7 +387,7 @@ func (s *wireStmt) QueryContext(ctx context.Context, args []driver.NamedValue) (
 	var rows driver.Rows
 	var err error
 	if q, ok := s.inner.(driver.StmtQueryContext); ok {
-		rows, err = q.QueryContext(ctx, args)
+		rows, err = q.QueryContext(s.conn.driverContext(ctx), args)
 	} else {
 		dargs, verr := legacyArgs(ctx, args)
 		if verr != nil {
