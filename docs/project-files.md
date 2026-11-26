@@ -90,7 +90,7 @@ except `id`, `name`, `engine`, `host`, `port`, `user`, `environment` and
 | `id` | the connection's ID (below) |
 | `name` | the name shown; required |
 | `folder` | the navigator folder it is in, as a path such as `Prod/EU`; the top level when omitted. A folder named here but missing from `folders` is still shown. |
-| `engine` | `postgres`, `mysql`, `clickhouse`, `redis`, `sqlite` or `duckdb` |
+| `engine` | `postgres`, `cockroachdb`, `yugabytedb`, `timescaledb`, `mysql`, `mariadb`, `tidb`, `sqlserver`, `oracle`, `clickhouse`, `sqlite`, `duckdb` or `redis` |
 | `host`, `port`, `user` | the server; `host` is required except for SQLite and DuckDB |
 | `database` | the database name. For SQLite and DuckDB, the file path, stored relative to the project when the file is inside it. For Redis, the database number (only 0 in a cluster). |
 | `environment` | `development`, `staging` or `production` |

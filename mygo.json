@@ -6,8 +6,32 @@
   "license": "Apache-2.0",
   "out": "build",
   "resources": ["LICENSE"],
-  "macos": { "minimumSystemVersion": "13.0" },
-  "linux": { "webview": false },
+  "fileAssociations": [
+    {
+      "ext": ["sqlite", "sqlite3", "db", "db3"],
+      "name": "SQLite Database",
+      "mimeType": "application/vnd.sqlite3"
+    },
+    { "ext": ["duckdb", "ddb"], "name": "DuckDB Database" },
+    {
+      "ext": ["sql"],
+      "name": "SQL Script",
+      "mimeType": "application/sql",
+      "role": "Viewer"
+    }
+  ],
+  "macos": {
+    "minimumSystemVersion": "13.0",
+    "infoPlist": {
+      "LSApplicationCategoryType": "public.app-category.developer-tools"
+    }
+  },
+  "linux": {
+    "webview": false,
+    "comment": "Fast, native database client for SQL databases and Redis",
+    "categories": ["Development", "Database"],
+    "command": ["dgopher"]
+  },
   "updates": {
     "publicKey": "1U+TuNIUVQZqE0v3lc7/scOmmiV4xTXcnjf5o1ZO/iU=",
     "github": "saanuregh/dgopher"

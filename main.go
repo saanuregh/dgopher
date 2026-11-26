@@ -1,5 +1,5 @@
-// DGopher is a native database client for PostgreSQL, MySQL,
-// ClickHouse, SQLite, DuckDB and Redis, drawn by MyGo without a webview.
+// DGopher is a native database client for SQL databases and Redis, drawn
+// by MyGo without a webview. docs/engines.md lists the engines it supports.
 package main
 
 import (
