@@ -80,8 +80,8 @@ func Run(args []string) error {
 		mygo.App.SetWindowStateStore(noWindowStates{})
 	}
 	// dgopher <folder> opens a project folder, as a repository's.
-	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		if _, err := a.addProject(args[0]); err != nil {
+	if dir, ok := projectFolderArg(args); ok {
+		if _, err := a.addProject(dir); err != nil {
 			fmt.Fprintln(os.Stderr, "dgopher:", err)
 		}
 	}
@@ -464,4 +464,17 @@ func (a *App) quitAllowed(sessionEnding bool) bool {
 	}
 	a.quitting = true
 	return true
+}
+
+// projectFolderArg returns the project folder the app was started with.
+// Files and file:// URLs are left to mygo.App.OnOpenFile, which receives
+// them when the system opens a file with the app.
+func projectFolderArg(args []string) (string, bool) {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") || strings.Contains(args[0], "://") {
+		return "", false
+	}
+	if info, err := os.Stat(args[0]); err == nil && !info.IsDir() {
+		return "", false
+	}
+	return args[0], true
 }
