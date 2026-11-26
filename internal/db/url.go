@@ -52,13 +52,13 @@ func ParseURL(s string) (Config, error) {
 	scheme := strings.ToLower(u.Scheme)
 	i := slices.IndexFunc(Engines(), func(e Engine) bool { return slices.Contains(rulesOf(e).URLSchemes(), scheme) })
 	if i < 0 {
-		return cfg, fmt.Errorf("unknown kind of URL %q: use postgres://, mysql://, clickhouse://, redis:// or a file path", u.Scheme)
+		return cfg, fmt.Errorf("unknown kind of URL %q: use postgres://, mysql://, clickhouse://, redis://, valkey:// or a file path", u.Scheme)
 	}
 	cfg.Engine = Engines()[i]
 	if cfg.Engine.IsFile() {
 		return Config{Engine: cfg.Engine, Database: u.Host + u.Path, Name: filepath.Base(u.Path)}, nil
 	}
-	if scheme == "rediss" {
+	if scheme == "rediss" || scheme == "valkeys" {
 		cfg.TLS = TLSVerifyFull
 	}
 	cfg.Host = u.Hostname()
@@ -88,7 +88,7 @@ func ParseURL(s string) (Config, error) {
 	if _, ok := q["tls_server_name"]; ok {
 		return cfg, fmt.Errorf("tls_server_name in the URL cannot be used: the server is verified against the URL's host")
 	}
-	if _, ok := q["skip_verify"]; ok && (cfg.Engine == ClickHouse || cfg.Engine == Redis) {
+	if _, ok := q["skip_verify"]; ok && (cfg.Engine == ClickHouse || cfg.Engine.Base() == Redis) {
 		skip, err := urlBool("skip_verify", q.Get("skip_verify"))
 		if err != nil {
 			return cfg, err

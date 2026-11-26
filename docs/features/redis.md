@@ -1,6 +1,8 @@
 # Redis
 
-Open the key browser from a Redis connection's menu.
+Open the key browser from a Redis or Valkey connection's menu. Valkey
+works as this page says, without Redis 8's own types
+([engines](../engines.md#valkey)).
 
 ![A Redis database: the key tree with its folders, a hash opened beside it,
 and the console, monitor and other panels below](../images/redis.png)
@@ -85,7 +87,10 @@ Below the keys, beside the console:
   connection of its own), for the connection's database or all of them,
   filtered as you type, with secrets hidden. It asks first on production,
   because it slows a busy server.
-- **Slow log:** slowest first, with a reset of every master's log.
+- **Slow log:** slowest first, with a reset of every master's log. On a
+  server with `COMMANDLOG` (Valkey 8.1 and later) the panel is the
+  **Command log**, which also shows the largest requests and replies, by
+  size, each with its own reset.
 - **Memory:** an analysis of up to 10,000, 100,000 or 1,000,000 keys
   (asking first on production). It reads each key's type, size and TTL as
   `SCAN` finds them, and sums them into the largest keys, the namespaces

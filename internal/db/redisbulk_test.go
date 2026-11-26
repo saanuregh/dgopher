@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"dgopher/internal/testutil/redisserver"
 )
 
 // TestIntegrationRedisBulk exports keys of every type, binary values
@@ -14,9 +16,10 @@ import (
 // deletes those matching a pattern.
 func TestIntegrationRedisBulk(t *testing.T) {
 	integration(t)
+	rs := redisserver.Get(t)
 	ctx := context.Background()
 	open := func(index string) *KV {
-		k, err := OpenRedis(ctx, Config{Name: "r", Engine: Redis, Host: "127.0.0.1", Port: 16379, Database: index}, nil)
+		k, err := OpenRedis(ctx, Config{Name: "r", Engine: Engine(rs.Engine), Host: redisserver.Host, Port: rs.Port, Database: index}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

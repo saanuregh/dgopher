@@ -166,7 +166,7 @@ func redisActivity(ctx context.Context, kv *db.KV) (map[string]string, dataview.
 func (t *activityTab) act(row []any, terminate bool) {
 	var stmt, title string
 	page := t.pages[t.page]
-	redis := t.conn.Config.Engine == db.Redis
+	redis := t.conn.Config.Engine.Base() == db.Redis
 	switch {
 	case redis:
 		stmt, title = "CLIENT KILL ID "+db.Display(row[0]), "Disconnect client "+db.Display(row[0])+"?"
@@ -382,7 +382,9 @@ func (t *activityTab) redisMetrics(c *ui.Context) {
 		ui.Text(c, "These are the figures, and the clients, of one node of the cluster.").FontSize(widgets.TextSmall).TextColor(pal.Muted).Padding(12, 12, 0, 12)
 	}
 	tilesView(c, [][2]string{
-		{"Version", t.info["redis_version"]},
+		// As the connection identified it: Valkey's own, not the Redis it
+		// forked.
+		{"Version", t.conn.Version},
 		{"Uptime", uptime(t.info["uptime_in_seconds"])},
 		{"Clients", t.info["connected_clients"]},
 		{"Memory", t.info["used_memory_human"]},

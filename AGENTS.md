@@ -68,13 +68,16 @@ integration tests too when it touches `internal/db`.
   `dgopher-mysql`, `dgopher-ch`, `dgopher-redis`, `dgopher-redis8`,
   `dgopher-redis-cluster` and `dgopher-redis-sentinel`, and, started with
   `go run ./tools/dev servers up --profile compat`, `dgopher-mariadb`,
-  `dgopher-tidb`, `dgopher-cockroachdb`, `dgopher-yugabytedb` and
-  `dgopher-timescaledb`, and, with `--profile enterprise`,
+  `dgopher-tidb`, `dgopher-cockroachdb`, `dgopher-yugabytedb`,
+  `dgopher-timescaledb`, `dgopher-valkey`, `dgopher-valkey-cluster` and
+  `dgopher-valkey-sentinel`, and, with `--profile enterprise`,
   `dgopher-sqlserver` and `dgopher-oracle`; their tests skip when they are not running. Their ports and passwords are in
   `internal/testutil/testutil.go`,
   `internal/db/integration_test.go`, for the profiled servers
-  `internal/testutil/optionalserver/optionalserver.go`, and, for Redis 8,
-  `internal/db/redismodules_test.go` and `internal/ui/redis/redis_test.go`; keep `compose.yaml` matching them.
+  `internal/testutil/optionalserver/optionalserver.go`, and, for Redis and
+  Valkey, `internal/testutil/redisserver`; keep `compose.yaml` matching them.
+  `go run ./tools/dev test --it --redis valkey` runs the Redis tests against
+  Valkey's servers.
   Tests call `testutil.Integration(t)`, which serializes them on Unix;
   elsewhere use `go test -p 1`, which `go run ./tools/dev test --it` adds.
   `internal/containercli` chooses Podman, else Docker

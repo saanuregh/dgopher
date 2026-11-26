@@ -13,6 +13,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/testutil"
+	"dgopher/internal/testutil/redisserver"
 	"dgopher/internal/ui/query"
 
 	"github.com/egoist/mygo/ui"
@@ -453,8 +454,9 @@ func TestIntegrationWakeAsksForLostTransaction(t *testing.T) {
 // A Redis server that answers its PING after the wake is left as it was.
 func TestIntegrationWakeKeepsLiveRedis(t *testing.T) {
 	testutil.Integration(t)
+	rs := redisserver.Get(t)
 	a := newTestApp(t)
-	cn := addConn(a, db.Config{ID: "rd", Name: "rd", Engine: db.Redis, Host: "127.0.0.1", Port: 16379})
+	cn := addConn(a, db.Config{ID: "rd", Name: "rd", Engine: db.Engine(rs.Engine), Host: redisserver.Host, Port: rs.Port})
 	tt := ui.NewTester(a.view, 1000, 700)
 	connectNow(t, a, tt, cn)
 	gen, notes := cn.Generation, len(a.notes)

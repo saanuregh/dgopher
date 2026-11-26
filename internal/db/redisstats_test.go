@@ -3,10 +3,13 @@ package db
 import (
 	"bufio"
 	"context"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"dgopher/internal/testutil/redisserver"
 )
 
 func TestParseMonitorLine(t *testing.T) {
@@ -34,8 +37,9 @@ func TestReadLine(t *testing.T) {
 // log, and analyses the keys' memory.
 func TestIntegrationRedisStats(t *testing.T) {
 	integration(t)
+	rs := redisserver.Get(t)
 	ctx := context.Background()
-	k, err := OpenRedis(ctx, Config{Name: "r", Engine: Redis, Host: "127.0.0.1", Port: 16379, Database: "5"}, nil)
+	k, err := OpenRedis(ctx, Config{Name: "r", Engine: Engine(rs.Engine), Host: redisserver.Host, Port: rs.Port, Database: "5"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +77,7 @@ func TestIntegrationRedisStats(t *testing.T) {
 	k.Do(ctx, []string{"CONFIG", "SET", "slowlog-log-slower-than", "0"})
 	k.Do(ctx, []string{"SET", "slow:" + marker, "1"})
 	k.Do(ctx, []string{"CONFIG", "SET", "slowlog-log-slower-than", was.([]any)[1].(string)})
-	entries, err := k.SlowLog(ctx, 128)
+	entries, err := k.CommandLog(ctx, LogSlow, 128)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,6 +87,35 @@ func TestIntegrationRedisStats(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("the slow command is not in the slow log: %+v", entries)
+	}
+
+	// Valkey also logs large requests, by their size: every request is
+	// large for a moment.
+	if k.HasCommand("COMMANDLOG") != rs.Valkey() {
+		t.Fatalf("COMMANDLOG on %s: %v", rs.Engine, k.HasCommand("COMMANDLOG"))
+	}
+	if rs.Valkey() {
+		was, err := k.Do(ctx, []string{"CONFIG", "GET", "commandlog-request-larger-than"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		k.Do(ctx, []string{"CONFIG", "SET", "commandlog-request-larger-than", "0"})
+		k.Do(ctx, []string{"SET", "large:" + marker, strings.Repeat("z", 300)})
+		k.Do(ctx, []string{"CONFIG", "SET", "commandlog-request-larger-than", was.([]any)[1].(string)})
+		large, err := k.CommandLog(ctx, LogLargeRequest, 128)
+		if err != nil {
+			t.Fatal(err)
+		}
+		i := slices.IndexFunc(large, func(e SlowEntry) bool { return len(e.Args) > 1 && e.Args[1] == "large:"+marker })
+		if i < 0 || large[i].Size < 300 || large[i].Duration != 0 {
+			t.Fatalf("the large request is not in its log: %+v", large)
+		}
+		if err := k.ResetCommandLog(ctx, LogLargeRequest); err != nil {
+			t.Fatal(err)
+		}
+		if large, err = k.CommandLog(ctx, LogLargeRequest, 128); err != nil || len(large) != 0 {
+			t.Fatalf("after the reset: %+v %v", large, err)
+		}
 	}
 
 	k.Do(ctx, []string{"FLUSHDB"})

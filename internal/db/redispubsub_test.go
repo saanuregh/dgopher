@@ -4,14 +4,17 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"dgopher/internal/testutil/redisserver"
 )
 
 // TestIntegrationRedisPubSubAndGroups listens to a channel and a pattern,
 // and reads a stream's consumer groups.
 func TestIntegrationRedisPubSubAndGroups(t *testing.T) {
 	integration(t)
+	rs := redisserver.Get(t)
 	ctx := context.Background()
-	k, err := OpenRedis(ctx, Config{Name: "r", Engine: Redis, Host: "127.0.0.1", Port: 16379, Database: "6"}, nil)
+	k, err := OpenRedis(ctx, Config{Name: "r", Engine: Engine(rs.Engine), Host: redisserver.Host, Port: rs.Port, Database: "6"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

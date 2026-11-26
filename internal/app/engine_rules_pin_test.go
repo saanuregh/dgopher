@@ -481,6 +481,7 @@ func TestPinConnectionFormDatabaseField(t *testing.T) {
 		"timescaledb": "Database=true Database index=false Database file=false",
 		"mariadb":     "Database=true Database index=false Database file=false",
 		"tidb":        "Database=true Database index=false Database file=false",
+		"valkey":      "Database=true Database index=true Database file=false",
 	}, func(add func(key, got string)) {
 		a := newTestApp(t)
 		tt := ui.NewTester(a.view, 1200, 900)

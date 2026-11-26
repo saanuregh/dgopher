@@ -55,12 +55,20 @@ func test(s system, args []string) error {
 	fs := newFlags("test")
 	it := fs.Bool("it", false, "also run the integration tests")
 	snapshots := fs.Bool("snapshots", false, "write PNGs of the UI under test")
+	redis := fs.String("redis", "redis", "the servers the Redis tests use: redis or valkey")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	var env []string
 	if *it {
 		env = append(env, "DGOPHER_IT=1")
+	}
+	switch *redis {
+	case "redis":
+	case "valkey":
+		env = append(env, "DGOPHER_REDIS=valkey")
+	default:
+		return fmt.Errorf("--redis %s: use redis or valkey", *redis)
 	}
 	if *snapshots {
 		dir := filepath.Join(os.TempDir(), "dgopher-snapshots")

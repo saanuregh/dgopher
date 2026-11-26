@@ -21,6 +21,7 @@ import (
 	"dgopher/internal/sshtunnel"
 	"dgopher/internal/sshtunnel/sshtest"
 	"dgopher/internal/testutil/optionalserver"
+	"dgopher/internal/testutil/redisserver"
 	"dgopher/internal/testutil/serverlock"
 )
 
@@ -473,8 +474,9 @@ func TestIntegrationEdits(t *testing.T) {
 
 func TestIntegrationRedis(t *testing.T) {
 	integration(t)
+	rs := redisserver.Get(t)
 	ctx := context.Background()
-	k, err := OpenRedis(ctx, Config{Name: "r", Engine: Redis, Host: "127.0.0.1", Port: 16379, Database: "1"}, nil)
+	k, err := OpenRedis(ctx, Config{Name: "r", Engine: Engine(rs.Engine), Host: redisserver.Host, Port: rs.Port, Database: "1"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -587,8 +589,9 @@ func TestIntegrationRedis(t *testing.T) {
 // the key browser's reads on the shared one are not held behind it.
 func TestIntegrationRedisBlockingConsole(t *testing.T) {
 	integration(t)
+	rs := redisserver.Get(t)
 	ctx := context.Background()
-	k, err := OpenRedis(ctx, Config{Name: "r", Engine: Redis, Host: "127.0.0.1", Port: 16379, Database: "3"}, nil)
+	k, err := OpenRedis(ctx, Config{Name: "r", Engine: Engine(rs.Engine), Host: redisserver.Host, Port: rs.Port, Database: "3"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -633,13 +636,14 @@ func TestIntegrationMySQLCountsMatchedRows(t *testing.T) {
 
 func TestIntegrationTLSPreferFallsBack(t *testing.T) {
 	integration(t)
+	rs := redisserver.Get(t)
 	ctx := context.Background()
 	ch, err := Open(ctx, Config{Name: "ch", Engine: ClickHouse, Host: "127.0.0.1", Port: 19000, User: "default", Password: "dgopher", TLS: TLSPrefer}, nil)
 	if err != nil {
 		t.Fatalf("ClickHouse prefer: %v", err)
 	}
 	ch.Close()
-	k, err := OpenRedis(ctx, Config{Name: "r", Engine: Redis, Host: "127.0.0.1", Port: 16379, TLS: TLSPrefer}, nil)
+	k, err := OpenRedis(ctx, Config{Name: "r", Engine: Engine(rs.Engine), Host: redisserver.Host, Port: rs.Port, TLS: TLSPrefer}, nil)
 	if err != nil {
 		t.Fatalf("Redis prefer: %v", err)
 	}
@@ -912,17 +916,58 @@ func terminatedTransactionIsLost(t *testing.T, e Engine, session, end string) {
 	}
 }
 
-// redisCluster is the test cluster of three masters, on the ports of the
-// dgopher-redis-cluster container (docs/development.md).
-func redisCluster() Config {
-	return Config{Name: "cluster", Engine: Redis, Host: "127.0.0.1", Port: 17000, Password: "dgopher",
-		Redis: RedisConfig{Mode: RedisCluster, Nodes: "127.0.0.1:17001"}}
+// redisCluster is the test cluster of three masters (docs/development.md).
+func redisCluster(rs redisserver.Servers) Config {
+	return Config{Name: "cluster", Engine: Engine(rs.Engine), Host: redisserver.Host, Port: rs.ClusterPorts[0], Password: "dgopher",
+		Redis: RedisConfig{Mode: RedisCluster, Nodes: redisserver.Address(rs.ClusterPorts[1])}}
 }
 
-// redisSentinel is the test Sentinel, on the ports of the
-// dgopher-redis-sentinel container (docs/development.md).
-func redisSentinel() Config {
-	return Config{Name: "sentinel", Engine: Redis, Host: "127.0.0.1", Port: 26379, Password: "dgopher",
+// A Valkey cluster's database other than 0 holds its keys on every node,
+// apart from database 0's; one the servers do not have says what they
+// need.
+func TestIntegrationValkeyClusterDatabase(t *testing.T) {
+	integration(t)
+	rs := redisserver.Get(t)
+	if !rs.Valkey() {
+		t.Skip("a Redis cluster has only database 0")
+	}
+	rs.RequireCluster(t)
+	ctx := context.Background()
+	cfg := redisCluster(rs)
+	cfg.Database = "3"
+	k, err := OpenRedis(ctx, cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer k.Close()
+	// Keys in each of the three masters' slots.
+	keys := []string{"dgopher-db3:a", "dgopher-db3:b", "dgopher-db3:c", "dgopher-db3:d"}
+	for _, key := range keys {
+		if _, err := k.Do(ctx, []string{"SET", key, "x"}); err != nil {
+			t.Fatal(err)
+		}
+		defer k.Do(ctx, []string{"DEL", key})
+	}
+	if got := scanKeys(t, k, "dgopher-db3:*"); len(got) != len(keys) {
+		t.Fatalf("database 3 has %v", got)
+	}
+	zero, err := OpenRedis(ctx, redisCluster(rs), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zero.Close()
+	if got := scanKeys(t, zero, "dgopher-db3:*"); len(got) != 0 {
+		t.Fatalf("database 0 has database 3's keys: %v", got)
+	}
+	cfg.Database = "99"
+	if _, err := OpenRedis(ctx, cfg, nil); err == nil || !strings.Contains(err.Error(), "cluster-databases") {
+		t.Fatalf("database 99 of a cluster of 16: %v", err)
+	}
+}
+
+// redisSentinel is the test Sentinel, watching the master (docs/development.md).
+func redisSentinel(rs redisserver.Servers) Config {
+	return Config{Name: "sentinel", Engine: Engine(rs.Engine), Host: redisserver.Host, Port: rs.SentinelPort, Password: "dgopher",
 		Redis: RedisConfig{Mode: RedisSentinel, Master: "mymaster", SentinelPassword: "sentinelpw"}}
 }
 
@@ -947,17 +992,22 @@ func scanKeys(t *testing.T, k *KV, match string) []string {
 // all, and the console reaches a key wherever it is.
 func TestIntegrationRedisCluster(t *testing.T) {
 	integration(t)
+	rs := redisserver.Get(t)
+	rs.RequireCluster(t)
 	ctx := context.Background()
-	testCluster(t, ctx, redisCluster(), nil)
+	testCluster(t, ctx, redisCluster(rs), nil)
 
-	standalone := Config{Name: "r", Engine: Redis, Host: "127.0.0.1", Port: 16379, Redis: RedisConfig{Mode: RedisCluster}}
+	standalone := Config{Name: "r", Engine: Engine(rs.Engine), Host: redisserver.Host, Port: rs.Port, Redis: RedisConfig{Mode: RedisCluster}}
 	if _, err := OpenRedis(ctx, standalone, nil); err == nil || !strings.Contains(err.Error(), "not a node of a cluster") {
 		t.Fatalf("a single server opened as a cluster: %v", err)
 	}
-	other := redisCluster()
-	other.Database = "1"
-	if _, err := OpenRedis(ctx, other, nil); err == nil || !strings.Contains(err.Error(), "only database 0") {
-		t.Fatalf("a cluster's database 1: %v", err)
+	// A Valkey cluster's databases: TestIntegrationValkeyClusterDatabase.
+	if !rs.Valkey() {
+		other := redisCluster(rs)
+		other.Database = "1"
+		if _, err := OpenRedis(ctx, other, nil); err == nil || !strings.Contains(err.Error(), "only database 0") {
+			t.Fatalf("a cluster's database 1: %v", err)
+		}
 	}
 }
 
@@ -965,12 +1015,14 @@ func TestIntegrationRedisCluster(t *testing.T) {
 // redirects to included.
 func TestIntegrationRedisClusterThroughSSH(t *testing.T) {
 	integration(t)
+	rs := redisserver.Get(t)
+	rs.RequireCluster(t)
 	s := sshtest.Start(t, "secret", nil)
 	known := filepath.Join(t.TempDir(), "known_hosts")
 	if err := sshtunnel.Trust(known, s.Addr, s.HostKey.PublicKey()); err != nil {
 		t.Fatal(err)
 	}
-	cfg := redisCluster()
+	cfg := redisCluster(rs)
 	cfg.Redis.Nodes = "" // one address: the others come from the cluster
 	cfg.SSH = SSHConfig{Enabled: true, Host: s.Host, Port: s.Port, User: "tester", Password: "secret"}
 	testCluster(t, context.Background(), cfg, []string{known})
@@ -1015,8 +1067,10 @@ func testCluster(t *testing.T, ctx context.Context, cfg Config, known []string) 
 // to the sentinels with their own password, which no error shows.
 func TestIntegrationRedisSentinel(t *testing.T) {
 	integration(t)
+	rs := redisserver.Get(t)
+	rs.RequireSentinel(t)
 	ctx := context.Background()
-	cfg := redisSentinel()
+	cfg := redisSentinel(rs)
 	k, err := OpenRedis(ctx, cfg, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -1027,7 +1081,7 @@ func TestIntegrationRedisSentinel(t *testing.T) {
 	}
 	defer k.Do(ctx, []string{"DEL", "dgopher-it"})
 	info, err := k.Do(ctx, []string{"INFO", "server"})
-	if err != nil || !strings.Contains(fmt.Sprint(info), "tcp_port:16380") {
+	if err != nil || !strings.Contains(fmt.Sprint(info), "tcp_port:"+strconv.Itoa(rs.MasterPort)) {
 		t.Fatalf("not on the master: %v", err)
 	}
 
@@ -1659,6 +1713,7 @@ func postgresEnum(t *testing.T, cfg Config) {
 // its SSH host. MySQL, whose server speaks first, goes through HTTP.
 func TestIntegrationThroughProxy(t *testing.T) {
 	integration(t)
+	rs := redisserver.Get(t)
 	ctx := context.Background()
 	socks := proxytest.SOCKS5(t, "proxy-user", "proxy-pass")
 	web := proxytest.HTTP(t, "web-user", "web-pass")
@@ -1699,7 +1754,7 @@ func TestIntegrationThroughProxy(t *testing.T) {
 	}
 	d.Close()
 
-	k, err := OpenRedis(ctx, Config{Name: "r", Engine: Redis, Host: "127.0.0.1", Port: 16379, Proxy: proxy(socks)}, nil)
+	k, err := OpenRedis(ctx, Config{Name: "r", Engine: Engine(rs.Engine), Host: redisserver.Host, Port: rs.Port, Proxy: proxy(socks)}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

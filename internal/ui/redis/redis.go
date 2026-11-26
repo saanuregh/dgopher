@@ -193,7 +193,7 @@ func (r *Tab) scan() {
 	r.scanning = true
 	kv := r.conn.KV()
 	cursor, pattern := r.cursor, r.pattern
-	typ := typeOf(r.typeFilter)
+	typ := typeOf(r.typeFilter, r.conn.Config.Engine)
 	dataview.BackgroundResetOnPanic(r.a, func() { r.scanning = false }, func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), scanTimeout)
 		defer cancel()
@@ -656,7 +656,7 @@ func (r *Tab) typeButton(c *ui.Context) {
 		b = widgets.IconPill(c.Key("type"), widgets.IconDropdown, r.typeFilter, true).Label("Type").Tooltip("Only " + r.typeFilter + " keys are listed")
 	}
 	b.Menu(func(m *ui.Menu) {
-		for _, t := range typeLabels {
+		for _, t := range typeChoices(r.conn.KV().HasCommand) {
 			if m.Item(t).Radio(t == r.typeFilter).Chosen() {
 				r.typeFilter = t
 				r.rescan()

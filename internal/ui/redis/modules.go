@@ -21,24 +21,33 @@ import (
 )
 
 // keyTypes are the types of keys the browser knows, as TYPE names them,
-// with what it calls them.
-var keyTypes = []struct{ typ, label string }{
-	{"string", "string"}, {"hash", "hash"}, {"list", "list"}, {"set", "set"}, {"zset", "sorted set"},
-	{"stream", "stream"}, {"ReJSON-RL", "JSON"}, {"vectorset", "vector set"}, {"array", "array"},
-	{"TSDB-TYPE", "time series"}, {"MBbloom--", "Bloom filter"},
+// with what it calls them. A module's type names a read-only command of
+// the module, which a server with it has. A Bloom filter's name is the
+// engine's (KeyValueRules.BloomFilterType): both are listed.
+var keyTypes = []struct {
+	typ, label, command string
+}{
+	{"string", "string", ""}, {"hash", "hash", ""}, {"list", "list", ""}, {"set", "set", ""},
+	{"zset", "sorted set", ""}, {"stream", "stream", ""},
+	{"ReJSON-RL", "JSON", "JSON.GET"}, {"vectorset", "vector set", "VCARD"}, {"array", "array", "ARLEN"},
+	{"TSDB-TYPE", "time series", "TS.INFO"},
+	{"MBbloom--", "Bloom filter", "BF.EXISTS"}, {"bloomfltr", "Bloom filter", "BF.EXISTS"},
 }
 
 // allTypes is the type filter's choice of every type.
 const allTypes = "All types"
 
-// typeLabels are the type filter's choices.
-var typeLabels = func() []string {
+// typeChoices are the type filter's choices on a server that has the
+// read-only commands has reports.
+func typeChoices(has func(command string) bool) []string {
 	out := []string{allTypes}
 	for _, t := range keyTypes {
-		out = append(out, t.label)
+		if (t.command == "" || has(t.command)) && !slices.Contains(out, t.label) {
+			out = append(out, t.label)
+		}
 	}
 	return out
-}()
+}
 
 // typeLabel is what the browser calls a type.
 func typeLabel(typ string) string {
@@ -50,8 +59,12 @@ func typeLabel(typ string) string {
 	return typ
 }
 
-// typeOf is the type a label names, "" for every type.
-func typeOf(label string) string {
+// typeOf is the type a label names on an engine's server, "" for every
+// type.
+func typeOf(label string, engine db.Engine) string {
+	if rules, ok := db.KeyValue(engine); ok && label == typeLabel(rules.BloomFilterType()) {
+		return rules.BloomFilterType()
+	}
 	for _, t := range keyTypes {
 		if t.label == label {
 			return t.typ

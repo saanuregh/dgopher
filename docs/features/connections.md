@@ -17,6 +17,7 @@ Keys are written as on macOS; on Linux and Windows, ⌘ is Ctrl and ⌥ is Alt.
 | SQLite | a file, or in memory; **New…** creates an empty file |
 | DuckDB | a file, or in memory; **New…** creates an empty file |
 | Redis | one server, a cluster, or the master Sentinel names |
+| Valkey | Redis's family: connects and works as Redis does, except where [Engine support](../engines.md#valkey) says otherwise |
 
 **New…** never replaces a file that is already there; it opens it as it
 is.
@@ -105,7 +106,7 @@ filled in already.
 - Schemes: `postgres://`, `postgresql://`, `cockroachdb://`,
   `cockroach://`, `yugabytedb://`, `timescaledb://`, `mysql://`,
   `mariadb://`, `tidb://`, `clickhouse://`, `ch://`, `redis://`,
-  `rediss://`, `sqlite://`, `sqlite3://`, `duckdb://` and `file://`.
+  `rediss://`, `valkey://`, `valkeys://`, `sqlite://`, `sqlite3://`, `duckdb://` and `file://`.
 - ClickHouse's JDBC URLs, as DBeaver shows them, choose HTTP:
   `clickhouse:http://`, `clickhouse:https://` (verify-full TLS), with
   `ch` for `clickhouse` and an optional `jdbc:` before. A URL that names
@@ -115,7 +116,8 @@ filled in already.
   - PostgreSQL's `sslmode`: `verify-ca` and `verify-full` become
     verify-full.
   - MySQL's `ssl-mode` or `tls`: `tls=true` becomes verify-full.
-  - ClickHouse's `secure` or JDBC's `ssl`, and `rediss://`, become
+  - ClickHouse's `secure` or JDBC's `ssl`, and `rediss://` and
+    `valkeys://`, become
     verify-full, or require (encrypted, not verified) with `skip_verify`.
   - `ssl=true` or `ssl=false` on PostgreSQL and MySQL become require or
     disable.
@@ -261,7 +263,9 @@ a password kept in the keychain.
 ## Redis topologies
 
 - **Cluster.** Connect through any node. The key browser scans every
-  master, and the console reaches a key on whichever node holds it.
+  master, and the console reaches a key on whichever node holds it. A
+  Redis cluster has database 0 only; a Valkey cluster may open another
+  when its servers set `cluster-databases` (Valkey 9.0 and later).
 - **Sentinel.** The connection follows the master to its replacement after
   a failover. It logs in to the sentinels with their own user and password,
   kept in the keychain.

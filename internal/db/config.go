@@ -32,18 +32,20 @@ const (
 	SQLServer  Engine = "sqlserver"
 	Oracle     Engine = "oracle"
 	// The flavors: each runs on its parent's rules but for what it
-	// overrides, PostgreSQL's for the first three, MySQL's for the others.
+	// overrides: PostgreSQL's for the first three, MySQL's for MariaDB
+	// and TiDB, Redis's for Valkey.
 	CockroachDB Engine = "cockroachdb"
 	YugabyteDB  Engine = "yugabytedb"
 	TimescaleDB Engine = "timescaledb"
 	MariaDB     Engine = "mariadb"
 	TiDB        Engine = "tidb"
+	Valkey      Engine = "valkey"
 )
 
 // Engines lists the supported engines in the order the UI offers them,
 // each flavor after its parent.
 func Engines() []Engine {
-	return []Engine{Postgres, CockroachDB, YugabyteDB, TimescaleDB, MySQL, MariaDB, TiDB, ClickHouse, SQLServer, Oracle, Redis, SQLite, DuckDB}
+	return []Engine{Postgres, CockroachDB, YugabyteDB, TimescaleDB, MySQL, MariaDB, TiDB, ClickHouse, SQLServer, Oracle, Redis, Valkey, SQLite, DuckDB}
 }
 
 // Environment says how careful the app must be with a connection.
@@ -443,12 +445,12 @@ func (c *Config) Validate() error {
 	if c.CertFile != "" && (c.TLS == "" || c.TLS == TLSDisable) {
 		errs = append(errs, "a client certificate needs TLS")
 	}
-	if c.Engine == Redis && c.Database != "" {
+	if c.Engine.Base() == Redis && c.Database != "" {
 		var n int
 		if _, err := fmt.Sscanf(c.Database, "%d", &n); err != nil || n < 0 {
-			errs = append(errs, "the Redis database must be a number such as 0")
-		} else if n != 0 && c.Redis.Mode == RedisCluster {
-			errs = append(errs, "a Redis cluster has only database 0")
+			errs = append(errs, "the "+c.Engine.Label()+" database must be a number such as 0")
+		} else if kv, _ := KeyValue(c.Engine); n != 0 && c.Redis.Mode == RedisCluster && !kv.ClusterDatabases() {
+			errs = append(errs, "a "+c.Engine.Label()+" cluster has only database 0")
 		}
 	}
 	switch {
@@ -458,7 +460,7 @@ func (c *Config) Validate() error {
 	case c.ClickHouseProtocol != ClickHouseNative && c.ClickHouseProtocol != ClickHouseHTTP:
 		errs = append(errs, fmt.Sprintf("unknown ClickHouse protocol %q", c.ClickHouseProtocol))
 	}
-	if c.Engine == Redis {
+	if c.Engine.Base() == Redis {
 		switch c.Redis.Mode {
 		case RedisStandalone, RedisCluster:
 		case RedisSentinel:
@@ -593,7 +595,7 @@ func (c *Config) port() int {
 // prefer falls back to plain text, which the plain port answers.
 func (c *Config) DefaultPort() int {
 	switch {
-	case c.Engine == Redis && c.Redis.Mode == RedisSentinel:
+	case c.Engine.Base() == Redis && c.Redis.Mode == RedisSentinel:
 		return SentinelPort
 	case c.Engine == ClickHouse:
 		secure := c.TLS == TLSRequire || c.TLS == TLSVerifyFull

@@ -13,8 +13,10 @@ package app
 import (
 	"context"
 	"fmt"
+	"net"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +27,7 @@ import (
 	"dgopher/internal/sshtunnel"
 	"dgopher/internal/sshtunnel/sshtest"
 	"dgopher/internal/testutil"
+	"dgopher/internal/testutil/redisserver"
 	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/widgets"
 
@@ -630,15 +633,17 @@ func TestPinSQLLateConnectNotAudited(t *testing.T) {
 	}
 }
 
-// redisConfig is the Redis test server's, from compose.yaml.
-func redisConfig() db.Config {
-	return db.Config{ID: "rd", Name: "rd", Engine: db.Redis, Host: "127.0.0.1", Port: 16379}
+// redisConfig is the test server's of Redis's family (redisserver).
+func redisConfig(t *testing.T) db.Config {
+	t.Helper()
+	rs := redisserver.Get(t)
+	return db.Config{ID: "rd", Name: "rd", Engine: db.Engine(rs.Engine), Host: redisserver.Host, Port: rs.Port}
 }
 
 // redisConn adds a connection to the Redis test server, connected.
 func redisConn(t *testing.T, a *App, tt *ui.Tester) *connection.Conn {
 	t.Helper()
-	cn := addConn(a, redisConfig())
+	cn := addConn(a, redisConfig(t))
 	connectNow(t, a, tt, cn)
 	return cn
 }
@@ -659,7 +664,7 @@ func TestPinIntegrationRedisConnectState(t *testing.T) {
 	tt := ui.NewTester(a.view, 1000, 700)
 	cn := redisConn(t, a, tt)
 	ev := lastEvent(t, a, cn, audit.KindConnect)
-	want := "@127.0.0.1:16379, tls disable, server " + widgets.FirstLine(cn.Version) + ", no TLS"
+	want := "@" + net.JoinHostPort(cn.Config.Host, strconv.Itoa(cn.Config.Port)) + ", tls disable, server " + widgets.FirstLine(cn.Version) + ", no TLS"
 	if cn.Version == "" || ev == nil || ev.Detail != want || ev.Error != "" {
 		t.Fatalf("version %q, connect event %+v, want detail %q", cn.Version, ev, want)
 	}
@@ -728,7 +733,7 @@ func TestPinIntegrationRedisTunnelLoss(t *testing.T) {
 	if err := sshtunnel.Trust(a.appKnownHosts, s.Addr, s.HostKey.PublicKey()); err != nil {
 		t.Fatal(err)
 	}
-	cfg := redisConfig()
+	cfg := redisConfig(t)
 	cfg.SSH = db.SSHConfig{Enabled: true, Host: s.Host, Port: s.Port, User: "tester", Password: "secret"}
 	cn := addConn(a, cfg)
 	tt := ui.NewTester(a.view, 1000, 700)
@@ -799,7 +804,7 @@ func TestPinIntegrationRedisShutdownCloses(t *testing.T) {
 func redisClients(t *testing.T) func() int {
 	t.Helper()
 	ctx := context.Background()
-	probe, err := db.OpenRedis(ctx, redisConfig(), nil)
+	probe, err := db.OpenRedis(ctx, redisConfig(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -823,7 +828,7 @@ func TestPinIntegrationRedisLateConnectDropped(t *testing.T) {
 	clients := redisClients(t)
 	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1000, 700)
-	cn := addConn(a, redisConfig())
+	cn := addConn(a, redisConfig(t))
 	settle(t, a, tt)
 	before := clients()
 	a.open(cn, cn.Config, false)
@@ -839,16 +844,18 @@ func TestPinIntegrationRedisLateConnectDropped(t *testing.T) {
 	testutil.WaitFor(t, tt, "the late client to close", func() bool { return clients() <= before })
 }
 
-// Test Connection reaches a Redis server through OpenRedis.
+// Test Connection reaches a server of Redis's family through OpenRedis,
+// and names it.
 func TestPinIntegrationRedisConnectionTest(t *testing.T) {
 	testutil.Integration(t)
 	a := newTestApp(t)
 	tt := ui.NewTester(a.view, 1200, 800)
 	a.openConnForm(nil)
 	f := a.connForm
-	a.runTest(f, redisConfig())
+	cfg := redisConfig(t)
+	a.runTest(f, cfg)
 	testutil.WaitFor(t, tt, "the test", func() bool { return !f.testing })
-	if !f.testOK || !strings.HasPrefix(f.testResult, "Connected to Redis ") {
+	if !f.testOK || !strings.HasPrefix(f.testResult, "Connected to "+cfg.Engine.Label()+" ") {
 		t.Fatalf("ok %v: %q", f.testOK, f.testResult)
 	}
 }

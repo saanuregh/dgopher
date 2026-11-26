@@ -30,13 +30,15 @@ type identifiedServer struct {
 }
 
 // identifyStore reads, off the main thread, what an open store's server
-// is: nothing for a store that is not SQL, or a server that did not say.
+// is: nothing for a server that did not say.
 func identifyStore(ctx context.Context, s db.Store) identifiedServer {
-	d, ok := s.(*db.DB)
+	identifier, ok := s.(interface {
+		Identify(context.Context) (db.Engine, string, error)
+	})
 	if !ok {
 		return identifiedServer{}
 	}
-	e, v, err := d.Identify(ctx)
+	e, v, err := identifier.Identify(ctx)
 	if err != nil {
 		return identifiedServer{}
 	}

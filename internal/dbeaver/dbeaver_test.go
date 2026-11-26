@@ -241,7 +241,7 @@ func TestRead(t *testing.T) {
 		{
 			name: "URL mode that cannot be read",
 			conn: `{"provider":"postgresql","driver":"postgres-jdbc","name":"U","configuration":{"configurationType":"URL","url":"jdbc:weird:thing"}}`,
-			want: Entry{ID: "c1", Config: db.Config{Name: "U", Engine: db.Postgres, Env: db.Development}, Skip: `its URL could not be read: unknown kind of URL "weird": use postgres://, mysql://, clickhouse://, redis:// or a file path`},
+			want: Entry{ID: "c1", Config: db.Config{Name: "U", Engine: db.Postgres, Env: db.Development}, Skip: `its URL could not be read: unknown kind of URL "weird": use postgres://, mysql://, clickhouse://, redis://, valkey:// or a file path`},
 		},
 		{
 			name: "plaintext user and password",

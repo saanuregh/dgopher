@@ -133,7 +133,11 @@ func (r *Tab) searchView(c *ui.Context) {
 	th := c.Theme()
 	pal := widgets.PaletteOf(c)
 	if !r.conn.KV().HasSearch() {
-		ui.Text(c, "This server has no Redis Search: it comes with Redis 8, or as a module before.").FontSize(widgets.TextBody).TextColor(pal.Muted).Padding(8, 12)
+		note := "This server has no search."
+		if rules, ok := db.KeyValue(r.conn.Config.Engine); ok {
+			note = rules.NoSearchNote()
+		}
+		ui.Text(c, note).FontSize(widgets.TextBody).TextColor(pal.Muted).Padding(8, 12)
 		return
 	}
 	if db := r.conn.Config.Database; db != "" && db != "0" {

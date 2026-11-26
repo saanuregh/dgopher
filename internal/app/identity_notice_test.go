@@ -13,6 +13,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/project"
 	"dgopher/internal/testutil"
+	"dgopher/internal/testutil/redisserver"
 	"dgopher/internal/ui/widgets"
 
 	"github.com/egoist/mygo/ui"
@@ -91,6 +92,39 @@ func TestConnectMismatchOffersSwitch(t *testing.T) {
 	tt.Frame()
 	if tt.HasText("Use PostgreSQL") {
 		t.Fatal("the notice shows again after the switch")
+	}
+}
+
+// A connection of Redis's family set to the other engine than its server
+// (Valkey on the Redis test server, Redis on Valkey's) is told so on
+// connect, and switched by the notice; set to its own, it shows its own
+// version.
+func TestConnectRedisFamilyMismatch(t *testing.T) {
+	testutil.Integration(t)
+	s := redisserver.Get(t)
+	server, other := db.Engine(s.Engine), db.Valkey
+	if s.Valkey() {
+		other = db.Redis
+	}
+	a := newTestApp(t)
+	cn := addConn(a, db.Config{ID: "rf", Name: "Cache", Engine: other, Host: redisserver.Host, Port: s.Port})
+	tt := ui.NewTester(a.windowView(a.main), 1200, 760)
+	connectNow(t, a, tt, cn)
+	use := "Use " + server.Label()
+	testutil.WaitFor(t, tt, "the notice", func() bool { return tt.HasText(use) })
+	if !slices.ContainsFunc(a.notes, func(n notification) bool {
+		return strings.HasPrefix(n.title, "Cache: this server is "+server.Label()+" ") && strings.HasSuffix(n.title, ", but the connection is set to "+other.Label()+".")
+	}) {
+		t.Fatalf("no notification of the mismatch: %+v", a.notes)
+	}
+	if err := tt.Click(use); err != nil {
+		t.Fatal(err)
+	}
+	testutil.WaitFor(t, tt, "the switch", func() bool {
+		return cn.Config.Engine == server && cn.Status == connection.StatusConnected
+	})
+	if s.Valkey() && (cn.Version == "" || cn.Version == "7.2.4") {
+		t.Fatalf("a Valkey connection shows version %q, Redis's it forked", cn.Version)
 	}
 }
 

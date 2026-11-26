@@ -7,6 +7,7 @@ import (
 	"dgopher/internal/audit"
 	"dgopher/internal/db"
 	"dgopher/internal/testutil"
+	"dgopher/internal/testutil/redisserver"
 	"dgopher/internal/ui/dataview"
 
 	"github.com/egoist/mygo/ui"
@@ -15,8 +16,9 @@ import (
 // Opening a key audits that its value was read, once.
 func TestOpeningKeyAuditsItsRead(t *testing.T) {
 	testutil.Integration(t)
+	rs := redisserver.Get(t)
 	a := dataview.NewFakeHost(t)
-	cfg := db.Config{ID: "r", Name: "Cache", Engine: db.Redis, Host: "127.0.0.1", Port: 16379, Database: "2", Env: db.Staging}
+	cfg := db.Config{ID: "r", Name: "Cache", Engine: db.Engine(rs.Engine), Host: redisserver.Host, Port: rs.Port, Database: "2", Env: db.Staging}
 	cn := a.AddConn(cfg)
 	ctx := context.Background()
 	kv, err := db.OpenRedis(ctx, cfg, nil)

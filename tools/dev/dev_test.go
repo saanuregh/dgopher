@@ -280,6 +280,20 @@ func TestTestArgs(t *testing.T) {
 	}
 }
 
+// --redis valkey runs the Redis tests against Valkey's servers.
+func TestTestRedisValkey(t *testing.T) {
+	f := complete()
+	if err := test(f.system(), []string{"--it", "--redis", "valkey"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.ran) != 1 || !strings.HasPrefix(f.ran[0], "DGOPHER_IT=1 DGOPHER_REDIS=valkey go test ") {
+		t.Fatalf("ran %q", f.ran)
+	}
+	if err := test(f.system(), []string{"--redis", "keydb"}); err == nil {
+		t.Fatal("--redis keydb was accepted")
+	}
+}
+
 func TestComposeArgs(t *testing.T) {
 	for _, c := range []struct {
 		profiles []string

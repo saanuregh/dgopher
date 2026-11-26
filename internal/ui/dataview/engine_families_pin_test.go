@@ -11,6 +11,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/testutil"
+	"dgopher/internal/testutil/redisserver"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -56,7 +57,8 @@ func TestPinFakeHostOpensByEngine(t *testing.T) {
 // A Redis connection through FakeHost holds a Redis client and no pool.
 func TestPinIntegrationFakeHostOpensRedis(t *testing.T) {
 	testutil.Integration(t)
-	got := fakeHostConnect(t, db.Config{ID: "rd", Name: "rd", Engine: db.Redis, Host: "127.0.0.1", Port: 16379})
+	rs := redisserver.Get(t)
+	got := fakeHostConnect(t, db.Config{ID: "rd", Name: "rd", Engine: db.Engine(rs.Engine), Host: redisserver.Host, Port: rs.Port})
 	if got != "connected sql=false redis=true" {
 		t.Fatalf("FakeHost Redis: %s", got)
 	}
