@@ -70,6 +70,7 @@ func Run(args []string) error {
 	}
 	a := newApp(st, uiState)
 	a.keepRunning = mygo.Power.KeepRunning
+	a.setMenu = mygo.App.SetMenu
 	defer a.captureLog()()
 	// The windows' places are kept with the layout, and without it last
 	// the run too: never in a file of MyGo's own.
@@ -329,8 +330,8 @@ const nativeMenuBar = runtime.GOOS == "darwin"
 // setMenuBar gives the app the system's menu bar where it has one, with the
 // commands' keys as they are set.
 func setMenuBar(a *App) {
-	if nativeMenuBar {
-		mygo.App.SetMenu(buildMenu(a))
+	if nativeMenuBar && a.setMenu != nil {
+		a.setMenu(buildMenu(a))
 	}
 }
 
