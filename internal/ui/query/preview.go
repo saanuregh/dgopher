@@ -228,7 +228,7 @@ func (q *Tab) previewNotice(c *ui.Context, res *result) {
 				ui.Text(c, "The rows could not be counted: "+p.countErr+".")
 				return
 			}
-			ui.Text(c, settings.GroupDigits(strconv.FormatInt(p.total, 10))+" row"+widgets.Plural(int(p.total))).Bold()
+			ui.Text(c, settings.GroupDigits(strconv.FormatInt(p.total, 10))+" row"+widgets.Plural(int(min(p.total, 2)))).Bold()
 			done := "would change"
 			if p.verb == "DELETE" {
 				done = "would be deleted"
