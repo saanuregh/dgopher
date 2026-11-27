@@ -11,6 +11,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/db"
 	"dgopher/internal/testutil"
+	"dgopher/internal/testutil/mongoserver"
 	"dgopher/internal/testutil/redisserver"
 
 	"github.com/egoist/mygo/ui"
@@ -28,7 +29,7 @@ func fakeHostConnect(t *testing.T, cfg db.Config) string {
 	if cn.Status != connection.StatusConnected {
 		return "error: " + cn.Err
 	}
-	return fmt.Sprintf("connected sql=%v redis=%v", cn.DB() != nil, cn.KV() != nil)
+	return fmt.Sprintf("connected sql=%v redis=%v doc=%v", cn.DB() != nil, cn.KV() != nil, cn.Doc() != nil)
 }
 
 // FakeHost opens each engine with its family's opener (db.OpenStore): a
@@ -39,9 +40,10 @@ func TestPinFakeHostOpensByEngine(t *testing.T) {
 		"postgres":   "error: a host is required",
 		"mysql":      "error: a host is required",
 		"clickhouse": "error: a host is required",
-		"sqlite":     "connected sql=true redis=false",
-		"duckdb":     "connected sql=true redis=false",
+		"sqlite":     "connected sql=true redis=false doc=false",
+		"duckdb":     "connected sql=true redis=false doc=false",
 		"redis":      "error: a host is required",
+		"mongodb":    "error: a host is required",
 		"unknown":    "error: unknown engine \"unknown\"; a host is required",
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
@@ -59,7 +61,20 @@ func TestPinIntegrationFakeHostOpensRedis(t *testing.T) {
 	testutil.Integration(t)
 	rs := redisserver.Get(t)
 	got := fakeHostConnect(t, db.Config{ID: "rd", Name: "rd", Engine: db.Engine(rs.Engine), Host: redisserver.Host, Port: rs.Port})
-	if got != "connected sql=false redis=true" {
+	if got != "connected sql=false redis=true doc=false" {
 		t.Fatalf("FakeHost Redis: %s", got)
+	}
+}
+
+// A MongoDB connection through FakeHost holds a document client and no
+// pool.
+func TestPinIntegrationFakeHostOpensMongo(t *testing.T) {
+	cfg, err := db.ParseURL(mongoserver.Primary(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ID, cfg.Name = "mg", "mg"
+	if got := fakeHostConnect(t, cfg); got != "connected sql=false redis=false doc=true" {
+		t.Fatalf("FakeHost MongoDB: %s", got)
 	}
 }

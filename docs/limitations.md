@@ -18,6 +18,12 @@ What DGopher does not do, or does only in part, and why.
 | DuckDB files | A read-only and a read-write connection to the same file cannot be open at once: the driver keeps one database per file. |
 | DuckDB columns | A column of a table with an index or a key cannot be dropped or retyped, from the table form or a model's migration: DuckDB refuses it. |
 | DuckDB transactions | The open transaction is read with `current_transaction_id()`, which DuckDB does not document. A test fails if an upgrade changes it. |
+| MongoDB console | Runs a subset of the MongoDB shell's language, without JavaScript: no variables, functions or loops, no cursor iteration, no `watch()` or `mapReduce()`, and no transactions started in the console. The safety policy must classify every statement before it is sent. See [MongoDB](features/mongodb.md#what-the-console-runs). |
+| MongoDB saves without transactions | On a standalone server or FerretDB, document edits save one by one, and those before a failure stay ([Safety model](safety.md#mongodb)). |
+| FerretDB field names | A field whose name holds a dot or starts with `$` cannot be edited on FerretDB: the update pipeline that sets it by name leaves the document with its `_id` twice there, so the save is refused before anything is sent. |
+| MongoDB flavors | Amazon DocumentDB and Azure Cosmos DB connect as MongoDB and are untested; there is no test server for them. |
+| MongoDB GSSAPI | The Kerberos mechanism is not offered: the app is built without the driver's Kerberos support. |
+| MongoDB OIDC | The MONGODB-OIDC mechanism is not offered: the driver logs in with it only given an `ENVIRONMENT` property or a callback, which the app does not set. |
 | ClickHouse | Rows cannot be edited in the grid, because ClickHouse changes rows with asynchronous mutations. Use SQL. |
 | SQL Server batches | The editor reads every result of a T-SQL batch, each up to the row limit, before it shows the first page: the driver reads the next result only after the one before it. |
 | Oracle columns of no length | The Oracle driver, go-ora, reads no rows of a result with a column Oracle describes with no length, as a `NULL` or `''` selected as it is, and fails reading one among other columns. The app reports an error rather than show no rows. Give such a column a type, as `CAST(NULL AS VARCHAR2(1))`. |

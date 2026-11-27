@@ -71,6 +71,8 @@ const (
 	// KindKeyValue engines store values by key; their rules are
 	// KeyValueRules.
 	KindKeyValue
+	// KindDocument engines store documents; their rules are DocumentRules.
+	KindDocument
 )
 
 // KeyValueRules is what a key-value engine answers besides; packages
@@ -639,6 +641,8 @@ var registeredRules = map[Engine]engineRules{
 	ClickHouse:  clickhouseEngine{},
 	Redis:       redisEngine{},
 	Valkey:      valkeyEngine{},
+	MongoDB:     mongodbEngine{},
+	FerretDB:    ferretdbEngine{},
 	SQLite:      sqliteEngine{},
 	DuckDB:      duckdbEngine{},
 	SQLServer:   sqlserverEngine{},

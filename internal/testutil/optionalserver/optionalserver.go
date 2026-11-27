@@ -27,8 +27,12 @@ var servers = map[string]server{
 	"valkey":          {"127.0.0.1:16386", "compat", "valkey"},
 	"valkey-cluster":  {"127.0.0.1:17100", "compat", "valkey-cluster"},
 	"valkey-sentinel": {"127.0.0.1:26390", "compat", "valkey-sentinel"},
-	"sqlserver":       {"127.0.0.1:11433", "enterprise", "sqlserver"},
-	"oracle":          {"127.0.0.1:11521", "enterprise", "oracle"},
+	// MongoDB's standalone server and FerretDB
+	// (internal/testutil/mongoserver).
+	"mongo-standalone": {"127.0.0.1:27019", "compat", "mongo-standalone"},
+	"ferretdb":         {"127.0.0.1:27020", "compat", "ferretdb"},
+	"sqlserver":        {"127.0.0.1:11433", "enterprise", "sqlserver"},
+	"oracle":           {"127.0.0.1:11521", "enterprise", "oracle"},
 	// The oracle service's TCPS listeners, absent from a container made
 	// before compose.yaml had them, which the command makes again.
 	"oracle-tcps":      {"127.0.0.1:12484", "enterprise", "oracle"},

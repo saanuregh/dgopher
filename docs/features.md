@@ -16,4 +16,5 @@ lists the default keys.
 | [Moving data](features/moving-data.md) | importing files, copying tables, comparing rows, test data, backup and restore, running SQL files |
 | [Server administration](features/administration.md) | server activity, users and privileges, maintenance |
 | [Redis](features/redis.md) | keys, values, search, the console and the server panels |
+| [MongoDB](features/mongodb.md) | connecting, the collection browser and its document edits, and the console |
 | [The window](features/window.md) | menus, the palette, tabs, editor groups, windows, errors, notifications, settings, themes and accessibility |

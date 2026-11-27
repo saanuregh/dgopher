@@ -37,6 +37,8 @@ func TestEngineFactsPinned(t *testing.T) {
 		MariaDB:     {"MariaDB", 3306, "root", sqltext.MySQL, "SELECT VERSION()", mariadbDialect{}, []BackupFormat{BackupSQL}},
 		TiDB:        {"TiDB", 4000, "root", sqltext.MySQL, "SELECT VERSION()", tidbDialect{}, []BackupFormat{BackupSQL}},
 		Valkey:      {"Valkey", 6379, "", sqltext.Generic, "", nil, nil},
+		MongoDB:     {"MongoDB", 27017, "", sqltext.Generic, "", nil, nil},
+		FerretDB:    {"FerretDB", 27017, "", sqltext.Generic, "", nil, nil},
 
 		SQLServer: {"SQL Server", 1433, "sa", sqltext.TSQL, "SELECT CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(128))", sqlserverDialect{}, []BackupFormat{BackupBacpac, BackupServerFile}},
 		Oracle:    {"Oracle", 1521, "system", sqltext.Oracle, "SELECT version_full FROM product_component_version WHERE ROWNUM = 1", oracleDialect{}, []BackupFormat{BackupDataPump}},
@@ -89,7 +91,7 @@ func TestEngineRulesCover(t *testing.T) {
 			t.Errorf("%q: SQL ok = %v, want %v", e, isSQL, !isSQL)
 		}
 		switch r.Kind() {
-		case KindSQL, KindKeyValue:
+		case KindSQL, KindKeyValue, KindDocument:
 		default:
 			t.Errorf("%q: Kind() = %v, no kind", e, r.Kind())
 		}
@@ -98,6 +100,9 @@ func TestEngineRulesCover(t *testing.T) {
 		}
 		if _, isKeyValue := KeyValue(e); (r.Kind() == KindKeyValue) != isKeyValue {
 			t.Errorf("%q: Kind() = %v, but KeyValue ok = %v", e, r.Kind(), isKeyValue)
+		}
+		if _, isDocument := Document(e); (r.Kind() == KindDocument) != isDocument || e.IsDocument() != isDocument {
+			t.Errorf("%q: Kind() = %v, but Document ok = %v", e, r.Kind(), isDocument)
 		}
 		if isSQL {
 			if s.Engine() != e {
@@ -122,6 +127,9 @@ func TestEngineRulesCover(t *testing.T) {
 	}
 	if _, ok := KeyValue("unknown"); ok {
 		t.Error("KeyValue(unknown) is ok: an unknown engine has no key-value rules")
+	}
+	if _, ok := Document("unknown"); ok {
+		t.Error("Document(unknown) is ok: an unknown engine has no document rules")
 	}
 	if k := Engine("unknown").Kind(); k != KindSQL {
 		t.Errorf("unknown engine's Kind() = %v, want KindSQL", k)
@@ -163,6 +171,8 @@ func TestServerEnforcesReadOnly(t *testing.T) {
 	want := map[Engine]bool{
 		Postgres: true, CockroachDB: true, YugabyteDB: true, TimescaleDB: true, MySQL: true, MariaDB: true, TiDB: false,
 		ClickHouse: true, SQLite: true, DuckDB: true, Redis: false, Valkey: false, "unknown": false, SQLServer: false,
+		// The app checks a read-only MongoDB connection alone.
+		MongoDB: false, FerretDB: false,
 		// From 23ai (ServerReadOnlySince).
 		Oracle: true,
 	}

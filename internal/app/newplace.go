@@ -144,6 +144,8 @@ func (a *App) placeItem(at connection.Place, here bool) paletteItem {
 	switch {
 	case cn.Config.Engine.IsKeyValue():
 		detail = "key browser"
+	case cn.Config.Engine.IsDocument():
+		detail = "console"
 	case cn.Status != connection.StatusConnected:
 		detail = strings.TrimPrefix(detail+" · not connected", " · ")
 	}

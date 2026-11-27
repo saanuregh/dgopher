@@ -30,6 +30,8 @@ folder ([Where things are kept](storage.md)).
 - Imports, exports, backups and restores.
 - Cancelled queries and ended sessions.
 - Redis commands.
+- MongoDB statements, of kind **mongo**: those run in the console, and
+  those a document Save builds, one per edit.
 - Each confirmation the safety policy asked for, and whether the
   connection's name was typed.
 - What the policy refused.
@@ -43,8 +45,8 @@ folder ([Where things are kept](storage.md)).
 
 ### Traffic
 
-Besides those entries, the log records every statement and Redis command
-that DGopher itself sends to a server, exactly as sent. These entries are
+Besides those entries, the log records every statement, Redis command
+and MongoDB command that DGopher itself sends to a server, exactly as sent. These entries are
 marked **traffic**. They include:
 
 - what the app reads to describe a database: schemas, tables, columns and
@@ -69,6 +71,10 @@ How traffic is kept:
 - Secrets are redacted, as in other entries.
 - A statement or Redis argument longer than 4 KB keeps its first 4 KB and
   its full length.
+- A MongoDB command is kept as the server received it, in relaxed
+  Extended JSON, without the `$db`, `lsid` and `$clusterTime` fields the
+  driver adds. Commands that carry credentials (`saslStart`,
+  `createUser`, `updateUser`, …) keep only their name.
 - Traffic is written in batches: within a quarter of a second, or as soon
   as 256 entries wait, and always before the next non-traffic entry. A
   crash can lose the last moment of traffic.
@@ -82,7 +88,8 @@ How traffic is kept:
 No hook in the app sees these, so they are not in the log:
 
 - What a driver sends to connect and disconnect: Redis `HELLO`, `AUTH` and
-  `SELECT`, MySQL's handshake, and ClickHouse's first query over HTTP.
+  `SELECT`, MySQL's handshake, ClickHouse's first query over HTTP, and
+  the MongoDB driver's handshake and server monitoring.
 - Redis keep-alive pings, cluster topology reads and Sentinel's
   subscription.
 - Protocol messages that carry no statement text: MySQL's statement
@@ -105,7 +112,7 @@ Each entry holds:
 
 **Who wrote it.** A statement is either:
 
-- **typed** by a person, in an editor, the Redis console, a SQL or command
+- **typed** by a person, in an editor, the Redis or MongoDB console, a SQL or command
   file, or a dashboard panel; or
 - made by the **app** for something you asked, such as a grid's page, a
   `BEGIN` before a change is counted, or a grid edit.
@@ -150,7 +157,12 @@ though the server received the values separately, as parameters.
   first. Two DGopher windows on one project keep one chain, and a crash
   cannot leave half an entry.
 - Secrets are redacted before they are written. See
-  [How SQL is read](sql.md#secrets) for what counts as a secret.
+  [How SQL is read](sql.md#secrets) for what counts as a secret. A
+  MongoDB statement's entry is redacted by `redact.Mongo` first: the
+  values of `pwd` and `password` fields, the password `auth` and
+  `changeUserPassword` take, and a connection string's password become
+  `•••`, and the same values are hidden in the entry's error, as a
+  duplicate key error that quotes the key's value.
 
 ## Export
 

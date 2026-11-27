@@ -7,6 +7,7 @@ import (
 	"dgopher/internal/db"
 	"dgopher/internal/redact"
 	"dgopher/internal/ui/dataview"
+	"dgopher/internal/ui/mongo"
 	"dgopher/internal/ui/redis"
 	"dgopher/internal/ui/widgets"
 
@@ -21,6 +22,9 @@ const (
 	savedActivity = "activity"
 	savedUsers    = "users"
 	savedSearch   = "search"
+	// A MongoDB collection's documents, and a console on a database.
+	savedCollection = "collection"
+	savedConsole    = "console"
 )
 
 // savedTab is a tab of a connection kept from one run to the next: what
@@ -72,6 +76,10 @@ func savedTabOf(t widgets.Tab) (savedTab, bool) {
 		return savedTab{Kind: savedDiagram, Connection: t.Connection().Config.ID, Database: database, Schema: schema}, true
 	case *redis.Tab:
 		return savedTab{Kind: savedKeys, Connection: t.Connection().Config.ID}, true
+	case *mongo.CollectionTab:
+		return savedTab{Kind: savedCollection, Connection: t.Connection().Config.ID, Database: t.Database, Name: t.Collection, Filter: keptMongoFilter(t.Filter())}, true
+	case *mongo.ConsoleTab:
+		return savedTab{Kind: savedConsole, Connection: t.Connection().Config.ID, Database: t.Database}, true
 	case *activityTab:
 		return savedTab{Kind: savedActivity, Connection: t.conn.Config.ID}, true
 	case *usersTab:
@@ -80,6 +88,15 @@ func savedTabOf(t widgets.Tab) (savedTab, bool) {
 		return savedTab{Kind: savedSearch, Connection: t.conn.Config.ID, Database: t.database}, true
 	}
 	return savedTab{}, false
+}
+
+// keptMongoFilter is a collection's filter as workspace.json keeps it:
+// as a table's, "" when it holds a secret.
+func keptMongoFilter(filter string) string {
+	if redact.Secrets(redact.Mongo(filter)) != filter {
+		return ""
+	}
+	return filter
 }
 
 // same reports whether two saved tabs show the same thing, as the openers
@@ -147,6 +164,22 @@ var savedKinds = map[string]savedKind{
 		icon:  widgets.IconKey,
 		title: func(conn string, _ savedTab) string { return conn + " · keys" },
 		what:  func(savedTab) string { return "The keys" },
+	},
+	savedCollection: {
+		on: db.Engine.IsDocument,
+		open: func(a *App, cn *connection.Conn, s savedTab) {
+			a.openMongoCollectionWith(cn, s.Database, s.Name, s.Filter)
+		},
+		icon:  widgets.IconTable,
+		title: func(_ string, s savedTab) string { return s.Database + "." + s.Name },
+		what:  func(s savedTab) string { return "The documents of " + s.Database + "." + s.Name },
+	},
+	savedConsole: {
+		on:    db.Engine.IsDocument,
+		open:  func(a *App, cn *connection.Conn, s savedTab) { a.openMongoConsole(cn, s.Database) },
+		icon:  widgets.IconTerminal,
+		title: func(conn string, _ savedTab) string { return conn + " · console" },
+		what:  func(s savedTab) string { return "A console on " + s.Database },
 	},
 	savedActivity: {
 		on:    func(e db.Engine) bool { return len(e.ActivityPages()) > 0 },

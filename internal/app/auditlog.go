@@ -77,6 +77,12 @@ func sealed(cfg *db.Config, e audit.Event) audit.Event {
 	if e.Err != nil && e.Error == "" {
 		e.Error = secretcmd.AuditText(e.Err)
 	}
+	if cfg != nil && cfg.Engine.IsDocument() {
+		// The error is searched for the secrets of the statement as it
+		// was, before they are hidden.
+		e.Error = redact.MongoError(redact.MongoError(e.Error, e.Statement), e.Typed)
+		e.Statement, e.Typed = redact.Mongo(e.Statement), redact.Mongo(e.Typed)
+	}
 	e.Error = redact.Error(redact.Error(e.Error, e.Statement), e.Typed)
 	e.Statement, e.Typed, e.Params = redact.Secrets(e.Statement), redact.Secrets(e.Typed), redact.Secrets(e.Params)
 	return e
@@ -116,8 +122,13 @@ func (a *App) recordSent(cfg *db.Config, s db.Sent) {
 		if s.Args > 0 {
 			e.Params = fmt.Sprintf("%d sent apart", s.Args)
 		}
-		if s.Redis != nil {
+		switch {
+		case s.Redis != nil:
 			e.Statement = redact.Redis(s.Redis)
+		case s.Mongo != "":
+			// The body, redacted whole as SQL is; a command that carries
+			// credentials is sent without one, and named alone.
+			e.Statement = cmp.Or(s.Text, s.Mongo)
 		}
 		e = sealed(&connConfig, e)
 		e.Statement = cutText(e.Statement)
@@ -144,7 +155,11 @@ func connectionSummary(cfg *db.Config) string {
 	if cfg.Engine.IsFile() {
 		parts = append(parts, "file "+cfg.Database)
 	} else {
-		parts = append(parts, fmt.Sprintf("%s@%s:%d", cfg.User, cfg.Host, cfg.Port))
+		where := fmt.Sprintf("%s@%s:%d", cfg.User, cfg.Host, cfg.Port)
+		if cfg.Engine.IsDocument() && cfg.Mongo.SRV {
+			where = cfg.User + "@" + cfg.Host // its DNS SRV record names the ports
+		}
+		parts = append(parts, where)
 		tls := cmp.Or(string(cfg.TLS), "disable")
 		parts = append(parts, "tls "+tls)
 	}
@@ -157,6 +172,7 @@ func connectionSummary(cfg *db.Config) string {
 	if cfg.Redis.Nodes != "" {
 		parts = append(parts, "nodes "+cfg.Redis.Nodes)
 	}
+	parts = append(parts, mongoSummary(cfg)...)
 	if cfg.SSH.Enabled {
 		parts = append(parts, "ssh "+cfg.SSH.User+"@"+cfg.SSH.Host)
 	}

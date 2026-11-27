@@ -34,7 +34,7 @@ The environment decides what asks first.
 | Destructive statements (below) | ask | ask | ask, and you type the connection's name |
 | Default commit mode | auto | auto | manual |
 
-ClickHouse and Redis always use auto-commit.
+ClickHouse, Redis and the MongoDB console always use auto-commit.
 
 ![On a production connection, a DELETE without WHERE asks for the
 connection's name to be typed before it runs](images/production-confirm.png)
@@ -55,6 +55,7 @@ These always ask, in every environment:
   `MOVE PARTITION … TO TABLE`.
 - `ALTER … TRUNCATE PARTITION`.
 - Redis `FLUSHALL`, `FLUSHDB`, `KEYS` and similar commands.
+- MongoDB statements listed under [MongoDB](#mongodb).
 
 ### Redis
 
@@ -62,6 +63,48 @@ Redis commands that write follow the Writes row. Commands that need a
 connection of their own, such as `SELECT`, `AUTH`, `MULTI`, `SUBSCRIBE`
 and `MONITOR`, are refused everywhere. The console and the key browser
 share a pool of connections, so such a command would affect the others.
+
+### MongoDB
+
+MongoDB shell statements follow Redis's rules
+(`safety.ReviewMongo`): writes ask on production only, and schema changes
+such as `createIndex` count as writes. Every statement is classified
+before it is sent; the console runs no JavaScript, so nothing runs that
+was not classified.
+
+- **Writes:** inserts, updates, replaces, deletes, `findOneAndX`,
+  `bulkWrite`, index and collection changes, an `aggregate` with `$out`
+  or `$merge`, and an explained write. A `runCommand` counts as a read
+  only when its command is a known read (`find`, `count`, `listX`,
+  `serverStatus`, …); any other command, or one the app does not know,
+  counts as a write. `adminCommand` and `commandHelp` are judged as the
+  command they name.
+- **Destructive, so they always ask** (with the name typed on
+  production): `drop`, `dropDatabase`, `renameCollection`,
+  `dropIndexes` and `dropIndex("*")`, `deleteMany`, `updateMany` and
+  `remove` with an empty filter (and the same inside `bulkWrite` or a
+  `runCommand`), `killOp`, and `shutdown`. `remove(filter, {justOne: …})`
+  deletes one document when `justOne` is truthy as `mongosh` reads it,
+  and every match otherwise.
+- **A `deleteMany` or `updateMany` that asks** counts its matches first,
+  and the question says how many (or that they could not be counted in
+  time). There is no large-change limit as for SQL: the count only
+  informs the question.
+- **Document edits break the grid rule below.** Save applies the
+  pending edits in one transaction where the server has transactions (a
+  replica set or sharded cluster, not FerretDB): each edit must change
+  exactly one document by its `_id`, or all roll back. An edit is an
+  `updateOne` with `$set` and `$unset`, or, when a changed field's name
+  holds a dot or starts with `$`, an `updateOne` with a pipeline that
+  sets that field by its name with `$setField`; no edit replaces a whole
+  document. On a standalone
+  server or FerretDB they apply one at a time and stop at the first
+  failure; the edits before it stay, and the confirmation says so before
+  you save. Stop takes effect before the next edit; while a save runs,
+  the tab refuses Find, Refresh, Discard, Load More and Fetch All, and
+  while documents are read it refuses edits and Save. When the commit's
+  result is unknown, the error says the save may or may not have
+  happened.
 
 ## Read-only connections
 
@@ -85,6 +128,7 @@ A read-only connection refuses writes in two places:
   | ClickHouse | `readonly=2` |
   | SQLite | `mode=ro` with `query_only` |
   | DuckDB | `access_mode=READ_ONLY` |
+  | MongoDB, FerretDB | none: MongoDB has no read-only session, so the app's check is the only one |
 
 The app also refuses any statement that could switch read-only off: one
 that contains `READ WRITE`, `set_config`, `read_only`, `readonly`,
@@ -441,7 +485,8 @@ statement to review in the question that asks to apply it](images/edit-review.pn
 
 - Grid edits are shown as SQL to review, then applied in one transaction.
   Each statement must change exactly one row by primary key, or everything
-  rolls back.
+  rolls back. MongoDB document edits differ on servers without
+  transactions; see [MongoDB](#mongodb).
 - Inside an open transaction, grid changes go behind a savepoint. A failed
   apply rolls back to it and keeps the transaction. DuckDB has no
   savepoints, so grid changes are refused there while a transaction is

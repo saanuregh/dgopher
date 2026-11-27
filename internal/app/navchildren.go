@@ -158,7 +158,7 @@ func (a *App) navChildren(n navNode) []navNode {
 	open := a.nav.isOpen(n)
 	switch n.kind {
 	case nodeConn:
-		if cn.Config.Engine.IsKeyValue() {
+		if !cn.Config.Engine.IsSQL() && !cn.Config.Engine.IsDocument() {
 			return nil
 		}
 		opened := open && !a.nav.openConns[n.conn]
@@ -180,6 +180,9 @@ func (a *App) navChildren(n navNode) []navNode {
 			}
 			return info(n, "")
 		}
+		if cn.Config.Engine.IsDocument() {
+			return a.docDatabaseNodes(cn, n, open)
+		}
 		if len(cn.Databases) > 1 {
 			out := make([]navNode, len(cn.Databases))
 			for i, d := range cn.Databases {
@@ -191,6 +194,8 @@ func (a *App) navChildren(n navNode) []navNode {
 			return out
 		}
 		return a.schemaNodes(cn, "", open)
+	case nodeDocDatabase, nodeDocFolder, nodeDocCollection:
+		return a.docChildren(cn, n, open)
 	case nodeDatabase:
 		return a.schemaNodes(cn, n.database, open)
 	case nodeSchema:

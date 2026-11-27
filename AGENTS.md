@@ -2,7 +2,8 @@
 
 DGopher is a native database client for PostgreSQL (and CockroachDB,
 YugabyteDB, TimescaleDB), MySQL (and MariaDB, TiDB), SQL Server, Oracle,
-ClickHouse, SQLite, DuckDB and Redis: one Go binary whose UI is drawn by
+ClickHouse, SQLite, DuckDB, Redis (and Valkey) and MongoDB (and FerretDB):
+one Go binary whose UI is drawn by
 [MyGo](https://mygo.egoist.dev), without a webview.
 
 **Read [docs/development.md](docs/development.md) for the package layout,
@@ -29,9 +30,12 @@ tests.
   as `internal/db/postgres.go`), so an engine missing a hook does not
   compile. Engines come in families (`Engine.Kind()`): outside
   `internal/db`, reach the rules through `Engine` methods and the family's
-  entry point, `db.SQL(e)` or `db.KeyValue(e)`, whose `false` the caller
-  handles. A connection holds one `db.Store` (`Conn.Store`, read as
-  `Conn.DB()` or `Conn.KV()`). Do not compare with an engine outside the
+  entry point, `db.SQL(e)`, `db.KeyValue(e)` or `db.Document(e)`, whose
+  `false` the caller handles. Gate a family by what it is (`IsSQL()`,
+  `IsKeyValue()`, `IsDocument()`), never by what it is not, so a new
+  family cannot fall into another's code. A connection holds one
+  `db.Store` (`Conn.Store`, read as `Conn.DB()`, `Conn.KV()` or
+  `Conn.Doc()`). Do not compare with an engine outside the
   reviewed list in `TestNoEngineSwitches`, which fails on a new
   comparison. An engine built on another's type (as MariaDB on MySQL's)
   declares its own `Engine()`, and a dialect type of its own embedding
@@ -66,16 +70,18 @@ integration tests too when it touches `internal/db`.
 
 - Integration servers are the containers of `compose.yaml`: `dgopher-pg`,
   `dgopher-mysql`, `dgopher-ch`, `dgopher-redis`, `dgopher-redis8`,
-  `dgopher-redis-cluster` and `dgopher-redis-sentinel`, and, started with
+  `dgopher-redis-cluster`, `dgopher-redis-sentinel` and `dgopher-mongo`, and, started with
   `go run ./tools/dev servers up --profile compat`, `dgopher-mariadb`,
   `dgopher-tidb`, `dgopher-cockroachdb`, `dgopher-yugabytedb`,
-  `dgopher-timescaledb`, `dgopher-valkey`, `dgopher-valkey-cluster` and
-  `dgopher-valkey-sentinel`, and, with `--profile enterprise`,
+  `dgopher-timescaledb`, `dgopher-valkey`, `dgopher-valkey-cluster`,
+  `dgopher-valkey-sentinel`, `dgopher-mongo-standalone` and
+  `dgopher-ferretdb`, and, with `--profile enterprise`,
   `dgopher-sqlserver` and `dgopher-oracle`; their tests skip when they are not running. Their ports and passwords are in
   `internal/testutil/testutil.go`,
   `internal/db/integration_test.go`, for the profiled servers
   `internal/testutil/optionalserver/optionalserver.go`, and, for Redis and
-  Valkey, `internal/testutil/redisserver`; keep `compose.yaml` matching them.
+  Valkey, `internal/testutil/redisserver`, and, for MongoDB and FerretDB,
+  `internal/testutil/mongoserver`; keep `compose.yaml` matching them.
   `go run ./tools/dev test --it --redis valkey` runs the Redis tests against
   Valkey's servers.
   Tests call `testutil.Integration(t)`, which serializes them on Unix;

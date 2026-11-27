@@ -2,7 +2,7 @@
 
 What each engine supports in DGopher. CockroachDB, YugabyteDB and
 TimescaleDB are engines of PostgreSQL's family, MariaDB and TiDB of
-MySQL's, and Valkey of Redis's: each supports what its family's engine does in the tables
+MySQL's, Valkey of Redis's, and FerretDB of MongoDB's: each supports what its family's engine does in the tables
 below, except where its own section under
 [Engines of a family](#engines-of-a-family) says otherwise. [Features](features.md) describes each feature, and
 [Known limitations](limitations.md) explains the gaps.
@@ -12,30 +12,30 @@ below, except where its own section under
 
 ## Connecting
 
-| | PostgreSQL | MySQL | SQL Server | Oracle | ClickHouse | SQLite | DuckDB | Redis |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| TLS (prefer, require, verify-full) | ✓ | ✓ | ✓ | require, verify-full | ✓ | — | — | ✓ |
-| SSH tunnel | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | ✓ |
-| SOCKS5 or HTTP proxy | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | ✓ |
-| Cloud IAM (AWS, Google Cloud, Entra ID) | ✓ | ✓ | Entra ID | — | — | — | — | — |
-| Kerberos | ✓ | — | ✓ | — | — | — | — | — |
-| Clear-text password (LDAP, PAM) | — | ✓ | — | — | — | — | — | — |
-| Several databases on one connection | ✓ | ✓ (as schemas) | ✓ | — (a service each) | ✓ (as schemas) | — | — | — |
-| In memory | — | — | — | — | — | ✓ | ✓ | — |
-| Cluster or Sentinel | — | — | — | — | — | — | — | ✓ |
-| Idle connections disconnect | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | ✓ |
+| | PostgreSQL | MySQL | SQL Server | Oracle | ClickHouse | SQLite | DuckDB | Redis | MongoDB |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| TLS (prefer, require, verify-full) | ✓ | ✓ | ✓ | require, verify-full | ✓ | — | — | ✓ | ✓ |
+| SSH tunnel | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | ✓ (not with DNS SRV) |
+| SOCKS5 or HTTP proxy | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | ✓ (not with DNS SRV) |
+| Cloud IAM (AWS, Google Cloud, Entra ID) | ✓ | ✓ | Entra ID | — | — | — | — | — | — |
+| Kerberos | ✓ | — | ✓ | — | — | — | — | — | — |
+| Clear-text password (LDAP, PAM) | — | ✓ | — | — | — | — | — | — | — |
+| Several databases on one connection | ✓ | ✓ (as schemas) | ✓ | — (a service each) | ✓ (as schemas) | — | — | — | ✓ |
+| In memory | — | — | — | — | — | ✓ | ✓ | — | — |
+| Cluster or Sentinel | — | — | — | — | — | — | — | ✓ | replica set, sharded cluster |
+| Idle connections disconnect | ✓ | ✓ | ✓ | ✓ | ✓ | — | — | ✓ | ✓ |
 
 ## Safety and transactions
 
-| | PostgreSQL | MySQL | SQL Server | Oracle | ClickHouse | SQLite | DuckDB | Redis |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Transactions and manual commit | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ | — |
-| Savepoints | ✓ | ✓ | — | — | — | ✓ | — | — |
-| Schema changes inside a transaction | ✓ | — | ✓ | — | — | ✓ | ✓ | — |
-| Read-only enforced by the server | ✓ | ✓ | — (the app's check only) | from 23ai (the app's check only before) | ✓ | ✓ | ✓ | — (the app's check only) |
-| Large changes held for confirmation | ✓ | ✓ | ✓ | ✓ | — | ✓ (files, not in memory) | — | — |
-| Idle transactions roll back | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ | — |
-| One connection shared by all tabs | — | — | — | — | — | in memory | ✓ | — |
+| | PostgreSQL | MySQL | SQL Server | Oracle | ClickHouse | SQLite | DuckDB | Redis | MongoDB |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Transactions and manual commit | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ | — | — (autocommit; document edits save in one transaction, see [MongoDB](#mongodb)) |
+| Savepoints | ✓ | ✓ | — | — | — | ✓ | — | — | — |
+| Schema changes inside a transaction | ✓ | — | ✓ | — | — | ✓ | ✓ | — | — |
+| Read-only enforced by the server | ✓ | ✓ | — (the app's check only) | from 23ai (the app's check only before) | ✓ | ✓ | ✓ | — (the app's check only) | — (the app's check only) |
+| Large changes held for confirmation | ✓ | ✓ | ✓ | ✓ | — | ✓ (files, not in memory) | — | — | — |
+| Idle transactions roll back | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ | — | — |
+| One connection shared by all tabs | — | — | — | — | — | in memory | ✓ | — | — |
 
 DuckDB and in-memory SQLite share one connection, so all their tabs share
 one transaction; see [Safety model](safety.md#duckdb-and-in-memory-sqlite).
@@ -78,15 +78,15 @@ Redis has its own key [export and import](features/redis.md#keys).
 
 ## Administration
 
-| | PostgreSQL | MySQL | SQL Server | Oracle | ClickHouse | SQLite | DuckDB | Redis |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Sessions, with cancel | ✓ | ✓ | ✓ (ending them only) | ✓ (`ALTER SYSTEM CANCEL SQL`) | ✓ | — | — | clients |
-| End a session | ✓ | ✓ | ✓ (`KILL`) | ✓ (`KILL SESSION`) | — | — | — | disconnect a client |
-| Locks | ✓ | ✓ | ✓ | ✓ | — | — | — | — |
-| Slowest statements | ✓ (`pg_stat_statements`) | ✓ (`performance_schema`) | ✓ (`sys.dm_exec_query_stats`) | ✓ (`V$SQLSTATS`) | ✓ (`system.query_log`) | — | — | slow log |
-| Live metrics | — | — | — | — | ✓ | — | — | ✓ |
-| Users and privileges | ✓ | ✓ | ✓ (logins and users) | ✓ (users and roles) | ✓ | — | — | — |
-| Maintenance | VACUUM, VACUUM ANALYZE, VACUUM FULL, ANALYZE, REINDEX | ANALYZE, OPTIMIZE, CHECK | UPDATE STATISTICS, index REORGANIZE and REBUILD, DBCC CHECKTABLE | statistics (`DBMS_STATS`), MOVE, SHRINK SPACE, VALIDATE STRUCTURE | OPTIMIZE, OPTIMIZE FINAL | ANALYZE, REINDEX | — | — |
+| | PostgreSQL | MySQL | SQL Server | Oracle | ClickHouse | SQLite | DuckDB | Redis | MongoDB |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Sessions, with cancel | ✓ | ✓ | ✓ (ending them only) | ✓ (`ALTER SYSTEM CANCEL SQL`) | ✓ | — | — | clients | — |
+| End a session | ✓ | ✓ | ✓ (`KILL`) | ✓ (`KILL SESSION`) | — | — | — | disconnect a client | — |
+| Locks | ✓ | ✓ | ✓ | ✓ | — | — | — | — | — |
+| Slowest statements | ✓ (`pg_stat_statements`) | ✓ (`performance_schema`) | ✓ (`sys.dm_exec_query_stats`) | ✓ (`V$SQLSTATS`) | ✓ (`system.query_log`) | — | — | slow log | — |
+| Live metrics | — | — | — | — | ✓ | — | — | ✓ | — |
+| Users and privileges | ✓ | ✓ | ✓ (logins and users) | ✓ (users and roles) | ✓ | — | — | — | — |
+| Maintenance | VACUUM, VACUUM ANALYZE, VACUUM FULL, ANALYZE, REINDEX | ANALYZE, OPTIMIZE, CHECK | UPDATE STATISTICS, index REORGANIZE and REBUILD, DBCC CHECKTABLE | statistics (`DBMS_STATS`), MOVE, SHRINK SPACE, VALIDATE STRUCTURE | OPTIMIZE, OPTIMIZE FINAL | ANALYZE, REINDEX | — | — | — |
 
 The slowest-statements page needs the server to collect them: the
 `pg_stat_statements` extension on PostgreSQL, `performance_schema` on
@@ -321,6 +321,22 @@ the whole Redis suite: one server, a cluster and Sentinel.
   server without it refuses the database, and the error says so.
 - **Server Activity** shows Valkey's own version.
 
+### FerretDB
+
+FerretDB answers MongoDB's protocol over PostgreSQL with the DocumentDB
+extension. It works as [MongoDB](#mongodb) does, but for what it lacks.
+Tested against the FerretDB server in `compose.yaml`.
+
+- **Identity:** FerretDB names itself in `buildInfo`, so the app shows
+  FerretDB's own version, and a MongoDB connection that reaches FerretDB
+  offers **Use FerretDB**, as the other families do. It has no URL
+  scheme of its own: paste a `mongodb://` URL and pick FerretDB.
+- **No transactions:** document edits save one by one, as on a
+  standalone MongoDB server ([Safety model](safety.md#mongodb)).
+- **What it lacks** (from the commands FerretDB registers): the profiler,
+  change streams, granting roles to users, and `killOp`. It also explains
+  no writes, and takes `capped: true` without keeping a cap.
+
 ## SQL Server
 
 SQL Server 2019 and later, and Azure SQL Database; tested on SQL Server
@@ -513,3 +529,50 @@ statements need:
 | Backup | `READ` and `WRITE` on the directory object; `DATAPUMP_EXP_FULL_DATABASE` for another user's schema |
 | Restore | `READ` and `WRITE` on the directory object; `DATAPUMP_IMP_FULL_DATABASE` for another user's schema |
 | Maintenance | nothing more on your own tables; on another user's, `ANALYZE ANY` (statistics, Validate Structure) or `ALTER ANY TABLE` (Move, Shrink Space) |
+
+## MongoDB
+
+MongoDB on one server, a replica set or a sharded cluster, and
+[FerretDB](#ferretdb) as an engine of its family. Tested against the
+replica set and the standalone server in `compose.yaml`. Amazon
+DocumentDB and Azure Cosmos DB for MongoDB are not engines of their own:
+they connect as MongoDB, untested, and what they lack fails with the
+server's error.
+
+- **Connecting:** a `mongodb://` URL with several hosts, or a
+  `mongodb+srv://` URL whose DNS SRV record names the servers (TLS on
+  unless the URL says not). The form has DNS SRV, more hosts, replica
+  set, auth source, auth mechanism, read preference and direct
+  connection. A DNS SRV connection takes no port, no more hosts, and no
+  SSH tunnel or proxy, since the record is looked up on this machine.
+  Its `authSource`, when the record's TXT entry names one, outranks the
+  database, as in `mongosh`.
+  A direct connection talks to one server alone, not to its replica set.
+- **Auth mechanisms:** the server's default, SCRAM-SHA-1, SCRAM-SHA-256,
+  MONGODB-X509, MONGODB-AWS and PLAIN, handled by the Go driver; the
+  app's own cloud logins do not apply. A URL that names another, in any
+  case, is refused. GSSAPI (Kerberos) is not offered: the driver
+  supports it only in a build with its `gssapi` tag, which the app does
+  not use. MONGODB-OIDC is not offered either: the driver logs in with
+  it only given an `ENVIRONMENT` property or a callback, which the app
+  does not set.
+- **The database field**, when empty, logs in to `admin` and opens the
+  console and collection tabs on `test`, as `mongosh` does; the
+  navigator lists every database of the server.
+- **Reads** follow the read preference; writes always go to the primary.
+- **Transactions:** the console runs each statement on its own
+  (autocommit). Saving document edits uses one transaction on a replica
+  set or sharded cluster, and one edit at a time on a standalone server
+  ([Safety model](safety.md#mongodb)).
+- **Read-only** is the app's check only: the server has no read-only
+  session.
+- **Not supported:** JavaScript in the console, transactions started in
+  the console, client-side field-level and Queryable Encryption, Atlas
+  Search indexes and Atlas's admin APIs, and sharding and replica-set
+  administration. Indexes, validation, explain, export and import,
+  backup, server activity, users, and the aggregation editor are not
+  there yet. DBeaver Community Edition has no MongoDB support, so there is
+  nothing of it to match or import.
+
+See [MongoDB](features/mongodb.md) for the collection browser and the
+console.

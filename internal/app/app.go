@@ -444,8 +444,9 @@ func (a *App) connByID(id string) *connection.Conn {
 // through a proxy, with a client certificate, through jump hosts or with
 // a cloud identity it was not typed for.
 func secretKey(cfg *db.Config, what string) string {
-	// A cluster's nodes, the sentinels, the client certificate, the jump
-	// hosts, the proxy and the identity are where a password goes too.
+	// A cluster's nodes, the sentinels, a MongoDB deployment's hosts, the
+	// client certificate, the jump hosts, the proxy and the identity are
+	// where a password goes too.
 	// They join only when set, for the keys of the passwords kept before
 	// they existed to stay as they were.
 	return keyOf(cfg, what, serverWhere(cfg)+clientCertWhere(cfg)+jumpWhere(cfg)+proxyWhere(cfg)+identityWhere(cfg))
@@ -472,7 +473,7 @@ func keyOf(cfg *db.Config, what, where string) string {
 // tunnel.
 func serverWhere(cfg *db.Config) string {
 	return fmt.Sprintf("%s|%s|%d|%s|%s|%v|%s|%d|%s%s", cfg.Engine, cfg.Host, cfg.Port, cfg.User, cfg.Database,
-		cfg.SSH.Enabled, cfg.SSH.Host, cfg.SSH.Port, cfg.SSH.User, redisWhere(cfg))
+		cfg.SSH.Enabled, cfg.SSH.Host, cfg.SSH.Port, cfg.SSH.User, redisWhere(cfg)+mongoWhere(cfg))
 }
 
 // redisWhere is where a Redis connection's passwords go besides its host,
@@ -1144,6 +1145,7 @@ func (a *App) refresh(cn *connection.Conn) {
 		return
 	}
 	cn.Reset()
+	delete(a.nav.docs, cn.Config.ID)
 	if cn.DB() != nil {
 		a.loadSchemas(cn, "")
 	}
@@ -1231,11 +1233,16 @@ func (a *App) endTab(t widgets.Tab, title string, then func(w *window, g *panes.
 	a.requestEnd(endClose, title, "", []widgets.Tab{t}, nil, end)
 }
 
-// NewQueryTab opens a SQL editor on a new query file of a connection, or
-// the key browser of a key-value engine's.
+// NewQueryTab opens a SQL editor on a new query file of a connection, the
+// key browser of a key-value engine's, or the console of a document
+// engine's.
 func (a *App) NewQueryTab(cn *connection.Conn, database, text string) {
-	if cn.Config.Engine.IsKeyValue() {
+	switch {
+	case cn.Config.Engine.IsKeyValue():
 		a.openRedis(cn)
+		return
+	case cn.Config.Engine.IsDocument():
+		a.openMongoConsole(cn, database)
 		return
 	}
 	a.newQueryFile(cn, database, text, nil)
@@ -1392,7 +1399,7 @@ type closeRequest struct {
 func sharedFingerprint(cfg *db.Config, projectDir string) string {
 	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%s|%d|%s|%s|%s|%q|%v|%s|%d|%s|%q|%s|%q|%q%s", projectDir, cfg.ID, cfg.Engine, cfg.Host, cfg.Port,
 		cfg.User, cfg.Database, cfg.TLS, cfg.CAFile, cfg.SSH.Enabled, cfg.SSH.Host, cfg.SSH.Port, cfg.SSH.User, cfg.SSH.KeyPath,
-		cfg.PasswordEnv, cfg.PasswordCommand, cfg.SSH.PasswordCommand, redisWhere(cfg)+clientCertWhere(cfg)+jumpWhere(cfg)+proxyWhere(cfg)+identityWhere(cfg))))
+		cfg.PasswordEnv, cfg.PasswordCommand, cfg.SSH.PasswordCommand, redisWhere(cfg)+mongoWhere(cfg)+clientCertWhere(cfg)+jumpWhere(cfg)+proxyWhere(cfg)+identityWhere(cfg))))
 	return hex.EncodeToString(sum[:])
 }
 

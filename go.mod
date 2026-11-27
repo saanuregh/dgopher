@@ -17,6 +17,7 @@ require (
 	github.com/saanuregh/agent-cli-connector/bindings/go v0.4.1
 	github.com/sijms/go-ora/v3 v3.0.1
 	github.com/zalando/go-keyring v0.2.8
+	go.mongodb.org/mongo-driver/v2 v2.10.1
 	golang.org/x/crypto v0.59.0
 	modernc.org/sqlite v1.63.0
 )
@@ -69,6 +70,9 @@ require (
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/shopspring/decimal v1.6.0 // indirect
 	github.com/ulikunitz/xz v0.5.17 // indirect
+	github.com/xdg-go/scram v1.4.0 // indirect
+	github.com/xdg-go/stringprep v1.0.4 // indirect
+	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.digitalxero.dev/rpm v0.3.4 // indirect
 	go.duckdb.org/libduckdb/darwin-amd64 v0.20001.0 // indirect

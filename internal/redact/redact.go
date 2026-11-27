@@ -1,5 +1,5 @@
-// Package redact removes secrets from SQL and Redis commands before they
-// are kept in history or the audit log.
+// Package redact removes secrets from SQL, Redis and MongoDB commands
+// before they are kept in history or the audit log.
 package redact
 
 import (

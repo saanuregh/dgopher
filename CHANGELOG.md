@@ -2,6 +2,39 @@
 
 The changes of each version of DGopher.
 
+## Unreleased
+
+### Added
+
+- **MongoDB** as an engine family of its own, and **FerretDB** as an
+  engine of it, with its own name and version. Connect to one server, a
+  replica set or a sharded cluster, with `mongodb://` and
+  `mongodb+srv://` URLs, more hosts, replica set, auth source and
+  mechanism, read preference and direct connection, over TLS, an SSH
+  tunnel or a proxy. Amazon DocumentDB and Azure Cosmos DB connect as
+  MongoDB, untested. DBeaver Community Edition has no MongoDB support.
+- **The navigator** lists a MongoDB connection's databases with their
+  sizes, their collections and views, and each collection's indexes,
+  with Open Documents, Open Console and Refresh.
+- **A collection browser:** filter, sort and fields in the shell's
+  syntax; grid, JSON and tree views; 200 documents a page with Load More
+  and Fetch All; and edits held until **Save…**, which shows a statement
+  per edit, asks once, and saves in one transaction where the server has
+  them. An edit changes only the fields it names, even those whose names
+  hold a dot or start with `$`. On a standalone server or FerretDB the edits apply one by one,
+  and those before a failure stay; the question says so first.
+- **A MongoDB console** for shell statements (`find`, `aggregate`,
+  `runCommand`, `use`, `show`, `ObjectId()`, `ISODate()`, …), with
+  completion of collections, methods (tagged read, write or risky) and
+  `$` operators. Every
+  statement is checked by the safety policy before it is sent: writes
+  ask on production, and `drop`, `dropDatabase`, a `deleteMany` or
+  `updateMany` with an empty filter and similar always ask, a
+  `deleteMany` or `updateMany` that asks counts its matches first. It runs no
+  JavaScript and no transactions.
+- MongoDB statements and commands go into the audit log, of kind
+  **mongo**, with passwords hidden.
+
 ## 0.9.0
 
 ### Added

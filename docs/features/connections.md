@@ -18,6 +18,8 @@ Keys are written as on macOS; on Linux and Windows, ⌘ is Ctrl and ⌥ is Alt.
 | DuckDB | a file, or in memory; **New…** creates an empty file |
 | Redis | one server, a cluster, or the master Sentinel names |
 | Valkey | Redis's family: connects and works as Redis does, except where [Engine support](../engines.md#valkey) says otherwise |
+| MongoDB | one server, a replica set or a sharded cluster, by host list or DNS SRV (`mongodb+srv://`); an empty database field logs in to `admin` and opens tabs on `test` ([engines](../engines.md#mongodb), [MongoDB](mongodb.md)) |
+| FerretDB | MongoDB's family: connects and works as MongoDB does, except where [Engine support](../engines.md#ferretdb) says otherwise |
 
 **New…** never replaces a file that is already there; it opens it as it
 is.

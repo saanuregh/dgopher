@@ -15,6 +15,7 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5/pgconn"
 	mssql "github.com/microsoft/go-mssqldb"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -161,6 +162,10 @@ func ClassifyConnectError(err error) ProblemKind {
 		return ProblemAuth
 	} else if strings.Contains(msg, "NOAUTH") {
 		return ProblemPasswordRequired
+	}
+	var mongoErr mongo.CommandError
+	if errors.As(err, &mongoErr) && mongoErr.Code == 18 || strings.Contains(err.Error(), "(AuthenticationFailed)") {
+		return ProblemAuth
 	}
 
 	var certErr *tls.CertificateVerificationError

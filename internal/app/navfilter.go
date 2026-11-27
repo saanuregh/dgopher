@@ -39,8 +39,10 @@ func (a *App) navName(n navNode) string {
 			b, _ := a.bookmark(p, n)
 			return b.Name
 		}
-	case nodeDatabase:
+	case nodeDatabase, nodeDocDatabase:
 		return n.database
+	case nodeDocCollection:
+		return n.name
 	case nodeSchema:
 		return n.schema
 	case nodeObject:
@@ -71,7 +73,7 @@ func (a *App) navMatches(n navNode) bool {
 		return true
 	}
 	switch n.kind {
-	case nodeObject:
+	case nodeObject, nodeDocCollection:
 		return has(n.name)
 	case nodeItem:
 		return has(a.navName(n))
@@ -88,7 +90,7 @@ func (a *App) navMatches(n navNode) bool {
 // down to the tables and the files, not into a table's columns.
 func (a *App) navHolds(n navNode) bool {
 	switch n.kind {
-	case nodeObject, nodeItem, nodeColumn, nodeInfo, nodeQueryFile, nodeDashboard, nodeModel, nodeBookmark:
+	case nodeObject, nodeItem, nodeColumn, nodeInfo, nodeQueryFile, nodeDashboard, nodeModel, nodeBookmark, nodeDocCollection, nodeDocIndex:
 		return false
 	}
 	// Asked of a node by each row above it: answered once a frame.

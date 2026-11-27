@@ -6,6 +6,7 @@ import (
 	"dgopher/internal/connection"
 	"dgopher/internal/settings"
 	"dgopher/internal/ui/dataview"
+	"dgopher/internal/ui/mongo"
 	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/redis"
 	"dgopher/internal/ui/widgets"
@@ -21,8 +22,9 @@ func (a *App) Online() bool { return !a.offline }
 func (a *App) Disconnect(cn *connection.Conn) { a.askDisconnect(cn) }
 
 // setOnline keeps what the system says of the network; back online, the
-// Redis tabs start again what the network stopped, and the server
-// connections are checked (checkConnectionsBackOnline).
+// Redis tabs start again what the network stopped, the MongoDB
+// collections read again what it failed, and the server connections are
+// checked (checkConnectionsBackOnline).
 func (a *App) setOnline(online bool) {
 	back := online && a.offline
 	a.offline = !online
@@ -30,8 +32,11 @@ func (a *App) setOnline(online bool) {
 		return
 	}
 	for _, t := range a.everyTab() {
-		if r, ok := t.(*redis.Tab); ok {
-			r.Online()
+		switch t := t.(type) {
+		case *redis.Tab:
+			t.Online()
+		case *mongo.CollectionTab:
+			t.Online()
 		}
 	}
 	a.checkConnectionsBackOnline()
@@ -73,4 +78,5 @@ var (
 	_ dataview.Host = (*App)(nil)
 	_ query.Host    = (*App)(nil)
 	_ redis.Host    = (*App)(nil)
+	_ mongo.Host    = (*App)(nil)
 )

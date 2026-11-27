@@ -40,6 +40,8 @@ func (a *App) navMenu(m *ui.Menu, n navNode) {
 		a.navItemMenu(m, n)
 	case nodeSchema, nodeDatabase, nodeFolder:
 		a.navSchemaMenu(m, cn, n)
+	case nodeDocDatabase, nodeDocFolder, nodeDocCollection, nodeDocIndex:
+		a.navDocMenu(m, cn, n)
 	}
 }
 
@@ -61,11 +63,16 @@ func (a *App) navConnMenu(m *ui.Menu, cn *connection.Conn, n navNode) {
 	if _, ok := a.connectStarted(cn); ok && m.Item("Cancel Connecting").Chosen() {
 		a.CancelConnect(cn)
 	}
-	if cn.Config.Engine.IsKeyValue() {
+	switch {
+	case cn.Config.Engine.IsKeyValue():
 		if m.Item("Open Key Browser").Chosen() {
 			a.openRedis(cn)
 		}
-	} else {
+	case cn.Config.Engine.IsDocument():
+		if keymap.Item(m.Item("Open Console"), keymap.NewEditor).Chosen() {
+			a.openMongoConsole(cn, "")
+		}
+	default:
 		if keymap.Item(m.Item("New SQL Editor"), keymap.NewEditor).Chosen() {
 			a.NewQueryTab(cn, "", "")
 		}
@@ -76,7 +83,7 @@ func (a *App) navConnMenu(m *ui.Menu, cn *connection.Conn, n navNode) {
 			a.openSearch(cn, "")
 		}
 	}
-	if !cn.Config.Engine.IsFile() && m.Item("Server Activity").Chosen() {
+	if activitySupported(cn.Config.Engine) && m.Item("Server Activity").Chosen() {
 		a.openActivity(cn)
 	}
 	if usersSupported(cn.Config.Engine) && m.Item("Users and Privileges").Chosen() {

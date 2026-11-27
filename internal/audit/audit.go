@@ -24,6 +24,7 @@ const (
 	KindImport     = "import"
 	KindScript     = "script"    // a file of SQL run without an editor
 	KindCommand    = "command"   // a Redis command
+	KindMongo      = "mongo"     // a MongoDB statement or command
 	KindKill       = "kill"      // a query cancelled or a session ended
 	KindConfirm    = "confirm"   // the user confirmed what the safety policy asked about
 	KindBlocked    = "blocked"   // the safety policy refused
@@ -107,7 +108,7 @@ func (t TypedRun) Event() Event {
 // WithOrigin names the app as the writer of a statement, edit or command
 // whose writer is not named: only what a person typed says so.
 func (e Event) WithOrigin() Event {
-	if e.Origin == "" && (e.Kind == KindStatement || e.Kind == KindEdit || e.Kind == KindCommand) {
+	if e.Origin == "" && (e.Kind == KindStatement || e.Kind == KindEdit || e.Kind == KindCommand || e.Kind == KindMongo) {
 		e.Origin = OriginApp
 	}
 	return e

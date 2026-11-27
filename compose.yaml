@@ -1,6 +1,7 @@
 # The servers the integration tests run against (DGOPHER_IT=1). Ports and
 # passwords match internal/testutil/testutil.go, internal/db/integration_test.go
-# and, for Redis and Valkey, internal/testutil/redisserver.
+# and, for Redis and Valkey, internal/testutil/redisserver, and for MongoDB
+# and FerretDB, internal/testutil/mongoserver.
 name: dgopher-test
 
 services:
@@ -263,3 +264,56 @@ services:
         valkey-server --port 16390 --bind 127.0.0.1 --requirepass dgopher --daemonize yes;
         printf "port 26390\nbind 127.0.0.1\nrequirepass sentinelpw\nsentinel monitor mymaster 127.0.0.1 16390 1\nsentinel auth-pass mymaster dgopher\n" > /tmp/sentinel.conf;
         exec valkey-sentinel /tmp/sentinel.conf
+
+  # MongoDB, a one-member replica set (rs0) so that transactions and change
+  # streams work. The healthcheck initiates it, naming the member
+  # localhost:27017, which the host cannot reach: clients connect with
+  # directConnection=true (internal/testutil/mongoserver).
+  mongo:
+    image: docker.io/library/mongo:8.3.13
+    container_name: dgopher-mongo
+    ports: ["127.0.0.1:27018:27017"]
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "try { rs.status().ok } catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'localhost:27017'}]}).ok }"]
+      interval: 2s
+      retries: 60
+
+  # A standalone MongoDB, in the compat profile: go run ./tools/dev servers
+  # up --profile compat mongo-standalone. It has no transactions.
+  mongo-standalone:
+    image: docker.io/library/mongo:8.3.13
+    container_name: dgopher-mongo-standalone
+    profiles: ["compat"]
+    ports: ["127.0.0.1:27019:27017"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 2s
+      retries: 60
+
+  # FerretDB, in the compat profile: go run ./tools/dev servers up --profile
+  # compat ferretdb. It speaks MongoDB's protocol over PostgreSQL with
+  # DocumentDB, and takes that server's user, dgopher.
+  ferretdb:
+    image: ghcr.io/ferretdb/ferretdb:2.7.0
+    container_name: dgopher-ferretdb
+    profiles: ["compat"]
+    ports: ["127.0.0.1:27020:27017"]
+    environment:
+      FERRETDB_POSTGRESQL_URL: postgres://dgopher:dgopher@ferretdb-postgres:5432/postgres
+    depends_on:
+      ferretdb-postgres:
+        condition: service_healthy
+
+  ferretdb-postgres:
+    image: ghcr.io/ferretdb/postgres-documentdb:17-0.107.0-ferretdb-2.7.0
+    container_name: dgopher-ferretdb-postgres
+    profiles: ["compat"]
+    environment:
+      POSTGRES_USER: dgopher
+      POSTGRES_PASSWORD: dgopher
+      POSTGRES_DB: postgres
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "dgopher", "-d", "postgres"]
+      interval: 2s
+      retries: 30

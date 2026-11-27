@@ -27,7 +27,7 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-var pinEngines = []db.Engine{db.Postgres, db.MySQL, db.ClickHouse, db.SQLite, db.DuckDB, db.Redis, "unknown"}
+var pinEngines = []db.Engine{db.Postgres, db.MySQL, db.ClickHouse, db.SQLite, db.DuckDB, db.Redis, db.MongoDB, "unknown"}
 
 // pinValues checks the values produce gives against want, by key: each
 // key given must be pinned with the same value, and each pinned key given.
@@ -83,6 +83,7 @@ func TestPinActivityPages(t *testing.T) {
 		"sqlite":     "pages=0\n",
 		"duckdb":     "pages=0\n",
 		"redis":      "pages=1\nClients live=true metrics=false query=e3b0c44298fc stop=\"none\" kill=\"none\" hint=\"\"",
+		"mongodb":    "pages=0\n",
 		"unknown":    "pages=0\n",
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
@@ -164,6 +165,7 @@ func TestPinBackupScope(t *testing.T) {
 		"sqlite":     "supported=true database node=\"\",false schema node=\"\",false",
 		"duckdb":     "supported=true database node=\"\",false schema node=\"\",false",
 		"redis":      "supported=false database node=\"\",false schema node=\"\",false",
+		"mongodb":    "supported=false database node=\"\",false schema node=\"\",false",
 		"unknown":    "supported=false database node=\"\",false schema node=\"\",false",
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
@@ -239,6 +241,7 @@ func TestPinAccountForm(t *testing.T) {
 		"sqlite open":         "No users to manage: SQLite has no users DGopher manages.",
 		"duckdb open":         "No users to manage: DuckDB has no users DGopher manages.",
 		"redis open":          "No users to manage: Redis has no users DGopher manages.",
+		"mongodb open":        "No users to manage: MongoDB has no users DGopher manages.",
 		"unknown open":        "No users to manage: unknown has no users DGopher manages.",
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
@@ -285,6 +288,7 @@ func TestPinPasswordSources(t *testing.T) {
 		"sqlite":     "[\"System keychain\" \"Environment variable\" \"Command\" \"Ask every time\"]",
 		"duckdb":     "[\"System keychain\" \"Environment variable\" \"Command\" \"Ask every time\"]",
 		"redis":      "[\"System keychain\" \"Environment variable\" \"Command\" \"Ask every time\"]",
+		"mongodb":    "[\"System keychain\" \"Environment variable\" \"Command\" \"Ask every time\"]",
 		"unknown":    "[\"System keychain\" \"Environment variable\" \"Command\" \"Ask every time\"]",
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
@@ -303,6 +307,7 @@ func TestPinClearTextPassword(t *testing.T) {
 		"sqlite":     "form engine=sqlite keeps=false details=[\"on=true: yes: the password goes as it is, as LDAP and PAM logins need\"]",
 		"duckdb":     "form engine=duckdb keeps=false details=[\"on=true: yes: the password goes as it is, as LDAP and PAM logins need\"]",
 		"redis":      "form engine=redis keeps=false details=[\"on=true: yes: the password goes as it is, as LDAP and PAM logins need\"]",
+		"mongodb":    "form engine=mongodb keeps=false details=[\"on=true: yes: the password goes as it is, as LDAP and PAM logins need\"]",
 		"unknown":    "form engine=postgres keeps=false details=[\"on=true: yes: the password goes as it is, as LDAP and PAM logins need\"]",
 	}, func(add func(key, got string)) {
 		a := newTestApp(t)
@@ -343,6 +348,8 @@ func TestPinCommitModeShown(t *testing.T) {
 		"duckdb production":      "auto-commit=false manual commit=true",
 		"redis development":      "auto-commit=false manual commit=false",
 		"redis production":       "auto-commit=false manual commit=false",
+		"mongodb development":    "auto-commit=false manual commit=false",
+		"mongodb production":     "auto-commit=false manual commit=false",
 		"unknown development":    "auto-commit=true manual commit=false",
 		"unknown production":     "auto-commit=false manual commit=true",
 	}, func(add func(key, got string)) {
@@ -382,6 +389,7 @@ func TestPinWriteRowsCreateCommits(t *testing.T) {
 		"sqlite":     "table seen before the rows=false rows=0 stays=false error=\"the file ends badly\\n\\nNothing was imported, and the table was not created\"",
 		"duckdb":     "table seen before the rows=false rows=0 stays=false error=\"the file ends badly\\n\\nNothing was imported, and the table was not created\"",
 		"redis":      "table seen before the rows=true rows=1 stays=true error=\"the file ends badly\\n\\nClickHouse has no transactions: the 1 rows before stay in t\"",
+		"mongodb":    "table seen before the rows=true rows=1 stays=true error=\"the file ends badly\\n\\nClickHouse has no transactions: the 1 rows before stay in t\"",
 		"unknown":    "table seen before the rows=false rows=0 stays=false error=\"the file ends badly\\n\\nNothing was imported, and the table was not created\"",
 	}, func(add func(key, got string)) {
 		a := newTestApp(t)
@@ -427,6 +435,7 @@ func TestPinCopyReplaceEmpties(t *testing.T) {
 		"sqlite":     "copied=2 rows after=2 error=<nil>",
 		"duckdb":     "copied=2 rows after=2 error=<nil>",
 		"redis":      "copied=2 rows after=2 error=<nil>",
+		"mongodb":    "copied=2 rows after=2 error=<nil>",
 		"unknown":    "copied=2 rows after=2 error=<nil>",
 	}, func(add func(key, got string)) {
 		a := newTestApp(t)
@@ -474,6 +483,8 @@ func TestPinConnectionFormDatabaseField(t *testing.T) {
 		"redis":      "Database=true Database index=true Database file=false",
 		"sqlite":     "Database=false Database index=false Database file=false",
 		"duckdb":     "Database=false Database index=false Database file=false",
+		"mongodb":    "Database=true Database index=false Database file=false",
+		"ferretdb":   "Database=true Database index=false Database file=false",
 
 		// The flavors, as their parents.
 		"cockroachdb": "Database=true Database index=false Database file=false",

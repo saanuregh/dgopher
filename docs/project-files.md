@@ -90,9 +90,9 @@ except `id`, `name`, `engine`, `host`, `port`, `user`, `environment` and
 | `id` | the connection's ID (below) |
 | `name` | the name shown; required |
 | `folder` | the navigator folder it is in, as a path such as `Prod/EU`; the top level when omitted. A folder named here but missing from `folders` is still shown. |
-| `engine` | `postgres`, `cockroachdb`, `yugabytedb`, `timescaledb`, `mysql`, `mariadb`, `tidb`, `sqlserver`, `oracle`, `clickhouse`, `sqlite`, `duckdb` or `redis` |
+| `engine` | `postgres`, `cockroachdb`, `yugabytedb`, `timescaledb`, `mysql`, `mariadb`, `tidb`, `sqlserver`, `oracle`, `clickhouse`, `sqlite`, `duckdb`, `redis`, `valkey`, `mongodb` or `ferretdb` |
 | `host`, `port`, `user` | the server; `host` is required except for SQLite and DuckDB |
-| `database` | the database name. For SQLite and DuckDB, the file path, stored relative to the project when the file is inside it. For Redis, the database number (only 0 in a cluster). |
+| `database` | the database name. For SQLite and DuckDB, the file path, stored relative to the project when the file is inside it. For Redis, the database number (only 0 in a cluster). For MongoDB, the database the console and collection tabs open on (`test` when omitted, as in `mongosh`) and, unless `authSource` says otherwise, the one the user logs in to (`admin` when omitted). |
 | `environment` | `development`, `staging` or `production` |
 | `color` | a hex color that replaces the environment's color in the navigator and tabs |
 
@@ -159,6 +159,12 @@ No password, passphrase or proxy password is ever written to the file.
 | --- | --- |
 | `redis` | an object: `mode` (omitted for one server, `cluster` or `sentinel`), `nodes` (comma-separated `host:port`), `master` (required for Sentinel), `sentinelUser` |
 | `keySeparator` | the separator that groups keys into folders; `:` when omitted |
+
+### MongoDB
+
+| Field | Values |
+| --- | --- |
+| `mongo` | an object: `srv` (`true` finds the servers by `host`'s DNS SRV record, with no `port`), `hosts` (more servers, `host` or `host:port`), `replicaSet`, `authSource` (the database the user is defined in), `authMechanism`, `readPreference` (`primary` when omitted), `directConnection` (`true` talks to `host` alone). [Engine support](engines.md#mongodb) lists the mechanisms and read preferences. |
 
 ### Trust
 

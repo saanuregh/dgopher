@@ -10,6 +10,7 @@ import (
 	"dgopher/internal/ui/dashboard"
 	"dgopher/internal/ui/dataview"
 	"dgopher/internal/ui/modelview"
+	"dgopher/internal/ui/mongo"
 	"dgopher/internal/ui/panes"
 	"dgopher/internal/ui/query"
 	"dgopher/internal/ui/redis"
@@ -108,6 +109,13 @@ func (a *App) reopener(t widgets.Tab) func() string {
 		return a.withConn(t.Connection().Config.ID, gone, func(cn *connection.Conn) { dataview.OpenER(a, cn, database, schema) })
 	case *redis.Tab:
 		return a.withConn(t.Connection().Config.ID, gone, a.openRedis)
+	case *mongo.CollectionTab:
+		// With the filter it closed with.
+		s, _ := savedTabOf(t)
+		return a.withConn(s.Connection, gone, func(cn *connection.Conn) { a.openMongoCollectionWith(cn, s.Database, s.Name, s.Filter) })
+	case *mongo.ConsoleTab:
+		database := t.Database
+		return a.withConn(t.Connection().Config.ID, gone, func(cn *connection.Conn) { a.openMongoConsole(cn, database) })
 	case *activityTab:
 		return a.withConn(t.conn.Config.ID, gone, a.openActivity)
 	case *usersTab:

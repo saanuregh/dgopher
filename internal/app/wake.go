@@ -91,7 +91,7 @@ func (a *App) checkConnections(why absence) {
 // given up only when a second ping, wakeRecheckDelay later, fails too;
 // again is set for that one.
 func (a *App) pingAfterWake(cn *connection.Conn, gen int, why absence, again bool) {
-	d, kv := cn.DB(), cn.KV()
+	d, kv, doc := cn.DB(), cn.KV(), cn.Doc()
 	a.Background(func() func() {
 		ctx, cancel := context.WithTimeout(context.Background(), wakePingTimeout)
 		defer cancel()
@@ -105,6 +105,8 @@ func (a *App) pingAfterWake(cn *connection.Conn, gen int, why absence, again boo
 			saturated = before.MaxOpenConnections > 0 && before.InUse >= before.MaxOpenConnections || after.WaitCount > before.WaitCount
 		case kv != nil:
 			err = kv.Client.Do(ctx, kv.Client.B().Ping().Build()).Error()
+		case doc != nil:
+			err = doc.Client.Ping(ctx, nil)
 		}
 		return func() {
 			if err == nil || saturated || gen != cn.Generation || cn.Status != connection.StatusConnected {

@@ -79,6 +79,13 @@ func (cn *Conn) KV() *db.KV {
 	return kv
 }
 
+// Doc is the connection's document client, nil when it is not connected
+// or not a document engine.
+func (cn *Conn) Doc() *db.Doc {
+	d, _ := cn.Store.(*db.Doc)
+	return d
+}
+
 // Place is where work runs: a connection, and a database of it, "" for
 // the connection's own.
 type Place struct {

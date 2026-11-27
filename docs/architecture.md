@@ -132,6 +132,7 @@ the window, so it does not import `internal/app`:
 | `internal/ui/dataview` | `dataview.Host`: settings, toasts, the clipboard, connecting, opening tabs, confirmations, audit recording and jobs, plus `Post` and `Background` |
 | `internal/ui/query` | `query.Host`: `dataview.Host`, plus dialogs, snippets, saving files and switching connections |
 | `internal/ui/redis` | `redis.Host`: its own subset, with confirmations and audit recording |
+| `internal/ui/mongo` | `mongo.Host`: the same methods as `redis.Host` |
 | `internal/ui/dashboard` | `dashboard.Host`: finding a project's connections |
 | `internal/ui/modelview` | `modelview.Host`: `dataview.Host`, plus finding connections |
 | `internal/ui/chat` | `chat.Host`: `dataview.Host`, plus the connections; `chat.Editor`: the editor a chat is about |
@@ -178,7 +179,11 @@ as [traffic](audit-log.md#traffic).
 
 Other places that run SQL (the schema switcher, Run SQL File, grid edits,
 schema changes) use the same `Analyze` and `ReviewSQL` pair. Redis
-commands use `safety.ReviewRedis`.
+commands use `safety.ReviewRedis`. MongoDB statements are parsed by
+`mongosh.Parse` (a subset of the MongoDB shell's language, no
+JavaScript), classified by `mongosh.Classify` and reviewed by
+`safety.ReviewMongo`; `db.(*Doc).Run` plans each into one server command
+before sending it.
 
 ### The notebook view
 
@@ -251,7 +256,8 @@ connection, and records the run in the audit log.
 its config, status (idle, connecting, connected or failed), store, server
 version, and the schema read so far. The store (`Conn.Store`, a
 `db.Store`) is whatever the engine's family opens: a SQL pool (`*db.DB`,
-read with `Conn.DB()`) or a Redis client (`*db.KV`, `Conn.KV()`). Closing,
+read with `Conn.DB()`), a Redis client (`*db.KV`, `Conn.KV()`) or a
+MongoDB client (`*db.Doc`, `Conn.Doc()`). Closing,
 tunnel loss, TLS state, the audit's name and the server version go through
 `db.Store`, the same for every family.
 
@@ -377,12 +383,19 @@ database. All sessions on it share one transaction:
   ambiguous.
 - `db.Dialect` (`internal/db/dialect.go`) is each SQL engine's behavior:
   quoting, placeholders, catalog queries, generated SQL. Each engine has its
-  own file (`postgres.go`, `mysql.go`, …). Redis has no `Dialect`.
-- Engines come in families: `Engine.Kind()` is `KindSQL` or
-  `KindKeyValue` (Redis). Each family has its own rules interface beside
-  `engineRules`: `SQLRules` through `db.SQL(e)`, `KeyValueRules` through
-  `db.KeyValue(e)`, each `false` for an engine of another family (an
-  engine no build knows counts as SQL but has neither). A family also owns
+  own file (`postgres.go`, `mysql.go`, …). Redis and MongoDB have no
+  `Dialect`.
+- Engines come in families: `Engine.Kind()` is `KindSQL`,
+  `KindKeyValue` (Redis) or `KindDocument` (MongoDB). Each family has its
+  own rules interface beside `engineRules`: `SQLRules` through
+  `db.SQL(e)`, `KeyValueRules` through `db.KeyValue(e)`, `DocumentRules`
+  through `db.Document(e)`, each `false` for an engine of another family
+  (an engine no build knows counts as SQL but has none). Code gates a
+  family by `IsSQL()`, `IsKeyValue()` or `IsDocument()`, never by "not
+  another family", so a new family cannot fall into SQL paths.
+  `DocumentRules` is declared in `internal/db/mongo_engine.go`;
+  `DocumentRules.Lacks` says why a flavor (FerretDB) lacks a feature,
+  such as transactions. A family also owns
   its connection type, the safety review of its commands and its UI; all
   families share connecting (SSH, proxies, TLS), secrets, environments
   and the audit log; closing, tunnel loss, TLS state and the server
@@ -415,7 +428,8 @@ describe the files.
 
 - **Redaction.** `internal/redact` hides secrets in text that is shown or
   logged: `redact.Secrets` for statements, `redact.Error` for errors that
-  quote them, and `redact.Redis` for Redis commands. Every audit entry,
+  quote them, `redact.Redis` for Redis commands, and `redact.Mongo` for
+  MongoDB statements and commands. Every audit entry,
   history entry, notification, panic log and Redis console line goes
   through it.
 - **Password commands.** `secretcmd.Run` (`internal/secretcmd`) runs a

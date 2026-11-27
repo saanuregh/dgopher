@@ -31,6 +31,14 @@ const (
 	nodeColumn
 	nodeItem // a routine, trigger, sequence, type and the like
 	nodeInfo // loading, an error, or nothing there
+	// A document engine's: a database, its Collections or Views folder
+	// (folder docCollections or docViews), a collection or view (name),
+	// and an index of a collection (name: the collection, \x00, the
+	// index).
+	nodeDocDatabase
+	nodeDocFolder
+	nodeDocCollection
+	nodeDocIndex
 )
 
 // The folders of a schema besides those of its items, by their kind;
@@ -141,6 +149,9 @@ type navState struct {
 	// raised are the whole errors of the notes raised already, kept
 	// across frames until the note's error is gone or changes.
 	raised map[navNode]string
+	// docs are the catalogs of the document connections, by ID
+	// (navmongo.go).
+	docs map[string]*docCatalog
 }
 
 // navSpacing is the unit of the room the navigator's rows leave around

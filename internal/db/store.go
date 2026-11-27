@@ -21,6 +21,7 @@ type Store interface {
 var (
 	_ Store = (*DB)(nil)
 	_ Store = (*KV)(nil)
+	_ Store = (*Doc)(nil)
 )
 
 // OpenStore opens cfg with its engine family's client. On an error the
@@ -39,6 +40,12 @@ func OpenStore(ctx context.Context, cfg Config, knownHosts []string) (Store, err
 			return nil, err
 		}
 		return kv, nil
+	case KindDocument:
+		doc, err := OpenMongo(ctx, cfg, knownHosts)
+		if err != nil {
+			return nil, err
+		}
+		return doc, nil
 	}
 	return nil, fmt.Errorf("no store opens %s", cfg.Engine.Label())
 }

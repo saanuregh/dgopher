@@ -13,18 +13,19 @@ import (
 
 // Sent is a statement or command as it went to a server.
 type Sent struct {
-	Text     string        // a statement as sent; "" for a Redis command
+	Text     string        // a statement as sent; "" for a Redis command; a MongoDB command's body as relaxed Extended JSON, "" for one that carries credentials
 	Redis    []string      // a Redis command's arguments as sent
+	Mongo    string        // a MongoDB command's name
 	Args     int           // values sent apart from the text
-	Database string        // the database the pool is of, "" for the connection's own
+	Database string        // the database the pool is of, "" for the connection's own; a MongoDB command's database
 	Took     time.Duration // until the server answered (first response for a query)
 	Err      error
 }
 
 var onSend atomic.Pointer[func(cfg *Config, s Sent)]
 
-// SetOnSend sets the hook every pool and Redis client calls for what it
-// sends; nil for none. Set it before pools open; tests may set it again.
+// SetOnSend sets the hook every pool, Redis and MongoDB client calls for
+// what it sends; nil for none. Set it before pools open; tests may set it again.
 func SetOnSend(f func(cfg *Config, s Sent)) {
 	if f == nil {
 		onSend.Store(nil)
