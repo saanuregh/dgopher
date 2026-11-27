@@ -50,7 +50,7 @@ The `kv` table holds:
 
 | Key | What |
 | --- | --- |
-| `workspace.json` | the open tabs, in order, and the one in front: query files (with each one's connection, database, whether it showed as a notebook, and unsaved text if its file changed on disk), dashboards, data models, and a connection's tabs by what they show, such as a table's schema, name and page; and the main window's editor groups, each tab's group, and the tab in front of each |
+| `workspace.json` | the open tabs, in order, and the one in front: query files (with each one's connection, database, whether it showed as a notebook, and unsaved text if its file changed on disk), dashboards, data models, and a connection's tabs by what they show, such as a table's schema, name and page, a MongoDB collection's database, name and filter (left out when it holds a secret), and a MongoDB console's database; and the main window's editor groups, each tab's group, and the tab in front of each |
 | `filters.json` | each table's recent grid filters |
 | `colors.json` | each table's row colors |
 | `query-parameters.json` | the editors' parameter values, per connection |

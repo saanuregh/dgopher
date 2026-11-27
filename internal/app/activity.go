@@ -426,6 +426,13 @@ func hitRate(hits, misses string) string {
 	return fmt.Sprintf("%.1f%%", h/(h+m)*100)
 }
 
+// activitySupported reports whether an engine's server activity is
+// offered: an engine's with pages to show, and a SQL server's, whose
+// activity says why it has none.
+func activitySupported(e db.Engine) bool {
+	return len(e.ActivityPages()) > 0 || (e.IsSQL() && !e.IsFile())
+}
+
 // openActivity opens a connection's server activity.
 func (a *App) openActivity(cn *connection.Conn) {
 	if len(cn.Config.Engine.ActivityPages()) == 0 {

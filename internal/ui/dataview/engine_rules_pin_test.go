@@ -21,7 +21,7 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-var pinEngines = []db.Engine{db.Postgres, db.MySQL, db.ClickHouse, db.SQLite, db.DuckDB, db.Redis, "unknown"}
+var pinEngines = []db.Engine{db.Postgres, db.MySQL, db.ClickHouse, db.SQLite, db.DuckDB, db.Redis, db.MongoDB, "unknown"}
 
 // sqlDialectEngines are the engines with a Dialect: what quotes names
 // cannot be reached for Redis or an unknown engine.
@@ -107,6 +107,9 @@ func TestPinFilterSQL(t *testing.T) {
 		"redis equals":            "col = 'a\\b'",
 		"redis in":                "(col IN ('x', X'01') OR col IS NULL)",
 		"redis between":           "col BETWEEN 1 AND 9",
+		"mongodb equals":          "col = 'a\\b'",
+		"mongodb in":              "(col IN ('x', X'01') OR col IS NULL)",
+		"mongodb between":         "col BETWEEN 1 AND 9",
 		"unknown equals":          "col = 'a\\b'",
 		"unknown in":              "(col IN ('x', X'01') OR col IS NULL)",
 		"unknown between":         "col BETWEEN 1 AND 9",
@@ -224,6 +227,12 @@ func TestPinJSONPath(t *testing.T) {
 		"redis [a 0 b] leaf=true":                            "doc->>'$.a[0].b'",
 		"redis [it's back\\slash has space] leaf=false":      "doc->'$.\"it''s\".\"back\\\\slash\".\"has space\"'",
 		"redis [it's back\\slash has space] leaf=true":       "doc->>'$.\"it''s\".\"back\\\\slash\".\"has space\"'",
+		"mongodb [a] leaf=false":                             "doc->'$.a'",
+		"mongodb [a] leaf=true":                              "doc->>'$.a'",
+		"mongodb [a 0 b] leaf=false":                         "doc->'$.a[0].b'",
+		"mongodb [a 0 b] leaf=true":                          "doc->>'$.a[0].b'",
+		"mongodb [it's back\\slash has space] leaf=false":    "doc->'$.\"it''s\".\"back\\\\slash\".\"has space\"'",
+		"mongodb [it's back\\slash has space] leaf=true":     "doc->>'$.\"it''s\".\"back\\\\slash\".\"has space\"'",
 		"unknown [a] leaf=false":                             "doc->'$.a'",
 		"unknown [a] leaf=true":                              "doc->>'$.a'",
 		"unknown [a 0 b] leaf=false":                         "doc->'$.a[0].b'",
@@ -258,6 +267,7 @@ func TestPinProfile(t *testing.T) {
 		"duckdb comparable":          "json=true jsonb=true point=true Map(String, UInt8)=true JSON=true Nested(a Int8)=true Variant(String)=true text=true integer=true",
 		"duckdb server profiles":     "[{name:n typ:INTEGER col:0 count:10 nulls:1 distinct:3 min:1 max:5 avg:2.5 median:2 bins:[] top:[]}] <nil>",
 		"redis server profiles":      "[{name:n typ:integer col:0 count:10 nulls:1 distinct:3 min:1 max:5 avg:2.5 median: bins:[] top:[]} {name:doc typ:json col:0 count:10 nulls:2 distinct:-1 min: max: avg: median: bins:[] top:[]}] <nil>",
+		"mongodb server profiles":    "[{name:n typ:integer col:0 count:10 nulls:1 distinct:3 min:1 max:5 avg:2.5 median: bins:[] top:[]} {name:doc typ:json col:0 count:10 nulls:2 distinct:-1 min: max: avg: median: bins:[] top:[]}] <nil>",
 		"unknown server profiles":    "[{name:n typ:integer col:0 count:10 nulls:1 distinct:3 min:1 max:5 avg:2.5 median: bins:[] top:[]} {name:doc typ:json col:0 count:10 nulls:2 distinct:-1 min: max: avg: median: bins:[] top:[]}] <nil>",
 		"postgres query":             "SELECT count(*), count(\"n\"), count(DISTINCT \"n\"), min(\"n\"), max(\"n\"), avg(\"n\"), count(\"doc\"), NULL, NULL, NULL, NULL FROM \"t\" WHERE n > 1",
 		"mysql query":                "SELECT count(*), count(`n`), count(DISTINCT `n`), min(`n`), max(`n`), avg(`n`), count(`doc`), count(DISTINCT `doc`), min(`doc`), max(`doc`), NULL FROM \"t\" WHERE n > 1",
@@ -300,6 +310,7 @@ func TestPinFirstColumn(t *testing.T) {
 		"sqlite":     "{Was: Name:id Type:INTEGER Nullable:false Default: PrimaryKey:true AutoIncrement:false Comment: Extra: Generated:false}",
 		"duckdb":     "{Was: Name:id Type:BIGINT Nullable:false Default: PrimaryKey:true AutoIncrement:false Comment: Extra: Generated:false}",
 		"redis":      "{Was: Name:id Type: Nullable:false Default: PrimaryKey:true AutoIncrement:false Comment: Extra: Generated:false}",
+		"mongodb":    "{Was: Name:id Type: Nullable:false Default: PrimaryKey:true AutoIncrement:false Comment: Extra: Generated:false}",
 		"unknown":    "{Was: Name:id Type: Nullable:false Default: PrimaryKey:true AutoIncrement:false Comment: Extra: Generated:false}",
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
@@ -318,6 +329,7 @@ func TestPinTableForm(t *testing.T) {
 		"sqlite fixed":     "",
 		"duckdb fixed":     "DuckDB cannot change the keys or checks of a table it made.",
 		"redis fixed":      "",
+		"mongodb fixed":    "",
 		"unknown fixed":    "",
 		"postgres shows":   "Columns=true Indexes=true Foreign Keys=true Checks=true Auto=true Comment=true Name=true Type=true",
 		"mysql shows":      "Columns=true Indexes=true Foreign Keys=true Checks=true Auto=true Comment=true Name=true Type=true",
@@ -356,6 +368,7 @@ func TestPinViewerRules(t *testing.T) {
 		"sqlite":            "noDefaultUpdate=true countStop=\"\" diagram=\"\" true=1 false=0 tinyint=1",
 		"duckdb":            "noDefaultUpdate=false countStop=\"\" diagram=\"\" true=true false=false tinyint=1",
 		"redis":             "noDefaultUpdate=false countStop=\"\" diagram=\"\" true=true false=false tinyint=1",
+		"mongodb":           "noDefaultUpdate=false countStop=\"\" diagram=\"\" true=true false=false tinyint=1",
 		"unknown":           "noDefaultUpdate=false countStop=\"\" diagram=\"\" true=true false=false tinyint=1",
 		"postgres select":   "SELECT * FROM t WHERE v > 1 ORDER BY \"id\"",
 		"mysql select":      "SELECT * FROM t WHERE v > 1 ORDER BY `id`",

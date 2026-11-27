@@ -303,7 +303,9 @@ func (a *App) activate(n navNode) {
 		if cn, it, ok := a.item(n); ok {
 			a.openItem(cn, n.database, it)
 		}
-	case nodeDatabase, nodeSchema, nodeFolder:
+	case nodeDocCollection:
+		a.openMongoCollection(cn, n.database, n.name)
+	case nodeDatabase, nodeSchema, nodeFolder, nodeDocDatabase, nodeDocFolder:
 		if a.nav.isOpen(n) {
 			a.nav.collapse(n)
 		} else {
@@ -313,11 +315,15 @@ func (a *App) activate(n navNode) {
 }
 
 // activateConnection opens a connection's node: the key browser for a
-// key-value engine, which has no tree of schemas, and otherwise connects
-// and expands the node.
+// key-value engine, which has no tree of schemas, the console for a
+// document engine, and otherwise connects and expands the node.
 func (a *App) activateConnection(cn *connection.Conn, n navNode) {
-	if cn.Config.Engine.IsKeyValue() {
+	switch {
+	case cn.Config.Engine.IsKeyValue():
 		a.openRedis(cn)
+		return
+	case cn.Config.Engine.IsDocument():
+		a.openMongoConsole(cn, "")
 		return
 	}
 	a.connectNode(cn, n)

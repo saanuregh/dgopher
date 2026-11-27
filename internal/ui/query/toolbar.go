@@ -2,7 +2,6 @@ package query
 
 import (
 	"dgopher/internal/connection"
-	"dgopher/internal/db"
 	"dgopher/internal/keymap"
 	"dgopher/internal/ui/editor"
 	"dgopher/internal/ui/widgets"
@@ -20,7 +19,7 @@ func (q *Tab) toolbar(c *ui.Context) {
 	t := c.Theme()
 	ui.Row(c.Key("editor-bar")).AlignItems(ui.Center).BorderWidth(0, 0, 1, 0).BorderColor(t.Border).Children(func() {
 		ui.Toolbar(c, func() {
-			q.runsOn(c)
+			widgets.RunsOn(c, &q.Conn.Config, "editor")
 			state := widgets.ConnectState{Connecting: q.Conn.Status == connection.StatusConnecting, Offline: !a.Online(), Compact: true}
 			switch widgets.ConnectStatus(c, q.Conn, state) {
 			case widgets.ConnectAsked:
@@ -58,28 +57,6 @@ func (q *Tab) toolbar(c *ui.Context) {
 				}
 			}
 		}).Label("View").Padding(4, 8, 4, 4).FontSize(widgets.TextBody).Shrink(0)
-	})
-}
-
-// runsOn names the connection the editor's statements run on, before the
-// button that runs them: on staging and production in the environment's
-// color, with its name, where a development connection takes a tint of
-// its own color. It is no menu: an editor's file names its connection.
-func (q *Tab) runsOn(c *ui.Context) {
-	cfg := q.Conn.Config
-	guarded := cfg.Env == db.Staging || cfg.Env == db.Production
-	fill, ink := widgets.EnvironmentLabel(cfg.Env, widgets.SafetyColor(&cfg), c.Theme().Background)
-	label, tip := "Runs on "+cfg.Name, "Statements of this editor run on "+cfg.Name
-	if guarded {
-		label += ", " + cfg.Env.Label()
-		tip += ", a " + cfg.Env.Label() + " connection"
-	}
-	ui.Row(c.Key("runs-on")).Gap(6).Padding(3, 8).Radius(widgets.RadiusSmall).Background(fill).AlignItems(ui.Center).Shrink(0).
-		Label(label).Tooltip(tip).Children(func() {
-		if guarded {
-			ui.Text(c, cfg.Env.Label()).FontSize(widgets.TextMeta).Bold().TextColor(ink)
-		}
-		ui.Text(c, cfg.Name).FontSize(widgets.TextSmall).FontWeight(600).TextColor(ink).SingleLine().MaxWidth(180)
 	})
 }
 

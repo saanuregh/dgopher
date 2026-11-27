@@ -2,9 +2,9 @@
 
 **Dig into your databases.** DGopher is a fast, free and open-source
 database client for Linux, macOS and Windows. One app for **PostgreSQL,
-MySQL, SQL Server, Oracle, ClickHouse, SQLite, DuckDB and Redis**, and for
-CockroachDB, YugabyteDB, TimescaleDB, MariaDB, TiDB and Valkey as engines
-of their own.
+MySQL, SQL Server, Oracle, ClickHouse, SQLite, DuckDB, Redis and
+MongoDB**, and for CockroachDB, YugabyteDB, TimescaleDB, MariaDB, TiDB,
+Valkey and FerretDB as engines of their own.
 
 [Download](https://github.com/saanuregh/dgopher/releases/latest) ·
 [Features](docs/features.md) · [Engine support](docs/engines.md) ·
@@ -35,8 +35,10 @@ of their own.
   schema, and writes SQL you insert with a click. It runs a query on its
   own only after you allow it, only reads, never on production, and has
   no access to your files or shell.
-- **SQL, Redis and files in one app.** Query SQL databases, browse and
-  edit Redis on one server, a cluster or through Sentinel, and drop a CSV,
+- **SQL, Redis, MongoDB and files in one app.** Query SQL databases,
+  browse and edit Redis on one server, a cluster or through Sentinel,
+  browse and edit MongoDB documents through the same safety policy, and
+  drop a CSV,
   Parquet or JSON file on the window to query it with DuckDB.
 - **Made for teams.** Connections, query files, dashboards, data models and
   snippets live in your Git repository, without passwords. Every statement
@@ -129,6 +131,10 @@ To build from source, see [Development](docs/development.md).
 - **Redis and Valkey:** a key browser, value editors for every type
   including Redis 8's, a console with completion, and monitor, slow log,
   memory and Pub/Sub panels.
+- **MongoDB and FerretDB:** a collection browser with filter, sort and
+  fields, grid, JSON and tree views, and document edits saved together
+  after one review; and a console for MongoDB shell statements, each
+  checked by the safety policy before it is sent.
 
 ### Connections and security
 

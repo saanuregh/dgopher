@@ -15,7 +15,8 @@ import (
 
 // ParseURL reads a connection from a URL, as tools and hosting services
 // print them: postgres://user:pass@host:5432/db?sslmode=require,
-// mysql://…, clickhouse://…, redis://…/0, rediss:// for TLS, oracle://…
+// mysql://…, clickhouse://…, redis://…/0, rediss:// for TLS,
+// mongodb://h1,h2/db, mongodb+srv://…, oracle://…
 // or an Oracle connect descriptor, (DESCRIPTION=…), or a path to a SQLite
 // or DuckDB file. The password, if any, comes back in Password.
 // ClickHouse's JDBC URLs, as DBeaver shows them, name HTTP in the scheme:
@@ -44,6 +45,13 @@ func ParseURL(s string) (Config, error) {
 		return Config{Engine: DuckDB, Database: s, Name: filepath.Base(s)}, nil
 	case !strings.Contains(s, "://") && (strings.HasSuffix(lower, ".sqlite") || strings.HasSuffix(lower, ".sqlite3") || strings.HasSuffix(lower, ".db")):
 		return Config{Engine: SQLite, Database: s, Name: filepath.Base(s)}, nil
+	}
+	var mongoHosts []string
+	if strings.HasPrefix(lower, "mongodb://") || strings.HasPrefix(lower, "mongodb+srv://") {
+		var err error
+		if s, mongoHosts, err = splitMongoHosts(s); err != nil {
+			return cfg, err
+		}
 	}
 	u, err := url.Parse(s)
 	if err != nil {
@@ -103,6 +111,7 @@ func ParseURL(s string) (Config, error) {
 	if cfg.Engine == ClickHouse && q.Get("database") != "" {
 		cfg.Database = q.Get("database")
 	}
+	cfg.Mongo.Hosts = mongoHosts
 	if r, ok := rulesOf(cfg.Engine).(urlReader); ok {
 		if err := r.readURL(&cfg, u); err != nil {
 			return cfg, err

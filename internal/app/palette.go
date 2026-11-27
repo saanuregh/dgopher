@@ -129,7 +129,7 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 				run: func() { a.openSearch(active, "") }})
 		}
 		if active.Status == connection.StatusConnected {
-			if !active.Config.Engine.IsFile() {
+			if activitySupported(active.Config.Engine) {
 				cmds = append(cmds, paletteItem{title: "Server Activity", detail: active.Config.Name, group: "Command", icon: widgets.IconClock, run: func() { a.openActivity(active) }})
 			}
 			if usersSupported(active.Config.Engine) {
@@ -200,8 +200,11 @@ func (a *App) paletteItems(tablesFirst bool) []paletteItem {
 		detail := cn.Config.Engine.Label() + " · " + cn.Config.Env.Label()
 		title := "Open " + cn.Config.Name
 		run := func() { a.NewQueryTab(cn, "", "") }
-		if cn.Config.Engine.IsKeyValue() {
+		switch {
+		case cn.Config.Engine.IsKeyValue():
 			run = func() { a.openRedis(cn) }
+		case cn.Config.Engine.IsDocument():
+			run = func() { a.openMongoConsole(cn, "") }
 		}
 		conns = append(conns, paletteItem{title: title, detail: detail, group: "Connection", icon: widgets.IconDatabase, run: run})
 		for key, objs := range cn.Objects {

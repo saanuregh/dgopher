@@ -28,6 +28,10 @@ import (
 // no build knows.
 var pinEngines = []Engine{Postgres, MySQL, ClickHouse, SQLite, DuckDB, Redis, "unknown"}
 
+// documentEngines are pinned by the tests that cover the document family
+// too.
+var documentEngines = []Engine{MongoDB, FerretDB}
+
 // sqlDialectEngines are the engines with a Dialect: the hooks that take one
 // cannot be reached for Redis or an unknown engine.
 var sqlDialectEngines = []Engine{Postgres, MySQL, ClickHouse, SQLite, DuckDB}
@@ -97,8 +101,10 @@ func TestPinEngineCapabilities(t *testing.T) {
 		"duckdb":     "label=DuckDB port=0 user=\"\" sql=true file=true transactions=true savepoints=false transactionalDDL=true dialect=duckdb lex=1",
 		"redis":      "label=Redis port=6379 user=\"\" sql=false file=false transactions=false savepoints=false transactionalDDL=false dialect=nil lex=0",
 		"unknown":    "label=unknown port=0 user=\"\" sql=true file=false transactions=true savepoints=false transactionalDDL=false dialect=nil lex=0",
+		"mongodb":    "label=MongoDB port=27017 user=\"\" sql=false file=false transactions=false savepoints=false transactionalDDL=false dialect=nil lex=0",
+		"ferretdb":   "label=FerretDB port=27017 user=\"\" sql=false file=false transactions=false savepoints=false transactionalDDL=false dialect=nil lex=0",
 	}, func(add func(key, got string)) {
-		for _, e := range pinEngines {
+		for _, e := range slices.Concat(pinEngines, documentEngines) {
 			add(string(e), fmt.Sprintf("label=%s port=%d user=%q sql=%v file=%v transactions=%v savepoints=%v transactionalDDL=%v dialect=%s lex=%v",
 				e.Label(), e.DefaultPort(), e.DefaultUser(), e.IsSQL(), e.IsFile(), e.Transactions(), e.Savepoints(), e.TransactionalDDL(), dialectEngine(DialectOf(e)), LexDialect(e)))
 		}
@@ -414,8 +420,14 @@ func TestPinValidateByEngine(t *testing.T) {
 		"unknown plain":         "error: unknown engine \"unknown\"",
 		"unknown identity":      "error: unknown engine \"unknown\"; a cloud identity logs in to an engine of PostgreSQL's or MySQL's family, or to SQL Server",
 		"unknown clear text":    "error: unknown engine \"unknown\"; a password sent as clear text goes only to MySQL",
+		"mongodb plain":         "ok",
+		"mongodb identity":      "error: a cloud identity logs in to an engine of PostgreSQL's or MySQL's family, or to SQL Server",
+		"mongodb clear text":    "error: a password sent as clear text goes only to MySQL",
+		"ferretdb plain":        "ok",
+		"ferretdb identity":     "error: a cloud identity logs in to an engine of PostgreSQL's or MySQL's family, or to SQL Server",
+		"ferretdb clear text":   "error: a password sent as clear text goes only to MySQL",
 	}, func(add func(key, got string)) {
-		for _, e := range pinEngines {
+		for _, e := range slices.Concat(pinEngines, documentEngines) {
 			base := Config{Name: "n", Engine: e, Host: "db.example.com", Database: "0", TLS: TLSVerifyFull}
 			add(string(e)+" plain", errText(base.Validate()))
 			gcp := base
@@ -438,6 +450,8 @@ func TestPinURLSchemes(t *testing.T) {
 		"mysql://h/d?ssl-mode=REQUIRED", "mysql://h/d?sslmode=require", "mysql://h/d?secure=true",
 		"clickhouse://h/d?secure=true", "clickhouse://h/d?sslmode=require", "clickhouse://h/d?skip_verify=true",
 		"redis://h/0?sslmode=require", "redis://h/0?skip_verify=true",
+		"mongodb://h/d", "mongodb+srv://h/d", "mongodb://h/d?tls=true", "mongodb://h/d?ssl=false", "mongodb+srv://h/d?tls=false",
+		"mongodb://h/d?sslmode=require", "mongodb://h/d?tls=true&tlsInsecure=true", "mongodb://h/d?tlsInsecure=true",
 	}
 	pinValues(t, "url schemes", map[string]string{
 		"postgres://h/d":                        "engine=postgres tls=\"\" database=\"d\"",
@@ -467,6 +481,14 @@ func TestPinURLSchemes(t *testing.T) {
 		"clickhouse://h/d?skip_verify=true":                                 "error: the URL's skip_verify needs TLS",
 		"redis://h/0?sslmode=require":                                       "error: sslmode is no Redis URL parameter",
 		"redis://h/0?skip_verify=true":                                      "error: the URL's skip_verify needs TLS",
+		"mongodb://h/d":                                                     "engine=mongodb tls=\"\" database=\"d\"",
+		"mongodb+srv://h/d":                                                 "engine=mongodb tls=\"verify-full\" database=\"d\"",
+		"mongodb://h/d?tls=true":                                            "engine=mongodb tls=\"verify-full\" database=\"d\"",
+		"mongodb://h/d?ssl=false":                                           "engine=mongodb tls=\"disable\" database=\"d\"",
+		"mongodb+srv://h/d?tls=false":                                       "engine=mongodb tls=\"disable\" database=\"d\"",
+		"mongodb://h/d?sslmode=require":                                     "error: sslmode is no MongoDB URL parameter",
+		"mongodb://h/d?tls=true&tlsInsecure=true":                           "engine=mongodb tls=\"require\" database=\"d\"",
+		"mongodb://h/d?tlsInsecure=true":                                    "error: the URL's tlsInsecure needs TLS",
 	}, func(add func(key, got string)) {
 		for _, u := range urls {
 			cfg, err := ParseURL(u)

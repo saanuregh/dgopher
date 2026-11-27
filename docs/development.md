@@ -185,10 +185,12 @@ packages on Unix; elsewhere `test --it` adds `-p 1`. SQLite and DuckDB
 need no server.
 
 [`compose.yaml`](../compose.yaml) runs every server the tests use:
-PostgreSQL, MySQL, ClickHouse, Redis 7 and 8, a Redis cluster, and a Redis
-master with a sentinel. Their ports and passwords match
-`internal/testutil/testutil.go`, `internal/db/integration_test.go` and,
-for Redis, `internal/testutil/redisserver`.
+PostgreSQL, MySQL, ClickHouse, Redis 7 and 8, a Redis cluster, a Redis
+master with a sentinel, and a one-member MongoDB replica set. Their ports
+and passwords match `internal/testutil/testutil.go`,
+`internal/db/integration_test.go`, for Redis
+`internal/testutil/redisserver`, and for MongoDB and FerretDB
+`internal/testutil/mongoserver`.
 
 ```sh
 go run ./tools/dev servers up        # start them with Podman or Docker, and wait until they are ready
@@ -203,7 +205,7 @@ running. Their addresses are in
 `internal/testutil/optionalserver/optionalserver.go`:
 
 ```sh
-go run ./tools/dev servers up --profile compat       # also MariaDB, TiDB, CockroachDB, YugabyteDB, TimescaleDB and Valkey
+go run ./tools/dev servers up --profile compat       # also MariaDB, TiDB, CockroachDB, YugabyteDB, TimescaleDB, Valkey, a standalone MongoDB and FerretDB
 go run ./tools/dev servers up --profile enterprise   # also SQL Server (x86-64 only, about 2 GB) and Oracle Free
 go run ./tools/dev servers up --profile enterprise oracle   # only Oracle
 ```
@@ -231,6 +233,14 @@ them again, make the container again with `podman compose --profile
 enterprise up -d --force-recreate --wait oracle` (or `docker compose`). A
 container made before it had TCPS gets it from `go run ./tools/dev servers
 up --profile enterprise oracle`, which makes it again.
+
+The MongoDB tests use the replica set for transactions, the standalone
+server (profile `compat`) for saves without them, and FerretDB (profile
+`compat`, on a PostgreSQL with DocumentDB of its own) for what it lacks.
+The replica set's member names itself by its address inside the
+container, so the test URIs set `directConnection=true`. Each URI can be
+overridden by an environment variable named in
+`internal/testutil/mongoserver`.
 
 The Redis cluster and sentinel use the host's network, so the addresses
 the nodes announce are reachable from the tests. This needs Podman or
@@ -419,10 +429,11 @@ go run ./tools/licenses -duckdb <DuckDB source directory>
 | `internal/ui/dashboard` | dashboard tabs: panels of reads shown as charts, rows or values, with parameters and refresh, kept in a project's file |
 | `internal/ui/modelview` | data model tabs: a model's tables, its DDL, and its comparison with a database or another model |
 | `internal/ui/redis` | Redis tabs: the key tree, values and their editing, the console, and the monitor, slow log, memory and Pub/Sub panels |
+| `internal/ui/mongo` | MongoDB tabs: a collection's documents and their pending edits, and the console |
 | `internal/ui/chat` | a SQL editor's AI chat: an agent's session through agent-cli-connector, its transcript, its model and effort, and the app's tools it may call |
 | `internal/keymap` | the actions that have keys, their default keys, keymap.json, and keys of two in a row |
 
-The tab packages (`dataview`, `query`, `redis`, `dashboard`, `modelview`) and `chat`
+The tab packages (`dataview`, `query`, `redis`, `mongo`, `dashboard`, `modelview`) and `chat`
 each declare a small `Host` interface for what they need from the window.
 `internal/app` implements all of them.
 
@@ -430,9 +441,10 @@ each declare a small `Host` interface for what they need from the window.
 
 | Path | What |
 | --- | --- |
-| `internal/db` | connections, sessions, cursors, each engine's dialect, generated edits, and the Redis client |
+| `internal/db` | connections, sessions, cursors, each engine's dialect, generated edits, the Redis client, and the MongoDB client with its catalog, statements and document edits |
 | `internal/connection` | a connection's live state: its pool, sessions, status, idle limits, and the schema read so far |
 | `internal/safety` | the safety policy: which statements are refused or need a confirmation |
+| `internal/mongosh` | the MongoDB shell subset the console runs: splitting a script, parsing a statement and its values, and classifying it for the safety policy |
 | `internal/sqltext` | the SQL lexer: highlighting, splitting, classification for the safety policy, completion context, and the formatter ([How SQL is read](sql.md)) |
 | `internal/params` | query parameters: finding, typing and binding them |
 | `internal/sqlfile` | reads the statements of a SQL file as it streams, such as a dump, `COPY` rows included |

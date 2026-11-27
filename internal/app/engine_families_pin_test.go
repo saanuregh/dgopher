@@ -63,8 +63,8 @@ func openedOn(a *App, cn *connection.Conn, tabs int) string {
 	return fmt.Sprintf("tabs+%d (%s) waiting=%d node open=%v", a.tabs().Len()-tabs, kind, len(cn.Waiters), a.nav.tree.Open.Has(node))
 }
 
-// The key browser opens instead of an editor for a key-value engine only
-// (app.go NewQueryTab).
+// The key browser opens instead of an editor for a key-value engine, and
+// the console for a document engine (app.go NewQueryTab).
 func TestPinNewQueryTabByEngine(t *testing.T) {
 	pinValues(t, "new query tab", map[string]string{
 		"postgres":   "tabs+1 (editor) waiting=1 node open=false",
@@ -73,6 +73,7 @@ func TestPinNewQueryTabByEngine(t *testing.T) {
 		"sqlite":     "tabs+1 (editor) waiting=1 node open=false",
 		"duckdb":     "tabs+1 (editor) waiting=1 node open=false",
 		"redis":      "tabs+0 (none) waiting=1 node open=false",
+		"mongodb":    "tabs+0 (none) waiting=1 node open=false",
 		"unknown":    "tabs+1 (editor) waiting=1 node open=false",
 	}, func(add func(key, got string)) {
 		a := newTestApp(t)
@@ -85,8 +86,9 @@ func TestPinNewQueryTabByEngine(t *testing.T) {
 	})
 }
 
-// Activating a connection's node opens the key browser for Redis, and
-// opens the node to connect it for the others (nav.go activate).
+// Activating a connection's node opens the key browser for Redis, the
+// console for MongoDB, and opens the node to connect it for the others
+// (nav.go activate).
 func TestPinActivateConnectionByEngine(t *testing.T) {
 	pinValues(t, "activate connection", map[string]string{
 		"postgres":   "tabs+0 (none) waiting=1 node open=true",
@@ -95,6 +97,7 @@ func TestPinActivateConnectionByEngine(t *testing.T) {
 		"sqlite":     "tabs+0 (none) waiting=1 node open=true",
 		"duckdb":     "tabs+0 (none) waiting=1 node open=true",
 		"redis":      "tabs+0 (none) waiting=1 node open=false",
+		"mongodb":    "tabs+0 (none) waiting=1 node open=false",
 		"unknown":    "tabs+0 (none) waiting=1 node open=true",
 	}, func(add func(key, got string)) {
 		a := newTestApp(t)
@@ -107,8 +110,8 @@ func TestPinActivateConnectionByEngine(t *testing.T) {
 	})
 }
 
-// A Redis connection's node has no children; the others' show their
-// state (nav.go navChildren).
+// A Redis or MongoDB connection's node has no children; the others' show
+// their state (nav.go navChildren).
 func TestPinConnectionNodeChildrenByEngine(t *testing.T) {
 	pinValues(t, "connection node children", map[string]string{
 		"postgres":   "[\"Connecting…\"]",
@@ -117,6 +120,7 @@ func TestPinConnectionNodeChildrenByEngine(t *testing.T) {
 		"sqlite":     "[\"Connecting…\"]",
 		"duckdb":     "[\"Connecting…\"]",
 		"redis":      "[]",
+		"mongodb":    "[\"Connecting…\"]",
 		"unknown":    "[\"Connecting…\"]",
 	}, func(add func(key, got string)) {
 		a := newTestApp(t)
@@ -133,9 +137,9 @@ func TestPinConnectionNodeChildrenByEngine(t *testing.T) {
 	})
 }
 
-// A connection's context menu offers the key browser for Redis and the
-// SQL tools for the others; its Connect opens the key browser for Redis
-// (nav.go navMenu).
+// A connection's context menu offers the key browser for Redis, the
+// console for MongoDB and the SQL tools for the others; its Connect opens
+// the key browser for Redis and the console for MongoDB (nav.go navMenu).
 func TestPinConnectionMenuByEngine(t *testing.T) {
 	pinValues(t, "connection menu", map[string]string{
 		"postgres menu":      "Connect | New SQL Editor | Run SQL File… | Search Objects… | Server Activity | Users and Privileges | Catalog Queries | - | Back Up… | Restore… | - | Edit Connection… | Duplicate | New Folder… | - | Delete Connection…",
@@ -150,6 +154,8 @@ func TestPinConnectionMenuByEngine(t *testing.T) {
 		"duckdb connect":     "tabs+0 (none) waiting=1 node open=true",
 		"redis menu":         "Connect | Open Key Browser | Server Activity | - | Edit Connection… | Duplicate | New Folder… | - | Delete Connection…",
 		"redis connect":      "tabs+0 (none) waiting=1 node open=false",
+		"mongodb menu":       "Connect | Open Console | - | Edit Connection… | Duplicate | New Folder… | - | Delete Connection…",
+		"mongodb connect":    "tabs+0 (none) waiting=1 node open=false",
 		"unknown menu":       "Connect | New SQL Editor | Run SQL File… | Search Objects… | Server Activity | Catalog Queries | - | Edit Connection… | Duplicate | New Folder… | - | Delete Connection…",
 		"unknown connect":    "tabs+0 (none) waiting=1 node open=true",
 	}, func(add func(key, got string)) {
@@ -171,8 +177,8 @@ func TestPinConnectionMenuByEngine(t *testing.T) {
 	})
 }
 
-// The palette's Open of a connection opens the key browser for Redis and
-// an editor for the others (palette.go).
+// The palette's Open of a connection opens the key browser for Redis, the
+// console for MongoDB and an editor for the others (palette.go).
 func TestPinPaletteOpenByEngine(t *testing.T) {
 	pinValues(t, "palette open", map[string]string{
 		"postgres":   "tabs+1 (editor) waiting=1 node open=false",
@@ -181,6 +187,7 @@ func TestPinPaletteOpenByEngine(t *testing.T) {
 		"sqlite":     "tabs+1 (editor) waiting=1 node open=false",
 		"duckdb":     "tabs+1 (editor) waiting=1 node open=false",
 		"redis":      "tabs+0 (none) waiting=1 node open=false",
+		"mongodb":    "tabs+0 (none) waiting=1 node open=false",
 		"unknown":    "tabs+1 (editor) waiting=1 node open=false",
 	}, func(add func(key, got string)) {
 		a := newTestApp(t)
@@ -199,8 +206,8 @@ func TestPinPaletteOpenByEngine(t *testing.T) {
 	})
 }
 
-// The welcome page's row of a connection opens the key browser for Redis
-// and an editor for the others (layout.go welcome).
+// The welcome page's row of a connection opens the key browser for Redis,
+// the console for MongoDB and an editor for the others (layout.go welcome).
 func TestPinWelcomeOpenByEngine(t *testing.T) {
 	pinValues(t, "welcome open", map[string]string{
 		"postgres":   "tabs+1 (editor) waiting=1 node open=false",
@@ -209,6 +216,7 @@ func TestPinWelcomeOpenByEngine(t *testing.T) {
 		"sqlite":     "tabs+1 (editor) waiting=1 node open=false",
 		"duckdb":     "tabs+1 (editor) waiting=1 node open=false",
 		"redis":      "tabs+0 (none) waiting=1 node open=false",
+		"mongodb":    "tabs+0 (none) waiting=1 node open=false",
 		"unknown":    "tabs+1 (editor) waiting=1 node open=false",
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
@@ -239,6 +247,7 @@ func TestPinSavedTabKindsByEngine(t *testing.T) {
 		"sqlite":     "diagram search table",
 		"duckdb":     "diagram search table",
 		"redis":      "activity keys",
+		"mongodb":    "collection console",
 		"unknown":    "diagram search table",
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
@@ -264,6 +273,7 @@ func TestPinActivityStopByEngine(t *testing.T) {
 		"sqlite":     "title=\"Cancel this query?\" preview=\"SELECT pg_cancel_backend(42)\"",
 		"duckdb":     "title=\"Cancel this query?\" preview=\"SELECT pg_cancel_backend(42)\"",
 		"redis":      "title=\"Disconnect client 42?\" preview=\"CLIENT KILL ID 42\"",
+		"mongodb":    "title=\"Cancel this query?\" preview=\"SELECT pg_cancel_backend(42)\"",
 		"unknown":    "title=\"Cancel this query?\" preview=\"SELECT pg_cancel_backend(42)\"",
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
@@ -325,6 +335,12 @@ func TestPinConnectionFormKeepsRedisFields(t *testing.T) {
 		"redis Cluster sep \":\"":            "engine=redis separator=\"\" database=\"\" redis={Mode:cluster Nodes:h2:7000 Master: SentinelUser: SentinelPassword:}",
 		"redis Sentinel sep \"/\"":           "engine=redis separator=\"/\" database=\"3\" redis={Mode:sentinel Nodes:h2:7000 Master:m SentinelUser:su SentinelPassword:sp}",
 		"redis Sentinel sep \":\"":           "engine=redis separator=\"\" database=\"3\" redis={Mode:sentinel Nodes:h2:7000 Master:m SentinelUser:su SentinelPassword:sp}",
+		"mongodb Single server sep \"/\"":    "engine=mongodb separator=\"\" database=\"3\" redis={Mode: Nodes: Master: SentinelUser: SentinelPassword:}",
+		"mongodb Single server sep \":\"":    "engine=mongodb separator=\"\" database=\"3\" redis={Mode: Nodes: Master: SentinelUser: SentinelPassword:}",
+		"mongodb Cluster sep \"/\"":          "engine=mongodb separator=\"\" database=\"3\" redis={Mode: Nodes: Master: SentinelUser: SentinelPassword:}",
+		"mongodb Cluster sep \":\"":          "engine=mongodb separator=\"\" database=\"3\" redis={Mode: Nodes: Master: SentinelUser: SentinelPassword:}",
+		"mongodb Sentinel sep \"/\"":         "engine=mongodb separator=\"\" database=\"3\" redis={Mode: Nodes: Master: SentinelUser: SentinelPassword:}",
+		"mongodb Sentinel sep \":\"":         "engine=mongodb separator=\"\" database=\"3\" redis={Mode: Nodes: Master: SentinelUser: SentinelPassword:}",
 		"unknown Single server sep \"/\"":    "engine=postgres separator=\"\" database=\"3\" redis={Mode: Nodes: Master: SentinelUser: SentinelPassword:}",
 		"unknown Single server sep \":\"":    "engine=postgres separator=\"\" database=\"3\" redis={Mode: Nodes: Master: SentinelUser: SentinelPassword:}",
 		"unknown Cluster sep \"/\"":          "engine=postgres separator=\"\" database=\"3\" redis={Mode: Nodes: Master: SentinelUser: SentinelPassword:}",
@@ -354,7 +370,7 @@ func TestPinConnectionFormKeepsRedisFields(t *testing.T) {
 }
 
 // The connection form shows the topology and key separator for Redis
-// only, and the statement timeout for all but Redis (connform.go
+// only, and the statement timeout for SQL engines only (connform.go
 // generalPage and optionsPage).
 func TestPinConnectionFormRedisFieldsShown(t *testing.T) {
 	labels := []string{"Topology", "Key separator", "Statement timeout"}
@@ -365,6 +381,7 @@ func TestPinConnectionFormRedisFieldsShown(t *testing.T) {
 		"sqlite":     "Statement timeout",
 		"duckdb":     "Statement timeout",
 		"redis":      "Topology, Key separator",
+		"mongodb":    "",
 		"unknown":    "Statement timeout",
 	}, func(add func(key, got string)) {
 		a := newTestApp(t)
@@ -401,6 +418,7 @@ func TestPinConnectionTestOpensByEngine(t *testing.T) {
 		"sqlite":     "ok=true Connected to SQLite",
 		"duckdb":     "ok=true Connected to DuckDB",
 		"redis":      "ok=false a host is required",
+		"mongodb":    "ok=false a host is required",
 		"unknown":    "ok=false unknown engine \"unknown\"; a host is required",
 	}, func(add func(key, got string)) {
 		a := newTestApp(t)
@@ -426,8 +444,8 @@ func TestPinConnectionTestOpensByEngine(t *testing.T) {
 }
 
 // Where a connection goes, and whether that is another machine: a Redis
-// connection's other nodes count, others' do not (connform.go destination
-// and remote).
+// connection's other nodes and a MongoDB connection's other hosts count,
+// others' do not (connform.go destination and remote).
 func TestPinDestinationByEngine(t *testing.T) {
 	pinValues(t, "destination", map[string]string{
 		"postgres":   "destination=\"127.0.0.1:7000\" remote=false",
@@ -436,10 +454,11 @@ func TestPinDestinationByEngine(t *testing.T) {
 		"sqlite":     "destination=\"127.0.0.1:7000\" remote=false",
 		"duckdb":     "destination=\"127.0.0.1:7000\" remote=false",
 		"redis":      "destination=\"127.0.0.1:7000, far.example.com:7001\" remote=true",
+		"mongodb":    "destination=\"127.0.0.1:7000, far.example.com:7002\" remote=true",
 		"unknown":    "destination=\"127.0.0.1:7000\" remote=false",
 	}, func(add func(key, got string)) {
 		for _, e := range pinEngines {
-			cfg := db.Config{Engine: e, Host: "127.0.0.1", Port: 7000, Redis: db.RedisConfig{Nodes: " far.example.com:7001 "}}
+			cfg := db.Config{Engine: e, Host: "127.0.0.1", Port: 7000, Redis: db.RedisConfig{Nodes: " far.example.com:7001 "}, Mongo: db.MongoConfig{Hosts: []string{"far.example.com:7002"}}}
 			add(string(e), fmt.Sprintf("destination=%q remote=%v", destination(cfg), remote(&cfg)))
 		}
 	})
@@ -451,13 +470,14 @@ func TestPinDestinationByEngine(t *testing.T) {
 // connect is audited either way.
 func TestPinConnectOpensByEngine(t *testing.T) {
 	pinValues(t, "connect", map[string]string{
-		"postgres":   "status=failed err=\"a host is required\" sql=false redis=false audited=true",
-		"mysql":      "status=failed err=\"a host is required\" sql=false redis=false audited=true",
-		"clickhouse": "status=failed err=\"a host is required\" sql=false redis=false audited=true",
-		"sqlite":     "status=connected err=\"\" sql=true redis=false audited=true",
-		"duckdb":     "status=connected err=\"\" sql=true redis=false audited=true",
-		"redis":      "status=failed err=\"a host is required\" sql=false redis=false audited=true",
-		"unknown":    "status=failed err=\"unknown engine \\\"unknown\\\"; a host is required\" sql=false redis=false audited=true",
+		"postgres":   "status=failed err=\"a host is required\" sql=false redis=false doc=false audited=true",
+		"mysql":      "status=failed err=\"a host is required\" sql=false redis=false doc=false audited=true",
+		"clickhouse": "status=failed err=\"a host is required\" sql=false redis=false doc=false audited=true",
+		"sqlite":     "status=connected err=\"\" sql=true redis=false doc=false audited=true",
+		"duckdb":     "status=connected err=\"\" sql=true redis=false doc=false audited=true",
+		"redis":      "status=failed err=\"a host is required\" sql=false redis=false doc=false audited=true",
+		"mongodb":    "status=failed err=\"a host is required\" sql=false redis=false doc=false audited=true",
+		"unknown":    "status=failed err=\"unknown engine \\\"unknown\\\"; a host is required\" sql=false redis=false doc=false audited=true",
 	}, func(add func(key, got string)) {
 		a := newTestApp(t)
 		tt := ui.NewTester(a.view, 1200, 800)
@@ -472,7 +492,7 @@ func TestPinConnectOpensByEngine(t *testing.T) {
 			audited := slices.ContainsFunc(auditEvents(t, a), func(ev audit.Event) bool {
 				return ev.Kind == audit.KindConnect && ev.ConnectionID == cn.Config.ID
 			})
-			add(string(e), fmt.Sprintf("status=%s err=%q sql=%v redis=%v audited=%v", statusName(cn.Status), cn.Err, cn.DB() != nil, cn.KV() != nil, audited))
+			add(string(e), fmt.Sprintf("status=%s err=%q sql=%v redis=%v doc=%v audited=%v", statusName(cn.Status), cn.Err, cn.DB() != nil, cn.KV() != nil, cn.Doc() != nil, audited))
 			a.closeConnection(cn)
 		}
 	})

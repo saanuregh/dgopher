@@ -49,6 +49,7 @@ type connForm struct {
 	chProtocol int // an index of chProtocols
 	proxy      int // an index of proxyKinds
 	proxyPort  string
+	mongo      mongoForm
 
 	// envChosen is set once the user picks the environment in the form,
 	// even the one shown; envAsked, once a save asked them to.
@@ -172,6 +173,7 @@ func (a *App) openConnForm(cn *connection.Conn) {
 	}
 	f.redisMode = max(0, slices.Index(redisModes, f.cfg.Redis.Mode))
 	f.chProtocol = chProtocolOf(&f.cfg)
+	f.loadMongo(&f.cfg)
 	f.sshSource = sshSources[0]
 	if f.cfg.SSH.PasswordCommand != "" {
 		f.sshSource = sshSources[1]
@@ -328,6 +330,7 @@ func (f *connForm) config() db.Config {
 			cfg.Database = ""
 		}
 	}
+	f.mongoConfig(&cfg)
 	return cfg
 }
 
@@ -477,7 +480,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 			if in.Submitted() || in.Changed() && strings.Contains(f.url, "://") {
 				a.fillFromURL(f)
 			}
-		}).Tooltip("Paste a postgres://, mysql://, clickhouse:// or redis:// URL, or a database file's path, to fill in the rest.").Error(f.urlErr)
+		}).Tooltip("Paste a postgres://, mysql://, clickhouse://, redis:// or mongodb:// URL, or a database file's path, to fill in the rest.").Error(f.urlErr)
 	}
 	ui.Field(c, "Engine", func() {
 		choice, choices := f.engine, engineOptions
@@ -539,6 +542,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 			})
 			mode = redisModes[f.redisMode]
 		}
+		srv := mongoSRVField(c, f, engine)
 		hostLabel, port, more := "Host", engine.DefaultPort(), ""
 		switch mode {
 		case db.RedisCluster:
@@ -552,9 +556,12 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 		ui.Field(c, hostLabel, func() {
 			ui.Row(c).Gap(6).Children(func() {
 				ui.TextInput(c, &f.cfg.Host).Placeholder(f.hostPlaceholder()).Grow(1).Label(hostLabel)
-				ui.TextInput(c, &f.port).Placeholder(strconv.Itoa(port)).Width(80).Label("Port")
+				if !srv {
+					ui.TextInput(c, &f.port).Placeholder(strconv.Itoa(port)).Width(80).Label("Port")
+				}
 			})
-		}).Error(portProblem(f.port, "port"))
+		}).Error(widgets.When(!srv, portProblem(f.port, "port")))
+		mongoHostsField(c, f, engine, port)
 		if more != "" {
 			ui.Field(c, more, func() {
 				ui.TextInput(c, &f.cfg.Redis.Nodes).Placeholder("10.0.0.2:" + strconv.Itoa(port) + ", 10.0.0.3:" + strconv.Itoa(port)).Font(widgets.MonoFont).FontSize(widgets.TextBody)
@@ -575,6 +582,7 @@ func (a *App) generalPage(c *ui.Context, f *connForm, engine db.Engine) {
 		case ok && kv.ClusterDatabases():
 			textField(c, label, &f.cfg.Database, placeholder).Description("A database other than 0 needs cluster-databases set on the servers (Valkey 9.0 and later).")
 		}
+		mongoLoginFields(c, f, engine)
 		if connectionFields(engine).SID {
 			ui.Field(c, "SID", func() {
 				ui.Checkbox(c, &f.cfg.Oracle.SID, "It is the instance's SID, not a service name")
@@ -783,7 +791,7 @@ func optionsPage(c *ui.Context, f *connForm, engine db.Engine) {
 		}).Description(fmt.Sprintf("A connection unused this long disconnects; its editors stay, and connect it again when you run. 0 takes the environment's default: %s on %s.",
 			idleSpan(connection.DefaultIdleConnection(db.Environments()[f.env])), db.Environments()[f.env].Label()))
 	}
-	if !engine.IsKeyValue() {
+	if engine.IsSQL() {
 		ui.Field(c, "Statement timeout", func() {
 			ui.Row(c).Gap(8).Children(func() {
 				ui.NumberInput(c, &f.timeout, 0, 86400, 30).Label("Seconds")
@@ -1165,6 +1173,7 @@ func destination(cfg db.Config) string {
 	if cfg.Engine.Base() == db.Redis && strings.TrimSpace(cfg.Redis.Nodes) != "" {
 		at += ", " + strings.TrimSpace(cfg.Redis.Nodes)
 	}
+	at = mongoDestination(&cfg, at)
 	if cfg.SSH.Enabled {
 		at += " through " + net.JoinHostPort(cfg.SSH.Host, strconv.Itoa(cfg.SSH.Port))
 	}
@@ -1172,7 +1181,7 @@ func destination(cfg db.Config) string {
 }
 
 // remote reports whether a connection goes to another machine than this
-// one: not a file, a socket or the loopback, nor a Redis node elsewhere.
+// one: not a file, a socket or the loopback, nor another node elsewhere.
 func remote(cfg *db.Config) bool {
 	local := func(host string) bool {
 		host = strings.TrimSpace(host)
@@ -1195,6 +1204,7 @@ func remote(cfg *db.Config) bool {
 	if cfg.Engine.Base() == db.Redis {
 		hosts = append(hosts, strings.Split(cfg.Redis.Nodes, ",")...)
 	}
+	hosts = append(hosts, mongoMoreHosts(cfg)...)
 	return slices.ContainsFunc(hosts, func(h string) bool { return !local(h) })
 }
 
@@ -1297,6 +1307,7 @@ func (a *App) fillFromURL(f *connForm) {
 		f.tls = tlsLabels[cfg.TLS]
 	}
 	f.chProtocol = chProtocolOf(&cfg)
+	f.fillMongo(&cfg)
 }
 
 // passwordSource is where a connection's password comes from.

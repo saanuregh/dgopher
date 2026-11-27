@@ -1,6 +1,6 @@
 // Package db connects to the databases DGopher supports and reads their
 // schemas: PostgreSQL, MySQL and ClickHouse through database/sql, and Redis
-// through its own client.
+// and MongoDB through their own clients.
 package db
 
 import (
@@ -31,21 +31,23 @@ const (
 	DuckDB     Engine = "duckdb"
 	SQLServer  Engine = "sqlserver"
 	Oracle     Engine = "oracle"
+	MongoDB    Engine = "mongodb"
 	// The flavors: each runs on its parent's rules but for what it
 	// overrides: PostgreSQL's for the first three, MySQL's for MariaDB
-	// and TiDB, Redis's for Valkey.
+	// and TiDB, Redis's for Valkey, MongoDB's for FerretDB.
 	CockroachDB Engine = "cockroachdb"
 	YugabyteDB  Engine = "yugabytedb"
 	TimescaleDB Engine = "timescaledb"
 	MariaDB     Engine = "mariadb"
 	TiDB        Engine = "tidb"
 	Valkey      Engine = "valkey"
+	FerretDB    Engine = "ferretdb"
 )
 
 // Engines lists the supported engines in the order the UI offers them,
 // each flavor after its parent.
 func Engines() []Engine {
-	return []Engine{Postgres, CockroachDB, YugabyteDB, TimescaleDB, MySQL, MariaDB, TiDB, ClickHouse, SQLServer, Oracle, Redis, Valkey, SQLite, DuckDB}
+	return []Engine{Postgres, CockroachDB, YugabyteDB, TimescaleDB, MySQL, MariaDB, TiDB, ClickHouse, SQLServer, Oracle, Redis, Valkey, MongoDB, FerretDB, SQLite, DuckDB}
 }
 
 // Environment says how careful the app must be with a connection.
@@ -204,6 +206,8 @@ type Config struct {
 	// Redis says how a Redis connection reaches its data, when not on the
 	// one server of Host and Port.
 	Redis RedisConfig `json:"redis,omitzero"`
+	// Mongo says how a MongoDB connection finds its servers and logs in.
+	Mongo MongoConfig `json:"mongo,omitzero"`
 	// ClickHouseProtocol is how a ClickHouse connection talks to its
 	// server.
 	ClickHouseProtocol ClickHouseProtocol `json:"clickhouseProtocol,omitempty"`

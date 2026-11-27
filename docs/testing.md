@@ -149,6 +149,11 @@ func TestAutocomplete(t *testing.T) {
   `integration(t)` helper and a table of fixtures, one per engine, in
   `internal/db/integration_test.go`. Its tests loop over the fixtures with
   `t.Run(f.cfg.Name, …)`.
+- MongoDB tests take their servers from `internal/testutil/mongoserver`:
+  `Primary` (the replica set, with transactions), `Standalone` and
+  `FerretDB`, the last two skipping, with the command to start them, when
+  they are not running. `internal/db` reads the same URIs through its own
+  helper.
 - The lock is a file lock on Unix (`internal/testutil/serverlock`). On other
   systems it does nothing, so run integration tests with `go test -p 1`,
   which `go run ./tools/dev test --it` adds there.
@@ -201,6 +206,7 @@ the first control in a `ui.Field`. Give a new control a label to pass it.
 | --- | --- |
 | `FuzzTokenize` | `internal/sqltext`: tokens cover the text; splitting, classifying and formatting hold up |
 | `FuzzDecode` | `internal/decode` |
+| `FuzzParse` | `internal/mongosh`: parsing a MongoDB shell statement never panics |
 | `FuzzVim` | `internal/ui/editor` |
 
 ```sh

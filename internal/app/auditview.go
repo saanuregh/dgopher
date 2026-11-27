@@ -40,7 +40,7 @@ type auditState struct {
 	traffic bool
 }
 
-var auditKinds = []string{"All kinds", audit.KindStatement, audit.KindEdit, audit.KindCommand, audit.KindScript, audit.KindImport, audit.KindExport,
+var auditKinds = []string{"All kinds", audit.KindStatement, audit.KindEdit, audit.KindCommand, audit.KindMongo, audit.KindScript, audit.KindImport, audit.KindExport,
 	audit.KindBackup, audit.KindRestore,
 	audit.KindKill, audit.KindConfirm, audit.KindBlocked, audit.KindConnect, audit.KindDisconnect, audit.KindTrust, audit.KindConfig}
 

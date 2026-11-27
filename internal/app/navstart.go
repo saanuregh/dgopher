@@ -27,7 +27,7 @@ const (
 // the level's room goes to the names. The files' pane has headings of its
 // own, over one level.
 func isHead(n navNode) bool {
-	return n.kind == nodeConnections || n.conn != "" && (n.kind == nodeConn || n.kind == nodeFolder)
+	return n.kind == nodeConnections || n.conn != "" && (n.kind == nodeConn || n.kind == nodeFolder || n.kind == nodeDocFolder)
 }
 
 // navHeads counts the headings a row of the database tree is under, by
@@ -45,8 +45,8 @@ func navHeads(n navNode) int {
 	}
 	heads := top + 1 // and its connection
 	switch n.kind {
-	case nodeObject, nodeColumn:
-		heads++ // Tables, or Views
+	case nodeObject, nodeColumn, nodeDocCollection, nodeDocIndex:
+		heads++ // Tables, or Views; Collections, or Views
 	case nodeItem:
 		heads++ // its kind's group
 		if strings.HasPrefix(n.name, folderPartitions+"\x00") {
@@ -137,7 +137,7 @@ func rowAdd(c *ui.Context, row ui.Element, chosen bool, label string) bool {
 // by its button where it has one.
 func (a *App) quietHeading(c *ui.Context, n navNode) ui.Color {
 	switch n.kind {
-	case nodeConnections, nodeQueries, nodeDashboards, nodeModels, nodeBookmarks, nodeFolder:
+	case nodeConnections, nodeQueries, nodeDashboards, nodeModels, nodeBookmarks, nodeFolder, nodeDocFolder:
 		if at, ok := a.nav.paneOf(n).chosen(); ok && at == n {
 			return widgets.PaletteOf(c).Sidebar
 		}
@@ -192,7 +192,7 @@ func (a *App) navStart(c *ui.Context, n navNode) {
 		})
 	case at.underHead, a.besideFolders(n):
 		ui.Box(c).Width(navArrow).Shrink(0)
-	case n.kind == nodeQueryFile, n.kind == nodeDashboard, n.kind == nodeModel, n.kind == nodeColumn, n.kind == nodeInfo:
+	case n.kind == nodeQueryFile, n.kind == nodeDashboard, n.kind == nodeModel, n.kind == nodeColumn, n.kind == nodeInfo, n.kind == nodeDocIndex:
 		ui.Box(c).Width(4).Shrink(0)
 	default:
 		ui.Box(c).Width(navArrow).Shrink(0)

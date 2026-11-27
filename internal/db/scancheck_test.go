@@ -123,6 +123,8 @@ func TestPinScanCheck(t *testing.T) {
 		"oracle":      "before=[] statement=\"EXPLAIN PLAN SET STATEMENT_ID = 'DGOPHER' FOR SELECT * FROM t\" offset=46 read=true discard=1 after=[] rows=\"\" args=[]",
 		"redis":       "none",
 		"valkey":      "none",
+		"mongodb":     "none",
+		"ferretdb":    "none",
 		"sqlite":      "none",
 		"duckdb":      "before=[] statement=\"EXPLAIN (FORMAT JSON) SELECT * FROM t\" offset=22 read=false discard=0 after=[] rows=\"SELECT schema_name, table_name, estimated_size FROM duckdb_tables() WHERE (schema_name = ? AND table_name = ?)\" args=[\"shop\" \"orders\"]",
 		"unknown":     "none",

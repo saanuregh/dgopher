@@ -198,6 +198,16 @@ A notebook's cells are editors: the SQL editor's keys work in them too.
 | Redis key tree | Delete | Delete the chosen key, once you agree |
 | Redis console | ↑, ↓ | Walk the command history |
 | Redis console | Tab | Complete the command's name |
+| MongoDB collection | ↵ (in a bar) | Find the documents matching the filter |
+| MongoDB collection | F5 | Read the documents again |
+| MongoDB collection | ⇧↵ | Edit the chosen field; on a nested value, open the document beside the rows |
+| MongoDB collection | ⌥Insert, ⌘⌥Insert | Insert a document, or a copy of the chosen one |
+| MongoDB collection | Delete, ⌘⌫, ⌥Delete | Mark the chosen documents for deletion |
+| MongoDB collection | ⌘S | Review and save the pending changes |
+| MongoDB collection | ⌘R | Discard the pending changes |
+| MongoDB collection, console | ⌘⌥N, ⌘⇧= | Load more documents, or fetch them all |
+| MongoDB console | ⌘↵, F5 | Run the statement at the caret, or those selected |
+| MongoDB console | ⌘⇧↵, ⌥X | Run every statement |
 | Dashboard | F5 | Run the panels again |
 | ER diagram | ↵ | Open the chosen table's data |
 | ER diagram | Arrows | Move the chosen table |

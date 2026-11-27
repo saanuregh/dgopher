@@ -52,6 +52,8 @@ func (a *App) navRow(c *ui.Context, n navNode) {
 			a.navItemRow(c, n)
 		case nodeInfo:
 			a.navNoteRow(c, row, n)
+		case nodeDocDatabase, nodeDocFolder, nodeDocCollection, nodeDocIndex:
+			a.navDocRow(c, row, cn, n, quiet)
 		}
 	})
 	row.ContextMenu(func(m *ui.Menu) { a.navMenu(m, n) })

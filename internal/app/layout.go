@@ -1201,6 +1201,9 @@ func connSummary(cfg *db.Config) string {
 	case db.RedisSentinel:
 		s += " (sentinel master " + cfg.Redis.Master + ")"
 	}
+	if m := mongoSummary(cfg); len(m) > 0 {
+		s += " (" + strings.Join(m, ", ") + ")"
+	}
 	if cfg.SSH.Enabled {
 		s += " via " + cfg.SSH.Host
 	}
