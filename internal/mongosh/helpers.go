@@ -51,8 +51,8 @@ func (p *parser) helper(name token, isNew bool) (Value, error) {
 		}
 		return fail(`%s expects a date such as "2024-01-31T12:00:00Z"`, name.text)
 	case "NumberInt", "Int32":
-		if n, ok := intArg(a.values, math.MinInt32, math.MaxInt32); ok {
-			return int32(n), nil
+		if n, ok := int32Arg(a.values); ok {
+			return n, nil
 		}
 		return fail("%s expects an integer of 32 bits", name.text)
 	case "NumberLong", "Long":
@@ -90,10 +90,10 @@ func (p *parser) helper(name token, isNew bool) (Value, error) {
 		return fail("UUID expects 32 hexadecimal digits")
 	case "BinData":
 		if len(a.values) == 2 {
-			sub, ok1 := intArg(a.values[:1], 0, 255)
+			sub, ok1 := byteArg(a.values[:1])
 			s, ok2 := a.values[1].(string)
 			if data, err := base64.StdEncoding.DecodeString(s); ok1 && ok2 && err == nil {
-				return bson.Binary{Subtype: byte(sub), Data: data}, nil
+				return bson.Binary{Subtype: sub, Data: data}, nil
 			}
 		}
 		return fail("BinData expects a subtype and a base64 string")
@@ -108,10 +108,10 @@ func (p *parser) helper(name token, isNew bool) (Value, error) {
 				}
 			}
 		case 2:
-			t, ok1 := intArg(a.values[:1], 0, math.MaxUint32)
-			i, ok2 := intArg(a.values[1:], 0, math.MaxUint32)
+			t, ok1 := uint32Arg(a.values[:1])
+			i, ok2 := uint32Arg(a.values[1:])
 			if ok1 && ok2 {
-				return bson.Timestamp{T: uint32(t), I: uint32(i)}, nil
+				return bson.Timestamp{T: t, I: i}, nil
 			}
 		}
 		return fail("Timestamp expects seconds and an increment")
@@ -156,6 +156,32 @@ func dateOf(v Value) (bson.DateTime, bool) {
 		}
 	}
 	return 0, false
+}
+
+// int32Arg, uint32Arg and byteArg are intArg narrowed to their type;
+// each checks its bounds where it converts.
+func int32Arg(args []Value) (int32, bool) {
+	n, ok := intArg(args, math.MinInt32, math.MaxInt32)
+	if !ok || n < math.MinInt32 || n > math.MaxInt32 {
+		return 0, false
+	}
+	return int32(n), true
+}
+
+func uint32Arg(args []Value) (uint32, bool) {
+	n, ok := intArg(args, 0, math.MaxUint32)
+	if !ok || n < 0 || n > math.MaxUint32 {
+		return 0, false
+	}
+	return uint32(n), true
+}
+
+func byteArg(args []Value) (byte, bool) {
+	n, ok := intArg(args, 0, math.MaxUint8)
+	if !ok || n < 0 || n > math.MaxUint8 {
+		return 0, false
+	}
+	return byte(n), true
 }
 
 // intArg is the one integer, or string of one, in args, within [lo, hi].
@@ -236,9 +262,9 @@ func timestampOf(d bson.D) (bson.Timestamp, bool) {
 	if len(d) != 2 || !okT || !okI {
 		return bson.Timestamp{}, false
 	}
-	tn, ok1 := intArg([]Value{t}, 0, math.MaxUint32)
-	in, ok2 := intArg([]Value{i}, 0, math.MaxUint32)
-	return bson.Timestamp{T: uint32(tn), I: uint32(in)}, ok1 && ok2
+	tn, ok1 := uint32Arg([]Value{t})
+	in, ok2 := uint32Arg([]Value{i})
+	return bson.Timestamp{T: tn, I: in}, ok1 && ok2
 }
 
 func field(d bson.D, key string) (Value, bool) {
@@ -281,8 +307,8 @@ func (p *parser) extendedJSON(open token, d bson.D) (Value, error) {
 		}
 		return fail("a date")
 	case "$numberInt":
-		if n, ok := intArg([]Value{v}, math.MinInt32, math.MaxInt32); ok {
-			return int32(n), nil
+		if n, ok := int32Arg([]Value{v}); ok {
+			return n, nil
 		}
 		return fail("an integer of 32 bits as a string")
 	case "$numberLong":
